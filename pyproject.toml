@@ -47,6 +47,9 @@ Documentation = "https://strandsagents.com"
 packages = ["src/strands"]
 
 [project.optional-dependencies]
+anthropic = [
+    "anthropic>=0.21.0,<1.0.0",
+]
 dev = [
     "commitizen>=4.4.0,<5.0.0",
     "hatch>=1.0.0,<2.0.0",
@@ -71,7 +74,7 @@ ollama = [
 ]
 
 [tool.hatch.envs.hatch-static-analysis]
-features = ["litellm", "ollama"]
+features = ["anthropic", "litellm", "ollama"]
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
   "ruff>=0.11.6,<0.12.0",
@@ -94,7 +97,7 @@ lint-fix = [
 ]
 
 [tool.hatch.envs.hatch-test]
-features = ["litellm", "ollama"]
+features = ["anthropic", "litellm", "ollama"]
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
