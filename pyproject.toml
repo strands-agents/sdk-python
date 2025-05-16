@@ -69,9 +69,12 @@ litellm = [
 ollama = [
     "ollama>=0.4.8,<1.0.0",
 ]
+llamaapi = [
+    "llama-api-client>=0.1.0,<1.0.0",
+]
 
 [tool.hatch.envs.hatch-static-analysis]
-features = ["litellm", "ollama"]
+features = ["litellm", "ollama", "llamaapi"]
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
   "ruff>=0.11.6,<0.12.0",
@@ -94,7 +97,7 @@ lint-fix = [
 ]
 
 [tool.hatch.envs.hatch-test]
-features = ["litellm", "ollama"]
+features = ["litellm", "ollama", "llamaapi"]
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",

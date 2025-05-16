@@ -99,6 +99,7 @@ Support for various model providers:
 from strands import Agent
 from strands.models import BedrockModel
 from strands.models.ollama import OllamaModel
+from strands.models.llamaapi import LlamaAPIModel
 
 # Bedrock
 bedrock_model = BedrockModel(
@@ -115,6 +116,13 @@ ollama_modal = OllamaModel(
 )
 agent = Agent(model=ollama_modal)
 agent("Tell me about Agentic AI")
+
+# Llama API
+llama_model = LlamaAPIModel(
+    model_id="Llama-4-Maverick-17B-128E-Instruct-FP8",
+)
+agent = Agent(model=llama_model)
+response = agent("Tell me about Agentic AI")
 ```
 
 Built-in providers:
