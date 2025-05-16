@@ -110,9 +110,10 @@ class BedrockModel(Model):
         session = boto_session or boto3.Session(
             region_name=region_name or "us-west-2",
         )
+        client_config = boto_client_config or BotocoreConfig(user_agent_extra="strands-agents")
         self.client = session.client(
             service_name="bedrock-runtime",
-            config=boto_client_config,
+            config=client_config,
         )
 
     @override
