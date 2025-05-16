@@ -1,0 +1,36 @@
+repos:
+  - repo: local
+    hooks:
+      - id: hatch-format
+        name: Format code
+        entry: hatch fmt --formatter
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-commit]
+      - id: hatch-lint
+        name: Lint code
+        entry: hatch run test-lint
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-commit]
+      - id: hatch-test-lint
+        name: Type linting
+        entry: hatch run test-lint
+        language: system
+        pass_filenames: false
+        types: [ python ]
+        stages: [ pre-commit ]
+      - id: hatch-test
+        name: Unit tests
+        entry: hatch test
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-commit]
+      - id: commitizen-check
+        name: Check commit message
+        entry: hatch run cz check --commit-msg-file
+        language: system
+        stages: [commit-msg]

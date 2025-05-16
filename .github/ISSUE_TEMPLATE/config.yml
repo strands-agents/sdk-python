@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Strands Agents SDK Support
+    url: https://github.com/strands-agents/sdk-python/discussions
+    about: Please ask and answer questions here
+  - name: Strands Agents SDK Documentation
+    url: https://github.com/strands-agents/docs
+    about: Visit our documentation for help
