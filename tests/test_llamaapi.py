@@ -4,14 +4,12 @@ import unittest.mock
 import pytest
 
 import strands
-from strands.sdk.models.llamaapi import LlamaAPIModel
+from strands.models.llamaapi import LlamaAPIModel
 
 
 @pytest.fixture
 def llamaapi_client():
-    with unittest.mock.patch.object(
-        strands.sdk.models.llamaapi, "LlamaAPIClient"
-    ) as mock_client_cls:
+    with unittest.mock.patch.object(strands.models.llamaapi, "LlamaAPIClient") as mock_client_cls:
         yield mock_client_cls.return_value
 
 
@@ -261,11 +259,7 @@ def test_format_chunk_content_start_tool(model):
     event = {"chunk_type": "content_start", "data_type": "tool", "data": mock_tool_use}
 
     tru_chunk = model.format_chunk(event)
-    exp_chunk = {
-        "contentBlockStart": {
-            "start": {"toolUse": {"name": "calculator", "toolUseId": "c1"}}
-        }
-    }
+    exp_chunk = {"contentBlockStart": {"start": {"toolUse": {"name": "calculator", "toolUseId": "c1"}}}}
 
     assert tru_chunk == exp_chunk
 
@@ -283,15 +277,11 @@ def test_format_chunk_content_delta_tool(model):
     event = {
         "chunk_type": "content_delta",
         "data_type": "tool",
-        "data": unittest.mock.Mock(
-            function=unittest.mock.Mock(arguments='{"expression": "2+2"}')
-        ),
+        "data": unittest.mock.Mock(function=unittest.mock.Mock(arguments='{"expression": "2+2"}')),
     }
 
     tru_chunk = model.format_chunk(event)
-    exp_chunk = {
-        "contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}}
-    }
+    exp_chunk = {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}}}
 
     assert tru_chunk == exp_chunk
 

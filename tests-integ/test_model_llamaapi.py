@@ -4,7 +4,7 @@ import pytest
 
 import strands
 from strands import Agent
-from strands.sdk.models.llamaapi import LlamaAPIModel
+from strands.models.llamaapi import LlamaAPIModel
 
 
 @pytest.fixture
