@@ -16,7 +16,7 @@ from typing_extensions import TypedDict, Unpack, override
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
 from ..types.models import Model
-from ..types.streaming import StreamEvent
+from ..types.streaming import StreamEvent, Usage
 from ..types.tools import ToolResult, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
@@ -38,11 +38,11 @@ class LlamaAPIModel(Model):
         """
 
         model_id: str
-        repetition_penalty: float | None = None
-        temperature: float | None = None
-        top_p: float | None = None
-        max_completion_tokens: int | None = None
-        top_k: int | None = None
+        repetition_penalty: Optional[float]
+        temperature: Optional[float]
+        top_p: Optional[float]
+        max_completion_tokens: Optional[int]
+        top_k: Optional[int]
 
     def __init__(
         self,
@@ -169,12 +169,15 @@ class LlamaAPIModel(Model):
                 if "toolResult" in content
             ]
 
+            new_formatted_contents: list[dict[str, Any]] | dict[str, Any] | str = ""
             if message["role"] == "assistant":
-                formatted_contents = formatted_contents[0] if len(formatted_contents) > 0 else ""
+                new_formatted_contents = formatted_contents[0] if formatted_contents else ""
+            else:
+                new_formatted_contents = formatted_contents
 
             formatted_message = {
                 "role": message["role"],
-                "content": formatted_contents if len(formatted_contents) > 0 else "",
+                "content": new_formatted_contents if len(new_formatted_contents) > 0 else "",
                 **({"tool_calls": formatted_tool_calls} if formatted_tool_calls else {}),
             }
             formatted_messages.append(formatted_message)
@@ -282,9 +285,14 @@ class LlamaAPIModel(Model):
                     elif metrics.metric == "num_total_tokens":
                         usage["totalTokens"] = metrics.value
 
+                usage_type = Usage(
+                    inputTokens=usage["inputTokens"],
+                    outputTokens=usage["outputTokens"],
+                    totalTokens=usage["totalTokens"],
+                )
                 return {
                     "metadata": {
-                        "usage": usage,
+                        "usage": usage_type,
                         "metrics": {
                             "latencyMs": 0,  # TODO
                         },
@@ -315,7 +323,7 @@ class LlamaAPIModel(Model):
         yield {"chunk_type": "message_start"}
 
         stop_reason = None
-        tool_calls: dict[int, list[Any]] = {}
+        tool_calls: dict[Any, list[Any]] = {}
         curr_tool_call_id = None
 
         metrics_event = None
@@ -328,7 +336,10 @@ class LlamaAPIModel(Model):
                 if chunk.event.delta.type == "tool_call":
                     if chunk.event.delta.id:
                         curr_tool_call_id = chunk.event.delta.id
-                    tool_calls.setdefault(curr_tool_call_id, []).append(chunk.event.delta)
+
+                    if curr_tool_call_id not in tool_calls:
+                        tool_calls[curr_tool_call_id] = []
+                    tool_calls[curr_tool_call_id].append(chunk.event.delta)
                 elif chunk.event.event_type == "metrics":
                     metrics_event = chunk.event.metrics
                 else:
