@@ -1,0 +1,97 @@
+name: Bug Report
+description: Report a bug in the Strands Agents SDK
+title: "[BUG] "
+labels: ["bug", "triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report for Strands SDK!
+  - type: checkboxes
+    id: "checks"
+    attributes:
+      label: "Checks"
+      options:
+        - label: "I have updated to the lastest minor and patch version of Strands"
+          required: true
+        - label: "I have checked the documentation and this is not expected behavior"
+          required: true
+        - label: "I have searched [./issues](./issues?q=) and there are no duplicates of my issue"
+          required: true
+  - type: input
+    id: strands-version
+    attributes:
+      label: Strands Version
+      description: Which version of Strands are you using?
+      placeholder: e.g., 0.5.2
+    validations:
+      required: true
+  - type: input
+    id: python-version
+    attributes:
+      label: Python Version
+      description: Which version of Python are you using?
+      placeholder: e.g., 3.10.5
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      description: Which operating system are you using?
+      placeholder: e.g., macOS 12.6
+    validations:
+      required: true
+  - type: dropdown
+    id: installation-method
+    attributes:
+      label: Installation Method
+      description: How did you install Strands?
+      options:
+        - pip
+        - git clone
+        - binary
+        - other
+    validations:
+      required: true
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Detailed steps to reproduce the behavior
+      placeholder: |
+        1. Install Strands using...
+        2. Run the command...
+        3. See error...
+    validations:
+      required: true
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: A clear description of what you expected to happen
+    validations:
+      required: true
+  - type: textarea
+    id: actual-behavior
+    attributes:
+      label: Actual Behavior
+      description: What actually happened
+    validations:
+      required: true
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional Context
+      description: Any other relevant information, logs, screenshots, etc.
+  - type: textarea
+    id: possible-solution
+    attributes:
+      label: Possible Solution
+      description: Optional - If you have suggestions on how to fix the bug
+  - type: input
+    id: related-issues
+    attributes:
+      label: Related Issues
+      description: Optional - Link to related issues if applicable
