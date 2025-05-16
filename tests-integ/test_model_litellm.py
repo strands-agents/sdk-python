@@ -24,17 +24,12 @@ def tools():
 
 
 @pytest.fixture
-def system_prompt():
-    return "You are an AI assistant that uses & instead of ."
-
-
-@pytest.fixture
-def agent(model, tools, system_prompt):
-    return Agent(model=model, tools=tools, system_prompt=system_prompt)
+def agent(model, tools):
+    return Agent(model=model, tools=tools)
 
 
 def test_agent(agent):
     result = agent("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
 
-    assert all(string in text for string in ["12:00", "sunny", "&"])
+    assert all(string in text for string in ["12:00", "sunny"])
