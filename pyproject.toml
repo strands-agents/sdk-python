@@ -1,0 +1,232 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "strands-agents"
+version = "0.1.0"
+description = "A production-ready framework for building autonomous AI agents"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "AWS", email = "opensource@amazon.com"},
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "boto3>=1.26.0,<2.0.0",
+    "botocore>=1.29.0,<2.0.0",
+    "docstring_parser>=0.15,<0.16.0",
+    "mcp>=1.8.0,<2.0.0",
+    "pydantic>=2.0.0,<3.0.0",
+    "typing-extensions>=4.13.2,<5.0.0",
+    "watchdog>=6.0.0,<7.0.0",
+    "opentelemetry-api>=1.33.0,<2.0.0",
+    "opentelemetry-sdk>=1.33.0,<2.0.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.33.0,<2.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/strands-agents/sdk-python"
+"Bug Tracker" = "https://github.com/strands-agents/sdk-python/issues"
+Documentation = "https://strandsagents.com"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/strands"]
+
+[project.optional-dependencies]
+dev = [
+    "commitizen>=4.4.0,<5.0.0",
+    "hatch>=1.0.0,<2.0.0",
+    "moto>=5.1.0,<6.0.0",
+    "mypy>=0.981,<1.0.0",
+    "pre-commit>=3.2.0,<4.2.0",
+    "pytest>=8.0.0,<9.0.0",
+    "pytest-asyncio>=0.26.0,<0.27.0",
+    "ruff>=0.4.4,<0.5.0",
+    "swagger-parser>=1.0.2,<2.0.0",
+]
+docs = [
+    "sphinx>=5.0.0,<6.0.0",
+    "sphinx-rtd-theme>=1.0.0,<2.0.0",
+    "sphinx-autodoc-typehints>=1.12.0,<2.0.0",
+]
+litellm = [
+    "litellm>=1.69.0,<2.0.0",
+]
+ollama = [
+    "ollama>=0.4.8,<1.0.0",
+]
+
+[tool.hatch.envs.hatch-static-analysis]
+features = ["litellm", "ollama"]
+dependencies = [
+  "mypy>=1.15.0,<2.0.0",
+  "ruff>=0.11.6,<0.12.0",
+  "strands-agents @ {root:uri}"
+]
+
+[tool.hatch.envs.hatch-static-analysis.scripts]
+format-check = [
+    "ruff format --check"
+]
+format-fix = [
+    "ruff format"
+]
+lint-check = [
+    "ruff check",
+    "mypy -p src"
+]
+lint-fix = [
+    "ruff check --fix"
+]
+
+[tool.hatch.envs.hatch-test]
+features = ["litellm", "ollama"]
+extra-dependencies = [
+    "moto>=5.1.0,<6.0.0",
+    "pytest>=8.0.0,<9.0.0",
+    "pytest-asyncio>=0.26.0,<0.27.0",
+    "pytest-cov>=4.1.0,<5.0.0",
+    "pytest-xdist>=3.0.0,<4.0.0",
+]
+extra-args = [
+    "-n",
+    "auto",
+    "-vv",
+]
+
+
+[[tool.hatch.envs.hatch-test.matrix]]
+python = ["3.13", "3.12", "3.11", "3.10"]
+
+
+[tool.hatch.envs.hatch-test.scripts]
+run = [
+    "pytest{env:HATCH_TEST_ARGS:} {args}"
+]
+run-cov = [
+    "pytest{env:HATCH_TEST_ARGS:} --cov --cov-config=pyproject.toml {args}"
+]
+
+cov-combine = []
+cov-report = []
+
+
+[tool.hatch.envs.default.scripts]
+list = [
+    "echo 'Scripts commands available for default env:'; hatch env show --json | jq --raw-output '.default.scripts | keys[]'"
+]
+format = [
+  "hatch fmt --formatter",
+]
+test-format = [
+    "hatch fmt --formatter --check",
+]
+lint = [
+    "hatch fmt --linter"
+]
+test-lint = [
+    "hatch fmt --linter --check"
+]
+test = [
+    "hatch test --cover --cov-report html --cov-report xml {args}"
+]
+test-integ = [
+    "hatch test tests-integ {args}"
+]
+
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+follow_untyped_imports = true
+ignore_missing_imports = false
+
+[[tool.mypy.overrides]]
+module = "litellm"
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 120
+include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests-integ/**/*.py"]
+
+[tool.ruff.lint]
+select = [
+  "B", # flake8-bugbear
+  "D", # pydocstyle
+  "E", # pycodestyle
+  "F", # pyflakes
+  "I", # isort
+]
+
+[tool.ruff.lint.per-file-ignores]
+"!src/**/*.py" = ["D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests"
+]
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.coverage.run]
+branch = true
+source = ["src"]
+context = "thread"
+parallel = true
+concurrency = ["thread", "multiprocessing"]
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.coverage.html]
+directory = "build/coverage/html"
+
+[tool.coverage.xml]
+output = "build/coverage/coverage.xml"
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "v$version"
+bump_message = "chore(release): bump version $current_version -> $new_version"
+version_files = [
+    "pyproject.toml:version",
+]
+update_changelog_on_bump = true
+style = [
+    ["qmark", "fg:#ff9d00 bold"],
+    ["question", "bold"],
+    ["answer", "fg:#ff9d00 bold"],
+    ["pointer", "fg:#ff9d00 bold"],
+    ["highlighted", "fg:#ff9d00 bold"],
+    ["selected", "fg:#cc5454"],
+    ["separator", "fg:#cc5454"],
+    ["instruction", ""],
+    ["text", ""],
+    ["disabled", "fg:#858585 italic"]
+]
