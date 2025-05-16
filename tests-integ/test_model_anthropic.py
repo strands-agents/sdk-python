@@ -1,7 +1,8 @@
 import os
 
-import strands
 import pytest
+
+import strands
 from strands import Agent
 from strands.models.anthropic import AnthropicModel
 
