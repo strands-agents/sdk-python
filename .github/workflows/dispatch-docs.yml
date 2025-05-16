@@ -12,5 +12,3 @@ jobs:
     steps:
       - name: Dispatch
         run: gh api repos/${{ github.repository_owner }}/docs/dispatches -F event_type=sdk-push
-        env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
