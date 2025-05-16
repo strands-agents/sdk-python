@@ -64,7 +64,7 @@ from strands import Agent, tool
 @tool
 def word_count(text: str) -> int:
     """Count words in text.
-    
+
     This docstring is used by the LLM to understand the tool's purpose.
     """
     return len(text.split())
@@ -98,6 +98,7 @@ Support for various model providers:
 ```python
 from strands import Agent
 from strands.models import BedrockModel
+from strands.models.llamaapi import LlamaAPIModel
 
 # Bedrock
 bedrock_model = BedrockModel(
@@ -114,6 +115,13 @@ ollama_modal = OllamaModel(
 )
 agent = Agent(model=ollama_modal)
 agent("Tell me about Agentic AI")
+
+# Llama API
+llama_model = LlamaAPIModel(
+    model_id="Llama-4-Maverick-17B-128E-Instruct-FP8",
+)
+agent = Agent(model=llama_model)
+response = agent("Tell me about Agentic AI")
 ```
 
 Built-in providers:
