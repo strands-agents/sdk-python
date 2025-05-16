@@ -369,7 +369,7 @@ def test_end_agent_span(mock_span):
 
     tracer.end_agent_span(mock_span, mock_response)
 
-    mock_span.set_attribute.assert_any_call("gen_ai.completion", "Agent response")
+    mock_span.set_attribute.assert_any_call("gen_ai.completion", '"<replaced>"')
     mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 50)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 100)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 150)
