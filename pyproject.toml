@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "strands-agents"
 version = "0.1.0"
-description = "A production-ready framework for building autonomous AI agents"
+description = "A model-driven approach to building AI agents in just a few lines of code"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
