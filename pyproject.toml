@@ -61,7 +61,7 @@ dev = [
 docs = [
     "sphinx>=5.0.0,<6.0.0",
     "sphinx-rtd-theme>=1.0.0,<2.0.0",
-    "sphinx-autodoc-typehints>=1.12.0,<2.0.0",
+    "sphinx-autodoc-typehints>=1.12.0,<4.0.0",
 ]
 litellm = [
     "litellm>=1.69.0,<2.0.0",
