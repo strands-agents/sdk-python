@@ -153,6 +153,7 @@ class LlamaAPIModel(Model):
         for message in messages:
             contents = message["content"]
 
+            formatted_contents: list[dict[str, Any]] | dict[str, Any] | str = ""
             formatted_contents = [
                 self._format_request_message_content(content)
                 for content in contents
@@ -169,15 +170,12 @@ class LlamaAPIModel(Model):
                 if "toolResult" in content
             ]
 
-            new_formatted_contents: list[dict[str, Any]] | dict[str, Any] | str = ""
             if message["role"] == "assistant":
-                new_formatted_contents = formatted_contents[0] if formatted_contents else ""
-            else:
-                new_formatted_contents = formatted_contents
+                formatted_contents = formatted_contents[0] if formatted_contents else ""
 
             formatted_message = {
                 "role": message["role"],
-                "content": new_formatted_contents if len(new_formatted_contents) > 0 else "",
+                "content": formatted_contents if len(formatted_contents) > 0 else "",
                 **({"tool_calls": formatted_tool_calls} if formatted_tool_calls else {}),
             }
             formatted_messages.append(formatted_message)
