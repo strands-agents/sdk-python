@@ -152,7 +152,7 @@ agent = Agent(tools=[calculator])
 agent("What is the square root of 1764")
 ```
 
-It's also available on GitHub via [strands-agents-tools](https://github.com/strands-agents/strands-agents-tools).
+It's also available on GitHub via [strands-agents/tools](https://github.com/strands-agents/tools).
 
 ## Documentation
 
