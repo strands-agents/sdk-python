@@ -107,6 +107,7 @@ from strands import Agent
 from strands.models import BedrockModel
 from strands.models.ollama import OllamaModel
 from strands.models.llamaapi import LlamaAPIModel
+from strands.models.sagemaker import SageMakerAIModel
 
 # Bedrock
 bedrock_model = BedrockModel(
@@ -130,6 +131,15 @@ llama_model = LlamaAPIModel(
 )
 agent = Agent(model=llama_model)
 response = agent("Tell me about Agentic AI")
+
+# SageMaker AI Endpoint
+sagemaker_model = SageMakerAIModel(
+    endpoint_name="YOUR-ENDPOINT-NAME-HERE",
+    inference_component_name="YOUR-INFERENCE-COMPONENT-NAME-HERE" or None, # Optional - depends on Inference endpoint configuration
+    max_tokens=1024*5
+)
+agent = Agent(model=sagemaker_model)
+response = agent("Tell me about Agentic AI")
 ```
 
 Built-in providers:
@@ -138,6 +148,7 @@ Built-in providers:
  - [LiteLLM](https://strandsagents.com/latest/user-guide/concepts/model-providers/litellm/)
  - [LlamaAPI](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamaapi/)
  - [Ollama](https://strandsagents.com/latest/user-guide/concepts/model-providers/ollama/)
+ - SageMaker AI (documentation coming soon)
 
 Custom providers can be implemented using [Custom Providers](https://strandsagents.com/latest/user-guide/concepts/model-providers/custom_model_provider/)
 
