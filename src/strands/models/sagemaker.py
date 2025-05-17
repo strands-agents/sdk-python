@@ -135,7 +135,11 @@ class SageMakerAIModel(Model):
                 return {"role": message["role"], "content": content["text"]}
 
             if "image" in content:
-                return {"role": message["role"], "images": [content["image"]["source"]["bytes"]]}
+                # Convert bytes to base64 string for JSON serialization
+                image_bytes = content["image"]["source"]["bytes"]
+                if isinstance(image_bytes, bytes):
+                    image_bytes = image_bytes.decode('utf-8') if isinstance(image_bytes, bytes) else image_bytes
+                return {"role": message["role"], "images": [image_bytes]}
 
             if "toolUse" in content:
                 return {
@@ -162,7 +166,11 @@ class SageMakerAIModel(Model):
                         result_content = toolResultContent["json"]
                     elif "image" in toolResultContent:
                         result_content = "see images"
-                        result_images.append(toolResultContent["image"]["source"]["bytes"])
+                        # Convert bytes to base64 string for JSON serialization
+                        image_bytes = toolResultContent["image"]["source"]["bytes"]
+                        if isinstance(image_bytes, bytes):
+                            image_bytes = image_bytes.decode('utf-8')
+                        result_images.append(image_bytes)
                     else:
                         result_content = content["toolResult"]["content"]
                 

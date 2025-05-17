@@ -426,12 +426,13 @@ def test_stream(sagemaker_client, model, messages):
     chunks = list(model.stream(request))
     
     # Verify the expected chunks
-    assert len(chunks) == 5
+    assert len(chunks) == 6
     assert chunks[0] == {"chunk_type": "message_start"}
     assert chunks[1] == {"chunk_type": "content_start", "data_type": "text"}
     assert chunks[2] == {"chunk_type": "content_delta", "data_type": "text", "data": "Hello"}
     assert chunks[3] == {"chunk_type": "content_stop", "data_type": "text"}
     assert chunks[4] == {"chunk_type": "message_stop", "data": "stop"}
+    assert chunks[5] == {"chunk_type": "metadata", "data": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30}}
     
     # Verify the SageMaker client was called correctly
     sagemaker_client.invoke_endpoint_with_response_stream.assert_called_once_with(**request)
