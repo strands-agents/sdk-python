@@ -7,7 +7,7 @@ enabling trace data to be sent to OTLP endpoints.
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from importlib.metadata import version
 from typing import Any, Dict, Mapping, Optional
 
@@ -30,21 +30,49 @@ logger = logging.getLogger(__name__)
 class JSONEncoder(json.JSONEncoder):
     """Custom JSON encoder that handles non-serializable types."""
 
-    def default(self, obj: Any) -> Any:
-        """Handle non-serializable types.
+    def encode(self, obj: Any) -> str:
+        """Recursively encode objects, preserving structure and only replacing unserializable values.
 
         Args:
-            obj: The object to serialize
+            obj: The object to encode
 
         Returns:
-            A JSON serializable version of the object
+            JSON string representation of the object
         """
-        value = ""
-        try:
-            value = super().default(obj)
-        except TypeError:
-            value = "<replaced>"
-        return value
+        # Process the object to handle non-serializable values
+        processed_obj = self._process_value(obj)
+        # Use the parent class to encode the processed object
+        return super().encode(processed_obj)
+
+    def _process_value(self, value: Any) -> Any:
+        """Process any value, handling containers recursively.
+
+        Args:
+            value: The value to process
+
+        Returns:
+            Processed value with unserializable parts replaced
+        """
+        # Handle datetime objects directly
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+
+        # Handle dictionaries
+        elif isinstance(value, dict):
+            return {k: self._process_value(v) for k, v in value.items()}
+
+        # Handle lists
+        elif isinstance(value, list):
+            return [self._process_value(item) for item in value]
+
+        # Handle all other values
+        else:
+            try:
+                # Test if the value is JSON serializable
+                json.dumps(value)
+                return value
+            except (TypeError, OverflowError, ValueError):
+                return "<replaced>"
 
 
 class Tracer:
@@ -332,6 +360,7 @@ class Tracer:
             The created span, or None if tracing is not enabled.
         """
         attributes: Dict[str, AttributeValue] = {
+            "gen_ai.prompt": json.dumps(tool, cls=JSONEncoder),
             "tool.name": tool["name"],
             "tool.id": tool["toolUseId"],
             "tool.parameters": json.dumps(tool["input"], cls=JSONEncoder),
@@ -358,10 +387,11 @@ class Tracer:
             status = tool_result.get("status")
             status_str = str(status) if status is not None else ""
 
+            tool_result_content_json = json.dumps(tool_result.get("content"), cls=JSONEncoder)
             attributes.update(
                 {
-                    "tool.result": json.dumps(tool_result.get("content"), cls=JSONEncoder),
-                    "gen_ai.completion": json.dumps(tool_result.get("content"), cls=JSONEncoder),
+                    "tool.result": tool_result_content_json,
+                    "gen_ai.completion": tool_result_content_json,
                     "tool.status": status_str,
                 }
             )
@@ -492,7 +522,7 @@ class Tracer:
         if response:
             attributes.update(
                 {
-                    "gen_ai.completion": json.dumps(response, cls=JSONEncoder),
+                    "gen_ai.completion": str(response),
                 }
             )
 
