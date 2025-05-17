@@ -610,12 +610,8 @@ def test_json_encoder_dict():
         ],
     }
 
-    # Encode and decode
     result = json.loads(encoder.encode(data))
 
-    # Check specific parts of the result
-    assert "metadata" in result
-    assert "timestamp" in result["metadata"]
     assert result == expected
 
 
