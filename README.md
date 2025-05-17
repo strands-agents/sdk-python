@@ -107,6 +107,7 @@ from strands import Agent
 from strands.models import BedrockModel
 from strands.models.ollama import OllamaModel
 from strands.models.llamaapi import LlamaAPIModel
+from strands.models.gemini import GeminiModel
 
 # Bedrock
 bedrock_model = BedrockModel(
@@ -130,11 +131,21 @@ llama_model = LlamaAPIModel(
 )
 agent = Agent(model=llama_model)
 response = agent("Tell me about Agentic AI")
+
+# Gemini
+gemini_model = GeminiModel(
+    model_id="gemini-pro",
+    max_tokens=1024,
+    params={"temperature": 0.7}
+)
+agent = Agent(model=gemini_model)
+response = agent("Tell me about Agentic AI")
 ```
 
 Built-in providers:
  - [Amazon Bedrock](https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/)
  - [Anthropic](https://strandsagents.com/latest/user-guide/concepts/model-providers/anthropic/)
+ - [Gemini](https://strandsagents.com/latest/user-guide/concepts/model-providers/gemini/)
  - [LiteLLM](https://strandsagents.com/latest/user-guide/concepts/model-providers/litellm/)
  - [LlamaAPI](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamaapi/)
  - [Ollama](https://strandsagents.com/latest/user-guide/concepts/model-providers/ollama/)
