@@ -4,6 +4,7 @@
 """
 
 import logging
+import os
 from typing import Any, Iterable, Literal, Optional, cast
 
 import boto3
@@ -96,7 +97,8 @@ class BedrockModel(Model):
         Args:
             boto_session: Boto Session to use when calling the Bedrock Model.
             boto_client_config: Configuration to use when creating the Bedrock-Runtime Boto Client.
-            region_name: AWS region to use for the Bedrock service. Defaults to "us-west-2".
+            region_name: AWS region to use for the Bedrock service.
+                Defaults to the AWS_REGION environment variable if set, or "us-west-2" if not set.
             **model_config: Configuration options for the Bedrock model.
         """
         if region_name and boto_session:
@@ -108,7 +110,7 @@ class BedrockModel(Model):
         logger.debug("config=<%s> | initializing", self.config)
 
         session = boto_session or boto3.Session(
-            region_name=region_name or "us-west-2",
+            region_name=region_name or os.getenv("AWS_REGION") or "us-west-2",
         )
         client_config = boto_client_config or BotocoreConfig(user_agent_extra="strands-agents")
         self.client = session.client(
