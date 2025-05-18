@@ -1,3 +1,4 @@
+import os
 import unittest.mock
 
 import boto3
@@ -97,6 +98,16 @@ def test__init__with_custom_region(bedrock_client):
     with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
         _ = BedrockModel(region_name=custom_region)
         mock_session_cls.assert_called_once_with(region_name=custom_region)
+
+
+def test__init__with_environment_variable_region(bedrock_client):
+    """Test that BedrockModel uses the provided region."""
+    _ = bedrock_client
+    os.environ["AWS_REGION"] = "eu-west-1"
+
+    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
+        _ = BedrockModel()
+        mock_session_cls.assert_called_once_with(region_name="eu-west-1")
 
 
 def test__init__with_region_and_session_raises_value_error():
