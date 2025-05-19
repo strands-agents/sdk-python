@@ -185,7 +185,9 @@ select = [
   "D", # pydocstyle
   "E", # pycodestyle
   "F", # pyflakes
+  "G", # logging format
   "I", # isort
+  "LOG", # logging
 ]
 
 [tool.ruff.lint.per-file-ignores]
