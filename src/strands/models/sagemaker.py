@@ -1,6 +1,6 @@
-"""Ollama model provider.
+"""SageMaker AI model provider.
 
-- Docs: https://ollama.com/
+- Docs: https://aws.amazon.com/sagemaker-ai/
 """
 
 import json
@@ -99,7 +99,7 @@ class SageMakerAIModel(Model):
 
     @override
     def update_config(self, **model_config: Unpack[ModelConfig]) -> None:  # type: ignore
-        """Update the Ollama Model configuration with the provided arguments.
+        """Update the SageMaker AI Model configuration with the provided arguments.
 
         Args:
             **model_config: Configuration overrides.
@@ -108,7 +108,7 @@ class SageMakerAIModel(Model):
 
     @override
     def get_config(self) -> ModelConfig:
-        """Get the Ollama Model configuration.
+        """Get the SageMaker AI Model configuration.
 
         Returns:
             The Bedrok model configuration.
@@ -119,7 +119,7 @@ class SageMakerAIModel(Model):
     def format_request(
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
     ) -> dict[str, Any]:
-        """Format an Ollama chat streaming request.
+        """Format an SageMaker AI chat streaming request.
 
         Args:
             messages: List of message objects to be processed by the model.
@@ -127,7 +127,7 @@ class SageMakerAIModel(Model):
             system_prompt: System prompt to provide context to the model.
 
         Returns:
-            An Ollama chat streaming request.
+            An SageMaker AI chat streaming request.
         """
 
         def format_message(message: Message, content: ContentBlock) -> dict[str, Any]:
@@ -250,10 +250,10 @@ class SageMakerAIModel(Model):
 
     @override
     def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
-        """Format the Ollama response events into standardized message chunks.
+        """Format the SageMaker AI response events into standardized message chunks.
 
         Args:
-            event: A response event from the Ollama model.
+            event: A response event from the SageMaker AI model.
 
         Returns:
             The formatted chunk.
@@ -310,15 +310,15 @@ class SageMakerAIModel(Model):
 
     @override
     def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
-        """Send the request to the Ollama model and get the streaming response.
+        """Send the request to the SageMaker AI model and get the streaming response.
 
-        This method calls the Ollama chat API and returns the stream of response events.
+        This method calls the SageMaker AI chat API and returns the stream of response events.
 
         Args:
-            request: The formatted request to send to the Ollama model.
+            request: The formatted request to send to the SageMaker AI model.
 
         Returns:
-            An iterable of response events from the Ollama model.
+            An iterable of response events from the SageMaker AI model.
         """
         response = self.client.invoke_endpoint_with_response_stream(**request)
 
