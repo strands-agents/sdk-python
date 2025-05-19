@@ -107,6 +107,7 @@ from strands import Agent
 from strands.models import BedrockModel
 from strands.models.ollama import OllamaModel
 from strands.models.llamaapi import LlamaAPIModel
+from strands.models.vllm import VLLMModel
 
 # Bedrock
 bedrock_model = BedrockModel(
@@ -130,6 +131,14 @@ llama_model = LlamaAPIModel(
 )
 agent = Agent(model=llama_model)
 response = agent("Tell me about Agentic AI")
+
+# vLLM
+vllm_modal = VLLMModel(
+  host="http://localhost:8000",
+  model_id="meta-llama/Llama-3.2-3B"
+)
+agent_vllm = Agent(model=vllm_modal)
+agent_vllm("Tell me about Agentic AI")
 ```
 
 Built-in providers:
