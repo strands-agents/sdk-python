@@ -76,7 +76,7 @@ llamaapi = [
     "llama-api-client>=0.1.0,<1.0.0",
 ]
 vllm = [
-    "vllm>=0.85",
+    "vllm>=0.8.5",
 ]
 
 [tool.hatch.envs.hatch-static-analysis]
