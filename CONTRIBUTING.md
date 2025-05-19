@@ -31,10 +31,16 @@ This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as 
 
 ### Setting Up Your Development Environment
 
-1. Install development dependencies:
+1. Entering virtual environment using `hatch` (recommended), then launch your IDE in the new shell.
+   ```bash
+   hatch shell dev
+   ```
+
+   Alternatively, install development dependencies in a manually created virtual environment:
    ```bash
    pip install -e ".[dev]" && pip install -e ".[litellm]
    ```
+
 
 2. Set up pre-commit hooks:
    ```bash

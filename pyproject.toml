@@ -114,6 +114,11 @@ extra-args = [
     "-vv",
 ]
 
+[tool.hatch.envs.dev]
+dev-mode = true
+features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama"]
+
+
 
 [[tool.hatch.envs.hatch-test.matrix]]
 python = ["3.13", "3.12", "3.11", "3.10"]
