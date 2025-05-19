@@ -1,0 +1,42 @@
+name: Verify Docs Compatibility
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+ 
+jobs:
+  test-dependency:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+ 
+    steps:
+      - name: Checkout sdk-python
+        uses: actions/checkout@v4
+        with:
+          path: sdk-python
+      - name: Checkout Tools Repository
+        uses: actions/checkout@v4
+        with:
+          repository: strands-agents/docs
+          path: docs
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Patch tools dependency sdk-python and test
+        run: |
+          cd docs
+          sed -i "s|.*strands-agents.*|strands-agents @ file://${GITHUB_WORKSPACE}/sdk-python|" requirements.txt
+          count=$(grep -c "strands-agents @ file://${GITHUB_WORKSPACE}/sdk-python" requirements.txt)
+          if [ "$count" -eq 1 ]; then
+            echo "Dependency found exactly once in requirements.txt"
+          else
+            echo "Dependency found $count times, expected 1"
+            exit 1
+          fi
+          pip install -r requirements.txt
+          mkdocs build --strict
