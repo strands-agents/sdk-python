@@ -1,8 +1,3 @@
-"""vLLM model provider.
-
-- Docs: https://github.com/vllm-project/vllm
-"""
-
 import json
 import logging
 from typing import Any, Iterable, Optional
@@ -19,29 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class VLLMModel(Model):
-    """vLLM model provider implementation.
-
-    Assumes OpenAI-compatible vLLM server at `http://<host>/v1/completions`.
-
-    The implementation handles vLLM-specific features such as:
-
-    - Local model invocation
-    - Streaming responses
-    - Tool/function calling
-    """
-
     class VLLMConfig(TypedDict, total=False):
-        """Configuration parameters for vLLM models.
-
-        Attributes:
-            additional_args: Any additional arguments to include in the request.
-            max_tokens: Maximum number of tokens to generate in the response.
-            model_id: vLLM model ID (e.g., "meta-llama/Llama-3.2-3B,microsoft/Phi-3-mini-128k-instruct").
-            options: Additional model parameters (e.g., top_k).
-            temperature: Controls randomness in generation (higher = more random).
-            top_p: Controls diversity via nucleus sampling (alternative to temperature).
-        """
-
         model_id: str
         temperature: Optional[float]
         top_p: Optional[float]
@@ -50,32 +23,16 @@ class VLLMModel(Model):
         additional_args: Optional[dict[str, Any]]
 
     def __init__(self, host: str, **model_config: Unpack[VLLMConfig]) -> None:
-        """Initialize provider instance.
-
-        Args:
-            host: The address of the vLLM server hosting the model.
-            **model_config: Configuration options for the vLLM model.
-        """
         self.config = VLLMModel.VLLMConfig(**model_config)
         self.host = host.rstrip("/")
-        logger.debug("Initializing vLLM provider with config: %s", self.config)
+        logger.debug("----Initializing vLLM provider with config: %s", self.config)
 
     @override
     def update_config(self, **model_config: Unpack[VLLMConfig]) -> None:
-        """Update the vLLM Model configuration with the provided arguments.
-
-        Args:
-            **model_config: Configuration overrides.
-        """
         self.config.update(model_config)
 
     @override
     def get_config(self) -> VLLMConfig:
-        """Get the vLLM model configuration.
-
-        Returns:
-            The vLLM model configuration.
-        """
         return self.config
 
     @override
@@ -85,56 +42,86 @@ class VLLMModel(Model):
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
     ) -> dict[str, Any]:
-        """Format an vLLM chat streaming request.
+        def format_message(message: dict[str, Any], content: dict[str, Any]) -> dict[str, Any]:
+            if "text" in content:
+                return {"role": message["role"], "content": content["text"]}
+            if "toolUse" in content:
+                return {
+                    "role": "assistant",
+                    "tool_calls": [
+                        {
+                            "id": content["toolUse"]["toolUseId"],
+                            "type": "function",
+                            "function": {
+                                "name": content["toolUse"]["name"],
+                                "arguments": json.dumps(content["toolUse"]["input"]),
+                            },
+                        }
+                    ],
+                }
+            if "toolResult" in content:
+                return {
+                    "role": "tool",
+                    "tool_call_id": content["toolResult"]["toolUseId"],
+                    "content": json.dumps(content["toolResult"]["content"]),
+                }
+            return {"role": message["role"], "content": json.dumps(content)}
 
-        Args:
-            messages: List of message objects to be processed by the model.
-            tool_specs: List of tool specifications to make available to the model.
-            system_prompt: System prompt to provide context to the model.
-
-        Returns:
-            An vLLM chat streaming request.
-        """
-
-        # Concatenate messages to form a prompt string
-        prompt_parts = [
-            f"{msg['role']}: {content['text']}" for msg in messages for content in msg["content"] if "text" in content
-        ]
+        chat_messages = []
         if system_prompt:
-            prompt_parts.insert(0, f"system: {system_prompt}")
-        prompt = "\n".join(prompt_parts) + "\nassistant:"
+            chat_messages.append({"role": "system", "content": system_prompt})
+        for msg in messages:
+            for content in msg["content"]:
+                chat_messages.append(format_message(msg, content))
 
         payload = {
             "model": self.config["model_id"],
-            "prompt": prompt,
+            "messages": chat_messages,
             "temperature": self.config.get("temperature", 0.7),
             "top_p": self.config.get("top_p", 1.0),
-            "max_tokens": self.config.get("max_tokens", 1024),
-            "stop": self.config.get("stop_sequences"),
-            "stream": False,  # Disable streaming
+            "max_tokens": self.config.get("max_tokens", 2048),
+            "stream": True,
         }
+
+        if self.config.get("stop_sequences"):
+            payload["stop"] = self.config["stop_sequences"]
+
+        if tool_specs:
+            payload["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool["name"],
+                        "description": tool["description"],
+                        "parameters": tool["inputSchema"]["json"],
+                    },
+                }
+                for tool in tool_specs
+            ]
 
         if self.config.get("additional_args"):
             payload.update(self.config["additional_args"])
 
+        logger.debug("Formatted vLLM Request:\n%s", json.dumps(payload, indent=2))
         return payload
 
     @override
     def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
-        """Format the vLLM response events into standardized message chunks.
-
-        Args:
-            event: A response event from the vLLM model.
-
-        Returns:
-            The formatted chunk.
-
-        """
         choice = event.get("choices", [{}])[0]
 
-        if "text" in choice:
-            return {"contentBlockDelta": {"delta": {"text": choice["text"]}}}
+        # Streaming delta (streaming mode)
+        if "delta" in choice:
+            delta = choice["delta"]
+            if "content" in delta:
+                return {"contentBlockDelta": {"delta": {"text": delta["content"]}}}
+            if "tool_calls" in delta:
+                return {"toolCall": delta["tool_calls"][0]}
 
+        # Non-streaming response
+        if "message" in choice:
+            return {"contentBlockDelta": {"delta": {"text": choice["message"].get("content", "")}}}
+
+        # Completion stop
         if "finish_reason" in choice:
             return {"messageStop": {"stopReason": choice["finish_reason"] or "end_turn"}}
 
@@ -142,21 +129,10 @@ class VLLMModel(Model):
 
     @override
     def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
-        """Send the request to the vLLM model and get the streaming response.
-
-        This method calls the /v1/completions endpoint and returns the stream of response events.
-
-        Args:
-            request: The formatted request to send to the vLLM model.
-
-        Returns:
-            An iterable of response events from the vLLM model.
-        """
+        """Stream from /v1/chat/completions, print content, and yield chunks including tool calls."""
         headers = {"Content-Type": "application/json"}
-        url = f"{self.host}/v1/completions"
-        request["stream"] = True  # Enable streaming
-
-        full_output = ""
+        url = f"{self.host}/v1/chat/completions"
+        request["stream"] = True
 
         try:
             with requests.post(url, headers=headers, data=json.dumps(request), stream=True) as response:
@@ -179,30 +155,47 @@ class VLLMModel(Model):
 
                     try:
                         data = json.loads(line)
-                        choice = data.get("choices", [{}])[0]
-                        text = choice.get("text", "")
-                        finish_reason = choice.get("finish_reason")
+                        delta = data.get("choices", [{}])[0].get("delta", {})
+                        content = delta.get("content", "")
+                        tool_calls = delta.get("tool_calls")
 
-                        if text:
-                            full_output += text
-                            print(text, end="", flush=True)  # Stream to stdout without newline
+                        if content:
+                            print(content, end="", flush=True)
                             yield {
                                 "chunk_type": "content_delta",
                                 "data_type": "text",
-                                "data": text,
+                                "data": content,
                             }
 
-                        if finish_reason:
-                            yield {"chunk_type": "content_stop", "data_type": "text"}
-                            yield {"chunk_type": "message_stop", "data": finish_reason}
-                            break
+                        if tool_calls:
+                            for tool_call in tool_calls:
+                                tool_call_id = tool_call.get("id")
+                                func = tool_call.get("function", {})
+                                tool_name = func.get("name", "")
+                                args_text = func.get("arguments", "")
+
+                                yield {
+                                    "toolCallStart": {
+                                        "toolCallId": tool_call_id,
+                                        "toolName": tool_name,
+                                        "type": "function",
+                                    }
+                                }
+                                yield {
+                                    "toolCallDelta": {
+                                        "toolCallId": tool_call_id,
+                                        "delta": {
+                                            "toolName": tool_name,
+                                            "argsText": args_text,
+                                        },
+                                    }
+                                }
 
                     except json.JSONDecodeError:
                         logger.warning("Failed to decode streamed line: %s", line)
 
-                else:
-                    yield {"chunk_type": "content_stop", "data_type": "text"}
-                    yield {"chunk_type": "message_stop", "data": "end_turn"}
+                yield {"chunk_type": "content_stop", "data_type": "text"}
+                yield {"chunk_type": "message_stop", "data": "end_turn"}
 
         except requests.RequestException as e:
             logger.error("Request to vLLM failed: %s", str(e))
