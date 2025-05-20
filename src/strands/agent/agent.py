@@ -30,11 +30,12 @@ from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer
 from ..tools.registry import ToolRegistry
 from ..tools.thread_pool_executor import ThreadPoolExecutorWrapper
+from ..tools.tools import PythonAgentTool
 from ..tools.watcher import ToolWatcher
 from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.models import Model
-from ..types.tools import ToolConfig
+from ..types.tools import ToolConfig, ToolResult, ToolUse
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
 from .conversation_manager import (
@@ -382,14 +383,15 @@ class Agent:
 
         # Register the tool with the tool registry
         # We need a special type of tool that just passes through the input
-        from ..tools.tools import PythonAgentTool
 
         # Create a passthrough callback that just returns the input
         # with the signature expected by PythonAgentTool
-        from ..types.tools import ToolResult, ToolUse
 
         def output_callback(
-            tool_use: ToolUse, model: Any = None, messages: Optional[dict[str, Any]] = None, **kwargs: Any
+            tool_use: ToolUse,
+            model: Any = None,  # noqa: ANN401
+            messages: Optional[dict[str, Any]] = None,  # noqa: ANN401
+            **kwargs: Any,
         ) -> ToolResult:
             # Return the ToolResult explicitly typed
             result: ToolResult = {
@@ -398,9 +400,6 @@ class Agent:
                 "content": [{"text": "Output generated successfully"}],
             }
             return result
-
-        # Register the tool
-        from ..types.tools import ToolResult, ToolUse
 
         tool = PythonAgentTool(tool_name=tool_name, tool_spec=tool_spec["toolSpec"], callback=output_callback)
         self.tool_registry.register_tool(tool)
