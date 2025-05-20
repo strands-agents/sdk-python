@@ -30,6 +30,13 @@ jobs:
               repo: context.repo.repo,
               pull_number: context.issue.number,
             });
+            const { data: commits } = await github.rest.pulls.listCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+            
+            console.log(commits);
             
             const isApprovedContributor = APPROVED_ASSOCIATION.includes(PR_AUTHOR_ASSOCIATION);
             
