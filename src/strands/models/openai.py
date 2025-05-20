@@ -4,7 +4,7 @@
 """
 
 import logging
-from typing import Any, Iterable, Optional, TypedDict, cast
+from typing import Any, Iterable, Optional, Protocol, TypedDict, cast
 
 import openai
 from typing_extensions import Unpack, override
@@ -14,8 +14,16 @@ from ..types.models import OpenAIModel as SAOpenAIModel
 logger = logging.getLogger(__name__)
 
 
+class Client(Protocol):
+    """Protocol defining the OpenAI-compatible interface for the underlying provider client."""
+
+    chat: Any
+
+
 class OpenAIModel(SAOpenAIModel):
     """OpenAI model provider implementation."""
+
+    client: Client
 
     class OpenAIConfig(TypedDict, total=False):
         """Configuration options for OpenAI models.

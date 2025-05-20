@@ -10,7 +10,7 @@ import abc
 import json
 import logging
 import mimetypes
-from typing import Any, Optional, Protocol
+from typing import Any, Optional
 
 from typing_extensions import override
 
@@ -22,19 +22,12 @@ from .model import Model
 logger = logging.getLogger(__name__)
 
 
-class Client(Protocol):
-    """Protocol defining the OpenAI-compatible interface for the underlying provider client."""
-
-    chat: Any
-
-
 class OpenAIModel(Model, abc.ABC):
     """Base OpenAI model provider implementation.
 
     Implements shared logic for formatting requests and responses to and from the OpenAI specification.
     """
 
-    client: Client
     config: dict[str, Any]
 
     @staticmethod
