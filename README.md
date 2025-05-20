@@ -117,11 +117,11 @@ agent = Agent(model=bedrock_model)
 agent("Tell me about Agentic AI")
 
 # Ollama
-ollama_modal = OllamaModel(
+ollama_model = OllamaModel(
   host="http://localhost:11434",
   model_id="llama3"
 )
-agent = Agent(model=ollama_modal)
+agent = Agent(model=ollama_model)
 agent("Tell me about Agentic AI")
 
 # Llama API
