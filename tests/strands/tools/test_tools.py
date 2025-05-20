@@ -18,6 +18,10 @@ def test_validate_tool_use_name_valid():
     # Should not raise an exception
     validate_tool_use_name(tool)
 
+    tool = {"name": "valid-name", "toolUseId": "123"}
+    # Should not raise an exception
+    validate_tool_use_name(tool)
+
 
 def test_validate_tool_use_name_missing():
     tool = {"toolUseId": "123"}
