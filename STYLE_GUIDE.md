@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Strands Agents style guide aims to establish consistent formatting, naming conventions, and structure across all code in the repository. We strive to make our code clean, readable, and maintainable.
+The Strands Agents' style guide aims to establish consistent formatting, naming conventions, and structure across all code in the repository. We strive to make our code clean, readable, and maintainable.
 
 Where possible, we will codify these style guidelines into our linting rules and pre-commit hooks to automate enforcement and reduce the manual review burden.
 
@@ -26,7 +26,7 @@ logger.debug("field1=<%s>, field2=<%s>, ... | human readable message", field1, f
      - This is an optimization to skip string interpolation when the log level is not enabled
 
 1. **Messages**:
-   - Add human readable messages at the end of the log
+   - Add human-readable messages at the end of the log
    - Use lowercase for consistency
    - Avoid punctuation (periods, exclamation points, etc.) to reduce clutter
    - Keep messages concise and focused on a single statement
@@ -56,4 +56,4 @@ logger.info("Request completed in %d ms.", duration)
 logger.warning("Retry limit approaching! attempt=%d max_attempts=%d", attempt, max_attempts)
 ```
 
-By following these log formatting guidelines, we ensure that logs are both human-readable and machine-parseable, making debugging and monitoring more efficient.
+By following these log formatting guidelines, we ensure that logs are human-readable and machine-parseable, making debugging and monitoring more efficient.
