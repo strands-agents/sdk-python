@@ -6,7 +6,7 @@ models and tools in the SDK.
 The Agent interface supports two complementary interaction patterns:
 
 1. Natural language for conversation: `agent("Analyze this data")`
-2. Method-style for direct tool access: `agent.tool_name(param1="value")`
+2. Method-style for direct tool access: `agent.tool.tool_name(param1="value")`
 """
 
 import asyncio
@@ -515,7 +515,7 @@ class Agent:
         """
         # Create user message describing the tool call
         user_msg_content = [
-            {"text": (f"agent.{tool['name']} direct tool call\nInput parameters: {json.dumps(tool['input'])}\n")}
+            {"text": (f"agent.tool.{tool['name']} direct tool call.\nInput parameters: {json.dumps(tool['input'])}\n")}
         ]
 
         # Add override message if provided
