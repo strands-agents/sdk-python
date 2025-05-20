@@ -7,8 +7,8 @@ from strands.models.vllm import VLLMModel
 @pytest.fixture
 def model():
     return VLLMModel(
-        model_id="meta-llama/Llama-3.2-3B",  # or whatever your model ID is
-        host="http://localhost:8000",  # adjust as needed
+        model_id="Qwen/Qwen3-4B",
+        host="http://localhost:8000",
         max_tokens=128,
     )
 
@@ -32,7 +32,14 @@ def agent(model, tools):
 
 
 def test_agent(agent):
-    result = agent("What is the time and weather in Melboune Australia?")
-    text = result.message["content"][0]["text"].lower()
+    # Send prompt
+    result = agent("What is the time and weather in Melbourne Australia?")
 
-    assert all(string in text for string in ["3:00", "cloudy"])
+    # Extract plain text from the first content block
+    text_blocks = result.message.get("content", [])
+    # content is a list of dicts with 'text' keys
+    text = " ".join(block.get("text", "") for block in text_blocks).lower()
+
+    # Assert that the tool outputs appear in the generated response text
+    assert "12:00" in text
+    assert "cloudy" in text
