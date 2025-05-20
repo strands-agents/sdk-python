@@ -70,7 +70,7 @@ class Agent:
             #          agent tools and thus break their execution.
             self._agent = agent
 
-        def __getattr__(self, name: str) -> Callable:
+        def __getattr__(self, name: str) -> Callable[..., Any]:
             """Call tool as a function.
 
             This method enables the method-style interface (e.g., `agent.tool.tool_name(param="value")`).
@@ -177,7 +177,7 @@ class Agent:
         messages: Optional[Messages] = None,
         tools: Optional[List[Union[str, Dict[str, str], Any]]] = None,
         system_prompt: Optional[str] = None,
-        callback_handler: Optional[Callable] = PrintingCallbackHandler(),
+        callback_handler: Optional[Callable[..., Any]] = None,
         conversation_manager: Optional[ConversationManager] = None,
         max_parallel_tools: int = os.cpu_count() or 1,
         record_direct_tool_call: bool = True,
@@ -332,7 +332,7 @@ class Agent:
 
         try:
             # Run the event loop and get the result
-            result = self._run_loop(prompt, kwargs)
+            result = self._run_loop(prompt, kwargs.copy())
 
             self._end_agent_trace_span(response=result)
 
@@ -415,7 +415,7 @@ class Agent:
             thread.join()
 
     def _run_loop(
-        self, prompt: str, kwargs: Any, supplementary_callback_handler: Optional[Callable] = None
+        self, prompt: str, kwargs: Dict[str, Any], supplementary_callback_handler: Optional[Callable[..., Any]] = None
     ) -> AgentResult:
         """Execute the agent's event loop with the given prompt and parameters."""
         try:
@@ -441,7 +441,7 @@ class Agent:
         finally:
             self.conversation_manager.apply_management(self)
 
-    def _execute_event_loop_cycle(self, callback_handler: Callable, kwargs: dict[str, Any]) -> AgentResult:
+    def _execute_event_loop_cycle(self, callback_handler: Callable[..., Any], kwargs: Dict[str, Any]) -> AgentResult:
         """Execute the event loop cycle with retry logic for context window limits.
 
         This internal method handles the execution of the event loop cycle and implements
