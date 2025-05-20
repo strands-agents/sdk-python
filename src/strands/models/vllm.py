@@ -109,7 +109,7 @@ class VLLMModel(Model):
             "prompt": prompt,
             "temperature": self.config.get("temperature", 0.7),
             "top_p": self.config.get("top_p", 1.0),
-            "max_tokens": self.config.get("max_tokens", 128),
+            "max_tokens": self.config.get("max_tokens", 1024),
             "stop": self.config.get("stop_sequences"),
             "stream": False,  # Disable streaming
         }
