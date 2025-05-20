@@ -1,4 +1,3 @@
-
 import pytest
 import requests
 from strands.models.vllm import VLLMModel
@@ -41,20 +40,41 @@ def test_update_config_overrides(model):
 
 def test_format_request_basic(model, messages):
     request = model.format_request(messages)
-    assert request["prompt"].startswith("user: Hello")
     assert request["model"] == model.get_config()["model_id"]
-    assert request["stream"] is False
+    assert isinstance(request["messages"], list)
+    assert request["messages"][0]["role"] == "user"
+    assert request["messages"][0]["content"] == "Hello"
+    assert request["stream"] is True
 
 
 def test_format_request_with_system_prompt(model, messages, system_prompt):
     request = model.format_request(messages, system_prompt=system_prompt)
-    assert request["prompt"].startswith(f"system: {system_prompt}\nuser: Hello")
+    assert request["messages"][0]["role"] == "system"
+    assert request["messages"][0]["content"] == system_prompt
 
 
 def test_format_chunk_text():
-    chunk = {"choices": [{"text": "World"}]}
+    chunk = {"choices": [{"delta": {"content": "World"}}]}
     formatted = VLLMModel.format_chunk(None, chunk)
     assert formatted == {"contentBlockDelta": {"delta": {"text": "World"}}}
+
+
+def test_format_chunk_tool_call():
+    chunk = {
+        "choices": [{
+            "delta": {
+                "tool_calls": [{
+                    "id": "abc123",
+                    "function": {
+                        "name": "get_time",
+                        "arguments": '{"timezone":"UTC"}'
+                    }
+                }]
+            }
+        }]
+    }
+    formatted = VLLMModel.format_chunk(None, chunk)
+    assert formatted == {"toolCall": chunk["choices"][0]["delta"]["tool_calls"][0]}
 
 
 def test_format_chunk_finish_reason():
@@ -71,7 +91,7 @@ def test_format_chunk_empty():
 
 def test_stream_response(monkeypatch, model, messages):
     mock_lines = [
-        'data: {"choices":[{"text":"Hello"}]}\n',
+        'data: {"choices":[{"delta":{"content":"Hello"}}]}\n',
         'data: {"choices":[{"finish_reason":"stop"}]}\n',
         "data: [DONE]\n",
     ]
@@ -92,12 +112,40 @@ def test_stream_response(monkeypatch, model, messages):
     monkeypatch.setattr(requests, "post", lambda *a, **kw: MockResponse())
 
     request = model.format_request(messages)
-    stream = list(model.stream(request))
+    chunks = list(model.stream(request))
 
-    assert {"chunk_type": "message_start"} in stream
-    assert any(chunk.get("chunk_type") == "content_delta" for chunk in stream)
-    assert {"chunk_type": "content_stop", "data_type": "text"} in stream
-    assert {"chunk_type": "message_stop", "data": "stop"} in stream
+    assert {"chunk_type": "message_start"} in chunks
+    assert any(chunk.get("chunk_type") == "content_delta" for chunk in chunks)
+    assert {"chunk_type": "content_stop", "data_type": "text"} in chunks
+    assert {"chunk_type": "message_stop", "data": "end_turn"} in chunks
+
+
+def test_stream_tool_call(monkeypatch, model, messages):
+    mock_lines = [
+        'data: {"choices":[{"delta":{"tool_calls":[{"id":"abc","function":{"name":"current_time","arguments":"{\\"timezone\\": \\"UTC\\"}"}}]}}]}\n',
+        "data: [DONE]\n",
+    ]
+
+    class MockResponse:
+        def __init__(self):
+            self.status_code = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def iter_lines(self, decode_unicode=False):
+            return iter(mock_lines)
+
+    monkeypatch.setattr(requests, "post", lambda *a, **kw: MockResponse())
+
+    request = model.format_request(messages)
+    chunks = list(model.stream(request))
+
+    assert any("toolCallStart" in c for c in chunks)
+    assert any("toolCallDelta" in c for c in chunks)
 
 
 def test_stream_server_error(monkeypatch, model, messages):
