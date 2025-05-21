@@ -125,7 +125,7 @@ class Tracer:
                         headers_dict[key.strip()] = value.strip()
                 otlp_headers = headers_dict
             except Exception as e:
-                logger.warning(f"error=<{e}> | failed to parse OTEL_EXPORTER_OTLP_HEADERS")
+                logger.warning("error=<%s> | failed to parse OTEL_EXPORTER_OTLP_HEADERS", e)
 
         self.service_name = service_name
         self.otlp_endpoint = otlp_endpoint
@@ -184,9 +184,9 @@ class Tracer:
 
                 batch_processor = BatchSpanProcessor(otlp_exporter)
                 self.tracer_provider.add_span_processor(batch_processor)
-                logger.info(f"endpoint=<{endpoint}> | OTLP exporter configured with endpoint")
+                logger.info("endpoint=<%s> | OTLP exporter configured with endpoint", endpoint)
             except Exception as e:
-                logger.error(f"error=<{e}> | Failed to configure OTLP exporter", exc_info=True)
+                logger.exception("error=<%s> | Failed to configure OTLP exporter", e)
 
         # Set as global tracer provider
         trace.set_tracer_provider(self.tracer_provider)
@@ -267,7 +267,7 @@ class Tracer:
             else:
                 span.set_status(StatusCode.OK)
         except Exception as e:
-            logger.warning(f"error=<{e}> | error while ending span", exc_info=True)
+            logger.warning("error=<%s> | error while ending span", e, exc_info=True)
         finally:
             span.end()
             # Force flush to ensure spans are exported
@@ -275,7 +275,7 @@ class Tracer:
                 try:
                     self.tracer_provider.force_flush()
                 except Exception as e:
-                    logger.warning(f"error=<{e}> | failed to force flush tracer provider")
+                    logger.warning("error=<%s> | failed to force flush tracer provider", e)
 
     def end_span_with_error(self, span: trace.Span, error_message: str, exception: Optional[Exception] = None) -> None:
         """End a span with error status.

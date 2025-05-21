@@ -74,7 +74,7 @@ def handle_input_too_long_error(
     """Handle 'Input is too long' errors by truncating tool results.
 
     When a context window overflow exception occurs (input too long for the model), this function attempts to recover
-    by finding and truncating the most recent tool results in the conversation history. If trunction is successful, the
+    by finding and truncating the most recent tool results in the conversation history. If truncation is successful, the
     function will make a call to the event loop.
 
     Args:

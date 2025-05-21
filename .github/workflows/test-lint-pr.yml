@@ -6,88 +6,49 @@ on:
     types: [opened, synchronize, reopened, ready_for_review, review_requested, review_request_removed]
   push:
     branches: [ main ]  # Also run on direct pushes to main
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  check-approval:
-    name: Check if PR has contributor approval
-    runs-on: ubuntu-latest
-    permissions:
-      pull-requests: read
-    # Skip this check for direct pushes to main
-    if: github.event_name == 'pull_request'
-    outputs:
-      approved: ${{ steps.check-approval.outputs.approved }}
-    steps:
-      - name: Check if PR has been approved by a contributor
-        id: check-approval
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const APPROVED_ASSOCIATION = ['COLLABORATOR',  'CONTRIBUTOR', 'MEMBER', 'OWNER']
-            const PR_AUTHOR_ASSOCIATION = context.payload.pull_request.author_association;
-            const { data: reviews } = await github.rest.pulls.listReviews({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: context.issue.number,
-            });
-            
-            const isApprovedContributor = APPROVED_ASSOCIATION.includes(PR_AUTHOR_ASSOCIATION);
-            
-            // Check if any contributor has approved                                                              
-             const isApproved = reviews.some(review =>                                                             
-               review.state === 'APPROVED' && APPROVED_ASSOCIATION.includes(review.author_association)                      
-             ) || isApprovedContributor;                                                                                                    
-            
-            core.setOutput('approved', isApproved);
-            
-            if (!isApproved) {
-              core.notice('This PR does not have approval from a Contributor. Workflow will not run test jobs.');
-              return false;
-            }
-            
-            return true;
-
   unit-test:
     name: Unit Tests - Python ${{ matrix.python-version }} - ${{ matrix.os-name }}
-    needs: check-approval
     permissions:
       contents: read
-    # Only run if PR is approved or this is a direct push to main
-    if: github.event_name == 'push' || needs.check-approval.outputs.approved == 'true'
     strategy:
       matrix:
        include:
         # Linux
         - os: ubuntu-latest
-          os-name: linux
+          os-name: 'linux'
           python-version: "3.10"
         - os: ubuntu-latest
-          os-name: linux
+          os-name: 'linux'
           python-version: "3.11"
         - os: ubuntu-latest
-          os-name: linux
+          os-name: 'linux'
           python-version: "3.12"
         - os: ubuntu-latest
-          os-name: linux
+          os-name: 'linux'
           python-version: "3.13"
         # Windows
         - os: windows-latest
-          os-name: windows
+          os-name: 'windows'
           python-version: "3.10"
         - os: windows-latest
-          os-name: windows
+          os-name: 'windows'
           python-version: "3.11"
         - os: windows-latest
-          os-name: windows
+          os-name: 'windows'
           python-version: "3.12"
         - os: windows-latest
-          os-name: windows
+          os-name: 'windows'
           python-version: "3.13"
-        # MacOS - latest only; not enough runners for MacOS
+        # MacOS - latest only; not enough runners for macOS
         - os: macos-latest
-          os-name: macos
-          python-version: "3.13"  
-      fail-fast: false
+          os-name: 'macOS'
+          python-version: "3.13"
+      fail-fast: true
     runs-on: ${{ matrix.os }}
     env:
       LOG_LEVEL: DEBUG
@@ -108,14 +69,11 @@ jobs:
         id: tests
         run: hatch test tests --cover
         continue-on-error: false
-
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    needs: check-approval
     permissions:
       contents: read
-    if: github.event_name == 'push' || needs.check-approval.outputs.approved == 'true'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

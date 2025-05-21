@@ -94,6 +94,8 @@ hatch fmt --linter
 
 If you're using an IDE like VS Code or PyCharm, consider configuring it to use these tools automatically.
 
+For additional details on styling, please see our dedicated [Style Guide](./STYLE_GUIDE.md).
+
 
 ## Contributing via Pull Requests
 Contributions via pull requests are much appreciated. Before sending us a pull request, please ensure that:
@@ -115,7 +117,7 @@ To send us a pull request, please:
 
 
 ## Finding contributions to work on
-Looking at the existing issues is a great way to find something to contribute on.
+Looking at the existing issues is a great way to find something to contribute to.
 
 You can check:
 - Our known bugs list in [Bug Reports](../../issues?q=is%3Aissue%20state%3Aopen%20label%3Abug) for issues that need fixing

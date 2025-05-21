@@ -566,7 +566,7 @@ def test_agent_tool_user_message_override(agent):
             },
             {
                 "text": (
-                    "agent.tool_decorated direct tool call\n"
+                    "agent.tool.tool_decorated direct tool call.\n"
                     "Input parameters: "
                     '{"random_string": "abcdEfghI123", "user_message_override": "test override"}\n'
                 ),

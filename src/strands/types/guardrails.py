@@ -16,7 +16,7 @@ class GuardrailConfig(TypedDict, total=False):
     Attributes:
         guardrailIdentifier: Unique identifier for the guardrail.
         guardrailVersion: Version of the guardrail to apply.
-        streamProcessingMode: Procesing mode.
+        streamProcessingMode: Processing mode.
         trace: The trace behavior for the guardrail.
     """
 
@@ -219,7 +219,7 @@ class GuardrailAssessment(TypedDict):
         contentPolicy: The content policy.
         contextualGroundingPolicy: The contextual grounding policy used for the guardrail assessment.
         sensitiveInformationPolicy: The sensitive information policy.
-        topicPolic: The topic policy.
+        topicPolicy: The topic policy.
         wordPolicy: The word policy.
     """
 

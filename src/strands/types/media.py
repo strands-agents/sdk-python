@@ -68,7 +68,7 @@ VideoFormat = Literal["flv", "mkv", "mov", "mpeg", "mpg", "mp4", "three_gp", "we
 
 
 class VideoSource(TypedDict):
-    """Contains the content of a vidoe.
+    """Contains the content of a video.
 
     Attributes:
         bytes: The binary content of the video.
