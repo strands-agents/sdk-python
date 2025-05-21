@@ -4,9 +4,34 @@ This document outlines the changes made to migrate the Strands Agents SDK from u
 
 ## Changes Made
 
-### 1. Added Python Scripts for Development Tasks
+### 1. Updated Build System
+
+- Changed the build system from hatchling to uv_build:
+
+  ```toml
+  [build-system]
+  requires = ["uv_build>=0.7.6,<0.8.0"]
+  build-backend = "uv_build"
+  ```
+
+- Added uv build backend configuration:
+
+  ```toml
+  [tool.uv.build-backend]
+  module-name = "strands"
+  module-root = "src"
+  ```
+
+- Updated the license format to use a simple string instead of a table:
+
+  ```toml
+  license = "Apache-2.0"  # Instead of license = {text = "Apache-2.0"}
+  ```
+
+### 2. Added Python Scripts for Development Tasks
 
 Created Python scripts in the `scripts/` directory to replace hatch commands:
+
   ```
   scripts/
   ├── format.py     # Runs ruff format
@@ -15,9 +40,10 @@ Created Python scripts in the `scripts/` directory to replace hatch commands:
   └── test_integ.py # Runs integration tests
   ```
 
-### 2. Updated .pre-commit-config.yaml
+### 3. Updated .pre-commit-config.yaml
 
 - Changed all hooks to use the Python scripts:
+
   ```yaml
   - id: uv-format
     name: Format code
@@ -28,9 +54,10 @@ Created Python scripts in the `scripts/` directory to replace hatch commands:
     stages: [pre-commit]
   ```
 
-### 3. Updated GitHub Workflows
+### 4. Updated GitHub Workflows
 
 - Changed the GitHub workflow to install and use uv instead of hatch:
+
   ```yaml
   - name: Install uv
     run: |
@@ -47,12 +74,12 @@ Created Python scripts in the `scripts/` directory to replace hatch commands:
       python scripts/test.py
   ```
 
-### 4. Updated Documentation
+### 5. Updated Documentation
 
 - Updated CONTRIBUTING.md to reflect the use of uv for development tasks
 - Updated README.md to show uv commands for development
 
-### 5. Fixed mypy Configuration
+### 6. Fixed mypy Configuration
 
 - Updated mypy configuration in pyproject.toml:
   - Set `ignore_missing_imports = true` to handle external dependencies
@@ -67,17 +94,20 @@ Created Python scripts in the `scripts/` directory to replace hatch commands:
 3. **Simplified workflow**: UV provides a more intuitive interface for common development tasks
 4. **Improved developer experience**: UV makes it easier to debug lint and test errors
 5. **Full pyproject.toml support**: UV fully manages and respects pyproject.toml configurations
+6. **Native build backend**: The uv_build backend integrates tightly with uv for improved performance
 
 ## Migration Guide for Contributors
 
 If you have an existing clone of the repository that was using hatch:
 
 1. Install uv:
+
    ```bash
    pip install uv
    ```
 
 2. Create a new virtual environment with all dependencies:
+
    ```bash
    uv venv
    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
@@ -91,6 +121,17 @@ If you have an existing clone of the repository that was using hatch:
    - Instead of `hatch run test-integ`, use `python scripts/test_integ.py`
 
 4. Update pre-commit hooks:
+
    ```bash
    pre-commit install -t pre-commit -t commit-msg
+   ```
+
+5. Building the package:
+
+   ```bash
+   # Using uv directly
+   uv build
+   
+   # Using standard Python build tools
+   python -m build
    ```

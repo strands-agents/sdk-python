@@ -6,12 +6,12 @@ documentation, we greatly value feedback and contributions from our community.
 Please read through this document before submitting any issues or pull requests to ensure we have all the necessary
 information to effectively respond to your bug report or contribution.
 
-
 ## Reporting Bugs/Feature Requests
 
 We welcome you to use the [Bug Reports](../../issues/new?template=bug_report.yml) file to report bugs or [Feature Requests](../../issues/new?template=feature_request.yml) to suggest features.
 
 For a list of known bugs and feature requests:
+
 - Check [Bug Reports](../../issues?q=is%3Aissue%20state%3Aopen%20label%3Abug) for currently tracked issues
 - See [Feature Requests](../../issues?q=is%3Aissue%20state%3Aopen%20label%3Aenhancement) for requested enhancements
 
@@ -19,24 +19,25 @@ When filing an issue, please check for already tracked items
 
 Please try to include as much information as you can. Details like these are incredibly useful:
 
-* A reproducible test case or series of steps
-* The version of our code being used (commit ID)
-* Any modifications you've made relevant to the bug
-* Anything unusual about your environment or deployment
-
+- A reproducible test case or series of steps
+- The version of our code being used (commit ID)
+- Any modifications you've made relevant to the bug
+- Anything unusual about your environment or deployment
 
 ## Development Environment
 
-This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as the build backend and [uv](https://github.com/astral-sh/uv) for development workflow management.
+This project uses [uv_build](https://github.com/astral-sh/uv/blob/main/crates/uv-build/README.md) as the build backend and [uv](https://github.com/astral-sh/uv) for development workflow management.
 
 ### Setting Up Your Development Environment
 
 1. Install uv:
+
    ```bash
    pip install uv
    ```
 
 2. Create a virtual environment and install development dependencies:
+
    ```bash
    uv venv
    source .venv/bin/activate  # On Windows: .venv\Scripts\activate
@@ -44,29 +45,41 @@ This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as 
    ```
 
 3. Set up pre-commit hooks:
+
    ```bash
    pre-commit install -t pre-commit -t commit-msg
    ```
+
    This will automatically run formatters and convention commit checks on your code before each commit.
 
 4. Run code formatters manually:
+
    ```bash
    python scripts/format.py
    ```
 
 5. Run linters:
+
    ```bash
    python scripts/lint.py
    ```
 
 6. Run unit tests:
+
    ```bash
    python scripts/test.py
    ```
 
 7. Run integration tests:
+
    ```bash
    python scripts/test_integ.py
+   ```
+
+8. Build the package:
+
+   ```bash
+   uv build
    ```
 
 ### Pre-commit Hooks
@@ -88,6 +101,7 @@ pre-commit run --all-files
 ### Code Formatting and Style Guidelines
 
 We use the following tools to ensure code quality:
+
 1. **ruff** - For formatting and linting
 2. **mypy** - For static type checking
 
@@ -103,8 +117,8 @@ If you're using an IDE like VS Code or PyCharm, consider configuring it to use t
 
 For additional details on styling, please see our dedicated [Style Guide](./STYLE_GUIDE.md).
 
-
 ## Contributing via Pull Requests
+
 Contributions via pull requests are much appreciated. Before sending us a pull request, please ensure that:
 
 1. You are working against the latest source on the *main* branch.
@@ -122,24 +136,24 @@ To send us a pull request, please:
 7. Send us a pull request, answering any default questions in the pull request interface.
 8. Pay attention to any automated CI failures reported in the pull request, and stay involved in the conversation.
 
-
 ## Finding contributions to work on
+
 Looking at the existing issues is a great way to find something to contribute to.
 
 You can check:
+
 - Our known bugs list in [Bug Reports](../../issues?q=is%3Aissue%20state%3Aopen%20label%3Abug) for issues that need fixing
 - Feature requests in [Feature Requests](../../issues?q=is%3Aissue%20state%3Aopen%20label%3Aenhancement) for new functionality to implement
 
-
 ## Code of Conduct
+
 This project has adopted the [Amazon Open Source Code of Conduct](https://aws.github.io/code-of-conduct).
 For more information see the [Code of Conduct FAQ](https://aws.github.io/code-of-conduct-faq) or contact
-opensource-codeofconduct@amazon.com with any additional questions or comments.
-
+<opensource-codeofconduct@amazon.com> with any additional questions or comments.
 
 ## Security issue notifications
-If you discover a potential security issue in this project we ask that you notify AWS/Amazon Security via our [vulnerability reporting page](http://aws.amazon.com/security/vulnerability-reporting/). Please do **not** create a public github issue.
 
+If you discover a potential security issue in this project we ask that you notify AWS/Amazon Security via our [vulnerability reporting page](http://aws.amazon.com/security/vulnerability-reporting/). Please do **not** create a public github issue.
 
 ## Licensing
 

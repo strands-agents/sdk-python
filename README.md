@@ -133,11 +133,12 @@ response = agent("Tell me about Agentic AI")
 ```
 
 Built-in providers:
- - [Amazon Bedrock](https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/)
- - [Anthropic](https://strandsagents.com/latest/user-guide/concepts/model-providers/anthropic/)
- - [LiteLLM](https://strandsagents.com/latest/user-guide/concepts/model-providers/litellm/)
- - [LlamaAPI](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamaapi/)
- - [Ollama](https://strandsagents.com/latest/user-guide/concepts/model-providers/ollama/)
+
+- [Amazon Bedrock](https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/)
+- [Anthropic](https://strandsagents.com/latest/user-guide/concepts/model-providers/anthropic/)
+- [LiteLLM](https://strandsagents.com/latest/user-guide/concepts/model-providers/litellm/)
+- [LlamaAPI](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamaapi/)
+- [Ollama](https://strandsagents.com/latest/user-guide/concepts/model-providers/ollama/)
 
 Custom providers can be implemented using [Custom Providers](https://strandsagents.com/latest/user-guide/concepts/model-providers/custom_model_provider/)
 
@@ -182,6 +183,9 @@ python scripts/test.py
 
 # Format code
 python scripts/format.py
+
+# Build the package
+uv build
 ```
 
 ## License
@@ -191,5 +195,6 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 ## ⚠️ Preview Status
 
 Strands Agents is currently in public preview. During this period:
+
 - APIs may change as we refine the SDK
 - We welcome feedback and contributions
