@@ -22,7 +22,7 @@ class ConversationManager(ABC):
     def apply_management(self, messages: Messages) -> None:
         """Applies management strategy to the provided list of messages.
 
-        Processes the conversation history to maintain appropriate size by modifying the messages list in-place.
+        Processes the conversation history to maintain appropriate size by modifying the message list in-place.
         Implementations should handle message pruning, summarization, or other size management techniques to keep the
         conversation context within desired bounds.
 

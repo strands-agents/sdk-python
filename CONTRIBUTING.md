@@ -117,7 +117,7 @@ To send us a pull request, please:
 
 
 ## Finding contributions to work on
-Looking at the existing issues is a great way to find something to contribute on.
+Looking at the existing issues is a great way to find something to contribute to.
 
 You can check:
 - Our known bugs list in [Bug Reports](../../issues?q=is%3Aissue%20state%3Aopen%20label%3Abug) for issues that need fixing

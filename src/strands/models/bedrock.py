@@ -132,7 +132,7 @@ class BedrockModel(Model):
         """Get the current Bedrock Model configuration.
 
         Returns:
-            The Bedrok model configuration.
+            The Bedrock model configuration.
         """
         return self.config
 
