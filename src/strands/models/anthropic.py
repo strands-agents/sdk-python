@@ -344,7 +344,7 @@ class AnthropicModel(Model):
                     if event.type in AnthropicModel.EVENT_TYPES:
                         yield event.dict()
 
-                usage = event.message.usage  # type: ignore
+                usage = event.message.usage
                 yield {"type": "metadata", "usage": usage.dict()}
 
         except anthropic.RateLimitError as error:

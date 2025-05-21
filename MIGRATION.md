@@ -52,6 +52,14 @@ Created Python scripts in the `scripts/` directory to replace hatch commands:
 - Updated CONTRIBUTING.md to reflect the use of uv for development tasks
 - Updated README.md to show uv commands for development
 
+### 5. Fixed mypy Configuration
+
+- Updated mypy configuration in pyproject.toml:
+  - Set `ignore_missing_imports = true` to handle external dependencies
+  - Added specific overrides for modules like anthropic, ollama, etc.
+  - Removed the deprecated `follow_untyped_imports` option
+  - Updated mypy to version 1.8.0 to fix compatibility issues with Python 3.13
+
 ## Benefits of Using UV
 
 1. **Faster dependency resolution**: UV is significantly faster than pip and other package managers

@@ -2,6 +2,10 @@
 import subprocess
 import sys
 
-# Only run ruff check for now, as mypy has issues that need to be fixed separately
+# Run ruff check
 subprocess.run(["ruff", "check"], check=True)
-print("Lint checks passed!")
+
+# Run mypy
+subprocess.run(["mypy", "-p", "src"], check=True)
+
+print("All lint checks passed!")

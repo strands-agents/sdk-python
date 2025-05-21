@@ -53,7 +53,7 @@ anthropic = [
 dev = [
     "commitizen>=4.4.0,<5.0.0",
     "moto>=5.1.0,<6.0.0",
-    "mypy>=0.981,<1.0.0",
+    "mypy>=1.8.0,<2.0.0",
     "pre-commit>=3.2.0,<4.2.0",
     "pytest>=8.0.0,<9.0.0",
     "pytest-asyncio>=0.26.0,<0.27.0",
@@ -90,11 +90,30 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 warn_no_return = true
 warn_unreachable = true
-follow_untyped_imports = true
-ignore_missing_imports = false
+ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "litellm"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "anthropic"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "ollama"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "llama_api_client"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "boto3"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "botocore.*"
 ignore_missing_imports = true
 
 [tool.ruff]
