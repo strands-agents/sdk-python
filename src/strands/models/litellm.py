@@ -334,6 +334,8 @@ class LiteLLMModel(Model):
 
         yield {"chunk_type": "message_stop", "data": choice.finish_reason}
 
+        # Skip remaining events as we don't have use for anything except the final usage payload
         for event in response:
-            if hasattr(event, "usage"):
-                yield {"chunk_type": "metadata", "data": event.usage}
+            _ = event
+
+        yield {"chunk_type": "metadata", "data": event.usage}
