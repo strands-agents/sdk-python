@@ -27,44 +27,51 @@ Please try to include as much information as you can. Details like these are inc
 
 ## Development Environment
 
-This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as the build backend and [hatch](https://hatch.pypa.io/latest/) for development workflow management.
+This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as the build backend and [uv](https://github.com/astral-sh/uv) for development workflow management.
 
 ### Setting Up Your Development Environment
 
-1. Install development dependencies:
+1. Install uv:
    ```bash
-   pip install -e ".[dev]" && pip install -e ".[litellm]
+   pip install uv
    ```
 
-2. Set up pre-commit hooks:
+2. Create a virtual environment and install development dependencies:
+   ```bash
+   uv venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   uv pip install -e ".[dev]" --prerelease=allow
+   ```
+
+3. Set up pre-commit hooks:
    ```bash
    pre-commit install -t pre-commit -t commit-msg
    ```
    This will automatically run formatters and convention commit checks on your code before each commit.
 
-3. Run code formatters manually:
+4. Run code formatters manually:
    ```bash
-   hatch fmt --formatter
+   python scripts/format.py
    ```
 
-4. Run linters:
+5. Run linters:
    ```bash
-   hatch fmt --linter
+   python scripts/lint.py
    ```
 
-5. Run unit tests:
+6. Run unit tests:
    ```bash
-   hatch test
+   python scripts/test.py
    ```
 
-6. Run integration tests:
+7. Run integration tests:
    ```bash
-   hatch run test-integ
+   python scripts/test_integ.py
    ```
 
 ### Pre-commit Hooks
 
-We use [pre-commit](https://pre-commit.com/) to automatically run quality checks before each commit. The hook will run `hatch run format`, `hatch run lint`, `hatch run test`, and `hatch run cz check` on when you make a commit, ensuring code consistency.
+We use [pre-commit](https://pre-commit.com/) to automatically run quality checks before each commit. The hook will run formatting, linting, and tests when you make a commit, ensuring code consistency.
 
 The pre-commit hook is installed with:
 
@@ -88,8 +95,8 @@ These tools are configured in the [pyproject.toml](./pyproject.toml) file. Pleas
 
 ```bash
 # Run all checks
-hatch fmt --formatter
-hatch fmt --linter
+python scripts/format.py
+python scripts/lint.py
 ```
 
 If you're using an IDE like VS Code or PyCharm, consider configuring it to use these tools automatically.
@@ -108,9 +115,9 @@ To send us a pull request, please:
 
 1. Create a branch.
 2. Modify the source; please focus on the specific change you are contributing. If you also reformat all the code, it will be hard for us to focus on your change.
-3. Format your code using `hatch fmt --formatter`.
-4. Run linting checks with `hatch fmt --linter`.
-5. Ensure local tests pass with `hatch test` and `hatch run test-integ`.
+3. Format your code using `python scripts/format.py`.
+4. Run linting checks with `python scripts/lint.py`.
+5. Ensure local tests pass with `python scripts/test.py` and `python scripts/test_integ.py`.
 6. Commit to your branch using clear commit messages following the [Conventional Commits](https://www.conventionalcommits.org) specification.
 7. Send us a pull request, answering any default questions in the pull request interface.
 8. Pay attention to any automated CI failures reported in the pull request, and stay involved in the conversation.

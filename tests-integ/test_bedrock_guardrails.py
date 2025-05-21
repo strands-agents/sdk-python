@@ -2,7 +2,6 @@ import time
 
 import boto3
 import pytest
-
 from strands import Agent
 from strands.models.bedrock import BedrockModel
 

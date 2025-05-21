@@ -3,7 +3,6 @@ import functools
 import unittest.mock
 
 import pytest
-
 import strands
 import strands.telemetry
 from strands.types.content import Message

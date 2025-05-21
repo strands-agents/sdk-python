@@ -5,7 +5,6 @@ from unittest import mock
 
 import pytest
 from opentelemetry.trace import StatusCode  # type: ignore
-
 from strands.telemetry.tracer import JSONEncoder, Tracer, get_tracer
 from strands.types.streaming import Usage
 

@@ -3,7 +3,6 @@ import unittest.mock
 
 import anthropic
 import pytest
-
 import strands
 from strands.models.anthropic import AnthropicModel
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException

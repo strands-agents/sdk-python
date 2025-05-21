@@ -2,7 +2,6 @@ import dataclasses
 import unittest
 
 import pytest
-
 import strands
 from strands.types.streaming import Metrics, Usage
 

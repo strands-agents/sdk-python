@@ -165,14 +165,24 @@ For detailed guidance & examples, explore our documentation:
 - [API Reference](https://strandsagents.com/latest/api-reference/agent/)
 - [Production & Deployment Guide](https://strandsagents.com/latest/user-guide/deploy/operating-agents-in-production/)
 
-## Contributing
+## Development
 
-We welcome contributions! See our [Contributing Guide](https://github.com/strands-agents/sdk-python/blob/main/CONTRIBUTING.md) for details on:
-- Reporting bugs & features
-- Development setup
-- Contributing via Pull Requests
-- Code of Conduct
-- Reporting of security issues
+For development and contribution guidelines, please see our [Contributing Guide](https://github.com/strands-agents/sdk-python/blob/main/CONTRIBUTING.md).
+
+We use [uv](https://github.com/astral-sh/uv) for dependency management, formatting, and other development tasks:
+
+```bash
+# Install development dependencies
+uv venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+uv pip install -e ".[dev]" --prerelease=allow
+
+# Run tests
+python scripts/test.py
+
+# Format code
+python scripts/format.py
+```
 
 ## License
 

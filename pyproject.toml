@@ -52,7 +52,6 @@ anthropic = [
 ]
 dev = [
     "commitizen>=4.4.0,<5.0.0",
-    "hatch>=1.0.0,<2.0.0",
     "moto>=5.1.0,<6.0.0",
     "mypy>=0.981,<1.0.0",
     "pre-commit>=3.2.0,<4.2.0",
@@ -60,6 +59,8 @@ dev = [
     "pytest-asyncio>=0.26.0,<0.27.0",
     "ruff>=0.4.4,<0.5.0",
     "swagger-parser>=1.0.2,<2.0.0",
+    "pytest-cov>=4.1.0,<5.0.0",
+    "pytest-xdist>=3.0.0,<4.0.0",
 ]
 docs = [
     "sphinx>=5.0.0,<6.0.0",
@@ -75,85 +76,6 @@ ollama = [
 llamaapi = [
     "llama-api-client>=0.1.0,<1.0.0",
 ]
-
-[tool.hatch.envs.hatch-static-analysis]
-features = ["anthropic", "litellm", "llamaapi", "ollama"]
-dependencies = [
-  "mypy>=1.15.0,<2.0.0",
-  "ruff>=0.11.6,<0.12.0",
-  "strands-agents @ {root:uri}"
-]
-
-[tool.hatch.envs.hatch-static-analysis.scripts]
-format-check = [
-    "ruff format --check"
-]
-format-fix = [
-    "ruff format"
-]
-lint-check = [
-    "ruff check",
-    "mypy -p src"
-]
-lint-fix = [
-    "ruff check --fix"
-]
-
-[tool.hatch.envs.hatch-test]
-features = ["anthropic", "litellm", "llamaapi", "ollama"]
-extra-dependencies = [
-    "moto>=5.1.0,<6.0.0",
-    "pytest>=8.0.0,<9.0.0",
-    "pytest-asyncio>=0.26.0,<0.27.0",
-    "pytest-cov>=4.1.0,<5.0.0",
-    "pytest-xdist>=3.0.0,<4.0.0",
-]
-extra-args = [
-    "-n",
-    "auto",
-    "-vv",
-]
-
-
-[[tool.hatch.envs.hatch-test.matrix]]
-python = ["3.13", "3.12", "3.11", "3.10"]
-
-
-[tool.hatch.envs.hatch-test.scripts]
-run = [
-    "pytest{env:HATCH_TEST_ARGS:} {args}"
-]
-run-cov = [
-    "pytest{env:HATCH_TEST_ARGS:} --cov --cov-config=pyproject.toml {args}"
-]
-
-cov-combine = []
-cov-report = []
-
-
-[tool.hatch.envs.default.scripts]
-list = [
-    "echo 'Scripts commands available for default env:'; hatch env show --json | jq --raw-output '.default.scripts | keys[]'"
-]
-format = [
-  "hatch fmt --formatter",
-]
-test-format = [
-    "hatch fmt --formatter --check",
-]
-lint = [
-    "hatch fmt --linter"
-]
-test-lint = [
-    "hatch fmt --linter --check"
-]
-test = [
-    "hatch test --cover --cov-report html --cov-report xml {args}"
-]
-test-integ = [
-    "hatch test tests-integ {args}"
-]
-
 
 [tool.mypy]
 python_version = "3.10"

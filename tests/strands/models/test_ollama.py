@@ -2,7 +2,6 @@ import json
 import unittest.mock
 
 import pytest
-
 import strands
 from strands.models.ollama import OllamaModel
 from strands.types.content import Messages

@@ -3,7 +3,6 @@ Tests for the SDK tool registry module.
 """
 
 import pytest
-
 from strands.tools.registry import ToolRegistry
 
 

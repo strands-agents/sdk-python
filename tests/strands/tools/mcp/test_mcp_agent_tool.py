@@ -2,7 +2,6 @@ from unittest.mock import MagicMock
 
 import pytest
 from mcp.types import Tool as MCPTool
-
 from strands.tools.mcp import MCPAgentTool, MCPClient
 
 

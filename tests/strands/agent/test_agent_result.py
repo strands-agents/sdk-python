@@ -2,7 +2,6 @@ import unittest.mock
 from typing import cast
 
 import pytest
-
 from strands.agent.agent_result import AgentResult
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.types.content import Message

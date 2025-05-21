@@ -119,18 +119,18 @@ def test_tool_error_handling():
 
     result = test_tool(tool_use)
     assert result["status"] == "error"
-    assert "validation error for test_tooltool\nrequired\n" in result["content"][0]["text"].lower(), (
-        "Validation error should indicate which argument is missing"
-    )
+    assert (
+        "validation error for test_tooltool\nrequired\n" in result["content"][0]["text"].lower()
+    ), "Validation error should indicate which argument is missing"
 
     # Test with exception in tool function
     tool_use = {"toolUseId": "test-id", "input": {"required": "error"}}
 
     result = test_tool(tool_use)
     assert result["status"] == "error"
-    assert "test error" in result["content"][0]["text"].lower(), (
-        "Runtime error should contain the original error message"
-    )
+    assert (
+        "test error" in result["content"][0]["text"].lower()
+    ), "Runtime error should contain the original error message"
 
 
 def test_type_handling():
