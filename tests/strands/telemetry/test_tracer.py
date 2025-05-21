@@ -639,7 +639,6 @@ def test_json_encoder_value_error():
 
 def test_serialize_non_ascii_characters():
     """Test that non-ASCII characters are preserved in JSON serialization."""
-    from strands.telemetry.tracer import serialize
 
     # Test with Japanese text
     japanese_text = "こんにちは世界"
