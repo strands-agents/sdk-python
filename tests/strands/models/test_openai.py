@@ -109,12 +109,14 @@ def test_stream(openai_client, model):
 
 def test_stream_empty(openai_client, model):
     mock_delta = unittest.mock.Mock(content=None, tool_calls=None)
+    mock_usage = unittest.mock.Mock(prompt_tokens=0, completion_tokens=0, total_tokens=0)
 
     mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta)])
     mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
-    mock_event_3 = unittest.mock.Mock(spec=[])
+    mock_event_3 = unittest.mock.Mock()
+    mock_event_4 = unittest.mock.Mock(usage=mock_usage)
 
-    openai_client.chat.completions.create.return_value = iter([mock_event_1, mock_event_2, mock_event_3])
+    openai_client.chat.completions.create.return_value = iter([mock_event_1, mock_event_2, mock_event_3, mock_event_4])
 
     request = {"model": "m1", "messages": [{"role": "user", "content": []}]}
     response = model.stream(request)
@@ -125,6 +127,7 @@ def test_stream_empty(openai_client, model):
         {"chunk_type": "content_start", "data_type": "text"},
         {"chunk_type": "content_stop", "data_type": "text"},
         {"chunk_type": "message_stop", "data": "stop"},
+        {"chunk_type": "metadata", "data": mock_usage},
     ]
 
     assert tru_events == exp_events
