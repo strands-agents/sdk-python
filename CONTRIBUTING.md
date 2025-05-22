@@ -33,7 +33,7 @@ This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as 
 
 1. Install development dependencies:
    ```bash
-   pip install -e ".[dev]" && pip install -e ".[litellm]
+   pip install -e ".[dev]" && pip install -e ".[litellm]"
    ```
 
 2. Set up pre-commit hooks:
