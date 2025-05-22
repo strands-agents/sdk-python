@@ -135,7 +135,7 @@ response = agent("Tell me about Agentic AI")
 # vLLM
 vllm_modal = VLLMModel(
   host="http://localhost:8000",
-  model_id="meta-llama/Llama-3.2-3B"
+  model_id="Qwen/Qwen3-4B"
 )
 agent_vllm = Agent(model=vllm_modal)
 agent_vllm("Tell me about Agentic AI")
