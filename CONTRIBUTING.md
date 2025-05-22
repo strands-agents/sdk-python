@@ -26,7 +26,7 @@ Please try to include as much information as you can. Details like these are inc
 
 ## Development Environment
 
-This project uses [uv_build](https://github.com/astral-sh/uv/blob/main/crates/uv-build/README.md) as the build backend and [uv](https://github.com/astral-sh/uv) for development workflow management.
+This project uses [uv_build](https://docs.astral.sh/uv/configuration/build-backend/) as the build backend and [uv](https://github.com/astral-sh/uv) for development workflow management.
 
 ### Setting Up Your Development Environment
 
