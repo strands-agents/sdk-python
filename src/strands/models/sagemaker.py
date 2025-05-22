@@ -3,8 +3,10 @@
 - Docs: https://aws.amazon.com/sagemaker-ai/
 """
 
+import base64
 import json
 import logging
+import mimetypes
 import uuid
 from typing import Any, Iterable, Optional, TypedDict, Union
 
@@ -38,21 +40,21 @@ class SageMakerAIModel(Model):
         """Configuration options for SageMaker models.
 
         Attributes:
-            endpoint_name: The name of the SageMaker endpoint to invoke
-            inference_component_name: The name of the inference component to use
-            max_tokens: Maximum number of tokens to generate in the response
-            stop_sequences: List of sequences that will stop generation when encountered
-            temperature: Controls randomness in generation (higher = more random)
-            top_p: Controls diversity via nucleus sampling (alternative to temperature)
-            additional_args: Any additional arguments to include in the request
+            additional_args: Any additional arguments to include in the request.
+            endpoint_name: The name of the SageMaker endpoint to invoke.
+            inference_component_name: The name of the inference component to use.
+            max_tokens: Maximum number of tokens to generate in the response.
+            stop_sequences: List of sequences that will stop generation when encountered.
+            temperature: Controls randomness in generation (higher = more random).
+            top_p: Controls diversity via nucleus sampling (alternative to temperature).
         """
+        additional_args: Optional[dict[str, Any]]
         endpoint_name: str
         inference_component_name: Optional[str]
         max_tokens: Optional[int]
         stop_sequences: Optional[list[str]]
         temperature: Optional[float]
         top_p: Optional[float]
-        additional_args: Optional[dict[str, Any]]
 
     def __init__(
         self,
@@ -61,8 +63,7 @@ class SageMakerAIModel(Model):
         inference_component_name: Optional[str] = None,
         boto_session: Optional[boto3.Session] = None,
         boto_client_config: Optional[BotocoreConfig] = None,
-        retry_attempts: int = 3,
-        retry_delay: int = 30,
+        region_name: Optional[str] = None,
         **model_config: Unpack["SageMakerAIModel.ModelConfig"],
     ):
         """Initialize provider instance.
@@ -81,16 +82,12 @@ class SageMakerAIModel(Model):
             inference_component_name=inference_component_name
         )
         self.update_config(**model_config)
-        
-        # Set retry configuration
-        self.retry_attempts = retry_attempts
-        self.retry_delay = retry_delay
 
-        logger.debug("endpoint=%s, config=%s | initializing", self.config["endpoint_name"], self.config)
+        # logger.debug("endpoint=%s, config=%s | initializing", self.config["endpoint_name"], self.config)
+        logger.debug("config=<%s> | initializing", self.config)
 
-        default_region = "us-west-2"
         session = boto_session or boto3.Session(
-            region_name=default_region,
+            region_name=region_name,
         )
         self.client = session.client(
             service_name="sagemaker-runtime",
@@ -135,11 +132,14 @@ class SageMakerAIModel(Model):
                 return {"role": message["role"], "content": content["text"]}
 
             if "image" in content:
-                # Convert bytes to base64 string for JSON serialization
-                image_bytes = content["image"]["source"]["bytes"]
-                if isinstance(image_bytes, bytes):
-                    image_bytes = image_bytes.decode('utf-8') if isinstance(image_bytes, bytes) else image_bytes
-                return {"role": message["role"], "images": [image_bytes]}
+                mime_type = mimetypes.types_map.get(f".{content['image']['format']}", "application/octet-stream")
+                image_data = base64.b64encode(content["image"]["source"]["bytes"]).decode("utf-8")
+                return {
+                    "image_url": {
+                        "url": f"data:{mime_type};base64,{image_data}",
+                    },
+                    "type": "image_url",
+                }
 
             if "toolUse" in content:
                 return {
