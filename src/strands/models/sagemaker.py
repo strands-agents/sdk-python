@@ -3,22 +3,19 @@
 - Docs: https://aws.amazon.com/sagemaker-ai/
 """
 
-import base64
 import json
 import logging
-import mimetypes
 import uuid
 from typing import Any, Iterable, Optional, TypedDict, Union
 
-from typing_extensions import Unpack, override
-
 import boto3
 from botocore.config import Config as BotocoreConfig
+from typing_extensions import Unpack, override
 
-from strands.types.content import Messages, Message, ContentBlock
+from strands.types.content import ContentBlock, Message, Messages
 from strands.types.media import DocumentContent, ImageContent
 from strands.types.models import Model
-from strands.types.streaming import StreamEvent, StopReason
+from strands.types.streaming import StopReason, StreamEvent
 from strands.types.tools import ToolSpec
 
 logger = logging.getLogger(__name__)
@@ -35,7 +32,7 @@ class SageMakerAIModel(Model):
     - Endpoint not found error handling
     - Inference component capacity error handling with automatic retries
     """
-    
+
     class ModelConfig(TypedDict, total=False):
         """Configuration options for SageMaker models.
 
@@ -48,6 +45,7 @@ class SageMakerAIModel(Model):
             temperature: Controls randomness in generation (higher = more random).
             top_p: Controls diversity via nucleus sampling (alternative to temperature).
         """
+
         additional_args: Optional[dict[str, Any]]
         endpoint_name: str
         inference_component_name: Optional[str]
@@ -64,7 +62,7 @@ class SageMakerAIModel(Model):
         boto_session: Optional[boto3.Session] = None,
         boto_client_config: Optional[BotocoreConfig] = None,
         region_name: Optional[str] = None,
-        **model_config: Unpack["SageMakerAIModel.ModelConfig"],
+        **model_config: Unpack[ModelConfig],
     ):
         """Initialize provider instance.
 
@@ -73,26 +71,104 @@ class SageMakerAIModel(Model):
             inference_component_name: The name of the inference component to use.
             boto_session: Boto Session to use when calling the SageMaker Runtime.
             boto_client_config: Configuration to use when creating the SageMaker-Runtime Boto Client.
-            retry_attempts: Number of retry attempts for capacity errors (default: 3).
-            retry_delay: Delay in seconds between retry attempts (default: 30).
+            region_name: AWS region name to use for the SageMaker Runtime client.
             **model_config: Model parameters for the SageMaker request payload.
         """
         self.config = SageMakerAIModel.ModelConfig(
-            endpoint_name=endpoint_name,
-            inference_component_name=inference_component_name
+            endpoint_name=endpoint_name, inference_component_name=inference_component_name
         )
         self.update_config(**model_config)
 
-        # logger.debug("endpoint=%s, config=%s | initializing", self.config["endpoint_name"], self.config)
         logger.debug("config=<%s> | initializing", self.config)
 
-        session = boto_session or boto3.Session(
-            region_name=region_name,
-        )
+        if boto_session:
+            session = boto_session
+        elif region_name:
+            session = boto3.Session(region_name=region_name)
+        else:
+            session = boto3.Session()
+
         self.client = session.client(
             service_name="sagemaker-runtime",
             config=boto_client_config,
         )
+
+    def _format_message(self, message: Message, content: ContentBlock) -> dict[str, Any]:
+        """Format a message content block for SageMaker API.
+
+        Args:
+            message: The message containing the content.
+            content: The content block to format.
+
+        Returns:
+            Formatted message for SageMaker API.
+        """
+        if "text" in content:
+            return {"role": message["role"], "content": content["text"]}
+
+        if "image" in content:
+            # Convert bytes to base64 string for JSON serialization
+            image_bytes = content["image"]["source"]["bytes"]
+            image_bytes = image_bytes.decode("utf-8") if isinstance(image_bytes, bytes) else image_bytes
+            return {"role": message["role"], "images": [image_bytes]}
+
+        if "toolUse" in content:
+            return {
+                "role": "assistant",
+                "tool_calls": [
+                    {
+                        "id": content["toolUse"]["toolUseId"],
+                        "type": "function",
+                        "function": {
+                            "name": content["toolUse"]["name"],
+                            "arguments": json.dumps(content["toolUse"]["input"]),
+                        },
+                    }
+                ],
+            }
+
+        if "toolResult" in content:
+            result_content: Union[str, ImageContent, DocumentContent, Any] = None
+            result_images = []
+            for toolResultContent in content["toolResult"]["content"]:
+                if "text" in toolResultContent:
+                    result_content = toolResultContent["text"]
+                elif "json" in toolResultContent:
+                    result_content = toolResultContent["json"]
+                elif "image" in toolResultContent:
+                    result_content = "see images"
+                    # Convert bytes to base64 string for JSON serialization
+                    image_bytes = toolResultContent["image"]["source"]["bytes"]
+                    image_bytes = image_bytes.decode("utf-8") if isinstance(image_bytes, bytes) else image_bytes
+                    result_images.append(image_bytes)
+                else:
+                    result_content = content["toolResult"]["content"]
+
+            return {
+                "role": "tool",
+                "name": content["toolResult"]["toolUseId"],
+                "tool_call_id": content["toolResult"]["toolUseId"],
+                "content": json.dumps(
+                    {
+                        "result": result_content,
+                        "status": content["toolResult"]["status"],
+                    }
+                ),
+                **({"images": result_images} if result_images else {}),
+            }
+
+        return {"role": message["role"], "content": json.dumps(content)}
+
+    def _format_messages(self, messages: Messages) -> list[dict[str, Any]]:
+        """Format all messages for SageMaker API.
+
+        Args:
+            messages: List of messages to format.
+
+        Returns:
+            List of formatted messages.
+        """
+        return [self._format_message(message, content) for message in messages for content in message["content"]]
 
     @override
     def update_config(self, **model_config: Unpack[ModelConfig]) -> None:  # type: ignore
@@ -108,7 +184,7 @@ class SageMakerAIModel(Model):
         """Get the SageMaker AI Model configuration.
 
         Returns:
-            The Bedrok model configuration.
+            The SageMaker model configuration.
         """
         return self.config
 
@@ -126,73 +202,7 @@ class SageMakerAIModel(Model):
         Returns:
             An SageMaker AI chat streaming request.
         """
-
-        def format_message(message: Message, content: ContentBlock) -> dict[str, Any]:
-            if "text" in content:
-                return {"role": message["role"], "content": content["text"]}
-
-            if "image" in content:
-                mime_type = mimetypes.types_map.get(f".{content['image']['format']}", "application/octet-stream")
-                image_data = base64.b64encode(content["image"]["source"]["bytes"]).decode("utf-8")
-                return {
-                    "image_url": {
-                        "url": f"data:{mime_type};base64,{image_data}",
-                    },
-                    "type": "image_url",
-                }
-
-            if "toolUse" in content:
-                return {
-                    "role": "assistant",
-                    "tool_calls": [
-                        {
-                            'id': content["toolUse"]["toolUseId"],
-                            'type':'function',
-                            "function": {
-                                "name": content["toolUse"]["name"],
-                                "arguments": json.dumps(content["toolUse"]["input"]),
-                            }
-                        }
-                    ],
-                }
-
-            if "toolResult" in content:
-                result_content: Union[str, ImageContent, DocumentContent, Any] = None
-                result_images = []
-                for toolResultContent in content["toolResult"]["content"]:
-                    if "text" in toolResultContent:
-                        result_content = toolResultContent["text"]
-                    elif "json" in toolResultContent:
-                        result_content = toolResultContent["json"]
-                    elif "image" in toolResultContent:
-                        result_content = "see images"
-                        # Convert bytes to base64 string for JSON serialization
-                        image_bytes = toolResultContent["image"]["source"]["bytes"]
-                        if isinstance(image_bytes, bytes):
-                            image_bytes = image_bytes.decode('utf-8')
-                        result_images.append(image_bytes)
-                    else:
-                        result_content = content["toolResult"]["content"]
-                
-                return {
-                    "role": "tool",
-                    "name": content["toolResult"]["toolUseId"],
-                    "tool_call_id": content["toolResult"]["toolUseId"],
-                    "content": json.dumps(
-                        {
-                            "result": result_content,
-                            "status": content["toolResult"]["status"],
-                        }
-                    ),
-                    **({"images": result_images} if result_images else {}),
-                }
-
-            return {"role": message["role"], "content": json.dumps(content)}
-
-        def format_messages() -> list[dict[str, Any]]:
-            return [format_message(message, content) for message in messages for content in message["content"]]
-
-        formatted_messages = format_messages()
+        formatted_messages = self._format_messages(messages)
 
         payload = {
             "messages": [
@@ -227,9 +237,9 @@ class SageMakerAIModel(Model):
             try:
                 if message["content"] is None or message["content"] == "":
                     message["content"] = "Thinking ..."
-                if message['role'] == 'assistant' and message['content']=='Thinking...\n':
-                    continue    
-            except:
+                if message["role"] == "assistant" and message["content"] == "Thinking...\n":
+                    continue
+            except KeyError:
                 pass
             messages_new.append(message)
         payload["messages"] = messages_new
@@ -241,11 +251,11 @@ class SageMakerAIModel(Model):
             "ContentType": "application/json",
             "Accept": "application/json",
         }
-        
+
         # Add InferenceComponentName if provided
         if self.config.get("inference_component_name"):
             request["InferenceComponentName"] = self.config["inference_component_name"]
-        
+
         return request
 
     @override
@@ -269,7 +279,7 @@ class SageMakerAIModel(Model):
             if event["data_type"] == "text":
                 return {"contentBlockStart": {"start": {}}}
             # Random string of 9 alphanumerical characters
-            tool_id = ''.join(uuid.uuid4().hex[:9])
+            tool_id = "".join(uuid.uuid4().hex[:9])
             tool_name = event["data"]["function"]["name"]
             return {"contentBlockStart": {"start": {"toolUse": {"name": tool_name, "toolUseId": tool_id}}}}
 
@@ -306,7 +316,7 @@ class SageMakerAIModel(Model):
                 },
             }
         else:
-            raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
+            raise RuntimeError(f"chunk_type=<{event['chunk_type']}> | unknown type")
 
     @override
     def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
@@ -329,10 +339,10 @@ class SageMakerAIModel(Model):
         # Wait until all the answer has been streamed
         final_response = ""
         for event in response["Body"]:
-            chunk_data = event['PayloadPart']['Bytes'].decode("utf-8")
+            chunk_data = event["PayloadPart"]["Bytes"].decode("utf-8")
             final_response += chunk_data
         final_response_json = json.loads(final_response)
-        
+
         # send messages for tool execution
         tool_requested = False
         message = final_response_json["choices"][0]["message"]
@@ -348,5 +358,8 @@ class SageMakerAIModel(Model):
 
         # Close the message
         yield {"chunk_type": "content_stop", "data_type": "text"}
-        yield {"chunk_type": "message_stop", "data": "tool_use" if tool_requested else final_response_json["choices"][0]["finish_reason"]}
+        yield {
+            "chunk_type": "message_stop",
+            "data": "tool_use" if tool_requested else final_response_json["choices"][0]["finish_reason"],
+        }
         yield {"chunk_type": "metadata", "data": final_response_json["usage"]}

@@ -4,16 +4,13 @@ import strands
 from strands import Agent
 from strands.models.sagemaker import SageMakerAIModel
 
-import boto3
+ENDPOINT_NAME = "mistral-small-2501-sm-js"
+REGION_NAME = "us-east-1"
 
 
 @pytest.fixture
-def model(endpoint_name: str):
-    return SageMakerAIModel(
-        endpoint_name=endpoint_name,
-        boto_session=boto3.Session(region_name="us-east-1"),
-        max_tokens=1024
-    )
+def model():
+    return SageMakerAIModel(endpoint_name=ENDPOINT_NAME, region_name=REGION_NAME, max_tokens=1024)
 
 
 @pytest.fixture
