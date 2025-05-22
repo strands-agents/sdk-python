@@ -10,7 +10,7 @@ REGION_NAME = "us-east-1"
 
 @pytest.fixture
 def model():
-    return SageMakerAIModel(endpoint_name=ENDPOINT_NAME, region_name=REGION_NAME, max_tokens=1024)
+    return SageMakerAIModel(endpoint_name=ENDPOINT_NAME, region_name=REGION_NAME)
 
 
 @pytest.fixture

@@ -5,18 +5,17 @@
 
 import json
 import logging
-import uuid
-from typing import Any, Iterable, Optional, TypedDict, Union
+import mimetypes
+from typing import Any, Iterable, Optional, TypedDict
 
 import boto3
 from botocore.config import Config as BotocoreConfig
 from typing_extensions import Unpack, override
 
-from strands.types.content import ContentBlock, Message, Messages
-from strands.types.media import DocumentContent, ImageContent
-from strands.types.models import Model
-from strands.types.streaming import StopReason, StreamEvent
-from strands.types.tools import ToolSpec
+from ..types.content import ContentBlock, Messages
+from ..types.models import Model
+from ..types.streaming import StreamEvent
+from ..types.tools import ToolResult, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -93,83 +92,6 @@ class SageMakerAIModel(Model):
             config=boto_client_config,
         )
 
-    def _format_message(self, message: Message, content: ContentBlock) -> dict[str, Any]:
-        """Format a message content block for SageMaker API.
-
-        Args:
-            message: The message containing the content.
-            content: The content block to format.
-
-        Returns:
-            Formatted message for SageMaker API.
-        """
-        if "text" in content:
-            return {"role": message["role"], "content": content["text"]}
-
-        if "image" in content:
-            # Convert bytes to base64 string for JSON serialization
-            image_bytes = content["image"]["source"]["bytes"]
-            image_bytes = image_bytes.decode("utf-8") if isinstance(image_bytes, bytes) else image_bytes
-            return {"role": message["role"], "images": [image_bytes]}
-
-        if "toolUse" in content:
-            return {
-                "role": "assistant",
-                "tool_calls": [
-                    {
-                        "id": content["toolUse"]["toolUseId"],
-                        "type": "function",
-                        "function": {
-                            "name": content["toolUse"]["name"],
-                            "arguments": json.dumps(content["toolUse"]["input"]),
-                        },
-                    }
-                ],
-            }
-
-        if "toolResult" in content:
-            result_content: Union[str, ImageContent, DocumentContent, Any] = None
-            result_images = []
-            for toolResultContent in content["toolResult"]["content"]:
-                if "text" in toolResultContent:
-                    result_content = toolResultContent["text"]
-                elif "json" in toolResultContent:
-                    result_content = toolResultContent["json"]
-                elif "image" in toolResultContent:
-                    result_content = "see images"
-                    # Convert bytes to base64 string for JSON serialization
-                    image_bytes = toolResultContent["image"]["source"]["bytes"]
-                    image_bytes = image_bytes.decode("utf-8") if isinstance(image_bytes, bytes) else image_bytes
-                    result_images.append(image_bytes)
-                else:
-                    result_content = content["toolResult"]["content"]
-
-            return {
-                "role": "tool",
-                "name": content["toolResult"]["toolUseId"],
-                "tool_call_id": content["toolResult"]["toolUseId"],
-                "content": json.dumps(
-                    {
-                        "result": result_content,
-                        "status": content["toolResult"]["status"],
-                    }
-                ),
-                **({"images": result_images} if result_images else {}),
-            }
-
-        return {"role": message["role"], "content": json.dumps(content)}
-
-    def _format_messages(self, messages: Messages) -> list[dict[str, Any]]:
-        """Format all messages for SageMaker API.
-
-        Args:
-            messages: List of messages to format.
-
-        Returns:
-            List of formatted messages.
-        """
-        return [self._format_message(message, content) for message in messages for content in message["content"]]
-
     @override
     def update_config(self, **model_config: Unpack[ModelConfig]) -> None:  # type: ignore
         """Update the SageMaker AI Model configuration with the provided arguments.
@@ -188,11 +110,133 @@ class SageMakerAIModel(Model):
         """
         return self.config
 
+    def _format_request_message_content(self, content: ContentBlock) -> dict[str, Any]:
+        """Format a SageMaker content block.
+
+        Args:
+            content: Message content.
+
+        Returns:
+            SageMaker formatted content block.
+        """
+        if "image" in content:
+            mime_type = mimetypes.types_map.get(f".{content['image']['format']}", "application/octet-stream")
+            image_data = content["image"]["source"]["bytes"].decode("utf-8")
+            return {
+                "image_url": {
+                    "detail": "auto",
+                    "format": mime_type,
+                    "url": f"data:{mime_type};base64,{image_data}",
+                },
+                "type": "image_url",
+            }
+
+        if "reasoningContent" in content:
+            return {
+                "signature": content["reasoningContent"]["reasoningText"]["signature"],
+                "thinking": content["reasoningContent"]["reasoningText"]["text"],
+                "type": "thinking",
+            }
+
+        if "text" in content:
+            return {"text": content["text"], "type": "text"}
+
+        if "video" in content:
+            return {
+                "type": "video_url",
+                "video_url": {
+                    "detail": "auto",
+                    "url": content["video"]["source"]["bytes"],
+                },
+            }
+
+        return {"text": json.dumps(content), "type": "text"}
+
+    def _format_request_message_tool_call(self, tool_use: ToolUse) -> dict[str, Any]:
+        """Format a SageMaker tool call.
+
+        Args:
+            tool_use: Tool use requested by the model.
+
+        Returns:
+            SageMaker formatted tool call.
+        """
+        return {
+            "function": {
+                "arguments": json.dumps(tool_use["input"]),
+                "name": tool_use["name"],
+            },
+            "id": tool_use["toolUseId"],
+            "type": "function",
+        }
+
+    def _format_request_tool_message(self, tool_result: ToolResult) -> dict[str, Any]:
+        """Format a SageMaker tool message.
+
+        Args:
+            tool_result: Tool result collected from a tool execution.
+
+        Returns:
+            SageMaker formatted tool message.
+        """
+        return {
+            "role": "tool",
+            "tool_call_id": tool_result["toolUseId"],
+            "content": json.dumps(
+                {
+                    "content": tool_result["content"],
+                    "status": tool_result["status"],
+                }
+            ),
+        }
+
+    def _format_request_messages(self, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+        """Format a SageMaker messages array.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            system_prompt: System prompt to provide context to the model.
+
+        Returns:
+            A SageMaker messages array.
+        """
+        formatted_messages: list[dict[str, Any]]
+        formatted_messages = [{"role": "system", "content": system_prompt}] if system_prompt else []
+
+        for message in messages:
+            contents = message["content"]
+
+            formatted_contents = [
+                self._format_request_message_content(content)
+                for content in contents
+                if not any(block_type in content for block_type in ["toolResult", "toolUse"])
+            ]
+            formatted_tool_calls = [
+                self._format_request_message_tool_call(content["toolUse"])
+                for content in contents
+                if "toolUse" in content
+            ]
+            formatted_tool_messages = [
+                self._format_request_tool_message(content["toolResult"])
+                for content in contents
+                if "toolResult" in content
+            ]
+
+            formatted_message = {
+                "role": message["role"],
+                "content": formatted_contents,
+                **({"tool_calls": formatted_tool_calls} if formatted_tool_calls else {}),
+            }
+            formatted_messages.append(formatted_message)
+            formatted_messages.extend(formatted_tool_messages)
+
+        return [message for message in formatted_messages if message["content"] or "tool_calls" in message]
+
     @override
     def format_request(
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
     ) -> dict[str, Any]:
-        """Format an SageMaker AI chat streaming request.
+        """Format a SageMaker chat streaming request.
 
         Args:
             messages: List of message objects to be processed by the model.
@@ -200,15 +244,13 @@ class SageMakerAIModel(Model):
             system_prompt: System prompt to provide context to the model.
 
         Returns:
-            An SageMaker AI chat streaming request.
+            A SageMaker chat streaming request.
         """
-        formatted_messages = self._format_messages(messages)
-
-        payload = {
-            "messages": [
-                *([{"role": "system", "content": system_prompt}] if system_prompt else []),
-                *formatted_messages,
-            ],
+        return {
+            "messages": self._format_request_messages(messages, system_prompt),
+            "model": "lmi",
+            "stream": True,
+            # "stream_options": {"include_usage": True},
             "tools": [
                 {
                     "type": "function",
@@ -220,9 +262,10 @@ class SageMakerAIModel(Model):
                 }
                 for tool_spec in tool_specs or []
             ],
-            **({"max_tokens": self.config["max_tokens"]} if "max_tokens" in self.config else {}),
-            **({"temperature": self.config["temperature"]} if "temperature" in self.config else {}),
-            **({"top_p": self.config["top_p"]} if "top_p" in self.config else {}),
+            # **(self.config.get("params") or {}),
+            **({"max_tokens": self.config["max_tokens"] if "max_tokens" in self.config else 2048}),
+            **({"temperature": self.config["temperature"] if "temperature" in self.config else 0.1}),
+            **({"top_p": self.config["top_p"] if "top_p" in self.config else 0.1}),
             **({"stop": self.config["stop_sequences"]} if "stop_sequences" in self.config else {}),
             **(
                 self.config["additional_args"]
@@ -230,33 +273,6 @@ class SageMakerAIModel(Model):
                 else {}
             ),
         }
-
-        # In the payload messages, make sure no message has content empty or None. If so, replace with "Thinking ..."
-        messages_new = []
-        for message in payload["messages"]:
-            try:
-                if message["content"] is None or message["content"] == "":
-                    message["content"] = "Thinking ..."
-                if message["role"] == "assistant" and message["content"] == "Thinking...\n":
-                    continue
-            except KeyError:
-                pass
-            messages_new.append(message)
-        payload["messages"] = messages_new
-
-        # Format the request according to the SageMaker Runtime API requirements
-        request = {
-            "EndpointName": self.config["endpoint_name"],
-            "Body": json.dumps(payload),
-            "ContentType": "application/json",
-            "Accept": "application/json",
-        }
-
-        # Add InferenceComponentName if provided
-        if self.config.get("inference_component_name"):
-            request["InferenceComponentName"] = self.config["inference_component_name"]
-
-        return request
 
     @override
     def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
@@ -272,51 +288,61 @@ class SageMakerAIModel(Model):
             RuntimeError: If chunk_type is not recognized.
                 This error should never be encountered as we control chunk_type in the stream method.
         """
-        if event["chunk_type"] == "message_start":
-            return {"messageStart": {"role": "assistant"}}
+        match event["chunk_type"]:
+            case "message_start":
+                return {"messageStart": {"role": "assistant"}}
 
-        elif event["chunk_type"] == "content_start":
-            if event["data_type"] == "text":
+            case "content_start":
+                if event["data_type"] == "tool":
+                    return {
+                        "contentBlockStart": {
+                            "start": {
+                                "toolUse": {
+                                    "name": event["data"]["function"]["name"],
+                                    "toolUseId": event["data"]["id"],
+                                }
+                            }
+                        }
+                    }
+
                 return {"contentBlockStart": {"start": {}}}
-            # Random string of 9 alphanumerical characters
-            tool_id = "".join(uuid.uuid4().hex[:9])
-            tool_name = event["data"]["function"]["name"]
-            return {"contentBlockStart": {"start": {"toolUse": {"name": tool_name, "toolUseId": tool_id}}}}
 
-        elif event["chunk_type"] == "content_delta":
-            if event["data_type"] == "text":
+            case "content_delta":
+                if event["data_type"] == "tool":
+                    return {
+                        "contentBlockDelta": {"delta": {"toolUse": {"input": event["data"]["function"]["arguments"]}}}
+                    }
+
                 return {"contentBlockDelta": {"delta": {"text": event["data"]}}}
 
-            tool_arguments = event["data"]["function"]["arguments"]
-            return {"contentBlockDelta": {"delta": {"toolUse": {"input": tool_arguments}}}}
+            case "content_stop":
+                return {"contentBlockStop": {}}
 
-        elif event["chunk_type"] == "content_stop":
-            return {"contentBlockStop": {}}
+            case "message_stop":
+                match event["data"]:
+                    case "tool_calls":
+                        return {"messageStop": {"stopReason": "tool_use"}}
+                    case "length":
+                        return {"messageStop": {"stopReason": "max_tokens"}}
+                    case _:
+                        return {"messageStop": {"stopReason": "end_turn"}}
 
-        elif event["chunk_type"] == "message_stop":
-            reason: StopReason
-            if event["data"] == "tool_use":
-                reason = "tool_use"
-            elif event["data"] == "length":
-                reason = "max_tokens"
-            else:
-                reason = "end_turn"
-
-            return {"messageStop": {"stopReason": reason}}
-
-        elif event["chunk_type"] == "metadata":
-            return {
-                "metadata": {
-                    "usage": {
-                        "inputTokens": event["data"]["prompt_tokens"],
-                        "outputTokens": event["data"]["completion_tokens"],
-                        "totalTokens": event["data"]["total_tokens"],
+            case "metadata":
+                return {
+                    "metadata": {
+                        "usage": {
+                            "inputTokens": event["data"]["prompt_tokens"],
+                            "outputTokens": event["data"]["completion_tokens"],
+                            "totalTokens": event["data"]["total_tokens"],
+                        },
+                        "metrics": {
+                            "latencyMs": 0,  # TODO
+                        },
                     },
-                    "metrics": {"latencyMs": 0},
-                },
-            }
-        else:
-            raise RuntimeError(f"chunk_type=<{event['chunk_type']}> | unknown type")
+                }
+
+            case _:
+                raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
     @override
     def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
@@ -330,36 +356,75 @@ class SageMakerAIModel(Model):
         Returns:
             An iterable of response events from the SageMaker AI model.
         """
-        response = self.client.invoke_endpoint_with_response_stream(**request)
+        # Format the request according to the SageMaker Runtime API requirements
+        # Delete content key-value from request["messages"] if content == []
+        for message in request["messages"]:
+            if "content" in message and message["content"] == [] and message["role"] == "assistant":
+                del message["content"]
+        payload = {
+            "EndpointName": self.config["endpoint_name"],
+            "Body": json.dumps(request),
+            "ContentType": "application/json",
+            "Accept": "application/json",
+        }
+
+        # Add InferenceComponentName if provided
+        if self.config.get("inference_component_name"):
+            payload["InferenceComponentName"] = self.config["inference_component_name"]
+
+        # Invoke with streaming
+        response = self.client.invoke_endpoint_with_response_stream(**payload)
 
         # Message start
         yield {"chunk_type": "message_start"}
         yield {"chunk_type": "content_start", "data_type": "text"}
 
-        # Wait until all the answer has been streamed
-        final_response = ""
+        tool_calls: dict[int, list[Any]] = {}
+        data = ""
+
         for event in response["Body"]:
-            chunk_data = event["PayloadPart"]["Bytes"].decode("utf-8")
-            final_response += chunk_data
-        final_response_json = json.loads(final_response)
+            try:
+                chunk_data = event["PayloadPart"]["Bytes"].decode("utf-8")
+                chunk_json = json.loads(chunk_data)
+            except json.JSONDecodeError:
+                data += chunk_data
+                try:
+                    chunk_json = json.loads(data)
+                    data = ""
+                except json.JSONDecodeError:
+                    continue
 
-        # send messages for tool execution
-        tool_requested = False
-        message = final_response_json["choices"][0]["message"]
-        for tool_call in message["tool_calls"] or []:
-            yield {"chunk_type": "content_start", "data_type": "tool", "data": tool_call}
-            yield {"chunk_type": "content_delta", "data_type": "tool", "data": tool_call}
-            yield {"chunk_type": "content_stop", "data_type": "tool", "data": tool_call}
-            tool_requested = True
+            choice = chunk_json["choices"][0]
 
-        if message["content"] == "" or message["content"] is None:
-            message["content"] = "Thinking...\n"
-        yield {"chunk_type": "content_delta", "data_type": "text", "data": message["content"]}
+            if choice["finish_reason"]:
+                break
 
-        # Close the message
+            content = choice["delta"].get("content", None)
+            if content:
+                yield {"chunk_type": "content_delta", "data_type": "text", "data": content}
+
+            delta_tool_calls = choice["delta"].get("tool_calls", [])
+            if delta_tool_calls:
+                for tool_call in delta_tool_calls:
+                    tool_calls.setdefault(tool_call["index"], []).append(tool_call)
+
         yield {"chunk_type": "content_stop", "data_type": "text"}
-        yield {
-            "chunk_type": "message_stop",
-            "data": "tool_use" if tool_requested else final_response_json["choices"][0]["finish_reason"],
-        }
-        yield {"chunk_type": "metadata", "data": final_response_json["usage"]}
+
+        for tool_deltas in tool_calls.values():
+            logger.warning(tool_deltas)
+            tool_start, tool_deltas = tool_deltas[0], tool_deltas[1:]
+            yield {"chunk_type": "content_start", "data_type": "tool", "data": tool_start}
+
+            for tool_delta in tool_deltas:
+                yield {"chunk_type": "content_delta", "data_type": "tool", "data": tool_delta}
+
+            yield {"chunk_type": "content_stop", "data_type": "tool"}
+
+        yield {"chunk_type": "message_stop", "data": choice["finish_reason"]}
+
+        # # Skip remaining events as we don't have use for anything except the final usage payload
+        # for event in response['Body']:
+        #     logger.warning(f"Final events: {event["PayloadPart"]["Bytes"].decode("utf-8")}")
+        #     _ = event
+
+        # yield {"chunk_type": "metadata", "data": event["usage"]}
