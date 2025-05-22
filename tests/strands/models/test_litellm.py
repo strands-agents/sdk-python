@@ -62,6 +62,7 @@ def test_update_config(model, model_id):
 @pytest.mark.parametrize(
     "content, exp_result",
     [
+        # Case 1: Thinking
         (
             {
                 "reasoningContent": {
@@ -77,6 +78,7 @@ def test_update_config(model, model_id):
                 "type": "thinking",
             },
         ),
+        # Case 2: Video
         (
             {
                 "video": {
@@ -91,6 +93,7 @@ def test_update_config(model, model_id):
                 },
             },
         ),
+        # Case 3: Text
         (
             {"text": "hello"},
             {"type": "text", "text": "hello"},

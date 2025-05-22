@@ -62,6 +62,7 @@ def system_prompt():
 @pytest.mark.parametrize(
     "content, exp_result",
     [
+        # Case 1: Image
         (
             {
                 "image": {
@@ -78,10 +79,12 @@ def system_prompt():
                 "type": "image_url",
             },
         ),
+        # Case 2: Text
         (
             {"text": "hello"},
             {"type": "text", "text": "hello"},
         ),
+        # Case 3: Other
         (
             {"other": {"a": 1}},
             {
@@ -243,10 +246,12 @@ def test_format_request(model, messages, tool_specs, system_prompt):
 @pytest.mark.parametrize(
     ("event", "exp_chunk"),
     [
+        # Case 1: Message start
         (
             {"chunk_type": "message_start"},
             {"messageStart": {"role": "assistant"}},
         ),
+        # Case 2: Content Start - Tool Use
         (
             {
                 "chunk_type": "content_start",
@@ -255,10 +260,12 @@ def test_format_request(model, messages, tool_specs, system_prompt):
             },
             {"contentBlockStart": {"start": {"toolUse": {"name": "calculator", "toolUseId": "c1"}}}},
         ),
+        # Case 3: Content Start - Text
         (
             {"chunk_type": "content_start", "data_type": "text"},
             {"contentBlockStart": {"start": {}}},
         ),
+        # Case 4: Content Delta - Tool Use
         (
             {
                 "chunk_type": "content_delta",
@@ -267,26 +274,32 @@ def test_format_request(model, messages, tool_specs, system_prompt):
             },
             {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}}},
         ),
+        # Case 5: Content Delta - Text
         (
             {"chunk_type": "content_delta", "data_type": "text", "data": "hello"},
             {"contentBlockDelta": {"delta": {"text": "hello"}}},
         ),
+        # Case 6: Content Stop
         (
             {"chunk_type": "content_stop"},
             {"contentBlockStop": {}},
         ),
+        # Case 7: Message Stop - Tool Use
         (
             {"chunk_type": "message_stop", "data": "tool_calls"},
             {"messageStop": {"stopReason": "tool_use"}},
         ),
+        # Case 8: Message Stop - Max Tokens
         (
             {"chunk_type": "message_stop", "data": "length"},
             {"messageStop": {"stopReason": "max_tokens"}},
         ),
+        # Case 9: Message Stop - End Turn
         (
             {"chunk_type": "message_stop", "data": "stop"},
             {"messageStop": {"stopReason": "end_turn"}},
         ),
+        # Case 10: Metadata
         (
             {
                 "chunk_type": "metadata",
