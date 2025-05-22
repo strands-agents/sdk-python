@@ -8,13 +8,14 @@ version = "0.1.3"
 description = "A model-driven approach to building AI agents in just a few lines of code"
 readme = "README.md"
 requires-python = ">=3.10"
-license = "Apache-2.0"
+license = {text = "Apache-2.0"}
 authors = [
     {name = "AWS", email = "opensource@amazon.com"},
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -90,30 +91,11 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 warn_no_return = true
 warn_unreachable = true
-ignore_missing_imports = true
+follow_untyped_imports = true
+ignore_missing_imports = false
 
 [[tool.mypy.overrides]]
 module = "litellm"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "anthropic"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "ollama"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "llama_api_client"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "boto3"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "botocore.*"
 ignore_missing_imports = true
 
 [tool.ruff]

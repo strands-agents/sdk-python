@@ -67,15 +67,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
-        run: |
-          uv venv
-          source .venv/bin/activate || . .venv/Scripts/activate
-          uv pip install -e ".[dev,anthropic,litellm,llamaapi,ollama]" --prerelease=allow
+        run: uv sync --locked --extra dev --extra anthropic --extra litellm --extra llamaapi --extra ollama
       - name: Run Unit tests
         id: tests
-        run: |
-          source .venv/bin/activate || . .venv/Scripts/activate
-          python scripts/test.py
+        run: uvx pytest --cov --cov-config=pyproject.toml
         continue-on-error: false
   lint:
     name: Lint
@@ -89,25 +84,20 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.7.6"
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
 
-      - name: Install uv
-        run: |
-          pip install uv
-
       - name: Install dependencies
-        run: |
-          uv venv
-          source .venv/bin/activate
-          uv pip install -e ".[dev,anthropic,litellm,llamaapi,ollama]" --prerelease=allow
-
+        run: uv sync --locked --extra dev
       - name: Run lint
         id: lint
         run: |
-          source .venv/bin/activate
-          python scripts/lint.py
+          uvx ruff check
         continue-on-error: false
