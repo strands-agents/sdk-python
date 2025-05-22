@@ -5,7 +5,6 @@ import textwrap
 import unittest.mock
 
 import pytest
-
 import strands
 from strands.tools.loader import ToolLoader
 from strands.tools.tools import FunctionTool, PythonAgentTool

@@ -3,7 +3,6 @@ import unittest.mock
 from unittest.mock import MagicMock, call, patch
 
 import pytest
-
 import strands
 import strands.telemetry
 from strands.handlers.tool_handler import AgentToolHandler

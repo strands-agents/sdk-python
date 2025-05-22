@@ -5,7 +5,6 @@ Tests for the SDK tool watcher module.
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from strands.tools.registry import ToolRegistry
 from strands.tools.watcher import ToolWatcher
 

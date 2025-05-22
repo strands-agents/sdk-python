@@ -1,5 +1,4 @@
 import pytest
-
 import strands
 from strands.tools.tools import (
     FunctionTool,

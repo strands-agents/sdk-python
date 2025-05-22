@@ -7,7 +7,6 @@ These tests ensure the basic print-based callback handler in the SDK functions c
 import unittest.mock
 
 import pytest
-
 from strands.handlers.callback_handler import CompositeCallbackHandler, PrintingCallbackHandler
 
 

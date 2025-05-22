@@ -6,7 +6,6 @@ from mcp import ListToolsResult
 from mcp.types import CallToolResult as MCPCallToolResult
 from mcp.types import TextContent as MCPTextContent
 from mcp.types import Tool as MCPTool
-
 from strands.tools.mcp import MCPClient
 from strands.types.exceptions import MCPClientInitializationError
 

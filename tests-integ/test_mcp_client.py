@@ -7,7 +7,6 @@ from mcp import StdioServerParameters, stdio_client
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamablehttp_client
 from mcp.types import ImageContent as MCPImageContent
-
 from strands import Agent
 from strands.tools.mcp.mcp_client import MCPClient
 from strands.tools.mcp.mcp_types import MCPTransport

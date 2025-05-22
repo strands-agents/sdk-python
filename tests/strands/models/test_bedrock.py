@@ -3,9 +3,8 @@ import unittest.mock
 
 import boto3
 import pytest
-from botocore.exceptions import ClientError, EventStreamError
-
 import strands
+from botocore.exceptions import ClientError, EventStreamError
 from strands.models import BedrockModel
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID
 from strands.types.exceptions import ModelThrottledException

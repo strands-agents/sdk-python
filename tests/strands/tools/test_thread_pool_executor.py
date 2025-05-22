@@ -1,7 +1,6 @@
 import concurrent
 
 import pytest
-
 import strands
 
 

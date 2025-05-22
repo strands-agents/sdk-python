@@ -2,7 +2,6 @@ import unittest.mock
 
 import botocore
 import pytest
-
 import strands
 from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 

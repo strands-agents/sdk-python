@@ -7,7 +7,6 @@ import unittest.mock
 from time import sleep
 
 import pytest
-
 import strands
 from strands.agent.agent import Agent
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager

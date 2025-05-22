@@ -1,7 +1,6 @@
 import unittest.mock
 
 import pytest
-
 import strands
 from strands.types.streaming import (
     ContentBlockDeltaEvent,
