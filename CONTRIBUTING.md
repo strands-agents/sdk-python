@@ -33,14 +33,14 @@ This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as 
 
 1. Install development dependencies:
    ```bash
-   pip install -e ".[dev]" && pip install -e ".[litellm]
+   pip install -e ".[dev]" && pip install -e ".[litellm]"
    ```
 
 2. Set up pre-commit hooks:
    ```bash
    pre-commit install -t pre-commit -t commit-msg
    ```
-   This will automatically run formatters and convention commit checks on your code before each commit.
+   This will automatically run formatters and conventional commit checks on your code before each commit.
 
 3. Run code formatters manually:
    ```bash

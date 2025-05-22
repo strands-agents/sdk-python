@@ -40,7 +40,7 @@ def validate_tool_use_name(tool: ToolUse) -> None:
     Raises:
         InvalidToolUseNameException: If the tool name is invalid.
     """
-    # We need to fix some typing here, because we dont actually expect a ToolUse, but dict[str, Any]
+    # We need to fix some typing here, because we don't actually expect a ToolUse, but dict[str, Any]
     if "name" not in tool:
         message = "tool name missing"  # type: ignore[unreachable]
         logger.warning(message)

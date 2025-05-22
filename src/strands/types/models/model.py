@@ -4,9 +4,9 @@ import abc
 import logging
 from typing import Any, Iterable, Optional
 
-from .content import Messages
-from .streaming import StreamEvent
-from .tools import ToolSpec
+from ..content import Messages
+from ..streaming import StreamEvent
+from ..tools import ToolSpec
 
 logger = logging.getLogger(__name__)
 
