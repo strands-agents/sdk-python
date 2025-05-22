@@ -41,5 +41,5 @@ def test_agent(agent):
     text = " ".join(block.get("text", "") for block in text_blocks).lower()
 
     # Assert that the tool outputs appear in the generated response text
-    assert "tool_use" in text
+    assert "tool_weather" in text
     #assert "cloudy" in text
