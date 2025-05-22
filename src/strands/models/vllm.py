@@ -1,5 +1,11 @@
+"""vLLM model provider.
+
+- Docs: https://docs.vllm.ai/en/latest/index.html
+"""
 import json
 import logging
+import re
+from collections import namedtuple
 from typing import Any, Iterable, Optional
 
 import requests
@@ -14,7 +20,20 @@ logger = logging.getLogger(__name__)
 
 
 class VLLMModel(Model):
+    """vLLM model provider implementation for OpenAI compatible /v1/chat/completions endpoint."""
+
     class VLLMConfig(TypedDict, total=False):
+        """Configuration options for vLLM models.
+
+        Attributes:
+            model_id: Model ID (e.g., "Qwen/Qwen3-4B").
+            temperature: Optional[float]
+            top_p: Optional[float]
+            max_tokens: Optional[int]
+            stop_sequences: Optional[list[str]]
+            additional_args: Optional[dict[str, Any]]
+        """
+
         model_id: str
         temperature: Optional[float]
         top_p: Optional[float]
@@ -23,16 +42,32 @@ class VLLMModel(Model):
         additional_args: Optional[dict[str, Any]]
 
     def __init__(self, host: str, **model_config: Unpack[VLLMConfig]) -> None:
+        """Initialize provider instance.
+
+        Args:
+            host: Host and port of the vLLM Inference Server
+            **model_config: Configuration options for the LiteLLM model.
+        """
         self.config = VLLMModel.VLLMConfig(**model_config)
         self.host = host.rstrip("/")
-        logger.debug("----Initializing vLLM provider with config: %s", self.config)
+        logger.debug("Initializing vLLM provider with config: %s", self.config)
 
     @override
     def update_config(self, **model_config: Unpack[VLLMConfig]) -> None:
+        """Update the vLLM model configuration with the provided arguments.
+
+        Args:
+            **model_config: Configuration overrides.
+        """
         self.config.update(model_config)
 
     @override
     def get_config(self) -> VLLMConfig:
+        """Get the vLLM model configuration.
+
+        Returns:
+            The vLLM model configuration.
+        """
         return self.config
 
     @override
@@ -42,9 +77,20 @@ class VLLMModel(Model):
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
     ) -> dict[str, Any]:
-        def format_message(message: dict[str, Any], content: dict[str, Any]) -> dict[str, Any]:
+        """Format a vLLM chat streaming request.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            tool_specs: List of tool specifications to make available to the model.
+            system_prompt: System prompt to provide context to the model.
+
+        Returns:
+            A vLLM chat streaming request.
+        """
+
+        def format_message(msg: dict[str, Any], content: dict[str, Any]) -> dict[str, Any]:
             if "text" in content:
-                return {"role": message["role"], "content": content["text"]}
+                return {"role": msg["role"], "content": content["text"]}
             if "toolUse" in content:
                 return {
                     "role": "assistant",
@@ -65,7 +111,7 @@ class VLLMModel(Model):
                     "tool_call_id": content["toolResult"]["toolUseId"],
                     "content": json.dumps(content["toolResult"]["content"]),
                 }
-            return {"role": message["role"], "content": json.dumps(content)}
+            return {"role": msg["role"], "content": json.dumps(content)}
 
         chat_messages = []
         if system_prompt:
@@ -107,32 +153,103 @@ class VLLMModel(Model):
 
     @override
     def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
-        choice = event.get("choices", [{}])[0]
+        """Format the vLLM response events into standardized message chunks.
 
-        # Streaming delta (streaming mode)
-        if "delta" in choice:
-            delta = choice["delta"]
-            if "content" in delta:
-                return {"contentBlockDelta": {"delta": {"text": delta["content"]}}}
-            if "tool_calls" in delta:
-                return {"toolCall": delta["tool_calls"][0]}
+        Args:
+            event: A response event from the vLLM model.
 
-        # Non-streaming response
-        if "message" in choice:
-            return {"contentBlockDelta": {"delta": {"text": choice["message"].get("content", "")}}}
+        Returns:
+            The formatted chunk.
 
-        # Completion stop
-        if "finish_reason" in choice:
-            return {"messageStop": {"stopReason": choice["finish_reason"] or "end_turn"}}
+        Raises:
+            RuntimeError: If chunk_type is not recognized.
+                This error should never be encountered as we control chunk_type in the stream method.
+        """
+        from collections import namedtuple
 
-        return {}
+        Function = namedtuple("Function", ["name", "arguments"])
+
+        if event.get("chunk_type") == "message_start":
+            return {"messageStart": {"role": "assistant"}}
+
+        if event.get("chunk_type") == "content_start":
+            if event["data_type"] == "text":
+                return {"contentBlockStart": {"start": {}}}
+
+            tool: Function = event["data"]
+            return {
+                "contentBlockStart": {
+                    "start": {
+                        "toolUse": {
+                            "name": tool.name,
+                            "toolUseId": tool.name,
+                        }
+                    }
+                }
+            }
+
+        if event.get("chunk_type") == "content_delta":
+            if event["data_type"] == "text":
+                return {"contentBlockDelta": {"delta": {"text": event["data"]}}}
+
+            tool: Function = event["data"]
+            return {
+                "contentBlockDelta": {
+                    "delta": {
+                        "toolUse": {
+                            "input": json.dumps(tool.arguments)  # This is already a dict
+                        }
+                    }
+                }
+            }
+
+        if event.get("chunk_type") == "content_stop":
+            return {"contentBlockStop": {}}
+
+        if event.get("chunk_type") == "message_stop":
+            reason = event["data"]
+            if reason == "tool_use":
+                return {"messageStop": {"stopReason": "tool_use"}}
+            elif reason == "length":
+                return {"messageStop": {"stopReason": "max_tokens"}}
+            else:
+                return {"messageStop": {"stopReason": "end_turn"}}
+
+        if event.get("chunk_type") == "metadata":
+            usage = event.get("data", {})
+            return {
+                "metadata": {
+                    "usage": {
+                        "inputTokens": usage.get("prompt_eval_count", 0),
+                        "outputTokens": usage.get("eval_count", 0),
+                        "totalTokens": usage.get("prompt_eval_count", 0) + usage.get("eval_count", 0),
+                    },
+                    "metrics": {
+                        "latencyMs": usage.get("total_duration", 0) / 1e6,
+                    },
+                }
+            }
+
+        raise RuntimeError(f"chunk_type=<{event.get('chunk_type')}> | unknown type")
 
     @override
     def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
-        """Stream from /v1/chat/completions, print content, and yield chunks including tool calls."""
+        """Send the request to the vLLM model and get the streaming response.
+
+        Args:
+            request: The formatted request to send to the vLLM model.
+
+        Returns:
+            An iterable of response events from the vLLM model.
+        """
+
+        Function = namedtuple("Function", ["name", "arguments"])
+
         headers = {"Content-Type": "application/json"}
         url = f"{self.host}/v1/chat/completions"
-        request["stream"] = True
+
+        accumulated_content = []
+        tool_requested = False
 
         try:
             with requests.post(url, headers=headers, data=json.dumps(request), stream=True) as response:
@@ -144,59 +261,50 @@ class VLLMModel(Model):
                 yield {"chunk_type": "content_start", "data_type": "text"}
 
                 for line in response.iter_lines(decode_unicode=True):
-                    if not line:
+                    if not line or not line.startswith("data: "):
                         continue
+                    line = line[len("data: ") :].strip()
 
-                    if line.startswith("data: "):
-                        line = line[len("data: ") :]
-
-                    if line.strip() == "[DONE]":
+                    if line == "[DONE]":
                         break
 
                     try:
-                        data = json.loads(line)
-                        delta = data.get("choices", [{}])[0].get("delta", {})
-                        content = delta.get("content", "")
-                        tool_calls = delta.get("tool_calls")
+                        event = json.loads(line)
+                        choices = event.get("choices", [])
+                        if choices:
+                            delta = choices[0].get("delta", {})
+                            content = delta.get("content")
+                            if content:
+                                accumulated_content.append(content)
 
-                        if content:
-                            print(content, end="", flush=True)
-                            yield {
-                                "chunk_type": "content_delta",
-                                "data_type": "text",
-                                "data": content,
-                            }
-
-                        if tool_calls:
-                            for tool_call in tool_calls:
-                                tool_call_id = tool_call.get("id")
-                                func = tool_call.get("function", {})
-                                tool_name = func.get("name", "")
-                                args_text = func.get("arguments", "")
-
-                                yield {
-                                    "toolCallStart": {
-                                        "toolCallId": tool_call_id,
-                                        "toolName": tool_name,
-                                        "type": "function",
-                                    }
-                                }
-                                yield {
-                                    "toolCallDelta": {
-                                        "toolCallId": tool_call_id,
-                                        "delta": {
-                                            "toolName": tool_name,
-                                            "argsText": args_text,
-                                        },
-                                    }
-                                }
+                        yield {"chunk_type": "content_delta", "data_type": "text", "data": content or ""}
 
                     except json.JSONDecodeError:
-                        logger.warning("Failed to decode streamed line: %s", line)
+                        logger.warning("Failed to parse line: %s", line)
+                        continue
 
                 yield {"chunk_type": "content_stop", "data_type": "text"}
-                yield {"chunk_type": "message_stop", "data": "end_turn"}
+
+                full_content = "".join(accumulated_content)
+
+                tool_call_blocks = re.findall(r"<tool_call>(.*?)</tool_call>", full_content, re.DOTALL)
+                for idx, block in enumerate(tool_call_blocks):
+                    try:
+                        tool_call_data = json.loads(block.strip())
+                        func = Function(name=tool_call_data["name"], arguments=tool_call_data.get("arguments", {}))
+                        func_str = f"function=Function(name='{func.name}', arguments={func.arguments})"
+
+                        yield {"chunk_type": "content_start", "data_type": "tool", "data": func}
+                        yield {"chunk_type": "content_delta", "data_type": "tool", "data": func}
+                        yield {"chunk_type": "content_stop", "data_type": "tool", "data": func}
+                        tool_requested = True
+
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to parse tool_call block #{idx}: {block}")
+                        continue
+
+                yield {"chunk_type": "message_stop", "data": "tool_use" if tool_requested else "end_turn"}
 
         except requests.RequestException as e:
-            logger.error("Request to vLLM failed: %s", str(e))
+            logger.error("Streaming request failed: %s", str(e))
             raise Exception("Failed to reach vLLM server") from e
