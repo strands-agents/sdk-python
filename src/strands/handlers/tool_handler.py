@@ -46,6 +46,7 @@ class AgentToolHandler(ToolHandler):
     def process(
         self,
         tool: Any,
+        *,
         model: Model,
         system_prompt: Optional[str],
         messages: List[Any],

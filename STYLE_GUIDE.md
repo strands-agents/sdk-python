@@ -26,7 +26,7 @@ logger.debug("field1=<%s>, field2=<%s>, ... | human readable message", field1, f
      - This is an optimization to skip string interpolation when the log level is not enabled
 
 1. **Messages**:
-   - Add human readable messages at the end of the log
+   - Add human-readable messages at the end of the log
    - Use lowercase for consistency
    - Avoid punctuation (periods, exclamation points, etc.) to reduce clutter
    - Keep messages concise and focused on a single statement

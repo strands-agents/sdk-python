@@ -315,7 +315,7 @@ class Tracer:
             "gen_ai.system": "strands-agents",
             "agent.name": agent_name,
             "gen_ai.agent.name": agent_name,
-            "gen_ai.prompt": json.dumps(messages, cls=JSONEncoder),
+            "gen_ai.prompt": serialize(messages),
         }
 
         if model_id:
@@ -338,7 +338,7 @@ class Tracer:
             error: Optional exception if the model call failed.
         """
         attributes: Dict[str, AttributeValue] = {
-            "gen_ai.completion": json.dumps(message["content"], cls=JSONEncoder),
+            "gen_ai.completion": serialize(message["content"]),
             "gen_ai.usage.prompt_tokens": usage["inputTokens"],
             "gen_ai.usage.completion_tokens": usage["outputTokens"],
             "gen_ai.usage.total_tokens": usage["totalTokens"],
@@ -360,10 +360,10 @@ class Tracer:
             The created span, or None if tracing is not enabled.
         """
         attributes: Dict[str, AttributeValue] = {
-            "gen_ai.prompt": json.dumps(tool, cls=JSONEncoder),
+            "gen_ai.prompt": serialize(tool),
             "tool.name": tool["name"],
             "tool.id": tool["toolUseId"],
-            "tool.parameters": json.dumps(tool["input"], cls=JSONEncoder),
+            "tool.parameters": serialize(tool["input"]),
         }
 
         # Add additional kwargs as attributes
@@ -387,7 +387,7 @@ class Tracer:
             status = tool_result.get("status")
             status_str = str(status) if status is not None else ""
 
-            tool_result_content_json = json.dumps(tool_result.get("content"), cls=JSONEncoder)
+            tool_result_content_json = serialize(tool_result.get("content"))
             attributes.update(
                 {
                     "tool.result": tool_result_content_json,
@@ -420,7 +420,7 @@ class Tracer:
         parent_span = parent_span if parent_span else event_loop_kwargs.get("event_loop_parent_span")
 
         attributes: Dict[str, AttributeValue] = {
-            "gen_ai.prompt": json.dumps(messages, cls=JSONEncoder),
+            "gen_ai.prompt": serialize(messages),
             "event_loop.cycle_id": event_loop_cycle_id,
         }
 
@@ -449,11 +449,11 @@ class Tracer:
             error: Optional exception if the cycle failed.
         """
         attributes: Dict[str, AttributeValue] = {
-            "gen_ai.completion": json.dumps(message["content"], cls=JSONEncoder),
+            "gen_ai.completion": serialize(message["content"]),
         }
 
         if tool_result_message:
-            attributes["tool.result"] = json.dumps(tool_result_message["content"], cls=JSONEncoder)
+            attributes["tool.result"] = serialize(tool_result_message["content"])
 
         self._end_span(span, attributes, error)
 
@@ -490,7 +490,7 @@ class Tracer:
             attributes["gen_ai.request.model"] = model_id
 
         if tools:
-            tools_json = json.dumps(tools, cls=JSONEncoder)
+            tools_json = serialize(tools)
             attributes["agent.tools"] = tools_json
             attributes["gen_ai.agent.tools"] = tools_json
 
@@ -571,3 +571,15 @@ def get_tracer(
         )
 
     return _tracer_instance
+
+
+def serialize(obj: Any) -> str:
+    """Serialize an object to JSON with consistent settings.
+
+    Args:
+        obj: The object to serialize
+
+    Returns:
+        JSON string representation of the object
+    """
+    return json.dumps(obj, ensure_ascii=False, cls=JSONEncoder)

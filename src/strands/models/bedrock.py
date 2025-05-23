@@ -112,7 +112,21 @@ class BedrockModel(Model):
         session = boto_session or boto3.Session(
             region_name=region_name or os.getenv("AWS_REGION") or "us-west-2",
         )
-        client_config = boto_client_config or BotocoreConfig(user_agent_extra="strands-agents")
+
+        # Add strands-agents to the request user agent
+        if boto_client_config:
+            existing_user_agent = getattr(boto_client_config, "user_agent_extra", None)
+
+            # Append 'strands-agents' to existing user_agent_extra or set it if not present
+            if existing_user_agent:
+                new_user_agent = f"{existing_user_agent} strands-agents"
+            else:
+                new_user_agent = "strands-agents"
+
+            client_config = boto_client_config.merge(BotocoreConfig(user_agent_extra=new_user_agent))
+        else:
+            client_config = BotocoreConfig(user_agent_extra="strands-agents")
+
         self.client = session.client(
             service_name="bedrock-runtime",
             config=client_config,
@@ -132,7 +146,7 @@ class BedrockModel(Model):
         """Get the current Bedrock Model configuration.
 
         Returns:
-            The Bedrok model configuration.
+            The Bedrock model configuration.
         """
         return self.config
 

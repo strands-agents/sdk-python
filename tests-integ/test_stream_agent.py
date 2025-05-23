@@ -1,5 +1,5 @@
 """
-Test script for Strands's custom callback handler functionality.
+Test script for Strands' custom callback handler functionality.
 Demonstrates different patterns of callback handling and processing.
 """
 
