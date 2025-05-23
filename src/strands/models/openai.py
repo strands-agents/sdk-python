@@ -18,6 +18,7 @@ class Client(Protocol):
     """Protocol defining the OpenAI-compatible interface for the underlying provider client."""
 
     @property
+    # pragma: no cover
     def chat(self) -> Any:
         """Chat completions interface."""
         ...

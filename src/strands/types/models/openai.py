@@ -206,7 +206,9 @@ class OpenAIModel(Model, abc.ABC):
 
             case "content_delta":
                 if event["data_type"] == "tool":
-                    return {"contentBlockDelta": {"delta": {"toolUse": {"input": event["data"].function.arguments}}}}
+                    return {
+                        "contentBlockDelta": {"delta": {"toolUse": {"input": event["data"].function.arguments or ""}}}
+                    }
 
                 return {"contentBlockDelta": {"delta": {"text": event["data"]}}}
 
