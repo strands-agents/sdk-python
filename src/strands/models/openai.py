@@ -17,7 +17,10 @@ logger = logging.getLogger(__name__)
 class Client(Protocol):
     """Protocol defining the OpenAI-compatible interface for the underlying provider client."""
 
-    chat: Any
+    @property
+    def chat(self) -> Any:
+        """Chat completions interface."""
+        ...
 
 
 class OpenAIModel(SAOpenAIModel):
