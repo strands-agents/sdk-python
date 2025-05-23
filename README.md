@@ -112,14 +112,7 @@ from strands.models.llamaapi import LlamaAPIModel
 bedrock_model = BedrockModel(
   model_id="us.amazon.nova-pro-v1:0",
   temperature=0.3,
-)
-agent = Agent(model=bedrock_model)
-agent("Tell me about Agentic AI")
-
-# Bedrock with non-streaming mode
-bedrock_model = BedrockModel(
-  model_id="us.amazon.nova-pro-v1:0",
-  streaming=False
+  streaming=True, # Enable/disable streaming
 )
 agent = Agent(model=bedrock_model)
 agent("Tell me about Agentic AI")
@@ -148,24 +141,6 @@ Built-in providers:
  - [Ollama](https://strandsagents.com/latest/user-guide/concepts/model-providers/ollama/)
 
 Custom providers can be implemented using [Custom Providers](https://strandsagents.com/latest/user-guide/concepts/model-providers/custom_model_provider/)
-
-### Streaming Support
-
-The Bedrock model provider supports both streaming and non-streaming modes. By default, streaming is enabled. To disable streaming:
-
-```python
-from strands import Agent
-from strands.models import BedrockModel
-
-# Disable streaming
-bedrock_model = BedrockModel(
-    model_id="us.amazon.nova-pro-v1:0",
-    streaming=False
-)
-agent = Agent(model=bedrock_model)
-```
-
-Note that not all Bedrock models support streaming. If you're using a model that doesn't support streaming, you should set `streaming=False`.
 
 ### Example tools
 

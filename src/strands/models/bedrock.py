@@ -6,7 +6,7 @@
 import json
 import logging
 import os
-from typing import Any, Iterable, Literal, Optional, cast
+from typing import Any, Iterable, List, Literal, Optional, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -257,13 +257,13 @@ class BedrockModel(Model):
 
         return False
 
-    def _generate_redaction_events(self) -> list[dict[str, Any]]:
+    def _generate_redaction_events(self) -> list[StreamEvent]:
         """Generate redaction events based on configuration.
 
         Returns:
             List of redaction events to yield.
         """
-        events = []
+        events: List[StreamEvent] = []
 
         if self.config.get("guardrail_redact_input", True):
             logger.debug("Redacting user input due to guardrail.")
@@ -292,7 +292,7 @@ class BedrockModel(Model):
         return events
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    def stream(self, request: dict[str, Any]) -> Iterable[StreamEvent]:
         """Send the request to the Bedrock model and get the response.
 
         This method calls either the Bedrock converse_stream API or the converse API
@@ -343,7 +343,7 @@ class BedrockModel(Model):
             error_message = str(e)
 
             # Handle throttling error
-            if "ThrottlingException" in error_message:
+            if e.response["Error"]["Code"] == "ThrottlingException":
                 raise ModelThrottledException(error_message) from e
 
             # Handle context window overflow
@@ -354,7 +354,7 @@ class BedrockModel(Model):
             # Otherwise raise the error
             raise e
 
-    def _convert_non_streaming_to_streaming(self, response: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    def _convert_non_streaming_to_streaming(self, response: dict[str, Any]) -> Iterable[StreamEvent]:
         """Convert a non-streaming response to the streaming format.
 
         Args:
@@ -424,7 +424,7 @@ class BedrockModel(Model):
 
         # Yield metadata event
         if "usage" in response or "metrics" in response or "trace" in response:
-            metadata = {"metadata": {}}
+            metadata: StreamEvent = {"metadata": {}}
             if "usage" in response:
                 metadata["metadata"]["usage"] = response["usage"]
             if "metrics" in response:

@@ -28,12 +28,12 @@ def non_streaming_model():
 
 @pytest.fixture
 def streaming_agent(streaming_model, system_prompt):
-    return Agent(model=streaming_model, system_prompt=system_prompt)
+    return Agent(model=streaming_model, system_prompt=system_prompt, load_tools_from_directory=False)
 
 
 @pytest.fixture
 def non_streaming_agent(non_streaming_model, system_prompt):
-    return Agent(model=non_streaming_model, system_prompt=system_prompt)
+    return Agent(model=non_streaming_model, system_prompt=system_prompt, load_tools_from_directory=False)
 
 
 def test_streaming_agent(streaming_agent):
@@ -79,12 +79,17 @@ def test_non_streaming_model_events(non_streaming_model):
 def test_tool_use_streaming(streaming_model):
     """Test tool use with streaming model."""
 
+    tool_was_called = False
+
     @strands.tool
     def calculator(expression: str) -> float:
         """Calculate the result of a mathematical expression."""
+
+        nonlocal tool_was_called
+        tool_was_called = True
         return eval(expression)
 
-    agent = Agent(model=streaming_model, tools=[calculator])
+    agent = Agent(model=streaming_model, tools=[calculator], load_tools_from_directory=False)
     result = agent("What is 123 + 456?")
 
     # Print the full message content for debugging
@@ -93,24 +98,23 @@ def test_tool_use_streaming(streaming_model):
 
     print(json.dumps(result.message["content"], indent=2))
 
-    # The test is passing as long as the agent successfully uses the tool
-    # We can see in the logs that the calculator tool is being invoked
-    # But the final message might not contain the toolUse block
-    assert True  # Tool use was observed in logs
+    assert tool_was_called
 
 
 def test_tool_use_non_streaming(non_streaming_model):
     """Test tool use with non-streaming model."""
 
+    tool_was_called = False
+
     @strands.tool
     def calculator(expression: str) -> float:
         """Calculate the result of a mathematical expression."""
+
+        nonlocal tool_was_called
+        tool_was_called = True
         return eval(expression)
 
-    agent = Agent(model=non_streaming_model, tools=[calculator])
+    agent = Agent(model=non_streaming_model, tools=[calculator], load_tools_from_directory=False)
     agent("What is 123 + 456?")
 
-    # The test is passing as long as the agent successfully uses the tool
-    # We can see in the logs that the calculator tool is being invoked
-    # But the final message might not contain the toolUse block
-    assert True  # Tool use was observed in logs
+    assert tool_was_called

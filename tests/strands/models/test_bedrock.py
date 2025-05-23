@@ -305,9 +305,9 @@ def test_stream(bedrock_client, model):
 
 
 def test_stream_throttling_exception_from_event_stream_error(bedrock_client, model):
-    error_message = "ThrottlingException - Rate exceeded"
+    error_message = "Rate exceeded"
     bedrock_client.converse_stream.side_effect = EventStreamError(
-        {"Error": {"Message": error_message}}, "ConverseStream"
+        {"Error": {"Message": error_message, "Code": "ThrottlingException"}}, "ConverseStream"
     )
 
     request = {"a": 1}
