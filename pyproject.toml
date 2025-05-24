@@ -156,7 +156,7 @@ test-lint = [
     "hatch fmt --linter --check"
 ]
 test = [
-    "hatch test --cover --cov-report html --cov-report xml {args}"
+    "hatch test --cover --cov-report term-missing --cov-report html --cov-report xml {args}"
 ]
 test-integ = [
     "hatch test tests-integ {args}"
