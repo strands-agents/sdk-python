@@ -60,6 +60,50 @@ def mock_resource():
         yield mock_resource
 
 
+@pytest.fixture
+def clean_env():
+    """Fixture to provide a clean environment for each test."""
+    with mock.patch.dict(os.environ, {}, clear=True):
+        yield
+
+
+@pytest.fixture
+def env_with_otlp():
+    """Fixture with OTLP environment variables."""
+    with mock.patch.dict(
+        os.environ,
+        {
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://env-endpoint",
+        },
+    ):
+        yield
+
+
+@pytest.fixture
+def env_with_console():
+    """Fixture with console export environment variables."""
+    with mock.patch.dict(
+        os.environ,
+        {
+            "STRANDS_OTEL_ENABLE_CONSOLE_EXPORT": "true",
+        },
+    ):
+        yield
+
+
+@pytest.fixture
+def env_with_both():
+    """Fixture with both OTLP and console export environment variables."""
+    with mock.patch.dict(
+        os.environ,
+        {
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://env-endpoint",
+            "STRANDS_OTEL_ENABLE_CONSOLE_EXPORT": "true",
+        },
+    ):
+        yield
+
+
 def test_init_default():
     """Test initializing the Tracer with default parameters."""
     tracer = Tracer()
@@ -681,3 +725,50 @@ def test_serialize_vs_json_dumps():
     custom_result = serialize({"text": japanese_text})
     assert japanese_text in custom_result
     assert "\\u" not in custom_result
+
+
+def test_init_with_no_env_or_param(clean_env):
+    """Test initializing with neither environment variable nor constructor parameter."""
+    tracer = Tracer()
+    assert tracer.otlp_endpoint is None
+    assert tracer.enable_console_export is False
+
+    tracer = Tracer(otlp_endpoint="http://param-endpoint")
+    assert tracer.otlp_endpoint == "http://param-endpoint"
+
+    tracer = Tracer(enable_console_export=True)
+    assert tracer.enable_console_export is True
+
+
+def test_constructor_params_with_otlp_env(env_with_otlp):
+    """Test constructor parameters precedence over OTLP environment variable."""
+    # Constructor parameter should take precedence
+    tracer = Tracer(otlp_endpoint="http://constructor-endpoint")
+    assert tracer.otlp_endpoint == "http://constructor-endpoint"
+
+    # Without constructor parameter, should use env var
+    tracer = Tracer()
+    assert tracer.otlp_endpoint == "http://env-endpoint"
+
+
+def test_constructor_params_with_console_env(env_with_console):
+    """Test constructor parameters precedence over console environment variable."""
+    # Constructor parameter should take precedence
+    tracer = Tracer(enable_console_export=False)
+    assert tracer.enable_console_export is False
+
+    # Without explicit constructor parameter, should use env var
+    tracer = Tracer()
+    assert tracer.enable_console_export is True
+
+
+def test_fallback_to_env_vars(env_with_both):
+    """Test fallback to environment variables when no constructor parameters."""
+    tracer = Tracer()
+    assert tracer.otlp_endpoint == "http://env-endpoint"
+    assert tracer.enable_console_export is True
+
+    # Constructor parameters should still take precedence
+    tracer = Tracer(otlp_endpoint="http://constructor-endpoint", enable_console_export=False)
+    assert tracer.otlp_endpoint == "http://constructor-endpoint"
+    assert tracer.enable_console_export is False
