@@ -157,7 +157,7 @@ class ModelStreamErrorEvent(ExceptionEvent):
     originalStatusCode: int
 
 
-class RedactContentEvent(TypedDict):
+class RedactContentEvent(TypedDict, total=False):
     """Event for redacting content.
 
     Attributes:
