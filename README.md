@@ -1,6 +1,14 @@
-# Strands Agents
-
 <div align="center">
+  <div>
+    <a href="https://strandsagents.com">
+      <img src="https://strandsagents.com/latest/assets/logo.svg" alt="Strands Agents" width="55px" height="105px">
+    </a>
+  </div>
+
+  <h1>
+    Strands Agents
+  </h1>
+
   <h2>
     A model-driven approach to building AI agents in just a few lines of code.
   </h2>
