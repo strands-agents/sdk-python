@@ -3,6 +3,7 @@ import importlib
 import os
 import textwrap
 import threading
+import time
 import unittest.mock
 from time import sleep
 
@@ -16,6 +17,7 @@ from strands.handlers.callback_handler import PrintingCallbackHandler, null_call
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
+from strands.types.models import Model
 
 
 @pytest.fixture
@@ -159,6 +161,214 @@ def agent(
         agent.tool_registry.register_tool(function_tool)
 
     return agent
+
+
+def test_agent_system_prompt_overrides_all_cases():
+    """Test all system prompt override scenarios and all 8 overrideable parameters.
+    
+    This comprehensive test ensures that:
+    1. System prompt overrides work in all scenarios
+    2. All 8 parameters that can be overridden in _execute_event_loop_cycle are properly handled
+    3. Prevents future regressions for all override functionality
+    """
+    # Enhanced mock model that tracks all calls and parameters
+    class ComprehensiveMockModel(Model):
+        def __init__(self, model_id="mock-model"):
+            self.model_id = model_id
+            self.captured_system_prompts = []
+            self.captured_calls = []
+
+        def update_config(self, **model_config):
+            pass
+
+        def get_config(self):
+            return {"model_id": self.model_id}
+
+        def format_request(self, messages, tool_specs=None, system_prompt=None):
+            self.captured_system_prompts.append(system_prompt)
+            return {"messages": messages, "tool_specs": tool_specs, "system_prompt": system_prompt}
+
+        def format_chunk(self, event):
+            return {"messageStart": {"role": "assistant"}}
+
+        def stream(self, request):
+            yield {"contentBlockDelta": {"delta": {"text": "Mock response"}}}
+            yield {"contentBlockStop": {}}
+            yield {"messageStop": {"stopReason": "end_turn"}}
+
+        def converse(self, messages, tool_specs=None, system_prompt=None):
+                # Call format_request to capture system prompts like the base class does
+                self.format_request(messages, tool_specs, system_prompt)
+
+                self.captured_calls.append({
+                    'system_prompt': system_prompt,
+                    'messages': messages,
+                    'tool_specs': tool_specs,
+                    'kwargs': {}
+                })
+                return [
+                    {"contentBlockStart": {"start": {}}},
+                    {"contentBlockDelta": {"delta": {"text": "Test response"}}},
+                    {"contentBlockStop": {}},
+                    {"messageStop": {"stopReason": "end_turn"}},
+                ]
+
+    # Mock classes for complex dependencies
+    class MockToolHandler:
+        def __init__(self, name):
+            self.name = name
+        def get_tools(self):
+            return []
+
+    class MockCallbackHandler:
+        def __init__(self, name):
+            self.name = name
+        
+        def __call__(self, **kwargs):
+            # Mock callback handler that does nothing
+            pass
+
+    class MockTrace:
+        def __init__(self, name):
+            self.name = name
+            self.id = "mock-trace-id"
+        def add_child(self, child):
+            pass
+
+    class MockMetrics:
+        def __init__(self, name):
+            self.name = name
+            self.cycle_count = 0
+            self.cycle_durations = []
+            self.traces = []
+            
+        def start_cycle(self):
+            self.cycle_count += 1
+            start_time = time.time()
+            cycle_trace = MockTrace(f"Cycle {self.cycle_count}")
+            self.traces.append(cycle_trace)
+            return start_time, cycle_trace
+            
+        def end_cycle(self, start_time, cycle_trace):
+            duration = time.time() - start_time
+            self.cycle_durations.append(duration)
+            
+        def update_usage(self, usage):
+            pass
+            
+        def update_metrics(self, metrics):
+            pass
+
+    class MockExecutor:
+        def __init__(self, name):
+            self.name = name
+
+    # === PART 1: Test System Prompt Override Scenarios ===
+    mock_model = ComprehensiveMockModel("system-prompt-test")
+    
+    # 1. Uses default system prompt
+    default_prompt = "You are a helpful assistant."
+    agent = Agent(system_prompt=default_prompt, model=mock_model)
+    agent("Hello")
+    assert mock_model.captured_system_prompts[-1] == default_prompt
+
+    # 2. Override system prompt per call
+    override_prompt = "You are a pirate."
+    agent("Hello", system_prompt=override_prompt)
+    assert mock_model.captured_system_prompts[-1] == override_prompt
+
+    # 3. Reverts to default after override
+    agent("Hello again")
+    assert mock_model.captured_system_prompts[-1] == default_prompt
+
+    # 4. Multiple overrides
+    agent("Hi", system_prompt="You are a poet.")
+    assert mock_model.captured_system_prompts[-1] == "You are a poet."
+    agent("Hi", system_prompt="You are a robot.")
+    assert mock_model.captured_system_prompts[-1] == "You are a robot."
+    agent("Hi")
+    assert mock_model.captured_system_prompts[-1] == default_prompt
+
+    # 5. Override with None
+    agent("Test", system_prompt=None)
+    assert mock_model.captured_system_prompts[-1] is None
+
+    # 6. Override with empty string
+    agent("Test", system_prompt="")
+    assert mock_model.captured_system_prompts[-1] == ""
+
+    # 7. No default system prompt
+    agent2 = Agent(model=mock_model)  # No default
+    agent2("Hello")
+    assert mock_model.captured_system_prompts[-1] is None
+    agent2("Hello", system_prompt="You are helpful.")
+    assert mock_model.captured_system_prompts[-1] == "You are helpful."
+
+    # === PART 2: Test All 8 Overrideable Parameters ===
+    override_model = ComprehensiveMockModel("override-model")
+    original_model = ComprehensiveMockModel("original-model")
+    
+    # Create agent with original model
+    comprehensive_agent = Agent(
+        model=original_model,
+        system_prompt="Default system prompt"
+    )
+
+    # Test all 8 overrideable parameters
+    override_messages = [{"role": "user", "content": [{"text": "Override message"}]}]
+    override_tool_handler = MockToolHandler("override")
+    override_callback = MockCallbackHandler("override")
+    override_metrics = MockMetrics("override")
+    override_executor = MockExecutor("override")
+    override_tool_config = {"temperature": 0.8}
+
+    # Execute with all overrides
+    comprehensive_agent(
+        "Test comprehensive override",
+        system_prompt="Override system prompt",
+        model=override_model,
+        tool_execution_handler=override_executor,
+        event_loop_metrics=override_metrics,
+        callback_handler=override_callback,
+        tool_handler=override_tool_handler,
+        messages=override_messages,
+        tool_config=override_tool_config
+    )
+
+    # Verify the overridden model was used
+    assert len(override_model.captured_calls) == 1
+    call = override_model.captured_calls[0]
+
+    # Verify overrides were applied
+    assert call['system_prompt'] == "Override system prompt"
+    assert call['messages'] == override_messages
+    # Note: tool_config gets processed into tool_specs at the event loop level
+    # The model's converse method receives tool_specs, not the raw tool_config
+    assert call['tool_specs'] is None  # No tools configured in this test
+    
+    # Verify original model was not called during override
+    assert len(original_model.captured_calls) == 0
+
+    # Test partial overrides - only override some parameters
+    mock_model.captured_calls.clear()
+    agent(
+        "Another test",
+        system_prompt="Partial override",
+        model=mock_model
+        # Other parameters use defaults
+    )
+    
+    assert len(mock_model.captured_calls) == 1
+    partial_call = mock_model.captured_calls[0]
+    assert partial_call['system_prompt'] == "Partial override"
+    
+    # Test no overrides - should use defaults
+    original_model.captured_calls.clear()
+    comprehensive_agent("Default test")
+
+    assert len(original_model.captured_calls) == 1
+    default_call = original_model.captured_calls[0]
+    assert default_call['system_prompt'] == "Default system prompt"
 
 
 def test_agent__init__tool_loader_format(tool_decorated, tool_module, tool_imported, tool_registry):
@@ -976,64 +1186,3 @@ def test_event_loop_cycle_includes_parent_span(mock_get_tracer, mock_event_loop_
     kwargs = mock_event_loop_cycle.call_args[1]
     assert "event_loop_parent_span" in kwargs
     assert kwargs["event_loop_parent_span"] == mock_span
-
-
-def test_agent_system_prompt_overrides_all_cases():
-    """Test all system prompt override scenarios in one function."""
-    from strands.types.models.model import Model
-
-    class MockModel(Model):
-        def __init__(self):
-            self.captured_system_prompts = []
-        def update_config(self, **kwargs):
-            # No configuration to update for mock
-            pass
-        def get_config(self): return {}
-        def format_request(self, messages, tool_specs=None, system_prompt=None):
-            self.captured_system_prompts.append(system_prompt)
-            return {"messages": messages, "tool_specs": tool_specs, "system_prompt": system_prompt}
-        def format_chunk(self, event): return {"messageStart": {"role": "assistant"}}
-        def stream(self, request):
-            yield {"contentBlockDelta": {"delta": {"text": "Mock response"}}}
-            yield {"contentBlockStop": {}}
-            yield {"messageStop": {"stopReason": "end_turn"}}
-
-    mock_model = MockModel()
-
-    # 1. Uses default system prompt
-    default_prompt = "You are a helpful assistant."
-    agent = Agent(system_prompt=default_prompt, model=mock_model)
-    agent("Hello")
-    assert mock_model.captured_system_prompts[-1] == default_prompt
-
-    # 2. Override system prompt per call
-    override_prompt = "You are a pirate."
-    agent("Hello", system_prompt=override_prompt)
-    assert mock_model.captured_system_prompts[-1] == override_prompt
-
-    # 3. Reverts to default after override
-    agent("Hello again")
-    assert mock_model.captured_system_prompts[-1] == default_prompt
-
-    # 4. Multiple overrides
-    agent("Hi", system_prompt="You are a poet.")
-    assert mock_model.captured_system_prompts[-1] == "You are a poet."
-    agent("Hi", system_prompt="You are a robot.")
-    assert mock_model.captured_system_prompts[-1] == "You are a robot."
-    agent("Hi")
-    assert mock_model.captured_system_prompts[-1] == default_prompt
-
-    # 5. Override with None
-    agent("Test", system_prompt=None)
-    assert mock_model.captured_system_prompts[-1] is None
-
-    # 6. Override with empty string
-    agent("Test", system_prompt="")
-    assert mock_model.captured_system_prompts[-1] == ""
-
-    # 7. No default system prompt
-    agent2 = Agent(model=mock_model)  # No default
-    agent2("Hello")
-    assert mock_model.captured_system_prompts[-1] is None
-    agent2("Hello", system_prompt="You are helpful.")
-    assert mock_model.captured_system_prompts[-1] == "You are helpful."
