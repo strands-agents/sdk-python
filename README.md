@@ -1,11 +1,7 @@
 <div align="center">
   <div>
     <a href="https://strandsagents.com">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="https://strandsagents.com/latest/assets/logo-light.svg" width="55px" height="105px">
-        <source media="(prefers-color-scheme: light)" srcset="https://strandsagents.com/latest/assets/logo-dark.svg" width="55px" height="105px">
-        <img src="https://strandsagents.com/latest/assets/logo-dark.svg" alt="Strands Agents" width="55px" height="105px">
-      </picture>
+      <img src="https://strandsagents.com/latest/assets/logo-auto.svg" alt="Strands Agents" width="55px" height="105px">
     </a>
   </div>
 
