@@ -84,12 +84,25 @@ class BedrockModel(Model):
         temperature: Optional[float]
         top_p: Optional[float]
 
+    class BotoSessionConfig(TypedDict, total=False):
+        """Configuration options for creating a boto3 Session.
+
+        Attributes:
+            region_name: AWS region to use for the Bedrock service.
+                Defaults to the AWS_REGION environment variable if set, or "us-west-2" if not set.
+            profile_name: AWS profile name to use for credentials.
+                Allows specifying a named profile from AWS credentials file.
+        """
+
+        region_name: Optional[str]
+        profile_name: Optional[str]
+
     def __init__(
         self,
         *,
         boto_session: Optional[boto3.Session] = None,
         boto_client_config: Optional[BotocoreConfig] = None,
-        region_name: Optional[str] = None,
+        boto_session_config: Optional[BotoSessionConfig] = None,
         **model_config: Unpack[BedrockConfig],
     ):
         """Initialize provider instance.
@@ -97,21 +110,24 @@ class BedrockModel(Model):
         Args:
             boto_session: Boto Session to use when calling the Bedrock Model.
             boto_client_config: Configuration to use when creating the Bedrock-Runtime Boto Client.
-            region_name: AWS region to use for the Bedrock service.
-                Defaults to the AWS_REGION environment variable if set, or "us-west-2" if not set.
+            boto_session_config: Configuration options for creating a boto3 Session.
             **model_config: Configuration options for the Bedrock model.
         """
-        if region_name and boto_session:
-            raise ValueError("Cannot specify both `region_name` and `boto_session`.")
+        if boto_session and boto_session_config:
+            raise ValueError("Cannot specify both `boto_session` and `boto_session_config`.")
 
         self.config = BedrockModel.BedrockConfig(model_id=DEFAULT_BEDROCK_MODEL_ID)
         self.update_config(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
 
-        session = boto_session or boto3.Session(
-            region_name=region_name or os.getenv("AWS_REGION") or "us-west-2",
-        )
+        # Create boto3 session
+        if boto_session:
+            session = boto_session
+        else:
+            session_kwargs = dict(boto_session_config or {})
+            session_kwargs.setdefault("region_name", os.getenv("AWS_REGION") or "us-west-2")
+            session = boto3.Session(**session_kwargs)
 
         # Add strands-agents to the request user agent
         if boto_client_config:

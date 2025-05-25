@@ -96,8 +96,29 @@ def test__init__with_custom_region(bedrock_client):
     custom_region = "us-east-1"
 
     with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
-        _ = BedrockModel(region_name=custom_region)
+        _ = BedrockModel(boto_session_config={"region_name": custom_region})
         mock_session_cls.assert_called_once_with(region_name=custom_region)
+
+
+def test__init__with_profile_name(bedrock_client):
+    """Test that BedrockModel uses the provided profile name."""
+    _ = bedrock_client
+    profile_name = "test-profile"
+
+    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
+        _ = BedrockModel(boto_session_config={"profile_name": profile_name})
+        mock_session_cls.assert_called_once_with(profile_name=profile_name, region_name=unittest.mock.ANY)
+
+
+def test__init__with_profile_and_region(bedrock_client):
+    """Test that BedrockModel uses both profile name and region when provided."""
+    _ = bedrock_client
+    profile_name = "test-profile"
+    custom_region = "eu-central-1"
+
+    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
+        _ = BedrockModel(boto_session_config={"profile_name": profile_name, "region_name": custom_region})
+        mock_session_cls.assert_called_once_with(profile_name=profile_name, region_name=custom_region)
 
 
 def test__init__with_environment_variable_region(bedrock_client):
@@ -110,10 +131,12 @@ def test__init__with_environment_variable_region(bedrock_client):
         mock_session_cls.assert_called_once_with(region_name="eu-west-1")
 
 
-def test__init__with_region_and_session_raises_value_error():
-    """Test that BedrockModel raises ValueError when both region and session are provided."""
+def test__init__with_session_and_config_raises_value_error():
+    """Test that BedrockModel raises ValueError when both boto_session and boto_session_config are provided."""
     with pytest.raises(ValueError):
-        _ = BedrockModel(region_name="us-east-1", boto_session=boto3.Session(region_name="us-east-1"))
+        _ = BedrockModel(
+            boto_session=boto3.Session(region_name="us-east-1"), boto_session_config={"region_name": "us-east-1"}
+        )
 
 
 def test__init__model_config(bedrock_client):
