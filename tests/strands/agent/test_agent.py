@@ -976,3 +976,64 @@ def test_event_loop_cycle_includes_parent_span(mock_get_tracer, mock_event_loop_
     kwargs = mock_event_loop_cycle.call_args[1]
     assert "event_loop_parent_span" in kwargs
     assert kwargs["event_loop_parent_span"] == mock_span
+
+
+def test_agent_system_prompt_overrides_all_cases():
+    """Test all system prompt override scenarios in one function."""
+    from strands.types.models.model import Model
+
+    class MockModel(Model):
+        def __init__(self):
+            self.captured_system_prompts = []
+        def update_config(self, **kwargs):
+            # No configuration to update for mock
+            pass
+        def get_config(self): return {}
+        def format_request(self, messages, tool_specs=None, system_prompt=None):
+            self.captured_system_prompts.append(system_prompt)
+            return {"messages": messages, "tool_specs": tool_specs, "system_prompt": system_prompt}
+        def format_chunk(self, event): return {"messageStart": {"role": "assistant"}}
+        def stream(self, request):
+            yield {"contentBlockDelta": {"delta": {"text": "Mock response"}}}
+            yield {"contentBlockStop": {}}
+            yield {"messageStop": {"stopReason": "end_turn"}}
+
+    mock_model = MockModel()
+
+    # 1. Uses default system prompt
+    default_prompt = "You are a helpful assistant."
+    agent = Agent(system_prompt=default_prompt, model=mock_model)
+    agent("Hello")
+    assert mock_model.captured_system_prompts[-1] == default_prompt
+
+    # 2. Override system prompt per call
+    override_prompt = "You are a pirate."
+    agent("Hello", system_prompt=override_prompt)
+    assert mock_model.captured_system_prompts[-1] == override_prompt
+
+    # 3. Reverts to default after override
+    agent("Hello again")
+    assert mock_model.captured_system_prompts[-1] == default_prompt
+
+    # 4. Multiple overrides
+    agent("Hi", system_prompt="You are a poet.")
+    assert mock_model.captured_system_prompts[-1] == "You are a poet."
+    agent("Hi", system_prompt="You are a robot.")
+    assert mock_model.captured_system_prompts[-1] == "You are a robot."
+    agent("Hi")
+    assert mock_model.captured_system_prompts[-1] == default_prompt
+
+    # 5. Override with None
+    agent("Test", system_prompt=None)
+    assert mock_model.captured_system_prompts[-1] is None
+
+    # 6. Override with empty string
+    agent("Test", system_prompt="")
+    assert mock_model.captured_system_prompts[-1] == ""
+
+    # 7. No default system prompt
+    agent2 = Agent(model=mock_model)  # No default
+    agent2("Hello")
+    assert mock_model.captured_system_prompts[-1] is None
+    agent2("Hello", system_prompt="You are helpful.")
+    assert mock_model.captured_system_prompts[-1] == "You are helpful."
