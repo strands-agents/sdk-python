@@ -7,3 +7,5 @@ __pycache__*
 .pytest_cache
 .ruff_cache
 *.bak
+.vscode
+# Ignore Python bytecode files
