@@ -457,27 +457,28 @@ class Agent:
         Returns:
             The result of the event loop cycle.
         """
-        kwargs.pop("agent", None)
-        kwargs.pop("model", None)
-        kwargs.pop("system_prompt", None)
-        kwargs.pop("tool_execution_handler", None)
-        kwargs.pop("event_loop_metrics", None)
-        kwargs.pop("callback_handler", None)
-        kwargs.pop("tool_handler", None)
-        kwargs.pop("messages", None)
-        kwargs.pop("tool_config", None)
+        # Extract parameters with fallbacks to instance values
+        system_prompt = kwargs.pop("system_prompt", self.system_prompt)
+        model = kwargs.pop("model", self.model)
+        tool_execution_handler = kwargs.pop("tool_execution_handler", self.thread_pool_wrapper)
+        event_loop_metrics = kwargs.pop("event_loop_metrics", self.event_loop_metrics)
+        callback_handler_override = kwargs.pop("callback_handler", callback_handler)
+        tool_handler = kwargs.pop("tool_handler", self.tool_handler)
+        messages = kwargs.pop("messages", self.messages)
+        tool_config = kwargs.pop("tool_config", self.tool_config)
+        kwargs.pop("agent", None)  # Remove agent to avoid conflicts
 
         try:
             # Execute the main event loop cycle
             stop_reason, message, metrics, state = event_loop_cycle(
-                model=self.model,
-                system_prompt=self.system_prompt,
-                messages=self.messages,  # will be modified by event_loop_cycle
-                tool_config=self.tool_config,
-                callback_handler=callback_handler,
-                tool_handler=self.tool_handler,
-                tool_execution_handler=self.thread_pool_wrapper,
-                event_loop_metrics=self.event_loop_metrics,
+                model=model,
+                system_prompt=system_prompt,
+                messages=messages,  # will be modified by event_loop_cycle
+                tool_config=tool_config,
+                callback_handler=callback_handler_override,
+                tool_handler=tool_handler,
+                tool_execution_handler=tool_execution_handler,
+                event_loop_metrics=event_loop_metrics,
                 agent=self,
                 event_loop_parent_span=self.trace_span,
                 **kwargs,
@@ -488,8 +489,8 @@ class Agent:
         except ContextWindowOverflowException as e:
             # Try reducing the context size and retrying
 
-            self.conversation_manager.reduce_context(self.messages, e=e)
-            return self._execute_event_loop_cycle(callback_handler, kwargs)
+            self.conversation_manager.reduce_context(messages, e=e)
+            return self._execute_event_loop_cycle(callback_handler_override, kwargs)
 
     def _record_tool_execution(
         self,
