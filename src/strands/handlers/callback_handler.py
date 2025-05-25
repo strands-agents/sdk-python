@@ -17,10 +17,10 @@ class PrintingCallbackHandler:
 
         Args:
             **kwargs: Callback event data including:
-                - reasoningText (bool|str): Whether to print reasoning text. If string is provided, it is printed.
-                - data (str): Text content to stream.
-                - complete (bool): Whether this is the final chunk of a response.
-                - current_tool_use (dict): Information about the current tool being used.
+            - reasoningText (Optional[str]): Reasoning text to print if provided.
+            - data (str): Text content to stream.
+            - complete (bool): Whether this is the final chunk of a response.
+            - current_tool_use (dict): Information about the current tool being used.
         """
         reasoningText = kwargs.get("reasoningText", False)
         data = kwargs.get("data", "")
