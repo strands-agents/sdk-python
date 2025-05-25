@@ -8,7 +8,12 @@ It includes:
 
 from .agent import Agent
 from .agent_result import AgentResult
-from .conversation_manager import ConversationManager, NullConversationManager, SlidingWindowConversationManager
+from .conversation_manager import (
+    ConversationManager,
+    NullConversationManager,
+    SlidingWindowConversationManager,
+    SummarizingConversationManager,
+)
 
 __all__ = [
     "Agent",
@@ -16,4 +21,5 @@ __all__ = [
     "ConversationManager",
     "NullConversationManager",
     "SlidingWindowConversationManager",
+    "SummarizingConversationManager",
 ]
