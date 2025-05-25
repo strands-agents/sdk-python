@@ -9,7 +9,6 @@ from time import sleep
 import pytest
 
 import strands
-import strands.tools
 from strands.agent.agent import Agent
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
@@ -1007,6 +1006,3 @@ def test_event_loop_cycle_includes_parent_span(mock_get_tracer, mock_event_loop_
     kwargs = mock_event_loop_cycle.call_args[1]
     assert "event_loop_parent_span" in kwargs
     assert kwargs["event_loop_parent_span"] == mock_span
-
-
-
