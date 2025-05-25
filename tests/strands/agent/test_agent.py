@@ -337,17 +337,47 @@ def test_agent__call__passes_kwargs(mock_model, system_prompt, callback_handler,
         ],
     ]
 
+    override_system_prompt = "Override system prompt"
+    override_model = unittest.mock.Mock()
+    override_tool_execution_handler = unittest.mock.Mock()
+    override_event_loop_metrics = unittest.mock.Mock()
+    override_callback_handler = unittest.mock.Mock()
+    override_tool_handler = unittest.mock.Mock()
+    override_messages = [{"role": "user", "content": [{"text": "override msg"}]}]
+    override_tool_config = {"test": "config"}
+
     def check_kwargs(some_value, **kwargs):
         assert some_value == "a_value"
         assert kwargs is not None
+        assert kwargs["system_prompt"] == override_system_prompt
+        assert kwargs["model"] == override_model
+        assert kwargs["tool_execution_handler"] == override_tool_execution_handler
+        assert kwargs["event_loop_metrics"] == override_event_loop_metrics
+        assert kwargs["callback_handler"] == override_callback_handler
+        assert kwargs["tool_handler"] == override_tool_handler
+        assert kwargs["messages"] == override_messages
+        assert kwargs["tool_config"] == override_tool_config
+        assert kwargs["agent"] == agent
 
         # Return expected values from event_loop_cycle
         return "stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {}
 
     mock_event_loop_cycle.side_effect = check_kwargs
 
-    agent("test message", some_value="a_value")
-    assert mock_event_loop_cycle.call_count == 1
+    agent(
+        "test message",
+        some_value="a_value",
+        system_prompt=override_system_prompt,
+        model=override_model,
+        tool_execution_handler=override_tool_execution_handler,
+        event_loop_metrics=override_event_loop_metrics,
+        callback_handler=override_callback_handler,
+        tool_handler=override_tool_handler,
+        messages=override_messages,
+        tool_config=override_tool_config,
+    )
+
+    mock_event_loop_cycle.assert_called_once()
 
 
 def test_agent__call__retry_with_reduced_context(mock_model, agent, tool):
