@@ -9,7 +9,8 @@ from time import sleep
 import pytest
 
 import strands
-from strands.agent.agent import Agent
+from strands import Agent
+from strands.agent import AgentResult
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
@@ -687,8 +688,6 @@ def test_agent_with_callback_handler_none_uses_null_handler():
 
 @pytest.mark.asyncio
 async def test_stream_async_returns_all_events(mock_event_loop_cycle):
-    mock_event_loop_cycle.side_effect = ValueError("Test exception")
-
     agent = Agent()
 
     # Define the side effect to simulate callback handler being called multiple times
@@ -952,6 +951,52 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
     mock_tracer.end_agent_span.assert_called_once_with(span=mock_span, response=result)
 
 
+@pytest.mark.asyncio
+@unittest.mock.patch("strands.agent.agent.get_tracer")
+async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_tracer, mock_event_loop_cycle):
+    """Test that stream_async creates and ends a span when the call succeeds."""
+    # Setup mock tracer and span
+    mock_tracer = unittest.mock.MagicMock()
+    mock_span = unittest.mock.MagicMock()
+    mock_tracer.start_agent_span.return_value = mock_span
+    mock_get_tracer.return_value = mock_tracer
+
+    # Define the side effect to simulate callback handler being called multiple times
+    def call_callback_handler(*args, **kwargs):
+        # Extract the callback handler from kwargs
+        callback_handler = kwargs.get("callback_handler")
+        # Call the callback handler with different data values
+        callback_handler(data="First chunk")
+        callback_handler(data="Second chunk")
+        callback_handler(data="Final chunk", complete=True)
+        # Return expected values from event_loop_cycle
+        return "stop", {"role": "assistant", "content": [{"text": "Agent Response"}]}, {}, {}
+
+    mock_event_loop_cycle.side_effect = call_callback_handler
+
+    # Create agent and make a call
+    agent = Agent(model=mock_model)
+    iterator = agent.stream_async("test prompt")
+    async for _event in iterator:
+        pass  # NoOp
+
+    # Verify span was created
+    mock_tracer.start_agent_span.assert_called_once_with(
+        prompt="test prompt",
+        model_id=unittest.mock.ANY,
+        tools=agent.tool_names,
+        system_prompt=agent.system_prompt,
+        custom_trace_attributes=agent.trace_attributes,
+    )
+
+    expected_response = AgentResult(
+        stop_reason="stop", message={"role": "assistant", "content": [{"text": "Agent Response"}]}, metrics={}, state={}
+    )
+
+    # Verify span was ended with the result
+    mock_tracer.end_agent_span.assert_called_once_with(span=mock_span, response=expected_response)
+
+
 @unittest.mock.patch("strands.agent.agent.get_tracer")
 def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_model):
     """Test that __call__ creates and ends a span when an exception occurs."""
@@ -971,6 +1016,42 @@ def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_mod
     # Call the agent and catch the exception
     with pytest.raises(ValueError):
         agent("test prompt")
+
+    # Verify span was created
+    mock_tracer.start_agent_span.assert_called_once_with(
+        prompt="test prompt",
+        model_id=unittest.mock.ANY,
+        tools=agent.tool_names,
+        system_prompt=agent.system_prompt,
+        custom_trace_attributes=agent.trace_attributes,
+    )
+
+    # Verify span was ended with the exception
+    mock_tracer.end_agent_span.assert_called_once_with(span=mock_span, error=test_exception)
+
+
+@pytest.mark.asyncio
+@unittest.mock.patch("strands.agent.agent.get_tracer")
+async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tracer, mock_model):
+    """Test that stream_async creates and ends a span when the call succeeds."""
+    # Setup mock tracer and span
+    mock_tracer = unittest.mock.MagicMock()
+    mock_span = unittest.mock.MagicMock()
+    mock_tracer.start_agent_span.return_value = mock_span
+    mock_get_tracer.return_value = mock_tracer
+
+    # Define the side effect to simulate callback handler raising an Exception
+    test_exception = ValueError("Test exception")
+    mock_model.mock_converse.side_effect = test_exception
+
+    # Create agent and make a call
+    agent = Agent(model=mock_model)
+
+    # Call the agent and catch the exception
+    with pytest.raises(ValueError):
+        iterator = agent.stream_async("test prompt")
+        async for _event in iterator:
+            pass  # NoOp
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
