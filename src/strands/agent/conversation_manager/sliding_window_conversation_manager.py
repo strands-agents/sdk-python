@@ -1,12 +1,10 @@
 """Sliding window conversation history management."""
 
-import json
 import logging
-from typing import List, Optional, cast
+from typing import Optional
 
-from ...types.content import ContentBlock, Message, Messages
+from ...types.content import Message, Messages
 from ...types.exceptions import ContextWindowOverflowException
-from ...types.tools import ToolResult
 from .conversation_manager import ConversationManager
 
 logger = logging.getLogger(__name__)
@@ -110,8 +108,9 @@ class SlidingWindowConversationManager(ConversationManager):
     def reduce_context(self, messages: Messages, e: Optional[Exception] = None) -> None:
         """Trim the oldest messages to reduce the conversation context size.
 
-        The method handles special cases where tool results need to be converted to regular content blocks to maintain
-        conversation coherence after trimming.
+        The method handles special cases where trimming the messages leads to:
+         - toolResult with no corresponding toolUse
+         - toolUse with no corresponding toolResult
 
         Args:
             messages: The messages to reduce.
@@ -126,52 +125,24 @@ class SlidingWindowConversationManager(ConversationManager):
         # If the number of messages is less than the window_size, then we default to 2, otherwise, trim to window size
         trim_index = 2 if len(messages) <= self.window_size else len(messages) - self.window_size
 
-        # Throw if we cannot trim any messages from the conversation
-        if trim_index >= len(messages):
-            raise ContextWindowOverflowException("Unable to trim conversation context!") from e
-
-        # If the message at the cut index has ToolResultContent, then we map that to ContentBlock. This gets around the
-        # limitation of needing ToolUse and ToolResults to be paired.
-        if any("toolResult" in content for content in messages[trim_index]["content"]):
-            if len(messages[trim_index]["content"]) == 1:
-                messages[trim_index]["content"] = self._map_tool_result_content(
-                    cast(ToolResult, messages[trim_index]["content"][0]["toolResult"])
+        # Find the next valid trim_index
+        while trim_index < len(messages):
+            if (
+                # Oldest message cannot be a toolResult because it needs a toolUse preceding it
+                any("toolResult" in content for content in messages[trim_index]["content"])
+                or (
+                    # Oldest message can be a toolUse only if a toolResult immediately follows it.
+                    any("toolUse" in content for content in messages[trim_index]["content"])
+                    and trim_index + 1 < len(messages)
+                    and not any("toolResult" in content for content in messages[trim_index + 1]["content"])
                 )
-
-            # If there is more content than just one ToolResultContent, then we cannot cut at this index.
+            ):
+                trim_index += 1
             else:
-                raise ContextWindowOverflowException("Unable to trim conversation context!") from e
+                break
+        else:
+            # If we didn't find a valid trim_index, then we throw
+            raise ContextWindowOverflowException("Unable to trim conversation context!") from e
 
         # Overwrite message history
         messages[:] = messages[trim_index:]
-
-    def _map_tool_result_content(self, tool_result: ToolResult) -> List[ContentBlock]:
-        """Convert a ToolResult to a list of standard ContentBlocks.
-
-        This method transforms tool result content into standard content blocks that can be preserved when trimming the
-        conversation history.
-
-        Args:
-            tool_result: The ToolResult to convert.
-
-        Returns:
-            A list of content blocks representing the tool result.
-        """
-        contents = []
-        text_content = "Tool Result Status: " + tool_result["status"] if tool_result["status"] else ""
-
-        for tool_result_content in tool_result["content"]:
-            if "text" in tool_result_content:
-                text_content = "\nTool Result Text Content: " + tool_result_content["text"] + f"\n{text_content}"
-            elif "json" in tool_result_content:
-                text_content = (
-                    "\nTool Result JSON Content: " + json.dumps(tool_result_content["json"]) + f"\n{text_content}"
-                )
-            elif "image" in tool_result_content:
-                contents.append(ContentBlock(image=tool_result_content["image"]))
-            elif "document" in tool_result_content:
-                contents.append(ContentBlock(document=tool_result_content["document"]))
-            else:
-                logger.warning("unsupported content type")
-        contents.append(ContentBlock(text=text_content))
-        return contents

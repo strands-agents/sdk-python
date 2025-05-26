@@ -111,41 +111,7 @@ def conversation_manager(request):
                 {"role": "assistant", "content": [{"text": "Second response"}]},
             ],
         ),
-        # 7 - Message count above max window size - Remove dangling tool uses and tool results
-        (
-            {"window_size": 1},
-            [
-                {"role": "user", "content": [{"text": "First message"}]},
-                {"role": "assistant", "content": [{"toolUse": {"toolUseId": "321", "name": "tool1", "input": {}}}]},
-                {
-                    "role": "user",
-                    "content": [
-                        {"toolResult": {"toolUseId": "123", "content": [{"text": "Hello!"}], "status": "success"}}
-                    ],
-                },
-            ],
-            [
-                {
-                    "role": "user",
-                    "content": [{"text": "\nTool Result Text Content: Hello!\nTool Result Status: success"}],
-                },
-            ],
-        ),
-        # 8 - Message count above max window size - Remove multiple tool use/tool result pairs
-        (
-            {"window_size": 1},
-            [
-                {"role": "user", "content": [{"toolResult": {"toolUseId": "123", "content": [], "status": "success"}}]},
-                {"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]},
-                {"role": "user", "content": [{"toolResult": {"toolUseId": "456", "content": [], "status": "success"}}]},
-                {"role": "assistant", "content": [{"toolUse": {"toolUseId": "456", "name": "tool1", "input": {}}}]},
-                {"role": "user", "content": [{"toolResult": {"toolUseId": "789", "content": [], "status": "success"}}]},
-            ],
-            [
-                {"role": "user", "content": [{"text": "Tool Result Status: success"}]},
-            ],
-        ),
-        # 9 - Message count above max window size - Preserve tool use/tool result pairs
+        # 7 - Message count above max window size - Preserve tool use/tool result pairs
         (
             {"window_size": 2},
             [
@@ -158,7 +124,7 @@ def conversation_manager(request):
                 {"role": "user", "content": [{"toolResult": {"toolUseId": "456", "content": [], "status": "success"}}]},
             ],
         ),
-        # 10 - Test sliding window behavior - preserve tool use/result pairs across cut boundary
+        # 8 - Test sliding window behavior - preserve tool use/result pairs across cut boundary
         (
             {"window_size": 3},
             [
@@ -173,7 +139,7 @@ def conversation_manager(request):
                 {"role": "assistant", "content": [{"text": "Response after tool use"}]},
             ],
         ),
-        # 11 - Test sliding window with multiple tool pairs that need preservation
+        # 9 - Test sliding window with multiple tool pairs that need preservation
         (
             {"window_size": 4},
             [
@@ -185,7 +151,6 @@ def conversation_manager(request):
                 {"role": "assistant", "content": [{"text": "Final response"}]},
             ],
             [
-                {"role": "user", "content": [{"text": "Tool Result Status: success"}]},
                 {"role": "assistant", "content": [{"toolUse": {"toolUseId": "456", "name": "tool2", "input": {}}}]},
                 {"role": "user", "content": [{"toolResult": {"toolUseId": "456", "content": [], "status": "success"}}]},
                 {"role": "assistant", "content": [{"text": "Final response"}]},
@@ -198,6 +163,20 @@ def test_apply_management(conversation_manager, messages, expected_messages):
     conversation_manager.apply_management(messages)
 
     assert messages == expected_messages
+
+
+def test_sliding_window_conversation_manager_with_untrimmable_history_raises_context_window_overflow_exception():
+    manager = strands.agent.conversation_manager.SlidingWindowConversationManager(1)
+    messages = [
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "456", "name": "tool1", "input": {}}}]},
+        {"role": "user", "content": [{"toolResult": {"toolUseId": "789", "content": [], "status": "success"}}]},
+    ]
+    original_messages = messages.copy()
+
+    with pytest.raises(ContextWindowOverflowException):
+        manager.apply_management(messages)
+
+    assert messages == original_messages
 
 
 def test_null_conversation_manager_reduce_context_raises_context_window_overflow_exception():
