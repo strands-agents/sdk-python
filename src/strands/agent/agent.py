@@ -328,27 +328,17 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
-        model_id = self.model.config.get("model_id") if hasattr(self.model, "config") else None
-
-        self.trace_span = self.tracer.start_agent_span(
-            prompt=prompt,
-            model_id=model_id,
-            tools=self.tool_names,
-            system_prompt=self.system_prompt,
-            custom_trace_attributes=self.trace_attributes,
-        )
+        self._start_agent_trace_span(prompt)
 
         try:
             # Run the event loop and get the result
             result = self._run_loop(prompt, kwargs)
 
-            if self.trace_span:
-                self.tracer.end_agent_span(span=self.trace_span, response=result)
+            self._end_agent_trace_span(response=result)
 
             return result
         except Exception as e:
-            if self.trace_span:
-                self.tracer.end_agent_span(span=self.trace_span, error=e)
+            self._end_agent_trace_span(error=e)
 
             # Re-raise the exception to preserve original behavior
             raise
@@ -383,6 +373,8 @@ class Agent:
                     yield event["data"]
             ```
         """
+        self._start_agent_trace_span(prompt)
+
         _stop_event = uuid4()
 
         queue = asyncio.Queue[Any]()
@@ -400,8 +392,10 @@ class Agent:
             nonlocal kwargs
 
             try:
-                self._run_loop(prompt, kwargs, supplementary_callback_handler=queuing_callback_handler)
-            except BaseException as e:
+                result = self._run_loop(prompt, kwargs, supplementary_callback_handler=queuing_callback_handler)
+                self._end_agent_trace_span(response=result)
+            except Exception as e:
+                self._end_agent_trace_span(error=e)
                 enqueue(e)
             finally:
                 enqueue(_stop_event)
@@ -414,7 +408,7 @@ class Agent:
                 item = await queue.get()
                 if item == _stop_event:
                     break
-                if isinstance(item, BaseException):
+                if isinstance(item, Exception):
                     raise item
                 yield item
         finally:
@@ -546,3 +540,43 @@ class Agent:
         messages.append(tool_use_msg)
         messages.append(tool_result_msg)
         messages.append(assistant_msg)
+
+    def _start_agent_trace_span(self, prompt: str) -> None:
+        """Starts a trace span for the agent.
+
+        Args:
+            prompt: The natural language prompt from the user.
+        """
+        model_id = self.model.config.get("model_id") if hasattr(self.model, "config") else None
+
+        self.trace_span = self.tracer.start_agent_span(
+            prompt=prompt,
+            model_id=model_id,
+            tools=self.tool_names,
+            system_prompt=self.system_prompt,
+            custom_trace_attributes=self.trace_attributes,
+        )
+
+    def _end_agent_trace_span(
+        self,
+        response: Optional[AgentResult] = None,
+        error: Optional[Exception] = None,
+    ) -> None:
+        """Ends a trace span for the agent.
+
+        Args:
+            span: The span to end.
+            response: Response to record as a trace attribute.
+            error: Error to record as a trace attribute.
+        """
+        if self.trace_span:
+            trace_attributes: Dict[str, Any] = {
+                "span": self.trace_span,
+            }
+
+            if response:
+                trace_attributes["response"] = response
+            if error:
+                trace_attributes["error"] = error
+
+            self.tracer.end_agent_span(**trace_attributes)
