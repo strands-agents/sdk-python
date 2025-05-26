@@ -334,11 +334,11 @@ class Agent:
             # Run the event loop and get the result
             result = self._run_loop(prompt, kwargs)
 
-            self._end_agent_trace_span(span=self.trace_span, response=result)
+            self._end_agent_trace_span(response=result)
 
             return result
         except Exception as e:
-            self._end_agent_trace_span(span=self.trace_span, error=e)
+            self._end_agent_trace_span(error=e)
 
             # Re-raise the exception to preserve original behavior
             raise
@@ -393,9 +393,9 @@ class Agent:
 
             try:
                 result = self._run_loop(prompt, kwargs, supplementary_callback_handler=queuing_callback_handler)
-                self._end_agent_trace_span(span=self.trace_span, response=result)
+                self._end_agent_trace_span(response=result)
             except Exception as e:
-                self._end_agent_trace_span(span=self.trace_span, error=e)
+                self._end_agent_trace_span(error=e)
                 enqueue(e)
             finally:
                 enqueue(_stop_event)
@@ -559,7 +559,6 @@ class Agent:
 
     def _end_agent_trace_span(
         self,
-        span: Optional[trace.Span] = None,
         response: Optional[AgentResult] = None,
         error: Optional[Exception] = None,
     ) -> None:
