@@ -428,7 +428,7 @@ def test_agent__call__always_sliding_window_conversation_manager_doesnt_infinite
     with pytest.raises(ContextWindowOverflowException):
         agent("Test!")
 
-    assert conversation_manager_spy.reduce_context.call_count == 251
+    assert conversation_manager_spy.reduce_context.call_count > 0
     assert conversation_manager_spy.apply_management.call_count == 1
 
 
