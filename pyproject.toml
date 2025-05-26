@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "strands-agents"
-version = "0.1.4"
+version = "0.1.5"
 description = "A model-driven approach to building AI agents in just a few lines of code"
 readme = "README.md"
 requires-python = ">=3.10"
