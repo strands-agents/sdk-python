@@ -354,9 +354,9 @@ def test_stream(bedrock_client, model):
 
 
 def test_stream_throttling_exception_from_event_stream_error(bedrock_client, model):
-    error_message = "ThrottlingException - Rate exceeded"
+    error_message = "Rate exceeded"
     bedrock_client.converse_stream.side_effect = EventStreamError(
-        {"Error": {"Message": error_message}}, "ConverseStream"
+        {"Error": {"Message": error_message, "Code": "ThrottlingException"}}, "ConverseStream"
     )
 
     request = {"a": 1}
@@ -421,7 +421,9 @@ def test_converse(bedrock_client, model, messages, tool_spec, model_id, addition
     bedrock_client.converse_stream.assert_called_once_with(**request)
 
 
-def test_converse_input_guardrails(bedrock_client, model, messages, tool_spec, model_id, additional_request_fields):
+def test_converse_stream_input_guardrails(
+    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields
+):
     metadata_event = {
         "metadata": {
             "usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
@@ -472,7 +474,9 @@ def test_converse_input_guardrails(bedrock_client, model, messages, tool_spec, m
     bedrock_client.converse_stream.assert_called_once_with(**request)
 
 
-def test_converse_output_guardrails(bedrock_client, model, messages, tool_spec, model_id, additional_request_fields):
+def test_converse_stream_output_guardrails(
+    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields
+):
     model.update_config(guardrail_redact_input=False, guardrail_redact_output=True)
     metadata_event = {
         "metadata": {
@@ -689,3 +693,322 @@ def test_converse_output_no_guardrail_redact(
 
     assert tru_chunks == exp_chunks
     bedrock_client.converse_stream.assert_called_once_with(**request)
+
+
+def test_stream_with_streaming_false(bedrock_client):
+    """Test stream method with streaming=False."""
+    bedrock_client.converse.return_value = {
+        "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
+        "stopReason": "end_turn",
+    }
+    expected_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockDelta": {"delta": {"text": "test"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn", "additionalModelResponseFields": None}},
+    ]
+
+    # Create model and call stream
+    model = BedrockModel(model_id="test-model", streaming=False)
+    request = {"modelId": "test-model"}
+    events = list(model.stream(request))
+
+    assert expected_events == events
+
+    bedrock_client.converse.assert_called_once()
+    bedrock_client.converse_stream.assert_not_called()
+
+
+def test_stream_with_streaming_false_and_tool_use(bedrock_client):
+    """Test stream method with streaming=False."""
+    bedrock_client.converse.return_value = {
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [{"toolUse": {"toolUseId": "123", "name": "dummyTool", "input": {"hello": "world!"}}}],
+            }
+        },
+        "stopReason": "tool_use",
+    }
+
+    expected_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "dummyTool"}}}},
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"hello": "world!"}'}}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "tool_use", "additionalModelResponseFields": None}},
+    ]
+
+    # Create model and call stream
+    model = BedrockModel(model_id="test-model", streaming=False)
+    request = {"modelId": "test-model"}
+    events = list(model.stream(request))
+
+    assert expected_events == events
+
+    bedrock_client.converse.assert_called_once()
+    bedrock_client.converse_stream.assert_not_called()
+
+
+def test_stream_with_streaming_false_and_reasoning(bedrock_client):
+    """Test stream method with streaming=False."""
+    bedrock_client.converse.return_value = {
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "reasoningContent": {
+                            "reasoningText": {"text": "Thinking really hard....", "signature": "123"},
+                        }
+                    }
+                ],
+            }
+        },
+        "stopReason": "tool_use",
+    }
+
+    expected_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "Thinking really hard...."}}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "123"}}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "tool_use", "additionalModelResponseFields": None}},
+    ]
+
+    # Create model and call stream
+    model = BedrockModel(model_id="test-model", streaming=False)
+    request = {"modelId": "test-model"}
+    events = list(model.stream(request))
+
+    assert expected_events == events
+
+    # Verify converse was called
+    bedrock_client.converse.assert_called_once()
+    bedrock_client.converse_stream.assert_not_called()
+
+
+def test_converse_and_reasoning_no_signature(bedrock_client):
+    """Test stream method with streaming=False."""
+    bedrock_client.converse.return_value = {
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "reasoningContent": {
+                            "reasoningText": {"text": "Thinking really hard...."},
+                        }
+                    }
+                ],
+            }
+        },
+        "stopReason": "tool_use",
+    }
+
+    expected_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "Thinking really hard...."}}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "tool_use", "additionalModelResponseFields": None}},
+    ]
+
+    # Create model and call stream
+    model = BedrockModel(model_id="test-model", streaming=False)
+    request = {"modelId": "test-model"}
+    events = list(model.stream(request))
+
+    assert expected_events == events
+
+    bedrock_client.converse.assert_called_once()
+    bedrock_client.converse_stream.assert_not_called()
+
+
+def test_stream_with_streaming_false_with_metrics_and_usage(bedrock_client):
+    """Test stream method with streaming=False."""
+    bedrock_client.converse.return_value = {
+        "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
+        "usage": {"inputTokens": 1234, "outputTokens": 1234, "totalTokens": 2468},
+        "metrics": {"latencyMs": 1234},
+        "stopReason": "tool_use",
+    }
+
+    expected_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockDelta": {"delta": {"text": "test"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "tool_use", "additionalModelResponseFields": None}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 1234, "outputTokens": 1234, "totalTokens": 2468},
+                "metrics": {"latencyMs": 1234},
+            }
+        },
+    ]
+
+    # Create model and call stream
+    model = BedrockModel(model_id="test-model", streaming=False)
+    request = {"modelId": "test-model"}
+    events = list(model.stream(request))
+
+    assert expected_events == events
+
+    # Verify converse was called
+    bedrock_client.converse.assert_called_once()
+    bedrock_client.converse_stream.assert_not_called()
+
+
+def test_converse_input_guardrails(bedrock_client):
+    """Test stream method with streaming=False."""
+    bedrock_client.converse.return_value = {
+        "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
+        "trace": {
+            "guardrail": {
+                "inputAssessment": {
+                    "3e59qlue4hag": {
+                        "wordPolicy": {"customWords": [{"match": "CACTUS", "action": "BLOCKED", "detected": True}]}
+                    }
+                }
+            }
+        },
+        "stopReason": "end_turn",
+    }
+
+    expected_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockDelta": {"delta": {"text": "test"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn", "additionalModelResponseFields": None}},
+        {
+            "metadata": {
+                "trace": {
+                    "guardrail": {
+                        "inputAssessment": {
+                            "3e59qlue4hag": {
+                                "wordPolicy": {
+                                    "customWords": [{"match": "CACTUS", "action": "BLOCKED", "detected": True}]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
+    ]
+
+    # Create model and call stream
+    model = BedrockModel(model_id="test-model", streaming=False)
+    request = {"modelId": "test-model"}
+    events = list(model.stream(request))
+
+    assert expected_events == events
+
+    bedrock_client.converse.assert_called_once()
+    bedrock_client.converse_stream.assert_not_called()
+
+
+def test_converse_output_guardrails(bedrock_client):
+    """Test stream method with streaming=False."""
+    bedrock_client.converse.return_value = {
+        "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
+        "trace": {
+            "guardrail": {
+                "outputAssessments": {
+                    "3e59qlue4hag": [
+                        {
+                            "wordPolicy": {"customWords": [{"match": "CACTUS", "action": "BLOCKED", "detected": True}]},
+                        }
+                    ]
+                },
+            }
+        },
+        "stopReason": "end_turn",
+    }
+
+    expected_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockDelta": {"delta": {"text": "test"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn", "additionalModelResponseFields": None}},
+        {
+            "metadata": {
+                "trace": {
+                    "guardrail": {
+                        "outputAssessments": {
+                            "3e59qlue4hag": [
+                                {
+                                    "wordPolicy": {
+                                        "customWords": [{"match": "CACTUS", "action": "BLOCKED", "detected": True}]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
+    ]
+
+    model = BedrockModel(model_id="test-model", streaming=False)
+    request = {"modelId": "test-model"}
+    events = list(model.stream(request))
+
+    assert expected_events == events
+
+    bedrock_client.converse.assert_called_once()
+    bedrock_client.converse_stream.assert_not_called()
+
+
+def test_converse_output_guardrails_redacts_output(bedrock_client):
+    """Test stream method with streaming=False."""
+    bedrock_client.converse.return_value = {
+        "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
+        "trace": {
+            "guardrail": {
+                "outputAssessments": {
+                    "3e59qlue4hag": [
+                        {
+                            "wordPolicy": {"customWords": [{"match": "CACTUS", "action": "BLOCKED", "detected": True}]},
+                        }
+                    ]
+                },
+            }
+        },
+        "stopReason": "end_turn",
+    }
+
+    expected_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockDelta": {"delta": {"text": "test"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn", "additionalModelResponseFields": None}},
+        {
+            "metadata": {
+                "trace": {
+                    "guardrail": {
+                        "outputAssessments": {
+                            "3e59qlue4hag": [
+                                {
+                                    "wordPolicy": {
+                                        "customWords": [{"match": "CACTUS", "action": "BLOCKED", "detected": True}]
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
+    ]
+
+    model = BedrockModel(model_id="test-model", streaming=False)
+    request = {"modelId": "test-model"}
+    events = list(model.stream(request))
+
+    assert expected_events == events
+
+    bedrock_client.converse.assert_called_once()
+    bedrock_client.converse_stream.assert_not_called()

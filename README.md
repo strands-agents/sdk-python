@@ -123,6 +123,7 @@ from strands.models.llamaapi import LlamaAPIModel
 bedrock_model = BedrockModel(
   model_id="us.amazon.nova-pro-v1:0",
   temperature=0.3,
+  streaming=True, # Enable/disable streaming
 )
 agent = Agent(model=bedrock_model)
 agent("Tell me about Agentic AI")
