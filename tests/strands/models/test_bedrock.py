@@ -3,6 +3,7 @@ import unittest.mock
 
 import boto3
 import pytest
+from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError, EventStreamError
 
 import strands
@@ -114,6 +115,54 @@ def test__init__with_region_and_session_raises_value_error():
     """Test that BedrockModel raises ValueError when both region and session are provided."""
     with pytest.raises(ValueError):
         _ = BedrockModel(region_name="us-east-1", boto_session=boto3.Session(region_name="us-east-1"))
+
+
+def test__init__default_user_agent(bedrock_client):
+    """Set user agent when no boto_client_config is provided."""
+    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
+        mock_session = mock_session_cls.return_value
+        _ = BedrockModel()
+
+        # Verify the client was created with the correct config
+        mock_session.client.assert_called_once()
+        args, kwargs = mock_session.client.call_args
+        assert kwargs["service_name"] == "bedrock-runtime"
+        assert isinstance(kwargs["config"], BotocoreConfig)
+        assert kwargs["config"].user_agent_extra == "strands-agents"
+
+
+def test__init__with_custom_boto_client_config_no_user_agent(bedrock_client):
+    """Set user agent when boto_client_config is provided without user_agent_extra."""
+    custom_config = BotocoreConfig(read_timeout=900)
+
+    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
+        mock_session = mock_session_cls.return_value
+        _ = BedrockModel(boto_client_config=custom_config)
+
+        # Verify the client was created with the correct config
+        mock_session.client.assert_called_once()
+        args, kwargs = mock_session.client.call_args
+        assert kwargs["service_name"] == "bedrock-runtime"
+        assert isinstance(kwargs["config"], BotocoreConfig)
+        assert kwargs["config"].user_agent_extra == "strands-agents"
+        assert kwargs["config"].read_timeout == 900
+
+
+def test__init__with_custom_boto_client_config_with_user_agent(bedrock_client):
+    """Append to existing user agent when boto_client_config is provided with user_agent_extra."""
+    custom_config = BotocoreConfig(user_agent_extra="existing-agent", read_timeout=900)
+
+    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
+        mock_session = mock_session_cls.return_value
+        _ = BedrockModel(boto_client_config=custom_config)
+
+        # Verify the client was created with the correct config
+        mock_session.client.assert_called_once()
+        args, kwargs = mock_session.client.call_args
+        assert kwargs["service_name"] == "bedrock-runtime"
+        assert isinstance(kwargs["config"], BotocoreConfig)
+        assert kwargs["config"].user_agent_extra == "existing-agent strands-agents"
+        assert kwargs["config"].read_timeout == 900
 
 
 def test__init__model_config(bedrock_client):
@@ -381,7 +430,15 @@ def test_converse_input_guardrails(bedrock_client, model, messages, tool_spec, m
                 "guardrail": {
                     "inputAssessment": {
                         "3e59qlue4hag": {
-                            "wordPolicy": {"customWords": [{"match": "CACTUS", "action": "BLOCKED", "detected": True}]}
+                            "wordPolicy": {
+                                "customWords": [
+                                    {
+                                        "match": "CACTUS",
+                                        "action": "BLOCKED",
+                                        "detected": True,
+                                    }
+                                ]
+                            }
                         }
                     }
                 }
@@ -406,7 +463,10 @@ def test_converse_input_guardrails(bedrock_client, model, messages, tool_spec, m
     chunks = model.converse(messages, [tool_spec])
 
     tru_chunks = list(chunks)
-    exp_chunks = [{"redactContent": {"redactUserContentMessage": "[User input redacted.]"}}, metadata_event]
+    exp_chunks = [
+        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
+        metadata_event,
+    ]
 
     assert tru_chunks == exp_chunks
     bedrock_client.converse_stream.assert_called_once_with(**request)
@@ -424,7 +484,13 @@ def test_converse_output_guardrails(bedrock_client, model, messages, tool_spec, 
                         "3e59qlue4hag": [
                             {
                                 "wordPolicy": {
-                                    "customWords": [{"match": "CACTUS", "action": "BLOCKED", "detected": True}]
+                                    "customWords": [
+                                        {
+                                            "match": "CACTUS",
+                                            "action": "BLOCKED",
+                                            "detected": True,
+                                        }
+                                    ]
                                 },
                             }
                         ]
@@ -451,7 +517,10 @@ def test_converse_output_guardrails(bedrock_client, model, messages, tool_spec, 
     chunks = model.converse(messages, [tool_spec])
 
     tru_chunks = list(chunks)
-    exp_chunks = [{"redactContent": {"redactAssistantContentMessage": "[Assistant output redacted.]"}}, metadata_event]
+    exp_chunks = [
+        {"redactContent": {"redactAssistantContentMessage": "[Assistant output redacted.]"}},
+        metadata_event,
+    ]
 
     assert tru_chunks == exp_chunks
     bedrock_client.converse_stream.assert_called_once_with(**request)
@@ -471,7 +540,13 @@ def test_converse_output_guardrails_redacts_input_and_output(
                         "3e59qlue4hag": [
                             {
                                 "wordPolicy": {
-                                    "customWords": [{"match": "CACTUS", "action": "BLOCKED", "detected": True}]
+                                    "customWords": [
+                                        {
+                                            "match": "CACTUS",
+                                            "action": "BLOCKED",
+                                            "detected": True,
+                                        }
+                                    ]
                                 },
                             }
                         ]
@@ -521,7 +596,13 @@ def test_converse_output_no_blocked_guardrails_doesnt_redact(
                         "3e59qlue4hag": [
                             {
                                 "wordPolicy": {
-                                    "customWords": [{"match": "CACTUS", "action": "NONE", "detected": True}]
+                                    "customWords": [
+                                        {
+                                            "match": "CACTUS",
+                                            "action": "NONE",
+                                            "detected": True,
+                                        }
+                                    ]
                                 },
                             }
                         ]
@@ -567,7 +648,13 @@ def test_converse_output_no_guardrail_redact(
                         "3e59qlue4hag": [
                             {
                                 "wordPolicy": {
-                                    "customWords": [{"match": "CACTUS", "action": "BLOCKED", "detected": True}]
+                                    "customWords": [
+                                        {
+                                            "match": "CACTUS",
+                                            "action": "BLOCKED",
+                                            "detected": True,
+                                        }
+                                    ]
                                 },
                             }
                         ]
@@ -591,7 +678,9 @@ def test_converse_output_no_guardrail_redact(
     }
 
     model.update_config(
-        additional_request_fields=additional_request_fields, guardrail_redact_output=False, guardrail_redact_input=False
+        additional_request_fields=additional_request_fields,
+        guardrail_redact_output=False,
+        guardrail_redact_input=False,
     )
     chunks = model.converse(messages, [tool_spec])
 
