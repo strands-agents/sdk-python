@@ -136,7 +136,7 @@ class Tracer:
         self.tracer_provider: Optional[TracerProvider] = None
         self.tracer: Optional[trace.Tracer] = None
 
-        if otlp_endpoint or enable_console_export:
+        if self.otlp_endpoint or self.enable_console_export:
             self._initialize_tracer()
 
     def _initialize_tracer(self) -> None:
