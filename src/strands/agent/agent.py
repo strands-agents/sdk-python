@@ -43,6 +43,9 @@ from .conversation_manager import (
 
 logger = logging.getLogger(__name__)
 
+# Sentinel object to distinguish between explicit None and default parameter value
+_DEFAULT_CALLBACK_HANDLER = object()
+
 
 class Agent:
     """Core Agent interface.
@@ -177,7 +180,7 @@ class Agent:
         messages: Optional[Messages] = None,
         tools: Optional[List[Union[str, Dict[str, str], Any]]] = None,
         system_prompt: Optional[str] = None,
-        callback_handler: Optional[Callable[..., Any]] = None,
+        callback_handler: Optional[Callable[..., Any]] = _DEFAULT_CALLBACK_HANDLER,
         conversation_manager: Optional[ConversationManager] = None,
         max_parallel_tools: int = os.cpu_count() or 1,
         record_direct_tool_call: bool = True,
@@ -204,7 +207,8 @@ class Agent:
             system_prompt: System prompt to guide model behavior.
                 If None, the model will behave according to its default settings.
             callback_handler: Callback for processing events as they happen during agent execution.
-                Defaults to strands.handlers.PrintingCallbackHandler if None.
+                If not provided (using the default), a new PrintingCallbackHandler instance is created.
+                If explicitly set to None, null_callback_handler is used.
             conversation_manager: Manager for conversation history and context window.
                 Defaults to strands.agent.conversation_manager.SlidingWindowConversationManager if None.
             max_parallel_tools: Maximum number of tools to run in parallel when the model returns multiple tool calls.
@@ -222,7 +226,13 @@ class Agent:
         self.messages = messages if messages is not None else []
 
         self.system_prompt = system_prompt
-        self.callback_handler = callback_handler or null_callback_handler
+        
+        # If the default sentinel is used, create a new PrintingCallbackHandler instance
+        if callback_handler is _DEFAULT_CALLBACK_HANDLER:
+            self.callback_handler = PrintingCallbackHandler()
+        else:
+            # Otherwise use the provided handler or null_callback_handler if None was explicitly passed
+            self.callback_handler = callback_handler or null_callback_handler
 
         self.conversation_manager = conversation_manager if conversation_manager else SlidingWindowConversationManager()
 
