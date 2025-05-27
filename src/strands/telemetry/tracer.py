@@ -548,7 +548,7 @@ def get_tracer(
     service_name: str = "strands-agents",
     otlp_endpoint: Optional[str] = None,
     otlp_headers: Optional[Dict[str, str]] = None,
-    enable_console_export: bool = False,
+    enable_console_export: Optional[bool] = None,
 ) -> Tracer:
     """Get or create the global tracer.
 
