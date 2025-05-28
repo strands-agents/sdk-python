@@ -7,6 +7,7 @@ responses to and from the OpenAI specification.
 """
 
 import abc
+import base64
 import json
 import logging
 import mimetypes
@@ -40,6 +41,17 @@ class OpenAIModel(Model, abc.ABC):
         Returns:
             OpenAI compatible content block.
         """
+        if "document" in content:
+            mime_type = mimetypes.types_map.get(f".{content['document']['format']}", "application/octet-stream")
+            file_data = base64.b64encode(content["document"]["source"]["bytes"]).decode("utf-8")
+            return {
+                "file": {
+                    "file_data": f"data:{mime_type};base64,{file_data}",
+                    "filename": content["document"]["name"],
+                },
+                "type": "file",
+            }
+
         if "image" in content:
             mime_type = mimetypes.types_map.get(f".{content['image']['format']}", "application/octet-stream")
             image_data = content["image"]["source"]["bytes"].decode("utf-8")
