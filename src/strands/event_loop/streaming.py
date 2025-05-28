@@ -152,7 +152,7 @@ def handle_content_block_delta(
                 reasoning=True,
                 **kwargs,
             )
-            
+
         elif "redactedContent" in delta_content["reasoningContent"]:
             if "redactedContent" not in state:
                 state["redactedContent"] = b""
@@ -219,15 +219,8 @@ def handle_content_block_stop(state: Dict[str, Any]) -> Dict[str, Any]:
             }
         )
         state["reasoningText"] = ""
-        state["signature"] = ""
     elif "redactedContent" in state and state["redactedContent"]:
-        content.append(
-            {
-                "reasoningContent": {
-                    "redactedContent": state["redactedContent"]
-                }
-            }
-        )
+        content.append({"reasoningContent": {"redactedContent": state["redactedContent"]}})
         state["redactedContent"] = b""
 
     return state

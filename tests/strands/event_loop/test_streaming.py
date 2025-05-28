@@ -132,6 +132,20 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
             {"signature": "val"},
             {"reasoning_signature": "val", "reasoning": True},
         ),
+        # Reasoning - redactedContent - New
+        (
+            {"delta": {"reasoningContent": {"redactedContent": b"encrypted"}}},
+            {},
+            {"redactedContent": b"encrypted"},
+            {"redactedContent": b"encrypted", "reasoning": True},
+        ),
+        # Reasoning - redactedContent - Existing
+        (
+            {"delta": {"reasoningContent": {"redactedContent": b"data"}}},
+            {"redactedContent": b"encrypted_"},
+            {"redactedContent": b"encrypted_data"},
+            {"redactedContent": b"data", "reasoning": True},
+        ),
         # Reasoning - Empty
         (
             {"delta": {"reasoningContent": {}}},
@@ -228,6 +242,23 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "",
                 "signature": "123",
+            },
+        ),
+        # redactedContent
+        (
+            {
+                "content": [],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "redactedContent": b"encrypted_data",
+            },
+            {
+                "content": [{"reasoningContent": {"redactedContent": b"encrypted_data"}}],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "redactedContent": b"",
             },
         ),
         # Empty
@@ -354,6 +385,36 @@ def test_extract_usage_metrics():
             {"latencyMs": 1},
             {"calls": 1},
             [{"role": "user", "content": [{"text": "REDACTED"}]}],
+        ),
+        (
+            [
+                {"messageStart": {"role": "assistant"}},
+                {
+                    "contentBlockStart": {"start": {}},
+                },
+                {
+                    "contentBlockDelta": {"delta": {"reasoningContent": {"redactedContent": b"encrypted_data"}}},
+                },
+                {"contentBlockStop": {}},
+                {
+                    "messageStop": {"stopReason": "end_turn"},
+                },
+                {
+                    "metadata": {
+                        "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        "metrics": {"latencyMs": 1},
+                    }
+                },
+            ],
+            "end_turn",
+            {
+                "role": "assistant",
+                "content": [{"reasoningContent": {"redactedContent": b"encrypted_data"}}],
+            },
+            {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+            {"latencyMs": 1},
+            {"calls": 1},
+            [{"role": "user", "content": [{"text": "Some input!"}]}],
         ),
     ],
 )
