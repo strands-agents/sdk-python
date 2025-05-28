@@ -130,6 +130,93 @@ def test_normalize_schema_with_required():
     assert normalized["required"] == ["name", "email"]
 
 
+def test_normalize_schema_with_nested_object():
+    """Test normalization of schemas with nested objects."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "user": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "User name"},
+                    "age": {"type": "integer", "description": "User age"},
+                },
+                "required": ["name"],
+            }
+        },
+        "required": ["user"],
+    }
+
+    normalized = normalize_schema(schema)
+
+    # Verify structure is preserved
+    assert normalized["properties"]["user"]["type"] == "object"
+    assert "properties" in normalized["properties"]["user"]
+    assert "name" in normalized["properties"]["user"]["properties"]
+    assert normalized["properties"]["user"]["properties"]["name"]["type"] == "string"
+    assert normalized["properties"]["user"]["required"] == ["name"]
+    assert normalized["required"] == ["user"]
+
+
+def test_normalize_schema_with_deeply_nested_objects():
+    """Test normalization of deeply nested object structures."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "level1": {
+                "type": "object",
+                "properties": {
+                    "level2": {
+                        "type": "object",
+                        "properties": {
+                            "level3": {"type": "object", "properties": {"value": {"type": "string", "const": "fixed"}}}
+                        },
+                    }
+                },
+            }
+        },
+    }
+
+    normalized = normalize_schema(schema)
+
+    # Verify deep nesting is preserved
+    level3 = normalized["properties"]["level1"]["properties"]["level2"]["properties"]["level3"]
+    assert level3["type"] == "object"
+    assert level3["properties"]["value"]["const"] == "fixed"
+
+
+def test_normalize_schema_with_const_constraint():
+    """Test that const constraints are preserved."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "status": {"type": "string", "const": "ACTIVE"},
+            "config": {"type": "object", "properties": {"mode": {"type": "string", "const": "PRODUCTION"}}},
+        },
+    }
+
+    normalized = normalize_schema(schema)
+
+    assert normalized["properties"]["status"]["const"] == "ACTIVE"
+    assert normalized["properties"]["config"]["properties"]["mode"]["const"] == "PRODUCTION"
+
+
+def test_normalize_schema_with_additional_properties():
+    """Test that additionalProperties constraint is preserved."""
+    schema = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "data": {"type": "object", "properties": {"id": {"type": "string"}}, "additionalProperties": False}
+        },
+    }
+
+    normalized = normalize_schema(schema)
+
+    assert normalized["additionalProperties"] is False
+    assert normalized["properties"]["data"]["additionalProperties"] is False
+
+
 def test_normalize_tool_spec_with_json_schema():
     tool_spec = {
         "name": "test_tool",
