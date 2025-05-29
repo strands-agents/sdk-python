@@ -4,7 +4,6 @@
 """
 
 import base64
-import json
 import logging
 import mimetypes
 from typing import Any, Iterable, Optional, TypedDict, cast
@@ -95,6 +94,9 @@ class AnthropicModel(Model):
 
         Returns:
             Anthropic formatted content block.
+
+        Raises:
+            TypeError: If the content block type cannot be converted to an Anthropic-compatible format.
         """
         if "document" in content:
             mime_type = mimetypes.types_map.get(f".{content['document']['format']}", "application/octet-stream")
@@ -151,7 +153,7 @@ class AnthropicModel(Model):
                 "type": "tool_result",
             }
 
-        return {"text": json.dumps(content), "type": "text"}
+        raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
     def _format_request_messages(self, messages: Messages) -> list[dict[str, Any]]:
         """Format an Anthropic messages array.
@@ -192,6 +194,10 @@ class AnthropicModel(Model):
 
         Returns:
             An Anthropic streaming request.
+
+        Raises:
+            TypeError: If a message contains a content block type that cannot be converted to an Anthropic-compatible
+                format.
         """
         return {
             "max_tokens": self.config["max_tokens"],

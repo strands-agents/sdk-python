@@ -40,6 +40,9 @@ class OpenAIModel(Model, abc.ABC):
 
         Returns:
             OpenAI compatible content block.
+
+        Raises:
+            TypeError: If the content block type cannot be converted to an OpenAI-compatible format.
         """
         if "document" in content:
             mime_type = mimetypes.types_map.get(f".{content['document']['format']}", "application/octet-stream")
@@ -67,7 +70,7 @@ class OpenAIModel(Model, abc.ABC):
         if "text" in content:
             return {"text": content["text"], "type": "text"}
 
-        return {"text": json.dumps(content), "type": "text"}
+        raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
     @staticmethod
     def format_request_message_tool_call(tool_use: ToolUse) -> dict[str, Any]:
@@ -163,6 +166,10 @@ class OpenAIModel(Model, abc.ABC):
 
         Returns:
             An OpenAI compatible chat streaming request.
+
+        Raises:
+            TypeError: If a message contains a content block type that cannot be converted to an OpenAI-compatible
+                format.
         """
         return {
             "messages": self.format_request_messages(messages, system_prompt),

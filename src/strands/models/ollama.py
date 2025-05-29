@@ -105,6 +105,10 @@ class OllamaModel(Model):
 
         Returns:
             An Ollama chat streaming request.
+
+        Raises:
+            TypeError: If a message contains a content block type that cannot be converted to an Ollama-compatible
+                format.
         """
 
         def format_message(message: Message, content: ContentBlock) -> dict[str, Any]:
@@ -153,7 +157,7 @@ class OllamaModel(Model):
                     **({"images": result_images} if result_images else {}),
                 }
 
-            return {"role": message["role"], "content": json.dumps(content)}
+            raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
         def format_messages() -> list[dict[str, Any]]:
             return [format_message(message, content) for message in messages for content in message["content"]]
