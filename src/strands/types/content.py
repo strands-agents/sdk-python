@@ -62,11 +62,11 @@ class ReasoningContentBlock(TypedDict, total=False):
 
 class CachePoint(TypedDict):
     """A cache point configuration for optimizing conversation history.
-    
+
     Attributes:
         type: The type of cache point, typically "default".
     """
-    
+
     type: str
 
 
