@@ -50,11 +50,10 @@ def test_validate_tool_use():
 def test_normalize_schema_basic():
     schema = {"type": "object"}
     normalized = normalize_schema(schema)
-    assert normalized["type"] == "object"
-    assert "properties" in normalized
-    assert normalized["properties"] == {}
-    assert "required" in normalized
-    assert normalized["required"] == []
+
+    expected = {"type": "object", "properties": {}, "required": []}
+
+    assert normalized == expected
 
 
 def test_normalize_schema_with_properties():
@@ -66,14 +65,17 @@ def test_normalize_schema_with_properties():
         },
     }
     normalized = normalize_schema(schema)
-    assert normalized["type"] == "object"
-    assert "properties" in normalized
-    assert "name" in normalized["properties"]
-    assert normalized["properties"]["name"]["type"] == "string"
-    assert normalized["properties"]["name"]["description"] == "User name"
-    assert "age" in normalized["properties"]
-    assert normalized["properties"]["age"]["type"] == "integer"
-    assert normalized["properties"]["age"]["description"] == "User age"
+
+    expected = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "User name"},
+            "age": {"type": "integer", "description": "User age"},
+        },
+        "required": [],
+    }
+
+    assert normalized == expected
 
 
 def test_normalize_schema_with_property_removed():
@@ -82,27 +84,40 @@ def test_normalize_schema_with_property_removed():
         "properties": {"name": "invalid"},
     }
     normalized = normalize_schema(schema)
-    assert "name" in normalized["properties"]
-    assert normalized["properties"]["name"]["type"] == "string"
-    assert normalized["properties"]["name"]["description"] == "Property name"
+
+    expected = {
+        "type": "object",
+        "properties": {"name": {"type": "string", "description": "Property name"}},
+        "required": [],
+    }
+
+    assert normalized == expected
 
 
 def test_normalize_schema_with_property_defaults():
     schema = {"properties": {"name": {}}}
     normalized = normalize_schema(schema)
-    assert "name" in normalized["properties"]
-    assert normalized["properties"]["name"]["type"] == "string"
-    assert normalized["properties"]["name"]["description"] == "Property name"
+
+    expected = {
+        "type": "object",
+        "properties": {"name": {"type": "string", "description": "Property name"}},
+        "required": [],
+    }
+
+    assert normalized == expected
 
 
 def test_normalize_schema_with_property_enum():
     schema = {"properties": {"color": {"type": "string", "description": "color", "enum": ["red", "green", "blue"]}}}
     normalized = normalize_schema(schema)
-    assert "color" in normalized["properties"]
-    assert normalized["properties"]["color"]["type"] == "string"
-    assert normalized["properties"]["color"]["description"] == "color"
-    assert "enum" in normalized["properties"]["color"]
-    assert normalized["properties"]["color"]["enum"] == ["red", "green", "blue"]
+
+    expected = {
+        "type": "object",
+        "properties": {"color": {"type": "string", "description": "color", "enum": ["red", "green", "blue"]}},
+        "required": [],
+    }
+
+    assert normalized == expected
 
 
 def test_normalize_schema_with_property_numeric_constraints():
@@ -113,21 +128,26 @@ def test_normalize_schema_with_property_numeric_constraints():
         }
     }
     normalized = normalize_schema(schema)
-    assert "age" in normalized["properties"]
-    assert normalized["properties"]["age"]["type"] == "integer"
-    assert normalized["properties"]["age"]["minimum"] == 0
-    assert normalized["properties"]["age"]["maximum"] == 120
-    assert "score" in normalized["properties"]
-    assert normalized["properties"]["score"]["type"] == "number"
-    assert normalized["properties"]["score"]["minimum"] == 0.0
-    assert normalized["properties"]["score"]["maximum"] == 100.0
+
+    expected = {
+        "type": "object",
+        "properties": {
+            "age": {"type": "integer", "description": "age", "minimum": 0, "maximum": 120},
+            "score": {"type": "number", "description": "score", "minimum": 0.0, "maximum": 100.0},
+        },
+        "required": [],
+    }
+
+    assert normalized == expected
 
 
 def test_normalize_schema_with_required():
     schema = {"type": "object", "required": ["name", "email"]}
     normalized = normalize_schema(schema)
-    assert "required" in normalized
-    assert normalized["required"] == ["name", "email"]
+
+    expected = {"type": "object", "properties": {}, "required": ["name", "email"]}
+
+    assert normalized == expected
 
 
 def test_normalize_schema_with_nested_object():
@@ -149,13 +169,22 @@ def test_normalize_schema_with_nested_object():
 
     normalized = normalize_schema(schema)
 
-    # Verify structure is preserved
-    assert normalized["properties"]["user"]["type"] == "object"
-    assert "properties" in normalized["properties"]["user"]
-    assert "name" in normalized["properties"]["user"]["properties"]
-    assert normalized["properties"]["user"]["properties"]["name"]["type"] == "string"
-    assert normalized["properties"]["user"]["required"] == ["name"]
-    assert normalized["required"] == ["user"]
+    expected = {
+        "type": "object",
+        "properties": {
+            "user": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "User name"},
+                    "age": {"type": "integer", "description": "User age"},
+                },
+                "required": ["name"],
+            }
+        },
+        "required": ["user"],
+    }
+
+    assert normalized == expected
 
 
 def test_normalize_schema_with_deeply_nested_objects():
@@ -179,10 +208,33 @@ def test_normalize_schema_with_deeply_nested_objects():
 
     normalized = normalize_schema(schema)
 
-    # Verify deep nesting is preserved
-    level3 = normalized["properties"]["level1"]["properties"]["level2"]["properties"]["level3"]
-    assert level3["type"] == "object"
-    assert level3["properties"]["value"]["const"] == "fixed"
+    expected = {
+        "type": "object",
+        "properties": {
+            "level1": {
+                "type": "object",
+                "properties": {
+                    "level2": {
+                        "type": "object",
+                        "properties": {
+                            "level3": {
+                                "type": "object",
+                                "properties": {
+                                    "value": {"type": "string", "description": "Property value", "const": "fixed"}
+                                },
+                                "required": [],
+                            }
+                        },
+                        "required": [],
+                    }
+                },
+                "required": [],
+            }
+        },
+        "required": [],
+    }
+
+    assert normalized == expected
 
 
 def test_normalize_schema_with_const_constraint():
@@ -197,8 +249,20 @@ def test_normalize_schema_with_const_constraint():
 
     normalized = normalize_schema(schema)
 
-    assert normalized["properties"]["status"]["const"] == "ACTIVE"
-    assert normalized["properties"]["config"]["properties"]["mode"]["const"] == "PRODUCTION"
+    expected = {
+        "type": "object",
+        "properties": {
+            "status": {"type": "string", "description": "Property status", "const": "ACTIVE"},
+            "config": {
+                "type": "object",
+                "properties": {"mode": {"type": "string", "description": "Property mode", "const": "PRODUCTION"}},
+                "required": [],
+            },
+        },
+        "required": [],
+    }
+
+    assert normalized == expected
 
 
 def test_normalize_schema_with_additional_properties():
@@ -213,8 +277,21 @@ def test_normalize_schema_with_additional_properties():
 
     normalized = normalize_schema(schema)
 
-    assert normalized["additionalProperties"] is False
-    assert normalized["properties"]["data"]["additionalProperties"] is False
+    expected = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "data": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {"id": {"type": "string", "description": "Property id"}},
+                "required": [],
+            }
+        },
+        "required": [],
+    }
+
+    assert normalized == expected
 
 
 def test_normalize_tool_spec_with_json_schema():
@@ -224,14 +301,20 @@ def test_normalize_tool_spec_with_json_schema():
         "inputSchema": {"json": {"type": "object", "properties": {"query": {}}, "required": ["query"]}},
     }
     normalized = normalize_tool_spec(tool_spec)
-    assert normalized["name"] == "test_tool"
-    assert normalized["description"] == "A test tool"
-    assert "inputSchema" in normalized
-    assert "json" in normalized["inputSchema"]
-    assert normalized["inputSchema"]["json"]["type"] == "object"
-    assert "query" in normalized["inputSchema"]["json"]["properties"]
-    assert normalized["inputSchema"]["json"]["properties"]["query"]["type"] == "string"
-    assert normalized["inputSchema"]["json"]["properties"]["query"]["description"] == "Property query"
+
+    expected = {
+        "name": "test_tool",
+        "description": "A test tool",
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "properties": {"query": {"type": "string", "description": "Property query"}},
+                "required": ["query"],
+            }
+        },
+    }
+
+    assert normalized == expected
 
 
 def test_normalize_tool_spec_with_direct_schema():
@@ -241,22 +324,29 @@ def test_normalize_tool_spec_with_direct_schema():
         "inputSchema": {"type": "object", "properties": {"query": {}}, "required": ["query"]},
     }
     normalized = normalize_tool_spec(tool_spec)
-    assert normalized["name"] == "test_tool"
-    assert normalized["description"] == "A test tool"
-    assert "inputSchema" in normalized
-    assert "json" in normalized["inputSchema"]
-    assert normalized["inputSchema"]["json"]["type"] == "object"
-    assert "query" in normalized["inputSchema"]["json"]["properties"]
-    assert normalized["inputSchema"]["json"]["required"] == ["query"]
+
+    expected = {
+        "name": "test_tool",
+        "description": "A test tool",
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "properties": {"query": {"type": "string", "description": "Property query"}},
+                "required": ["query"],
+            }
+        },
+    }
+
+    assert normalized == expected
 
 
 def test_normalize_tool_spec_without_input_schema():
     tool_spec = {"name": "test_tool", "description": "A test tool"}
     normalized = normalize_tool_spec(tool_spec)
-    assert normalized["name"] == "test_tool"
-    assert normalized["description"] == "A test tool"
-    # Should not modify the spec if inputSchema is not present
-    assert "inputSchema" not in normalized
+
+    expected = {"name": "test_tool", "description": "A test tool"}
+
+    assert normalized == expected
 
 
 def test_normalize_tool_spec_empty_input_schema():
@@ -266,10 +356,10 @@ def test_normalize_tool_spec_empty_input_schema():
         "inputSchema": "",
     }
     normalized = normalize_tool_spec(tool_spec)
-    assert normalized["name"] == "test_tool"
-    assert normalized["description"] == "A test tool"
-    # Should not modify the spec if inputSchema is not a dict
-    assert normalized["inputSchema"] == ""
+
+    expected = {"name": "test_tool", "description": "A test tool", "inputSchema": ""}
+
+    assert normalized == expected
 
 
 def test_validate_tool_use_with_valid_input():
