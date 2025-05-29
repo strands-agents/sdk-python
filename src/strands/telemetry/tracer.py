@@ -93,7 +93,7 @@ class Tracer:
         service_name: str = "strands-agents",
         otlp_endpoint: Optional[str] = None,
         otlp_headers: Optional[Dict[str, str]] = None,
-        enable_console_export: bool = False,
+        enable_console_export: Optional[bool] = None,
     ):
         """Initialize the tracer.
 
@@ -105,13 +105,17 @@ class Tracer:
         """
         # Check environment variables first
         env_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
-        env_console_export = os.environ.get("STRANDS_OTEL_ENABLE_CONSOLE_EXPORT", "").lower() in ("true", "1", "yes")
+        env_console_export_str = os.environ.get("STRANDS_OTEL_ENABLE_CONSOLE_EXPORT")
 
-        # Environment variables take precedence over constructor parameters
-        if env_endpoint:
-            otlp_endpoint = env_endpoint
-        if env_console_export:
-            enable_console_export = True
+        # Constructor parameters take precedence over environment variables
+        self.otlp_endpoint = otlp_endpoint or env_endpoint
+
+        if enable_console_export is not None:
+            self.enable_console_export = enable_console_export
+        elif env_console_export_str:
+            self.enable_console_export = env_console_export_str.lower() in ("true", "1", "yes")
+        else:
+            self.enable_console_export = False
 
         # Parse headers from environment if available
         env_headers = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS")
@@ -128,14 +132,11 @@ class Tracer:
                 logger.warning("error=<%s> | failed to parse OTEL_EXPORTER_OTLP_HEADERS", e)
 
         self.service_name = service_name
-        self.otlp_endpoint = otlp_endpoint
         self.otlp_headers = otlp_headers or {}
-        self.enable_console_export = enable_console_export
-
         self.tracer_provider: Optional[TracerProvider] = None
         self.tracer: Optional[trace.Tracer] = None
 
-        if otlp_endpoint or enable_console_export:
+        if self.otlp_endpoint or self.enable_console_export:
             self._initialize_tracer()
 
     def _initialize_tracer(self) -> None:
@@ -547,7 +548,7 @@ def get_tracer(
     service_name: str = "strands-agents",
     otlp_endpoint: Optional[str] = None,
     otlp_headers: Optional[Dict[str, str]] = None,
-    enable_console_export: bool = False,
+    enable_console_export: Optional[bool] = None,
 ) -> Tracer:
     """Get or create the global tracer.
 
