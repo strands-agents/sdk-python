@@ -233,6 +233,18 @@ def test_format_request_with_empty_content(model, model_id):
     assert tru_request == exp_request
 
 
+def test_format_request_with_unsupported_type(model):
+    messages = [
+        {
+            "role": "user",
+            "content": [{"unsupported": {}}],
+        },
+    ]
+
+    with pytest.raises(TypeError, match="content_type=<unsupported> | unsupported type"):
+        model.format_request(messages)
+
+
 def test_format_chunk_message_start(model):
     event = {"chunk_type": "message_start"}
 
