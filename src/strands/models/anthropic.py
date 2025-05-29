@@ -97,13 +97,16 @@ class AnthropicModel(Model):
             Anthropic formatted content block.
         """
         if "document" in content:
+            mime_type = mimetypes.types_map.get(f".{content['document']['format']}", "application/octet-stream")
             return {
                 "source": {
-                    "data": base64.b64encode(content["document"]["source"]["bytes"]).decode("utf-8"),
-                    "media_type": mimetypes.types_map.get(
-                        f".{content['document']['format']}", "application/octet-stream"
+                    "data": (
+                        content["document"]["source"]["bytes"].decode("utf-8")
+                        if mime_type == "text/plain"
+                        else base64.b64encode(content["document"]["source"]["bytes"]).decode("utf-8")
                     ),
-                    "type": "base64",
+                    "media_type": mime_type,
+                    "type": "text" if mime_type == "text/plain" else "base64",
                 },
                 "title": content["document"]["name"],
                 "type": "document",

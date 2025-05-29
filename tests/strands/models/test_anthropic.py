@@ -102,19 +102,46 @@ def test_format_request_with_system_prompt(model, messages, model_id, max_tokens
     assert tru_request == exp_request
 
 
-def test_format_request_with_document(model, model_id, max_tokens):
+@pytest.mark.parametrize(
+    ("content", "formatted_content"),
+    [
+        # PDF
+        (
+            {
+                "document": {"format": "pdf", "name": "test doc", "source": {"bytes": b"pdf"}},
+            },
+            {
+                "source": {
+                    "data": "cGRm",
+                    "media_type": "application/pdf",
+                    "type": "base64",
+                },
+                "title": "test doc",
+                "type": "document",
+            },
+        ),
+        # Plain text
+        (
+            {
+                "document": {"format": "txt", "name": "test doc", "source": {"bytes": b"txt"}},
+            },
+            {
+                "source": {
+                    "data": "txt",
+                    "media_type": "text/plain",
+                    "type": "text",
+                },
+                "title": "test doc",
+                "type": "document",
+            },
+        ),
+    ],
+)
+def test_format_request_with_document(content, formatted_content, model, model_id, max_tokens):
     messages = [
         {
             "role": "user",
-            "content": [
-                {
-                    "document": {
-                        "format": "pdf",
-                        "name": "test-doc",
-                        "source": {"bytes": b"base64encodeddoc"},
-                    },
-                },
-            ],
+            "content": [content],
         },
     ]
 
@@ -124,17 +151,7 @@ def test_format_request_with_document(model, model_id, max_tokens):
         "messages": [
             {
                 "role": "user",
-                "content": [
-                    {
-                        "source": {
-                            "data": "YmFzZTY0ZW5jb2RlZGRvYw==",
-                            "media_type": "application/pdf",
-                            "type": "base64",
-                        },
-                        "title": "test-doc",
-                        "type": "document",
-                    },
-                ],
+                "content": [formatted_content],
             },
         ],
         "model": model_id,
