@@ -62,7 +62,24 @@ def system_prompt():
 @pytest.mark.parametrize(
     "content, exp_result",
     [
-        # Case 1: Image
+        # Document
+        (
+            {
+                "document": {
+                    "format": "pdf",
+                    "name": "test doc",
+                    "source": {"bytes": b"document"},
+                },
+            },
+            {
+                "file": {
+                    "file_data": "data:application/pdf;base64,ZG9jdW1lbnQ=",
+                    "filename": "test doc",
+                },
+                "type": "file",
+            },
+        ),
+        # Image
         (
             {
                 "image": {
@@ -79,12 +96,12 @@ def system_prompt():
                 "type": "image_url",
             },
         ),
-        # Case 2: Text
+        # Text
         (
             {"text": "hello"},
             {"type": "text", "text": "hello"},
         ),
-        # Case 3: Other
+        # Other
         (
             {"other": {"a": 1}},
             {
