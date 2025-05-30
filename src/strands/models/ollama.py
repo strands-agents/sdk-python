@@ -91,37 +91,55 @@ class OllamaModel(Model):
         """
         return self.config
 
-    def _format_request_message(self, role: str, content: ContentBlock) -> dict[str, Any]:
-        """Format an Ollama compatible message.
+    def _format_request_message_contents(self, role: str, content: ContentBlock) -> list[dict[str, Any]]:
+        """Format Ollama compatible message contents.
+
+        Ollama doesn't support an array of contents, so we must flatten everything into separate message blocks.
 
         Args:
             role: E.g., user.
-            content: Message content block for format.
+            content: Content block to format.
 
         Returns:
-            Ollama formatted message.
+            Ollama formatted message contents.
 
         Raises:
             TypeError: If the content block type cannot be converted to an Ollama-compatible format.
         """
         if "text" in content:
-            return {"role": role, "content": content["text"]}
+            return [{"role": role, "content": content["text"]}]
 
         if "image" in content:
-            return {"role": role, "images": [content["image"]["source"]["bytes"]]}
+            return [{"role": role, "images": [content["image"]["source"]["bytes"]]}]
 
         if "toolUse" in content:
-            return {
-                "role": role,
-                "tool_calls": [
-                    {
-                        "function": {
-                            "name": content["toolUse"]["toolUseId"],
-                            "arguments": content["toolUse"]["input"],
+            return [
+                {
+                    "role": role,
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": content["toolUse"]["toolUseId"],
+                                "arguments": content["toolUse"]["input"],
+                            }
                         }
-                    }
-                ],
-            }
+                    ],
+                }
+            ]
+
+        if "toolResult" in content:
+            return [
+                formatted_tool_result_content
+                for tool_result_content in content["toolResult"]["content"]
+                for formatted_tool_result_content in self._format_request_message_contents(
+                    "tool",
+                    (
+                        {"text": json.dumps(tool_result_content["json"])}
+                        if "json" in tool_result_content
+                        else tool_result_content
+                    )
+                )
+            ]
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
@@ -135,33 +153,14 @@ class OllamaModel(Model):
         Returns:
             An Ollama compatible messages array.
         """
-        formatted_messages: list[dict[str, Any]]
-        formatted_messages = [{"role": "system", "content": system_prompt}] if system_prompt else []
+        system_message = [{"role": "system", "content": system_prompt}] if system_prompt else []
 
-        for message in messages:
-            contents = message["content"]
-
-            message_components = [
-                *[(message["role"], content) for content in contents if "toolResult" not in content],
-                *[
-                    (
-                        "tool",
-                        (
-                            {"text": tool_result_content["json"]}
-                            if "json" in tool_result_content
-                            else tool_result_content
-                        ),
-                    )
-                    for content in contents
-                    if "toolResult" in content
-                    for tool_result_content in content["toolResult"]["content"]
-                ],
-            ]
-            for role, content in message_components:
-                content = cast(ContentBlock, content)
-                formatted_messages.append(self._format_request_message(role, content))
-
-        return formatted_messages
+        return system_message + [
+            formatted_message
+            for message in messages
+            for content in message["content"]
+            for formatted_message in self._format_request_message_contents(message["role"], content)
+        ]
 
     @override
     def format_request(

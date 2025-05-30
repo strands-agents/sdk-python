@@ -148,7 +148,7 @@ def test_format_request_with_tool_use(model, model_id):
 def test_format_request_with_tool_result(model, model_id):
     messages: Messages = [
         {
-            "role": "tool",
+            "role": "user",
             "content": [
                 {
                     "toolResult": {
@@ -157,10 +157,13 @@ def test_format_request_with_tool_result(model, model_id):
                         "content": [
                             {"text": "4"},
                             {"image": {"source": {"bytes": b"image"}}},
-                            {"json": '["4"]'},
+                            {"json": ["4"]},
                         ],
-                    }
-                }
+                    },
+                },
+                {
+                    "text": "see results",
+                },
             ],
         },
     ]
@@ -179,6 +182,10 @@ def test_format_request_with_tool_result(model, model_id):
             {
                 "role": "tool",
                 "content": '["4"]',
+            },
+            {
+                "role": "user",
+                "content": "see results",
             },
         ],
         "model": model_id,

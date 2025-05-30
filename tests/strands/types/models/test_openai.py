@@ -135,7 +135,7 @@ def test_format_request_message_tool_call():
 
 def test_format_request_tool_message():
     tool_result = {
-        "content": [{"text": "4"}, {"json": '["4"]'}],
+        "content": [{"text": "4"}, {"json": ["4"]}],
         "status": "success",
         "toolUseId": "c1",
     }

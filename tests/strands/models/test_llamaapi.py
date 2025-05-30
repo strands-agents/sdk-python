@@ -143,7 +143,7 @@ def test_format_request_with_tool_result(model, model_id):
                     "toolResult": {
                         "toolUseId": "c1",
                         "status": "success",
-                        "content": [{"text": "4"}, {"json": '["4"]'}],
+                        "content": [{"text": "4"}, {"json": ["4"]}],
                     }
                 }
             ],
