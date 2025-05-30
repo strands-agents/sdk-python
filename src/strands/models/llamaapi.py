@@ -7,7 +7,7 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, cast
 
 import llama_api_client
 from llama_api_client import LlamaAPIClient
@@ -138,18 +138,27 @@ class LlamaAPIModel(Model):
         Returns:
             Llama API formatted tool message.
         """
+        contents = cast(
+            list[ContentBlock],
+            [{"text": content["json"]} if "json" in content else content for content in tool_result["content"]],
+        )
+
         return {
             "role": "tool",
             "tool_call_id": tool_result["toolUseId"],
-            "content": json.dumps(
-                {
-                    "content": tool_result["content"],
-                    "status": tool_result["status"],
-                }
-            ),
+            "content": [self._format_request_message_content(content) for content in contents],
         }
 
     def _format_request_messages(self, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+        """Format a LlamaAPI compatible messages array.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            system_prompt: System prompt to provide context to the model.
+
+        Returns:
+            An LlamaAPI compatible messages array.
+        """
         formatted_messages: list[dict[str, Any]]
         formatted_messages = [{"role": "system", "content": system_prompt}] if system_prompt else []
 

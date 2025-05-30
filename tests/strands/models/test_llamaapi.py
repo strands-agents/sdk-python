@@ -1,4 +1,3 @@
-import json
 import unittest.mock
 
 import pytest
@@ -144,7 +143,7 @@ def test_format_request_with_tool_result(model, model_id):
                     "toolResult": {
                         "toolUseId": "c1",
                         "status": "success",
-                        "content": [{"value": 4}],
+                        "content": [{"text": "4"}, {"json": '["4"]'}],
                     }
                 }
             ],
@@ -155,12 +154,7 @@ def test_format_request_with_tool_result(model, model_id):
     exp_request = {
         "messages": [
             {
-                "content": json.dumps(
-                    {
-                        "content": [{"value": 4}],
-                        "status": "success",
-                    }
-                ),
+                "content": [{"text": "4", "type": "text"}, {"text": '["4"]', "type": "text"}],
                 "role": "tool",
                 "tool_call_id": "c1",
             },

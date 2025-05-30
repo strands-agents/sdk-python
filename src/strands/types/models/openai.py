@@ -11,7 +11,7 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from typing_extensions import override
 
@@ -31,8 +31,8 @@ class OpenAIModel(Model, abc.ABC):
 
     config: dict[str, Any]
 
-    @staticmethod
-    def format_request_message_content(content: ContentBlock) -> dict[str, Any]:
+    @classmethod
+    def format_request_message_content(cls, content: ContentBlock) -> dict[str, Any]:
         """Format an OpenAI compatible content block.
 
         Args:
@@ -72,8 +72,8 @@ class OpenAIModel(Model, abc.ABC):
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
-    @staticmethod
-    def format_request_message_tool_call(tool_use: ToolUse) -> dict[str, Any]:
+    @classmethod
+    def format_request_message_tool_call(cls, tool_use: ToolUse) -> dict[str, Any]:
         """Format an OpenAI compatible tool call.
 
         Args:
@@ -91,8 +91,8 @@ class OpenAIModel(Model, abc.ABC):
             "type": "function",
         }
 
-    @staticmethod
-    def format_request_tool_message(tool_result: ToolResult) -> dict[str, Any]:
+    @classmethod
+    def format_request_tool_message(cls, tool_result: ToolResult) -> dict[str, Any]:
         """Format an OpenAI compatible tool message.
 
         Args:
@@ -101,15 +101,15 @@ class OpenAIModel(Model, abc.ABC):
         Returns:
             OpenAI compatible tool message.
         """
+        contents = cast(
+            list[ContentBlock],
+            [{"text": content["json"]} if "json" in content else content for content in tool_result["content"]],
+        )
+
         return {
             "role": "tool",
             "tool_call_id": tool_result["toolUseId"],
-            "content": json.dumps(
-                {
-                    "content": tool_result["content"],
-                    "status": tool_result["status"],
-                }
-            ),
+            "content": [cls.format_request_message_content(content) for content in contents],
         }
 
     @classmethod
