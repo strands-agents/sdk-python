@@ -5,7 +5,7 @@
 
 import json
 import logging
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, cast
 
 from ollama import Client as OllamaClient
 from typing_extensions import TypedDict, Unpack, override
@@ -136,7 +136,7 @@ class OllamaModel(Model):
                     (
                         {"text": json.dumps(tool_result_content["json"])}
                         if "json" in tool_result_content
-                        else tool_result_content
+                        else cast(ContentBlock, tool_result_content)
                     ),
                 )
             ]

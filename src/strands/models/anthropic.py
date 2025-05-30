@@ -7,7 +7,7 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Iterable, Optional, TypedDict
+from typing import Any, Iterable, Optional, TypedDict, cast
 
 import anthropic
 from typing_extensions import Required, Unpack, override
@@ -149,7 +149,7 @@ class AnthropicModel(Model):
                     self._format_request_message_content(
                         {"text": json.dumps(tool_result_content["json"])}
                         if "json" in tool_result_content
-                        else tool_result_content
+                        else cast(ContentBlock, tool_result_content)
                     )
                     for tool_result_content in content["toolResult"]["content"]
                 ],
