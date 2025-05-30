@@ -1,0 +1,17 @@
+name: Pull Request and Push Action
+
+on:
+  pull_request:  # Safer than pull_request_target for untrusted code
+    branches: [ main ]
+    types: [opened, synchronize, reopened, ready_for_review, review_requested, review_request_removed]
+  push:
+    branches: [ main ]  # Also run on direct pushes to main
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  call-test-lint:
+    uses: ./.github/workflows/test-lint.yml
+    with:
+      ref: ${{ github.event.pull_request.head.sha }}
