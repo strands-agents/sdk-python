@@ -101,19 +101,18 @@ def system_prompt():
             {"text": "hello"},
             {"type": "text", "text": "hello"},
         ),
-        # Other
-        (
-            {"other": {"a": 1}},
-            {
-                "text": json.dumps({"other": {"a": 1}}),
-                "type": "text",
-            },
-        ),
     ],
 )
 def test_format_request_message_content(content, exp_result):
     tru_result = SAOpenAIModel.format_request_message_content(content)
     assert tru_result == exp_result
+
+
+def test_format_request_message_content_unsupported_type():
+    content = {"unsupported": {}}
+
+    with pytest.raises(TypeError, match="content_type=<unsupported> | unsupported type"):
+        SAOpenAIModel.format_request_message_content(content)
 
 
 def test_format_request_message_tool_call():

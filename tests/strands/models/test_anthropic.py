@@ -1,4 +1,3 @@
-import json
 import unittest.mock
 
 import anthropic
@@ -339,33 +338,16 @@ def test_format_request_with_tool_results(model, model_id, max_tokens):
     assert tru_request == exp_request
 
 
-def test_format_request_with_other(model, model_id, max_tokens):
+def test_format_request_with_unsupported_type(model):
     messages = [
         {
             "role": "user",
-            "content": [{"other": {"a": 1}}],
+            "content": [{"unsupported": {}}],
         },
     ]
 
-    tru_request = model.format_request(messages)
-    exp_request = {
-        "max_tokens": max_tokens,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "text": json.dumps({"other": {"a": 1}}),
-                        "type": "text",
-                    },
-                ],
-            },
-        ],
-        "model": model_id,
-        "tools": [],
-    }
-
-    assert tru_request == exp_request
+    with pytest.raises(TypeError, match="content_type=<unsupported> | unsupported type"):
+        model.format_request(messages)
 
 
 def test_format_request_with_cache_point(model, model_id, max_tokens):

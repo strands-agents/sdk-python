@@ -76,6 +76,9 @@ class LiteLLMModel(OpenAIModel):
 
         Returns:
             LiteLLM formatted content block.
+
+        Raises:
+            TypeError: If the content block type cannot be converted to a LiteLLM-compatible format.
         """
         if "reasoningContent" in content:
             return {
