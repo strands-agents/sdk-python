@@ -5,7 +5,7 @@
 
 import json
 import logging
-from typing import Any, Iterable, Optional, cast
+from typing import Any, Iterable, Optional
 
 from ollama import Client as OllamaClient
 from typing_extensions import TypedDict, Unpack, override

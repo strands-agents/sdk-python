@@ -7,7 +7,7 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Iterable, Optional, TypedDict, cast
+from typing import Any, Iterable, Optional, TypedDict
 
 import anthropic
 from typing_extensions import Required, Unpack, override
