@@ -141,9 +141,7 @@ class LlamaAPIModel(Model):
         contents = cast(
             list[ContentBlock],
             [
-                {"text": json.dumps(content["json"])}
-                if "json" in content
-                else content
+                {"text": json.dumps(content["json"])} if "json" in content else content
                 for content in tool_result["content"]
             ],
         )

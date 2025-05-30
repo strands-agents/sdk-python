@@ -137,7 +137,7 @@ class OllamaModel(Model):
                         {"text": json.dumps(tool_result_content["json"])}
                         if "json" in tool_result_content
                         else tool_result_content
-                    )
+                    ),
                 )
             ]
 
