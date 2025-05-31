@@ -280,29 +280,16 @@ def test_format_request_with_tool_result_other(model, model_id):
     assert tru_request == exp_request
 
 
-def test_format_request_with_other(model, model_id):
+def test_format_request_with_unsupported_type(model):
     messages = [
         {
             "role": "user",
-            "content": [{"other": {"a": 1}}],
-        }
+            "content": [{"unsupported": {}}],
+        },
     ]
 
-    tru_request = model.format_request(messages)
-    exp_request = {
-        "messages": [
-            {
-                "role": "user",
-                "content": json.dumps({"other": {"a": 1}}),
-            }
-        ],
-        "model": model_id,
-        "options": {},
-        "stream": True,
-        "tools": [],
-    }
-
-    assert tru_request == exp_request
+    with pytest.raises(TypeError, match="content_type=<unsupported> | unsupported type"):
+        model.format_request(messages)
 
 
 def test_format_request_with_tool_specs(model, messages, model_id):

@@ -6,7 +6,7 @@ from unittest import mock
 import pytest
 from opentelemetry.trace import StatusCode  # type: ignore
 
-from strands.telemetry.tracer import JSONEncoder, Tracer, get_tracer
+from strands.telemetry.tracer import JSONEncoder, Tracer, get_tracer, serialize
 from strands.types.streaming import Usage
 
 
@@ -58,6 +58,50 @@ def mock_console_exporter():
 def mock_resource():
     with mock.patch("strands.telemetry.tracer.Resource") as mock_resource:
         yield mock_resource
+
+
+@pytest.fixture
+def clean_env():
+    """Fixture to provide a clean environment for each test."""
+    with mock.patch.dict(os.environ, {}, clear=True):
+        yield
+
+
+@pytest.fixture
+def env_with_otlp():
+    """Fixture with OTLP environment variables."""
+    with mock.patch.dict(
+        os.environ,
+        {
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://env-endpoint",
+        },
+    ):
+        yield
+
+
+@pytest.fixture
+def env_with_console():
+    """Fixture with console export environment variables."""
+    with mock.patch.dict(
+        os.environ,
+        {
+            "STRANDS_OTEL_ENABLE_CONSOLE_EXPORT": "true",
+        },
+    ):
+        yield
+
+
+@pytest.fixture
+def env_with_both():
+    """Fixture with both OTLP and console export environment variables."""
+    with mock.patch.dict(
+        os.environ,
+        {
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://env-endpoint",
+            "STRANDS_OTEL_ENABLE_CONSOLE_EXPORT": "true",
+        },
+    ):
+        yield
 
 
 def test_init_default():
@@ -635,3 +679,96 @@ def test_json_encoder_value_error():
     # Test just the value
     result = json.loads(encoder.encode(huge_number))
     assert result == "<replaced>"
+
+
+def test_serialize_non_ascii_characters():
+    """Test that non-ASCII characters are preserved in JSON serialization."""
+
+    # Test with Japanese text
+    japanese_text = "こんにちは世界"
+    result = serialize({"text": japanese_text})
+    assert japanese_text in result
+    assert "\\u" not in result
+
+    # Test with emoji
+    emoji_text = "Hello 🌍"
+    result = serialize({"text": emoji_text})
+    assert emoji_text in result
+    assert "\\u" not in result
+
+    # Test with Chinese characters
+    chinese_text = "你好，世界"
+    result = serialize({"text": chinese_text})
+    assert chinese_text in result
+    assert "\\u" not in result
+
+    # Test with mixed content
+    mixed_text = {"ja": "こんにちは", "emoji": "😊", "zh": "你好", "en": "hello"}
+    result = serialize(mixed_text)
+    assert "こんにちは" in result
+    assert "😊" in result
+    assert "你好" in result
+    assert "\\u" not in result
+
+
+def test_serialize_vs_json_dumps():
+    """Test that serialize behaves differently from default json.dumps for non-ASCII characters."""
+
+    # Test with Japanese text
+    japanese_text = "こんにちは世界"
+
+    # Default json.dumps should escape non-ASCII characters
+    default_result = json.dumps({"text": japanese_text})
+    assert "\\u" in default_result
+
+    # Our serialize function should preserve non-ASCII characters
+    custom_result = serialize({"text": japanese_text})
+    assert japanese_text in custom_result
+    assert "\\u" not in custom_result
+
+
+def test_init_with_no_env_or_param(clean_env):
+    """Test initializing with neither environment variable nor constructor parameter."""
+    tracer = Tracer()
+    assert tracer.otlp_endpoint is None
+    assert tracer.enable_console_export is False
+
+    tracer = Tracer(otlp_endpoint="http://param-endpoint")
+    assert tracer.otlp_endpoint == "http://param-endpoint"
+
+    tracer = Tracer(enable_console_export=True)
+    assert tracer.enable_console_export is True
+
+
+def test_constructor_params_with_otlp_env(env_with_otlp):
+    """Test constructor parameters precedence over OTLP environment variable."""
+    # Constructor parameter should take precedence
+    tracer = Tracer(otlp_endpoint="http://constructor-endpoint")
+    assert tracer.otlp_endpoint == "http://constructor-endpoint"
+
+    # Without constructor parameter, should use env var
+    tracer = Tracer()
+    assert tracer.otlp_endpoint == "http://env-endpoint"
+
+
+def test_constructor_params_with_console_env(env_with_console):
+    """Test constructor parameters precedence over console environment variable."""
+    # Constructor parameter should take precedence
+    tracer = Tracer(enable_console_export=False)
+    assert tracer.enable_console_export is False
+
+    # Without explicit constructor parameter, should use env var
+    tracer = Tracer()
+    assert tracer.enable_console_export is True
+
+
+def test_fallback_to_env_vars(env_with_both):
+    """Test fallback to environment variables when no constructor parameters."""
+    tracer = Tracer()
+    assert tracer.otlp_endpoint == "http://env-endpoint"
+    assert tracer.enable_console_export is True
+
+    # Constructor parameters should still take precedence
+    tracer = Tracer(otlp_endpoint="http://constructor-endpoint", enable_console_export=False)
+    assert tracer.otlp_endpoint == "http://constructor-endpoint"
+    assert tracer.enable_console_export is False

@@ -93,7 +93,7 @@ class Tracer:
         service_name: str = "strands-agents",
         otlp_endpoint: Optional[str] = None,
         otlp_headers: Optional[Dict[str, str]] = None,
-        enable_console_export: bool = False,
+        enable_console_export: Optional[bool] = None,
     ):
         """Initialize the tracer.
 
@@ -105,13 +105,17 @@ class Tracer:
         """
         # Check environment variables first
         env_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
-        env_console_export = os.environ.get("STRANDS_OTEL_ENABLE_CONSOLE_EXPORT", "").lower() in ("true", "1", "yes")
+        env_console_export_str = os.environ.get("STRANDS_OTEL_ENABLE_CONSOLE_EXPORT")
 
-        # Environment variables take precedence over constructor parameters
-        if env_endpoint:
-            otlp_endpoint = env_endpoint
-        if env_console_export:
-            enable_console_export = True
+        # Constructor parameters take precedence over environment variables
+        self.otlp_endpoint = otlp_endpoint or env_endpoint
+
+        if enable_console_export is not None:
+            self.enable_console_export = enable_console_export
+        elif env_console_export_str:
+            self.enable_console_export = env_console_export_str.lower() in ("true", "1", "yes")
+        else:
+            self.enable_console_export = False
 
         # Parse headers from environment if available
         env_headers = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS")
@@ -125,17 +129,14 @@ class Tracer:
                         headers_dict[key.strip()] = value.strip()
                 otlp_headers = headers_dict
             except Exception as e:
-                logger.warning(f"error=<{e}> | failed to parse OTEL_EXPORTER_OTLP_HEADERS")
+                logger.warning("error=<%s> | failed to parse OTEL_EXPORTER_OTLP_HEADERS", e)
 
         self.service_name = service_name
-        self.otlp_endpoint = otlp_endpoint
         self.otlp_headers = otlp_headers or {}
-        self.enable_console_export = enable_console_export
-
         self.tracer_provider: Optional[TracerProvider] = None
         self.tracer: Optional[trace.Tracer] = None
 
-        if otlp_endpoint or enable_console_export:
+        if self.otlp_endpoint or self.enable_console_export:
             self._initialize_tracer()
 
     def _initialize_tracer(self) -> None:
@@ -184,9 +185,9 @@ class Tracer:
 
                 batch_processor = BatchSpanProcessor(otlp_exporter)
                 self.tracer_provider.add_span_processor(batch_processor)
-                logger.info(f"endpoint=<{endpoint}> | OTLP exporter configured with endpoint")
+                logger.info("endpoint=<%s> | OTLP exporter configured with endpoint", endpoint)
             except Exception as e:
-                logger.error(f"error=<{e}> | Failed to configure OTLP exporter", exc_info=True)
+                logger.exception("error=<%s> | Failed to configure OTLP exporter", e)
 
         # Set as global tracer provider
         trace.set_tracer_provider(self.tracer_provider)
@@ -267,7 +268,7 @@ class Tracer:
             else:
                 span.set_status(StatusCode.OK)
         except Exception as e:
-            logger.warning(f"error=<{e}> | error while ending span", exc_info=True)
+            logger.warning("error=<%s> | error while ending span", e, exc_info=True)
         finally:
             span.end()
             # Force flush to ensure spans are exported
@@ -275,7 +276,7 @@ class Tracer:
                 try:
                     self.tracer_provider.force_flush()
                 except Exception as e:
-                    logger.warning(f"error=<{e}> | failed to force flush tracer provider")
+                    logger.warning("error=<%s> | failed to force flush tracer provider", e)
 
     def end_span_with_error(self, span: trace.Span, error_message: str, exception: Optional[Exception] = None) -> None:
         """End a span with error status.
@@ -315,7 +316,7 @@ class Tracer:
             "gen_ai.system": "strands-agents",
             "agent.name": agent_name,
             "gen_ai.agent.name": agent_name,
-            "gen_ai.prompt": json.dumps(messages, cls=JSONEncoder),
+            "gen_ai.prompt": serialize(messages),
         }
 
         if model_id:
@@ -338,7 +339,7 @@ class Tracer:
             error: Optional exception if the model call failed.
         """
         attributes: Dict[str, AttributeValue] = {
-            "gen_ai.completion": json.dumps(message["content"], cls=JSONEncoder),
+            "gen_ai.completion": serialize(message["content"]),
             "gen_ai.usage.prompt_tokens": usage["inputTokens"],
             "gen_ai.usage.completion_tokens": usage["outputTokens"],
             "gen_ai.usage.total_tokens": usage["totalTokens"],
@@ -360,10 +361,10 @@ class Tracer:
             The created span, or None if tracing is not enabled.
         """
         attributes: Dict[str, AttributeValue] = {
-            "gen_ai.prompt": json.dumps(tool, cls=JSONEncoder),
+            "gen_ai.prompt": serialize(tool),
             "tool.name": tool["name"],
             "tool.id": tool["toolUseId"],
-            "tool.parameters": json.dumps(tool["input"], cls=JSONEncoder),
+            "tool.parameters": serialize(tool["input"]),
         }
 
         # Add additional kwargs as attributes
@@ -387,7 +388,7 @@ class Tracer:
             status = tool_result.get("status")
             status_str = str(status) if status is not None else ""
 
-            tool_result_content_json = json.dumps(tool_result.get("content"), cls=JSONEncoder)
+            tool_result_content_json = serialize(tool_result.get("content"))
             attributes.update(
                 {
                     "tool.result": tool_result_content_json,
@@ -420,7 +421,7 @@ class Tracer:
         parent_span = parent_span if parent_span else event_loop_kwargs.get("event_loop_parent_span")
 
         attributes: Dict[str, AttributeValue] = {
-            "gen_ai.prompt": json.dumps(messages, cls=JSONEncoder),
+            "gen_ai.prompt": serialize(messages),
             "event_loop.cycle_id": event_loop_cycle_id,
         }
 
@@ -449,11 +450,11 @@ class Tracer:
             error: Optional exception if the cycle failed.
         """
         attributes: Dict[str, AttributeValue] = {
-            "gen_ai.completion": json.dumps(message["content"], cls=JSONEncoder),
+            "gen_ai.completion": serialize(message["content"]),
         }
 
         if tool_result_message:
-            attributes["tool.result"] = json.dumps(tool_result_message["content"], cls=JSONEncoder)
+            attributes["tool.result"] = serialize(tool_result_message["content"])
 
         self._end_span(span, attributes, error)
 
@@ -490,7 +491,7 @@ class Tracer:
             attributes["gen_ai.request.model"] = model_id
 
         if tools:
-            tools_json = json.dumps(tools, cls=JSONEncoder)
+            tools_json = serialize(tools)
             attributes["agent.tools"] = tools_json
             attributes["gen_ai.agent.tools"] = tools_json
 
@@ -547,7 +548,7 @@ def get_tracer(
     service_name: str = "strands-agents",
     otlp_endpoint: Optional[str] = None,
     otlp_headers: Optional[Dict[str, str]] = None,
-    enable_console_export: bool = False,
+    enable_console_export: Optional[bool] = None,
 ) -> Tracer:
     """Get or create the global tracer.
 
@@ -571,3 +572,15 @@ def get_tracer(
         )
 
     return _tracer_instance
+
+
+def serialize(obj: Any) -> str:
+    """Serialize an object to JSON with consistent settings.
+
+    Args:
+        obj: The object to serialize
+
+    Returns:
+        JSON string representation of the object
+    """
+    return json.dumps(obj, ensure_ascii=False, cls=JSONEncoder)

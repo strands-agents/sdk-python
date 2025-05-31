@@ -31,16 +31,22 @@ This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as 
 
 ### Setting Up Your Development Environment
 
-1. Install development dependencies:
+1. Entering virtual environment using `hatch` (recommended), then launch your IDE in the new shell.
    ```bash
-   pip install -e ".[dev]" && pip install -e ".[litellm]
+   hatch shell dev
    ```
+
+   Alternatively, install development dependencies in a manually created virtual environment:
+   ```bash
+   pip install -e ".[dev]" && pip install -e ".[litellm]"
+   ```
+
 
 2. Set up pre-commit hooks:
    ```bash
    pre-commit install -t pre-commit -t commit-msg
    ```
-   This will automatically run formatters and convention commit checks on your code before each commit.
+   This will automatically run formatters and conventional commit checks on your code before each commit.
 
 3. Run code formatters manually:
    ```bash
@@ -94,6 +100,8 @@ hatch fmt --linter
 
 If you're using an IDE like VS Code or PyCharm, consider configuring it to use these tools automatically.
 
+For additional details on styling, please see our dedicated [Style Guide](./STYLE_GUIDE.md).
+
 
 ## Contributing via Pull Requests
 Contributions via pull requests are much appreciated. Before sending us a pull request, please ensure that:
@@ -115,7 +123,7 @@ To send us a pull request, please:
 
 
 ## Finding contributions to work on
-Looking at the existing issues is a great way to find something to contribute on.
+Looking at the existing issues is a great way to find something to contribute to.
 
 You can check:
 - Our known bugs list in [Bug Reports](../../issues?q=is%3Aissue%20state%3Aopen%20label%3Abug) for issues that need fixing

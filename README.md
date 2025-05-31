@@ -1,6 +1,14 @@
-# Strands Agents
-
 <div align="center">
+  <div>
+    <a href="https://strandsagents.com">
+      <img src="https://strandsagents.com/latest/assets/logo-auto.svg" alt="Strands Agents" width="55px" height="105px">
+    </a>
+  </div>
+
+  <h1>
+    Strands Agents
+  </h1>
+
   <h2>
     A model-driven approach to building AI agents in just a few lines of code.
   </h2>
@@ -8,16 +16,19 @@
   <div align="center">
     <a href="https://github.com/strands-agents/sdk-python/graphs/commit-activity"><img alt="GitHub commit activity" src="https://img.shields.io/github/commit-activity/m/strands-agents/sdk-python"/></a>
     <a href="https://github.com/strands-agents/sdk-python/issues"><img alt="GitHub open issues" src="https://img.shields.io/github/issues/strands-agents/sdk-python"/></a>
+    <a href="https://github.com/strands-agents/sdk-python/pulls"><img alt="GitHub open pull requests" src="https://img.shields.io/github/issues-pr/strands-agents/sdk-python"/></a>
     <a href="https://github.com/strands-agents/sdk-python/blob/main/LICENSE"><img alt="License" src="https://img.shields.io/github/license/strands-agents/sdk-python"/></a>
     <a href="https://pypi.org/project/strands-agents/"><img alt="PyPI version" src="https://img.shields.io/pypi/v/strands-agents"/></a>
     <a href="https://python.org"><img alt="Python versions" src="https://img.shields.io/pypi/pyversions/strands-agents"/></a>
   </div>
   
   <p>
-    <a href="https://strandsagents.com/">Docs</a>
-    ◆ <a href="https://github.com/strands-agents/docs/tree/main/docs/examples">Samples</a>
+    <a href="https://strandsagents.com/">Documentation</a>
+    ◆ <a href="https://github.com/strands-agents/samples">Samples</a>
+    ◆ <a href="https://github.com/strands-agents/sdk-python">Python SDK</a>
     ◆ <a href="https://github.com/strands-agents/tools">Tools</a>
     ◆ <a href="https://github.com/strands-agents/agent-builder">Agent Builder</a>
+    ◆ <a href="https://github.com/strands-agents/mcp-server">MCP Server</a>
   </p>
 </div>
 
@@ -26,7 +37,7 @@ Strands Agents is a simple yet powerful SDK that takes a model-driven approach t
 ## Feature Overview
 
 - **Lightweight & Flexible**: Simple agent loop that just works and is fully customizable
-- **Model Agnostic**: Support for Amazon Bedrock, Anthropic, Llama, Ollama, and custom providers
+- **Model Agnostic**: Support for Amazon Bedrock, Anthropic, LiteLLM, Llama, Ollama, OpenAI, and custom providers
 - **Advanced Capabilities**: Multi-agent systems, autonomous agents, and streaming support
 - **Built-in MCP**: Native support for Model Context Protocol (MCP) servers, enabling access to thousands of pre-built tools
 
@@ -112,16 +123,17 @@ from strands.models.llamaapi import LlamaAPIModel
 bedrock_model = BedrockModel(
   model_id="us.amazon.nova-pro-v1:0",
   temperature=0.3,
+  streaming=True, # Enable/disable streaming
 )
 agent = Agent(model=bedrock_model)
 agent("Tell me about Agentic AI")
 
 # Ollama
-ollama_modal = OllamaModel(
+ollama_model = OllamaModel(
   host="http://localhost:11434",
   model_id="llama3"
 )
-agent = Agent(model=ollama_modal)
+agent = Agent(model=ollama_model)
 agent("Tell me about Agentic AI")
 
 # Llama API
@@ -138,6 +150,7 @@ Built-in providers:
  - [LiteLLM](https://strandsagents.com/latest/user-guide/concepts/model-providers/litellm/)
  - [LlamaAPI](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamaapi/)
  - [Ollama](https://strandsagents.com/latest/user-guide/concepts/model-providers/ollama/)
+ - [OpenAI](https://strandsagents.com/latest/user-guide/concepts/model-providers/openai/)
 
 Custom providers can be implemented using [Custom Providers](https://strandsagents.com/latest/user-guide/concepts/model-providers/custom_model_provider/)
 
@@ -165,9 +178,9 @@ For detailed guidance & examples, explore our documentation:
 - [API Reference](https://strandsagents.com/latest/api-reference/agent/)
 - [Production & Deployment Guide](https://strandsagents.com/latest/user-guide/deploy/operating-agents-in-production/)
 
-## Contributing
+## Contributing ❤️
 
-We welcome contributions! See our [Contributing Guide](https://github.com/strands-agents/sdk-python/blob/main/CONTRIBUTING.md) for details on:
+We welcome contributions! See our [Contributing Guide](CONTRIBUTING.md) for details on:
 - Reporting bugs & features
 - Development setup
 - Contributing via Pull Requests
@@ -177,6 +190,10 @@ We welcome contributions! See our [Contributing Guide](https://github.com/strand
 ## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+
+## Security
+
+See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
 
 ## ⚠️ Preview Status
 

@@ -1,3 +1,4 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates
 """Llama API model provider.
 
 - Docs: https://llama.developer.meta.com/
@@ -92,6 +93,9 @@ class LlamaAPIModel(Model):
 
         Returns:
             LllamaAPI formatted content block.
+
+        Raises:
+            TypeError: If the content block type cannot be converted to a LlamaAPI-compatible format.
         """
         if "image" in content:
             mime_type = mimetypes.types_map.get(f".{content['image']['format']}", "application/octet-stream")
@@ -107,7 +111,7 @@ class LlamaAPIModel(Model):
         if "text" in content:
             return {"text": content["text"], "type": "text"}
 
-        return {"text": json.dumps(content), "type": "text"}
+        raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
     def _format_request_message_tool_call(self, tool_use: ToolUse) -> dict[str, Any]:
         """Format a Llama API tool call.
@@ -196,6 +200,10 @@ class LlamaAPIModel(Model):
 
         Returns:
             An Llama API chat streaming request.
+
+        Raises:
+            TypeError: If a message contains a content block type that cannot be converted to a LlamaAPI-compatible
+                format.
         """
         request = {
             "messages": self._format_request_messages(messages, system_prompt),

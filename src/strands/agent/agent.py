@@ -6,7 +6,7 @@ models and tools in the SDK.
 The Agent interface supports two complementary interaction patterns:
 
 1. Natural language for conversation: `agent("Analyze this data")`
-2. Method-style for direct tool access: `agent.tool_name(param1="value")`
+2. Method-style for direct tool access: `agent.tool.tool_name(param1="value")`
 """
 
 import asyncio
@@ -328,27 +328,17 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
-        model_id = self.model.config.get("model_id") if hasattr(self.model, "config") else None
-
-        self.trace_span = self.tracer.start_agent_span(
-            prompt=prompt,
-            model_id=model_id,
-            tools=self.tool_names,
-            system_prompt=self.system_prompt,
-            custom_trace_attributes=self.trace_attributes,
-        )
+        self._start_agent_trace_span(prompt)
 
         try:
             # Run the event loop and get the result
             result = self._run_loop(prompt, kwargs)
 
-            if self.trace_span:
-                self.tracer.end_agent_span(span=self.trace_span, response=result)
+            self._end_agent_trace_span(response=result)
 
             return result
         except Exception as e:
-            if self.trace_span:
-                self.tracer.end_agent_span(span=self.trace_span, error=e)
+            self._end_agent_trace_span(error=e)
 
             # Re-raise the exception to preserve original behavior
             raise
@@ -383,6 +373,8 @@ class Agent:
                     yield event["data"]
             ```
         """
+        self._start_agent_trace_span(prompt)
+
         _stop_event = uuid4()
 
         queue = asyncio.Queue[Any]()
@@ -400,8 +392,10 @@ class Agent:
             nonlocal kwargs
 
             try:
-                self._run_loop(prompt, kwargs, supplementary_callback_handler=queuing_callback_handler)
-            except BaseException as e:
+                result = self._run_loop(prompt, kwargs, supplementary_callback_handler=queuing_callback_handler)
+                self._end_agent_trace_span(response=result)
+            except Exception as e:
+                self._end_agent_trace_span(error=e)
                 enqueue(e)
             finally:
                 enqueue(_stop_event)
@@ -414,7 +408,7 @@ class Agent:
                 item = await queue.get()
                 if item == _stop_event:
                     break
-                if isinstance(item, BaseException):
+                if isinstance(item, Exception):
                     raise item
                 yield item
         finally:
@@ -457,27 +451,28 @@ class Agent:
         Returns:
             The result of the event loop cycle.
         """
-        kwargs.pop("agent", None)
-        kwargs.pop("model", None)
-        kwargs.pop("system_prompt", None)
-        kwargs.pop("tool_execution_handler", None)
-        kwargs.pop("event_loop_metrics", None)
-        kwargs.pop("callback_handler", None)
-        kwargs.pop("tool_handler", None)
-        kwargs.pop("messages", None)
-        kwargs.pop("tool_config", None)
+        # Extract parameters with fallbacks to instance values
+        system_prompt = kwargs.pop("system_prompt", self.system_prompt)
+        model = kwargs.pop("model", self.model)
+        tool_execution_handler = kwargs.pop("tool_execution_handler", self.thread_pool_wrapper)
+        event_loop_metrics = kwargs.pop("event_loop_metrics", self.event_loop_metrics)
+        callback_handler_override = kwargs.pop("callback_handler", callback_handler)
+        tool_handler = kwargs.pop("tool_handler", self.tool_handler)
+        messages = kwargs.pop("messages", self.messages)
+        tool_config = kwargs.pop("tool_config", self.tool_config)
+        kwargs.pop("agent", None)  # Remove agent to avoid conflicts
 
         try:
             # Execute the main event loop cycle
             stop_reason, message, metrics, state = event_loop_cycle(
-                model=self.model,
-                system_prompt=self.system_prompt,
-                messages=self.messages,  # will be modified by event_loop_cycle
-                tool_config=self.tool_config,
-                callback_handler=callback_handler,
-                tool_handler=self.tool_handler,
-                tool_execution_handler=self.thread_pool_wrapper,
-                event_loop_metrics=self.event_loop_metrics,
+                model=model,
+                system_prompt=system_prompt,
+                messages=messages,  # will be modified by event_loop_cycle
+                tool_config=tool_config,
+                callback_handler=callback_handler_override,
+                tool_handler=tool_handler,
+                tool_execution_handler=tool_execution_handler,
+                event_loop_metrics=event_loop_metrics,
                 agent=self,
                 event_loop_parent_span=self.trace_span,
                 **kwargs,
@@ -488,8 +483,8 @@ class Agent:
         except ContextWindowOverflowException as e:
             # Try reducing the context size and retrying
 
-            self.conversation_manager.reduce_context(self.messages, e=e)
-            return self._execute_event_loop_cycle(callback_handler, kwargs)
+            self.conversation_manager.reduce_context(messages, e=e)
+            return self._execute_event_loop_cycle(callback_handler_override, kwargs)
 
     def _record_tool_execution(
         self,
@@ -515,7 +510,7 @@ class Agent:
         """
         # Create user message describing the tool call
         user_msg_content = [
-            {"text": (f"agent.{tool['name']} direct tool call\nInput parameters: {json.dumps(tool['input'])}\n")}
+            {"text": (f"agent.tool.{tool['name']} direct tool call.\nInput parameters: {json.dumps(tool['input'])}\n")}
         ]
 
         # Add override message if provided
@@ -545,3 +540,43 @@ class Agent:
         messages.append(tool_use_msg)
         messages.append(tool_result_msg)
         messages.append(assistant_msg)
+
+    def _start_agent_trace_span(self, prompt: str) -> None:
+        """Starts a trace span for the agent.
+
+        Args:
+            prompt: The natural language prompt from the user.
+        """
+        model_id = self.model.config.get("model_id") if hasattr(self.model, "config") else None
+
+        self.trace_span = self.tracer.start_agent_span(
+            prompt=prompt,
+            model_id=model_id,
+            tools=self.tool_names,
+            system_prompt=self.system_prompt,
+            custom_trace_attributes=self.trace_attributes,
+        )
+
+    def _end_agent_trace_span(
+        self,
+        response: Optional[AgentResult] = None,
+        error: Optional[Exception] = None,
+    ) -> None:
+        """Ends a trace span for the agent.
+
+        Args:
+            span: The span to end.
+            response: Response to record as a trace attribute.
+            error: Error to record as a trace attribute.
+        """
+        if self.trace_span:
+            trace_attributes: Dict[str, Any] = {
+                "span": self.trace_span,
+            }
+
+            if response:
+                trace_attributes["response"] = response
+            if error:
+                trace_attributes["error"] = error
+
+            self.tracer.end_agent_span(**trace_attributes)

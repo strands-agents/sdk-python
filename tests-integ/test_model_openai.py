@@ -1,19 +1,18 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates
 import os
 
 import pytest
 
 import strands
 from strands import Agent
-from strands.models.llamaapi import LlamaAPIModel
+from strands.models.openai import OpenAIModel
 
 
 @pytest.fixture
 def model():
-    return LlamaAPIModel(
-        model_id="Llama-4-Maverick-17B-128E-Instruct-FP8",
+    return OpenAIModel(
+        model_id="gpt-4o",
         client_args={
-            "api_key": os.getenv("LLAMA_API_KEY"),
+            "api_key": os.getenv("OPENAI_API_KEY"),
         },
     )
 
@@ -37,8 +36,8 @@ def agent(model, tools):
 
 
 @pytest.mark.skipif(
-    "LLAMA_API_KEY" not in os.environ,
-    reason="LLAMA_API_KEY environment variable missing",
+    "OPENAI_API_KEY" not in os.environ,
+    reason="OPENAI_API_KEY environment variable missing",
 )
 def test_agent(agent):
     result = agent("What is the time and weather in New York?")
