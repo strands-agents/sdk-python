@@ -15,6 +15,7 @@ from strands.agent.conversation_manager.null_conversation_manager import NullCon
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
+from strands.tools.cache import ToolResultCache
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
 
@@ -1087,3 +1088,113 @@ def test_event_loop_cycle_includes_parent_span(mock_get_tracer, mock_event_loop_
     kwargs = mock_event_loop_cycle.call_args[1]
     assert "event_loop_parent_span" in kwargs
     assert kwargs["event_loop_parent_span"] == mock_span
+
+
+# Tool Cache Tests
+
+
+@pytest.fixture
+def agent_with_tool_cache(mock_model, tool_decorated):
+    """Fixture providing an Agent instance with caching enabled"""
+    agent = Agent(
+        model=mock_model, tools=[tool_decorated], enable_tool_cache=True, tool_cache_size=10, tool_cache_ttl=60
+    )
+    return agent
+
+
+def test_agent_init_with_cache_enabled(agent_with_tool_cache):
+    """Test Agent initialization with caching enabled"""
+    assert agent_with_tool_cache.enable_tool_cache is True
+    assert isinstance(agent_with_tool_cache.tool_cache, ToolResultCache)
+    assert agent_with_tool_cache.tool_cache.max_size == 10
+    assert agent_with_tool_cache.tool_cache.ttl_seconds == 60
+
+
+def test_agent_init_with_cache_disabled():
+    """Test Agent initialization with caching disabled"""
+    agent = Agent(enable_tool_cache=False)
+    assert agent.enable_tool_cache is False
+    assert agent.tool_cache is None
+
+
+def test_agent_init_with_cacheable_tools():
+    """Test Agent initialization with cacheable tools list"""
+    agent = Agent(enable_tool_cache=True, cacheable_tools=["tool1", "tool2"])
+    assert agent.cacheable_tools == ["tool1", "tool2"]
+
+
+def test_agent_init_with_uncacheable_tools():
+    """Test Agent initialization with uncacheable tools list"""
+    agent = Agent(enable_tool_cache=True, uncacheable_tools=["tool3", "tool4"])
+    assert agent.uncacheable_tools == ["tool3", "tool4"]
+
+
+def test_agent_get_tool_cache_stats(agent_with_tool_cache):
+    """Test retrieving cache statistics"""
+    stats = agent_with_tool_cache.get_tool_cache_stats()
+    assert isinstance(stats, dict)
+    assert "hits" in stats
+    assert "misses" in stats
+    assert "size" in stats
+    assert "hit_ratio" in stats
+
+
+def test_agent_get_tool_cache_stats_disabled():
+    """Test that statistics are None when caching is disabled"""
+    agent = Agent(enable_tool_cache=False)
+    assert agent.get_tool_cache_stats() is None
+
+
+def test_agent_invalidate_tool_cache_all(agent_with_tool_cache):
+    """Test invalidating all cache entries"""
+    # Mock the clear method of the cache
+    agent_with_tool_cache.tool_cache.clear = unittest.mock.MagicMock()
+
+    # Invalidate the cache
+    agent_with_tool_cache.invalidate_tool_cache()
+
+    # Verify clear method was called
+    agent_with_tool_cache.tool_cache.clear.assert_called_once()
+
+
+def test_agent_invalidate_tool_cache_specific(agent_with_tool_cache):
+    """Test invalidating cache entries for a specific tool"""
+    # Set up test cache data
+    tool_result = {"toolUseId": "test_id", "status": "success", "content": [{"text": "Test result"}]}
+    agent_with_tool_cache.tool_cache.set("tool1", {"param": "value"}, tool_result)
+    agent_with_tool_cache.tool_cache.set("tool2", {"param": "value"}, tool_result)
+
+    # Invalidate cache for tool1
+    agent_with_tool_cache.invalidate_tool_cache("tool1")
+
+    # Verify tool1 cache is removed and tool2 cache remains
+    assert agent_with_tool_cache.tool_cache.get("tool1", {"param": "value"}) is None
+    assert agent_with_tool_cache.tool_cache.get("tool2", {"param": "value"}) == tool_result
+
+
+def test_agent_invalidate_tool_cache_disabled():
+    """Test that invalidation methods do nothing when caching is disabled"""
+    agent = Agent(enable_tool_cache=False)
+    # Verify no exceptions are raised
+    agent.invalidate_tool_cache()
+    agent.invalidate_tool_cache("tool1")
+
+
+def test_agent_tool_with_cache(agent_with_tool_cache, mock_randint):
+    """Test that tool calls utilize the cache"""
+    # Mock random ID generation
+    mock_randint.return_value = 123
+
+    # First call - cache miss
+    result1 = agent_with_tool_cache.tool.tool_decorated(random_string="test_string")
+
+    # Second call - cache hit
+    result2 = agent_with_tool_cache.tool.tool_decorated(random_string="test_string")
+
+    # Verify results are the same
+    assert result1 == result2
+
+    # Verify cache statistics
+    stats = agent_with_tool_cache.get_tool_cache_stats()
+    assert stats["hits"] == 1
+    assert stats["misses"] == 1

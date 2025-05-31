@@ -27,6 +27,7 @@ from ..handlers.tool_handler import AgentToolHandler
 from ..models.bedrock import BedrockModel
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer
+from ..tools.cache import ToolResultCache
 from ..tools.registry import ToolRegistry
 from ..tools.thread_pool_executor import ThreadPoolExecutorWrapper
 from ..tools.watcher import ToolWatcher
@@ -183,6 +184,11 @@ class Agent:
         record_direct_tool_call: bool = True,
         load_tools_from_directory: bool = True,
         trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
+        enable_tool_cache: bool = True,
+        tool_cache_size: int = 100,
+        tool_cache_ttl: int = 300,
+        cacheable_tools: Optional[List[str]] = None,
+        uncacheable_tools: Optional[List[str]] = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -214,6 +220,17 @@ class Agent:
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.
                 Defaults to True.
             trace_attributes: Custom trace attributes to apply to the agent's trace span.
+                Defaults to an empty dictionary if None.
+            enable_tool_cache: Whether to enable caching of tool results.
+                Defaults to True.
+            tool_cache_size: Maximum size of the tool result cache.
+                Defaults to 100.
+            tool_cache_ttl: Time-to-live for cached tool results in seconds.
+                Defaults to 300 seconds (5 minutes).
+            cacheable_tools: List of tool names that can be cached.
+                If provided, only these tools will be cached.
+            uncacheable_tools: List of tool names that cannot be cached.
+                If provided, these tools will not be cached even if they are cacheable.
 
         Raises:
             ValueError: If max_parallel_tools is less than 1.
@@ -266,6 +283,18 @@ class Agent:
         self.trace_span: Optional[trace.Span] = None
 
         self.tool_caller = Agent.ToolCaller(self)
+
+        # Initialize tool cache
+        self.enable_tool_cache = enable_tool_cache
+        self.cacheable_tools = cacheable_tools or []
+        self.uncacheable_tools = uncacheable_tools or []
+        self.tool_cache: Optional[ToolResultCache] = None
+
+        if enable_tool_cache:
+            self.tool_cache = ToolResultCache(max_size=tool_cache_size, ttl_seconds=tool_cache_ttl)
+            logger.debug(
+                "tool_cache_size=<%d>, tool_cache_ttl=<%d> | tool caching enabled", tool_cache_size, tool_cache_ttl
+            )
 
     @property
     def tool(self) -> ToolCaller:
@@ -580,3 +609,39 @@ class Agent:
                 trace_attributes["error"] = error
 
             self.tracer.end_agent_span(**trace_attributes)
+
+    def get_tool_cache_stats(self) -> Optional[Dict[str, Any]]:
+        """Get tool cache statistics.
+
+        Returns:
+            Dictionary with cache statistics, or None if caching is disabled.
+        """
+        if self.enable_tool_cache and self.tool_cache:
+            return self.tool_cache.get_stats()
+        return None
+
+    def invalidate_tool_cache(self, tool_name: Optional[str] = None) -> None:
+        """Invalidate tool cache entries.
+
+        Args:
+            tool_name: Name of the tool to invalidate cache for.
+                    If None, all cache entries are invalidated.
+        """
+        if not self.enable_tool_cache or not self.tool_cache:
+            return
+
+        if tool_name is None:
+            self.tool_cache.clear()
+            logger.debug("invalidated all tool cache entries")
+        else:
+            keys_to_remove = []
+            with self.tool_cache.lock:
+                for key in list(self.tool_cache.cache.keys()):
+                    if key.startswith(f"{tool_name}:"):
+                        keys_to_remove.append(key)
+
+                for key in keys_to_remove:
+                    if key in self.tool_cache.cache:
+                        del self.tool_cache.cache[key]
+
+            logger.debug("tool_name=<%s> | invalidated %d cache entries", tool_name, len(keys_to_remove))

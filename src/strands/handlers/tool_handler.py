@@ -73,6 +73,26 @@ class AgentToolHandler(ToolHandler):
         logger.debug("tool=<%s> | invoking", tool)
         tool_use_id = tool["toolUseId"]
         tool_name = tool["name"]
+        tool_input = tool["input"]
+
+        agent = kwargs.get("agent")
+        if (
+            agent
+            and getattr(agent, "enable_tool_cache", False)
+            and getattr(agent, "tool_cache", None)
+            and self._should_use_cache(agent, tool_name)
+        ):
+            cached_result = agent.tool_cache.get(tool_name, tool_input)
+            if cached_result:
+                result_copy = cached_result.copy()
+                result_copy["toolUseId"] = tool_use_id
+
+                if callback_handler:
+                    callback_handler(
+                        tool_cache_hit=True, tool_name=tool_name, tool_input=tool_input, tool_result=result_copy
+                    )
+
+                return result_copy
 
         # Get the tool info
         tool_info = self.tool_registry.dynamic_tools.get(tool_name)
@@ -102,7 +122,17 @@ class AgentToolHandler(ToolHandler):
                 }
             )
 
-            return tool_func.invoke(tool, **kwargs)
+            result = tool_func.invoke(tool, **kwargs)
+
+            if (
+                agent
+                and getattr(agent, "enable_tool_cache", False)
+                and getattr(agent, "tool_cache", None)
+                and self._should_cache_result(agent, tool_name, result)
+            ):
+                agent.tool_cache.set(tool_name, tool_input, result)
+
+            return result
 
         except Exception as e:
             logger.exception("tool_name=<%s> | failed to process tool", tool_name)
@@ -111,3 +141,41 @@ class AgentToolHandler(ToolHandler):
                 "status": "error",
                 "content": [{"text": f"Error: {str(e)}"}],
             }
+
+    def _should_use_cache(self, agent: Any, tool_name: str) -> bool:
+        """Check if cache should be used for this tool invocation.
+
+        Args:
+            agent: The agent instance.
+            tool_name: Name of the tool.
+
+        Returns:
+            True if cache should be used, False otherwise.
+        """
+        if tool_name in getattr(agent, "uncacheable_tools", []):
+            return False
+
+        cacheable_tools = getattr(agent, "cacheable_tools", [])
+        if cacheable_tools and tool_name not in cacheable_tools:
+            return False
+
+        return True
+
+    def _should_cache_result(self, agent: Any, tool_name: str, result: ToolResult) -> bool:
+        """Check if the tool result should be cached.
+
+        Args:
+            agent: The agent instance.
+            tool_name: Name of the tool.
+            result: The tool execution result.
+
+        Returns:
+            True if the result should be cached, False otherwise.
+        """
+        if not self._should_use_cache(agent, tool_name):
+            return False
+
+        if result.get("status") != "success":
+            return False
+
+        return True
