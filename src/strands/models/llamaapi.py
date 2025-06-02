@@ -1,3 +1,4 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates
 """Llama API model provider.
 
 - Docs: https://llama.developer.meta.com/
