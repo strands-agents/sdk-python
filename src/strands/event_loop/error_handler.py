@@ -51,7 +51,7 @@ def handle_throttling_error(
             current_delay,
             max_attempts,
             attempt + 1,
-        )
+            )
         callback_handler(event_loop_throttled_delay=current_delay, **kwargs)
         time.sleep(current_delay)
         new_delay = min(current_delay * 2, max_delay)  # Double delay each retry
@@ -95,6 +95,16 @@ def handle_input_too_long_error(
     """
     from .event_loop import recurse_event_loop  # Import here to avoid circular imports
 
+    # Check for recursion depth to prevent infinite recursion
+    recursion_depth = kwargs.get("_truncation_recursion_depth", 0)
+    if recursion_depth >= 5:  # Limit recursion to 5 levels
+        callback_handler(force_stop=True, force_stop_reason="Maximum truncation attempts reached. Input is still too long.")
+        logger.error("Maximum truncation recursion depth reached. Input is still too long.")
+        raise ContextWindowOverflowException("Maximum truncation attempts reached. Input is still too long.") from e
+
+    # Increment recursion depth counter
+    kwargs["_truncation_recursion_depth"] = recursion_depth + 1
+
     # Find the last message with tool results
     last_message_with_tool_results = find_last_message_with_tool_results(messages)
 
@@ -104,6 +114,16 @@ def handle_input_too_long_error(
 
         # Truncate the tool results in this message
         truncate_tool_results(messages, last_message_with_tool_results)
+
+        # If we're at a high recursion depth, be more aggressive with truncation
+        if recursion_depth >= 2:
+            # Remove older messages if there are more than a few
+            if len(messages) > 4:
+                # Keep the first message (usually system) and the last 3 messages
+                preserved_messages = [messages[0]] + messages[-3:]
+                messages.clear()
+                messages.extend(preserved_messages)
+                logger.debug("Aggressively truncated conversation history to %s messages", len(messages))
 
         return recurse_event_loop(
             model=model,
