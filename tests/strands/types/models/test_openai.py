@@ -1,4 +1,3 @@
-import json
 import unittest.mock
 
 import pytest
@@ -136,19 +135,14 @@ def test_format_request_message_tool_call():
 
 def test_format_request_tool_message():
     tool_result = {
-        "content": [{"value": 4}],
+        "content": [{"text": "4"}, {"json": ["4"]}],
         "status": "success",
         "toolUseId": "c1",
     }
 
     tru_result = SAOpenAIModel.format_request_tool_message(tool_result)
     exp_result = {
-        "content": json.dumps(
-            {
-                "content": [{"value": 4}],
-                "status": "success",
-            }
-        ),
+        "content": [{"text": "4", "type": "text"}, {"text": '["4"]', "type": "text"}],
         "role": "tool",
         "tool_call_id": "c1",
     }
@@ -179,7 +173,7 @@ def test_format_request_messages(system_prompt):
             "role": "assistant",
         },
         {
-            "content": [{"toolResult": {"toolUseId": "c1", "status": "success", "content": [{"value": 4}]}}],
+            "content": [{"toolResult": {"toolUseId": "c1", "status": "success", "content": [{"text": "4"}]}}],
             "role": "user",
         },
     ]
@@ -209,12 +203,7 @@ def test_format_request_messages(system_prompt):
             ],
         },
         {
-            "content": json.dumps(
-                {
-                    "content": [{"value": 4}],
-                    "status": "success",
-                }
-            ),
+            "content": [{"text": "4", "type": "text"}],
             "role": "tool",
             "tool_call_id": "c1",
         },

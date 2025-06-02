@@ -67,8 +67,8 @@ class LiteLLMModel(OpenAIModel):
         return cast(LiteLLMModel.LiteLLMConfig, self.config)
 
     @override
-    @staticmethod
-    def format_request_message_content(content: ContentBlock) -> dict[str, Any]:
+    @classmethod
+    def format_request_message_content(cls, content: ContentBlock) -> dict[str, Any]:
         """Format a LiteLLM content block.
 
         Args:
@@ -96,4 +96,4 @@ class LiteLLMModel(OpenAIModel):
                 },
             }
 
-        return OpenAIModel.format_request_message_content(content)
+        return super().format_request_message_content(content)

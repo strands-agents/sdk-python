@@ -5,13 +5,12 @@
 
 import json
 import logging
-from typing import Any, Iterable, Optional, Union
+from typing import Any, Iterable, Optional, cast
 
 from ollama import Client as OllamaClient
 from typing_extensions import TypedDict, Unpack, override
 
-from ..types.content import ContentBlock, Message, Messages
-from ..types.media import DocumentContent, ImageContent
+from ..types.content import ContentBlock, Messages
 from ..types.models import Model
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolSpec
@@ -92,6 +91,77 @@ class OllamaModel(Model):
         """
         return self.config
 
+    def _format_request_message_contents(self, role: str, content: ContentBlock) -> list[dict[str, Any]]:
+        """Format Ollama compatible message contents.
+
+        Ollama doesn't support an array of contents, so we must flatten everything into separate message blocks.
+
+        Args:
+            role: E.g., user.
+            content: Content block to format.
+
+        Returns:
+            Ollama formatted message contents.
+
+        Raises:
+            TypeError: If the content block type cannot be converted to an Ollama-compatible format.
+        """
+        if "text" in content:
+            return [{"role": role, "content": content["text"]}]
+
+        if "image" in content:
+            return [{"role": role, "images": [content["image"]["source"]["bytes"]]}]
+
+        if "toolUse" in content:
+            return [
+                {
+                    "role": role,
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": content["toolUse"]["toolUseId"],
+                                "arguments": content["toolUse"]["input"],
+                            }
+                        }
+                    ],
+                }
+            ]
+
+        if "toolResult" in content:
+            return [
+                formatted_tool_result_content
+                for tool_result_content in content["toolResult"]["content"]
+                for formatted_tool_result_content in self._format_request_message_contents(
+                    "tool",
+                    (
+                        {"text": json.dumps(tool_result_content["json"])}
+                        if "json" in tool_result_content
+                        else cast(ContentBlock, tool_result_content)
+                    ),
+                )
+            ]
+
+        raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
+
+    def _format_request_messages(self, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+        """Format an Ollama compatible messages array.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            system_prompt: System prompt to provide context to the model.
+
+        Returns:
+            An Ollama compatible messages array.
+        """
+        system_message = [{"role": "system", "content": system_prompt}] if system_prompt else []
+
+        return system_message + [
+            formatted_message
+            for message in messages
+            for content in message["content"]
+            for formatted_message in self._format_request_message_contents(message["role"], content)
+        ]
+
     @override
     def format_request(
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
@@ -110,65 +180,8 @@ class OllamaModel(Model):
             TypeError: If a message contains a content block type that cannot be converted to an Ollama-compatible
                 format.
         """
-
-        def format_message(message: Message, content: ContentBlock) -> dict[str, Any]:
-            if "text" in content:
-                return {"role": message["role"], "content": content["text"]}
-
-            if "image" in content:
-                return {"role": message["role"], "images": [content["image"]["source"]["bytes"]]}
-
-            if "toolUse" in content:
-                return {
-                    "role": "assistant",
-                    "tool_calls": [
-                        {
-                            "function": {
-                                "name": content["toolUse"]["toolUseId"],
-                                "arguments": content["toolUse"]["input"],
-                            }
-                        }
-                    ],
-                }
-
-            if "toolResult" in content:
-                result_content: Union[str, ImageContent, DocumentContent, Any] = None
-                result_images = []
-                for tool_result_content in content["toolResult"]["content"]:
-                    if "text" in tool_result_content:
-                        result_content = tool_result_content["text"]
-                    elif "json" in tool_result_content:
-                        result_content = tool_result_content["json"]
-                    elif "image" in tool_result_content:
-                        result_content = "see images"
-                        result_images.append(tool_result_content["image"]["source"]["bytes"])
-                    else:
-                        result_content = content["toolResult"]["content"]
-
-                return {
-                    "role": "tool",
-                    "content": json.dumps(
-                        {
-                            "name": content["toolResult"]["toolUseId"],
-                            "result": result_content,
-                            "status": content["toolResult"]["status"],
-                        }
-                    ),
-                    **({"images": result_images} if result_images else {}),
-                }
-
-            raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
-
-        def format_messages() -> list[dict[str, Any]]:
-            return [format_message(message, content) for message in messages for content in message["content"]]
-
-        formatted_messages = format_messages()
-
         return {
-            "messages": [
-                *([{"role": "system", "content": system_prompt}] if system_prompt else []),
-                *formatted_messages,
-            ],
+            "messages": self._format_request_messages(messages, system_prompt),
             "model": self.config["model_id"],
             "options": {
                 **(self.config.get("options") or {}),
@@ -217,52 +230,54 @@ class OllamaModel(Model):
             RuntimeError: If chunk_type is not recognized.
                 This error should never be encountered as we control chunk_type in the stream method.
         """
-        if event["chunk_type"] == "message_start":
-            return {"messageStart": {"role": "assistant"}}
+        match event["chunk_type"]:
+            case "message_start":
+                return {"messageStart": {"role": "assistant"}}
 
-        if event["chunk_type"] == "content_start":
-            if event["data_type"] == "text":
-                return {"contentBlockStart": {"start": {}}}
+            case "content_start":
+                if event["data_type"] == "text":
+                    return {"contentBlockStart": {"start": {}}}
 
-            tool_name = event["data"].function.name
-            return {"contentBlockStart": {"start": {"toolUse": {"name": tool_name, "toolUseId": tool_name}}}}
+                tool_name = event["data"].function.name
+                return {"contentBlockStart": {"start": {"toolUse": {"name": tool_name, "toolUseId": tool_name}}}}
 
-        if event["chunk_type"] == "content_delta":
-            if event["data_type"] == "text":
-                return {"contentBlockDelta": {"delta": {"text": event["data"]}}}
+            case "content_delta":
+                if event["data_type"] == "text":
+                    return {"contentBlockDelta": {"delta": {"text": event["data"]}}}
 
-            tool_arguments = event["data"].function.arguments
-            return {"contentBlockDelta": {"delta": {"toolUse": {"input": json.dumps(tool_arguments)}}}}
+                tool_arguments = event["data"].function.arguments
+                return {"contentBlockDelta": {"delta": {"toolUse": {"input": json.dumps(tool_arguments)}}}}
 
-        if event["chunk_type"] == "content_stop":
-            return {"contentBlockStop": {}}
+            case "content_stop":
+                return {"contentBlockStop": {}}
 
-        if event["chunk_type"] == "message_stop":
-            reason: StopReason
-            if event["data"] == "tool_use":
-                reason = "tool_use"
-            elif event["data"] == "length":
-                reason = "max_tokens"
-            else:
-                reason = "end_turn"
+            case "message_stop":
+                reason: StopReason
+                if event["data"] == "tool_use":
+                    reason = "tool_use"
+                elif event["data"] == "length":
+                    reason = "max_tokens"
+                else:
+                    reason = "end_turn"
 
-            return {"messageStop": {"stopReason": reason}}
+                return {"messageStop": {"stopReason": reason}}
 
-        if event["chunk_type"] == "metadata":
-            return {
-                "metadata": {
-                    "usage": {
-                        "inputTokens": event["data"].eval_count,
-                        "outputTokens": event["data"].prompt_eval_count,
-                        "totalTokens": event["data"].eval_count + event["data"].prompt_eval_count,
+            case "metadata":
+                return {
+                    "metadata": {
+                        "usage": {
+                            "inputTokens": event["data"].eval_count,
+                            "outputTokens": event["data"].prompt_eval_count,
+                            "totalTokens": event["data"].eval_count + event["data"].prompt_eval_count,
+                        },
+                        "metrics": {
+                            "latencyMs": event["data"].total_duration / 1e6,
+                        },
                     },
-                    "metrics": {
-                        "latencyMs": event["data"].total_duration / 1e6,
-                    },
-                },
-            }
+                }
 
-        raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
+            case _:
+                raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
     @override
     def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:

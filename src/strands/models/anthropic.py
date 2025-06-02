@@ -4,6 +4,7 @@
 """
 
 import base64
+import json
 import logging
 import mimetypes
 from typing import Any, Iterable, Optional, TypedDict, cast
@@ -145,7 +146,11 @@ class AnthropicModel(Model):
         if "toolResult" in content:
             return {
                 "content": [
-                    self._format_request_message_content(cast(ContentBlock, tool_result_content))
+                    self._format_request_message_content(
+                        {"text": json.dumps(tool_result_content["json"])}
+                        if "json" in tool_result_content
+                        else cast(ContentBlock, tool_result_content)
+                    )
                     for tool_result_content in content["toolResult"]["content"]
                 ],
                 "is_error": content["toolResult"]["status"] == "error",
