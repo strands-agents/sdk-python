@@ -22,5 +22,5 @@ def test_agent_weather_and_time():
     agent = Agent(tools=tools)
     response = agent(prompt)
     text = str(response).lower()
-    assert "sunny" in text.lower()
+    assert "sunny" in text
     assert "15:00" in text
