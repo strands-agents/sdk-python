@@ -14,8 +14,6 @@ Note:
     The registry does not warn or error on duplicates; the last tool registered with a given name wins.
 
 The `load_tools_from_instance` function will return a list of `AgentTool` objects.
-
-See example usage at the end of this file.
 """
 
 import inspect
