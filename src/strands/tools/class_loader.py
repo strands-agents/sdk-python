@@ -123,20 +123,16 @@ def load_tools_from_instance(instance, disambiguator: Optional[str] = None) -> L
     for name, _member in inspect.getmembers(instance.__class__):
         if name.startswith("_"):
             continue
+        tool_name = f"{class_name}_{name}"
         raw_attr = instance.__class__.__dict__.get(name, None)
         if isinstance(raw_attr, staticmethod):
             func = raw_attr.__func__
-            tool_name = f"{class_name}_{name}"
         elif isinstance(raw_attr, classmethod):
             func = raw_attr.__func__.__get__(instance, instance.__class__)
-            tool_name = f"{class_name}_{name}"
         else:
             # Instance method: bind to instance and disambiguate
             func = getattr(instance, name, None)
-            if disambiguator is None:
-                tool_name = f"{class_name}_{name}_{str(id(instance))}"
-            else:
-                tool_name = f"{class_name}_{name}_{disambiguator}"
+            tool_name += f"_{str(id(instance))}" if disambiguator is None else f"_{disambiguator}"
         if callable(func):
             try:
                 methods.append(GenericFunctionTool(func, name=tool_name))
