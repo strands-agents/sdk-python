@@ -10,7 +10,7 @@ By default, all public methods (not starting with _) will be loaded as AgentTool
 
 Note:
     Tool names must be unique within an agent. If you load tools from multiple instances of the same class,
-    you MUST provide a unique prefix or label for each instance, or tools will overwrite each other in the registry.
+    you MUST provide a unique label for each instance, or tools will overwrite each other in the registry.
     The registry does not warn or error on duplicates; the last tool registered with a given name wins.
 
 The `load_tools_from_instance` function will return a list of `AgentTool` objects.
@@ -85,8 +85,8 @@ class GenericFunctionTool(AgentTool):
 def load_tools_from_instance(instance, disambiguator: Optional[str] = None) -> List[AgentTool]:
     """Load all public methods from an instance as AgentTool objects with name disambiguation.
 
-    Instance methods are bound to the given instance and are disambiguated by prefixing the tool name
-    with the given prefix (or the instance id if no prefix is provided). Static and class methods are
+    Instance methods are bound to the given instance and are disambiguated by suffixing the tool name
+    with the given label (or the instance id if no prefix is provided). Static and class methods are
     not disambiguated, as they do not depend on instance state.
 
     Args:
@@ -98,7 +98,7 @@ def load_tools_from_instance(instance, disambiguator: Optional[str] = None) -> L
 
     Note:
         Tool names must be unique within an agent. If you load tools from multiple instances of the same
-        class, you MUST provide a unique prefix or label for each instance, or tools will overwrite each
+        class, you MUST provide a unique label for each instance, or tools will overwrite each
         other in the registry. The registry does not warn or error on duplicates; the last tool registered
         with a given name wins. This function will log a warning if a duplicate tool name is detected in
         the returned list.
@@ -115,11 +115,10 @@ def load_tools_from_instance(instance, disambiguator: Optional[str] = None) -> L
                 return y * 2
 
         instance = MyClass()
-        tools = load_tools_from_instance(instance, disambiguator="my_instance")
-        # tools is a list of AgentTool objects for foo and bar, with foo disambiguated as 'my_instance_foo'
+        tools = load_tools_from_instance(instance, disambiguator="special")
+        # tools is a list of AgentTool objects for foo and bar, with foo disambiguated as 'myclass_foo_special'
     """
     methods = []
-    seen_names: Set[str] = set()
     class_name = instance.__class__.__name__.lower()
     for name, _member in inspect.getmembers(instance.__class__):
         if name.startswith("_"):
@@ -128,13 +127,9 @@ def load_tools_from_instance(instance, disambiguator: Optional[str] = None) -> L
         if isinstance(raw_attr, staticmethod):
             func = raw_attr.__func__
             tool_name = f"{class_name}_{name}"
-            if tool_name in seen_names:
-                continue
         elif isinstance(raw_attr, classmethod):
             func = raw_attr.__func__.__get__(instance, instance.__class__)
             tool_name = f"{class_name}_{name}"
-            if tool_name in seen_names:
-                continue
         else:
             # Instance method: bind to instance and disambiguate
             func = getattr(instance, name, None)
@@ -143,13 +138,6 @@ def load_tools_from_instance(instance, disambiguator: Optional[str] = None) -> L
             else:
                 tool_name = f"{class_name}_{name}_{disambiguator}"
         if callable(func):
-            if tool_name in seen_names:
-                logger.warning(
-                    "Duplicate tool name detected in load_tools_from_instance: %s. "
-                    "Only the last tool registered will be used in the agent.",
-                    tool_name,
-                )
-            seen_names.add(tool_name)
             try:
                 methods.append(GenericFunctionTool(func, name=tool_name))
             except Exception:
