@@ -165,7 +165,7 @@ class Agent:
                     self._agent._record_tool_execution(tool_use, tool_result, user_message_override, messages)
 
                 # Apply window management
-                self._agent.conversation_manager.apply_management(self._agent.messages)
+                self._agent.conversation_manager.apply_management(self._agent)
 
                 return tool_result
 
@@ -439,7 +439,7 @@ class Agent:
             return self._execute_event_loop_cycle(invocation_callback_handler, kwargs)
 
         finally:
-            self.conversation_manager.apply_management(self.messages)
+            self.conversation_manager.apply_management(self)
 
     def _execute_event_loop_cycle(self, callback_handler: Callable, kwargs: dict[str, Any]) -> AgentResult:
         """Execute the event loop cycle with retry logic for context window limits.
@@ -483,7 +483,7 @@ class Agent:
         except ContextWindowOverflowException as e:
             # Try reducing the context size and retrying
 
-            self.conversation_manager.reduce_context(messages, e=e)
+            self.conversation_manager.reduce_context(self, e=e)
             return self._execute_event_loop_cycle(callback_handler_override, kwargs)
 
     def _record_tool_execution(

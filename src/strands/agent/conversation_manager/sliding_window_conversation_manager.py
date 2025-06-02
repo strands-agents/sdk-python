@@ -1,7 +1,10 @@
 """Sliding window conversation history management."""
 
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from ...agent.agent import Agent
 
 from ...types.content import Message, Messages
 from ...types.exceptions import ContextWindowOverflowException
@@ -45,13 +48,13 @@ class SlidingWindowConversationManager(ConversationManager):
         """Initialize the sliding window conversation manager.
 
         Args:
-            window_size: Maximum number of messages to keep in history.
+            window_size: Maximum number of messages to keep in the agent's history.
                 Defaults to 40 messages.
         """
         self.window_size = window_size
 
-    def apply_management(self, messages: Messages) -> None:
-        """Apply the sliding window to the messages array to maintain a manageable history size.
+    def apply_management(self, agent: "Agent") -> None:
+        """Apply the sliding window to the agent's messages array to maintain a manageable history size.
 
         This method is called after every event loop cycle, as the messages array may have been modified with tool
         results and assistant responses. It first removes any dangling messages that might create an invalid
@@ -62,9 +65,10 @@ class SlidingWindowConversationManager(ConversationManager):
         blocks to maintain conversation coherence.
 
         Args:
-            messages: The messages to manage.
+            agent: The agent whose messages will be managed.
                 This list is modified in-place.
         """
+        messages = agent.messages
         self._remove_dangling_messages(messages)
 
         if len(messages) <= self.window_size:
@@ -72,7 +76,7 @@ class SlidingWindowConversationManager(ConversationManager):
                 "window_size=<%s>, message_count=<%s> | skipping context reduction", len(messages), self.window_size
             )
             return
-        self.reduce_context(messages)
+        self.reduce_context(agent)
 
     def _remove_dangling_messages(self, messages: Messages) -> None:
         """Remove dangling messages that would create an invalid conversation state.
@@ -105,7 +109,7 @@ class SlidingWindowConversationManager(ConversationManager):
                     if not any("toolResult" in content for content in messages[-1]["content"]):
                         messages.pop()
 
-    def reduce_context(self, messages: Messages, e: Optional[Exception] = None) -> None:
+    def reduce_context(self, agent: "Agent", e: Optional[Exception] = None) -> None:
         """Trim the oldest messages to reduce the conversation context size.
 
         The method handles special cases where trimming the messages leads to:
@@ -113,7 +117,7 @@ class SlidingWindowConversationManager(ConversationManager):
          - toolUse with no corresponding toolResult
 
         Args:
-            messages: The messages to reduce.
+            agent: The agent whose messages will be reduce.
                 This list is modified in-place.
             e: The exception that triggered the context reduction, if any.
 
@@ -122,6 +126,7 @@ class SlidingWindowConversationManager(ConversationManager):
                 Such as when the conversation is already minimal or when tool result messages cannot be properly
                 converted.
         """
+        messages = agent.messages
         # If the number of messages is less than the window_size, then we default to 2, otherwise, trim to window size
         trim_index = 2 if len(messages) <= self.window_size else len(messages) - self.window_size
 

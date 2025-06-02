@@ -318,7 +318,7 @@ def test_agent__call__(
     )
 
     callback_handler.assert_called()
-    conversation_manager_spy.apply_management.assert_called_with(agent.messages)
+    conversation_manager_spy.apply_management.assert_called_with(agent)
 
 
 def test_agent__call__passes_kwargs(mock_model, system_prompt, callback_handler, agent, tool, mock_event_loop_cycle):
@@ -583,7 +583,7 @@ def test_agent_tool(mock_randint, agent):
     }
 
     assert tru_result == exp_result
-    conversation_manager_spy.apply_management.assert_called_with(agent.messages)
+    conversation_manager_spy.apply_management.assert_called_with(agent)
 
 
 def test_agent_tool_user_message_override(agent):
