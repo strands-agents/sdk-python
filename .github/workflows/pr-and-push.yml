@@ -13,5 +13,7 @@ concurrency:
 jobs:
   call-test-lint:
     uses: ./.github/workflows/test-lint.yml
+    permissions:
+      contents: read
     with:
       ref: ${{ github.event.pull_request.head.sha }}
