@@ -82,7 +82,7 @@ class GenericFunctionTool(AgentTool):
             }
 
 
-def load_tools_from_instance(instance, prefix: Optional[str] = None) -> List[AgentTool]:
+def load_tools_from_instance(instance, disambiguator: Optional[str] = None) -> List[AgentTool]:
     """Load all public methods from an instance as AgentTool objects with name disambiguation.
 
     Instance methods are bound to the given instance and are disambiguated by prefixing the tool name
@@ -91,7 +91,7 @@ def load_tools_from_instance(instance, prefix: Optional[str] = None) -> List[Age
 
     Args:
         instance: The instance to inspect.
-        prefix: Optional string to prefix instance method tool names. If not provided, uses id(instance).
+        disambiguator: Optional string to disambiguate instance method tool names. If not provided, uses id(instance).
 
     Returns:
         List of AgentTool objects (GenericFunctionTool wrappers).
@@ -115,31 +115,33 @@ def load_tools_from_instance(instance, prefix: Optional[str] = None) -> List[Age
                 return y * 2
 
         instance = MyClass()
-        tools = load_tools_from_instance(instance, prefix="my_instance")
+        tools = load_tools_from_instance(instance, disambiguator="my_instance")
         # tools is a list of AgentTool objects for foo and bar, with foo disambiguated as 'my_instance_foo'
     """
     methods = []
     seen_names: Set[str] = set()
-    if prefix is None:
-        prefix = str(id(instance))
+    class_name = instance.__class__.__name__.lower()
     for name, _member in inspect.getmembers(instance.__class__):
         if name.startswith("_"):
             continue
         raw_attr = instance.__class__.__dict__.get(name, None)
         if isinstance(raw_attr, staticmethod):
             func = raw_attr.__func__
-            tool_name = name
+            tool_name = f"{class_name}_{name}"
             if tool_name in seen_names:
                 continue
         elif isinstance(raw_attr, classmethod):
             func = raw_attr.__func__.__get__(instance, instance.__class__)
-            tool_name = name
+            tool_name = f"{class_name}_{name}"
             if tool_name in seen_names:
                 continue
         else:
             # Instance method: bind to instance and disambiguate
             func = getattr(instance, name, None)
-            tool_name = f"{prefix}_{name}"
+            if disambiguator is None:
+                tool_name = f"{class_name}_{name}_{str(id(instance))}"
+            else:
+                tool_name = f"{class_name}_{name}_{disambiguator}"
         if callable(func):
             if tool_name in seen_names:
                 logger.warning(
