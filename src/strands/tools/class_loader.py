@@ -18,7 +18,7 @@ The `load_tools_from_instance` function will return a list of `AgentTool` object
 
 import inspect
 import logging
-from typing import Any, Callable, List, Optional, Set
+from typing import Any, Callable, List, Optional
 
 from ..types.tools import AgentTool, ToolResult, ToolSpec, ToolUse
 from .decorator import FunctionToolMetadata
