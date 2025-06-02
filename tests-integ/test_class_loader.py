@@ -4,11 +4,11 @@ from strands.tools.class_loader import load_tools_from_instance
 
 class WeatherTimeTool:
     def get_weather_in_paris(self) -> str:
-        return f"sunny"
+        return "sunny"
 
     @staticmethod
     def get_time_in_paris(r) -> str:
-        return f"15:00"
+        return "15:00"
 
 
 def test_agent_weather_and_time():
