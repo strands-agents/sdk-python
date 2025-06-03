@@ -1,12 +1,18 @@
 import concurrent
 import functools
 import unittest.mock
+import uuid
 
 import pytest
 
 import strands
 import strands.telemetry
 from strands.types.content import Message
+
+
+@pytest.fixture(autouse=True)
+def moto_autouse(moto_env):
+    _ = moto_env
 
 
 @pytest.fixture
@@ -52,10 +58,10 @@ def invalid_tool_use_ids(request):
     return request.param if hasattr(request, "param") else []
 
 
-@unittest.mock.patch.object(strands.telemetry.metrics, "uuid4", return_value="trace1")
 @pytest.fixture
 def cycle_trace():
-    return strands.telemetry.metrics.Trace(name="test trace", raw_name="raw_name")
+    with unittest.mock.patch.object(uuid, "uuid4", return_value="trace1"):
+        return strands.telemetry.metrics.Trace(name="test trace", raw_name="raw_name")
 
 
 @pytest.fixture
