@@ -355,7 +355,7 @@ class Agent:
 
         try:
             # Run the event loop and get the result
-            result = self._run_loop(prompt, kwargs.copy())
+            result = self._run_loop(prompt, kwargs)
 
             self._end_agent_trace_span(response=result)
 
