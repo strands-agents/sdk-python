@@ -43,8 +43,15 @@ from .conversation_manager import (
 
 logger = logging.getLogger(__name__)
 
-# Sentinel object to distinguish between explicit None and default parameter value
-_DEFAULT_CALLBACK_HANDLER = object()
+
+# Sentinel class and object to distinguish between explicit None and default parameter value
+class _DefaultCallbackHandlerSentinel:
+    """Sentinel class to distinguish between explicit None and default parameter value."""
+
+    pass
+
+
+_DEFAULT_CALLBACK_HANDLER = _DefaultCallbackHandlerSentinel()
 
 
 class Agent:
@@ -180,7 +187,9 @@ class Agent:
         messages: Optional[Messages] = None,
         tools: Optional[List[Union[str, Dict[str, str], Any]]] = None,
         system_prompt: Optional[str] = None,
-        callback_handler: Optional[Callable[..., Any]] = _DEFAULT_CALLBACK_HANDLER,
+        callback_handler: Optional[
+            Union[Callable[..., Any], _DefaultCallbackHandlerSentinel]
+        ] = _DEFAULT_CALLBACK_HANDLER,
         conversation_manager: Optional[ConversationManager] = None,
         max_parallel_tools: int = os.cpu_count() or 1,
         record_direct_tool_call: bool = True,
@@ -226,13 +235,17 @@ class Agent:
         self.messages = messages if messages is not None else []
 
         self.system_prompt = system_prompt
-        
-        # If the default sentinel is used, create a new PrintingCallbackHandler instance
-        if callback_handler is _DEFAULT_CALLBACK_HANDLER:
+
+        # If not provided, create a new PrintingCallbackHandler instance
+        # If explicitly set to None, use null_callback_handler
+        # Otherwise use the passed callback_handler
+        self.callback_handler: Union[Callable[..., Any], PrintingCallbackHandler]
+        if isinstance(callback_handler, _DefaultCallbackHandlerSentinel):
             self.callback_handler = PrintingCallbackHandler()
+        elif callback_handler is None:
+            self.callback_handler = null_callback_handler
         else:
-            # Otherwise use the provided handler or null_callback_handler if None was explicitly passed
-            self.callback_handler = callback_handler or null_callback_handler
+            self.callback_handler = callback_handler
 
         self.conversation_manager = conversation_manager if conversation_manager else SlidingWindowConversationManager()
 
