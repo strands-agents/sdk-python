@@ -686,6 +686,37 @@ def test_agent_with_callback_handler_none_uses_null_handler():
     assert agent.callback_handler == null_callback_handler
 
 
+def test_agent_callback_handler_not_provided_creates_new_instances():
+    """Test that when callback_handler is not provided, new PrintingCallbackHandler instances are created."""
+    # Create two agents without providing callback_handler
+    agent1 = Agent()
+    agent2 = Agent()
+
+    # Both should have PrintingCallbackHandler instances
+    assert isinstance(agent1.callback_handler, PrintingCallbackHandler)
+    assert isinstance(agent2.callback_handler, PrintingCallbackHandler)
+
+    # But they should be different object instances
+    assert agent1.callback_handler is not agent2.callback_handler
+
+
+def test_agent_callback_handler_explicit_none_uses_null_handler():
+    """Test that when callback_handler is explicitly set to None, null_callback_handler is used."""
+    agent = Agent(callback_handler=None)
+
+    # Should use null_callback_handler
+    assert agent.callback_handler is null_callback_handler
+
+
+def test_agent_callback_handler_custom_handler_used():
+    """Test that when a custom callback_handler is provided, it is used."""
+    custom_handler = unittest.mock.Mock()
+    agent = Agent(callback_handler=custom_handler)
+
+    # Should use the provided custom handler
+    assert agent.callback_handler is custom_handler
+
+
 @pytest.mark.asyncio
 async def test_stream_async_returns_all_events(mock_event_loop_cycle):
     agent = Agent()
