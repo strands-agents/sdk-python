@@ -16,7 +16,7 @@ import os
 import random
 from concurrent.futures import ThreadPoolExecutor
 from threading import Thread
-from typing import Any, AsyncIterator, Callable, Dict, List, Mapping, Optional, Union
+from typing import Any, AsyncIterator, Callable, Dict, List, Mapping, Optional, Union, TYPE_CHECKING
 from uuid import uuid4
 
 from opentelemetry import trace
@@ -183,6 +183,8 @@ class Agent:
         record_direct_tool_call: bool = True,
         load_tools_from_directory: bool = True,
         trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -214,6 +216,10 @@ class Agent:
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.
                 Defaults to True.
             trace_attributes: Custom trace attributes to apply to the agent's trace span.
+            name: Optional name for the agent. Used in agent cards and logging.
+                If None, defaults to the class name when generating agent cards.
+            description: Optional description of the agent's purpose and capabilities.
+                If None, defaults to a generic description when generating agent cards.
 
         Raises:
             ValueError: If max_parallel_tools is less than 1.
@@ -223,6 +229,10 @@ class Agent:
 
         self.system_prompt = system_prompt
         self.callback_handler = callback_handler or null_callback_handler
+        
+        # Agent metadata for agent cards
+        self.name = name
+        self.description = description
 
         self.conversation_manager = conversation_manager if conversation_manager else SlidingWindowConversationManager()
 
@@ -301,14 +311,193 @@ class Agent:
         """
         return self.tool_registry.initialize_tool_config()
 
+    def register_tool(self, tool: Any) -> None:
+        """Register a tool with this agent.
+        
+        Args:
+            tool: The tool to register. Can be a function decorated with @strands.tool,
+                  a Tool instance, or a dictionary with tool configuration.
+                  
+        Example:
+            ```python
+            # Register a function tool
+            @strands.tool
+            def calculate(expression: str) -> str:
+                return str(eval(expression))
+                
+            agent.register_tool(calculate)
+            
+            # Register a Tool instance
+            from strands.tools import WebSearchTool
+            agent.register_tool(WebSearchTool())
+            ```
+        """
+        self.tool_registry.register_tool(tool)
+        
+    def register_remote_agent(
+        self, 
+        agent_url: str, 
+        name: Optional[str] = None,
+        skills: Optional[List[str]] = None,
+        auth_token: Optional[str] = None
+    ) -> None:
+        """Register a remote A2A agent as tool(s).
+        
+        This method enables the "Agent as Tool" pattern, allowing you to use
+        remote agents as if they were local tools. The remote agent's capabilities
+        are automatically discovered via the A2A protocol.
+        
+        Args:
+            agent_url: URL of the remote A2A agent (e.g., "http://agent:8000")
+            name: Optional custom name for the tool. If not provided, uses the
+                  remote agent's name.
+            skills: Optional list of specific skills to register. If None,
+                    registers the entire agent as one tool. If provided,
+                    registers each skill as a separate tool.
+            auth_token: Optional authentication token for the remote agent.
+        
+        Examples:
+            ```python
+            # Register entire remote agent as one tool
+            agent.register_remote_agent("http://research-agent:8000")
+            
+            # Register with custom name
+            agent.register_remote_agent(
+                "http://research-agent:8000",
+                name="research"
+            )
+            
+            # Register specific skills as separate tools
+            agent.register_remote_agent(
+                "http://multi-skill-agent:8000",
+                skills=["web_search", "summarize"]
+            )
+            
+            # With authentication
+            agent.register_remote_agent(
+                "http://secure-agent:8000",
+                auth_token="secret-token"
+            )
+            ```
+            
+        Raises:
+            ConnectionError: If unable to connect to the remote agent
+            ValueError: If requested skills are not found in the remote agent
+        """
+        from ..protocols.a2a.tools import A2ARemoteTool, create_agent_tools_from_skills
+        
+        if skills:
+            # Register each skill as a separate tool
+            tools = create_agent_tools_from_skills(agent_url, skills, auth_token)
+            for tool in tools:
+                self.register_tool(tool)
+                logger.info(f"Registered remote skill '{tool.skill_id}' from {agent_url}")
+        else:
+            # Register entire agent as one tool
+            tool = A2ARemoteTool(agent_url, name=name, auth_token=auth_token)
+            self.register_tool(tool)
+            logger.info(f"Registered remote agent from {agent_url} as '{tool.tool_name}'")
+
     def __del__(self) -> None:
         """Clean up resources when Agent is garbage collected.
 
-        Ensures proper shutdown of the thread pool executor if one exists.
+        Ensures proper shutdown of the thread pool executor and any protocol servers.
         """
+        # Stop any running protocol servers
+        self.stop_servers()
+        
+        # Shutdown thread pool
         if self.thread_pool_wrapper and hasattr(self.thread_pool_wrapper, "shutdown"):
             self.thread_pool_wrapper.shutdown(wait=False)
             logger.debug("thread pool executor shutdown complete")
+
+    def serve(
+        self, 
+        protocol: Union[str, "ProtocolServer", None] = None,
+        **server_config: Any
+    ) -> "ProtocolServer":
+        """Make this agent network accessible via a protocol server.
+        
+        This method enables the one-liner pattern for exposing agents over the network,
+        supporting multiple protocols and configuration options.
+        
+        Args:
+            protocol: The protocol to use. Can be:
+                - None: Use default protocol (A2A)
+                - str: Protocol name ('a2a', 'mcp', 'graphql', etc.)
+                - ProtocolServer: A pre-configured server instance
+            **server_config: Configuration parameters passed to the protocol server
+                (e.g., port=8080, host='0.0.0.0', enable_auth=True)
+                
+        Returns:
+            The started protocol server instance
+            
+        Examples:
+            ```python
+            # Default A2A server
+            agent.serve()
+            
+            # Specify protocol by name
+            agent.serve(protocol='mcp')
+            
+            # Configure server parameters
+            agent.serve(port=8080, enable_auth=True, auth_token='secret')
+            
+            # Use pre-configured server
+            from strands.protocols import A2AProtocolServer
+            server = A2AProtocolServer(port=9000, tls_cert='cert.pem')
+            agent.serve(server)
+            ```
+        """
+        from ..types.protocols import ProtocolServer
+        from ..protocols import PROTOCOL_REGISTRY, A2AProtocolServer
+        
+        # Determine which server to use
+        if protocol is None:
+            # Default to A2A
+            server = A2AProtocolServer(**server_config)
+        elif isinstance(protocol, str):
+            # Look up protocol by name
+            protocol_lower = protocol.lower()
+            if protocol_lower not in PROTOCOL_REGISTRY:
+                available = ", ".join(PROTOCOL_REGISTRY.keys())
+                raise ValueError(
+                    f"Unknown protocol '{protocol}'. Available protocols: {available}"
+                )
+            server_class = PROTOCOL_REGISTRY[protocol_lower]
+            server = server_class(**server_config)
+        elif isinstance(protocol, ProtocolServer):
+            # Use provided server instance
+            server = protocol
+            # Apply any additional config
+            if server_config:
+                server.update_config(**server_config)
+        else:
+            raise TypeError(
+                f"protocol must be None, str, or ProtocolServer instance, got {type(protocol)}"
+            )
+        
+        # Start the server with this agent
+        server.start(self)
+        
+        # Store reference for cleanup
+        if not hasattr(self, '_protocol_servers'):
+            self._protocol_servers = []
+        self._protocol_servers.append(server)
+        
+        logger.info(
+            f"Agent now accessible via {server.protocol_name} at {server.get_endpoint()}"
+        )
+        
+        return server
+    
+    def stop_servers(self) -> None:
+        """Stop all protocol servers associated with this agent."""
+        if hasattr(self, '_protocol_servers'):
+            for server in self._protocol_servers:
+                if server.is_running:
+                    server.stop()
+            self._protocol_servers.clear()
 
     def __call__(self, prompt: str, **kwargs: Any) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
@@ -580,3 +769,30 @@ class Agent:
                 trace_attributes["error"] = error
 
             self.tracer.end_agent_span(**trace_attributes)
+
+    async def handle_a2a_request(self, user_input: str) -> str:
+        """Handle an A2A request by processing it through the agent.
+        
+        Args:
+            user_input: The text input from the A2A request
+            
+        Returns:
+            The agent's response as a string
+        """
+        try:
+            # Process the request through the agent's main workflow
+            result = self(user_input)
+            
+            # Extract the text response from the AgentResult
+            if hasattr(result, 'message') and result.message:
+                content = result.message.get('content', [])
+                for content_block in content:
+                    if isinstance(content_block, dict) and 'text' in content_block:
+                        return content_block['text']
+            
+            # Fallback to string representation
+            return str(result)
+            
+        except Exception as e:
+            logger.error(f"Error handling A2A request: {e}")
+            return f"Error processing request: {str(e)}"

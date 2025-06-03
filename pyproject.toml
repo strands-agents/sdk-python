@@ -7,7 +7,7 @@ name = "strands-agents"
 dynamic = ["version"]
 description = "A model-driven approach to building AI agents in just a few lines of code"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = {text = "Apache-2.0"}
 authors = [
     {name = "AWS", email = "opensource@amazon.com"},
@@ -59,7 +59,7 @@ dev = [
     "pytest>=8.0.0,<9.0.0",
     "pytest-asyncio>=0.26.0,<0.27.0",
     "ruff>=0.4.4,<0.5.0",
-    "swagger-parser>=1.0.2,<2.0.0",
+    "swagger-parser>=1.0.1,<2.0.0",
 ]
 docs = [
     "sphinx>=5.0.0,<6.0.0",
@@ -77,6 +77,12 @@ ollama = [
 ]
 openai = [
     "openai>=1.68.0,<2.0.0",
+]
+a2a = [
+    "a2a-sdk>=0.2.5",
+    "httpx>=0.27.0",
+    "fastapi>=0.68.0",
+    "uvicorn>=0.15.0"
 ]
 
 [tool.hatch.version]
