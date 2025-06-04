@@ -182,6 +182,7 @@ def handle_content_block_stop(state: Dict[str, Any]) -> Dict[str, Any]:
     current_tool_use = state["current_tool_use"]
     text = state["text"]
     reasoning_text = state["reasoningText"]
+    redacted_content = state["redactedContent"]
 
     if current_tool_use:
         if "input" not in current_tool_use:
@@ -219,8 +220,8 @@ def handle_content_block_stop(state: Dict[str, Any]) -> Dict[str, Any]:
             }
         )
         state["reasoningText"] = ""
-    elif "redactedContent" in state and state["redactedContent"]:
-        content.append({"reasoningContent": {"redactedContent": state["redactedContent"]}})
+    elif redacted_content:
+        content.append({"reasoningContent": {"redactedContent": redacted_content}})
         state["redactedContent"] = b""
 
     return state
