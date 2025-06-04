@@ -57,8 +57,6 @@ jobs:
 
   deploy:
     name: Upload release to PyPI
-    permissions:
-      contents: read
     needs:
     - build
     runs-on: ubuntu-latest
