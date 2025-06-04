@@ -1,8 +1,10 @@
 """Null implementation of conversation management."""
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from ...types.content import Messages
+if TYPE_CHECKING:
+    from ...agent.agent import Agent
+
 from ...types.exceptions import ContextWindowOverflowException
 from .conversation_manager import ConversationManager
 
@@ -17,19 +19,19 @@ class NullConversationManager(ConversationManager):
     - Situations where the full conversation history should be preserved
     """
 
-    def apply_management(self, messages: Messages) -> None:
+    def apply_management(self, _agent: "Agent") -> None:
         """Does nothing to the conversation history.
 
         Args:
-            messages: The conversation history that will remain unmodified.
+            agent: The agent whose conversation history will remain unmodified.
         """
         pass
 
-    def reduce_context(self, messages: Messages, e: Optional[Exception] = None) -> None:
+    def reduce_context(self, _agent: "Agent", e: Optional[Exception] = None) -> None:
         """Does not reduce context and raises an exception.
 
         Args:
-            messages: The conversation history that will remain unmodified.
+            agent: The agent whose conversation history will remain unmodified.
             e: The exception that triggered the context reduction, if any.
 
         Raises:

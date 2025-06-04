@@ -318,7 +318,7 @@ def test_agent__call__(
     )
 
     callback_handler.assert_called()
-    conversation_manager_spy.apply_management.assert_called_with(agent.messages)
+    conversation_manager_spy.apply_management.assert_called_with(agent)
 
 
 def test_agent__call__passes_kwargs(mock_model, system_prompt, callback_handler, agent, tool, mock_event_loop_cycle):
@@ -583,7 +583,7 @@ def test_agent_tool(mock_randint, agent):
     }
 
     assert tru_result == exp_result
-    conversation_manager_spy.apply_management.assert_called_with(agent.messages)
+    conversation_manager_spy.apply_management.assert_called_with(agent)
 
 
 def test_agent_tool_user_message_override(agent):
@@ -684,6 +684,37 @@ def test_agent_with_callback_handler_none_uses_null_handler():
     agent = Agent(callback_handler=None)
 
     assert agent.callback_handler == null_callback_handler
+
+
+def test_agent_callback_handler_not_provided_creates_new_instances():
+    """Test that when callback_handler is not provided, new PrintingCallbackHandler instances are created."""
+    # Create two agents without providing callback_handler
+    agent1 = Agent()
+    agent2 = Agent()
+
+    # Both should have PrintingCallbackHandler instances
+    assert isinstance(agent1.callback_handler, PrintingCallbackHandler)
+    assert isinstance(agent2.callback_handler, PrintingCallbackHandler)
+
+    # But they should be different object instances
+    assert agent1.callback_handler is not agent2.callback_handler
+
+
+def test_agent_callback_handler_explicit_none_uses_null_handler():
+    """Test that when callback_handler is explicitly set to None, null_callback_handler is used."""
+    agent = Agent(callback_handler=None)
+
+    # Should use null_callback_handler
+    assert agent.callback_handler is null_callback_handler
+
+
+def test_agent_callback_handler_custom_handler_used():
+    """Test that when a custom callback_handler is provided, it is used."""
+    custom_handler = unittest.mock.Mock()
+    agent = Agent(callback_handler=custom_handler)
+
+    # Should use the provided custom handler
+    assert agent.callback_handler is custom_handler
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,3 @@
-import json
 import unittest.mock
 
 import anthropic
@@ -102,19 +101,46 @@ def test_format_request_with_system_prompt(model, messages, model_id, max_tokens
     assert tru_request == exp_request
 
 
-def test_format_request_with_document(model, model_id, max_tokens):
+@pytest.mark.parametrize(
+    ("content", "formatted_content"),
+    [
+        # PDF
+        (
+            {
+                "document": {"format": "pdf", "name": "test doc", "source": {"bytes": b"pdf"}},
+            },
+            {
+                "source": {
+                    "data": "cGRm",
+                    "media_type": "application/pdf",
+                    "type": "base64",
+                },
+                "title": "test doc",
+                "type": "document",
+            },
+        ),
+        # Plain text
+        (
+            {
+                "document": {"format": "txt", "name": "test doc", "source": {"bytes": b"txt"}},
+            },
+            {
+                "source": {
+                    "data": "txt",
+                    "media_type": "text/plain",
+                    "type": "text",
+                },
+                "title": "test doc",
+                "type": "document",
+            },
+        ),
+    ],
+)
+def test_format_request_with_document(content, formatted_content, model, model_id, max_tokens):
     messages = [
         {
             "role": "user",
-            "content": [
-                {
-                    "document": {
-                        "format": "pdf",
-                        "name": "test-doc",
-                        "source": {"bytes": b"base64encodeddoc"},
-                    },
-                },
-            ],
+            "content": [content],
         },
     ]
 
@@ -124,17 +150,7 @@ def test_format_request_with_document(model, model_id, max_tokens):
         "messages": [
             {
                 "role": "user",
-                "content": [
-                    {
-                        "source": {
-                            "data": "YmFzZTY0ZW5jb2RlZGRvYw==",
-                            "media_type": "application/pdf",
-                            "type": "base64",
-                        },
-                        "title": "test-doc",
-                        "type": "document",
-                    },
-                ],
+                "content": [formatted_content],
             },
         ],
         "model": model_id,
@@ -273,6 +289,7 @@ def test_format_request_with_tool_results(model, model_id, max_tokens):
                         "status": "success",
                         "content": [
                             {"text": "see image"},
+                            {"json": ["see image"]},
                             {
                                 "image": {
                                     "format": "jpg",
@@ -300,6 +317,10 @@ def test_format_request_with_tool_results(model, model_id, max_tokens):
                                 "type": "text",
                             },
                             {
+                                "text": '["see image"]',
+                                "type": "text",
+                            },
+                            {
                                 "source": {
                                     "data": "YmFzZTY0ZW5jb2RlZGltYWdl",
                                     "media_type": "image/jpeg",
@@ -322,33 +343,16 @@ def test_format_request_with_tool_results(model, model_id, max_tokens):
     assert tru_request == exp_request
 
 
-def test_format_request_with_other(model, model_id, max_tokens):
+def test_format_request_with_unsupported_type(model):
     messages = [
         {
             "role": "user",
-            "content": [{"other": {"a": 1}}],
+            "content": [{"unsupported": {}}],
         },
     ]
 
-    tru_request = model.format_request(messages)
-    exp_request = {
-        "max_tokens": max_tokens,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "text": json.dumps({"other": {"a": 1}}),
-                        "type": "text",
-                    },
-                ],
-            },
-        ],
-        "model": model_id,
-        "tools": [],
-    }
-
-    assert tru_request == exp_request
+    with pytest.raises(TypeError, match="content_type=<unsupported> | unsupported type"):
+        model.format_request(messages)
 
 
 def test_format_request_with_cache_point(model, model_id, max_tokens):

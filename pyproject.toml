@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [project]
 name = "strands-agents"
-version = "0.1.5"
+dynamic = ["version"]
 description = "A model-driven approach to building AI agents in just a few lines of code"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -78,6 +78,10 @@ ollama = [
 openai = [
     "openai>=1.68.0,<2.0.0",
 ]
+
+[tool.hatch.version]
+# Tells Hatch to use your version control system (git) to determine the version.
+source = "vcs"
 
 [tool.hatch.envs.hatch-static-analysis]
 features = ["anthropic", "litellm", "llamaapi", "ollama", "openai"]

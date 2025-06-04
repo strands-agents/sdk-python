@@ -1,4 +1,3 @@
-import json
 import unittest.mock
 
 import pytest
@@ -62,7 +61,24 @@ def system_prompt():
 @pytest.mark.parametrize(
     "content, exp_result",
     [
-        # Case 1: Image
+        # Document
+        (
+            {
+                "document": {
+                    "format": "pdf",
+                    "name": "test doc",
+                    "source": {"bytes": b"document"},
+                },
+            },
+            {
+                "file": {
+                    "file_data": "data:application/pdf;base64,ZG9jdW1lbnQ=",
+                    "filename": "test doc",
+                },
+                "type": "file",
+            },
+        ),
+        # Image
         (
             {
                 "image": {
@@ -79,24 +95,23 @@ def system_prompt():
                 "type": "image_url",
             },
         ),
-        # Case 2: Text
+        # Text
         (
             {"text": "hello"},
             {"type": "text", "text": "hello"},
-        ),
-        # Case 3: Other
-        (
-            {"other": {"a": 1}},
-            {
-                "text": json.dumps({"other": {"a": 1}}),
-                "type": "text",
-            },
         ),
     ],
 )
 def test_format_request_message_content(content, exp_result):
     tru_result = SAOpenAIModel.format_request_message_content(content)
     assert tru_result == exp_result
+
+
+def test_format_request_message_content_unsupported_type():
+    content = {"unsupported": {}}
+
+    with pytest.raises(TypeError, match="content_type=<unsupported> | unsupported type"):
+        SAOpenAIModel.format_request_message_content(content)
 
 
 def test_format_request_message_tool_call():
@@ -120,19 +135,14 @@ def test_format_request_message_tool_call():
 
 def test_format_request_tool_message():
     tool_result = {
-        "content": [{"value": 4}],
+        "content": [{"text": "4"}, {"json": ["4"]}],
         "status": "success",
         "toolUseId": "c1",
     }
 
     tru_result = SAOpenAIModel.format_request_tool_message(tool_result)
     exp_result = {
-        "content": json.dumps(
-            {
-                "content": [{"value": 4}],
-                "status": "success",
-            }
-        ),
+        "content": [{"text": "4", "type": "text"}, {"text": '["4"]', "type": "text"}],
         "role": "tool",
         "tool_call_id": "c1",
     }
@@ -163,7 +173,7 @@ def test_format_request_messages(system_prompt):
             "role": "assistant",
         },
         {
-            "content": [{"toolResult": {"toolUseId": "c1", "status": "success", "content": [{"value": 4}]}}],
+            "content": [{"toolResult": {"toolUseId": "c1", "status": "success", "content": [{"text": "4"}]}}],
             "role": "user",
         },
     ]
@@ -193,12 +203,7 @@ def test_format_request_messages(system_prompt):
             ],
         },
         {
-            "content": json.dumps(
-                {
-                    "content": [{"value": 4}],
-                    "status": "success",
-                }
-            ),
+            "content": [{"text": "4", "type": "text"}],
             "role": "tool",
             "tool_call_id": "c1",
         },
