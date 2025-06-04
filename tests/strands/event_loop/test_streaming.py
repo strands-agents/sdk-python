@@ -493,3 +493,34 @@ def test_stream_messages(agent):
         None,
         "test prompt",
     )
+
+
+def test_process_stream_redacted_content_callback():
+    callback_args = []
+
+    def callback_handler(**kwargs):
+        callback_args.append(kwargs)
+
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"redactedContent": b"encoded_data_1"}}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"redactedContent": b"encoded_data_2"}}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+    ]
+
+    messages = [{"role": "user", "content": [{"text": "Some input!"}]}]
+
+    strands.event_loop.streaming.process_stream(response, callback_handler, messages)
+
+    redacted_callbacks = [args for args in callback_args if "redactedContent" in args]
+    assert len(redacted_callbacks) == 2
+
+    assert redacted_callbacks[0]["redactedContent"] == b"encoded_data_1"
+    assert redacted_callbacks[0]["delta"] == {"reasoningContent": {"redactedContent": b"encoded_data_1"}}
+    assert redacted_callbacks[0]["reasoning"] is True
+
+    assert redacted_callbacks[1]["redactedContent"] == b"encoded_data_2"
+    assert redacted_callbacks[1]["delta"] == {"reasoningContent": {"redactedContent": b"encoded_data_2"}}
+    assert redacted_callbacks[1]["reasoning"] is True
