@@ -25,12 +25,12 @@ class UsageMetadata:
         total_tokens: Total number of tokens used in the request
         completion_tokens: Number of tokens used in the completion
         prompt_tokens: Number of tokens used in the prompt
+        prompt_tokens_details: Additional information about the prompt tokens (optional)
     """
-
     total_tokens: int
     completion_tokens: int
     prompt_tokens: int
-    prompt_tokens_details: int
+    prompt_tokens_details: Optional[int] = 0
 
 
 @dataclass
