@@ -13,7 +13,7 @@ from typing import Any, Dict, Mapping, Optional
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.resources import Resource  # type: ignore[attr-defined]
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
 from opentelemetry.trace import StatusCode
@@ -237,6 +237,21 @@ class Tracer:
         for key, value in attributes.items():
             span.set_attribute(key, value)
 
+    def _add_event(
+        self, span: Optional[trace.Span], event_name: str, event_attributes: Dict[str, AttributeValue]
+    ) -> None:
+        """Add an event with attributes to a span.
+
+        Args:
+            span: The span to add the event to
+            event_name: Name of the event
+            event_attributes: Dictionary of attributes to set on the event
+        """
+        if not span:
+            return
+
+        span.add_event(event_name, event_attributes)
+
     def _end_span(
         self,
         span: trace.Span,
@@ -314,9 +329,8 @@ class Tracer:
         """
         attributes: Dict[str, AttributeValue] = {
             "gen_ai.system": "strands-agents",
-            "agent.name": agent_name,
+            "gen_ai.operation.name": "invoke_model",
             "gen_ai.agent.name": agent_name,
-            "gen_ai.prompt": serialize(messages),
         }
 
         if model_id:
@@ -324,8 +338,11 @@ class Tracer:
 
         # Add additional kwargs as attributes
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
-
-        return self._start_span("Model invoke", parent_span, attributes)
+        span = self._start_span("Model invoke", parent_span, attributes)
+        self._add_event(
+            span, "gen_ai.user.message", {"gen_ai.system": "strands-agents", "content": serialize(messages)}
+        )
+        return span
 
     def end_model_invoke_span(
         self, span: trace.Span, message: Message, usage: Usage, error: Optional[Exception] = None
@@ -339,13 +356,17 @@ class Tracer:
             error: Optional exception if the model call failed.
         """
         attributes: Dict[str, AttributeValue] = {
-            "gen_ai.completion": serialize(message["content"]),
-            "gen_ai.usage.prompt_tokens": usage["inputTokens"],
-            "gen_ai.usage.completion_tokens": usage["outputTokens"],
+            "gen_ai.usage.usage.output_tokens": usage["outputTokens"],
+            "gen_ai.usage.input_tokens": usage["inputTokens"],
             "gen_ai.usage.total_tokens": usage["totalTokens"],
         }
 
         self._end_span(span, attributes, error)
+        self._add_event(
+            span,
+            "gen_ai.assistant.message",
+            event_attributes={"gen_ai.system": "strands-agents", "content": serialize(message["content"])},
+        )
 
     def start_tool_call_span(
         self, tool: ToolUse, parent_span: Optional[trace.Span] = None, **kwargs: Any
@@ -361,10 +382,9 @@ class Tracer:
             The created span, or None if tracing is not enabled.
         """
         attributes: Dict[str, AttributeValue] = {
-            "gen_ai.prompt": serialize(tool),
-            "tool.name": tool["name"],
-            "tool.id": tool["toolUseId"],
-            "tool.parameters": serialize(tool["input"]),
+            "gen_ai.tool.name": tool["name"],
+            "gen_ai.tool.id": tool["toolUseId"],
+            "gen_ai.tool.parameters": serialize(tool),
         }
 
         # Add additional kwargs as attributes
@@ -391,12 +411,19 @@ class Tracer:
             tool_result_content_json = serialize(tool_result.get("content"))
             attributes.update(
                 {
-                    "tool.result": tool_result_content_json,
-                    "gen_ai.completion": tool_result_content_json,
+                    "gen_ai.tool.id": tool_result.get("toolUseId", ""),
                     "tool.status": status_str,
                 }
             )
-
+            self._add_event(
+                span,
+                "gen_ai.tool.message",
+                event_attributes={
+                    "gen_ai.system": "strands-agents",
+                    "tool.status": status_str,
+                    "content": tool_result_content_json,
+                },
+            )
         self._end_span(span, attributes, error)
 
     def start_event_loop_cycle_span(
@@ -421,7 +448,6 @@ class Tracer:
         parent_span = parent_span if parent_span else event_loop_kwargs.get("event_loop_parent_span")
 
         attributes: Dict[str, AttributeValue] = {
-            "gen_ai.prompt": serialize(messages),
             "event_loop.cycle_id": event_loop_cycle_id,
         }
 
@@ -432,7 +458,9 @@ class Tracer:
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
 
         span_name = f"Cycle {event_loop_cycle_id}"
-        return self._start_span(span_name, parent_span, attributes)
+        span = self._start_span(span_name, parent_span, attributes)
+        self._add_event(span, "gen_ai.eventloop.cycle", event_attributes={"content": serialize(messages)})
+        return span
 
     def end_event_loop_cycle_span(
         self,
@@ -450,13 +478,15 @@ class Tracer:
             error: Optional exception if the cycle failed.
         """
         attributes: Dict[str, AttributeValue] = {
-            "gen_ai.completion": serialize(message["content"]),
+            "content": serialize(message["content"]),
         }
 
         if tool_result_message:
-            attributes["tool.result"] = serialize(tool_result_message["content"])
+            attributes["tool.content"] = serialize(tool_result_message["content"])
 
-        self._end_span(span, attributes, error)
+        self._add_event(span, "gen_ai.eventloop.message", attributes)
+
+        self._end_span(span, error=error)
 
     def start_agent_span(
         self,
@@ -482,7 +512,6 @@ class Tracer:
         """
         attributes: Dict[str, AttributeValue] = {
             "gen_ai.system": "strands-agents",
-            "agent.name": agent_name,
             "gen_ai.agent.name": agent_name,
             "gen_ai.prompt": prompt,
         }
@@ -492,7 +521,6 @@ class Tracer:
 
         if tools:
             tools_json = serialize(tools)
-            attributes["agent.tools"] = tools_json
             attributes["gen_ai.agent.tools"] = tools_json
 
         # Add custom trace attributes if provided
@@ -521,18 +549,18 @@ class Tracer:
         attributes: Dict[str, AttributeValue] = {}
 
         if response:
-            attributes.update(
-                {
-                    "gen_ai.completion": str(response),
-                }
+            self._add_event(
+                span,
+                "gen_ai.assistant.message",
+                event_attributes={"gen_ai.system": "strands-agents", "content": str(response)},
             )
 
             if hasattr(response, "metrics") and hasattr(response.metrics, "accumulated_usage"):
                 accumulated_usage = response.metrics.accumulated_usage
                 attributes.update(
                     {
-                        "gen_ai.usage.prompt_tokens": accumulated_usage["inputTokens"],
-                        "gen_ai.usage.completion_tokens": accumulated_usage["outputTokens"],
+                        "gen_ai.usage.input_tokens": accumulated_usage["inputTokens"],
+                        "gen_ai.usage.usage.output_tokens": accumulated_usage["outputTokens"],
                         "gen_ai.usage.total_tokens": accumulated_usage["totalTokens"],
                     }
                 )
