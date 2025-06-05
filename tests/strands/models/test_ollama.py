@@ -148,81 +148,24 @@ def test_format_request_with_tool_use(model, model_id):
 def test_format_request_with_tool_result(model, model_id):
     messages: Messages = [
         {
-            "role": "tool",
-            "content": [{"toolResult": {"toolUseId": "calculator", "status": "success", "content": [{"text": "4"}]}}],
-        }
-    ]
-
-    tru_request = model.format_request(messages)
-    exp_request = {
-        "messages": [
-            {
-                "role": "tool",
-                "content": json.dumps(
-                    {
-                        "name": "calculator",
-                        "result": "4",
-                        "status": "success",
-                    }
-                ),
-            }
-        ],
-        "model": model_id,
-        "options": {},
-        "stream": True,
-        "tools": [],
-    }
-
-    assert tru_request == exp_request
-
-
-def test_format_request_with_tool_result_json(model, model_id):
-    messages: Messages = [
-        {
-            "role": "tool",
-            "content": [
-                {"toolResult": {"toolUseId": "calculator", "status": "success", "content": [{"json": {"result": 4}}]}}
-            ],
-        }
-    ]
-
-    tru_request = model.format_request(messages)
-    exp_request = {
-        "messages": [
-            {
-                "role": "tool",
-                "content": json.dumps(
-                    {
-                        "name": "calculator",
-                        "result": {"result": 4},
-                        "status": "success",
-                    }
-                ),
-            }
-        ],
-        "model": model_id,
-        "options": {},
-        "stream": True,
-        "tools": [],
-    }
-
-    assert tru_request == exp_request
-
-
-def test_format_request_with_tool_result_image(model, model_id):
-    messages: Messages = [
-        {
-            "role": "tool",
+            "role": "user",
             "content": [
                 {
                     "toolResult": {
-                        "toolUseId": "image_generator",
+                        "toolUseId": "calculator",
                         "status": "success",
-                        "content": [{"image": {"source": {"bytes": "base64encodedimage"}}}],
-                    }
-                }
+                        "content": [
+                            {"text": "4"},
+                            {"image": {"source": {"bytes": b"image"}}},
+                            {"json": ["4"]},
+                        ],
+                    },
+                },
+                {
+                    "text": "see results",
+                },
             ],
-        }
+        },
     ]
 
     tru_request = model.format_request(messages)
@@ -230,15 +173,20 @@ def test_format_request_with_tool_result_image(model, model_id):
         "messages": [
             {
                 "role": "tool",
-                "content": json.dumps(
-                    {
-                        "name": "image_generator",
-                        "result": "see images",
-                        "status": "success",
-                    }
-                ),
-                "images": ["base64encodedimage"],
-            }
+                "content": "4",
+            },
+            {
+                "role": "tool",
+                "images": [b"image"],
+            },
+            {
+                "role": "tool",
+                "content": '["4"]',
+            },
+            {
+                "role": "user",
+                "content": "see results",
+            },
         ],
         "model": model_id,
         "options": {},
@@ -249,60 +197,16 @@ def test_format_request_with_tool_result_image(model, model_id):
     assert tru_request == exp_request
 
 
-def test_format_request_with_tool_result_other(model, model_id):
-    messages = [
-        {
-            "role": "tool",
-            "content": [{"toolResult": {"toolUseId": "other", "status": "success", "content": {"other": {"a": 1}}}}],
-        }
-    ]
-
-    tru_request = model.format_request(messages)
-    exp_request = {
-        "messages": [
-            {
-                "role": "tool",
-                "content": json.dumps(
-                    {
-                        "name": "other",
-                        "result": {"other": {"a": 1}},
-                        "status": "success",
-                    }
-                ),
-            }
-        ],
-        "model": model_id,
-        "options": {},
-        "stream": True,
-        "tools": [],
-    }
-
-    assert tru_request == exp_request
-
-
-def test_format_request_with_other(model, model_id):
+def test_format_request_with_unsupported_type(model):
     messages = [
         {
             "role": "user",
-            "content": [{"other": {"a": 1}}],
-        }
+            "content": [{"unsupported": {}}],
+        },
     ]
 
-    tru_request = model.format_request(messages)
-    exp_request = {
-        "messages": [
-            {
-                "role": "user",
-                "content": json.dumps({"other": {"a": 1}}),
-            }
-        ],
-        "model": model_id,
-        "options": {},
-        "stream": True,
-        "tools": [],
-    }
-
-    assert tru_request == exp_request
+    with pytest.raises(TypeError, match="content_type=<unsupported> | unsupported type"):
+        model.format_request(messages)
 
 
 def test_format_request_with_tool_specs(model, messages, model_id):

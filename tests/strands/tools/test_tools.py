@@ -14,9 +14,13 @@ from strands.types.tools import ToolUse
 
 
 def test_validate_tool_use_name_valid():
-    tool = {"name": "valid_tool_name", "toolUseId": "123"}
+    tool1 = {"name": "valid_tool_name", "toolUseId": "123"}
     # Should not raise an exception
-    validate_tool_use_name(tool)
+    validate_tool_use_name(tool1)
+
+    tool2 = {"name": "valid-name", "toolUseId": "123"}
+    # Should not raise an exception
+    validate_tool_use_name(tool2)
 
 
 def test_validate_tool_use_name_missing():

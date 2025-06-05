@@ -60,10 +60,21 @@ class ReasoningContentBlock(TypedDict, total=False):
     redactedContent: bytes
 
 
+class CachePoint(TypedDict):
+    """A cache point configuration for optimizing conversation history.
+
+    Attributes:
+        type: The type of cache point, typically "default".
+    """
+
+    type: str
+
+
 class ContentBlock(TypedDict, total=False):
     """A block of content for a message that you pass to, or receive from, a model.
 
     Attributes:
+        cachePoint: A cache point configuration to optimize conversation history.
         document: A document to include in the message.
         guardContent: Contains the content to assess with the guardrail.
         image: Image to include in the message.
@@ -74,6 +85,7 @@ class ContentBlock(TypedDict, total=False):
         video: Video to include in the message.
     """
 
+    cachePoint: CachePoint
     document: DocumentContent
     guardContent: GuardContent
     image: ImageContent

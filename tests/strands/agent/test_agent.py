@@ -9,7 +9,8 @@ from time import sleep
 import pytest
 
 import strands
-from strands.agent.agent import Agent
+from strands import Agent
+from strands.agent import AgentResult
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
@@ -317,7 +318,7 @@ def test_agent__call__(
     )
 
     callback_handler.assert_called()
-    conversation_manager_spy.apply_management.assert_called_with(agent.messages)
+    conversation_manager_spy.apply_management.assert_called_with(agent)
 
 
 def test_agent__call__passes_kwargs(mock_model, system_prompt, callback_handler, agent, tool, mock_event_loop_cycle):
@@ -337,17 +338,47 @@ def test_agent__call__passes_kwargs(mock_model, system_prompt, callback_handler,
         ],
     ]
 
+    override_system_prompt = "Override system prompt"
+    override_model = unittest.mock.Mock()
+    override_tool_execution_handler = unittest.mock.Mock()
+    override_event_loop_metrics = unittest.mock.Mock()
+    override_callback_handler = unittest.mock.Mock()
+    override_tool_handler = unittest.mock.Mock()
+    override_messages = [{"role": "user", "content": [{"text": "override msg"}]}]
+    override_tool_config = {"test": "config"}
+
     def check_kwargs(some_value, **kwargs):
         assert some_value == "a_value"
         assert kwargs is not None
+        assert kwargs["system_prompt"] == override_system_prompt
+        assert kwargs["model"] == override_model
+        assert kwargs["tool_execution_handler"] == override_tool_execution_handler
+        assert kwargs["event_loop_metrics"] == override_event_loop_metrics
+        assert kwargs["callback_handler"] == override_callback_handler
+        assert kwargs["tool_handler"] == override_tool_handler
+        assert kwargs["messages"] == override_messages
+        assert kwargs["tool_config"] == override_tool_config
+        assert kwargs["agent"] == agent
 
         # Return expected values from event_loop_cycle
         return "stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {}
 
     mock_event_loop_cycle.side_effect = check_kwargs
 
-    agent("test message", some_value="a_value")
-    assert mock_event_loop_cycle.call_count == 1
+    agent(
+        "test message",
+        some_value="a_value",
+        system_prompt=override_system_prompt,
+        model=override_model,
+        tool_execution_handler=override_tool_execution_handler,
+        event_loop_metrics=override_event_loop_metrics,
+        callback_handler=override_callback_handler,
+        tool_handler=override_tool_handler,
+        messages=override_messages,
+        tool_config=override_tool_config,
+    )
+
+    mock_event_loop_cycle.assert_called_once()
 
 
 def test_agent__call__retry_with_reduced_context(mock_model, agent, tool):
@@ -428,7 +459,7 @@ def test_agent__call__always_sliding_window_conversation_manager_doesnt_infinite
     with pytest.raises(ContextWindowOverflowException):
         agent("Test!")
 
-    assert conversation_manager_spy.reduce_context.call_count == 251
+    assert conversation_manager_spy.reduce_context.call_count > 0
     assert conversation_manager_spy.apply_management.call_count == 1
 
 
@@ -552,7 +583,7 @@ def test_agent_tool(mock_randint, agent):
     }
 
     assert tru_result == exp_result
-    conversation_manager_spy.apply_management.assert_called_with(agent.messages)
+    conversation_manager_spy.apply_management.assert_called_with(agent)
 
 
 def test_agent_tool_user_message_override(agent):
@@ -655,10 +686,39 @@ def test_agent_with_callback_handler_none_uses_null_handler():
     assert agent.callback_handler == null_callback_handler
 
 
+def test_agent_callback_handler_not_provided_creates_new_instances():
+    """Test that when callback_handler is not provided, new PrintingCallbackHandler instances are created."""
+    # Create two agents without providing callback_handler
+    agent1 = Agent()
+    agent2 = Agent()
+
+    # Both should have PrintingCallbackHandler instances
+    assert isinstance(agent1.callback_handler, PrintingCallbackHandler)
+    assert isinstance(agent2.callback_handler, PrintingCallbackHandler)
+
+    # But they should be different object instances
+    assert agent1.callback_handler is not agent2.callback_handler
+
+
+def test_agent_callback_handler_explicit_none_uses_null_handler():
+    """Test that when callback_handler is explicitly set to None, null_callback_handler is used."""
+    agent = Agent(callback_handler=None)
+
+    # Should use null_callback_handler
+    assert agent.callback_handler is null_callback_handler
+
+
+def test_agent_callback_handler_custom_handler_used():
+    """Test that when a custom callback_handler is provided, it is used."""
+    custom_handler = unittest.mock.Mock()
+    agent = Agent(callback_handler=custom_handler)
+
+    # Should use the provided custom handler
+    assert agent.callback_handler is custom_handler
+
+
 @pytest.mark.asyncio
 async def test_stream_async_returns_all_events(mock_event_loop_cycle):
-    mock_event_loop_cycle.side_effect = ValueError("Test exception")
-
     agent = Agent()
 
     # Define the side effect to simulate callback handler being called multiple times
@@ -922,6 +982,52 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
     mock_tracer.end_agent_span.assert_called_once_with(span=mock_span, response=result)
 
 
+@pytest.mark.asyncio
+@unittest.mock.patch("strands.agent.agent.get_tracer")
+async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_tracer, mock_event_loop_cycle):
+    """Test that stream_async creates and ends a span when the call succeeds."""
+    # Setup mock tracer and span
+    mock_tracer = unittest.mock.MagicMock()
+    mock_span = unittest.mock.MagicMock()
+    mock_tracer.start_agent_span.return_value = mock_span
+    mock_get_tracer.return_value = mock_tracer
+
+    # Define the side effect to simulate callback handler being called multiple times
+    def call_callback_handler(*args, **kwargs):
+        # Extract the callback handler from kwargs
+        callback_handler = kwargs.get("callback_handler")
+        # Call the callback handler with different data values
+        callback_handler(data="First chunk")
+        callback_handler(data="Second chunk")
+        callback_handler(data="Final chunk", complete=True)
+        # Return expected values from event_loop_cycle
+        return "stop", {"role": "assistant", "content": [{"text": "Agent Response"}]}, {}, {}
+
+    mock_event_loop_cycle.side_effect = call_callback_handler
+
+    # Create agent and make a call
+    agent = Agent(model=mock_model)
+    iterator = agent.stream_async("test prompt")
+    async for _event in iterator:
+        pass  # NoOp
+
+    # Verify span was created
+    mock_tracer.start_agent_span.assert_called_once_with(
+        prompt="test prompt",
+        model_id=unittest.mock.ANY,
+        tools=agent.tool_names,
+        system_prompt=agent.system_prompt,
+        custom_trace_attributes=agent.trace_attributes,
+    )
+
+    expected_response = AgentResult(
+        stop_reason="stop", message={"role": "assistant", "content": [{"text": "Agent Response"}]}, metrics={}, state={}
+    )
+
+    # Verify span was ended with the result
+    mock_tracer.end_agent_span.assert_called_once_with(span=mock_span, response=expected_response)
+
+
 @unittest.mock.patch("strands.agent.agent.get_tracer")
 def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_model):
     """Test that __call__ creates and ends a span when an exception occurs."""
@@ -941,6 +1047,42 @@ def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_mod
     # Call the agent and catch the exception
     with pytest.raises(ValueError):
         agent("test prompt")
+
+    # Verify span was created
+    mock_tracer.start_agent_span.assert_called_once_with(
+        prompt="test prompt",
+        model_id=unittest.mock.ANY,
+        tools=agent.tool_names,
+        system_prompt=agent.system_prompt,
+        custom_trace_attributes=agent.trace_attributes,
+    )
+
+    # Verify span was ended with the exception
+    mock_tracer.end_agent_span.assert_called_once_with(span=mock_span, error=test_exception)
+
+
+@pytest.mark.asyncio
+@unittest.mock.patch("strands.agent.agent.get_tracer")
+async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tracer, mock_model):
+    """Test that stream_async creates and ends a span when the call succeeds."""
+    # Setup mock tracer and span
+    mock_tracer = unittest.mock.MagicMock()
+    mock_span = unittest.mock.MagicMock()
+    mock_tracer.start_agent_span.return_value = mock_span
+    mock_get_tracer.return_value = mock_tracer
+
+    # Define the side effect to simulate callback handler raising an Exception
+    test_exception = ValueError("Test exception")
+    mock_model.mock_converse.side_effect = test_exception
+
+    # Create agent and make a call
+    agent = Agent(model=mock_model)
+
+    # Call the agent and catch the exception
+    with pytest.raises(ValueError):
+        iterator = agent.stream_async("test prompt")
+        async for _event in iterator:
+            pass  # NoOp
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(

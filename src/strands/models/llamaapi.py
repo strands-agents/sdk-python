@@ -1,3 +1,4 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates
 """Llama API model provider.
 
 - Docs: https://llama.developer.meta.com/
@@ -7,7 +8,7 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, cast
 
 import llama_api_client
 from llama_api_client import LlamaAPIClient
@@ -92,6 +93,9 @@ class LlamaAPIModel(Model):
 
         Returns:
             LllamaAPI formatted content block.
+
+        Raises:
+            TypeError: If the content block type cannot be converted to a LlamaAPI-compatible format.
         """
         if "image" in content:
             mime_type = mimetypes.types_map.get(f".{content['image']['format']}", "application/octet-stream")
@@ -107,7 +111,7 @@ class LlamaAPIModel(Model):
         if "text" in content:
             return {"text": content["text"], "type": "text"}
 
-        return {"text": json.dumps(content), "type": "text"}
+        raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
     def _format_request_message_tool_call(self, tool_use: ToolUse) -> dict[str, Any]:
         """Format a Llama API tool call.
@@ -135,18 +139,30 @@ class LlamaAPIModel(Model):
         Returns:
             Llama API formatted tool message.
         """
+        contents = cast(
+            list[ContentBlock],
+            [
+                {"text": json.dumps(content["json"])} if "json" in content else content
+                for content in tool_result["content"]
+            ],
+        )
+
         return {
             "role": "tool",
             "tool_call_id": tool_result["toolUseId"],
-            "content": json.dumps(
-                {
-                    "content": tool_result["content"],
-                    "status": tool_result["status"],
-                }
-            ),
+            "content": [self._format_request_message_content(content) for content in contents],
         }
 
     def _format_request_messages(self, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+        """Format a LlamaAPI compatible messages array.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            system_prompt: System prompt to provide context to the model.
+
+        Returns:
+            An LlamaAPI compatible messages array.
+        """
         formatted_messages: list[dict[str, Any]]
         formatted_messages = [{"role": "system", "content": system_prompt}] if system_prompt else []
 
@@ -196,6 +212,10 @@ class LlamaAPIModel(Model):
 
         Returns:
             An Llama API chat streaming request.
+
+        Raises:
+            TypeError: If a message contains a content block type that cannot be converted to a LlamaAPI-compatible
+                format.
         """
         request = {
             "messages": self._format_request_messages(messages, system_prompt),

@@ -95,15 +95,21 @@ class AnthropicModel(Model):
 
         Returns:
             Anthropic formatted content block.
+
+        Raises:
+            TypeError: If the content block type cannot be converted to an Anthropic-compatible format.
         """
         if "document" in content:
+            mime_type = mimetypes.types_map.get(f".{content['document']['format']}", "application/octet-stream")
             return {
                 "source": {
-                    "data": base64.b64encode(content["document"]["source"]["bytes"]).decode("utf-8"),
-                    "media_type": mimetypes.types_map.get(
-                        f".{content['document']['format']}", "application/octet-stream"
+                    "data": (
+                        content["document"]["source"]["bytes"].decode("utf-8")
+                        if mime_type == "text/plain"
+                        else base64.b64encode(content["document"]["source"]["bytes"]).decode("utf-8")
                     ),
-                    "type": "base64",
+                    "media_type": mime_type,
+                    "type": "text" if mime_type == "text/plain" else "base64",
                 },
                 "title": content["document"]["name"],
                 "type": "document",
@@ -140,7 +146,11 @@ class AnthropicModel(Model):
         if "toolResult" in content:
             return {
                 "content": [
-                    self._format_request_message_content(cast(ContentBlock, tool_result_content))
+                    self._format_request_message_content(
+                        {"text": json.dumps(tool_result_content["json"])}
+                        if "json" in tool_result_content
+                        else cast(ContentBlock, tool_result_content)
+                    )
                     for tool_result_content in content["toolResult"]["content"]
                 ],
                 "is_error": content["toolResult"]["status"] == "error",
@@ -148,7 +158,7 @@ class AnthropicModel(Model):
                 "type": "tool_result",
             }
 
-        return {"text": json.dumps(content), "type": "text"}
+        raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
     def _format_request_messages(self, messages: Messages) -> list[dict[str, Any]]:
         """Format an Anthropic messages array.
@@ -189,6 +199,10 @@ class AnthropicModel(Model):
 
         Returns:
             An Anthropic streaming request.
+
+        Raises:
+            TypeError: If a message contains a content block type that cannot be converted to an Anthropic-compatible
+                format.
         """
         return {
             "max_tokens": self.config["max_tokens"],

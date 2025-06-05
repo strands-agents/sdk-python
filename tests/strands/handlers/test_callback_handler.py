@@ -30,6 +30,31 @@ def test_call_with_empty_args(handler, mock_print):
     mock_print.assert_not_called()
 
 
+def test_call_handler_reasoningText(handler, mock_print):
+    """Test calling the handler with reasoningText."""
+    handler(reasoningText="This is reasoning text")
+    # Should print reasoning text without newline
+    mock_print.assert_called_once_with("This is reasoning text", end="")
+
+
+def test_call_without_reasoningText(handler, mock_print):
+    """Test calling the handler without reasoningText argument."""
+    handler(data="Some output")
+    # Should only print data, not reasoningText
+    mock_print.assert_called_once_with("Some output", end="")
+
+
+def test_call_with_reasoningText_and_data(handler, mock_print):
+    """Test calling the handler with both reasoningText and data."""
+    handler(reasoningText="Reasoning", data="Output")
+    # Should print reasoningText and data, both without newline
+    calls = [
+        unittest.mock.call("Reasoning", end=""),
+        unittest.mock.call("Output", end=""),
+    ]
+    mock_print.assert_has_calls(calls)
+
+
 def test_call_with_data_incomplete(handler, mock_print):
     """Test calling the handler with data but not complete."""
     handler(data="Test output")
