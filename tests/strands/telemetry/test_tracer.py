@@ -205,6 +205,26 @@ def test_start_span(mock_tracer):
         assert span is not None
 
 
+def test_add_event(mock_span):
+    """Test adding an event to a span."""
+    tracer = Tracer()
+
+    event_name = "test_event"
+    event_attributes = {"key1": "value1", "key2": "value2"}
+
+    tracer._add_event(mock_span, event_name, event_attributes)
+
+    mock_span.add_event.assert_called_once_with(event_name, event_attributes)
+
+
+def test_add_event_with_none_span():
+    """Test adding an event to a None span."""
+    tracer = Tracer()
+
+    # This should not raise an exception
+    tracer._add_event(None, "test_event", {"key": "value"})
+
+
 def test_set_attributes(mock_span):
     """Test setting attributes on a span."""
     tracer = Tracer()
@@ -274,10 +294,12 @@ def test_start_model_invoke_span(mock_tracer):
 
         span = tracer.start_model_invoke_span(agent_name="TestAgent", messages=messages, model_id=model_id)
 
-        mock_tracer.start_span.assert_called_once()
+        mock_span.add_event.assert_called_once_with(
+            "gen_ai.user.message", {"gen_ai.system": "strands-agents", "content": serialize(messages)}
+        )
         assert mock_tracer.start_span.call_args[1]["name"] == "Model invoke"
         mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
-        mock_span.set_attribute.assert_any_call("agent.name", "TestAgent")
+        mock_span.set_attribute.assert_any_call("gen_ai.agent.name", "TestAgent")
         mock_span.set_attribute.assert_any_call("gen_ai.request.model", model_id)
         assert span is not None
 
@@ -290,9 +312,11 @@ def test_end_model_invoke_span(mock_span):
 
     tracer.end_model_invoke_span(mock_span, message, usage)
 
-    mock_span.set_attribute.assert_any_call("gen_ai.completion", json.dumps(message["content"]))
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 10)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 20)
+    mock_span.add_event.assert_called_once_with(
+        "gen_ai.assistant.message", {"gen_ai.system": "strands-agents", "content": serialize(message["content"])}
+    )
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 10)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.usage.output_tokens", 20)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 30)
     mock_span.set_status.assert_called_once_with(StatusCode.OK)
     mock_span.end.assert_called_once()
@@ -313,12 +337,12 @@ def test_start_tool_call_span(mock_tracer):
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "Tool: test-tool"
+
+        mock_span.set_attribute.assert_any_call("gen_ai.tool.name", "test-tool")
+        mock_span.set_attribute.assert_any_call("gen_ai.tool.id", "123")
         mock_span.set_attribute.assert_any_call(
-            "gen_ai.prompt", json.dumps({"name": "test-tool", "toolUseId": "123", "input": {"param": "value"}})
+            "gen_ai.tool.parameters", json.dumps({"name": "test-tool", "toolUseId": "123", "input": {"param": "value"}})
         )
-        mock_span.set_attribute.assert_any_call("tool.name", "test-tool")
-        mock_span.set_attribute.assert_any_call("tool.id", "123")
-        mock_span.set_attribute.assert_any_call("tool.parameters", json.dumps({"param": "value"}))
         assert span is not None
 
 
@@ -329,10 +353,13 @@ def test_end_tool_call_span(mock_span):
 
     tracer.end_tool_call_span(mock_span, tool_result)
 
-    mock_span.set_attribute.assert_any_call("tool.result", json.dumps(tool_result.get("content")))
-    mock_span.set_attribute.assert_any_call("gen_ai.completion", json.dumps(tool_result.get("content")))
+    mock_span.set_attribute.assert_any_call("gen_ai.tool.id", "")
     mock_span.set_attribute.assert_any_call("tool.status", "success")
     mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.add_event.assert_called_once_with(
+        "gen_ai.tool.message",
+        {"gen_ai.system": "strands-agents", "tool.status": "success", "content": json.dumps(tool_result["content"])},
+    )
     mock_span.end.assert_called_once()
 
 
@@ -352,8 +379,8 @@ def test_start_event_loop_cycle_span(mock_tracer):
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "Cycle cycle-123"
-        mock_span.set_attribute.assert_any_call("gen_ai.prompt", json.dumps(messages))
         mock_span.set_attribute.assert_any_call("event_loop.cycle_id", "cycle-123")
+        mock_span.add_event.assert_called_once_with("gen_ai.eventloop.cycle", {"content": json.dumps(messages)})
         assert span is not None
 
 
@@ -365,8 +392,10 @@ def test_end_event_loop_cycle_span(mock_span):
 
     tracer.end_event_loop_cycle_span(mock_span, message, tool_result_message)
 
-    mock_span.set_attribute.assert_any_call("gen_ai.completion", json.dumps(message["content"]))
-    mock_span.set_attribute.assert_any_call("tool.result", json.dumps(tool_result_message["content"]))
+    mock_span.add_event.assert_called_once_with(
+        "gen_ai.eventloop.message",
+        {"content": json.dumps(message["content"]), "tool.content": json.dumps(tool_result_message["content"])},
+    )
     mock_span.set_status.assert_called_once_with(StatusCode.OK)
     mock_span.end.assert_called_once()
 
@@ -396,7 +425,6 @@ def test_start_agent_span(mock_tracer):
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "WeatherAgent"
         mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
-        mock_span.set_attribute.assert_any_call("agent.name", "WeatherAgent")
         mock_span.set_attribute.assert_any_call("gen_ai.prompt", prompt)
         mock_span.set_attribute.assert_any_call("gen_ai.request.model", model_id)
         mock_span.set_attribute.assert_any_call("custom_attr", "value")
@@ -417,10 +445,12 @@ def test_end_agent_span(mock_span):
 
     tracer.end_agent_span(mock_span, mock_response)
 
-    mock_span.set_attribute.assert_any_call("gen_ai.completion", "Agent response")
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 50)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 100)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 50)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.usage.output_tokens", 100)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 150)
+    mock_span.add_event.assert_any_call(
+        "gen_ai.assistant.message", {"gen_ai.system": "strands-agents", "content": "Agent response"}
+    )
     mock_span.set_status.assert_called_once_with(StatusCode.OK)
     mock_span.end.assert_called_once()
 
