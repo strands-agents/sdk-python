@@ -14,6 +14,9 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
+from ..event_loop.streaming import process_stream
+from ..handlers.callback_handler import PrintingCallbackHandler
+from ..tools import convert_pydantic_to_bedrock_tool
 from ..types.content import Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.models import Model
@@ -480,11 +483,29 @@ class BedrockModel(Model):
         return False
 
     @override
-    def structured_output(self, output_model: Type[BaseModel], prompt: Optional[str] = None) -> BaseModel:
+    def structured_output(self, output_model: Type[BaseModel], prompt: Messages) -> BaseModel:
         """Get structured output from the model.
 
         Args:
             output_model(Type[BaseModel]): The output model to use for the agent.
             prompt(Optional[str]): The prompt to use for the agent. Defaults to None.
         """
-        return output_model()
+        tool_spec = convert_pydantic_to_bedrock_tool(output_model)
+
+        response = self.stream(self.format_request(messages=prompt, tool_specs=[tool_spec]))
+        # process the stream and get the tool use input
+        results = process_stream(response, callback_handler=PrintingCallbackHandler(), messages=prompt)
+
+        # if not stop reason toolUse
+        if (
+            results[0] != "tool_use"
+            or "toolUse" not in results[1]["content"][0]
+            or results[1]["content"][0]["toolUse"]["name"] != tool_spec["name"]
+        ):
+            raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
+
+        # get the tool use input
+        tool_use_input = results[1]["content"][0]["toolUse"]["input"]
+
+        # return the tool use input as a json object
+        return output_model(**json.loads(tool_use_input))

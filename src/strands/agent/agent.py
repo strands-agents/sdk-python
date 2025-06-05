@@ -16,10 +16,11 @@ import os
 import random
 from concurrent.futures import ThreadPoolExecutor
 from threading import Thread
-from typing import Any, AsyncIterator, Callable, Dict, List, Mapping, Optional, Union
+from typing import Any, AsyncIterator, Callable, Dict, List, Mapping, Optional, Type, Union
 from uuid import uuid4
 
 from opentelemetry import trace
+from pydantic import BaseModel
 
 from ..event_loop.event_loop import event_loop_cycle
 from ..handlers.callback_handler import CompositeCallbackHandler, PrintingCallbackHandler, null_callback_handler
@@ -365,6 +366,21 @@ class Agent:
 
             # Re-raise the exception to preserve original behavior
             raise
+
+    def structured_output(self, output_model: Type[BaseModel], prompt: Optional[str] = None) -> BaseModel:
+        """Get structured output from the Agent's current context.
+
+        Args:
+            output_model(Type[BaseModel]): The output model the agent will use when responding.
+            prompt(Optional[str]): The prompt to use for the agent.
+        """
+        messages = self.messages
+        # add the prompt as the last message
+        if prompt:
+            messages.append({"role": "user", "content": [{"text": prompt}]})
+
+        # get the structured output from the model
+        return self.model.structured_output(output_model, messages)
 
     # TODO: implement
     # def structured_output(self, output_model: Type[BaseModel], prompt: Optional[str]) -> BaseModel:

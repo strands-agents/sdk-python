@@ -4,6 +4,8 @@ from typing import Any, Dict, Optional, Type, Union
 
 from pydantic import BaseModel
 
+from ..types.tools import ToolSpec
+
 
 def flatten_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
     """Flattens a JSON schema by removing $defs and resolving $ref references.
@@ -254,7 +256,7 @@ def process_nested_dict(d: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, An
 def convert_pydantic_to_bedrock_tool(
     model: Type[BaseModel],
     description: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> ToolSpec:
     """Converts a Pydantic model to a tool description for the Amazon Bedrock Converse API.
 
     Handles optional vs. required fields, resolves $refs, and uses docstrings.
@@ -262,10 +264,9 @@ def convert_pydantic_to_bedrock_tool(
     Args:
         model: The Pydantic model class to convert
         description: Optional description of the tool's purpose
-        disable_normalize: If True, skip normalize_schema to preserve nested structure
 
     Returns:
-        Dict containing the Bedrock tool specification
+        ToolSpec: Dict containing the Bedrock tool specification
     """
     name = model.__name__
 
@@ -287,20 +288,14 @@ def convert_pydantic_to_bedrock_tool(
     # Flatten the schema
     flattened_schema = flatten_schema(input_schema)
 
-    # Apply normalize_schema to ensure it's in the correct format
-    # Unless disabled to preserve nested structure
     final_schema = flattened_schema
 
     # Construct the tool specification
-    tool = {
-        "toolSpec": {
-            "name": name,
-            "description": model_description or f"{name} Tool",
-            "inputSchema": {"json": final_schema},
-        }
-    }
-
-    return tool
+    return ToolSpec(
+        name=name,
+        description=model_description or f"{name} structured output tool",
+        inputSchema={"json": final_schema},
+    )
 
 
 def expand_nested_properties(schema: Dict[str, Any], model: Type[BaseModel]) -> None:

@@ -42,7 +42,7 @@ class Model(abc.ABC):
 
     @abc.abstractmethod
     # pragma: no cover
-    def structured_output(self, output_model: Type[BaseModel], prompt: Optional[str] = None) -> BaseModel:
+    def structured_output(self, output_model: Type[BaseModel], prompt: Messages) -> BaseModel:
         """Get structured output from the model.
 
         Args:
@@ -55,6 +55,7 @@ class Model(abc.ABC):
         Raises:
             ValidationException: The response format from the model does not match the output_model
         """
+        pass
 
     @abc.abstractmethod
     # pragma: no cover

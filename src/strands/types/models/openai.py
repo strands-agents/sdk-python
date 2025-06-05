@@ -265,11 +265,11 @@ class OpenAIModel(Model, abc.ABC):
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
     @override
-    def structured_output(self, output_model: Type[BaseModel], prompt: Optional[str] = None) -> BaseModel:
+    def structured_output(self, output_model: Type[BaseModel], prompt: Messages) -> BaseModel:
         """Get structured output from the model.
 
         Args:
             output_model(Type[BaseModel]): The output model to use for the agent.
-            prompt(Optional[str]): The prompt to use for the agent. Defaults to None.
+            prompt(Messages): The prompt to use for the agent.
         """
         return output_model()
