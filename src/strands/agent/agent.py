@@ -16,11 +16,10 @@ import os
 import random
 from concurrent.futures import ThreadPoolExecutor
 from threading import Thread
-from typing import Any, AsyncIterator, Callable, Dict, List, Mapping, Optional, Type, Union
+from typing import Any, AsyncIterator, Callable, Dict, List, Mapping, Optional, Union
 from uuid import uuid4
 
 from opentelemetry import trace
-from pydantic import BaseModel
 
 from ..event_loop.event_loop import event_loop_cycle
 from ..handlers.callback_handler import CompositeCallbackHandler, PrintingCallbackHandler, null_callback_handler
@@ -30,12 +29,11 @@ from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer
 from ..tools.registry import ToolRegistry
 from ..tools.thread_pool_executor import ThreadPoolExecutorWrapper
-from ..tools.tools import PythonAgentTool
 from ..tools.watcher import ToolWatcher
 from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.models import Model
-from ..types.tools import ToolConfig, ToolResult, ToolUse
+from ..types.tools import ToolConfig
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
 from .conversation_manager import (
@@ -368,70 +366,75 @@ class Agent:
             # Re-raise the exception to preserve original behavior
             raise
 
-    def with_output(self, prompt: str, output_model: Type[BaseModel]) -> BaseModel:
-        """Set the output model for the agent.
+    # TODO: implement
+    # def structured_output(self, output_model: Type[BaseModel], prompt: Optional[str]) -> BaseModel:
+    #     """Get structured output from the Agent's current context.
 
-        Args:
-            prompt: The prompt to use for the agent.
-            output_model: The output model to use for the agent.
+    #     Args:
+    #         output_model(Type[BaseModel]): The output model the agent will use when responding.
+    #         prompt(Optional[str]): The prompt to use for the agent.
 
-        Returns: the loaded basemodel
-        """
-        from ..tools.structured_output import convert_pydantic_to_bedrock_tool
+    #     Returns:
+    #         The loaded basemodel.
 
-        # Convert the pydantic basemodel to a tool spec
-        tool_spec = convert_pydantic_to_bedrock_tool(output_model)
+    #     Raises:
+    #         ValidationException: The response format from the large language model does not match the output_model
+    #     """
+    #     from ..tools.structured_output import convert_pydantic_to_bedrock_tool
 
-        # Create a dynamic tool name to avoid collisions
-        tool_name = f"generate_{output_model.__name__}"
-        tool_spec["toolSpec"]["name"] = tool_name
+    #     # Convert the pydantic basemodel to a tool spec
+    #     tool_spec = convert_pydantic_to_bedrock_tool(output_model)
 
-        # Register the tool with the tool registry
-        # We need a special type of tool that just passes through the input
+    #     # Create a dynamic tool name to avoid collisions
+    #     tool_name = f"generate_{output_model.__name__}"
+    #     tool_spec["toolSpec"]["name"] = tool_name
 
-        # Create a passthrough callback that just returns the input
-        # with the signature expected by PythonAgentTool
+    #     # Register the tool with the tool registry
+    #     # We need a special type of tool that just passes through the input
 
-        def output_callback(
-            tool_use: ToolUse,
-            model: Any = None,  # noqa: ANN401
-            messages: Optional[dict[str, Any]] = None,  # noqa: ANN401
-            **kwargs: Any,
-        ) -> ToolResult:
-            # Return the ToolResult explicitly typed
-            result: ToolResult = {
-                "toolUseId": tool_use["toolUseId"],
-                "status": "success",
-                "content": [{"text": "Output generated successfully"}],
-            }
-            return result
+    #     # Create a passthrough callback that just returns the input
+    #     # with the signature expected by PythonAgentTool
 
-        tool = PythonAgentTool(tool_name=tool_name, tool_spec=tool_spec["toolSpec"], callback=output_callback)
-        self.tool_registry.register_tool(tool)
+    #     def output_callback(
+    #         tool_use: ToolUse,
+    #         model: Any = None,  # noqa: ANN401
+    #         messages: Optional[dict[str, Any]] = None,  # noqa: ANN401
+    #         **kwargs: Any,
+    #     ) -> ToolResult:
+    #         # Return the ToolResult explicitly typed
+    #         result: ToolResult = {
+    #             "toolUseId": tool_use["toolUseId"],
+    #             "status": "success",
+    #             "content": [{"text": "Output generated successfully"}],
+    #         }
+    #         return result
 
-        # Call the model with the tool and get the response
-        # This will run the model and invoke the tool
-        self(prompt)
+    #     tool = PythonAgentTool(tool_name=tool_name, tool_spec=tool_spec["toolSpec"], callback=output_callback)
+    #     self.tool_registry.register_tool(tool)
 
-        # Extract the tool input from the message
-        # Find the first toolUse in the conversation history
-        tool_input = None
-        for message in self.messages:
-            if message.get("role") == "assistant":
-                for content in message.get("content", []):
-                    if isinstance(content, dict) and "toolUse" in content:
-                        tool_use = content["toolUse"]
-                        if tool_use.get("name") == tool_name:
-                            tool_input = tool_use.get("input", {})
-                            break
-                if tool_input:
-                    break
+    #     # Call the model with the tool and get the response
+    #     # This will run the model and invoke the tool
+    #     self(prompt)
 
-        # Create the output model from the tool input and return it
-        if not tool_input:
-            raise ValueError(f"Model did not generate a valid {output_model.__name__}")
+    #     # Extract the tool input from the message
+    #     # Find the first toolUse in the conversation history
+    #     tool_input = None
+    #     for message in self.messages:
+    #         if message.get("role") == "assistant":
+    #             for content in message.get("content", []):
+    #                 if isinstance(content, dict) and "toolUse" in content:
+    #                     tool_use = content["toolUse"]
+    #                     if tool_use.get("name") == tool_name:
+    #                         tool_input = tool_use.get("input", {})
+    #                         break
+    #             if tool_input:
+    #                 break
 
-        return output_model(**tool_input)
+    #     # Create the output model from the tool input and return it
+    #     if not tool_input:
+    #         raise ValueError(f"Model did not generate a valid {output_model.__name__}")
+
+    #     return output_model(**tool_input)
 
     async def stream_async(self, prompt: str, **kwargs: Any) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.

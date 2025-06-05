@@ -5,9 +5,10 @@
 
 import json
 import logging
-from typing import Any, Iterable, Optional, cast
+from typing import Any, Iterable, Optional, Type, cast
 
 from ollama import Client as OllamaClient
+from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
 from ..types.content import ContentBlock, Messages
@@ -310,3 +311,13 @@ class OllamaModel(Model):
         yield {"chunk_type": "content_stop", "data_type": "text"}
         yield {"chunk_type": "message_stop", "data": "tool_use" if tool_requested else event.done_reason}
         yield {"chunk_type": "metadata", "data": event}
+
+    @override
+    def structured_output(self, output_model: Type[BaseModel], prompt: Optional[str] = None) -> BaseModel:
+        """Get structured output from the model.
+
+        Args:
+            output_model(Type[BaseModel]): The output model to use for the agent.
+            prompt(Optional[str]): The prompt to use for the agent. Defaults to None.
+        """
+        return output_model()

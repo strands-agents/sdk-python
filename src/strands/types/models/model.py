@@ -2,7 +2,9 @@
 
 import abc
 import logging
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, Type
+
+from pydantic import BaseModel
 
 from ..content import Messages
 from ..streaming import StreamEvent
@@ -37,6 +39,22 @@ class Model(abc.ABC):
             The model's configuration.
         """
         pass
+
+    @abc.abstractmethod
+    # pragma: no cover
+    def structured_output(self, output_model: Type[BaseModel], prompt: Optional[str] = None) -> BaseModel:
+        """Get structured output from the model.
+
+        Args:
+            output_model(Type[BaseModel]): The output model to use for the agent.
+            prompt(Optional[str]): The prompt to use for the agent. Defaults to None.
+
+        Returns:
+            The structured output as a serialized instance of the output model.
+
+        Raises:
+            ValidationException: The response format from the model does not match the output_model
+        """
 
     @abc.abstractmethod
     # pragma: no cover

@@ -6,11 +6,12 @@
 import json
 import logging
 import os
-from typing import Any, Iterable, List, Literal, Optional, cast
+from typing import Any, Iterable, List, Literal, Optional, Type, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
+from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
 from ..types.content import Messages
@@ -477,3 +478,13 @@ class BedrockModel(Model):
                 return self._find_detected_and_blocked_policy(item)
         # Otherwise return False
         return False
+
+    @override
+    def structured_output(self, output_model: Type[BaseModel], prompt: Optional[str] = None) -> BaseModel:
+        """Get structured output from the model.
+
+        Args:
+            output_model(Type[BaseModel]): The output model to use for the agent.
+            prompt(Optional[str]): The prompt to use for the agent. Defaults to None.
+        """
+        return output_model()
