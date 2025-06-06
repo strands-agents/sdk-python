@@ -98,39 +98,32 @@ class SageMakerAIModel(OpenAIModel):
         Attributes:
             endpoint_name: The name of the SageMaker endpoint to invoke
             inference_component_name: The name of the inference component to use
-            max_tokens: Maximum number of tokens to generate in the response
-            stop_sequences: List of sequences that will stop generation when encountered
-            temperature: Controls randomness in generation (higher = more random)
-            top_p: Controls diversity via nucleus sampling (alternative to temperature)
-            additional_args: Any additional arguments to include in the request
+            stream: Whether streaming is enabled or not (default: True)
+            additional_args: Other request parameters, as supported by https://bit.ly/djl-lmi-request-schema 
         """
 
         endpoint_name: str
-        inference_component_name: Optional[str]
-        max_tokens: Optional[int]
-        stop_sequences: Optional[list[str]]
-        temperature: Optional[float]
-        top_p: Optional[float]
+        inference_component_name: Optional[str] = None
+        stream: Optional[bool] = True
         additional_args: Optional[dict[str, Any]]
 
     def __init__(
         self,
-        *,
         boto_session: Optional[boto3.Session] = None,
         boto_client_config: Optional[BotocoreConfig] = None,
         region_name: Optional[str] = None,
-        **model_config: Unpack["SageMakerAIModelConfig"],
+        **model_config: Unpack[SageMakerAIModelConfig],
     ):
         """Initialize provider instance.
 
         Args:
+            region_name: Name of the AWS region (e.g.: us-west-2)
             boto_session: Boto Session to use when calling the SageMaker Runtime.
             boto_client_config: Configuration to use when creating the SageMaker-Runtime Boto Client.
-            region_name: Name of the AWS region (e.g.: us-west-2)
             **model_config: Model parameters for the SageMaker request payload.
         """
         self.config = dict(model_config)
-
+        
         logger.debug("config=<%s> | initializing", self.config)
 
         session = boto_session or boto3.Session(
@@ -201,15 +194,8 @@ class SageMakerAIModel(OpenAIModel):
                 }
                 for tool_spec in tool_specs or []
             ],
-            **({"max_tokens": self.config["max_tokens"]} if "max_tokens" in self.config else {}),
-            **({"temperature": self.config["temperature"]} if "temperature" in self.config else {}),
-            **({"top_p": self.config["top_p"]} if "top_p" in self.config else {}),
-            **({"stop": self.config["stop_sequences"]} if "stop_sequences" in self.config else {}),
-            **(
-                self.config["additional_args"]
-                if "additional_args" in self.config and self.config["additional_args"] is not None
-                else {}
-            ),
+            # Add all key-values from the model config to the payload except endpoint_name and inference_component_name
+            **{k: v for k, v in self.config["model_config"].items() if k not in ["endpoint_name", "inference_component_name"]},
         }
 
         # Assistant message must have either content or tool_calls, but not both
@@ -217,17 +203,18 @@ class SageMakerAIModel(OpenAIModel):
             if message.get("tool_calls", []) != []:
                 _ = message.pop("content")
 
+        logger.debug("payload=<%s>", payload)
         # Format the request according to the SageMaker Runtime API requirements
         request = {
-            "EndpointName": self.config["endpoint_name"],
+            "EndpointName": self.config["model_config"]["endpoint_name"],
             "Body": json.dumps(payload),
             "ContentType": "application/json",
             "Accept": "application/json",
         }
 
         # Add InferenceComponentName if provided
-        if self.config.get("inference_component_name"):
-            request["InferenceComponentName"] = self.config["inference_component_name"]
+        if self.config["model_config"].get("inference_component_name"):
+            request["InferenceComponentName"] = self.config["model_config"]["inference_component_name"]
         return request
 
     @override
@@ -242,35 +229,79 @@ class SageMakerAIModel(OpenAIModel):
         Returns:
             An iterable of response events from the Amazon SageMaker AI model.
         """
-        response = self.client.invoke_endpoint_with_response_stream(**request)
+        if self.config["model_config"].get("stream", True):
+            response = self.client.invoke_endpoint_with_response_stream(**request)
+            
+            # Message start
+            yield {"chunk_type": "message_start"}
 
-        # Wait until all the answer has been streamed
-        final_response = ""
-        for event in response["Body"]:
-            chunk_data = event["PayloadPart"]["Bytes"].decode("utf-8")
-            final_response += chunk_data
-        final_response_json = json.loads(final_response)
+            # Handle text
+            yield {"chunk_type": "content_start", "data_type": "text"}
 
-        # Obtain the key elements from the response
-        message = final_response_json["choices"][0]["message"]
-        message_stop_reason = final_response_json["choices"][0]["finish_reason"]
+            partial_content = ""
+            for event in response["Body"]:
+                
+                chunk = event['PayloadPart']['Bytes'].decode("utf-8")
+                partial_content += chunk
+                
+                try:
+                    content = json.loads(partial_content)
+                    partial_content = ""
+                    choice = content["choices"][0]
+                    
+                    if choice["delta"].get("content", None):
+                        yield {"chunk_type": "content_delta", "data_type": "text", "data": choice["delta"]["content"]}
+                    for tool_call in choice["delta"].get("tool_calls", []):
+                        yield {"chunk_type": "content_delta", "data_type": "tool", "data": ToolCall(**tool_call)}
+                    if choice["finish_reason"] is not None:
+                        message_stop_reason = choice["finish_reason"]
+                        break
+                    
+                except json.JSONDecodeError:
+                    # Continue accumulating content until we have valid JSON
+                    continue
+                
+            
+            yield {"chunk_type": "content_stop", "data_type": "text"}
+            
+            # Handle the tool calling, if any
+            if message_stop_reason == "tool_calls":
+                for tool_call in message["tool_calls"] or []:
+                    yield {"chunk_type": "content_start", "data_type": "tool", "data": ToolCall(**tool_call)}
+                    yield {"chunk_type": "content_delta", "data_type": "tool", "data": ToolCall(**tool_call)}
+                    yield {"chunk_type": "content_stop", "data_type": "tool", "data": ToolCall(**tool_call)}
 
-        # Message start
-        yield {"chunk_type": "message_start"}
+            # Message close
+            yield {"chunk_type": "message_stop", "data": message_stop_reason}
+            # Handle usage metadata - TODO: not supported in current Response Schema! 
+            # Ref: https://docs.djl.ai/master/docs/serving/serving/docs/lmi/user_guides/chat_input_output_schema.html#response-schema 
+            # yield {"chunk_type": "metadata", "data": UsageMetadata(**choice["usage"])}
 
-        # Handle text
-        yield {"chunk_type": "content_start", "data_type": "text"}
-        yield {"chunk_type": "content_delta", "data_type": "text", "data": message["content"] or ""}
-        yield {"chunk_type": "content_stop", "data_type": "text"}
+        else:
+            # Not all SageMaker AI models support streaming!
+            response = self.client.invoke_endpoint(**request)
+            final_response_json = json.loads(response["Body"].read().decode("utf-8"))
 
-        # Handle the tool calling, if any
-        if message_stop_reason == "tool_calls":
-            for tool_call in message["tool_calls"] or []:
-                yield {"chunk_type": "content_start", "data_type": "tool", "data": ToolCall(**tool_call)}
-                yield {"chunk_type": "content_delta", "data_type": "tool", "data": ToolCall(**tool_call)}
-                yield {"chunk_type": "content_stop", "data_type": "tool", "data": ToolCall(**tool_call)}
+            # Obtain the key elements from the response
+            message = final_response_json["choices"][0]["message"]
+            message_stop_reason = final_response_json["choices"][0]["finish_reason"]
 
-        # Message close
-        yield {"chunk_type": "message_stop", "data": message_stop_reason}
-        # Handle usage metadata
-        yield {"chunk_type": "metadata", "data": UsageMetadata(**final_response_json["usage"])}
+            # Message start
+            yield {"chunk_type": "message_start"}
+
+            # Handle text
+            yield {"chunk_type": "content_start", "data_type": "text"}
+            yield {"chunk_type": "content_delta", "data_type": "text", "data": message["content"] or ""}
+            yield {"chunk_type": "content_stop", "data_type": "text"}
+
+            # Handle the tool calling, if any
+            if message_stop_reason == "tool_calls":
+                for tool_call in message["tool_calls"] or []:
+                    yield {"chunk_type": "content_start", "data_type": "tool", "data": ToolCall(**tool_call)}
+                    yield {"chunk_type": "content_delta", "data_type": "tool", "data": ToolCall(**tool_call)}
+                    yield {"chunk_type": "content_stop", "data_type": "tool", "data": ToolCall(**tool_call)}
+
+            # Message close
+            yield {"chunk_type": "message_stop", "data": message_stop_reason}
+            # Handle usage metadata
+            yield {"chunk_type": "metadata", "data": UsageMetadata(**final_response_json["usage"])}
