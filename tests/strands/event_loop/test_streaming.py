@@ -132,6 +132,20 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
             {"signature": "val"},
             {"reasoning_signature": "val", "reasoning": True},
         ),
+        # Reasoning - redactedContent - New
+        (
+            {"delta": {"reasoningContent": {"redactedContent": b"encoded"}}},
+            {},
+            {"redactedContent": b"encoded"},
+            {"redactedContent": b"encoded", "reasoning": True},
+        ),
+        # Reasoning - redactedContent - Existing
+        (
+            {"delta": {"reasoningContent": {"redactedContent": b"data"}}},
+            {"redactedContent": b"encoded_"},
+            {"redactedContent": b"encoded_data"},
+            {"redactedContent": b"data", "reasoning": True},
+        ),
         # Reasoning - Empty
         (
             {"delta": {"reasoningContent": {}}},
@@ -175,12 +189,14 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {"toolUseId": "123", "name": "test", "input": '{"key": "value"}'},
                 "text": "",
                 "reasoningText": "",
+                "redactedContent": b"",
             },
             {
                 "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {"key": "value"}}}],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "redactedContent": b"",
             },
         ),
         # Tool Use - Missing input
@@ -190,12 +206,14 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {"toolUseId": "123", "name": "test"},
                 "text": "",
                 "reasoningText": "",
+                "redactedContent": b"",
             },
             {
                 "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {}}}],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "redactedContent": b"",
             },
         ),
         # Text
@@ -205,12 +223,14 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {},
                 "text": "test",
                 "reasoningText": "",
+                "redactedContent": b"",
             },
             {
                 "content": [{"text": "test"}],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "redactedContent": b"",
             },
         ),
         # Reasoning
@@ -221,6 +241,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "test",
                 "signature": "123",
+                "redactedContent": b"",
             },
             {
                 "content": [{"reasoningContent": {"reasoningText": {"text": "test", "signature": "123"}}}],
@@ -228,6 +249,24 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "",
                 "signature": "123",
+                "redactedContent": b"",
+            },
+        ),
+        # redactedContent
+        (
+            {
+                "content": [],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "redactedContent": b"encoded_data",
+            },
+            {
+                "content": [{"reasoningContent": {"redactedContent": b"encoded_data"}}],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "redactedContent": b"",
             },
         ),
         # Empty
@@ -237,12 +276,14 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "redactedContent": b"",
             },
             {
                 "content": [],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "redactedContent": b"",
             },
         ),
     ],
@@ -355,6 +396,36 @@ def test_extract_usage_metrics():
             {"calls": 1},
             [{"role": "user", "content": [{"text": "REDACTED"}]}],
         ),
+        (
+            [
+                {"messageStart": {"role": "assistant"}},
+                {
+                    "contentBlockStart": {"start": {}},
+                },
+                {
+                    "contentBlockDelta": {"delta": {"reasoningContent": {"redactedContent": b"encoded_data"}}},
+                },
+                {"contentBlockStop": {}},
+                {
+                    "messageStop": {"stopReason": "end_turn"},
+                },
+                {
+                    "metadata": {
+                        "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        "metrics": {"latencyMs": 1},
+                    }
+                },
+            ],
+            "end_turn",
+            {
+                "role": "assistant",
+                "content": [{"reasoningContent": {"redactedContent": b"encoded_data"}}],
+            },
+            {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+            {"latencyMs": 1},
+            {"calls": 1},
+            [{"role": "user", "content": [{"text": "Some input!"}]}],
+        ),
     ],
 )
 def test_process_stream(
@@ -422,3 +493,34 @@ def test_stream_messages(agent):
         None,
         "test prompt",
     )
+
+
+def test_process_stream_redacted_content_callback():
+    callback_args = []
+
+    def callback_handler(**kwargs):
+        callback_args.append(kwargs)
+
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"redactedContent": b"encoded_data_1"}}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"redactedContent": b"encoded_data_2"}}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+    ]
+
+    messages = [{"role": "user", "content": [{"text": "Some input!"}]}]
+
+    strands.event_loop.streaming.process_stream(response, callback_handler, messages)
+
+    redacted_callbacks = [args for args in callback_args if "redactedContent" in args]
+    assert len(redacted_callbacks) == 2
+
+    assert redacted_callbacks[0]["redactedContent"] == b"encoded_data_1"
+    assert redacted_callbacks[0]["delta"] == {"reasoningContent": {"redactedContent": b"encoded_data_1"}}
+    assert redacted_callbacks[0]["reasoning"] is True
+
+    assert redacted_callbacks[1]["redactedContent"] == b"encoded_data_2"
+    assert redacted_callbacks[1]["delta"] == {"reasoningContent": {"redactedContent": b"encoded_data_2"}}
+    assert redacted_callbacks[1]["reasoning"] is True
