@@ -81,16 +81,7 @@ class ToolCall:
 
 
 class SageMakerAIModel(OpenAIModel):
-    """Amazon SageMaker model provider implementation.
-
-    The implementation handles SageMaker-specific features such as:
-
-    - Endpoint invocation
-    - Tool configuration for function calling
-    - Context window overflow detection
-    - Endpoint not found error handling
-    - Inference component capacity error handling with automatic retries
-    """
+    """Amazon SageMaker model provider implementation."""
 
     class SageMakerAIModelConfig(TypedDict, total=False):
         """Configuration options for SageMaker models.
