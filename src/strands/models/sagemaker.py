@@ -27,6 +27,7 @@ class UsageMetadata:
         prompt_tokens: Number of tokens used in the prompt
         prompt_tokens_details: Additional information about the prompt tokens (optional)
     """
+
     total_tokens: int
     completion_tokens: int
     prompt_tokens: int
@@ -90,7 +91,7 @@ class SageMakerAIModel(OpenAIModel):
             endpoint_name: The name of the SageMaker endpoint to invoke
             inference_component_name: The name of the inference component to use
             stream: Whether streaming is enabled or not (default: True)
-            additional_args: Other request parameters, as supported by https://bit.ly/djl-lmi-request-schema 
+            additional_args: Other request parameters, as supported by https://bit.ly/djl-lmi-request-schema
         """
 
         endpoint_name: str
@@ -114,7 +115,7 @@ class SageMakerAIModel(OpenAIModel):
             **model_config: Model parameters for the SageMaker request payload.
         """
         self.config = dict(model_config)
-        
+
         logger.debug("config=<%s> | initializing", self.config)
 
         session = boto_session or boto3.Session(
@@ -186,7 +187,11 @@ class SageMakerAIModel(OpenAIModel):
                 for tool_spec in tool_specs or []
             ],
             # Add all key-values from the model config to the payload except endpoint_name and inference_component_name
-            **{k: v for k, v in self.config["model_config"].items() if k not in ["endpoint_name", "inference_component_name"]},
+            **{
+                k: v
+                for k, v in self.config["model_config"].items()
+                if k not in ["endpoint_name", "inference_component_name"]
+            },
         }
 
         # Assistant message must have either content or tool_calls, but not both
@@ -222,50 +227,47 @@ class SageMakerAIModel(OpenAIModel):
         """
         if self.config["model_config"].get("stream", True):
             response = self.client.invoke_endpoint_with_response_stream(**request)
-            
+
             # Message start
             yield {"chunk_type": "message_start"}
 
-            # Handle text
             yield {"chunk_type": "content_start", "data_type": "text"}
 
+            # Parse the content
             partial_content = ""
+            tool_calls = []
             for event in response["Body"]:
-                
-                chunk = event['PayloadPart']['Bytes'].decode("utf-8")
-                partial_content += chunk
-                
+                chunk = event["PayloadPart"]["Bytes"].decode("utf-8")
+                partial_content += chunk  # Some messages are randomly split and not JSON decodable- not sure why
                 try:
                     content = json.loads(partial_content)
                     partial_content = ""
                     choice = content["choices"][0]
-                    
+
+                    # Start yielding message chunks
                     if choice["delta"].get("content", None):
                         yield {"chunk_type": "content_delta", "data_type": "text", "data": choice["delta"]["content"]}
                     for tool_call in choice["delta"].get("tool_calls", []):
-                        yield {"chunk_type": "content_delta", "data_type": "tool", "data": ToolCall(**tool_call)}
+                        tool_calls.append(tool_call)
                     if choice["finish_reason"] is not None:
-                        message_stop_reason = choice["finish_reason"]
                         break
-                    
+
                 except json.JSONDecodeError:
                     # Continue accumulating content until we have valid JSON
                     continue
-                
-            
+
             yield {"chunk_type": "content_stop", "data_type": "text"}
-            
-            # Handle the tool calling, if any
-            if message_stop_reason == "tool_calls":
-                for tool_call in message["tool_calls"] or []:
-                    yield {"chunk_type": "content_start", "data_type": "tool", "data": ToolCall(**tool_call)}
-                    yield {"chunk_type": "content_delta", "data_type": "tool", "data": ToolCall(**tool_call)}
-                    yield {"chunk_type": "content_stop", "data_type": "tool", "data": ToolCall(**tool_call)}
+
+            # Handle tool calling
+            for tool_call in tool_calls:
+                yield {"chunk_type": "content_start", "data_type": "tool", "data": ToolCall(**tool_call["function"])}
+                yield {"chunk_type": "content_delta", "data_type": "tool", "data": ToolCall(**tool_call["function"])}
+                yield {"chunk_type": "content_stop", "data_type": "tool"}
 
             # Message close
-            yield {"chunk_type": "message_stop", "data": message_stop_reason}
-            # Handle usage metadata - TODO: not supported in current Response Schema! 
-            # Ref: https://docs.djl.ai/master/docs/serving/serving/docs/lmi/user_guides/chat_input_output_schema.html#response-schema 
+            yield {"chunk_type": "message_stop", "data": choice["finish_reason"]}
+            # Handle usage metadata - TODO: not supported in current Response Schema!
+            # Ref: https://docs.djl.ai/master/docs/serving/serving/docs/lmi/user_guides/chat_input_output_schema.html#response-schema
             # yield {"chunk_type": "metadata", "data": UsageMetadata(**choice["usage"])}
 
         else:
