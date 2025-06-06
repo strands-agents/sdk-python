@@ -101,20 +101,20 @@ class SageMakerAIModel(OpenAIModel):
 
     def __init__(
         self,
+        model_config: SageMakerAIModelConfig,
         boto_session: Optional[boto3.Session] = None,
         boto_client_config: Optional[BotocoreConfig] = None,
         region_name: Optional[str] = None,
-        **model_config: Unpack[SageMakerAIModelConfig],
     ):
         """Initialize provider instance.
 
         Args:
+            model_config: Model parameters for the SageMaker request payload.
             region_name: Name of the AWS region (e.g.: us-west-2)
             boto_session: Boto Session to use when calling the SageMaker Runtime.
             boto_client_config: Configuration to use when creating the SageMaker-Runtime Boto Client.
-            **model_config: Model parameters for the SageMaker request payload.
         """
-        self.config = dict(model_config)
+        self.config = model_config
 
         logger.debug("config=<%s> | initializing", self.config)
 
@@ -187,30 +187,30 @@ class SageMakerAIModel(OpenAIModel):
                 for tool_spec in tool_specs or []
             ],
             # Add all key-values from the model config to the payload except endpoint_name and inference_component_name
-            **{
-                k: v
-                for k, v in self.config["model_config"].items()
-                if k not in ["endpoint_name", "inference_component_name"]
-            },
+            **{k: v for k, v in self.config.items() if k not in ["endpoint_name", "inference_component_name"]},
         }
 
-        # Assistant message must have either content or tool_calls, but not both
+        # TODO: this should be a @override of format_request_message
         for message in payload["messages"]:
-            if message.get("tool_calls", []) != []:
+            # Assistant message must have either content or tool_calls, but not both
+            if message.get("role", "") == "assistant" and message.get("tool_calls", []) != []:
                 _ = message.pop("content")
+            # Tool messages should have content as pure text
+            elif message.get("role", "") == "tool":
+                message["content"] = message["content"][0]["text"]
 
         logger.debug("payload=<%s>", payload)
         # Format the request according to the SageMaker Runtime API requirements
         request = {
-            "EndpointName": self.config["model_config"]["endpoint_name"],
+            "EndpointName": self.config["endpoint_name"],
             "Body": json.dumps(payload),
             "ContentType": "application/json",
             "Accept": "application/json",
         }
 
         # Add InferenceComponentName if provided
-        if self.config["model_config"].get("inference_component_name"):
-            request["InferenceComponentName"] = self.config["model_config"]["inference_component_name"]
+        if self.config.get("inference_component_name"):
+            request["InferenceComponentName"] = self.config["inference_component_name"]
         return request
 
     @override
@@ -225,7 +225,7 @@ class SageMakerAIModel(OpenAIModel):
         Returns:
             An iterable of response events from the Amazon SageMaker AI model.
         """
-        if self.config["model_config"].get("stream", True):
+        if self.config.get("stream", True):
             response = self.client.invoke_endpoint_with_response_stream(**request)
 
             # Message start
@@ -235,7 +235,7 @@ class SageMakerAIModel(OpenAIModel):
 
             # Parse the content
             partial_content = ""
-            tool_calls = []
+            tool_calls: dict[int, list[Any]] = {}
             for event in response["Body"]:
                 chunk = event["PayloadPart"]["Bytes"].decode("utf-8")
                 partial_content += chunk  # Some messages are randomly split and not JSON decodable- not sure why
@@ -248,7 +248,7 @@ class SageMakerAIModel(OpenAIModel):
                     if choice["delta"].get("content", None):
                         yield {"chunk_type": "content_delta", "data_type": "text", "data": choice["delta"]["content"]}
                     for tool_call in choice["delta"].get("tool_calls", []):
-                        tool_calls.append(tool_call)
+                        tool_calls.setdefault(tool_call["index"], []).append(tool_call)
                     if choice["finish_reason"] is not None:
                         break
 
@@ -259,9 +259,10 @@ class SageMakerAIModel(OpenAIModel):
             yield {"chunk_type": "content_stop", "data_type": "text"}
 
             # Handle tool calling
-            for tool_call in tool_calls:
-                yield {"chunk_type": "content_start", "data_type": "tool", "data": ToolCall(**tool_call["function"])}
-                yield {"chunk_type": "content_delta", "data_type": "tool", "data": ToolCall(**tool_call["function"])}
+            for tool_deltas in tool_calls.values():
+                yield {"chunk_type": "content_start", "data_type": "tool", "data": ToolCall(**tool_deltas[0])}
+                for tool_delta in tool_deltas:
+                    yield {"chunk_type": "content_delta", "data_type": "tool", "data": ToolCall(**tool_delta)}
                 yield {"chunk_type": "content_stop", "data_type": "tool"}
 
             # Message close
