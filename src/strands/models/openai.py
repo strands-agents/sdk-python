@@ -94,6 +94,9 @@ class OpenAIModel(SAOpenAIModel):
         tool_calls: dict[int, list[Any]] = {}
 
         for event in response:
+            # Defensive: skip events with empty or missing choices
+            if not hasattr(event, "choices") or not event.choices:
+                continue
             choice = event.choices[0]
 
             if choice.delta.content:
