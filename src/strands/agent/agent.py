@@ -375,6 +375,9 @@ class Agent:
             prompt(Optional[str]): The prompt to use for the agent.
         """
         messages = self.messages
+        if not messages and not prompt:
+            raise ValueError("No conversation history or prompt provided")
+
         # add the prompt as the last message
         if prompt:
             messages.append({"role": "user", "content": [{"text": prompt}]})
