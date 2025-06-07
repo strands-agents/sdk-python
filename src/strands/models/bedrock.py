@@ -6,13 +6,17 @@
 import json
 import logging
 import os
-from typing import Any, Iterable, List, Literal, Optional, cast
+from typing import Any, Iterable, List, Literal, Optional, Type, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
+from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
+from ..event_loop.streaming import process_stream
+from ..handlers.callback_handler import PrintingCallbackHandler
+from ..tools import convert_pydantic_to_bedrock_tool
 from ..types.content import Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.models import Model
@@ -477,3 +481,37 @@ class BedrockModel(Model):
                 return self._find_detected_and_blocked_policy(item)
         # Otherwise return False
         return False
+
+    @override
+    def structured_output(self, output_model: Type[BaseModel], prompt: Messages) -> BaseModel:
+        """Get structured output from the model.
+
+        Args:
+            output_model(Type[BaseModel]): The output model to use for the agent.
+            prompt(Optional[str]): The prompt to use for the agent. Defaults to None.
+        """
+        tool_spec = convert_pydantic_to_bedrock_tool(output_model)
+
+        response = self.stream(self.format_request(messages=prompt, tool_specs=[tool_spec]))
+        # process the stream and get the tool use input
+        results = process_stream(response, callback_handler=PrintingCallbackHandler(), messages=prompt)
+
+        stop_reason, messages, _, _, _ = results
+
+        if stop_reason != "tool_use":
+            raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
+
+        content = messages["content"]
+        output_response: dict[str, Any] | None = None
+        for block in content:
+            # if the tool use name doesn't match the tool spec name, skip, and if the block is not a tool use, skip.
+            # if the tool use name never matches, raise an error.
+            if block.get("toolUse") and block["toolUse"]["name"] == tool_spec["name"]:
+                output_response = block["toolUse"]["input"]
+            else:
+                continue
+
+        if output_response is None:
+            raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
+
+        return output_model(**output_response)

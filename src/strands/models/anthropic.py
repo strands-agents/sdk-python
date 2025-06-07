@@ -7,11 +7,15 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Iterable, Optional, TypedDict, cast
+from typing import Any, Iterable, Optional, Type, TypedDict, cast
 
 import anthropic
+from pydantic import BaseModel
 from typing_extensions import Required, Unpack, override
 
+from ..event_loop.streaming import process_stream
+from ..handlers.callback_handler import PrintingCallbackHandler
+from ..tools import convert_pydantic_to_bedrock_tool
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.models import Model
@@ -339,7 +343,7 @@ class AnthropicModel(Model):
                 raise RuntimeError(f"event_type=<{event['type']} | unknown type")
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    def stream(self, request: dict[str, Any]) -> Iterable[StreamEvent]:
         """Send the request to the Anthropic model and get the streaming response.
 
         Args:
@@ -356,10 +360,10 @@ class AnthropicModel(Model):
             with self.client.messages.stream(**request) as stream:
                 for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
-                        yield event.dict()
+                        yield self.format_chunk(event.dict())
 
                 usage = event.message.usage  # type: ignore
-                yield {"type": "metadata", "usage": usage.dict()}
+                yield self.format_chunk({"type": "metadata", "usage": usage.dict()})
 
         except anthropic.RateLimitError as error:
             raise ModelThrottledException(str(error)) from error
@@ -369,3 +373,31 @@ class AnthropicModel(Model):
                 raise ContextWindowOverflowException(str(error)) from error
 
             raise error
+
+    @override
+    def structured_output(self, output_model: Type[BaseModel], prompt: Messages) -> BaseModel:
+        """Get structured output from the model.
+
+        Args:
+            output_model(Type[BaseModel]): The output model to use for the agent.
+            prompt(Optional[str]): The prompt to use for the agent. Defaults to None.
+        """
+        tool_spec = convert_pydantic_to_bedrock_tool(output_model)
+
+        response = self.stream(self.format_request(messages=prompt, tool_specs=[tool_spec]))
+        # process the stream and get the tool use input
+        results = process_stream(response, callback_handler=PrintingCallbackHandler(), messages=prompt)
+
+        # if not stop reason toolUse
+        if (
+            results[0] != "tool_use"
+            or "toolUse" not in results[1]["content"][0]
+            or results[1]["content"][0]["toolUse"]["name"] != tool_spec["name"]
+        ):
+            raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
+
+        # get the tool use input
+        tool_use_input = results[1]["content"][0]["toolUse"]["input"]
+
+        # return the tool use input as a json object
+        return output_model(**json.loads(tool_use_input))
