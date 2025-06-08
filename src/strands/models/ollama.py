@@ -320,4 +320,14 @@ class OllamaModel(Model):
             output_model(Type[BaseModel]): The output model to use for the agent.
             prompt(Messages): The prompt to use for the agent.
         """
-        return output_model()
+        formatted_request = self.format_request(messages=prompt)
+        formatted_request["format"] = output_model.model_json_schema()
+        formatted_request["stream"] = False
+        response = self.client.chat(**formatted_request)
+        print(response)
+
+        try:
+            content = response.message.content.strip()
+            return output_model.model_validate_json(content)
+        except Exception as e:
+            raise ValueError(f"Failed to parse or load content into model: {e}") from e

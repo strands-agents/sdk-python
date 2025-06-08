@@ -615,11 +615,24 @@ def test_format_chunk_unknown(model):
 
 
 def test_stream(anthropic_client, model):
-    mock_event_1 = unittest.mock.Mock(type="message_start", dict=lambda: {"type": "message_start"})
-    mock_event_2 = unittest.mock.Mock(type="unknown")
+    mock_event_1 = unittest.mock.Mock(
+        type="message_start",
+        dict=lambda: {"type": "message_start"},
+        model_dump=lambda: {"type": "message_start"},
+    )
+    mock_event_2 = unittest.mock.Mock(
+        type="unknown",
+        dict=lambda: {"type": "unknown"},
+        model_dump=lambda: {"type": "unknown"},
+    )
     mock_event_3 = unittest.mock.Mock(
         type="metadata",
-        message=unittest.mock.Mock(usage=unittest.mock.Mock(dict=lambda: {"input_tokens": 1, "output_tokens": 2})),
+        message=unittest.mock.Mock(
+            usage=unittest.mock.Mock(
+                dict=lambda: {"input_tokens": 1, "output_tokens": 2},
+                model_dump=lambda: {"input_tokens": 1, "output_tokens": 2},
+            )
+        ),
     )
 
     mock_stream = unittest.mock.MagicMock()
@@ -631,8 +644,11 @@ def test_stream(anthropic_client, model):
 
     tru_events = list(response)
     exp_events = [
-        {"messageStart": {"role": "assistant"}},
-        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+        {"type": "message_start"},
+        {
+            "type": "metadata",
+            "usage": {"input_tokens": 1, "output_tokens": 2},
+        },
     ]
 
     assert tru_events == exp_events

@@ -107,6 +107,8 @@ class LiteLLMModel(OpenAIModel):
         Args:
             output_model(Type[BaseModel]): The output model to use for the agent.
             prompt(Optional[str]): The prompt to use for the agent. Defaults to None.
+
+        TODO: add checks: https://docs.litellm.ai/docs/completion/json_mode#check-model-support
         """
         # The LiteLLM `Client` inits with Chat().
         # Chat() inits with self.completions

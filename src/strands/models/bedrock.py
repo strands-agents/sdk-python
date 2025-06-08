@@ -492,7 +492,7 @@ class BedrockModel(Model):
         """
         tool_spec = convert_pydantic_to_bedrock_tool(output_model)
 
-        response = self.stream(self.format_request(messages=prompt, tool_specs=[tool_spec]))
+        response = self.converse(messages=prompt, tool_specs=[tool_spec])
         # process the stream and get the tool use input
         results = process_stream(response, callback_handler=PrintingCallbackHandler(), messages=prompt)
 

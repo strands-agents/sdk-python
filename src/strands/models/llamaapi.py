@@ -393,5 +393,8 @@ class LlamaAPIModel(Model):
         Args:
             output_model(Type[BaseModel]): The output model to use for the agent.
             prompt(Messages): The prompt to use for the agent.
+
+        Raises:
+            NotImplementedError: Structured output is not currently supported for LlamaAPI models.
         """
-        return output_model()
+        raise NotImplementedError("Structured output is not currently supported for LlamaAPI models")

@@ -343,7 +343,7 @@ class AnthropicModel(Model):
                 raise RuntimeError(f"event_type=<{event['type']} | unknown type")
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[StreamEvent]:
+    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
         """Send the request to the Anthropic model and get the streaming response.
 
         Args:
@@ -360,10 +360,10 @@ class AnthropicModel(Model):
             with self.client.messages.stream(**request) as stream:
                 for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
-                        yield self.format_chunk(event.dict())
+                        yield event.model_dump()
 
                 usage = event.message.usage  # type: ignore
-                yield self.format_chunk({"type": "metadata", "usage": usage.dict()})
+                yield {"type": "metadata", "usage": usage.model_dump()}
 
         except anthropic.RateLimitError as error:
             raise ModelThrottledException(str(error)) from error
@@ -384,20 +384,26 @@ class AnthropicModel(Model):
         """
         tool_spec = convert_pydantic_to_bedrock_tool(output_model)
 
-        response = self.stream(self.format_request(messages=prompt, tool_specs=[tool_spec]))
+        response = self.converse(messages=prompt, tool_specs=[tool_spec])
         # process the stream and get the tool use input
         results = process_stream(response, callback_handler=PrintingCallbackHandler(), messages=prompt)
 
-        # if not stop reason toolUse
-        if (
-            results[0] != "tool_use"
-            or "toolUse" not in results[1]["content"][0]
-            or results[1]["content"][0]["toolUse"]["name"] != tool_spec["name"]
-        ):
+        stop_reason, messages, _, _, _ = results
+
+        if stop_reason != "tool_use":
             raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
 
-        # get the tool use input
-        tool_use_input = results[1]["content"][0]["toolUse"]["input"]
+        content = messages["content"]
+        output_response: dict[str, Any] | None = None
+        for block in content:
+            # if the tool use name doesn't match the tool spec name, skip, and if the block is not a tool use, skip.
+            # if the tool use name never matches, raise an error.
+            if block.get("toolUse") and block["toolUse"]["name"] == tool_spec["name"]:
+                output_response = block["toolUse"]["input"]
+            else:
+                continue
 
-        # return the tool use input as a json object
-        return output_model(**json.loads(tool_use_input))
+        if output_response is None:
+            raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
+
+        return output_model(**output_response)
