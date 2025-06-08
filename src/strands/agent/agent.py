@@ -368,10 +368,18 @@ class Agent:
             raise
 
     def structured_output(self, output_model: Type[BaseModel], prompt: Optional[str] = None) -> BaseModel:
-        """Get structured output from the Agent's current context.
+        """This method allows you to get structured output from the agent.
+
+        If you pass in a prompt, it will be added to the conversation history and the agent will respond to it.
+        If you don't pass in a prompt, it will use only the conversation history to respond.
+        If no conversation history exists and no prompt is provided, an error will be raised.
+
+        For smaller models, you may want to use the optional prompt string to add additional instructions to explicitly
+        instruct the model to output the structured data.
 
         Args:
-            output_model(Type[BaseModel]): The output model the agent will use when responding.
+            output_model(Type[BaseModel]): The output model (a JSON schema written as a Pydantic BaseModel)
+                that the agent will use when responding.
             prompt(Optional[str]): The prompt to use for the agent.
         """
         messages = self.messages
