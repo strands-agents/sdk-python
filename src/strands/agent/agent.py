@@ -15,6 +15,7 @@ import logging
 import random
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Optional, Type, TypeVar, Union, cast
+from uuid import uuid4
 
 from opentelemetry import trace
 from pydantic import BaseModel
@@ -199,6 +200,7 @@ class Agent:
         load_tools_from_directory: bool = True,
         trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
         *,
+        agent_id: Optional[str] = None,
         name: Optional[str] = None,
         description: Optional[str] = None,
         state: Optional[Union[AgentState, dict]] = None,
@@ -232,6 +234,8 @@ class Agent:
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.
                 Defaults to True.
             trace_attributes: Custom trace attributes to apply to the agent's trace span.
+            agent_id: Optional ID for the agent, useful for multi-agent scenarios.
+                If None, a UUID is generated.
             name: name of the Agent
                 Defaults to None.
             description: description of what the Agent does
@@ -243,6 +247,9 @@ class Agent:
         self.messages = messages if messages is not None else []
 
         self.system_prompt = system_prompt
+        self.agent_id = agent_id or str(uuid4())
+        self.name = name or _DEFAULT_AGENT_NAME
+        self.description = description
 
         # If not provided, create a new PrintingCallbackHandler instance
         # If explicitly set to None, use null_callback_handler
@@ -298,8 +305,6 @@ class Agent:
             self.state = AgentState()
 
         self.tool_caller = Agent.ToolCaller(self)
-        self.name = name or _DEFAULT_AGENT_NAME
-        self.description = description
 
         self._hooks = HookRegistry()
         # Register built-in hook providers (like ConversationManager) here

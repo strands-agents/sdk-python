@@ -14,7 +14,6 @@ def system_prompt():
 @pytest.fixture
 def streaming_model():
     return BedrockModel(
-        model_id="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
         streaming=True,
     )
 
@@ -22,7 +21,6 @@ def streaming_model():
 @pytest.fixture
 def non_streaming_model():
     return BedrockModel(
-        model_id="us.meta.llama3-2-90b-instruct-v1:0",
         streaming=False,
     )
 
