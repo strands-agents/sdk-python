@@ -991,7 +991,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
     mock_get_tracer.return_value = mock_tracer
 
     # Define the side effect to simulate callback handler being called multiple times
-    def call_callback_handler(*args, **kwargs):
+    def call_callback_handler(*_args, **kwargs):
         # Extract the callback handler from kwargs
         callback_handler = kwargs.get("callback_handler")
         # Call the callback handler with different data values

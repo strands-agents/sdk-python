@@ -1,7 +1,6 @@
 import concurrent
 import functools
 import unittest.mock
-import uuid
 
 import pytest
 
