@@ -8,6 +8,8 @@ on:
 jobs:
   call-test-lint:
     uses: ./.github/workflows/test-lint.yml
+    permissions:
+      contents: read
     with:
       ref: ${{ github.event.release.target_commitish }}
 
@@ -57,8 +59,6 @@ jobs:
 
   deploy:
     name: Upload release to PyPI
-    permissions:
-      contents: read
     needs:
     - build
     runs-on: ubuntu-latest
