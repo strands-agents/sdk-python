@@ -108,7 +108,7 @@ class MCPClient:
         return self
 
     def stop(
-        self, exc_type: Optional[BaseException], exc_val: Optional[BaseException], exc_tb: Optional[TracebackType]
+        self, _exc_type: Optional[BaseException], _exc_val: Optional[BaseException], _exc_tb: Optional[TracebackType]
     ) -> None:
         """Signals the background thread to stop and waits for it to complete, ensuring proper cleanup of all resources.
 

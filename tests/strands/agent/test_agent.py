@@ -129,7 +129,7 @@ def tool(tool_decorated, tool_registry):
 
 
 @pytest.fixture
-def tools(request, tool):
+def tools(request):
     return request.param if hasattr(request, "param") else [tool_decorated]
 
 
@@ -140,8 +140,6 @@ def agent(
     callback_handler,
     messages,
     tools,
-    tool,
-    tool_registry,
     tool_decorated,
     request,
 ):
@@ -321,7 +319,7 @@ def test_agent__call__(
     conversation_manager_spy.apply_management.assert_called_with(agent)
 
 
-def test_agent__call__passes_kwargs(mock_model, system_prompt, callback_handler, agent, tool, mock_event_loop_cycle):
+def test_agent__call__passes_kwargs(mock_model, agent, tool, mock_event_loop_cycle):
     mock_model.mock_converse.side_effect = [
         [
             {
@@ -381,7 +379,7 @@ def test_agent__call__passes_kwargs(mock_model, system_prompt, callback_handler,
     mock_event_loop_cycle.assert_called_once()
 
 
-def test_agent__call__retry_with_reduced_context(mock_model, agent, tool):
+def test_agent__call__retry_with_reduced_context(mock_model, agent):
     conversation_manager_spy = unittest.mock.Mock(wraps=agent.conversation_manager)
     agent.conversation_manager = conversation_manager_spy
 
@@ -437,7 +435,7 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool):
     assert conversation_manager_spy.apply_management.call_count == 1
 
 
-def test_agent__call__always_sliding_window_conversation_manager_doesnt_infinite_loop(mock_model, agent, tool):
+def test_agent__call__always_sliding_window_conversation_manager_doesnt_infinite_loop(mock_model, agent):
     conversation_manager = SlidingWindowConversationManager(window_size=500)
     conversation_manager_spy = unittest.mock.Mock(wraps=conversation_manager)
     agent.conversation_manager = conversation_manager_spy
@@ -463,7 +461,7 @@ def test_agent__call__always_sliding_window_conversation_manager_doesnt_infinite
     assert conversation_manager_spy.apply_management.call_count == 1
 
 
-def test_agent__call__null_conversation_window_manager__doesnt_infinite_loop(mock_model, agent, tool):
+def test_agent__call__null_conversation_window_manager__doesnt_infinite_loop(mock_model, agent):
     agent.conversation_manager = NullConversationManager()
 
     messages: Messages = [
@@ -626,7 +624,7 @@ def test_agent_tool_tool_does_not_exist(agent):
 
 
 @pytest.mark.parametrize("tools", [None, [tool_decorated]], indirect=True)
-def test_agent_tool_names(tools, agent):
+def test_agent_tool_names(agent):
     actual = agent.tool_names
     expected = list(agent.tool_registry.get_all_tools_config().keys())
 
@@ -643,7 +641,7 @@ def test_agent_init_with_no_model_or_model_id():
     assert agent.model.get_config().get("model_id") == DEFAULT_BEDROCK_MODEL_ID
 
 
-def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint):
+def test_agent_tool_no_parameter_conflict(agent, mock_randint):
     agent.tool_handler = unittest.mock.Mock()
 
     @strands.tools.tool(name="system_prompter")
@@ -722,7 +720,7 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle):
     agent = Agent()
 
     # Define the side effect to simulate callback handler being called multiple times
-    def call_callback_handler(*args, **kwargs):
+    def call_callback_handler(**kwargs):
         # Extract the callback handler from kwargs
         callback_handler = kwargs.get("callback_handler")
         # Call the callback handler with different data values

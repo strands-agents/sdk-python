@@ -21,7 +21,7 @@ def run_tools(
     handler: Callable[[ToolUse], ToolResult],
     tool_uses: List[ToolUse],
     event_loop_metrics: EventLoopMetrics,
-    request_state: Any,
+    _request_state: Any,
     invalid_tool_use_ids: List[str],
     tool_results: List[ToolResult],
     cycle_trace: Trace,

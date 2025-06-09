@@ -200,6 +200,7 @@ select = [
   "G", # logging format
   "I", # isort
   "LOG", # logging
+  "ARG", # flake8-unused-arguments
 ]
 
 [tool.ruff.lint.per-file-ignores]

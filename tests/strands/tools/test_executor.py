@@ -59,9 +59,9 @@ def invalid_tool_use_ids(request):
 
 
 @pytest.fixture
-def cycle_trace():
-    with unittest.mock.patch.object(uuid, "uuid4", return_value="trace1"):
-        return strands.telemetry.metrics.Trace(name="test trace", raw_name="raw_name")
+def cycle_trace(mocker):
+    mocker.patch.object(strands.telemetry.metrics, "id", return_value="trace1")
+    return strands.telemetry.metrics.Trace(name="test trace", raw_name="raw_name")
 
 
 @pytest.fixture
@@ -395,7 +395,6 @@ def test_run_tools_creates_and_ends_span_on_failure(
 @unittest.mock.patch("strands.tools.executor.get_tracer")
 def test_run_tools_handles_exception_in_tool_execution(
     mock_get_tracer,
-    tool_handler,
     tool_uses,
     event_loop_metrics,
     request_state,

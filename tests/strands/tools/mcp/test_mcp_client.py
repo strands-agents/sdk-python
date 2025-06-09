@@ -42,7 +42,7 @@ def mock_session():
 
 
 @pytest.fixture
-def mcp_client(mock_transport, mock_session):
+def mcp_client(mock_transport):
     with MCPClient(mock_transport["transport_callable"]) as client:
         yield client
 

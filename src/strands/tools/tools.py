@@ -207,7 +207,7 @@ class FunctionTool(AgentTool):
         """
         return True
 
-    def invoke(self, tool: ToolUse, *args: Any, **kwargs: Any) -> ToolResult:
+    def invoke(self, tool: ToolUse, *_args: Any, **kwargs: Any) -> ToolResult:
         """Execute the function with the given tool use request.
 
         Args:

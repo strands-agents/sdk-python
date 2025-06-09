@@ -144,7 +144,7 @@ def test_type_handling():
         bool_param: bool,
     ) -> str:
         """Test basic types."""
-        return "Success"
+        return f"Successfully used parameters: {str_param}, {int_param}, {float_param}, {bool_param}"
 
     spec = test_tool.TOOL_SPEC
     schema = spec["inputSchema"]["json"]
@@ -570,7 +570,7 @@ def test_detailed_validation_errors():
             int_param: Integer parameter
             bool_param: Boolean parameter
         """
-        return "Valid"
+        return f"Valid parameters: String argument{str_param}, Int arguemnt {int_param}, Bool argument {bool_param}"
 
     # Test wrong type for int
     tool_use = {
