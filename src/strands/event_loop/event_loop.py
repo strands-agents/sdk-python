@@ -13,7 +13,6 @@ import uuid
 from functools import partial
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
-from ..event_loop.streaming import stream_messages
 from ..telemetry.metrics import EventLoopMetrics, Trace
 from ..telemetry.tracer import get_tracer
 from ..tools.executor import run_tools, validate_and_prepare_tools
@@ -25,6 +24,7 @@ from ..types.streaming import Metrics, StopReason
 from ..types.tools import ToolConfig, ToolHandler, ToolResult, ToolUse
 from .error_handler import handle_input_too_long_error, handle_throttling_error
 from .message_processor import clean_orphaned_empty_tool_uses
+from .streaming import stream_messages
 
 logger = logging.getLogger(__name__)
 
