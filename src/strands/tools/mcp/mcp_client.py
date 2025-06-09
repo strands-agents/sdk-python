@@ -43,7 +43,8 @@ MIME_TO_FORMAT: Dict[str, ImageFormat] = {
 
 CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE = (
     "the client session is not running. Ensure the agent is used within "
-    "the MCP client context manager ('with mcp_client:')"
+    "the MCP client context manager. For more information see: "
+    "https://strandsagents.com/latest/user-guide/concepts/tools/mcp-tools/#mcpclientinitializationerror"
 )
 
 
