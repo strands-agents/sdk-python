@@ -7,6 +7,7 @@ import unittest.mock
 from time import sleep
 
 import pytest
+from pydantic import BaseModel
 
 import strands
 from strands import Agent
@@ -715,6 +716,29 @@ def test_agent_callback_handler_custom_handler_used():
 
     # Should use the provided custom handler
     assert agent.callback_handler is custom_handler
+
+
+# mock the User(name='Jane Doe', age=30, email='jane@doe.com')
+class User(BaseModel):
+    """A user of the system."""
+
+    name: str
+    age: int
+    email: str
+
+
+def test_agent_method_structured_output(agent):
+    # Mock the structured_output method on the model
+    expected_user = User(name="Jane Doe", age=30, email="jane@doe.com")
+    agent.model.structured_output = unittest.mock.Mock(return_value=expected_user)
+
+    prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
+
+    result = agent.structured_output(User, prompt)
+    assert result == expected_user
+
+    # Verify the model's structured_output was called with correct arguments
+    agent.model.structured_output.assert_called_once_with(User, [{"role": "user", "content": [{"text": prompt}]}])
 
 
 @pytest.mark.asyncio
