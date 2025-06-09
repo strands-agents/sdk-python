@@ -726,8 +726,8 @@ def test_serialize_vs_json_dumps():
     assert japanese_text in custom_result
     assert "\\u" not in custom_result
 
-
-def test_init_with_no_env_or_param(clean_env):  # noqa: ARG001
+@pytest.mark.usefixtures("clean_env")
+def test_init_with_no_env_or_param():
     """Test initializing with neither environment variable nor constructor parameter."""
     tracer = Tracer()
     assert tracer.otlp_endpoint is None
@@ -739,8 +739,8 @@ def test_init_with_no_env_or_param(clean_env):  # noqa: ARG001
     tracer = Tracer(enable_console_export=True)
     assert tracer.enable_console_export is True
 
-
-def test_constructor_params_with_otlp_env(env_with_otlp):  # noqa: ARG001
+@pytest.mark.usefixtures("env_with_otlp")
+def test_constructor_params_with_otlp_env():
     """Test constructor parameters precedence over OTLP environment variable."""
     # Constructor parameter should take precedence
     tracer = Tracer(otlp_endpoint="http://constructor-endpoint")
@@ -750,8 +750,8 @@ def test_constructor_params_with_otlp_env(env_with_otlp):  # noqa: ARG001
     tracer = Tracer()
     assert tracer.otlp_endpoint == "http://env-endpoint"
 
-
-def test_constructor_params_with_console_env(env_with_console):  # noqa: ARG001
+@pytest.mark.usefixtures("env_with_console")
+def test_constructor_params_with_console_env():
     """Test constructor parameters precedence over console environment variable."""
     # Constructor parameter should take precedence
     tracer = Tracer(enable_console_export=False)
@@ -761,8 +761,8 @@ def test_constructor_params_with_console_env(env_with_console):  # noqa: ARG001
     tracer = Tracer()
     assert tracer.enable_console_export is True
 
-
-def test_fallback_to_env_vars(env_with_both):  # noqa: ARG001
+@pytest.mark.usefixtures("env_with_both")
+def test_fallback_to_env_vars():
     """Test fallback to environment variables when no constructor parameters."""
     tracer = Tracer()
     assert tracer.otlp_endpoint == "http://env-endpoint"
