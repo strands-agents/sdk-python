@@ -116,14 +116,6 @@ def complex_user_tool_spec_json():
     }
 
 
-@pytest.fixture
-def user_with_employment_tool_spec():
-    return {
-        "name": "UserWithEmployment",
-        "description": "A user of the system with employment.",
-    }
-
-
 def test_convert_pydantic_to_bedrock_tool_basic(
     user_model,
     basic_user_tool_spec,
