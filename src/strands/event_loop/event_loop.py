@@ -22,7 +22,7 @@ from ..types.exceptions import ContextWindowOverflowException, EventLoopExceptio
 from ..types.models import Model
 from ..types.streaming import Metrics, StopReason
 from ..types.tools import ToolConfig, ToolHandler, ToolResult, ToolUse
-from .error_handler import handle_input_too_long_error, handle_throttling_error
+from .error_handler import handle_throttling_error
 from .message_processor import clean_orphaned_empty_tool_uses
 from .streaming import stream_messages
 
@@ -160,16 +160,7 @@ def event_loop_cycle(
         except ContextWindowOverflowException as e:
             if model_invoke_span:
                 tracer.end_span_with_error(model_invoke_span, str(e), e)
-            return handle_input_too_long_error(
-                e,
-                messages,
-                model,
-                system_prompt,
-                tool_config,
-                callback_handler,
-                tool_handler,
-                kwargs,
-            )
+            raise e
 
         except ModelThrottledException as e:
             if model_invoke_span:
@@ -248,6 +239,10 @@ def event_loop_cycle(
         # Don't invoke the callback_handler or log the exception - we already did it when we
         # raised the exception and we don't need that duplication.
         raise
+    except ContextWindowOverflowException as e:
+        if cycle_span:
+            tracer.end_span_with_error(cycle_span, str(e), e)
+        raise e
     except Exception as e:
         if cycle_span:
             tracer.end_span_with_error(cycle_span, str(e), e)
