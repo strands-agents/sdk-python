@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, Iterable, Literal, Optional, TypedDict, cast
+from typing import Any, Iterable, Literal, Optional, TypedDict, cast, Union
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -46,7 +46,7 @@ class FunctionCall:
     name: str
     arguments: str
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: dict):
         """Initialize function call.
 
         Args:
@@ -70,14 +70,14 @@ class ToolCall:
     type: Literal["function"]
     function: FunctionCall
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: dict):
         """Initialize tool call object.
 
         Args:
             **kwargs: Keyword arguments for the tool call.
         """
         self.id = kwargs.get("id")
-        self.type = kwargs.get("type")
+        self.type = "function"
         self.function = FunctionCall(**kwargs.get("function"))
 
 
@@ -95,8 +95,8 @@ class SageMakerAIModel(OpenAIModel):
         """
 
         endpoint_name: str
-        inference_component_name: Optional[str] = None
-        stream: Optional[bool] = True
+        inference_component_name: Union[str, None]
+        stream: bool
         additional_args: Optional[dict[str, Any]]
 
     def __init__(
@@ -114,7 +114,7 @@ class SageMakerAIModel(OpenAIModel):
             boto_session: Boto Session to use when calling the SageMaker Runtime.
             boto_client_config: Configuration to use when creating the SageMaker-Runtime Boto Client.
         """
-        self.config = model_config
+        self.config = dict(model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
 
@@ -197,6 +197,10 @@ class SageMakerAIModel(OpenAIModel):
                 _ = message.pop("content")
             # Tool messages should have content as pure text
             elif message.get("role", "") == "tool":
+                logger.debug("message content:<%s> | streaming message content", message["content"])
+                logger.debug("message content type:<%s> | streaming message content type", type(message["content"]))
+                if type(message["content"]) == str:
+                    message["content"] = json.loads(message["content"])["content"]
                 message["content"] = message["content"][0]["text"]
 
         logger.debug("payload=<%s>", payload)
@@ -234,6 +238,7 @@ class SageMakerAIModel(OpenAIModel):
             yield {"chunk_type": "content_start", "data_type": "text"}
 
             # Parse the content
+            finish_reason = ""
             partial_content = ""
             tool_calls: dict[int, list[Any]] = {}
             for event in response["Body"]:
@@ -250,6 +255,7 @@ class SageMakerAIModel(OpenAIModel):
                     for tool_call in choice["delta"].get("tool_calls", []):
                         tool_calls.setdefault(tool_call["index"], []).append(tool_call)
                     if choice["finish_reason"] is not None:
+                        finish_reason = choice["finish_reason"]
                         break
 
                 except json.JSONDecodeError:
@@ -266,7 +272,7 @@ class SageMakerAIModel(OpenAIModel):
                 yield {"chunk_type": "content_stop", "data_type": "tool"}
 
             # Message close
-            yield {"chunk_type": "message_stop", "data": choice["finish_reason"]}
+            yield {"chunk_type": "message_stop", "data": finish_reason}
             # Handle usage metadata - TODO: not supported in current Response Schema!
             # Ref: https://docs.djl.ai/master/docs/serving/serving/docs/lmi/user_guides/chat_input_output_schema.html#response-schema
             # yield {"chunk_type": "metadata", "data": UsageMetadata(**choice["usage"])}
