@@ -28,7 +28,7 @@ jobs:
             
             const isOwner = pr.author_association === 'OWNER'
             if (isOwner) {
-              core.info('PR auther is an OWNER')
+              core.info('PR author is an OWNER')
               return
             }
 
