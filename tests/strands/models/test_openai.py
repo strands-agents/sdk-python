@@ -132,3 +132,44 @@ def test_stream_empty(openai_client, model):
 
     assert tru_events == exp_events
     openai_client.chat.completions.create.assert_called_once_with(**request)
+
+
+def test_stream_with_empty_choices(openai_client, model):
+    mock_delta = unittest.mock.Mock(content="content", tool_calls=None)
+    mock_usage = unittest.mock.Mock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
+
+    # Event with no choices attribute
+    mock_event_1 = unittest.mock.Mock(spec=[])
+
+    # Event with empty choices list
+    mock_event_2 = unittest.mock.Mock(choices=[])
+
+    # Valid event with content
+    mock_event_3 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta)])
+
+    # Event with finish reason
+    mock_event_4 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
+
+    # Final event with usage info
+    mock_event_5 = unittest.mock.Mock(usage=mock_usage)
+
+    openai_client.chat.completions.create.return_value = iter(
+        [mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5]
+    )
+
+    request = {"model": "m1", "messages": [{"role": "user", "content": ["test"]}]}
+    response = model.stream(request)
+
+    tru_events = list(response)
+    exp_events = [
+        {"chunk_type": "message_start"},
+        {"chunk_type": "content_start", "data_type": "text"},
+        {"chunk_type": "content_delta", "data_type": "text", "data": "content"},
+        {"chunk_type": "content_delta", "data_type": "text", "data": "content"},
+        {"chunk_type": "content_stop", "data_type": "text"},
+        {"chunk_type": "message_stop", "data": "stop"},
+        {"chunk_type": "metadata", "data": mock_usage},
+    ]
+
+    assert tru_events == exp_events
+    openai_client.chat.completions.create.assert_called_once_with(**request)

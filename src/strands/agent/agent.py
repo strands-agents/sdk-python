@@ -84,6 +84,7 @@ class Agent:
             """Call tool as a function.
 
             This method enables the method-style interface (e.g., `agent.tool.tool_name(param="value")`).
+            It matches underscore-separated names to hyphenated tool names (e.g., 'some_thing' matches 'some-thing').
 
             Args:
                 name: The name of the attribute (tool) being accessed.
@@ -92,8 +93,33 @@ class Agent:
                 A function that when called will execute the named tool.
 
             Raises:
-                AttributeError: If no tool with the given name exists.
+                AttributeError: If no tool with the given name exists or if multiple tools match the given name.
             """
+
+            def find_normalized_tool_name() -> Optional[str]:
+                """Lookup the tool represented by name, replacing characters with underscores as necessary."""
+                tool_registry = self._agent.tool_registry.registry
+
+                if tool_registry.get(name, None):
+                    return name
+
+                # If the desired name contains underscores, it might be a placeholder for characters that can't be
+                # represented as python identifiers but are valid as tool names, such as dashes. In that case, find
+                # all tools that can be represented with the normalized name
+                if "_" in name:
+                    filtered_tools = [
+                        tool_name
+                        for (tool_name, tool) in tool_registry.items()
+                        if tool_name.replace("-", "_") == name
+                    ]
+
+                    if len(filtered_tools) > 1:
+                        raise AttributeError(f"Multiple tools matching '{name}' found: {', '.join(filtered_tools)}")
+
+                    if filtered_tools:
+                        return filtered_tools[0]
+
+                raise AttributeError(f"Tool '{name}' not found")
 
             def caller(**kwargs: Any) -> Any:
                 """Call a tool directly by name.
@@ -115,14 +141,13 @@ class Agent:
                 Raises:
                     AttributeError: If the tool doesn't exist.
                 """
-                if name not in self._agent.tool_registry.registry:
-                    raise AttributeError(f"Tool '{name}' not found")
+                normalized_name = find_normalized_tool_name()
 
                 # Create unique tool ID and set up the tool request
                 tool_id = f"tooluse_{name}_{random.randint(100000000, 999999999)}"
                 tool_use = {
                     "toolUseId": tool_id,
-                    "name": name,
+                    "name": normalized_name,
                     "input": kwargs.copy(),
                 }
 

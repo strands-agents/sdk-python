@@ -674,6 +674,68 @@ def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint):
     )
 
 
+def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint):
+    agent.tool_handler = unittest.mock.Mock()
+
+    tool_name = "system-prompter"
+
+    @strands.tools.tool(name=tool_name)
+    def function(system_prompt: str) -> str:
+        return system_prompt
+
+    tool = strands.tools.tools.FunctionTool(function)
+    agent.tool_registry.register_tool(tool)
+
+    mock_randint.return_value = 1
+
+    agent.tool.system_prompter(system_prompt="tool prompt")
+
+    # Verify the correct tool was invoked
+    assert agent.tool_handler.process.call_count == 1
+    tool_call = agent.tool_handler.process.call_args.kwargs.get("tool")
+
+    assert tool_call == {
+        # Note that the tool-use uses the "python safe" name
+        "toolUseId": "tooluse_system_prompter_1",
+        # But the name of the tool is the one in the registry
+        "name": tool_name,
+        "input": {"system_prompt": "tool prompt"},
+    }
+
+
+def test_agent_tool_with_multiple_normalized_matches(agent, tool_registry, mock_randint):
+    agent.tool_handler = unittest.mock.Mock()
+
+    @strands.tools.tool(name="system-prompter_1")
+    def function1(system_prompt: str) -> str:
+        return system_prompt
+
+    @strands.tools.tool(name="system-prompter-1")
+    def function2(system_prompt: str) -> str:
+        return system_prompt
+
+    agent.tool_registry.register_tool(strands.tools.tools.FunctionTool(function1))
+    agent.tool_registry.register_tool(strands.tools.tools.FunctionTool(function2))
+
+    mock_randint.return_value = 1
+
+    with pytest.raises(AttributeError) as err:
+        agent.tool.system_prompter_1(system_prompt="tool prompt")
+
+    assert str(err.value) == "Multiple tools matching 'system_prompter_1' found: system-prompter_1, system-prompter-1"
+
+
+def test_agent_tool_with_no_normalized_match(agent, tool_registry, mock_randint):
+    agent.tool_handler = unittest.mock.Mock()
+
+    mock_randint.return_value = 1
+
+    with pytest.raises(AttributeError) as err:
+        agent.tool.system_prompter_1(system_prompt="tool prompt")
+
+    assert str(err.value) == "Tool 'system_prompter_1' not found"
+
+
 def test_agent_with_none_callback_handler_prints_nothing():
     agent = Agent()
 
