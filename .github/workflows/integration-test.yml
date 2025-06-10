@@ -1,0 +1,62 @@
+name: Secure Integration test
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, labeled, unlabled, reopened]
+  
+jobs:
+  check-access-and-checkout:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      pull-requests: read
+      contents: read
+    steps:
+      - name: Check PR labels and author
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            
+            const labels = pr.labels.map(label => label.name);
+            const hasLabel = labels.includes('approved-for-integ-test')
+            if (hasLabel) {
+              core.info('PR contains label approved-for-integ-test')
+              return
+            }
+            
+            const isOwner = pr.author_association === 'OWNER'
+            if (isOwner) {
+              core.info('PR auther is an OWNER')
+              return
+            }
+
+            core.setFailed('Pull Request must either have label approved-for-integ-test or be created by an owner')
+      - name: Configure Credentials 
+        uses: aws-actions/configure-aws-credentials@v4
+        with: 
+         role-to-assume: ${{ secrets.STRANDS_INTEG_TEST_ROLE }}
+         aws-region: us-east-1
+         mask-aws-account-id: true
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }} # Pull the commit from the forked repo
+          persist-credentials: false  # Don't persist credentials for subsequent actions
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install dependencies
+        run: |
+          pip install --no-cache-dir hatch
+      - name: Run integration tests
+        env:
+          AWS_REGION: us-east-1
+          AWS_REGION_NAME: us-east-1 # Needed for LiteLLM
+        id: tests
+        run: |
+          hatch test tests-integ
+      
+    
