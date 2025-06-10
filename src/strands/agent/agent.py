@@ -108,9 +108,7 @@ class Agent:
                 # all tools that can be represented with the normalized name
                 if "_" in name:
                     filtered_tools = [
-                        tool_name
-                        for (tool_name, tool) in tool_registry.items()
-                        if tool_name.replace("-", "_") == name
+                        tool_name for (tool_name, tool) in tool_registry.items() if tool_name.replace("-", "_") == name
                     ]
 
                     if len(filtered_tools) > 1:

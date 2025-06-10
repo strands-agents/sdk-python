@@ -92,8 +92,8 @@ class ToolRegistry:
                     if not function_tools:
                         logger.warning("tool_name=<%s>, module_path=<%s> | invalid agent tool", tool_name, module_path)
 
-            # Case 5: Function decorated with @tool
-            elif inspect.isfunction(tool) and hasattr(tool, "TOOL_SPEC"):
+            # Case 5: Function or Method decorated with @tool
+            elif (inspect.isfunction(tool) or inspect.ismethod(tool)) and hasattr(tool, "TOOL_SPEC"):
                 try:
                     function_tool = FunctionTool(tool)
                     logger.debug("tool_name=<%s> | registering function tool", function_tool.tool_name)

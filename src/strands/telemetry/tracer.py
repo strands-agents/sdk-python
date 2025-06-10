@@ -3,6 +3,7 @@
 This module provides tracing capabilities using OpenTelemetry,
 enabling trace data to be sent to OTLP endpoints.
 """
+# mypy: disable-error-code="unused-ignore"
 
 import json
 import logging

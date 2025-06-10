@@ -9,3 +9,4 @@ __pycache__*
 *.bak
 .vscode
 dist
+.idea
