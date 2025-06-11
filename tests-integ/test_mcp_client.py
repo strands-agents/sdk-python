@@ -105,7 +105,8 @@ def test_can_reuse_mcp_client():
 
 @pytest.mark.skipif(
     condition=os.environ.get("GITHUB_ACTIONS") == 'true',
-    reason="streamable transport is failing in GitHub actions, debugging if linux compatibility issue")
+    reason="streamable transport is failing in GitHub actions, debugging if linux compatibility issue"
+)
 def test_streamable_http_mcp_client():
     server_thread = threading.Thread(
         target=start_calculator_server, kwargs={"transport": "streamable-http", "port": 8001}, daemon=True
