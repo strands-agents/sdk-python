@@ -187,10 +187,6 @@ ignore_missing_imports = false
 module = "litellm"
 ignore_missing_imports = true
 
-[[tool.mypy.overrides]]
-module = "strands.telemetry.tracer"
-warn_unused_ignores = false
-
 [tool.ruff]
 line-length = 120
 include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests-integ/**/*.py"]
