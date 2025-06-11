@@ -114,8 +114,11 @@ class SageMakerAIModel(OpenAIModel):
             boto_session: Boto Session to use when calling the SageMaker Runtime.
             boto_client_config: Configuration to use when creating the SageMaker-Runtime Boto Client.
         """
-        self.config = dict(model_config)
+        print(model_config)
+        if model_config.get("stream", "") == "":
+            model_config["stream"] = True
 
+        self.config = dict(model_config)
         logger.debug("config=<%s> | initializing", self.config)
 
         session = boto_session or boto3.Session(
