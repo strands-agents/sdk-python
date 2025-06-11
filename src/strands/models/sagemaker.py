@@ -191,6 +191,11 @@ class SageMakerAIModel(OpenAIModel):
             # Add all key-values from the model config to the payload except endpoint_name and inference_component_name
             **{k: v for k, v in self.config.items() if k not in ["endpoint_name", "inference_component_name"]},
         }
+        
+        # Remove tools and tool_choice if tools = []
+        if payload["tools"] == []:
+            payload.pop("tools")
+            payload.pop("tool_choice", None)
 
         # TODO: this should be a @override of format_request_message
         for message in payload["messages"]:
