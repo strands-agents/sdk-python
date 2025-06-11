@@ -73,7 +73,7 @@ class MCPAgentTool(AgentTool):
         """
         return "python"
 
-    def invoke(self, tool: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolResult:
+    def invoke(self, tool: ToolUse, *_args: Any, **_kwargs: dict[str, Any]) -> ToolResult:
         """Invoke the MCP tool.
 
         This method delegates the tool invocation to the MCP server connection,

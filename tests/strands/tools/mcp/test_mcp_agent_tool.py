@@ -40,7 +40,7 @@ def test_tool_type(mcp_agent_tool):
     assert mcp_agent_tool.tool_type == "python"
 
 
-def test_tool_spec_with_description(mcp_agent_tool, mock_mcp_tool):
+def test_tool_spec_with_description(mcp_agent_tool):
     tool_spec = mcp_agent_tool.tool_spec
 
     assert tool_spec["name"] == "test_tool"

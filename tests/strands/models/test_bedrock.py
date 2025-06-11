@@ -119,6 +119,7 @@ def test__init__with_region_and_session_raises_value_error():
 
 def test__init__default_user_agent(bedrock_client):
     """Set user agent when no boto_client_config is provided."""
+    _ = bedrock_client
     with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
         mock_session = mock_session_cls.return_value
         _ = BedrockModel()
@@ -133,6 +134,7 @@ def test__init__default_user_agent(bedrock_client):
 
 def test__init__with_custom_boto_client_config_no_user_agent(bedrock_client):
     """Set user agent when boto_client_config is provided without user_agent_extra."""
+    _ = bedrock_client
     custom_config = BotocoreConfig(read_timeout=900)
 
     with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
@@ -150,6 +152,7 @@ def test__init__with_custom_boto_client_config_no_user_agent(bedrock_client):
 
 def test__init__with_custom_boto_client_config_with_user_agent(bedrock_client):
     """Append to existing user agent when boto_client_config is provided with user_agent_extra."""
+    _ = bedrock_client
     custom_config = BotocoreConfig(user_agent_extra="existing-agent", read_timeout=900)
 
     with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
