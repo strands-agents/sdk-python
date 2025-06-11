@@ -140,7 +140,7 @@ class SlidingWindowConversationManager(ConversationManager):
             if results_truncated:
                 logger.debug("message_index=<%s> | tool results truncated", last_message_idx_with_tool_results)
                 return
-        
+
         # Try to trim index id when tool result cannot be truncated anymore
         # If the number of messages is less than the window_size, then we default to 2, otherwise, trim to window size
         trim_index = 2 if len(messages) <= self.window_size else len(messages) - self.window_size

@@ -4,7 +4,9 @@ from datetime import date, datetime, timezone
 from unittest import mock
 
 import pytest
-from opentelemetry.trace import StatusCode  # type: ignore
+from opentelemetry.trace import (
+    StatusCode,  # type: ignore
+)
 
 from strands.telemetry.tracer import JSONEncoder, Tracer, get_tracer, serialize
 from strands.types.streaming import Usage
@@ -18,13 +20,25 @@ def moto_autouse(moto_env, moto_mock_aws):
 
 @pytest.fixture
 def mock_tracer_provider():
-    with mock.patch("strands.telemetry.tracer.TracerProvider") as mock_provider:
+    with mock.patch("strands.telemetry.tracer.SDKTracerProvider") as mock_provider:
         yield mock_provider
 
 
 @pytest.fixture
+def mock_is_initialized():
+    with mock.patch("strands.telemetry.tracer.Tracer._is_initialized") as mock_is_initialized:
+        yield mock_is_initialized
+
+
+@pytest.fixture
+def mock_get_tracer_provider():
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer_provider") as mock_get_tracer_provider:
+        yield mock_get_tracer_provider
+
+
+@pytest.fixture
 def mock_tracer():
-    with mock.patch("strands.telemetry.tracer.trace.get_tracer") as mock_get_tracer:
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer") as mock_get_tracer:
         mock_tracer = mock.MagicMock()
         mock_get_tracer.return_value = mock_tracer
         yield mock_tracer
@@ -38,7 +52,7 @@ def mock_span():
 
 @pytest.fixture
 def mock_set_tracer_provider():
-    with mock.patch("strands.telemetry.tracer.trace.set_tracer_provider") as mock_set:
+    with mock.patch("strands.telemetry.tracer.trace_api.set_tracer_provider") as mock_set:
         yield mock_set
 
 
@@ -104,8 +118,17 @@ def env_with_both():
         yield
 
 
-def test_init_default():
+@pytest.fixture
+def mock_initialize():
+    with mock.patch("strands.telemetry.tracer.Tracer._initialize_tracer") as mock_initialize:
+        yield mock_initialize
+
+
+def test_init_default(mock_is_initialized, mock_get_tracer_provider):
     """Test initializing the Tracer with default parameters."""
+    mock_is_initialized.return_value = False
+    mock_get_tracer_provider.return_value = None
+
     tracer = Tracer()
 
     assert tracer.service_name == "strands-agents"
@@ -141,9 +164,14 @@ def test_init_with_env_headers():
 
 
 def test_initialize_tracer_with_console(
-    mock_tracer_provider, mock_set_tracer_provider, mock_console_exporter, mock_resource
+    mock_is_initialized,
+    mock_tracer_provider,
+    mock_set_tracer_provider,
+    mock_console_exporter,
+    mock_resource,
 ):
     """Test initializing the tracer with console exporter."""
+    mock_is_initialized.return_value = False
     mock_resource_instance = mock.MagicMock()
     mock_resource.create.return_value = mock_resource_instance
 
@@ -161,8 +189,12 @@ def test_initialize_tracer_with_console(
     mock_set_tracer_provider.assert_called_once_with(mock_tracer_provider.return_value)
 
 
-def test_initialize_tracer_with_otlp(mock_tracer_provider, mock_set_tracer_provider, mock_otlp_exporter, mock_resource):
+def test_initialize_tracer_with_otlp(
+    mock_is_initialized, mock_tracer_provider, mock_set_tracer_provider, mock_otlp_exporter, mock_resource
+):
     """Test initializing the tracer with OTLP exporter."""
+    mock_is_initialized.return_value = False
+
     mock_resource_instance = mock.MagicMock()
     mock_resource.create.return_value = mock_resource_instance
 
@@ -191,7 +223,7 @@ def test_start_span_no_tracer():
 
 def test_start_span(mock_tracer):
     """Test starting a span with attributes."""
-    with mock.patch("strands.telemetry.tracer.trace.get_tracer", return_value=mock_tracer):
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
         tracer = Tracer(enable_console_export=True)
         tracer.tracer = mock_tracer
 
@@ -262,7 +294,7 @@ def test_end_span_with_error_message(mock_span):
 
 def test_start_model_invoke_span(mock_tracer):
     """Test starting a model invoke span."""
-    with mock.patch("strands.telemetry.tracer.trace.get_tracer", return_value=mock_tracer):
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
         tracer = Tracer(enable_console_export=True)
         tracer.tracer = mock_tracer
 
@@ -300,7 +332,7 @@ def test_end_model_invoke_span(mock_span):
 
 def test_start_tool_call_span(mock_tracer):
     """Test starting a tool call span."""
-    with mock.patch("strands.telemetry.tracer.trace.get_tracer", return_value=mock_tracer):
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
         tracer = Tracer(enable_console_export=True)
         tracer.tracer = mock_tracer
 
@@ -338,7 +370,7 @@ def test_end_tool_call_span(mock_span):
 
 def test_start_event_loop_cycle_span(mock_tracer):
     """Test starting an event loop cycle span."""
-    with mock.patch("strands.telemetry.tracer.trace.get_tracer", return_value=mock_tracer):
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
         tracer = Tracer(enable_console_export=True)
         tracer.tracer = mock_tracer
 
@@ -373,7 +405,7 @@ def test_end_event_loop_cycle_span(mock_span):
 
 def test_start_agent_span(mock_tracer):
     """Test starting an agent span."""
-    with mock.patch("strands.telemetry.tracer.trace.get_tracer", return_value=mock_tracer):
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
         tracer = Tracer(enable_console_export=True)
         tracer.tracer = mock_tracer
 
@@ -464,9 +496,11 @@ def test_get_tracer_parameters():
 
 
 def test_initialize_tracer_with_invalid_otlp_endpoint(
-    mock_tracer_provider, mock_set_tracer_provider, mock_otlp_exporter, mock_resource
+    mock_is_initialized, mock_tracer_provider, mock_set_tracer_provider, mock_otlp_exporter, mock_resource
 ):
     """Test initializing the tracer with an invalid OTLP endpoint."""
+    mock_is_initialized.return_value = False
+
     mock_resource_instance = mock.MagicMock()
     mock_resource.create.return_value = mock_resource_instance
     mock_otlp_exporter.side_effect = Exception("Connection error")
@@ -484,6 +518,18 @@ def test_initialize_tracer_with_invalid_otlp_endpoint(
 
     # Verify set_tracer_provider was still called
     mock_set_tracer_provider.assert_called_once_with(mock_tracer_provider.return_value)
+
+
+def test_initialize_tracer_with_custom_tracer_provider(mock_get_tracer_provider, mock_resource):
+    """Test initializing the tracer with NoOpTracerProvider."""
+    mock_is_initialized.return_value = True
+    tracer = Tracer(otlp_endpoint="http://invalid-endpoint")
+
+    mock_get_tracer_provider.assert_called()
+    mock_resource.assert_not_called()
+
+    assert tracer.tracer_provider is not None
+    assert tracer.tracer is not None
 
 
 def test_end_span_with_exception_handling(mock_span):
@@ -530,7 +576,7 @@ def test_end_tool_call_span_with_none(mock_span):
 
 def test_start_model_invoke_span_with_parent(mock_tracer):
     """Test starting a model invoke span with a parent span."""
-    with mock.patch("strands.telemetry.tracer.trace.get_tracer", return_value=mock_tracer):
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
         tracer = Tracer(enable_console_export=True)
         tracer.tracer = mock_tracer
 
