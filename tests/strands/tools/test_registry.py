@@ -2,8 +2,11 @@
 Tests for the SDK tool registry module.
 """
 
+from unittest.mock import MagicMock
+
 import pytest
 
+from strands.tools import PythonAgentTool
 from strands.tools.registry import ToolRegistry
 
 
@@ -23,3 +26,20 @@ def test_process_tools_with_invalid_path():
 
     with pytest.raises(ValueError, match=f"Failed to load tool {invalid_path.split('.')[0]}: Tool file not found:.*"):
         tool_registry.process_tools([invalid_path])
+
+
+def test_register_tool_with_similar_name_raises():
+    tool_1 = PythonAgentTool(tool_name="tool-like-this", tool_spec=MagicMock(), callback=lambda: None)
+    tool_2 = PythonAgentTool(tool_name="tool_like_this", tool_spec=MagicMock(), callback=lambda: None)
+
+    tool_registry = ToolRegistry()
+
+    tool_registry.register_tool(tool_1)
+
+    with pytest.raises(ValueError) as err:
+        tool_registry.register_tool(tool_2)
+
+    assert (
+        str(err.value) == "Tool name 'tool_like_this' already exists as 'tool-like-this'. "
+        "Cannot add a duplicate tool which differs by a '-' or '_'"
+    )

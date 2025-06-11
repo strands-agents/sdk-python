@@ -739,28 +739,6 @@ def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint):
     }
 
 
-def test_agent_tool_with_multiple_normalized_matches(agent, tool_registry, mock_randint):
-    agent.tool_handler = unittest.mock.Mock()
-
-    @strands.tools.tool(name="system-prompter_1")
-    def function1(system_prompt: str) -> str:
-        return system_prompt
-
-    @strands.tools.tool(name="system-prompter-1")
-    def function2(system_prompt: str) -> str:
-        return system_prompt
-
-    agent.tool_registry.register_tool(strands.tools.tools.FunctionTool(function1))
-    agent.tool_registry.register_tool(strands.tools.tools.FunctionTool(function2))
-
-    mock_randint.return_value = 1
-
-    with pytest.raises(AttributeError) as err:
-        agent.tool.system_prompter_1(system_prompt="tool prompt")
-
-    assert str(err.value) == "Multiple tools matching 'system_prompter_1' found: system-prompter_1, system-prompter-1"
-
-
 def test_agent_tool_with_no_normalized_match(agent, tool_registry, mock_randint):
     agent.tool_handler = unittest.mock.Mock()
 
