@@ -5,7 +5,7 @@ large tool results to prevent context window overflow.
 """
 
 import logging
-from typing import Dict, Optional, Set, Tuple
+from typing import Dict, Set, Tuple
 
 from ..types.content import Messages
 
@@ -103,60 +103,3 @@ def clean_orphaned_empty_tool_uses(messages: Messages) -> bool:
             logger.warning("failed to fix orphaned tool use | %s", e)
 
     return True
-
-
-def find_last_message_with_tool_results(messages: Messages) -> Optional[int]:
-    """Find the index of the last message containing tool results.
-
-    This is useful for identifying messages that might need to be truncated to reduce context size.
-
-    Args:
-        messages: The conversation message history.
-
-    Returns:
-        Index of the last message with tool results, or None if no such message exists.
-    """
-    # Iterate backwards through all messages (from newest to oldest)
-    for idx in range(len(messages) - 1, -1, -1):
-        # Check if this message has any content with toolResult
-        current_message = messages[idx]
-        has_tool_result = False
-
-        for content in current_message.get("content", []):
-            if isinstance(content, dict) and "toolResult" in content:
-                has_tool_result = True
-                break
-
-        if has_tool_result:
-            return idx
-
-    return None
-
-
-def truncate_tool_results(messages: Messages, msg_idx: int) -> bool:
-    """Truncate tool results in a message to reduce context size.
-
-    When a message contains tool results that are too large for the model's context window, this function replaces the
-    content of those tool results with a simple error message.
-
-    Args:
-        messages: The conversation message history.
-        msg_idx: Index of the message containing tool results to truncate.
-
-    Returns:
-        True if any changes were made to the message, False otherwise.
-    """
-    if msg_idx >= len(messages) or msg_idx < 0:
-        return False
-
-    message = messages[msg_idx]
-    changes_made = False
-
-    for i, content in enumerate(message.get("content", [])):
-        if isinstance(content, dict) and "toolResult" in content:
-            # Update status to error with informative message
-            message["content"][i]["toolResult"]["status"] = "error"
-            message["content"][i]["toolResult"]["content"] = [{"text": "The tool result was too large!"}]
-            changes_made = True
-
-    return changes_made

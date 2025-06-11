@@ -12,7 +12,7 @@ BLOCKED_OUTPUT = "BLOCKED_OUTPUT"
 
 @pytest.fixture(scope="module")
 def boto_session():
-    return boto3.Session(region_name="us-west-2")
+    return boto3.Session(region_name="us-east-1")
 
 
 @pytest.fixture(scope="module")
@@ -142,7 +142,7 @@ def test_guardrail_output_intervention_redact_output(bedrock_guardrail, processi
         guardrail_stream_processing_mode=processing_mode,
         guardrail_redact_output=True,
         guardrail_redact_output_message=REDACT_MESSAGE,
-        region_name="us-west-2",
+        region_name="us-east-1",
     )
 
     agent = Agent(

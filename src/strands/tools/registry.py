@@ -189,6 +189,21 @@ class ToolRegistry:
             tool.is_dynamic,
         )
 
+        if self.registry.get(tool.tool_name) is None:
+            normalized_name = tool.tool_name.replace("-", "_")
+
+            matching_tools = [
+                tool_name
+                for (tool_name, tool) in self.registry.items()
+                if tool_name.replace("-", "_") == normalized_name
+            ]
+
+            if matching_tools:
+                raise ValueError(
+                    f"Tool name '{tool.tool_name}' already exists as '{matching_tools[0]}'."
+                    " Cannot add a duplicate tool which differs by a '-' or '_'"
+                )
+
         # Register in main registry
         self.registry[tool.tool_name] = tool
 

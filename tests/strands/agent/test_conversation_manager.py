@@ -25,6 +25,7 @@ def test_is_assistant_message(role, exp_result):
 def conversation_manager(request):
     params = {
         "window_size": 2,
+        "should_truncate_results": False,
     }
     if hasattr(request, "param"):
         params.update(request.param)
@@ -168,7 +169,7 @@ def test_apply_management(conversation_manager, messages, expected_messages):
 
 
 def test_sliding_window_conversation_manager_with_untrimmable_history_raises_context_window_overflow_exception():
-    manager = strands.agent.conversation_manager.SlidingWindowConversationManager(1)
+    manager = strands.agent.conversation_manager.SlidingWindowConversationManager(1, False)
     messages = [
         {"role": "assistant", "content": [{"toolUse": {"toolUseId": "456", "name": "tool1", "input": {}}}]},
         {"role": "user", "content": [{"toolResult": {"toolUseId": "789", "content": [], "status": "success"}}]},
@@ -180,6 +181,40 @@ def test_sliding_window_conversation_manager_with_untrimmable_history_raises_con
         manager.apply_management(test_agent)
 
     assert messages == original_messages
+
+
+def test_sliding_window_conversation_manager_with_tool_results_truncated():
+    manager = strands.agent.conversation_manager.SlidingWindowConversationManager(1)
+    messages = [
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "456", "name": "tool1", "input": {}}}]},
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "789", "content": [{"text": "large input"}], "status": "success"}}
+            ],
+        },
+    ]
+    test_agent = Agent(messages=messages)
+
+    manager.reduce_context(test_agent)
+
+    expected_messages = [
+        {"role": "assistant", "content": [{"toolUse": {"toolUseId": "456", "name": "tool1", "input": {}}}]},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "789",
+                        "content": [{"text": "The tool result was too large!"}],
+                        "status": "error",
+                    }
+                }
+            ],
+        },
+    ]
+
+    assert messages == expected_messages
 
 
 def test_null_conversation_manager_reduce_context_raises_context_window_overflow_exception():
