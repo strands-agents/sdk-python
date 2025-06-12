@@ -121,6 +121,7 @@ def load_tools_from_instance(
     """
     methods: List[AgentTool] = []
     class_name = instance.__class__.__name__.lower()
+    func: Any
     for name, _member in inspect.getmembers(instance.__class__):
         if name.startswith("_"):
             continue
