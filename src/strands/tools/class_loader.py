@@ -39,13 +39,13 @@ class GenericFunctionTool(AgentTool):
         try:
             self._meta = FunctionToolMetadata(func)
             self._tool_spec = self._meta.extract_metadata()
+            if name:
+                self._tool_spec["name"] = name
+            if description:
+                self._tool_spec["description"] = description
         except Exception as e:
             logger.warning("Could not convert %s to AgentTool: %s", getattr(func, "__name__", str(func)), str(e))
             raise
-        if name:
-            self._tool_spec["name"] = name
-        if description:
-            self._tool_spec["description"] = description
 
     @property
     def tool_name(self) -> str:
@@ -68,19 +68,22 @@ class GenericFunctionTool(AgentTool):
             validated_input = self._meta.validate_input(tool["input"])
             result = self._func(**validated_input)
             return {
-                "toolUseId": tool["toolUseId"],
+                "toolUseId": tool.get("toolUseId", "unknown"),
                 "status": "success",
                 "content": [{"text": str(result)}],
             }
         except Exception as e:
             return {
-                "toolUseId": tool["toolUseId"],
+                "toolUseId": tool.get("toolUseId", "unknown"),
                 "status": "error",
                 "content": [{"text": f"Error: {e}"}],
             }
 
 
-def load_tools_from_instance(instance, disambiguator: Optional[str] = None) -> List[AgentTool]:
+def load_tools_from_instance(
+    instance: object,
+    disambiguator: Optional[str] = None,
+) -> List[AgentTool]:
     """Load all public methods from an instance as AgentTool objects with name disambiguation.
 
     Instance methods are bound to the given instance and are disambiguated by suffixing the tool name
