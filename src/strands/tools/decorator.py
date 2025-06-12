@@ -157,7 +157,7 @@ class FunctionToolMetadata:
         self._clean_pydantic_schema(input_schema)
 
         # Create tool specification
-        tool_spec = {"name": func_name, "description": description, "inputSchema": {"json": input_schema}}
+        tool_spec: ToolSpec = {"name": func_name, "description": description, "inputSchema": {"json": input_schema}}
 
         return tool_spec
 
@@ -290,7 +290,7 @@ def tool(func: Optional[Callable[..., Any]] = None, **tool_kwargs: Any) -> Calla
         tool_spec = tool_meta.extract_metadata()
 
         # Update with any additional kwargs
-        tool_spec.update(tool_kwargs)
+        tool_spec.update(tool_kwargs)  # type: ignore
 
         # Attach TOOL_SPEC directly to the original function (critical for backward compatibility)
         f.TOOL_SPEC = tool_spec  # type: ignore
