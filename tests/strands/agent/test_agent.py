@@ -318,7 +318,7 @@ def test_agent__call__(
     )
 
     callback_handler.assert_called()
-    conversation_manager_spy.apply_management.assert_called_with(agent.messages)
+    conversation_manager_spy.apply_management.assert_called_with(agent)
 
 
 def test_agent__call__passes_kwargs(mock_model, system_prompt, callback_handler, agent, tool, mock_event_loop_cycle):
@@ -438,7 +438,7 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool):
 
 
 def test_agent__call__always_sliding_window_conversation_manager_doesnt_infinite_loop(mock_model, agent, tool):
-    conversation_manager = SlidingWindowConversationManager(window_size=500)
+    conversation_manager = SlidingWindowConversationManager(window_size=500, should_truncate_results=False)
     conversation_manager_spy = unittest.mock.Mock(wraps=conversation_manager)
     agent.conversation_manager = conversation_manager_spy
 
@@ -484,9 +484,42 @@ def test_agent__call__null_conversation_window_manager__doesnt_infinite_loop(moc
         agent("Test!")
 
 
+def test_agent__call__tool_truncation_doesnt_infinite_loop(mock_model, agent):
+    messages: Messages = [
+        {"role": "user", "content": [{"text": "Hello!"}]},
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "123", "input": {"hello": "world"}, "name": "test"}}],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "123", "content": [{"text": "Some large input!"}], "status": "success"}}
+            ],
+        },
+    ]
+    agent.messages = messages
+
+    mock_model.mock_converse.side_effect = ContextWindowOverflowException(
+        RuntimeError("Input is too long for requested model")
+    )
+
+    with pytest.raises(ContextWindowOverflowException):
+        agent("Test!")
+
+
 def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool):
     conversation_manager_spy = unittest.mock.Mock(wraps=agent.conversation_manager)
     agent.conversation_manager = conversation_manager_spy
+
+    messages: Messages = [
+        {"role": "user", "content": [{"text": "Hello!"}]},
+        {
+            "role": "assistant",
+            "content": [{"text": "Hi!"}],
+        },
+    ]
+    agent.messages = messages
 
     mock_model.mock_converse.side_effect = [
         [
@@ -504,6 +537,9 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool):
             {"contentBlockStop": {}},
             {"messageStop": {"stopReason": "tool_use"}},
         ],
+        # Will truncate the tool result
+        ContextWindowOverflowException(RuntimeError("Input is too long for requested model")),
+        # Will reduce the context
         ContextWindowOverflowException(RuntimeError("Input is too long for requested model")),
         [],
     ]
@@ -538,7 +574,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool):
         unittest.mock.ANY,
     )
 
-    conversation_manager_spy.reduce_context.assert_not_called()
+    assert conversation_manager_spy.reduce_context.call_count == 2
     assert conversation_manager_spy.apply_management.call_count == 1
 
 
@@ -583,7 +619,7 @@ def test_agent_tool(mock_randint, agent):
     }
 
     assert tru_result == exp_result
-    conversation_manager_spy.apply_management.assert_called_with(agent.messages)
+    conversation_manager_spy.apply_management.assert_called_with(agent)
 
 
 def test_agent_tool_user_message_override(agent):
@@ -674,6 +710,46 @@ def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint):
     )
 
 
+def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint):
+    agent.tool_handler = unittest.mock.Mock()
+
+    tool_name = "system-prompter"
+
+    @strands.tools.tool(name=tool_name)
+    def function(system_prompt: str) -> str:
+        return system_prompt
+
+    tool = strands.tools.tools.FunctionTool(function)
+    agent.tool_registry.register_tool(tool)
+
+    mock_randint.return_value = 1
+
+    agent.tool.system_prompter(system_prompt="tool prompt")
+
+    # Verify the correct tool was invoked
+    assert agent.tool_handler.process.call_count == 1
+    tool_call = agent.tool_handler.process.call_args.kwargs.get("tool")
+
+    assert tool_call == {
+        # Note that the tool-use uses the "python safe" name
+        "toolUseId": "tooluse_system_prompter_1",
+        # But the name of the tool is the one in the registry
+        "name": tool_name,
+        "input": {"system_prompt": "tool prompt"},
+    }
+
+
+def test_agent_tool_with_no_normalized_match(agent, tool_registry, mock_randint):
+    agent.tool_handler = unittest.mock.Mock()
+
+    mock_randint.return_value = 1
+
+    with pytest.raises(AttributeError) as err:
+        agent.tool.system_prompter_1(system_prompt="tool prompt")
+
+    assert str(err.value) == "Tool 'system_prompter_1' not found"
+
+
 def test_agent_with_none_callback_handler_prints_nothing():
     agent = Agent()
 
@@ -684,6 +760,37 @@ def test_agent_with_callback_handler_none_uses_null_handler():
     agent = Agent(callback_handler=None)
 
     assert agent.callback_handler == null_callback_handler
+
+
+def test_agent_callback_handler_not_provided_creates_new_instances():
+    """Test that when callback_handler is not provided, new PrintingCallbackHandler instances are created."""
+    # Create two agents without providing callback_handler
+    agent1 = Agent()
+    agent2 = Agent()
+
+    # Both should have PrintingCallbackHandler instances
+    assert isinstance(agent1.callback_handler, PrintingCallbackHandler)
+    assert isinstance(agent2.callback_handler, PrintingCallbackHandler)
+
+    # But they should be different object instances
+    assert agent1.callback_handler is not agent2.callback_handler
+
+
+def test_agent_callback_handler_explicit_none_uses_null_handler():
+    """Test that when callback_handler is explicitly set to None, null_callback_handler is used."""
+    agent = Agent(callback_handler=None)
+
+    # Should use null_callback_handler
+    assert agent.callback_handler is null_callback_handler
+
+
+def test_agent_callback_handler_custom_handler_used():
+    """Test that when a custom callback_handler is provided, it is used."""
+    custom_handler = unittest.mock.Mock()
+    agent = Agent(callback_handler=custom_handler)
+
+    # Should use the provided custom handler
+    assert agent.callback_handler is custom_handler
 
 
 @pytest.mark.asyncio

@@ -63,8 +63,34 @@ def validate_tool_use_name(tool: ToolUse) -> None:
         raise InvalidToolUseNameException(message)
 
 
+def _normalize_property(prop_name: str, prop_def: Any) -> Dict[str, Any]:
+    """Normalize a single property definition.
+
+    Args:
+        prop_name: The name of the property.
+        prop_def: The property definition to normalize.
+
+    Returns:
+        The normalized property definition.
+    """
+    if not isinstance(prop_def, dict):
+        return {"type": "string", "description": f"Property {prop_name}"}
+
+    if prop_def.get("type") == "object" and "properties" in prop_def:
+        return normalize_schema(prop_def)  # Recursive call
+
+    # Copy existing property, ensuring defaults
+    normalized_prop = prop_def.copy()
+    normalized_prop.setdefault("type", "string")
+    normalized_prop.setdefault("description", f"Property {prop_name}")
+    return normalized_prop
+
+
 def normalize_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize a JSON schema to match expectations.
+
+    This function recursively processes nested objects to preserve the complete schema structure.
+    Uses a copy-then-normalize approach to preserve all original schema properties.
 
     Args:
         schema: The schema to normalize.
@@ -72,41 +98,19 @@ def normalize_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         The normalized schema.
     """
-    normalized = {"type": schema.get("type", "object"), "properties": {}}
+    # Start with a complete copy to preserve all existing properties
+    normalized = schema.copy()
 
-    # Handle properties
-    if "properties" in schema:
-        for prop_name, prop_def in schema["properties"].items():
-            if isinstance(prop_def, dict):
-                normalized_prop = {
-                    "type": prop_def.get("type", "string"),
-                    "description": prop_def.get("description", f"Property {prop_name}"),
-                }
+    # Ensure essential structure exists
+    normalized.setdefault("type", "object")
+    normalized.setdefault("properties", {})
+    normalized.setdefault("required", [])
 
-                # Handle enum values correctly
-                if "enum" in prop_def:
-                    normalized_prop["enum"] = prop_def["enum"]
-
-                # Handle numeric constraints
-                if prop_def.get("type") in ["number", "integer"]:
-                    if "minimum" in prop_def:
-                        normalized_prop["minimum"] = prop_def["minimum"]
-                    if "maximum" in prop_def:
-                        normalized_prop["maximum"] = prop_def["maximum"]
-
-                normalized["properties"][prop_name] = normalized_prop
-            else:
-                # Handle non-dict property definitions (like simple strings)
-                normalized["properties"][prop_name] = {
-                    "type": "string",
-                    "description": f"Property {prop_name}",
-                }
-
-    # Required fields
-    if "required" in schema:
-        normalized["required"] = schema["required"]
-    else:
-        normalized["required"] = []
+    # Process properties recursively
+    if "properties" in normalized:
+        properties = normalized["properties"]
+        for prop_name, prop_def in properties.items():
+            normalized["properties"][prop_name] = _normalize_property(prop_name, prop_def)
 
     return normalized
 

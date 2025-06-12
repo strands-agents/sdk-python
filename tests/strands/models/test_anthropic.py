@@ -289,6 +289,7 @@ def test_format_request_with_tool_results(model, model_id, max_tokens):
                         "status": "success",
                         "content": [
                             {"text": "see image"},
+                            {"json": ["see image"]},
                             {
                                 "image": {
                                     "format": "jpg",
@@ -313,6 +314,10 @@ def test_format_request_with_tool_results(model, model_id, max_tokens):
                         "content": [
                             {
                                 "text": "see image",
+                                "type": "text",
+                            },
+                            {
+                                "text": '["see image"]',
                                 "type": "text",
                             },
                             {

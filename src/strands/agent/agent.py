@@ -44,6 +44,16 @@ from .conversation_manager import (
 logger = logging.getLogger(__name__)
 
 
+# Sentinel class and object to distinguish between explicit None and default parameter value
+class _DefaultCallbackHandlerSentinel:
+    """Sentinel class to distinguish between explicit None and default parameter value."""
+
+    pass
+
+
+_DEFAULT_CALLBACK_HANDLER = _DefaultCallbackHandlerSentinel()
+
+
 class Agent:
     """Core Agent interface.
 
@@ -70,10 +80,11 @@ class Agent:
             #          agent tools and thus break their execution.
             self._agent = agent
 
-        def __getattr__(self, name: str) -> Callable:
+        def __getattr__(self, name: str) -> Callable[..., Any]:
             """Call tool as a function.
 
             This method enables the method-style interface (e.g., `agent.tool.tool_name(param="value")`).
+            It matches underscore-separated names to hyphenated tool names (e.g., 'some_thing' matches 'some-thing').
 
             Args:
                 name: The name of the attribute (tool) being accessed.
@@ -82,8 +93,29 @@ class Agent:
                 A function that when called will execute the named tool.
 
             Raises:
-                AttributeError: If no tool with the given name exists.
+                AttributeError: If no tool with the given name exists or if multiple tools match the given name.
             """
+
+            def find_normalized_tool_name() -> Optional[str]:
+                """Lookup the tool represented by name, replacing characters with underscores as necessary."""
+                tool_registry = self._agent.tool_registry.registry
+
+                if tool_registry.get(name, None):
+                    return name
+
+                # If the desired name contains underscores, it might be a placeholder for characters that can't be
+                # represented as python identifiers but are valid as tool names, such as dashes. In that case, find
+                # all tools that can be represented with the normalized name
+                if "_" in name:
+                    filtered_tools = [
+                        tool_name for (tool_name, tool) in tool_registry.items() if tool_name.replace("-", "_") == name
+                    ]
+
+                    # The registry itself defends against similar names, so we can just take the first match
+                    if filtered_tools:
+                        return filtered_tools[0]
+
+                raise AttributeError(f"Tool '{name}' not found")
 
             def caller(**kwargs: Any) -> Any:
                 """Call a tool directly by name.
@@ -105,14 +137,13 @@ class Agent:
                 Raises:
                     AttributeError: If the tool doesn't exist.
                 """
-                if name not in self._agent.tool_registry.registry:
-                    raise AttributeError(f"Tool '{name}' not found")
+                normalized_name = find_normalized_tool_name()
 
                 # Create unique tool ID and set up the tool request
                 tool_id = f"tooluse_{name}_{random.randint(100000000, 999999999)}"
                 tool_use = {
                     "toolUseId": tool_id,
-                    "name": name,
+                    "name": normalized_name,
                     "input": kwargs.copy(),
                 }
 
@@ -165,7 +196,7 @@ class Agent:
                     self._agent._record_tool_execution(tool_use, tool_result, user_message_override, messages)
 
                 # Apply window management
-                self._agent.conversation_manager.apply_management(self._agent.messages)
+                self._agent.conversation_manager.apply_management(self._agent)
 
                 return tool_result
 
@@ -177,7 +208,9 @@ class Agent:
         messages: Optional[Messages] = None,
         tools: Optional[List[Union[str, Dict[str, str], Any]]] = None,
         system_prompt: Optional[str] = None,
-        callback_handler: Optional[Callable] = PrintingCallbackHandler(),
+        callback_handler: Optional[
+            Union[Callable[..., Any], _DefaultCallbackHandlerSentinel]
+        ] = _DEFAULT_CALLBACK_HANDLER,
         conversation_manager: Optional[ConversationManager] = None,
         max_parallel_tools: int = os.cpu_count() or 1,
         record_direct_tool_call: bool = True,
@@ -204,7 +237,8 @@ class Agent:
             system_prompt: System prompt to guide model behavior.
                 If None, the model will behave according to its default settings.
             callback_handler: Callback for processing events as they happen during agent execution.
-                Defaults to strands.handlers.PrintingCallbackHandler if None.
+                If not provided (using the default), a new PrintingCallbackHandler instance is created.
+                If explicitly set to None, null_callback_handler is used.
             conversation_manager: Manager for conversation history and context window.
                 Defaults to strands.agent.conversation_manager.SlidingWindowConversationManager if None.
             max_parallel_tools: Maximum number of tools to run in parallel when the model returns multiple tool calls.
@@ -222,7 +256,17 @@ class Agent:
         self.messages = messages if messages is not None else []
 
         self.system_prompt = system_prompt
-        self.callback_handler = callback_handler or null_callback_handler
+
+        # If not provided, create a new PrintingCallbackHandler instance
+        # If explicitly set to None, use null_callback_handler
+        # Otherwise use the passed callback_handler
+        self.callback_handler: Union[Callable[..., Any], PrintingCallbackHandler]
+        if isinstance(callback_handler, _DefaultCallbackHandlerSentinel):
+            self.callback_handler = PrintingCallbackHandler()
+        elif callback_handler is None:
+            self.callback_handler = null_callback_handler
+        else:
+            self.callback_handler = callback_handler
 
         self.conversation_manager = conversation_manager if conversation_manager else SlidingWindowConversationManager()
 
@@ -415,7 +459,7 @@ class Agent:
             thread.join()
 
     def _run_loop(
-        self, prompt: str, kwargs: Any, supplementary_callback_handler: Optional[Callable] = None
+        self, prompt: str, kwargs: Dict[str, Any], supplementary_callback_handler: Optional[Callable[..., Any]] = None
     ) -> AgentResult:
         """Execute the agent's event loop with the given prompt and parameters."""
         try:
@@ -439,9 +483,9 @@ class Agent:
             return self._execute_event_loop_cycle(invocation_callback_handler, kwargs)
 
         finally:
-            self.conversation_manager.apply_management(self.messages)
+            self.conversation_manager.apply_management(self)
 
-    def _execute_event_loop_cycle(self, callback_handler: Callable, kwargs: dict[str, Any]) -> AgentResult:
+    def _execute_event_loop_cycle(self, callback_handler: Callable[..., Any], kwargs: Dict[str, Any]) -> AgentResult:
         """Execute the event loop cycle with retry logic for context window limits.
 
         This internal method handles the execution of the event loop cycle and implements
@@ -483,7 +527,7 @@ class Agent:
         except ContextWindowOverflowException as e:
             # Try reducing the context size and retrying
 
-            self.conversation_manager.reduce_context(messages, e=e)
+            self.conversation_manager.reduce_context(self, e=e)
             return self._execute_event_loop_cycle(callback_handler_override, kwargs)
 
     def _record_tool_execution(

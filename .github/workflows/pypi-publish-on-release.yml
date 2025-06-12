@@ -8,11 +8,15 @@ on:
 jobs:
   call-test-lint:
     uses: ./.github/workflows/test-lint.yml
+    permissions:
+      contents: read
     with:
       ref: ${{ github.event.release.target_commitish }}
 
   build:
     name: Build distribution 📦
+    permissions:
+      contents: read
     needs:
       - call-test-lint
     runs-on: ubuntu-latest
