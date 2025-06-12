@@ -153,6 +153,18 @@ def handle_content_block_delta(
                 **kwargs,
             )
 
+        elif "redactedContent" in delta_content["reasoningContent"]:
+            if "redactedContent" not in state:
+                state["redactedContent"] = b""
+
+            state["redactedContent"] += delta_content["reasoningContent"]["redactedContent"]
+            callback_handler(
+                redactedContent=delta_content["reasoningContent"]["redactedContent"],
+                delta=delta_content,
+                reasoning=True,
+                **kwargs,
+            )
+
     return state
 
 
@@ -170,6 +182,7 @@ def handle_content_block_stop(state: Dict[str, Any]) -> Dict[str, Any]:
     current_tool_use = state["current_tool_use"]
     text = state["text"]
     reasoning_text = state["reasoningText"]
+    redacted_content = state["redactedContent"]
 
     if current_tool_use:
         if "input" not in current_tool_use:
@@ -207,6 +220,9 @@ def handle_content_block_stop(state: Dict[str, Any]) -> Dict[str, Any]:
             }
         )
         state["reasoningText"] = ""
+    elif redacted_content:
+        content.append({"reasoningContent": {"redactedContent": redacted_content}})
+        state["redactedContent"] = b""
 
     return state
 
@@ -279,6 +295,7 @@ def process_stream(
         "current_tool_use": {},
         "reasoningText": "",
         "signature": "",
+        "redactedContent": b"",
     }
     state["content"] = state["message"]["content"]
 
