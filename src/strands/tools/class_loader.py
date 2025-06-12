@@ -119,7 +119,7 @@ def load_tools_from_instance(
         tools = load_tools_from_instance(instance, disambiguator="special")
         # tools is a list of AgentTool objects for foo and bar, with foo disambiguated as 'myclass_foo_special'
     """
-    methods = []
+    methods: List[AgentTool] = []
     class_name = instance.__class__.__name__.lower()
     for name, _member in inspect.getmembers(instance.__class__):
         if name.startswith("_"):
