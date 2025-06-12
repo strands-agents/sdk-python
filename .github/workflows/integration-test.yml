@@ -26,13 +26,7 @@ jobs:
               return
             }
             
-            const isOwner = pr.author_association === 'OWNER'
-            if (isOwner) {
-              core.info('PR author is an OWNER')
-              return
-            }
-
-            core.setFailed('Pull Request must either have label approved-for-integ-test or be created by an owner')
+            core.setFailed('Pull Request must either have label approved-for-integ-test')
       - name: Configure Credentials 
         uses: aws-actions/configure-aws-credentials@v4
         with: 
