@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from strands import tool
 from strands.tools import PythonAgentTool
 from strands.tools.registry import ToolRegistry
 
@@ -43,3 +44,25 @@ def test_register_tool_with_similar_name_raises():
         str(err.value) == "Tool name 'tool_like_this' already exists as 'tool-like-this'. "
         "Cannot add a duplicate tool which differs by a '-' or '_'"
     )
+
+
+@pytest.fixture
+def test_agent():
+    class TestAgent:
+        @tool
+        def word_counter(self, text: str) -> str:
+            """Count words in text"""
+            return f"Word count: {len(text.split())}"
+
+    return TestAgent()
+
+
+@pytest.fixture
+def tool_registry():
+    return ToolRegistry()
+
+
+def test_class_method_register_tool(test_agent, tool_registry):
+    registered_tool_names = tool_registry.process_tools([test_agent.word_counter])
+    assert len(registered_tool_names) == 1
+    assert registered_tool_names[0] == "word_counter"
