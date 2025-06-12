@@ -111,9 +111,7 @@ class Agent:
                         tool_name for (tool_name, tool) in tool_registry.items() if tool_name.replace("-", "_") == name
                     ]
 
-                    if len(filtered_tools) > 1:
-                        raise AttributeError(f"Multiple tools matching '{name}' found: {', '.join(filtered_tools)}")
-
+                    # The registry itself defends against similar names, so we can just take the first match
                     if filtered_tools:
                         return filtered_tools[0]
 
