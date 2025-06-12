@@ -47,6 +47,8 @@ from typing import Any, Callable, Dict, Optional, Type, TypeVar, cast, get_type_
 import docstring_parser
 from pydantic import BaseModel, Field, create_model
 
+from ..types.tools import ToolSpec
+
 # Type for wrapped function
 T = TypeVar("T", bound=Callable[..., Any])
 
@@ -124,7 +126,7 @@ class FunctionToolMetadata:
             # Handle case with no parameters
             return create_model(model_name)
 
-    def extract_metadata(self) -> Dict[str, Any]:
+    def extract_metadata(self) -> ToolSpec:
         """Extract metadata from the function to create a tool specification.
 
         This method analyzes the function to create a standardized tool specification that Strands Agent can use to

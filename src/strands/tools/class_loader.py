@@ -50,7 +50,7 @@ class GenericFunctionTool(AgentTool):
     @property
     def tool_name(self) -> str:
         """Return the tool's name."""
-        return self._tool_spec["name"]
+        return str(self._tool_spec["name"])
 
     @property
     def tool_spec(self) -> ToolSpec:
