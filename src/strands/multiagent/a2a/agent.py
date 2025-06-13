@@ -22,17 +22,12 @@ log = logging.getLogger(__name__)
 
 
 class A2AAgent:
-    """A2A-compatible wrapper for Strands Agent.
-
-    This class adapts a Strands Agent to the A2A protocol, allowing it to be used
-    in A2A-compatible systems.
-    """
+    """A2A-compatible wrapper for Strands Agent."""
 
     def __init__(
         self,
         agent: SAAgent,
         *,
-        # AgentCard
         name: str,
         description: str,
         host: str = "localhost",
@@ -41,8 +36,13 @@ class A2AAgent:
     ):
         """Initialize an A2A-compatible agent from a Strands agent.
 
-        TODO: add args
-
+        Args:
+            agent: The Strands Agent to wrap with A2A compatibility.
+            name: The name of the agent, used in the AgentCard.
+            description: A description of the agent's capabilities, used in the AgentCard.
+            host: The hostname or IP address to bind the A2A server to. Defaults to "localhost".
+            port: The port to bind the A2A server to. Defaults to 9000.
+            version: The version of the agent. Defaults to "0.0.1".
         """
         self.name = name
         self.description = description
@@ -59,7 +59,15 @@ class A2AAgent:
 
     @property
     def public_agent_card(self) -> AgentCard:
-        """AgentCard."""
+        """Get the public AgentCard for this agent.
+
+        The AgentCard contains metadata about the agent, including its name,
+        description, URL, version, skills, and capabilities. This information
+        is used by other agents and systems to discover and interact with this agent.
+
+        Returns:
+            AgentCard: The public agent card containing metadata about this agent.
+        """
         return AgentCard(
             name=self.name,
             description=self.description,
@@ -73,24 +81,50 @@ class A2AAgent:
 
     @property
     def agent_skills(self) -> list[AgentSkill]:
-        """AgentSkills."""
+        """Get the list of skills this agent provides.
+
+        Skills represent specific capabilities that the agent can perform.
+        Strands agent tools are adapted to A2A skills.
+
+        Returns:
+            list[AgentSkill]: A list of skills this agent provides.
+        """
         return []
 
     def to_starlette_app(self) -> Starlette:
-        """Startlette app."""
+        """Create a Starlette application for serving this agent via HTTP.
+
+        This method creates a Starlette application that can be used to serve
+        the agent via HTTP using the A2A protocol.
+
+        Returns:
+            Starlette: A Starlette application configured to serve this agent.
+        """
         starlette_app = A2AStarletteApplication(agent_card=self.public_agent_card, http_handler=self.request_handler)
         return starlette_app.build()
 
     def to_fastapi_app(self) -> FastAPI:
-        """FastAPI app."""
+        """Create a FastAPI application for serving this agent via HTTP.
+
+        This method creates a FastAPI application that can be used to serve
+        the agent via HTTP using the A2A protocol.
+
+        Returns:
+            FastAPI: A FastAPI application configured to serve this agent.
+        """
         fastapi_app = A2AFastAPIApplication(agent_card=self.public_agent_card, http_handler=self.request_handler)
         return fastapi_app.build()
 
     def serve(self, app_type: Literal["fastapi", "starlette"] = "starlette", **kwargs: Any) -> None:
         """Start the A2A server with the specified application type.
 
+        This method starts an HTTP server that exposes the agent via the A2A protocol.
+        The server can be implemented using either FastAPI or Starlette, depending on
+        the specified app_type.
+
         Args:
             app_type: The type of application to serve, either "fastapi" or "starlette".
+                Defaults to "starlette".
             **kwargs: Additional keyword arguments to pass to uvicorn.run.
         """
         try:
