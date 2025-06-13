@@ -16,6 +16,7 @@ from opentelemetry import propagate
 from opentelemetry.baggage.propagation import W3CBaggagePropagator
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.propagators.composite import CompositePropagator
+
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider as SDKTracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
@@ -139,7 +140,6 @@ class Tracer:
         self.otlp_headers = otlp_headers or {}
         self.tracer_provider: Optional[trace_api.TracerProvider] = None
         self.tracer: Optional[trace_api.Tracer] = None
-
         propagate.set_global_textmap(
             CompositePropagator(
                 [
@@ -153,10 +153,10 @@ class Tracer:
             self._initialize_tracer()
 
     def _initialize_tracer(self) -> None:
-        """Initialize the OpenTelemetry tracer."""
-        logger.info("initializing tracer")
+        """Initialize the OpenTelemetry tracer and meter."""
+        logger.info("initializing tracer and meter")
 
-        if self._is_initialized():
+        if self._is_tracer_initialized():
             self.tracer_provider = trace_api.get_tracer_provider()
             self.tracer = self.tracer_provider.get_tracer(self.service_name)
             return
@@ -175,13 +175,13 @@ class Tracer:
         self.tracer_provider = SDKTracerProvider(resource=resource)
 
         # Add console exporter if enabled
-        if self.enable_console_export and self.tracer_provider:
+        if self.enable_console_export:
             logger.info("enabling console export")
             console_processor = SimpleSpanProcessor(ConsoleSpanExporter())
             self.tracer_provider.add_span_processor(console_processor)
 
         # Add OTLP exporter if endpoint is provided
-        if self.otlp_endpoint and self.tracer_provider:
+        if self.otlp_endpoint:
             try:
                 # Ensure endpoint has the right format
                 endpoint = self.otlp_endpoint
@@ -204,6 +204,7 @@ class Tracer:
                 batch_processor = BatchSpanProcessor(otlp_exporter)
                 self.tracer_provider.add_span_processor(batch_processor)
                 logger.info("endpoint=<%s> | OTLP exporter configured with endpoint", endpoint)
+
             except Exception as e:
                 logger.exception("error=<%s> | Failed to configure OTLP exporter", e)
 
@@ -211,10 +212,10 @@ class Tracer:
         trace_api.set_tracer_provider(self.tracer_provider)
         self.tracer = trace_api.get_tracer(self.service_name)
 
-    def _is_initialized(self) -> bool:
+    def _is_tracer_initialized(self) -> bool:
         tracer_provider = trace_api.get_tracer_provider()
         return isinstance(tracer_provider, SDKTracerProvider)
-
+    
     def _start_span(
         self,
         span_name: str,
@@ -562,7 +563,6 @@ class Tracer:
 
 # Singleton instance for global access
 _tracer_instance = None
-
 
 def get_tracer(
     service_name: str = "strands-agents",
