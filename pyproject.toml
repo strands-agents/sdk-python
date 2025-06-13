@@ -83,6 +83,7 @@ a2a = [
     "uvicorn>=0.34.2",
     "httpx>=0.28.1",
     "protobuf==6.31.1",
+    "fastapi>=0.115.12",
 ]
 
 [tool.hatch.version]
@@ -90,7 +91,7 @@ a2a = [
 source = "vcs"
 
 [tool.hatch.envs.hatch-static-analysis]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "a2a"]
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
   "ruff>=0.11.6,<0.12.0",
