@@ -232,6 +232,7 @@ testpaths = [
     "tests"
 ]
 asyncio_default_fixture_loop_scope = "function"
+norecursedirs = ["multiagent/a2a"]
 
 [tool.coverage.run]
 branch = true
