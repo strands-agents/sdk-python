@@ -135,9 +135,7 @@ features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel-e
 
 [tool.hatch.envs.a2a]
 dev-mode = true
-features = ["a2a"]
-
-
+features = ["dev", "a2a"]
 
 [[tool.hatch.envs.hatch-test.matrix]]
 python = ["3.13", "3.12", "3.11", "3.10"]
@@ -228,6 +226,7 @@ testpaths = [
     "tests"
 ]
 asyncio_default_fixture_loop_scope = "function"
+norecursedirs = ["multiagent/a2a"]
 
 [tool.coverage.run]
 branch = true
