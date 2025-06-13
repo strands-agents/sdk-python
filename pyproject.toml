@@ -86,6 +86,7 @@ a2a = [
     "fastapi>=0.115.12",
     "starlette>=0.46.2",
     "protobuf==6.31.1",
+    "fastapi>=0.115.12",
 ]
 
 [tool.hatch.version]

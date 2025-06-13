@@ -8,7 +8,6 @@ from a2a.types import (
     AgentCard,
     MessageSendParams,
     SendMessageRequest,
-    SendStreamingMessageRequest,
 )
 
 
@@ -78,16 +77,18 @@ async def main() -> None:
         request = SendMessageRequest(id=str(uuid4()), params=MessageSendParams(**send_message_payload))
 
         response = await client.send_message(request)
+        print("Sync Response", end="\n\n")
         print(response.model_dump(mode="json", exclude_none=True))
 
-        streaming_request = SendStreamingMessageRequest(
-            id=str(uuid4()), params=MessageSendParams(**send_message_payload)
-        )
+        # streaming_request = SendStreamingMessageRequest(
+        #     id=str(uuid4()), params=MessageSendParams(**send_message_payload)
+        # )
+        #
+        # stream_response = client.send_message_streaming(streaming_request)
 
-        stream_response = client.send_message_streaming(streaming_request)
-
-        async for chunk in stream_response:
-            print(chunk.model_dump(mode="json", exclude_none=True))
+        # print("Streaming Response", end="\n\n")
+        # async for chunk in stream_response:
+        #     print(chunk.model_dump(mode="json", exclude_none=True))
 
 
 if __name__ == "__main__":
