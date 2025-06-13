@@ -5,7 +5,7 @@
 
 import json
 import logging
-from typing import Any, Iterable, Optional, Type, cast
+from typing import Any, Callable, Iterable, Optional, Type, TypeVar, cast
 
 from ollama import Client as OllamaClient
 from pydantic import BaseModel
@@ -17,6 +17,8 @@ from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolSpec
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class OllamaModel(Model):
@@ -313,18 +315,20 @@ class OllamaModel(Model):
         yield {"chunk_type": "metadata", "data": event}
 
     @override
-    def structured_output(self, output_model: Type[BaseModel], prompt: Messages) -> BaseModel:
+    def structured_output(
+        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
+    ) -> T:
         """Get structured output from the model.
 
         Args:
             output_model(Type[BaseModel]): The output model to use for the agent.
-            prompt(Messages): The prompt to use for the agent.
+            prompt(Messages): The prompt messages to use for the agent.
+            callback_handler(Optional[Callable]): Optional callback handler for processing events. Defaults to None.
         """
         formatted_request = self.format_request(messages=prompt)
         formatted_request["format"] = output_model.model_json_schema()
         formatted_request["stream"] = False
         response = self.client.chat(**formatted_request)
-        print(response)
 
         try:
             content = response.message.content.strip()

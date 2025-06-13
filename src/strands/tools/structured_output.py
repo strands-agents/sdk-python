@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from ..types.tools import ToolSpec
 
 
-def flatten_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+def _flatten_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
     """Flattens a JSON schema by removing $defs and resolving $ref references.
 
     Handles required vs optional fields properly.
@@ -253,7 +253,7 @@ def process_nested_dict(d: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, An
     return result
 
 
-def convert_pydantic_to_bedrock_tool(
+def convert_pydantic_to_tool_spec(
     model: Type[BaseModel],
     description: Optional[str] = None,
 ) -> ToolSpec:
@@ -286,7 +286,7 @@ def convert_pydantic_to_bedrock_tool(
     expand_nested_properties(input_schema, model)
 
     # Flatten the schema
-    flattened_schema = flatten_schema(input_schema)
+    flattened_schema = _flatten_schema(input_schema)
 
     final_schema = flattened_schema
 

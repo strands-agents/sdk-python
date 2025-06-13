@@ -3,7 +3,7 @@ from typing import Literal
 import pytest
 from pydantic import BaseModel, Field
 
-from strands.tools.structured_output import convert_pydantic_to_bedrock_tool
+from strands.tools.structured_output import convert_pydantic_to_tool_spec
 from strands.types.tools import ToolSpec
 
 
@@ -116,21 +116,21 @@ def complex_user_tool_spec_json():
     }
 
 
-def test_convert_pydantic_to_bedrock_tool_basic(
+def test_convert_pydantic_to_tool_spec_basic(
     user_model,
     basic_user_tool_spec,
 ):
-    tool_spec = convert_pydantic_to_bedrock_tool(user_model)
+    tool_spec = convert_pydantic_to_tool_spec(user_model)
 
     assert tool_spec == basic_user_tool_spec
     assert ToolSpec(**tool_spec) == ToolSpec(**basic_user_tool_spec)
 
 
-def test_convert_pydantic_to_bedrock_tool_complex(
+def test_convert_pydantic_to_tool_spec_complex(
     user_with_employment_model,
     complex_user_tool_spec_json,
 ):
-    tool_spec = convert_pydantic_to_bedrock_tool(user_with_employment_model)
+    tool_spec = convert_pydantic_to_tool_spec(user_with_employment_model)
 
     assert tool_spec == complex_user_tool_spec_json
     assert ToolSpec(**tool_spec) == ToolSpec(**complex_user_tool_spec_json)

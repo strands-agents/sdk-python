@@ -16,7 +16,7 @@ import os
 import random
 from concurrent.futures import ThreadPoolExecutor
 from threading import Thread
-from typing import Any, AsyncIterator, Callable, Dict, List, Mapping, Optional, Type, Union
+from typing import Any, AsyncIterator, Callable, Dict, List, Mapping, Optional, Type, TypeVar, Union
 from uuid import uuid4
 
 from opentelemetry import trace
@@ -43,6 +43,9 @@ from .conversation_manager import (
 )
 
 logger = logging.getLogger(__name__)
+
+# TypeVar for generic structured output
+T = TypeVar("T", bound=BaseModel)
 
 
 # Sentinel class and object to distinguish between explicit None and default parameter value
@@ -367,7 +370,7 @@ class Agent:
             # Re-raise the exception to preserve original behavior
             raise
 
-    def structured_output(self, output_model: Type[BaseModel], prompt: Optional[str] = None) -> BaseModel:
+    def structured_output(self, output_model: Type[T], prompt: Optional[str] = None) -> T:
         """This method allows you to get structured output from the agent.
 
         If you pass in a prompt, it will be added to the conversation history and the agent will respond to it.
@@ -391,7 +394,7 @@ class Agent:
             messages.append({"role": "user", "content": [{"text": prompt}]})
 
         # get the structured output from the model
-        return self.model.structured_output(output_model, messages)
+        return self.model.structured_output(output_model, messages, self.callback_handler)
 
     async def stream_async(self, prompt: str, **kwargs: Any) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.

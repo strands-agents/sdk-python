@@ -4,7 +4,7 @@
 """
 
 import logging
-from typing import Any, Iterable, Optional, Protocol, Type, TypedDict, cast
+from typing import Any, Callable, Iterable, Optional, Protocol, Type, TypedDict, TypeVar, cast
 
 import openai
 from openai.types.chat.parsed_chat_completion import ParsedChatCompletion
@@ -15,6 +15,8 @@ from ..types.content import Messages
 from ..types.models import OpenAIModel as SAOpenAIModel
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class Client(Protocol):
@@ -130,12 +132,15 @@ class OpenAIModel(SAOpenAIModel):
         yield {"chunk_type": "metadata", "data": event.usage}
 
     @override
-    def structured_output(self, output_model: Type[BaseModel], prompt: Messages) -> BaseModel:
+    def structured_output(
+        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
+    ) -> T:
         """Get structured output from the model.
 
         Args:
             output_model(Type[BaseModel]): The output model to use for the agent.
-            prompt(Messages): The prompt to use for the agent.
+            prompt(Messages): The prompt messages to use for the agent.
+            callback_handler(Optional[Callable]): Optional callback handler for processing events. Defaults to None.
         """
         response: ParsedChatCompletion = self.client.beta.chat.completions.parse(  # type: ignore
             model=self.get_config()["model_id"],
@@ -143,7 +148,7 @@ class OpenAIModel(SAOpenAIModel):
             response_format=output_model,
         )
 
-        parsed: BaseModel | None = None
+        parsed: T | None = None
         # Find the first choice with tool_calls
         for choice in response.choices:
             if isinstance(choice.message.parsed, output_model):

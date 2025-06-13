@@ -738,7 +738,9 @@ def test_agent_method_structured_output(agent):
     assert result == expected_user
 
     # Verify the model's structured_output was called with correct arguments
-    agent.model.structured_output.assert_called_once_with(User, [{"role": "user", "content": [{"text": prompt}]}])
+    agent.model.structured_output.assert_called_once_with(
+        User, [{"role": "user", "content": [{"text": prompt}]}], agent.callback_handler
+    )
 
 
 @pytest.mark.asyncio

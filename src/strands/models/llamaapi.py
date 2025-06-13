@@ -8,7 +8,7 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Iterable, Optional, Type, cast
+from typing import Any, Callable, Iterable, Optional, Type, TypeVar, cast
 
 import llama_api_client
 from llama_api_client import LlamaAPIClient
@@ -22,6 +22,8 @@ from ..types.streaming import StreamEvent, Usage
 from ..types.tools import ToolResult, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class LlamaAPIModel(Model):
@@ -387,12 +389,15 @@ class LlamaAPIModel(Model):
             yield {"chunk_type": "metadata", "data": metrics_event}
 
     @override
-    def structured_output(self, output_model: Type[BaseModel], prompt: Messages) -> BaseModel:
+    def structured_output(
+        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
+    ) -> T:
         """Get structured output from the model.
 
         Args:
             output_model(Type[BaseModel]): The output model to use for the agent.
-            prompt(Messages): The prompt to use for the agent.
+            prompt(Messages): The prompt messages to use for the agent.
+            callback_handler(Optional[Callable]): Optional callback handler for processing events. Defaults to None.
 
         Raises:
             NotImplementedError: Structured output is not currently supported for LlamaAPI models.

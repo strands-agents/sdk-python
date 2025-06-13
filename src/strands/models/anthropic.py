@@ -7,7 +7,7 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Iterable, Optional, Type, TypedDict, cast
+from typing import Any, Callable, Iterable, Optional, Type, TypedDict, TypeVar, cast
 
 import anthropic
 from pydantic import BaseModel
@@ -15,7 +15,7 @@ from typing_extensions import Required, Unpack, override
 
 from ..event_loop.streaming import process_stream
 from ..handlers.callback_handler import PrintingCallbackHandler
-from ..tools import convert_pydantic_to_bedrock_tool
+from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.models import Model
@@ -23,6 +23,8 @@ from ..types.streaming import StreamEvent
 from ..types.tools import ToolSpec
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class AnthropicModel(Model):
@@ -375,23 +377,28 @@ class AnthropicModel(Model):
             raise error
 
     @override
-    def structured_output(self, output_model: Type[BaseModel], prompt: Messages) -> BaseModel:
+    def structured_output(
+        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
+    ) -> T:
         """Get structured output from the model.
 
         Args:
             output_model(Type[BaseModel]): The output model to use for the agent.
-            prompt(Optional[str]): The prompt to use for the agent. Defaults to None.
+            prompt(Messages): The prompt messages to use for the agent.
+            callback_handler(Optional[Callable]): Optional callback handler for processing events. Defaults to None.
         """
-        tool_spec = convert_pydantic_to_bedrock_tool(output_model)
+        tool_spec = convert_pydantic_to_tool_spec(output_model)
 
         response = self.converse(messages=prompt, tool_specs=[tool_spec])
         # process the stream and get the tool use input
-        results = process_stream(response, callback_handler=PrintingCallbackHandler(), messages=prompt)
+        results = process_stream(
+            response, callback_handler=callback_handler or PrintingCallbackHandler(), messages=prompt
+        )
 
         stop_reason, messages, _, _, _ = results
 
         if stop_reason != "tool_use":
-            raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
+            raise ValueError("No valid tool use or tool use input was found in the Anthropic response.")
 
         content = messages["content"]
         output_response: dict[str, Any] | None = None
@@ -404,6 +411,6 @@ class AnthropicModel(Model):
                 continue
 
         if output_response is None:
-            raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
+            raise ValueError("No valid tool use or tool use input was found in the Anthropic response.")
 
         return output_model(**output_response)

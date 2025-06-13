@@ -6,7 +6,7 @@
 import json
 import logging
 import os
-from typing import Any, Iterable, List, Literal, Optional, Type, cast
+from typing import Any, Callable, Iterable, List, Literal, Optional, Type, TypeVar, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -16,7 +16,7 @@ from typing_extensions import TypedDict, Unpack, override
 
 from ..event_loop.streaming import process_stream
 from ..handlers.callback_handler import PrintingCallbackHandler
-from ..tools import convert_pydantic_to_bedrock_tool
+from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.models import Model
@@ -32,6 +32,8 @@ BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
     "input length and `max_tokens` exceed context limit",
     "too many total text bytes",
 ]
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class BedrockModel(Model):
@@ -483,18 +485,23 @@ class BedrockModel(Model):
         return False
 
     @override
-    def structured_output(self, output_model: Type[BaseModel], prompt: Messages) -> BaseModel:
+    def structured_output(
+        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
+    ) -> T:
         """Get structured output from the model.
 
         Args:
             output_model(Type[BaseModel]): The output model to use for the agent.
-            prompt(Optional[str]): The prompt to use for the agent. Defaults to None.
+            prompt(Messages): The prompt messages to use for the agent.
+            callback_handler(Optional[Callable]): Optional callback handler for processing events. Defaults to None.
         """
-        tool_spec = convert_pydantic_to_bedrock_tool(output_model)
+        tool_spec = convert_pydantic_to_tool_spec(output_model)
 
         response = self.converse(messages=prompt, tool_specs=[tool_spec])
         # process the stream and get the tool use input
-        results = process_stream(response, callback_handler=PrintingCallbackHandler(), messages=prompt)
+        results = process_stream(
+            response, callback_handler=callback_handler or PrintingCallbackHandler(), messages=prompt
+        )
 
         stop_reason, messages, _, _, _ = results
 
