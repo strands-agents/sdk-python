@@ -6,6 +6,10 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
+import opentelemetry.metrics as metrics_api
+from opentelemetry.metrics import Counter, Meter
+
+from ..telemetry import metrics_constants as constants
 from ..types.content import Message
 from ..types.streaming import Metrics, Usage
 from ..types.tools import ToolUse
@@ -355,3 +359,45 @@ def metrics_to_string(event_loop_metrics: EventLoopMetrics, allowed_names: Optio
         A formatted string representation of the metrics.
     """
     return "\n".join(_metrics_summary_to_lines(event_loop_metrics, allowed_names or set()))
+
+
+class MetricsClient:
+    """Singleton client for managing OpenTelemetry metrics instruments.
+
+    The actual metrics export destination (console, OTLP endpoint, etc.) is configured
+    through OpenTelemetry SDK configuration by users, not by this client.
+    """
+
+    _instance: Optional["MetricsClient"] = None
+    meter: Meter
+    strands_agent_invocation_count: Counter
+
+    def __new__(cls) -> "MetricsClient":
+        """Create or return the singleton instance of MetricsClient.
+
+        Returns:
+            The single MetricsClient instance.
+        """
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __init__(self) -> None:
+        """Initialize the MetricsClient.
+
+        This method only runs once due to the singleton pattern.
+        Sets up the OpenTelemetry meter and creates metric instruments.
+        """
+        if hasattr(self, "meter"):
+            return
+
+        logger.info("Creating Strands MetricsClient")
+        meter_provider: metrics_api.MeterProvider = metrics_api.get_meter_provider()
+        self.meter = meter_provider.get_meter(__name__)
+        self.create_instruments()
+
+    def create_instruments(self) -> None:
+        """Create and initialize all OpenTelemetry metric instruments."""
+        self.strands_agent_invocation_count = self.meter.create_counter(
+            name=constants.STRANDS_AGENT_INVOCATION_COUNT, unit="Count"
+        )
