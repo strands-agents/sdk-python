@@ -33,9 +33,8 @@ dependencies = [
     "pydantic>=2.0.0,<3.0.0",
     "typing-extensions>=4.13.2,<5.0.0",
     "watchdog>=6.0.0,<7.0.0",
-    "opentelemetry-api>=1.30.0,<2.0.0",
-    "opentelemetry-sdk>=1.30.0,<2.0.0",
-    "opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0",
+    "opentelemetry-api>=1.33.0,<2.0.0",
+    "opentelemetry-sdk>=1.33.0,<2.0.0",
 ]
 
 [project.urls]
@@ -78,13 +77,22 @@ ollama = [
 openai = [
     "openai>=1.68.0,<2.0.0",
 ]
+otel-export = [
+    "opentelemetry-exporter-otlp-proto-http>=1.33.0,<2.0.0",
+]
+a2a = [
+    "a2a-sdk>=0.2.6",
+    "uvicorn>=0.34.2",
+    "httpx>=0.28.1",
+    "fastapi>=0.115.12",
+]
 
 [tool.hatch.version]
 # Tells Hatch to use your version control system (git) to determine the version.
 source = "vcs"
 
 [tool.hatch.envs.hatch-static-analysis]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel-export", "a2a"]
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
   "ruff>=0.11.6,<0.12.0",
@@ -107,7 +115,7 @@ lint-fix = [
 ]
 
 [tool.hatch.envs.hatch-test]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel-export"]
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
@@ -123,9 +131,11 @@ extra-args = [
 
 [tool.hatch.envs.dev]
 dev-mode = true
-features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama"]
+features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel-export"]
 
-
+[tool.hatch.envs.a2a]
+dev-mode = true
+features = ["dev", "a2a"]
 
 [[tool.hatch.envs.hatch-test.matrix]]
 python = ["3.13", "3.12", "3.11", "3.10"]
@@ -191,6 +201,9 @@ ignore_missing_imports = true
 line-length = 120
 include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests-integ/**/*.py"]
 
+[tool.ruff.format]
+docstring-code-format = true
+
 [tool.ruff.lint]
 select = [
   "B", # flake8-bugbear
@@ -213,6 +226,7 @@ testpaths = [
     "tests"
 ]
 asyncio_default_fixture_loop_scope = "function"
+norecursedirs = ["multiagent/a2a"]
 
 [tool.coverage.run]
 branch = true
