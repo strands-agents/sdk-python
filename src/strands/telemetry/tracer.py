@@ -11,12 +11,16 @@ from datetime import date, datetime, timezone
 from importlib.metadata import version
 from typing import Any, Dict, Mapping, Optional
 
-from opentelemetry import trace
+import opentelemetry.trace as trace_api
+from opentelemetry import propagate
+from opentelemetry.baggage.propagation import W3CBaggagePropagator
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.propagators.composite import CompositePropagator
 from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace import TracerProvider as SDKTracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
-from opentelemetry.trace import StatusCode
+from opentelemetry.trace import Span, StatusCode
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from ..agent.agent_result import AgentResult
 from ..types.content import Message, Messages
@@ -133,15 +137,29 @@ class Tracer:
 
         self.service_name = service_name
         self.otlp_headers = otlp_headers or {}
-        self.tracer_provider: Optional[TracerProvider] = None
-        self.tracer: Optional[trace.Tracer] = None
+        self.tracer_provider: Optional[trace_api.TracerProvider] = None
+        self.tracer: Optional[trace_api.Tracer] = None
 
+        propagate.set_global_textmap(
+            CompositePropagator(
+                [
+                    W3CBaggagePropagator(),
+                    TraceContextTextMapPropagator(),
+                ]
+            )
+        )
         if self.otlp_endpoint or self.enable_console_export:
+            # Create our own tracer provider
             self._initialize_tracer()
 
     def _initialize_tracer(self) -> None:
         """Initialize the OpenTelemetry tracer."""
         logger.info("initializing tracer")
+
+        if self._is_initialized():
+            self.tracer_provider = trace_api.get_tracer_provider()
+            self.tracer = self.tracer_provider.get_tracer(self.service_name)
+            return
 
         # Create resource with service information
         resource = Resource.create(
@@ -154,7 +172,7 @@ class Tracer:
         )
 
         # Create tracer provider
-        self.tracer_provider = TracerProvider(resource=resource)
+        self.tracer_provider = SDKTracerProvider(resource=resource)
 
         # Add console exporter if enabled
         if self.enable_console_export and self.tracer_provider:
@@ -190,15 +208,19 @@ class Tracer:
                 logger.exception("error=<%s> | Failed to configure OTLP exporter", e)
 
         # Set as global tracer provider
-        trace.set_tracer_provider(self.tracer_provider)
-        self.tracer = trace.get_tracer(self.service_name)
+        trace_api.set_tracer_provider(self.tracer_provider)
+        self.tracer = trace_api.get_tracer(self.service_name)
+
+    def _is_initialized(self) -> bool:
+        tracer_provider = trace_api.get_tracer_provider()
+        return isinstance(tracer_provider, SDKTracerProvider)
 
     def _start_span(
         self,
         span_name: str,
-        parent_span: Optional[trace.Span] = None,
+        parent_span: Optional[Span] = None,
         attributes: Optional[Dict[str, AttributeValue]] = None,
-    ) -> Optional[trace.Span]:
+    ) -> Optional[Span]:
         """Generic helper method to start a span with common attributes.
 
         Args:
@@ -212,7 +234,7 @@ class Tracer:
         if self.tracer is None:
             return None
 
-        context = trace.set_span_in_context(parent_span) if parent_span else None
+        context = trace_api.set_span_in_context(parent_span) if parent_span else None
         span = self.tracer.start_span(name=span_name, context=context)
 
         # Set start time as a common attribute
@@ -224,7 +246,7 @@ class Tracer:
 
         return span
 
-    def _set_attributes(self, span: trace.Span, attributes: Dict[str, AttributeValue]) -> None:
+    def _set_attributes(self, span: Span, attributes: Dict[str, AttributeValue]) -> None:
         """Set attributes on a span, handling different value types appropriately.
 
         Args:
@@ -239,7 +261,7 @@ class Tracer:
 
     def _end_span(
         self,
-        span: trace.Span,
+        span: Span,
         attributes: Optional[Dict[str, AttributeValue]] = None,
         error: Optional[Exception] = None,
     ) -> None:
@@ -272,13 +294,13 @@ class Tracer:
         finally:
             span.end()
             # Force flush to ensure spans are exported
-            if self.tracer_provider:
+            if self.tracer_provider and hasattr(self.tracer_provider, 'force_flush'):
                 try:
                     self.tracer_provider.force_flush()
                 except Exception as e:
                     logger.warning("error=<%s> | failed to force flush tracer provider", e)
 
-    def end_span_with_error(self, span: trace.Span, error_message: str, exception: Optional[Exception] = None) -> None:
+    def end_span_with_error(self, span: Span, error_message: str, exception: Optional[Exception] = None) -> None:
         """End a span with error status.
 
         Args:
@@ -294,12 +316,12 @@ class Tracer:
 
     def start_model_invoke_span(
         self,
-        parent_span: Optional[trace.Span] = None,
+        parent_span: Optional[Span] = None,
         agent_name: str = "Strands Agent",
         messages: Optional[Messages] = None,
         model_id: Optional[str] = None,
         **kwargs: Any,
-    ) -> Optional[trace.Span]:
+    ) -> Optional[Span]:
         """Start a new span for a model invocation.
 
         Args:
@@ -328,7 +350,7 @@ class Tracer:
         return self._start_span("Model invoke", parent_span, attributes)
 
     def end_model_invoke_span(
-        self, span: trace.Span, message: Message, usage: Usage, error: Optional[Exception] = None
+        self, span: Span, message: Message, usage: Usage, error: Optional[Exception] = None
     ) -> None:
         """End a model invocation span with results and metrics.
 
@@ -347,9 +369,7 @@ class Tracer:
 
         self._end_span(span, attributes, error)
 
-    def start_tool_call_span(
-        self, tool: ToolUse, parent_span: Optional[trace.Span] = None, **kwargs: Any
-    ) -> Optional[trace.Span]:
+    def start_tool_call_span(self, tool: ToolUse, parent_span: Optional[Span] = None, **kwargs: Any) -> Optional[Span]:
         """Start a new span for a tool call.
 
         Args:
@@ -374,7 +394,7 @@ class Tracer:
         return self._start_span(span_name, parent_span, attributes)
 
     def end_tool_call_span(
-        self, span: trace.Span, tool_result: Optional[ToolResult], error: Optional[Exception] = None
+        self, span: Span, tool_result: Optional[ToolResult], error: Optional[Exception] = None
     ) -> None:
         """End a tool call span with results.
 
@@ -402,10 +422,10 @@ class Tracer:
     def start_event_loop_cycle_span(
         self,
         event_loop_kwargs: Any,
-        parent_span: Optional[trace.Span] = None,
+        parent_span: Optional[Span] = None,
         messages: Optional[Messages] = None,
         **kwargs: Any,
-    ) -> Optional[trace.Span]:
+    ) -> Optional[Span]:
         """Start a new span for an event loop cycle.
 
         Args:
@@ -436,7 +456,7 @@ class Tracer:
 
     def end_event_loop_cycle_span(
         self,
-        span: trace.Span,
+        span: Span,
         message: Message,
         tool_result_message: Optional[Message] = None,
         error: Optional[Exception] = None,
@@ -466,7 +486,7 @@ class Tracer:
         tools: Optional[list] = None,
         custom_trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
         **kwargs: Any,
-    ) -> Optional[trace.Span]:
+    ) -> Optional[Span]:
         """Start a new span for an agent invocation.
 
         Args:
@@ -506,7 +526,7 @@ class Tracer:
 
     def end_agent_span(
         self,
-        span: trace.Span,
+        span: Span,
         response: Optional[AgentResult] = None,
         error: Optional[Exception] = None,
     ) -> None:
@@ -557,13 +577,16 @@ def get_tracer(
         otlp_endpoint: OTLP endpoint URL for sending traces.
         otlp_headers: Headers to include with OTLP requests.
         enable_console_export: Whether to also export traces to console.
+        tracer_provider: Optional existing TracerProvider to use instead of creating a new one.
 
     Returns:
         The global tracer instance.
     """
     global _tracer_instance
 
-    if _tracer_instance is None or (otlp_endpoint and _tracer_instance.otlp_endpoint != otlp_endpoint):  # type: ignore[unreachable]
+    if (
+        _tracer_instance is None or (otlp_endpoint and _tracer_instance.otlp_endpoint != otlp_endpoint)  # type: ignore[unreachable]
+    ):
         _tracer_instance = Tracer(
             service_name=service_name,
             otlp_endpoint=otlp_endpoint,
