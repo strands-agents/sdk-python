@@ -47,6 +47,8 @@ from typing import Any, Callable, Dict, Optional, Type, TypeVar, cast, get_type_
 import docstring_parser
 from pydantic import BaseModel, Field, create_model
 
+from ..types.tools import ToolSpec
+
 # Type for wrapped function
 T = TypeVar("T", bound=Callable[..., Any])
 
@@ -124,7 +126,7 @@ class FunctionToolMetadata:
             # Handle case with no parameters
             return create_model(model_name)
 
-    def extract_metadata(self) -> Dict[str, Any]:
+    def extract_metadata(self) -> ToolSpec:
         """Extract metadata from the function to create a tool specification.
 
         This method analyzes the function to create a standardized tool specification that Strands Agent can use to
@@ -155,7 +157,7 @@ class FunctionToolMetadata:
         self._clean_pydantic_schema(input_schema)
 
         # Create tool specification
-        tool_spec = {"name": func_name, "description": description, "inputSchema": {"json": input_schema}}
+        tool_spec: ToolSpec = {"name": func_name, "description": description, "inputSchema": {"json": input_schema}}
 
         return tool_spec
 
@@ -288,7 +290,7 @@ def tool(func: Optional[Callable[..., Any]] = None, **tool_kwargs: Any) -> Calla
         tool_spec = tool_meta.extract_metadata()
 
         # Update with any additional kwargs
-        tool_spec.update(tool_kwargs)
+        tool_spec.update(tool_kwargs)  # type: ignore
 
         # Attach TOOL_SPEC directly to the original function (critical for backward compatibility)
         f.TOOL_SPEC = tool_spec  # type: ignore
