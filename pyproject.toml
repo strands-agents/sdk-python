@@ -85,6 +85,7 @@ a2a = [
     "httpx>=0.28.1",
     "fastapi>=0.115.12",
     "starlette>=0.46.2",
+    "protobuf==6.31.1",
 ]
 
 [tool.hatch.version]
@@ -116,7 +117,7 @@ lint-fix = [
 
 [tool.hatch.envs.hatch-test]
 features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel"]
-extra-dependencies = [
+extra-dependencies = 
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
     "pytest-asyncio>=0.26.0,<0.27.0",
@@ -205,6 +206,9 @@ ignore_missing_imports = true
 [tool.ruff]
 line-length = 120
 include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests-integ/**/*.py"]
+
+[tool.ruff.format]
+docstring-code-format = true
 
 [tool.ruff.lint]
 select = [
