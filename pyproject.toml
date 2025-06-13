@@ -33,9 +33,9 @@ dependencies = [
     "pydantic>=2.0.0,<3.0.0",
     "typing-extensions>=4.13.2,<5.0.0",
     "watchdog>=6.0.0,<7.0.0",
-    "opentelemetry-api>=1.30.0,<2.0.0",
-    "opentelemetry-sdk>=1.30.0,<2.0.0",
-    "opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0",
+    "opentelemetry-api>=1.33.0",
+    "opentelemetry-sdk>=1.33.0",
+    # "opentelemetry-exporter-otlp-proto-http>=1.33.0,<2.0.0",
 ]
 
 [project.urls]
@@ -77,6 +77,12 @@ ollama = [
 ]
 openai = [
     "openai>=1.68.0,<2.0.0",
+]
+a2a = [
+    "a2a-sdk>=0.2.6",
+    "uvicorn>=0.34.2",
+    "httpx>=0.28.1",
+    "protobuf==6.31.1",
 ]
 
 [tool.hatch.version]
@@ -124,6 +130,10 @@ extra-args = [
 [tool.hatch.envs.dev]
 dev-mode = true
 features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama"]
+
+[tool.hatch.envs.a2a]
+dev-mode = true
+features = ["a2a"]
 
 
 
@@ -190,6 +200,9 @@ ignore_missing_imports = true
 [tool.ruff]
 line-length = 120
 include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests-integ/**/*.py"]
+
+[tool.ruff.format]
+docstring-code-format = true
 
 [tool.ruff.lint]
 select = [
