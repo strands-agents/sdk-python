@@ -1,9 +1,14 @@
 import dataclasses
+import os
 import unittest
+from unittest import mock
 
 import pytest
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+from opentelemetry.sdk.metrics import MeterProvider
 
 import strands
+from strands.telemetry.metrics import Meter as StrandsMeter
 from strands.types.streaming import Metrics, Usage
 
 
@@ -115,6 +120,88 @@ def test_trace_end(mock_time, end_time, trace):
     exp_end_time = 1
 
     assert tru_end_time == exp_end_time
+
+
+@pytest.fixture
+def env_with_metrics_exporter_none():
+    """Fixture with OTEL_METRICS_EXPORTER environment variables."""
+    with mock.patch.dict(
+        os.environ,
+        {
+            "OTEL_METRICS_EXPORTER": "none",
+        },
+    ):
+        yield
+
+
+@pytest.fixture
+def mock_get_meter_provider():
+    with mock.patch("strands.telemetry.metrics.metrics_api.get_meter_provider") as mock_get_meter_provider:
+        meter_provider_mock = mock.MagicMock(spec=MeterProvider)
+        mock_get_meter_provider.return_value = meter_provider_mock
+
+        mock_meter = mock.MagicMock()
+        meter_provider_mock.get_meter.return_value = mock_meter
+
+        yield mock_get_meter_provider
+
+
+@pytest.fixture
+def mock_sdk_meter_provider():
+    with mock.patch("strands.telemetry.metrics.metrics_sdk.MeterProvider") as mock_meter_provider:
+        yield mock_meter_provider
+
+
+@pytest.fixture
+def mock_noop_meter_provider():
+    with mock.patch("strands.telemetry.metrics.metrics_api.NoOpMeterProvider") as mock_noop_meter_provider:
+        mock_meter = mock.MagicMock()
+        mock_noop_meter_provider.get_meter.return_value = mock_meter
+        yield mock_noop_meter_provider
+
+
+@pytest.fixture
+def mock_metric_reader():
+    with mock.patch("strands.telemetry.metrics.PeriodicExportingMetricReader") as mock_metric_reader:
+        yield mock_metric_reader
+
+
+@pytest.fixture
+def mock_metric_exporter():
+    with mock.patch("strands.telemetry.metrics.OTLPMetricExporter") as mock_metric_exporter:
+        mock_instance = mock.MagicMock(spec=OTLPMetricExporter)
+        mock_metric_exporter.return_value = mock_instance
+        yield mock_instance
+
+
+@pytest.fixture
+def mock_set_meter_provider():
+    with mock.patch("strands.telemetry.metrics.metrics_api.set_meter_provider") as mock_set:
+        yield mock_set
+
+
+@pytest.fixture
+def mock_get_meter():
+    with mock.patch("strands.telemetry.metrics.metrics_api.get_meter") as mock_get_meter:
+        yield mock_get_meter
+
+
+@pytest.fixture
+def mock_is_meter_initialized():
+    with mock.patch("strands.telemetry.metrics.Meter._is_meter_initialized") as mock_is_meter_initialized:
+        yield mock_is_meter_initialized
+
+
+@pytest.fixture
+def mock_initialize_meter():
+    with mock.patch("strands.telemetry.metrics.Meter._initialize_meter") as mock_initialize_meter:
+        yield mock_initialize_meter
+
+
+@pytest.fixture
+def mock_resource():
+    with mock.patch("strands.telemetry.metrics.Resource") as mock_resource:
+        yield mock_resource
 
 
 def test_trace_add_child(child_trace, trace):
@@ -379,3 +466,54 @@ def test_metrics_to_string(trace, child_trace, tool_metrics, exp_str, event_loop
     tru_str = strands.telemetry.metrics.metrics_to_string(event_loop_metrics)
 
     assert tru_str == exp_str
+
+
+def test_not_initialize_meter_if_meter_provider_is_set(mock_get_meter_provider, mock_initialize_meter):
+    """Test global meter_provider and meter are used"""
+    meter = StrandsMeter()
+
+    mock_get_meter_provider.assert_called()
+    mock_initialize_meter.assert_not_called()
+
+    assert meter is not None
+
+
+def test_initialize_meter_if_meter_provider_is_not_set(
+    mock_is_meter_initialized,
+    mock_resource,
+    mock_metric_reader,
+    mock_metric_exporter,
+    mock_sdk_meter_provider,
+    mock_set_meter_provider,
+    mock_get_meter,
+):
+    """Test global meter_provider and meter are used"""
+    mock_is_meter_initialized.return_value = False
+    mock_resource_instance = mock.MagicMock()
+    mock_resource.create.return_value = mock_resource_instance
+
+    meter = StrandsMeter()
+
+    mock_metric_reader.assert_called_once_with(exporter=mock_metric_exporter)
+
+    mock_sdk_meter_provider.assert_called_once_with(
+        metric_readers=[mock_metric_reader.return_value],
+        resource=mock_resource_instance,
+    )
+    mock_set_meter_provider.assert_called_once()
+    mock_get_meter.assert_called_once_with("strands-agents")
+
+    assert meter is not None
+
+
+def test_initialize_NoOpMeter_if_env_sets_to_none(
+    env_with_metrics_exporter_none,
+    mock_noop_meter_provider,
+    mock_initialize_meter,
+):
+    """Test NoOpsMeterProvider and NoOpMeter are used"""
+    meter = StrandsMeter()
+
+    mock_noop_meter_provider.assert_called_once()
+    assert meter is not None
+    mock_initialize_meter.assert_not_called()

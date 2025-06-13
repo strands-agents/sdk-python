@@ -1010,8 +1010,14 @@ def test_agent_init_with_trace_attributes():
     assert "invalid_nested_list" not in agent.trace_attributes
 
 
+@pytest.fixture
+def mock_metrics_client():
+    with unittest.mock.patch("strands.agent.agent.MetricsClient") as mock_metrics_client:
+        yield mock_metrics_client
+
+
 @unittest.mock.patch("strands.agent.agent.get_tracer")
-def test_agent_init_initializes_tracer(mock_get_tracer):
+def test_agent_init_initializes_tracer(mock_get_tracer, mock_metrics_client):
     """Test that the tracer is initialized when creating an Agent."""
     mock_tracer = unittest.mock.MagicMock()
     mock_get_tracer.return_value = mock_tracer
@@ -1025,7 +1031,7 @@ def test_agent_init_initializes_tracer(mock_get_tracer):
 
 
 @unittest.mock.patch("strands.agent.agent.get_tracer")
-def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model):
+def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_metrics_client, mock_model):
     """Test that __call__ creates and ends a span when the call succeeds."""
     # Setup mock tracer and span
     mock_tracer = unittest.mock.MagicMock()
@@ -1060,7 +1066,9 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
 
 @pytest.mark.asyncio
 @unittest.mock.patch("strands.agent.agent.get_tracer")
-async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_tracer, mock_event_loop_cycle):
+async def test_agent_stream_async_creates_and_ends_span_on_success(
+    mock_get_tracer, mock_metrics_client, mock_event_loop_cycle
+):
     """Test that stream_async creates and ends a span when the call succeeds."""
     # Setup mock tracer and span
     mock_tracer = unittest.mock.MagicMock()
@@ -1105,7 +1113,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
 
 
 @unittest.mock.patch("strands.agent.agent.get_tracer")
-def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_model):
+def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_metrics_client, mock_model):
     """Test that __call__ creates and ends a span when an exception occurs."""
     # Setup mock tracer and span
     mock_tracer = unittest.mock.MagicMock()
@@ -1139,7 +1147,7 @@ def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_mod
 
 @pytest.mark.asyncio
 @unittest.mock.patch("strands.agent.agent.get_tracer")
-async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tracer, mock_model):
+async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tracer, mock_metrics_client, mock_model):
     """Test that stream_async creates and ends a span when the call succeeds."""
     # Setup mock tracer and span
     mock_tracer = unittest.mock.MagicMock()
@@ -1174,7 +1182,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
 
 
 @unittest.mock.patch("strands.agent.agent.get_tracer")
-def test_event_loop_cycle_includes_parent_span(mock_get_tracer, mock_event_loop_cycle, mock_model):
+def test_event_loop_cycle_includes_parent_span(mock_get_tracer, mock_metrics_client, mock_event_loop_cycle, mock_model):
     """Test that event_loop_cycle is called with the parent span."""
     # Setup mock tracer and span
     mock_tracer = unittest.mock.MagicMock()

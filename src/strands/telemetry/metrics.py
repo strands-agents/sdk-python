@@ -1,10 +1,22 @@
 """Utilities for collecting and reporting performance metrics in the SDK."""
 
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from importlib.metadata import version
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+
+import opentelemetry.metrics as metrics_api
+import opentelemetry.sdk.metrics as metrics_sdk
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+from opentelemetry.sdk.metrics.export import (
+    AggregationTemporality,
+    MetricReader,
+    PeriodicExportingMetricReader,
+)
+from opentelemetry.sdk.resources import Resource
 
 from ..types.content import Message
 from ..types.streaming import Metrics, Usage
@@ -355,3 +367,80 @@ def metrics_to_string(event_loop_metrics: EventLoopMetrics, allowed_names: Optio
         A formatted string representation of the metrics.
     """
     return "\n".join(_metrics_summary_to_lines(event_loop_metrics, allowed_names or set()))
+
+
+class Meter:
+    """Handles OpenTelemetry metrics.
+
+    This class provides a simple interface for creating and managing metrics,
+    with support for sending to OTLP endpoints.
+
+    When the OTEL_EXPORTER_OTLP_ENDPOINT environment variable is set, metrics
+    are sent to the OTLP endpoint.
+    """
+
+    def __init__(
+        self,
+        service_name: str = "strands-agents",
+    ) -> None:
+        """Initialize the meter with the given service name.
+
+        Args:
+            service_name: The name of the service for which metrics are being collected.
+        """
+        self.service_name = service_name
+        self.meter_provider: Optional[metrics_api.MeterProvider] = None
+        self.meter: Optional[metrics_api.Meter] = None
+        env_metrics_exporter = os.environ.get("OTEL_METRICS_EXPORTER")
+        if env_metrics_exporter and "none" == env_metrics_exporter:
+            logger.info("OTEL_METRICS_EXPORTER set to 'none', using NoOpMeterProvider")
+            self.meter_provider = metrics_api.NoOpMeterProvider()
+            self.meter = self.meter_provider.get_meter(self.service_name)
+            return
+        if self._is_meter_initialized():
+            self.meter_provider = metrics_api.get_meter_provider()
+            self.meter = self.meter_provider.get_meter(self.service_name)
+            return
+        self._initialize_meter()
+
+    def _initialize_meter(self) -> None:
+        """Initialize the OpenTelemetry meter."""
+        logger.info("initializing meter")
+
+        # Create resource with service information
+        resource = Resource.create(
+            {
+                "service.name": self.service_name,
+                "service.version": version("strands-agents"),
+                "telemetry.sdk.name": "opentelemetry",
+                "telemetry.sdk.language": "python",
+            }
+        )
+
+        # note: it is a concrete implementation from `opentelemetry.sdk`
+        metric_readers = self._create_metric_readers()
+        self.meter_provider = metrics_sdk.MeterProvider(resource=resource, metric_readers=metric_readers)
+
+        # initialize global meter provider
+        metrics_api.set_meter_provider(self.meter_provider)
+        self.meter = metrics_api.get_meter(self.service_name)
+
+    def _is_meter_initialized(self) -> bool:
+        meter_provider = metrics_api.get_meter_provider()
+        return isinstance(meter_provider, metrics_sdk.MeterProvider)
+
+    def _create_metric_readers(self) -> Sequence[MetricReader]:
+        """MetricReaders define how metrics are emitted by OTEL."""
+        # export metrics in batches at designated intervals
+        periodic_metric_reader = PeriodicExportingMetricReader(
+            exporter=OTLPMetricExporter(
+                preferred_temporality={
+                    # Prefer 'DELTA' temporality to avoid storing previous measurements
+                    # https://opentelemetry.io/docs/specs/otel/metrics/data-model/#temporality
+                    metrics_sdk.Counter: AggregationTemporality.DELTA,
+                    metrics_sdk.UpDownCounter: AggregationTemporality.DELTA,
+                    metrics_sdk.Histogram: AggregationTemporality.DELTA,
+                }
+            ),
+        )
+        return [periodic_metric_reader]

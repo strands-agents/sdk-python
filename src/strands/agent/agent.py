@@ -26,6 +26,7 @@ from ..handlers.callback_handler import CompositeCallbackHandler, PrintingCallba
 from ..handlers.tool_handler import AgentToolHandler
 from ..models.bedrock import BedrockModel
 from ..telemetry.metrics import EventLoopMetrics
+from ..telemetry.metrics_client import MetricsClient
 from ..telemetry.tracer import get_tracer
 from ..tools.registry import ToolRegistry
 from ..tools.thread_pool_executor import ThreadPoolExecutorWrapper
@@ -308,7 +309,7 @@ class Agent:
         # Initialize tracer instance (no-op if not configured)
         self.tracer = get_tracer()
         self.trace_span: Optional[trace.Span] = None
-
+        self.metrics_client = MetricsClient()
         self.tool_caller = Agent.ToolCaller(self)
 
     @property

@@ -139,7 +139,6 @@ class Tracer:
         self.otlp_headers = otlp_headers or {}
         self.tracer_provider: Optional[trace_api.TracerProvider] = None
         self.tracer: Optional[trace_api.Tracer] = None
-
         propagate.set_global_textmap(
             CompositePropagator(
                 [
@@ -153,8 +152,8 @@ class Tracer:
             self._initialize_tracer()
 
     def _initialize_tracer(self) -> None:
-        """Initialize the OpenTelemetry tracer."""
-        logger.info("initializing tracer")
+        """Initialize the OpenTelemetry tracer and meter."""
+        logger.info("initializing tracer and meter")
 
         if self._is_initialized():
             self.tracer_provider = trace_api.get_tracer_provider()
@@ -175,13 +174,13 @@ class Tracer:
         self.tracer_provider = SDKTracerProvider(resource=resource)
 
         # Add console exporter if enabled
-        if self.enable_console_export and self.tracer_provider:
+        if self.enable_console_export:
             logger.info("enabling console export")
             console_processor = SimpleSpanProcessor(ConsoleSpanExporter())
             self.tracer_provider.add_span_processor(console_processor)
 
         # Add OTLP exporter if endpoint is provided
-        if self.otlp_endpoint and self.tracer_provider:
+        if self.otlp_endpoint:
             try:
                 # Ensure endpoint has the right format
                 endpoint = self.otlp_endpoint
@@ -204,6 +203,7 @@ class Tracer:
                 batch_processor = BatchSpanProcessor(otlp_exporter)
                 self.tracer_provider.add_span_processor(batch_processor)
                 logger.info("endpoint=<%s> | OTLP exporter configured with endpoint", endpoint)
+
             except Exception as e:
                 logger.exception("error=<%s> | Failed to configure OTLP exporter", e)
 
@@ -294,7 +294,7 @@ class Tracer:
         finally:
             span.end()
             # Force flush to ensure spans are exported
-            if self.tracer_provider and hasattr(self.tracer_provider, 'force_flush'):
+            if self.tracer_provider and hasattr(self.tracer_provider, "force_flush"):
                 try:
                     self.tracer_provider.force_flush()
                 except Exception as e:
