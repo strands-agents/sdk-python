@@ -14,6 +14,10 @@ from typing import Any, Dict, Mapping, Optional
 import opentelemetry.trace as trace_api
 from opentelemetry import propagate
 from opentelemetry.baggage.propagation import W3CBaggagePropagator
+<<<<<<< HEAD
+=======
+from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+>>>>>>> 68740c5 (chore: allow custom tracer provider in Agent (#207))
 from opentelemetry.propagators.composite import CompositePropagator
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider as SDKTracerProvider
