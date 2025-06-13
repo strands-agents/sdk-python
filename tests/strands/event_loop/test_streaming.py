@@ -3,6 +3,7 @@ import unittest.mock
 import pytest
 
 import strands
+import strands.event_loop
 from strands.types.streaming import (
     ContentBlockDeltaEvent,
     ContentBlockStartEvent,
@@ -15,13 +16,6 @@ from strands.types.streaming import (
 def moto_autouse(moto_env, moto_mock_aws):
     _ = moto_env
     _ = moto_mock_aws
-
-
-@pytest.fixture
-def agent():
-    mock = unittest.mock.Mock()
-
-    return mock
 
 
 @pytest.mark.parametrize(
@@ -81,7 +75,7 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
 
 
 @pytest.mark.parametrize(
-    ("event", "state", "exp_updated_state", "exp_handler_args"),
+    ("event", "state", "exp_updated_state", "callback_args"),
     [
         # Tool Use - Existing input
         (
@@ -148,21 +142,13 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
         ),
     ],
 )
-def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_updated_state, exp_handler_args):
-    if exp_handler_args:
-        exp_handler_args.update({"delta": event["delta"], "extra_arg": 1})
+def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_updated_state, callback_args):
+    exp_callback_event = {"callback": {**callback_args, "delta": event["delta"]}} if callback_args else {}
 
-    tru_handler_args = {}
-
-    def callback_handler(**kwargs):
-        tru_handler_args.update(kwargs)
-
-    tru_updated_state = strands.event_loop.streaming.handle_content_block_delta(
-        event, state, callback_handler, extra_arg=1
-    )
+    tru_updated_state, tru_callback_event = strands.event_loop.streaming.handle_content_block_delta(event, state)
 
     assert tru_updated_state == exp_updated_state
-    assert tru_handler_args == exp_handler_args
+    assert tru_callback_event == exp_callback_event
 
 
 @pytest.mark.parametrize(
@@ -275,8 +261,9 @@ def test_extract_usage_metrics():
 
 
 @pytest.mark.parametrize(
-    ("response", "exp_stop_reason", "exp_message", "exp_usage", "exp_metrics", "exp_request_state", "exp_messages"),
+    ("response", "exp_events"),
     [
+        # Standard Message
         (
             [
                 {"messageStart": {"role": "assistant"}},
@@ -297,28 +284,127 @@ def test_extract_usage_metrics():
                     }
                 },
             ],
-            "tool_use",
-            {
-                "role": "assistant",
-                "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {"key": "value"}}}],
-            },
-            {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
-            {"latencyMs": 1},
-            {"calls": 1},
-            [{"role": "user", "content": [{"text": "Some input!"}]}],
+            [
+                {
+                    "callback": {
+                        "event": {
+                            "messageStart": {
+                                "role": "assistant",
+                            },
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "event": {
+                            "contentBlockStart": {
+                                "start": {
+                                    "toolUse": {
+                                        "name": "test",
+                                        "toolUseId": "123",
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "event": {
+                            "contentBlockDelta": {
+                                "delta": {
+                                    "toolUse": {
+                                        "input": '{"key": "value"}',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "current_tool_use": {
+                            "input": {
+                                "key": "value",
+                            },
+                            "name": "test",
+                            "toolUseId": "123",
+                        },
+                        "delta": {
+                            "toolUse": {
+                                "input": '{"key": "value"}',
+                            },
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "event": {
+                            "contentBlockStop": {},
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "event": {
+                            "messageStop": {
+                                "stopReason": "tool_use",
+                            },
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "event": {
+                            "metadata": {
+                                "metrics": {
+                                    "latencyMs": 1,
+                                },
+                                "usage": {
+                                    "inputTokens": 1,
+                                    "outputTokens": 1,
+                                    "totalTokens": 1,
+                                },
+                            },
+                        },
+                    },
+                },
+                {
+                    "stop": (
+                        "tool_use",
+                        {
+                            "role": "assistant",
+                            "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {"key": "value"}}}],
+                        },
+                        {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        {"latencyMs": 1},
+                    )
+                },
+            ],
         ),
+        # Empty Message
         (
             [{}],
-            "end_turn",
-            {
-                "role": "assistant",
-                "content": [],
-            },
-            {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
-            {"latencyMs": 0},
-            {},
-            [{"role": "user", "content": [{"text": "Some input!"}]}],
+            [
+                {
+                    "callback": {
+                        "event": {},
+                    },
+                },
+                {
+                    "stop": (
+                        "end_turn",
+                        {
+                            "role": "assistant",
+                            "content": [],
+                        },
+                        {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+                        {"latencyMs": 0},
+                    ),
+                },
+            ],
         ),
+        # Redacted Message
         (
             [
                 {"messageStart": {"role": "assistant"}},
@@ -345,77 +431,161 @@ def test_extract_usage_metrics():
                     }
                 },
             ],
-            "guardrail_intervened",
-            {
-                "role": "assistant",
-                "content": [{"text": "REDACTED."}],
-            },
-            {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
-            {"latencyMs": 1},
-            {"calls": 1},
-            [{"role": "user", "content": [{"text": "REDACTED"}]}],
+            [
+                {
+                    "callback": {
+                        "event": {
+                            "messageStart": {
+                                "role": "assistant",
+                            },
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "event": {
+                            "contentBlockStart": {
+                                "start": {},
+                            },
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "event": {
+                            "contentBlockDelta": {
+                                "delta": {
+                                    "text": "Hello!",
+                                },
+                            },
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "data": "Hello!",
+                        "delta": {
+                            "text": "Hello!",
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "event": {
+                            "contentBlockStop": {},
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "event": {
+                            "messageStop": {
+                                "stopReason": "guardrail_intervened",
+                            },
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "event": {
+                            "redactContent": {
+                                "redactAssistantContentMessage": "REDACTED.",
+                                "redactUserContentMessage": "REDACTED",
+                            },
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "event": {
+                            "metadata": {
+                                "metrics": {
+                                    "latencyMs": 1,
+                                },
+                                "usage": {
+                                    "inputTokens": 1,
+                                    "outputTokens": 1,
+                                    "totalTokens": 1,
+                                },
+                            },
+                        },
+                    },
+                },
+                {
+                    "stop": (
+                        "guardrail_intervened",
+                        {
+                            "role": "assistant",
+                            "content": [{"text": "REDACTED."}],
+                        },
+                        {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        {"latencyMs": 1},
+                    ),
+                },
+            ],
         ),
     ],
 )
-def test_process_stream(
-    response, exp_stop_reason, exp_message, exp_usage, exp_metrics, exp_request_state, exp_messages
-):
-    def callback_handler(**kwargs):
-        if "request_state" in kwargs:
-            kwargs["request_state"].setdefault("calls", 0)
-            kwargs["request_state"]["calls"] += 1
+def test_process_stream(response, exp_events):
+    messages = [{"role": "user", "content": [{"text": "Some input!"}]}]
+    stream = strands.event_loop.streaming.process_stream(response, messages)
 
-    tru_messages = [{"role": "user", "content": [{"text": "Some input!"}]}]
-
-    tru_stop_reason, tru_message, tru_usage, tru_metrics, tru_request_state = (
-        strands.event_loop.streaming.process_stream(response, callback_handler, tru_messages)
-    )
-
-    assert tru_stop_reason == exp_stop_reason
-    assert tru_message == exp_message
-    assert tru_usage == exp_usage
-    assert tru_metrics == exp_metrics
-    assert tru_request_state == exp_request_state
-    assert tru_messages == exp_messages
+    tru_events = list(stream)
+    assert tru_events == exp_events
 
 
-def test_stream_messages(agent):
-    def callback_handler(**kwargs):
-        if "request_state" in kwargs:
-            kwargs["request_state"].setdefault("calls", 0)
-            kwargs["request_state"]["calls"] += 1
-
+def test_stream_messages():
     mock_model = unittest.mock.MagicMock()
     mock_model.converse.return_value = [
         {"contentBlockDelta": {"delta": {"text": "test"}}},
         {"contentBlockStop": {}},
     ]
 
-    tru_stop_reason, tru_message, tru_usage, tru_metrics, tru_request_state = (
-        strands.event_loop.streaming.stream_messages(
-            mock_model,
-            model_id="test_model",
-            system_prompt="test prompt",
-            messages=[{"role": "assistant", "content": [{"text": "a"}, {"text": " \n"}]}],
-            tool_config=None,
-            callback_handler=callback_handler,
-            agent=agent,
-        )
+    stream = strands.event_loop.streaming.stream_messages(
+        mock_model,
+        system_prompt="test prompt",
+        messages=[{"role": "assistant", "content": [{"text": "a"}, {"text": " \n"}]}],
+        tool_config=None,
     )
 
-    exp_stop_reason = "end_turn"
-    exp_message = {"role": "assistant", "content": [{"text": "test"}]}
-    exp_usage = {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
-    exp_metrics = {"latencyMs": 0}
-    exp_request_state = {"calls": 1}
-
-    assert (
-        tru_stop_reason == exp_stop_reason
-        and tru_message == exp_message
-        and tru_usage == exp_usage
-        and tru_metrics == exp_metrics
-        and tru_request_state == exp_request_state
-    )
+    tru_events = list(stream)
+    exp_events = [
+        {
+            "callback": {
+                "event": {
+                    "contentBlockDelta": {
+                        "delta": {
+                            "text": "test",
+                        },
+                    },
+                },
+            },
+        },
+        {
+            "callback": {
+                "data": "test",
+                "delta": {
+                    "text": "test",
+                },
+            },
+        },
+        {
+            "callback": {
+                "event": {
+                    "contentBlockStop": {},
+                },
+            },
+        },
+        {
+            "stop": (
+                "end_turn",
+                {"role": "assistant", "content": [{"text": "test"}]},
+                {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+                {"latencyMs": 0},
+            )
+        },
+    ]
+    assert tru_events == exp_events
 
     mock_model.converse.assert_called_with(
         [{"role": "assistant", "content": [{"text": "a"}, {"text": "[blank text]"}]}],
