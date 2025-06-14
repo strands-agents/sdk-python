@@ -1,3 +1,4 @@
+```mermaid
 graph TD
     %% External Repositories
     upstream_main[Strands Agents upstream-main]
@@ -36,3 +37,4 @@ graph TD
     main --> hotfix_urgent_bug
     hotfix_urgent_bug -->|PR Merge| main
     hotfix_urgent_bug -->|Cherry-pick| develop
+```
