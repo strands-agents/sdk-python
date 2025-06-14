@@ -3,17 +3,17 @@ on:
   schedule:
     - cron: '0 0 * * *'  # Daily sync
   workflow_dispatch:     # Manual trigger
+
 jobs:
   sync:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write  # Add explicit permission to write to repository contents
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Fetch all history for proper merging
-          token: ${{ secrets.GITHUB_TOKEN }}  # Use the GitHub token with appropriate permissions
+          token: ${{ secrets.PAT_TOKEN }}  # Required for push access
+          fetch-depth: 0
+
       - name: Sync upstream
         run: |
           git config user.name "StrandForge Bot"
@@ -21,15 +21,5 @@ jobs:
           git remote add upstream https://github.com/strands-agents/sdk-python.git
           git fetch upstream
           git checkout base-main
-          
-          # Try normal merge first
-          if ! git merge upstream/main --no-edit; then
-            # If normal merge fails, try with allow-unrelated-histories
-            echo "Normal merge failed, attempting with --allow-unrelated-histories"
-            git merge upstream/main --allow-unrelated-histories --no-edit || {
-              echo "Merge failed. There might be conflicts that need manual resolution."
-              exit 1
-            }
-          fi
-          
+          git merge upstream/main --no-edit
           git push origin base-main
