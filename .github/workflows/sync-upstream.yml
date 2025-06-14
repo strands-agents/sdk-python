@@ -9,6 +9,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for proper merging
       - name: Sync upstream
         run: |
           git config user.name "StrandForge Bot"
@@ -16,5 +18,15 @@ jobs:
           git remote add upstream https://github.com/strands-agents/sdk-python.git
           git fetch upstream
           git checkout base-main
-          git merge upstream/main --no-edit
+          
+          # Try normal merge first
+          if ! git merge upstream/main --no-edit; then
+            # If normal merge fails, try with allow-unrelated-histories
+            echo "Normal merge failed, attempting with --allow-unrelated-histories"
+            git merge upstream/main --allow-unrelated-histories --no-edit || {
+              echo "Merge failed. There might be conflicts that need manual resolution."
+              exit 1
+            }
+          fi
+          
           git push origin base-main
