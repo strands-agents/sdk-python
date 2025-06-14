@@ -1,0 +1,30 @@
+name: Sync Upstream
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Daily sync
+  workflow_dispatch:
+
+permissions:
+  contents: write  # Required for pushing changes
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Get full history
+
+      - name: Configure git
+        run: |
+          git config user.name "StrandForge Bot"
+          git config user.email "bot@strandforge.ai"
+          git remote add upstream https://github.com/strands-agents/sdk-python.git
+
+      - name: Sync upstream
+        run: |
+          git fetch upstream
+          git checkout base-main
+          git merge upstream/main --no-edit
+          git push origin base-main
