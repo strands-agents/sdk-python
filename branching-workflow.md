@@ -1,28 +1,38 @@
 graph TD
-    subgraph External Repositories
-        U[Strands Agents<br/>upstream/main] -->|Daily Sync| B
-        D[Dify] -->|Frontend Integration| F1
-        S[Smolagents] -->|Feature Integration| F2
-    end
+    %% External Repositories
+    upstream_main[Strands Agents upstream-main]
+    dify[Dify]
+    smolagents[Smolagents]
 
-    subgraph StrandForge Organization
-        B[base-main] -->|Merge Features| D
-        D[develop] --> F1[feature/visual-builder]
-        D --> F2[feature/k8s-operator]
-        D --> F3[feature/mcp-enhancements]
-        F1 -->|PR| D
-        F2 -->|PR| D
-        F3 -->|PR| D
-        D --> R[release/v1.0.0]
-        R -->|Tag| M[main]
-        M --> H[hotfix/urgent-bug]
-        H -->|PR| M
-        H -->|Cherry-pick| D
-    end
+    %% StrandForge Organization Branches
+    base_main[base-main]
+    develop[develop]
+    feature_visual_builder[feature/visual-builder]
+    feature_k8s_operator[feature/k8s-operator]
+    feature_mcp_enhancements[feature/mcp-enhancements]
+    release_v1[release/v1.0.0]
+    main[main]
+    hotfix_urgent_bug[hotfix/urgent-bug]
 
-    style U stroke:#0366d6,stroke-width:2px
-    style B stroke:#22863a,stroke-width:2px
-    style D stroke:#6f42c1,stroke-width:2px
-    style F1,F2,F3 stroke:#d73a49,stroke-width:1.5px
-    style R stroke:#e36209,stroke-width:2px
-    style M stroke:#005cc5,stroke-width:3px
+    %% Upstream sync and feature integration
+    upstream_main -->|Daily Sync| base_main
+    base_main -->|Merge Features| develop
+    dify -->|Frontend Integration| feature_visual_builder
+    smolagents -->|Feature Integration| feature_k8s_operator
+
+    %% Feature branches from develop
+    develop --> feature_visual_builder
+    develop --> feature_k8s_operator
+    develop --> feature_mcp_enhancements
+
+    %% Merge feature branches back to develop
+    feature_visual_builder -->|PR Merge| develop
+    feature_k8s_operator -->|PR Merge| develop
+    feature_mcp_enhancements -->|PR Merge| develop
+
+    %% Release and hotfix flow
+    develop --> release_v1
+    release_v1 -->|Tag| main
+    main --> hotfix_urgent_bug
+    hotfix_urgent_bug -->|PR Merge| main
+    hotfix_urgent_bug -->|Cherry-pick| develop
