@@ -58,7 +58,10 @@ def mock_set_tracer_provider():
 
 @pytest.fixture
 def mock_otlp_exporter():
-    with mock.patch("opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter") as mock_exporter:
+    with (
+        mock.patch("strands.telemetry.tracer.HAS_OTEL_EXPORTER_MODULE", True),
+        mock.patch("opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter") as mock_exporter,
+    ):
         yield mock_exporter
 
 
@@ -199,7 +202,11 @@ def test_initialize_tracer_with_otlp(
     mock_resource.create.return_value = mock_resource_instance
 
     # Initialize Tracer
-    Tracer(otlp_endpoint="http://test-endpoint")
+    with (
+        mock.patch("strands.telemetry.tracer.HAS_OTEL_EXPORTER_MODULE", True),
+        mock.patch("strands.telemetry.tracer.OTLPSpanExporter", mock_otlp_exporter),
+    ):
+        Tracer(otlp_endpoint="http://test-endpoint")
 
     # Verify the tracer provider was created with correct resource
     mock_tracer_provider.assert_called_once_with(resource=mock_resource_instance)
@@ -508,7 +515,11 @@ def test_initialize_tracer_with_invalid_otlp_endpoint(
     # This should not raise an exception, but should log an error
 
     # Initialize Tracer
-    Tracer(otlp_endpoint="http://invalid-endpoint")
+    with (
+        mock.patch("strands.telemetry.tracer.HAS_OTEL_EXPORTER_MODULE", True),
+        mock.patch("strands.telemetry.tracer.OTLPSpanExporter", mock_otlp_exporter),
+    ):
+        Tracer(otlp_endpoint="http://invalid-endpoint")
 
     # Verify the tracer provider was created with correct resource
     mock_tracer_provider.assert_called_once_with(resource=mock_resource_instance)
