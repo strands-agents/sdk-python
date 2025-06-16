@@ -14,7 +14,6 @@ from typing import Any, Dict, Mapping, Optional
 import opentelemetry.trace as trace_api
 from opentelemetry import propagate
 from opentelemetry.baggage.propagation import W3CBaggagePropagator
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.propagators.composite import CompositePropagator
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider as SDKTracerProvider
@@ -183,6 +182,8 @@ class Tracer:
         # Add OTLP exporter if endpoint is provided
         if self.otlp_endpoint and self.tracer_provider:
             try:
+                from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
                 # Ensure endpoint has the right format
                 endpoint = self.otlp_endpoint
                 if not endpoint.endswith("/v1/traces") and not endpoint.endswith("/traces"):
@@ -294,7 +295,7 @@ class Tracer:
         finally:
             span.end()
             # Force flush to ensure spans are exported
-            if self.tracer_provider and hasattr(self.tracer_provider, 'force_flush'):
+            if self.tracer_provider and hasattr(self.tracer_provider, "force_flush"):
                 try:
                     self.tracer_provider.force_flush()
                 except Exception as e:

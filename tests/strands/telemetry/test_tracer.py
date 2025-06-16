@@ -58,7 +58,7 @@ def mock_set_tracer_provider():
 
 @pytest.fixture
 def mock_otlp_exporter():
-    with mock.patch("strands.telemetry.tracer.OTLPSpanExporter") as mock_exporter:
+    with mock.patch("opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter") as mock_exporter:
         yield mock_exporter
 
 
