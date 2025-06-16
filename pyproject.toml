@@ -207,9 +207,6 @@ ignore_missing_imports = true
 line-length = 120
 include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests-integ/**/*.py"]
 
-[tool.ruff.format]
-docstring-code-format = true
-
 [tool.ruff.lint]
 select = [
   "B", # flake8-bugbear
@@ -232,7 +229,6 @@ testpaths = [
     "tests"
 ]
 asyncio_default_fixture_loop_scope = "function"
-norecursedirs = ["multiagent/a2a"]
 
 [tool.coverage.run]
 branch = true
