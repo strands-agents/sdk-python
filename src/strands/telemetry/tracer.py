@@ -219,7 +219,7 @@ class Tracer:
             except Exception as e:
                 logger.exception("error=<%s> | Failed to configure OTLP exporter", e)
         elif self.otlp_endpoint and self.tracer_provider:
-            logger.warning(OTEL_EXPORTER_MODULE_ERROR)
+            raise ModuleNotFoundError(OTEL_EXPORTER_MODULE_ERROR)
 
         # Set as global tracer provider
         trace_api.set_tracer_provider(self.tracer_provider)
