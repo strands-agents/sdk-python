@@ -14,10 +14,6 @@ from typing import Any, Dict, Mapping, Optional
 import opentelemetry.trace as trace_api
 from opentelemetry import propagate
 from opentelemetry.baggage.propagation import W3CBaggagePropagator
-<<<<<<< HEAD
-=======
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
->>>>>>> 68740c5 (chore: allow custom tracer provider in Agent (#207))
 from opentelemetry.propagators.composite import CompositePropagator
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider as SDKTracerProvider
@@ -223,7 +219,11 @@ class Tracer:
             except Exception as e:
                 logger.exception("error=<%s> | Failed to configure OTLP exporter", e)
         elif self.otlp_endpoint and self.tracer_provider:
+<<<<<<< HEAD
             raise ModuleNotFoundError(OTEL_EXPORTER_MODULE_ERROR)
+=======
+            logger.warning(OTEL_EXPORTER_MODULE_ERROR)
+>>>>>>> 5fab010 (build(a2a): add a2a deps and mitigate otel conflict (#232))
 
         # Set as global tracer provider
         trace_api.set_tracer_provider(self.tracer_provider)
