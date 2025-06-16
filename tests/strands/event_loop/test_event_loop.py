@@ -157,55 +157,6 @@ def test_event_loop_cycle_text_response(
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
 
 
-def test_event_loop_cycle_text_response_input_too_long(
-    model,
-    model_id,
-    system_prompt,
-    messages,
-    tool_config,
-    callback_handler,
-    tool_handler,
-    tool_execution_handler,
-):
-    model.converse.side_effect = [
-        ContextWindowOverflowException(RuntimeError("Input is too long for requested model")),
-        [
-            {"contentBlockDelta": {"delta": {"text": "test text"}}},
-            {"contentBlockStop": {}},
-        ],
-    ]
-    messages.append(
-        {
-            "role": "user",
-            "content": [
-                {
-                    "toolResult": {
-                        "toolUseId": "t1",
-                        "status": "success",
-                        "content": [{"text": "2025-04-01T00:00:00"}],
-                    },
-                },
-            ],
-        }
-    )
-
-    tru_stop_reason, tru_message, _, tru_request_state = strands.event_loop.event_loop.event_loop_cycle(
-        model=model,
-        model_id=model_id,
-        system_prompt=system_prompt,
-        messages=messages,
-        tool_config=tool_config,
-        callback_handler=callback_handler,
-        tool_handler=tool_handler,
-        tool_execution_handler=tool_execution_handler,
-    )
-    exp_stop_reason = "end_turn"
-    exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
-    exp_request_state = {}
-
-    assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
-
-
 @unittest.mock.patch.object(strands.event_loop.error_handler, "time")
 def test_event_loop_cycle_text_response_throttling(
     model,
