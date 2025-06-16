@@ -195,8 +195,6 @@ class Tracer:
         # Add OTLP exporter if endpoint is provided
         if HAS_OTEL_EXPORTER_MODULE and self.otlp_endpoint and self.tracer_provider:
             try:
-                from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-
                 # Ensure endpoint has the right format
                 endpoint = self.otlp_endpoint
                 if not endpoint.endswith("/v1/traces") and not endpoint.endswith("/traces"):
