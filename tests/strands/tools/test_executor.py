@@ -44,6 +44,12 @@ def tool_uses(request, tool_use):
 
 
 @pytest.fixture
+def mock_metrics_client():
+    with unittest.mock.patch("strands.telemetry.MetricsClient") as mock_metrics_client:
+        yield mock_metrics_client
+
+
+@pytest.fixture
 def event_loop_metrics():
     return strands.telemetry.metrics.EventLoopMetrics()
 
@@ -303,6 +309,7 @@ def test_run_tools_creates_and_ends_span_on_success(
     mock_get_tracer,
     tool_handler,
     tool_uses,
+    mock_metrics_client,
     event_loop_metrics,
     request_state,
     invalid_tool_use_ids,

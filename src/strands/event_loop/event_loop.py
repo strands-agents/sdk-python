@@ -88,11 +88,11 @@ def event_loop_cycle(
     kwargs["event_loop_cycle_id"] = uuid.uuid4()
 
     event_loop_metrics: EventLoopMetrics = kwargs.get("event_loop_metrics", EventLoopMetrics())
-
     # Initialize state and get cycle trace
     if "request_state" not in kwargs:
         kwargs["request_state"] = {}
-    cycle_start_time, cycle_trace = event_loop_metrics.start_cycle()
+    attributes = {"event_loop_cycle_id": str(kwargs.get("event_loop_cycle_id"))}
+    cycle_start_time, cycle_trace = event_loop_metrics.start_cycle(attributes=attributes)
     kwargs["event_loop_cycle_trace"] = cycle_trace
 
     callback_handler(start=True)
@@ -211,7 +211,7 @@ def event_loop_cycle(
             )
 
         # End the cycle and return results
-        event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+        event_loop_metrics.end_cycle(cycle_start_time, cycle_trace, attributes)
         if cycle_span:
             tracer.end_event_loop_cycle_span(
                 span=cycle_span,
@@ -344,7 +344,6 @@ def _handle_tool_execution(
 
     if not tool_uses:
         return stop_reason, message, event_loop_metrics, kwargs["request_state"]
-
     tool_handler_process = partial(
         tool_handler.process,
         messages=messages,
