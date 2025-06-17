@@ -78,9 +78,6 @@ ollama = [
 openai = [
     "openai>=1.68.0,<2.0.0",
 ]
-cohere = [
-    "cohere>=5.15.0,<6.0.0",
-]
 
 [tool.hatch.version]
 # Tells Hatch to use your version control system (git) to determine the version.
