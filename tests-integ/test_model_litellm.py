@@ -7,7 +7,7 @@ from strands.models.litellm import LiteLLMModel
 
 @pytest.fixture
 def model():
-    return LiteLLMModel(model_id="us.anthropic.claude-3-7-sonnet-20250219-v1:0")
+    return LiteLLMModel(model_id="bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0")
 
 
 @pytest.fixture
