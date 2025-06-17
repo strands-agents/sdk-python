@@ -78,6 +78,9 @@ ollama = [
 openai = [
     "openai>=1.68.0,<2.0.0",
 ]
+cohere = [
+    "cohere>=5.15.0,<6.0.0",
+]
 
 [tool.hatch.version]
 # Tells Hatch to use your version control system (git) to determine the version.
@@ -107,7 +110,7 @@ lint-fix = [
 ]
 
 [tool.hatch.envs.hatch-test]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "cohere"]
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
