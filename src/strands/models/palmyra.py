@@ -7,8 +7,8 @@ import json
 import logging
 from typing import Any, Dict, Iterable, List, Optional, TypedDict, Union, cast
 
+import writerai
 from typing_extensions import Unpack, override
-from writerai import Client, RateLimitError
 
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
@@ -45,11 +45,10 @@ class PalmyraModel(Model):
         response_format: Dict[str, Any]
         stop: Optional[Union[str, List[str]]]
         stream_options: Dict[str, Any]
-        tool_choice: Optional[str]
         temperature: Optional[float]
         top_p: Optional[float]
 
-    def __init__(self, *, client_args: Optional[dict[str, Any]] = None, **model_config: Unpack[PalmyraConfig]):
+    def __init__(self, client_args: Optional[dict[str, Any]] = None, **model_config: Unpack[PalmyraConfig]):
         """Initialize provider instance.
 
         Args:
@@ -61,7 +60,7 @@ class PalmyraModel(Model):
         logger.debug("config=<%s> | initializing", self.config)
 
         client_args = client_args or {}
-        self.client = Client(**client_args)
+        self.client = writerai.Client(**client_args)
 
     @override
     def update_config(self, **model_config: Unpack[PalmyraConfig]) -> None:  # type: ignore[override]
@@ -149,7 +148,7 @@ class PalmyraModel(Model):
             system_prompt: System prompt to provide context to the model.
 
         Returns:
-            An Palmyra compatible messages array.
+            Palmyra compatible messages array.
         """
         formatted_messages: list[dict[str, Any]]
         formatted_messages = [{"role": "system", "content": system_prompt}] if system_prompt else []
@@ -197,9 +196,9 @@ class PalmyraModel(Model):
         Returns:
             The formatted request.
         """
-        request = {
+        return {
+            **{k: v for k, v in self.config.items()},
             "messages": self._format_request_messages(messages, system_prompt),
-            "model": self.config["model"],
             "stream": True,
             "tools": [
                 {
@@ -213,28 +212,6 @@ class PalmyraModel(Model):
                 for tool_spec in tool_specs or []
             ],
         }
-        if "logprobs" in self.config:
-            request["logprobs"] = self.config["logprobs"]
-        if "max_tokens" in self.config:
-            request["max_tokens"] = self.config["max_tokens"]
-        if "n" in self.config:
-            request["n"] = self.config["n"]
-        if "response_format" in self.config:
-            request["response_format"] = self.config["response_format"]
-        if "stop" in self.config:
-            request["stop"] = self.config["stop"]
-        if "stream_options" in self.config:
-            request["stream_options"] = self.config["stream_options"]
-        if "temperature" in self.config:
-            request["temperature"] = self.config["temperature"]
-        if "tool_choice" in self.config:
-            request["tool_choice"] = self.config["tool_choice"]
-        if "stream_options" in self.config:
-            request["stream_options"] = self.config["stream_options"]
-        if "top_p" in self.config:
-            request["top_p"] = self.config["top_p"]
-
-        return request
 
     @override
     def format_chunk(self, event: Any) -> StreamEvent:
@@ -246,7 +223,7 @@ class PalmyraModel(Model):
         Returns:
             The formatted chunk.
         """
-        match event["chunk_type"]:
+        match event.get("chunk_type", ""):
             case "message_start":
                 return {"messageStart": {"role": "assistant"}}
 
@@ -292,7 +269,7 @@ class PalmyraModel(Model):
                             "totalTokens": event["data"].total_tokens,
                         },
                         "metrics": {
-                            "latencyMs": -1,  # No data
+                            "latencyMs": 0,  # No data
                         },
                     },
                 }
@@ -315,7 +292,7 @@ class PalmyraModel(Model):
         """
         try:
             response = self.client.chat.chat(**request)
-        except RateLimitError as e:
+        except writerai.RateLimitError as e:
             raise ModelThrottledException(str(e)) from e
 
         yield {"chunk_type": "message_start"}
@@ -324,6 +301,8 @@ class PalmyraModel(Model):
         tool_calls: dict[int, list[Any]] = {}
 
         for chunk in response:
+            if not getattr(chunk, "choices", None):
+                continue
             choice = chunk.choices[0]
 
             if choice.delta.content:
