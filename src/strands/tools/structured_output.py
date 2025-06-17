@@ -36,6 +36,7 @@ def _flatten_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
         flattened["description"] = schema["description"]
 
     # Process properties
+    required_props: list[str] = []
     if "properties" in schema:
         required_props = []
         for prop_name, prop_value in schema["properties"].items():
@@ -60,7 +61,7 @@ def _flatten_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
                     processed_prop["required"] = prop_value["required"]
             else:
                 # Process as normal
-                processed_prop = process_property(prop_value, schema.get("$defs", {}), is_required)
+                processed_prop = _process_property(prop_value, schema.get("$defs", {}), is_required)
 
             flattened["properties"][prop_name] = processed_prop
 
@@ -69,13 +70,17 @@ def _flatten_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
                 required_props.append(prop_name)
 
     # Add required fields if any (only those that are truly required after processing)
-    if required_props:
+    # Check if required props are empty, if so, raise an error because it means there is a circular reference
+
+    if len(required_props) > 0:
         flattened["required"] = required_props
+    else:
+        raise ValueError("Circular reference detected and not supported")
 
     return flattened
 
 
-def process_property(
+def _process_property(
     prop: Dict[str, Any],
     defs: Dict[str, Any],
     is_required: bool = False,
@@ -108,7 +113,10 @@ def process_property(
             elif "$ref" in option:
                 ref_path = option["$ref"].split("/")[-1]
                 if ref_path in defs:
-                    non_null_type = process_schema_object(defs[ref_path], defs, fully_expand)
+                    non_null_type = _process_schema_object(defs[ref_path], defs, fully_expand)
+                else:
+                    # Handle missing reference path gracefully
+                    raise ValueError(f"Missing reference: {ref_path}")
             else:
                 non_null_type = option
 
@@ -138,26 +146,16 @@ def process_property(
         if ref_path in defs:
             ref_dict = defs[ref_path]
             # Process the referenced object to get a complete schema
-            result = process_schema_object(ref_dict, defs, fully_expand)
-
-            # Copy description if available in the property (overrides ref description)
-            if "description" in prop:
-                result["description"] = prop["description"]
-
-            # If not required, mark as nullable
-            if not is_required:
-                if "type" in result and isinstance(result["type"], str):
-                    result["type"] = [result["type"], "null"]
-                elif "type" in result and isinstance(result["type"], list) and "null" not in result["type"]:
-                    result["type"].append("null")
-
-            return result
+            result = _process_schema_object(ref_dict, defs, fully_expand)
+        else:
+            # Handle missing reference path gracefully
+            raise ValueError(f"Missing reference: {ref_path}")
 
     # For regular fields, copy all properties
     for key, value in prop.items():
         if key not in ["$ref", "anyOf"]:
             if isinstance(value, dict):
-                result[key] = process_nested_dict(value, defs)
+                result[key] = _process_nested_dict(value, defs)
             elif key == "type" and not is_required and not is_nullable:
                 # For non-required fields, ensure type is a list with "null"
                 if isinstance(value, str):
@@ -172,7 +170,7 @@ def process_property(
     return result
 
 
-def process_schema_object(
+def _process_schema_object(
     schema_obj: Dict[str, Any], defs: Dict[str, Any], fully_expand: bool = True
 ) -> Dict[str, Any]:
     """Process a schema object, typically from $defs, to resolve all nested properties.
@@ -203,7 +201,7 @@ def process_schema_object(
         for prop_name, prop_value in schema_obj["properties"].items():
             # Process each property
             is_required = prop_name in required_fields
-            processed = process_property(prop_value, defs, is_required, fully_expand)
+            processed = _process_property(prop_value, defs, is_required, fully_expand)
             result["properties"][prop_name] = processed
 
             # Track which properties are actually required after processing
@@ -217,7 +215,7 @@ def process_schema_object(
     return result
 
 
-def process_nested_dict(d: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, Any]:
+def _process_nested_dict(d: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, Any]:
     """Recursively processes nested dictionaries and resolves $ref references.
 
     Args:
@@ -235,7 +233,10 @@ def process_nested_dict(d: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, An
         if ref_path in defs:
             ref_dict = defs[ref_path]
             # Recursively process the referenced object
-            return process_schema_object(ref_dict, defs)
+            return _process_schema_object(ref_dict, defs)
+        else:
+            # Handle missing reference path gracefully
+            raise ValueError(f"Missing reference: {ref_path}")
 
     # Process each key-value pair
     for key, value in d.items():
@@ -243,10 +244,10 @@ def process_nested_dict(d: Dict[str, Any], defs: Dict[str, Any]) -> Dict[str, An
             # Already handled above
             continue
         elif isinstance(value, dict):
-            result[key] = process_nested_dict(value, defs)
+            result[key] = _process_nested_dict(value, defs)
         elif isinstance(value, list):
             # Process lists (like for enum values)
-            result[key] = [process_nested_dict(item, defs) if isinstance(item, dict) else item for item in value]
+            result[key] = [_process_nested_dict(item, defs) if isinstance(item, dict) else item for item in value]
         else:
             result[key] = value
 
@@ -280,10 +281,10 @@ def convert_pydantic_to_tool_spec(
 
     # Process all referenced models to ensure proper docstrings
     # This step is important for gathering descriptions from referenced models
-    process_referenced_models(input_schema, model)
+    _process_referenced_models(input_schema, model)
 
     # Now, let's fully expand the nested models with all their properties
-    expand_nested_properties(input_schema, model)
+    _expand_nested_properties(input_schema, model)
 
     # Flatten the schema
     flattened_schema = _flatten_schema(input_schema)
@@ -298,7 +299,7 @@ def convert_pydantic_to_tool_spec(
     )
 
 
-def expand_nested_properties(schema: Dict[str, Any], model: Type[BaseModel]) -> None:
+def _expand_nested_properties(schema: Dict[str, Any], model: Type[BaseModel]) -> None:
     """Expand the properties of nested models in the schema to include their full structure.
 
     This updates the schema in place.
@@ -358,7 +359,7 @@ def expand_nested_properties(schema: Dict[str, Any], model: Type[BaseModel]) -> 
             schema["properties"][prop_name] = expanded_object
 
 
-def process_referenced_models(schema: Dict[str, Any], model: Type[BaseModel]) -> None:
+def _process_referenced_models(schema: Dict[str, Any], model: Type[BaseModel]) -> None:
     """Process referenced models to ensure their docstrings are included.
 
     This updates the schema in place.
@@ -395,10 +396,10 @@ def process_referenced_models(schema: Dict[str, Any], model: Type[BaseModel]) ->
                         ref_def["description"] = field_type.__doc__.strip()
 
                     # Recursively process properties in the referenced model
-                    process_properties(ref_def, field_type)
+                    _process_properties(ref_def, field_type)
 
 
-def process_properties(schema_def: Dict[str, Any], model: Type[BaseModel]) -> None:
+def _process_properties(schema_def: Dict[str, Any], model: Type[BaseModel]) -> None:
     """Process properties in a schema definition to add descriptions from field metadata.
 
     Args:
