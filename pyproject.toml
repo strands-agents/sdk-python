@@ -60,12 +60,6 @@ docs = [
     "sphinx-rtd-theme>=1.0.0,<2.0.0",
     "sphinx-autodoc-typehints>=1.12.0,<2.0.0",
 ]
-<<<<<<< feature/structured-output
-litellm = ["litellm>=1.72.6,<2.0.0"]
-llamaapi = ["llama-api-client>=0.1.0,<1.0.0"]
-ollama = ["ollama>=0.4.8,<1.0.0"]
-openai = ["openai>=1.68.0,<2.0.0"]
-=======
 litellm = [
     "litellm>=1.69.0,<2.0.0",
 ]
@@ -88,7 +82,6 @@ a2a = [
     "fastapi>=0.115.12",
     "starlette>=0.46.2",
 ]
->>>>>>> main
 
 [tool.hatch.version]
 # Tells Hatch to use your version control system (git) to determine the version.
