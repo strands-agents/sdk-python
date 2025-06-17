@@ -93,7 +93,7 @@ a2a = [
 source = "vcs"
 
 [tool.hatch.envs.hatch-static-analysis]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "a2a"]
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
   "ruff>=0.11.6,<0.12.0",
