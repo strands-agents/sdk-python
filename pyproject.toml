@@ -49,6 +49,8 @@ packages = ["src/strands"]
 anthropic = [
     "anthropic>=0.21.0,<1.0.0",
 ]
+# Optional dependencies for different AI providers
+
 dev = [
     "commitizen>=4.4.0,<5.0.0",
     "hatch>=1.0.0,<2.0.0",
@@ -88,12 +90,17 @@ a2a = [
     "starlette>=0.46.2",
 ]
 
+portkey = [
+    "portkey-ai>=1.0.0,<2.0.0",
+]
+
 [tool.hatch.version]
 # Tells Hatch to use your version control system (git) to determine the version.
 source = "vcs"
 
 [tool.hatch.envs.hatch-static-analysis]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai","otel", "portkey"]
+
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
   "ruff>=0.11.6,<0.12.0",
@@ -116,7 +123,7 @@ lint-fix = [
 ]
 
 [tool.hatch.envs.hatch-test]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "portkey"]
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
@@ -132,7 +139,7 @@ extra-args = [
 
 [tool.hatch.envs.dev]
 dev-mode = true
-features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel"]
+features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel,", "portkey"]
 
 [tool.hatch.envs.a2a]
 dev-mode = true
