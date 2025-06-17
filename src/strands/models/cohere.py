@@ -4,8 +4,8 @@
 """
 
 import logging
-from typing import Any, Optional, Iterable, cast
-from typing_extensions import TypedDict, override, Unpack
+
+from typing_extensions import Unpack
 
 from .openai import OpenAIModel
 
@@ -17,6 +17,7 @@ class CohereModel(OpenAIModel):
 
     class CohereConfig(OpenAIModel.OpenAIConfig):
         """Configuration options for Cohere models."""
+
         pass
 
     def __init__(self, api_key: str, **model_config: Unpack[CohereConfig]):

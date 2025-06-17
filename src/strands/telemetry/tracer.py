@@ -294,7 +294,7 @@ class Tracer:
         finally:
             span.end()
             # Force flush to ensure spans are exported
-            if self.tracer_provider and hasattr(self.tracer_provider, 'force_flush'):
+            if self.tracer_provider and hasattr(self.tracer_provider, "force_flush"):
                 try:
                     self.tracer_provider.force_flush()
                 except Exception as e:
