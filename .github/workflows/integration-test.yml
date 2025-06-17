@@ -51,7 +51,7 @@ jobs:
          role-to-assume: ${{ secrets.STRANDS_INTEG_TEST_ROLE }}
          aws-region: us-east-1
          mask-aws-account-id: true
-      - name: Checkout base branch
+      - name: Checkout head commit
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }} # Pull the commit from the forked repo
