@@ -14,7 +14,6 @@ from typing import Any, Dict, Mapping, Optional
 import opentelemetry.trace as trace_api
 from opentelemetry import propagate
 from opentelemetry.baggage.propagation import W3CBaggagePropagator
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.propagators.composite import CompositePropagator
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider as SDKTracerProvider
@@ -29,6 +28,19 @@ from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
 
 logger = logging.getLogger(__name__)
+
+HAS_OTEL_EXPORTER_MODULE = False
+OTEL_EXPORTER_MODULE_ERROR = (
+    "opentelemetry-exporter-otlp-proto-http not detected;"
+    "please install strands-agents with the optional 'otel' target"
+    "otel http exporting is currently DISABLED"
+)
+try:
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+
+    HAS_OTEL_EXPORTER_MODULE = True
+except ImportError:
+    pass
 
 
 class JSONEncoder(json.JSONEncoder):
@@ -181,7 +193,7 @@ class Tracer:
             self.tracer_provider.add_span_processor(console_processor)
 
         # Add OTLP exporter if endpoint is provided
-        if self.otlp_endpoint and self.tracer_provider:
+        if HAS_OTEL_EXPORTER_MODULE and self.otlp_endpoint and self.tracer_provider:
             try:
                 # Ensure endpoint has the right format
                 endpoint = self.otlp_endpoint
@@ -206,6 +218,8 @@ class Tracer:
                 logger.info("endpoint=<%s> | OTLP exporter configured with endpoint", endpoint)
             except Exception as e:
                 logger.exception("error=<%s> | Failed to configure OTLP exporter", e)
+        elif self.otlp_endpoint and self.tracer_provider:
+            raise ModuleNotFoundError(OTEL_EXPORTER_MODULE_ERROR)
 
         # Set as global tracer provider
         trace_api.set_tracer_provider(self.tracer_provider)
