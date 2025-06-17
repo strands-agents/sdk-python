@@ -28,9 +28,8 @@ class A2AAgent:
         self,
         agent: SAAgent,
         *,
-        name: str,
-        description: str,
-        host: str = "localhost",
+        # AgentCard
+        host: str = "0.0.0",
         port: int = 9000,
         version: str = "0.0.1",
     ):
@@ -44,13 +43,14 @@ class A2AAgent:
             port: The port to bind the A2A server to. Defaults to 9000.
             version: The version of the agent. Defaults to "0.0.1".
         """
-        self.name = name
-        self.description = description
         self.host = host
         self.port = port
         self.http_url = f"http://{self.host}:{self.port}/"
         self.version = version
         self.strands_agent = agent
+        self.name = self.strands_agent.name
+        self.description = self.strands_agent.description
+        # TODO: enable configurable capabilities and request handler
         self.capabilities = AgentCapabilities()
         self.request_handler = DefaultRequestHandler(
             agent_executor=StrandsA2AExecutor(self.strands_agent),
@@ -67,7 +67,15 @@ class A2AAgent:
 
         Returns:
             AgentCard: The public agent card containing metadata about this agent.
+
+        Raises:
+            ValueError: If name or description is None or empty.
         """
+        if not self.name:
+            raise ValueError("A2A agent name cannot be None or empty")
+        if not self.description:
+            raise ValueError("A2A agent description cannot be None or empty")
+
         return AgentCard(
             name=self.name,
             description=self.description,
@@ -89,6 +97,7 @@ class A2AAgent:
         Returns:
             list[AgentSkill]: A list of skills this agent provides.
         """
+        # TODO: translate Strands tools (native & MCP) to skills
         return []
 
     def to_starlette_app(self) -> Starlette:
@@ -100,8 +109,7 @@ class A2AAgent:
         Returns:
             Starlette: A Starlette application configured to serve this agent.
         """
-        starlette_app = A2AStarletteApplication(agent_card=self.public_agent_card, http_handler=self.request_handler)
-        return starlette_app.build()
+        return A2AStarletteApplication(agent_card=self.public_agent_card, http_handler=self.request_handler).build()
 
     def to_fastapi_app(self) -> FastAPI:
         """Create a FastAPI application for serving this agent via HTTP.
@@ -112,8 +120,7 @@ class A2AAgent:
         Returns:
             FastAPI: A FastAPI application configured to serve this agent.
         """
-        fastapi_app = A2AFastAPIApplication(agent_card=self.public_agent_card, http_handler=self.request_handler)
-        return fastapi_app.build()
+        return A2AFastAPIApplication(agent_card=self.public_agent_card, http_handler=self.request_handler).build()
 
     def serve(self, app_type: Literal["fastapi", "starlette"] = "starlette", **kwargs: Any) -> None:
         """Start the A2A server with the specified application type.
@@ -128,12 +135,14 @@ class A2AAgent:
             **kwargs: Additional keyword arguments to pass to uvicorn.run.
         """
         try:
-            log.info("Starting Strands agent A2A server...")
+            log.info("Starting Strands A2A server...")
             if app_type == "fastapi":
                 uvicorn.run(self.to_fastapi_app(), host=self.host, port=self.port, **kwargs)
             else:
                 uvicorn.run(self.to_starlette_app(), host=self.host, port=self.port, **kwargs)
         except KeyboardInterrupt:
-            log.warning("Server shutdown requested (KeyboardInterrupt).")
+            log.warning("Strands A2A server shutdown requested (KeyboardInterrupt).")
+        except Exception:
+            log.exception("Strands A2A server encountered exception.")
         finally:
-            log.info("Strands agent A2A server has shutdown.")
+            log.info("Strands A2A server has shutdown.")

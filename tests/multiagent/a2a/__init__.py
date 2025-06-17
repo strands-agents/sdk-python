@@ -1,1 +1,1 @@
-"""Tests for the A2A implementation."""
+"""Tests for the A2A module."""

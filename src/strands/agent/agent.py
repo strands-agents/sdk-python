@@ -216,6 +216,9 @@ class Agent:
         record_direct_tool_call: bool = True,
         load_tools_from_directory: bool = True,
         trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
+        *,
+        name: str | None = None,
+        description: str | None = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -248,6 +251,10 @@ class Agent:
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.
                 Defaults to True.
             trace_attributes: Custom trace attributes to apply to the agent's trace span.
+            name: name of the Agent
+                Defaults to empty string.
+            description: description of what the Agent does
+                Defaults to empty string.
 
         Raises:
             ValueError: If max_parallel_tools is less than 1.
@@ -310,6 +317,8 @@ class Agent:
         self.trace_span: Optional[trace.Span] = None
 
         self.tool_caller = Agent.ToolCaller(self)
+        self.name = name
+        self.description = description
 
     @property
     def tool(self) -> ToolCaller:

@@ -1,99 +1,118 @@
 """Tests for the StrandsA2AExecutor class."""
 
+from unittest.mock import MagicMock
+
 import pytest
 from a2a.types import UnsupportedOperationError
 from a2a.utils.errors import ServerError
 
-from strands.agent.agent_result import AgentResult
+from strands.agent.agent_result import AgentResult as SAAgentResult
 from strands.multiagent.a2a.executor import StrandsA2AExecutor
-from strands.telemetry.metrics import EventLoopMetrics
 
 
-class MockAgent:
-    """Mock Strands Agent for testing."""
+def test_executor_initialization(mock_strands_agent):
+    """Test that StrandsA2AExecutor initializes correctly."""
+    executor = StrandsA2AExecutor(mock_strands_agent)
 
-    def __init__(self, response_text="Test response"):
-        """Initialize the mock agent with a predefined response."""
-        self.response_text = response_text
-        self.called_with = None
-
-    def __call__(self, input_text):
-        """Mock the agent call method."""
-        self.called_with = input_text
-        return AgentResult(
-            stop_reason="end_turn",
-            message={"content": [{"text": self.response_text}]},
-            metrics=EventLoopMetrics(),
-            state={},
-        )
-
-
-class MockEventQueue:
-    """Mock EventQueue for testing."""
-
-    def __init__(self):
-        """Initialize the mock event queue."""
-        self.events = []
-
-    async def enqueue_event(self, event):
-        """Mock the enqueue_event method."""
-        self.events.append(event)
-        return None
-
-
-class MockRequestContext:
-    """Mock RequestContext for testing."""
-
-    def __init__(self, user_input="Test input"):
-        """Initialize the mock request context."""
-        self.user_input = user_input
-
-    def get_user_input(self):
-        """Mock the get_user_input method."""
-        return self.user_input
-
-
-@pytest.fixture
-def mock_agent():
-    """Create a mock Strands agent for testing."""
-    return MockAgent()
-
-
-@pytest.fixture
-def executor(mock_agent):
-    """Create a StrandsA2AExecutor for testing."""
-    return StrandsA2AExecutor(mock_agent)
-
-
-@pytest.fixture
-def event_queue():
-    """Create a mock event queue for testing."""
-    return MockEventQueue()
-
-
-@pytest.fixture
-def request_context():
-    """Create a mock request context for testing."""
-    return MockRequestContext()
+    assert executor.agent == mock_strands_agent
 
 
 @pytest.mark.asyncio
-async def test_execute(executor, event_queue, request_context):
-    """Test that the execute method works correctly."""
-    await executor.execute(request_context, event_queue)
+async def test_execute_with_text_response(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test that execute processes text responses correctly."""
+    # Setup mock agent response
+    mock_result = MagicMock(spec=SAAgentResult)
+    mock_result.message = {"content": [{"text": "Test response"}]}
+    mock_strands_agent.return_value = mock_result
 
-    # Check that the agent was called with the correct input
-    assert executor.agent.called_with == "Test input"
+    # Create executor and call execute
+    executor = StrandsA2AExecutor(mock_strands_agent)
+    await executor.execute(mock_request_context, mock_event_queue)
 
-    # Check that an event was enqueued (we can't check the content directly)
-    assert len(event_queue.events) == 1
+    # Verify agent was called with correct input
+    mock_strands_agent.assert_called_once_with("Test input")
+
+    # Verify event was enqueued
+    mock_event_queue.enqueue_event.assert_called_once()
+    args, _ = mock_event_queue.enqueue_event.call_args
+    event = args[0]
+    assert event.parts[0].root.text == "Test response"
 
 
 @pytest.mark.asyncio
-async def test_cancel(executor, event_queue, request_context):
-    """Test that the cancel method raises the expected error."""
+async def test_execute_with_multiple_text_blocks(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test that execute processes multiple text blocks correctly."""
+    # Setup mock agent response with multiple text blocks
+    mock_result = MagicMock(spec=SAAgentResult)
+    mock_result.message = {"content": [{"text": "First response"}, {"text": "Second response"}]}
+    mock_strands_agent.return_value = mock_result
+
+    # Create executor and call execute
+    executor = StrandsA2AExecutor(mock_strands_agent)
+    await executor.execute(mock_request_context, mock_event_queue)
+
+    # Verify agent was called with correct input
+    mock_strands_agent.assert_called_once_with("Test input")
+
+    # Verify events were enqueued
+    assert mock_event_queue.enqueue_event.call_count == 2
+
+    # Check first event
+    args1, _ = mock_event_queue.enqueue_event.call_args_list[0]
+    event1 = args1[0]
+    assert event1.parts[0].root.text == "First response"
+
+    # Check second event
+    args2, _ = mock_event_queue.enqueue_event.call_args_list[1]
+    event2 = args2[0]
+    assert event2.parts[0].root.text == "Second response"
+
+
+@pytest.mark.asyncio
+async def test_execute_with_empty_response(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test that execute handles empty responses correctly."""
+    # Setup mock agent response with empty content
+    mock_result = MagicMock(spec=SAAgentResult)
+    mock_result.message = {"content": []}
+    mock_strands_agent.return_value = mock_result
+
+    # Create executor and call execute
+    executor = StrandsA2AExecutor(mock_strands_agent)
+    await executor.execute(mock_request_context, mock_event_queue)
+
+    # Verify agent was called with correct input
+    mock_strands_agent.assert_called_once_with("Test input")
+
+    # Verify no events were enqueued
+    mock_event_queue.enqueue_event.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_execute_with_no_message(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test that execute handles responses with no message correctly."""
+    # Setup mock agent response with no message
+    mock_result = MagicMock(spec=SAAgentResult)
+    mock_result.message = None
+    mock_strands_agent.return_value = mock_result
+
+    # Create executor and call execute
+    executor = StrandsA2AExecutor(mock_strands_agent)
+    await executor.execute(mock_request_context, mock_event_queue)
+
+    # Verify agent was called with correct input
+    mock_strands_agent.assert_called_once_with("Test input")
+
+    # Verify no events were enqueued
+    mock_event_queue.enqueue_event.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cancel_raises_unsupported_operation_error(mock_strands_agent, mock_request_context, mock_event_queue):
+    """Test that cancel raises UnsupportedOperationError."""
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
     with pytest.raises(ServerError) as excinfo:
-        await executor.cancel(request_context, event_queue)
+        await executor.cancel(mock_request_context, mock_event_queue)
 
-    # Check that the error contains an UnsupportedOperationError
+    # Verify the error is a ServerError containing an UnsupportedOperationError
     assert isinstance(excinfo.value.error, UnsupportedOperationError)

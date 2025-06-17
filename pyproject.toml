@@ -116,7 +116,7 @@ lint-fix = [
 ]
 
 [tool.hatch.envs.hatch-test]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "a2a"]
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
@@ -134,14 +134,8 @@ extra-args = [
 dev-mode = true
 features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel"]
 
-[tool.hatch.envs.a2a]
-dev-mode = true
-features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "a2a"]
-
-
 [[tool.hatch.envs.hatch-test.matrix]]
 python = ["3.13", "3.12", "3.11", "3.10"]
-
 
 [tool.hatch.envs.hatch-test.scripts]
 run = [
@@ -150,6 +144,10 @@ run = [
 run-cov = [
     "pytest{env:HATCH_TEST_ARGS:} --cov --cov-config=pyproject.toml {args}"
 ]
+
+[tool.hatch.envs.a2a]
+dev-mode = true
+features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "a2a"]
 
 cov-combine = []
 cov-report = []
@@ -198,7 +196,6 @@ warn_no_return = true
 warn_unreachable = true
 follow_untyped_imports = true
 ignore_missing_imports = false
-exclude = ["/multiagent/a2a"]
 
 [[tool.mypy.overrides]]
 module = "litellm"
@@ -230,9 +227,6 @@ testpaths = [
     "tests"
 ]
 asyncio_default_fixture_loop_scope = "function"
-norecursedirs = [
-    "tests/multiagent/a2a"
-]
 
 [tool.coverage.run]
 branch = true
