@@ -176,7 +176,11 @@ test = [
 test-integ = [
     "hatch test tests-integ {args}"
 ]
-
+prepare = [
+    "hatch fmt --linter",
+    "hatch fmt --formatter",
+    "hatch test --all"
+]
 
 [tool.mypy]
 python_version = "3.10"
