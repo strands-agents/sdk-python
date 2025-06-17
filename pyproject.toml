@@ -136,15 +136,31 @@ cov-report = []
 
 [tool.hatch.envs.default.scripts]
 list = [
-    "echo 'Scripts commands available for default env:'; hatch env show --json | jq --raw-output '.default.scripts | keys[]'",
+    "echo 'Scripts commands available for default env:'; hatch env show --json | jq --raw-output '.default.scripts | keys[]'"
 ]
-format = ["hatch fmt --formatter"]
-test-format = ["hatch fmt --formatter --check"]
-lint = ["hatch fmt --linter"]
-test-lint = ["hatch fmt --linter --check"]
-test = ["hatch test --cover --cov-report html --cov-report xml {args}"]
-test-integ = ["hatch test tests-integ {args}"]
-
+format = [
+  "hatch fmt --formatter",
+]
+test-format = [
+    "hatch fmt --formatter --check",
+]
+lint = [
+    "hatch fmt --linter"
+]
+test-lint = [
+    "hatch fmt --linter --check"
+]
+test = [
+    "hatch test --cover --cov-report html --cov-report xml {args}"
+]
+test-integ = [
+    "hatch test tests-integ {args}"
+]
+prepare = [
+    "hatch fmt --linter",
+    "hatch fmt --formatter",
+    "hatch test --all"
+]
 
 [tool.mypy]
 python_version = "3.10"
