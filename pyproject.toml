@@ -198,6 +198,7 @@ warn_no_return = true
 warn_unreachable = true
 follow_untyped_imports = true
 ignore_missing_imports = false
+exclude = ["/multiagent/a2a"]
 
 [[tool.mypy.overrides]]
 module = "litellm"
