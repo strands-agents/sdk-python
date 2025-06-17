@@ -117,7 +117,7 @@ lint-fix = [
 
 [tool.hatch.envs.hatch-test]
 features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel"]
-extra-dependencies = 
+extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
     "pytest-asyncio>=0.26.0,<0.27.0",
@@ -229,6 +229,9 @@ testpaths = [
     "tests"
 ]
 asyncio_default_fixture_loop_scope = "function"
+norecursedirs = [
+    "tests/multiagent/a2a"
+]
 
 [tool.coverage.run]
 branch = true
