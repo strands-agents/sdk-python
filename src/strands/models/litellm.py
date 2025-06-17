@@ -8,6 +8,7 @@ import logging
 from typing import Any, Callable, Optional, Type, TypedDict, TypeVar, cast
 
 import litellm
+from litellm.utils import supports_response_schema
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
@@ -113,7 +114,6 @@ class LiteLLMModel(OpenAIModel):
             prompt(Messages): The prompt messages to use for the agent.
             callback_handler(Optional[Callable]): Optional callback handler for processing events. Defaults to None.
 
-        TODO: add checks: https://docs.litellm.ai/docs/completion/json_mode#check-model-support
         """
         # The LiteLLM `Client` inits with Chat().
         # Chat() inits with self.completions
@@ -123,6 +123,11 @@ class LiteLLMModel(OpenAIModel):
             messages=super().format_request(prompt)["messages"],
             response_format=output_model,
         )
+
+        if not supports_response_schema(self.get_config()["model_id"]):
+            raise ValueError("Model does not support response_format")
+        if len(response.choices) > 1:
+            raise ValueError("Multiple choices found in the response.")
 
         # Find the first choice with tool_calls
         for choice in response.choices:

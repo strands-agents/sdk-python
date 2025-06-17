@@ -402,4 +402,16 @@ class LlamaAPIModel(Model):
         Raises:
             NotImplementedError: Structured output is not currently supported for LlamaAPI models.
         """
-        raise NotImplementedError("Structured output is not currently supported for LlamaAPI models")
+        # response_format: ResponseFormat = {
+        #     "type": "json_schema",
+        #     "json_schema": {
+        #         "name": output_model.__name__,
+        #         "schema": output_model.model_json_schema(),
+        #     },
+        # }
+        # response = self.client.chat.completions.create(
+        #     model=self.config["model_id"],
+        #     messages=self.format_request(prompt)["messages"],
+        #     response_format=response_format,
+        # )
+        raise NotImplementedError("Strands sdk-python does not implement this in the Llama API Preview.")

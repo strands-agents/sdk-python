@@ -47,6 +47,10 @@ def test_agent(agent):
     assert all(string in text for string in ["12:00", "sunny"])
 
 
+@pytest.mark.skipif(
+    "OPENAI_API_KEY" not in os.environ,
+    reason="OPENAI_API_KEY environment variable missing",
+)
 def test_structured_output(model):
     class Weather(BaseModel):
         """Extracts the time and weather from the user's message with the exact strings."""

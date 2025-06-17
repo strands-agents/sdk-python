@@ -150,6 +150,9 @@ class OpenAIModel(SAOpenAIModel):
 
         parsed: T | None = None
         # Find the first choice with tool_calls
+        if len(response.choices) > 1:
+            raise ValueError("Multiple choices found in the OpenAI response.")
+
         for choice in response.choices:
             if isinstance(choice.message.parsed, output_model):
                 parsed = choice.message.parsed
