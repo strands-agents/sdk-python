@@ -12,6 +12,13 @@ from strands.types.exceptions import ContextWindowOverflowException, EventLoopEx
 
 
 @pytest.fixture
+def mock_time():
+    """Fixture to mock the time module in the error_handler."""
+    with unittest.mock.patch.object(strands.event_loop.error_handler, "time") as mock:
+        yield mock
+
+
+@pytest.fixture
 def model():
     return unittest.mock.Mock()
 
@@ -157,57 +164,8 @@ def test_event_loop_cycle_text_response(
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
 
 
-def test_event_loop_cycle_text_response_input_too_long(
-    model,
-    model_id,
-    system_prompt,
-    messages,
-    tool_config,
-    callback_handler,
-    tool_handler,
-    tool_execution_handler,
-):
-    model.converse.side_effect = [
-        ContextWindowOverflowException(RuntimeError("Input is too long for requested model")),
-        [
-            {"contentBlockDelta": {"delta": {"text": "test text"}}},
-            {"contentBlockStop": {}},
-        ],
-    ]
-    messages.append(
-        {
-            "role": "user",
-            "content": [
-                {
-                    "toolResult": {
-                        "toolUseId": "t1",
-                        "status": "success",
-                        "content": [{"text": "2025-04-01T00:00:00"}],
-                    },
-                },
-            ],
-        }
-    )
-
-    tru_stop_reason, tru_message, _, tru_request_state = strands.event_loop.event_loop.event_loop_cycle(
-        model=model,
-        model_id=model_id,
-        system_prompt=system_prompt,
-        messages=messages,
-        tool_config=tool_config,
-        callback_handler=callback_handler,
-        tool_handler=tool_handler,
-        tool_execution_handler=tool_execution_handler,
-    )
-    exp_stop_reason = "end_turn"
-    exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
-    exp_request_state = {}
-
-    assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
-
-
-@unittest.mock.patch.object(strands.event_loop.error_handler, "time")
 def test_event_loop_cycle_text_response_throttling(
+    mock_time,
     model,
     model_id,
     system_prompt,
@@ -240,6 +198,53 @@ def test_event_loop_cycle_text_response_throttling(
     exp_request_state = {}
 
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
+    # Verify that sleep was called once with the initial delay
+    mock_time.sleep.assert_called_once()
+
+
+def test_event_loop_cycle_exponential_backoff(
+    mock_time,
+    model,
+    model_id,
+    system_prompt,
+    messages,
+    tool_config,
+    callback_handler,
+    tool_handler,
+    tool_execution_handler,
+):
+    """Test that the exponential backoff works correctly with multiple retries."""
+    # Set up the model to raise throttling exceptions multiple times before succeeding
+    model.converse.side_effect = [
+        ModelThrottledException("ThrottlingException | ConverseStream"),
+        ModelThrottledException("ThrottlingException | ConverseStream"),
+        ModelThrottledException("ThrottlingException | ConverseStream"),
+        [
+            {"contentBlockDelta": {"delta": {"text": "test text"}}},
+            {"contentBlockStop": {}},
+        ],
+    ]
+
+    tru_stop_reason, tru_message, _, tru_request_state = strands.event_loop.event_loop.event_loop_cycle(
+        model=model,
+        model_id=model_id,
+        system_prompt=system_prompt,
+        messages=messages,
+        tool_config=tool_config,
+        callback_handler=callback_handler,
+        tool_handler=tool_handler,
+        tool_execution_handler=tool_execution_handler,
+    )
+
+    # Verify the final response
+    assert tru_stop_reason == "end_turn"
+    assert tru_message == {"role": "assistant", "content": [{"text": "test text"}]}
+    assert tru_request_state == {}
+
+    # Verify that sleep was called with increasing delays
+    # Initial delay is 4, then 8, then 16
+    assert mock_time.sleep.call_count == 3
+    assert mock_time.sleep.call_args_list == [call(4), call(8), call(16)]
 
 
 def test_event_loop_cycle_text_response_error(

@@ -41,6 +41,12 @@ MIME_TO_FORMAT: Dict[str, ImageFormat] = {
     "image/webp": "webp",
 }
 
+CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE = (
+    "the client session is not running. Ensure the agent is used within "
+    "the MCP client context manager. For more information see: "
+    "https://strandsagents.com/latest/user-guide/concepts/tools/mcp-tools/#mcpclientinitializationerror"
+)
+
 
 class MCPClient:
     """Represents a connection to a Model Context Protocol (MCP) server.
@@ -145,7 +151,7 @@ class MCPClient:
         """
         self._log_debug_with_thread("listing MCP tools synchronously")
         if not self._is_session_active():
-            raise MCPClientInitializationError("the client session is not running")
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _list_tools_async() -> ListToolsResult:
             return await self._background_thread_session.list_tools()
@@ -180,7 +186,7 @@ class MCPClient:
         """
         self._log_debug_with_thread("calling MCP tool '%s' synchronously with tool_use_id=%s", name, tool_use_id)
         if not self._is_session_active():
-            raise MCPClientInitializationError("the client session is not running")
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _call_tool_async() -> MCPCallToolResult:
             return await self._background_thread_session.call_tool(name, arguments, read_timeout_seconds)
