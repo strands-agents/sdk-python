@@ -41,6 +41,7 @@ from .conversation_manager import (
     ConversationManager,
     SlidingWindowConversationManager,
 )
+from .state import AgentState
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +224,7 @@ class Agent:
         *,
         name: Optional[str] = None,
         description: Optional[str] = None,
+        state: Optional[AgentState] = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -259,6 +261,8 @@ class Agent:
                 Defaults to None.
             description: description of what the Agent does
                 Defaults to None.
+            state: stateful information for the agent
+                Defaults to an empty AgentState object.
 
         Raises:
             ValueError: If max_parallel_tools is less than 1.
@@ -319,6 +323,10 @@ class Agent:
         # Initialize tracer instance (no-op if not configured)
         self.tracer = get_tracer()
         self.trace_span: Optional[trace.Span] = None
+
+        # Initialize agent state management
+        self.state = state or AgentState()
+
         self.tool_caller = Agent.ToolCaller(self)
         self.name = name
         self.description = description
