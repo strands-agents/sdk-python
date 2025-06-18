@@ -308,7 +308,6 @@ class Agent:
         # Initialize tracer instance (no-op if not configured)
         self.tracer = get_tracer()
         self.trace_span: Optional[trace.Span] = None
-
         self.tool_caller = Agent.ToolCaller(self)
 
     @property
