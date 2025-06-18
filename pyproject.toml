@@ -108,7 +108,7 @@ format-fix = [
 ]
 lint-check = [
     "ruff check",
-    "mypy -p src --exclude src/strands/multiagent/a2a"
+    "mypy -p src --exclude 'src/strands/multiagent/a2a'"
 ]
 lint-fix = [
     "ruff check --fix"
