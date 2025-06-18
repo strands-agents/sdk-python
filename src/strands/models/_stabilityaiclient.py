@@ -1,6 +1,95 @@
+import base64
+from enum import Enum
+from io import BytesIO
 from typing import Any, BinaryIO, Dict, Optional, Union, cast
 
 import requests
+from PIL import Image
+
+
+# Validation classes and functions
+# Other validation is performed in the JSON workflow configs
+class ModeEnum(str, Enum):
+    TEXT_TO_IMAGE = "text-to-image"
+    IMAGE_TO_IMAGE = "image-to-image"
+
+
+class OutputFormat(Enum):
+    PNG = "png"
+    JPEG = "jpeg"
+    WEBP = "webp"
+
+
+class StylePresetEnum(str, Enum):
+    THREE_D_MODEL = "3d-model"
+    ANALOG_FILM = "analog-film"
+    ANIME = "anime"
+    CINEMATIC = "cinematic"
+    COMIC_BOOK = "comic-book"
+    DIGITAL_ART = "digital-art"
+    ENHANCE = "enhance"
+    FANTASY_ART = "fantasy-art"
+    ISOMETRIC = "isometric"
+    LINE_ART = "line-art"
+    LOW_POLY = "low-poly"
+    MODELING_COMPOUND = "modeling-compound"
+    NEON_PUNK = "neon-punk"
+    ORIGAMI = "origami"
+    PHOTOGRAPHIC = "photographic"
+    PIXEL_ART = "pixel-art"
+    TILE_TEXTURE = "tile-texture"
+
+
+def _validate_image_pixels_and_aspect_ratio(image: Union[str, BinaryIO]) -> None:
+    """Validates the number of pixels in the 'image' field of the request.
+
+    The image must have a total pixel count between 4,096 and 9,437,184 (inclusive).
+    Not implemented yet (but required for stable image services):
+    If the model is outpaint, the aspect ratio must be between 1:2.5 and 2.5:1.
+
+    Args:
+        image: Either a base64-encoded string or a BinaryIO object
+    """
+    # Get the raw image data
+    if isinstance(image, str):
+        # Decode base64 string
+        try:
+            image_data = base64.b64decode(image)
+        except Exception as e:
+            raise ValueError("Invalid base64 encoding for 'image'") from e
+    else:
+        # Read from BinaryIO
+        image_data = image.read()
+        image.seek(0)  # Reset the file pointer so it can be read again later
+
+    # Attempt to open the image using Pillow
+    try:
+        with Image.open(BytesIO(image_data)) as img:
+            width, height = img.size
+    except Exception as e:
+        raise ValueError("Unable to open or process the image data") from e
+
+    # Check the image type based on magic bytes (JPEG, PNG, WebP)
+    image_format = None
+    if image_data.startswith(b"\xff\xd8\xff"):  # JPEG magic number
+        image_format = "jpeg"
+    elif image_data.startswith(b"\x89\x50\x4e\x47"):  # PNG magic number
+        image_format = "png"
+    elif image_data.startswith(b"\x52\x49\x46\x46") and image_data[8:12] == b"WEBP":  # WebP magic number
+        image_format = "webp"
+
+    if not image_format:
+        raise ValueError("Unsupported image format. Only JPEG, PNG, or WebP are allowed.")
+
+    total_pixels = width * height
+    MIN_PIXELS = 4096
+    MAX_PIXELS = 9437184
+
+    if total_pixels < MIN_PIXELS or total_pixels > MAX_PIXELS:
+        raise ValueError(
+            f"Image total pixel count {total_pixels} is invalid. Image size (height x width) must be between "
+            f"{MIN_PIXELS} and {MAX_PIXELS} pixels."
+        )
 
 
 class StabilityAiError(Exception):
@@ -53,87 +142,29 @@ class StabilityAiClient:
 
         return headers
 
-    def generate_image_bytes(
-        self,
-        prompt: str,
-        negative_prompt: Optional[str] = None,
-        aspect_ratio: str = "1:1",
-        seed: Optional[int] = None,
-        output_format: str = "png",
-        image: Optional[BinaryIO] = None,
-        style_preset: Optional[str] = None,
-        strength: Optional[float] = None,
-    ) -> bytes:
+    def generate_image_bytes(self, **kwargs: Any) -> bytes:
         """Generate an image using the Stability AI API.
 
         Args:
-            prompt: Text prompt for image generation
-            negative_prompt: Optional text describing what not to include
-            aspect_ratio: Aspect ratio of the output image
-            seed: Random seed for generation
-            output_format: Output format (jpeg, png, webp)
-            image: Optional input image for img2img
-            style_preset: Optional style preset
-            strength: Required when image is provided, controls influence of input image
-
-        Returns:  bytes of the image
-        """
-        return cast(
-            bytes,
-            self._generate_image(
-                prompt,
-                negative_prompt,
-                aspect_ratio,
-                seed,
-                output_format,
-                image,
-                style_preset,
-                strength,
-                return_json=False,
-            ),
-        )
-
-    def generate_image_json(
-        self,
-        prompt: str,
-        negative_prompt: Optional[str] = None,
-        aspect_ratio: str = "1:1",
-        seed: Optional[int] = None,
-        output_format: str = "png",
-        image: Optional[BinaryIO] = None,
-        style_preset: Optional[str] = None,
-        strength: Optional[float] = None,
-    ) -> Dict[str, Any]:
-        """Generate an image using the Stability AI API.
-
-        Args:
-            prompt: Text prompt for image generation
-            negative_prompt: Optional text describing what not to include
-            aspect_ratio: Aspect ratio of the output image
-            seed: Random seed for generation
-            output_format: Output format (jpeg, png, webp)
-            image: Optional input image for img2img
-            style_preset: Optional style preset
-            strength: Required when image is provided, controls influence of input image
-            return_json: If True, returns JSON response with base64 image
+            **kwargs: See _generate_image for available parameters
 
         Returns:
-            Either image bytes or JSON response with base64 image
+            bytes of the image
         """
-        return cast(
-            Dict[str, Any],
-            self._generate_image(
-                prompt,
-                negative_prompt,
-                aspect_ratio,
-                seed,
-                output_format,
-                image,
-                style_preset,
-                strength,
-                return_json=True,
-            ),
-        )
+        kwargs["return_json"] = False
+        return cast(bytes, self._generate_image(**kwargs))
+
+    def generate_image_json(self, **kwargs: Any) -> Dict[str, Any]:
+        """Generate an image using the Stability AI API.
+
+        Args:
+            **kwargs: See _generate_image for available parameters
+
+        Returns:
+            JSON response with base64 image
+        """
+        kwargs["return_json"] = True
+        return cast(Dict[str, Any], self._generate_image(**kwargs))
 
     def _generate_image(
         self,
@@ -141,11 +172,13 @@ class StabilityAiClient:
         negative_prompt: Optional[str] = None,
         aspect_ratio: str = "1:1",
         seed: Optional[int] = None,
-        output_format: str = "png",
+        output_format: Union[OutputFormat, str] = "png",
         image: Optional[BinaryIO] = None,
+        mode: Union[ModeEnum, str] = ModeEnum.TEXT_TO_IMAGE,
         style_preset: Optional[str] = None,
-        strength: Optional[float] = None,
+        strength: Optional[float] = 0.35,
         return_json: bool = False,
+        **extra_kwargs: Any,
     ) -> Union[bytes, Dict[str, Any]]:
         """Generate an image using the Stability AI API.
 
@@ -156,9 +189,11 @@ class StabilityAiClient:
             seed: Random seed for generation
             output_format: Output format (jpeg, png, webp)
             image: Optional input image for img2img
+            mode: "text-to-image" or "image-to-image"
             style_preset: Optional style preset
             strength: Required when image is provided, controls influence of input image
             return_json: If True, returns JSON response with base64 image
+            **extra_kwargs: Additional keyword arguments (will be ignored with a warning)
 
         Returns:
             Either image bytes or JSON response with base64 image
@@ -166,6 +201,20 @@ class StabilityAiClient:
         Raises:
             StabilityAiError: If the API request fails
         """
+        if isinstance(output_format, str):
+            try:
+                output_format = OutputFormat(output_format)
+            except ValueError as e:
+                raise ValueError(
+                    f"Invalid output_format: {output_format}. Must be one of: {[e.value for e in OutputFormat]}"
+                ) from e
+
+        if isinstance(mode, str):
+            try:
+                mode = ModeEnum(mode)
+            except ValueError as e:
+                raise ValueError(f"Invalid mode: {mode}. Must be one of: {[e.value for e in ModeEnum]}") from e
+
         # Prepare the multipart form data
         files: Dict[str, Union[BinaryIO, str]] = {}
         data: Dict[str, Any] = {}
@@ -179,12 +228,16 @@ class StabilityAiClient:
         if seed is not None:
             data["seed"] = seed
         if output_format:
-            data["output_format"] = output_format
+            data["output_format"] = output_format.value
         if style_preset:
+            allowed_presets = [preset.value for preset in StylePresetEnum]
+            if style_preset not in allowed_presets:
+                raise ValueError(f"'style_preset' must be one of {allowed_presets}. Got '{style_preset}'.")
             data["style_preset"] = style_preset
 
         # Handle input image if provided
         if image:
+            _validate_image_pixels_and_aspect_ratio(image)
             files["image"] = image
 
         if len(files) == 0:
@@ -203,6 +256,10 @@ class StabilityAiClient:
                 if return_json:
                     return cast(Dict[str, Any], response.json())
                 return cast(bytes, response.content)
+            elif response.status_code == 401:
+                raise StabilityAiError(
+                    f"Unauthorized: check authentication credentials: {response.json().get('errors', 'Unknown error')}"
+                )
             elif response.status_code == 400:
                 raise StabilityAiError(f"Invalid parameters: {response.json().get('errors', 'Unknown error')}")
             elif response.status_code == 403:

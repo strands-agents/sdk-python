@@ -242,17 +242,8 @@ class StabilityAiImageModel(Model):
         yield {"chunk_type": "message_start"}
         yield {"chunk_type": "content_start", "data_type": "text"}
         try:
-            # Generate the image
-            response_json = self.client.generate_image_json(
-                prompt=request["prompt"],
-                negative_prompt=request.get("negative_prompt"),
-                aspect_ratio=request.get("aspect_ratio", "1:1"),
-                seed=request.get("seed"),
-                output_format=request.get("output_format", "png"),
-                image=request.get("image"),
-                style_preset=request.get("style_preset"),
-                strength=request.get("strength", 0.35),
-            )
+            # Generate the image #TODO add generate_image_bytes
+            response_json = self.client.generate_image_json(**request)
             # Yield the image data as a single event
 
             yield {"chunk_type": "content_block_delta", "data_type": "image", "data": response_json.get("image")}
