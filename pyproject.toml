@@ -144,6 +144,10 @@ run = [
 run-cov = [
     "pytest{env:HATCH_TEST_ARGS:} tests/multiagent/a2a --cov --cov-config=pyproject.toml {args}"
 ]
+lint-check = [
+    "ruff check",
+    "mypy -p src/strands/multiagent/a2a"
+]
 
 [[tool.hatch.envs.hatch-test.matrix]]
 python = ["3.13", "3.12", "3.11", "3.10"]
