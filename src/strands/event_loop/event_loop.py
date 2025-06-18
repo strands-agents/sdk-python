@@ -146,6 +146,11 @@ def event_loop_cycle(
         )
 
         try:
+            # TODO: As part of the migration to async-iterator, we will continue moving callback_handler calls up the
+            #       call stack. At this point, we converted all events that were previously passed to the handler in
+            #       `stream_messages` into yielded events that now have the "callback" key. To maintain backwards
+            #       compatability, we need to combine the event with kwargs before passing to the handler. This we will
+            #       revisit when migrating to strongly typed events.
             for event in stream_messages(model, system_prompt, messages, tool_config):
                 if "callback" in event:
                     inputs = {**event["callback"], **(kwargs if "delta" in event["callback"] else {})}
