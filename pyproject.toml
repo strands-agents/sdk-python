@@ -109,14 +109,14 @@ format-fix = [
 ]
 lint-check = [
     "ruff check",
-    "mypy -p src"
+    "mypy -p src --exclude src/multiagent/a2a"
 ]
 lint-fix = [
     "ruff check --fix"
 ]
 
 [tool.hatch.envs.hatch-test]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "a2a"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel"]
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
@@ -139,15 +139,23 @@ python = ["3.13", "3.12", "3.11", "3.10"]
 
 [tool.hatch.envs.hatch-test.scripts]
 run = [
-    "pytest{env:HATCH_TEST_ARGS:} {args}"
+    "pytest{env:HATCH_TEST_ARGS:} {args} --ignore=tests/multiagent/a2a"
 ]
 run-cov = [
-    "pytest{env:HATCH_TEST_ARGS:} --cov --cov-config=pyproject.toml {args}"
+    "pytest{env:HATCH_TEST_ARGS:} --cov --cov-config=pyproject.toml {args} --ignore=tests/multiagent/a2a"
 ]
 
 [tool.hatch.envs.a2a]
 dev-mode = true
 features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "a2a"]
+
+[tool.hatch.envs.a2a.scripts]
+run = [
+    "pytest{env:HATCH_TEST_ARGS:} tests/multiagent/a2a {args}"
+]
+run-cov = [
+    "pytest{env:HATCH_TEST_ARGS:} tests/multiagent/a2a --cov --cov-config=pyproject.toml {args}"
+]
 
 cov-combine = []
 cov-report = []
@@ -179,6 +187,9 @@ prepare = [
     "hatch fmt --linter",
     "hatch fmt --formatter",
     "hatch test --all"
+]
+test-a2a = [
+    "hatch -e a2a run run {args}"
 ]
 
 [tool.mypy]
