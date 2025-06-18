@@ -75,7 +75,6 @@ def test_format_request_basic(model, messages, model_name, stream_options):
         "stream": True,
         "messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}],
         "model": model_name,
-        "tools": [],
         "stream_options": stream_options,
     }
 
@@ -89,7 +88,6 @@ def test_format_request_with_params(model, messages, model_name, stream_options)
     exp_request = {
         "messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}],
         "model": model_name,
-        "tools": [],
         "stream_options": stream_options,
         "temperature": 0.19,
         "stream": True,
@@ -107,7 +105,6 @@ def test_format_request_with_system_prompt(model, messages, model_name, stream_o
             {"content": [{"text": "test", "type": "text"}], "role": "user"},
         ],
         "model": model_name,
-        "tools": [],
         "stream_options": stream_options,
         "stream": True,
     }
@@ -147,7 +144,6 @@ def test_format_request_with_tool_use(model, model_name, stream_options):
             },
         ],
         "model": model_name,
-        "tools": [],
         "stream_options": stream_options,
         "stream": True,
     }
@@ -183,7 +179,6 @@ def test_format_request_with_tool_resultsasync(model, model_name, stream_options
             },
         ],
         "model": model_name,
-        "tools": [],
         "stream_options": stream_options,
         "stream": True,
     }
@@ -203,7 +198,6 @@ def test_format_request_with_empty_content(model, model_name, stream_options):
     exp_request = {
         "messages": [],
         "model": model_name,
-        "tools": [],
         "stream_options": stream_options,
         "stream": True,
     }

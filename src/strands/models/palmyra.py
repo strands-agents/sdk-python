@@ -42,7 +42,6 @@ class PalmyraModel(Model):
         logprobs: bool
         max_tokens: Optional[int]
         n: Optional[int]
-        response_format: Dict[str, Any]
         stop: Optional[Union[str, List[str]]]
         stream_options: Dict[str, Any]
         temperature: Optional[float]
@@ -80,24 +79,68 @@ class PalmyraModel(Model):
         """
         return self.config
 
-    def _format_request_message_content(self, content: ContentBlock) -> dict[str, Any]:
-        """Format a Palmyra content block.
+    def _format_request_message_contents_vision(self, contents: list[ContentBlock]) -> list[dict[str, Any]]:
+        def _format_content_vision(content: ContentBlock) -> dict[str, Any]:
+            """Format a Palmyra content block.
 
-        - NOTE: "reasoningContent", "video" and "image" are not supported currently.
+            - NOTE: "reasoningContent", "video" and "image" are not supported currently.
 
-        Args:
-            content: Message content.
+            Args:
+                content: Message content.
 
-        Returns:
-            Palmyra formatted content block.
+            Returns:
+                Palmyra formatted content block for models, which support vision content format.
 
-        Raises:
-            TypeError: If the content block type cannot be converted to a Palmyra-compatible format.
-        """
-        if "text" in content:
-            return {"text": content["text"], "type": "text"}
+            Raises:
+                TypeError: If the content block type cannot be converted to a Palmyra-compatible format.
+            """
+            if "text" in content:
+                return {"text": content["text"], "type": "text"}
 
-        raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
+            raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
+
+        return [
+            _format_content_vision(content)
+            for content in contents
+            if not any(block_type in content for block_type in ["toolResult", "toolUse"])
+        ]
+
+    def _format_request_message_contents(self, contents: list[ContentBlock]) -> str:
+        def _format_content(content: ContentBlock) -> str:
+            """Format a Palmyra content block.
+
+            - NOTE: "reasoningContent", "video" and "image" are not supported currently.
+
+            Args:
+                content: Message content.
+
+            Returns:
+                Palmyra formatted content block.
+
+            Raises:
+                TypeError: If the content block type cannot be converted to a Palmyra-compatible format.
+            """
+            if "text" in content:
+                return content["text"]
+
+            raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
+
+        content_blocks = list(
+            filter(
+                lambda content: content.get("text")
+                and not any(block_type in content for block_type in ["toolResult", "toolUse"]),
+                contents,
+            )
+        )
+
+        if len(content_blocks) > 1:
+            raise ValueError(
+                f"Model with name {self.get_config().get('model', 'N/A')} doesn't support multiple contents"
+            )
+        elif len(content_blocks) == 1:
+            return _format_content(content_blocks[0])
+        else:
+            return ""
 
     def _format_request_message_tool_call(self, tool_use: ToolUse) -> dict[str, Any]:
         """Format a Palmyra tool call.
@@ -134,10 +177,15 @@ class PalmyraModel(Model):
             ],
         )
 
+        if self.get_config().get("model", "") == "palmyra-x5":
+            formatted_contents = self._format_request_message_contents_vision(contents)
+        else:
+            formatted_contents = self._format_request_message_contents(contents)  # type: ignore [assignment]
+
         return {
             "role": "tool",
             "tool_call_id": tool_result["toolUseId"],
-            "content": [self._format_request_message_content(content) for content in contents],
+            "content": formatted_contents,
         }
 
     def _format_request_messages(self, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
@@ -156,11 +204,12 @@ class PalmyraModel(Model):
         for message in messages:
             contents = message["content"]
 
-            formatted_contents = [
-                self._format_request_message_content(content)
-                for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse"])
-            ]
+            # Only palmyra V5 support multiple content. Other models support only '{"content": "text_content"}'
+            if self.get_config().get("model", "") == "palmyra-x5":
+                formatted_contents: str | list[dict[str, Any]] = self._format_request_message_contents_vision(contents)
+            else:
+                formatted_contents = self._format_request_message_contents(contents)
+
             formatted_tool_calls = [
                 self._format_request_message_tool_call(content["toolUse"])
                 for content in contents
@@ -196,11 +245,15 @@ class PalmyraModel(Model):
         Returns:
             The formatted request.
         """
-        return {
+        request = {
             **{k: v for k, v in self.config.items()},
             "messages": self._format_request_messages(messages, system_prompt),
             "stream": True,
-            "tools": [
+        }
+
+        # Palmyra don't support empty tools attribute
+        if tool_specs:
+            request["tools"] = [
                 {
                     "type": "function",
                     "function": {
@@ -209,9 +262,10 @@ class PalmyraModel(Model):
                         "parameters": tool_spec["inputSchema"]["json"],
                     },
                 }
-                for tool_spec in tool_specs or []
-            ],
-        }
+                for tool_spec in tool_specs
+            ]
+
+        return request
 
     @override
     def format_chunk(self, event: Any) -> StreamEvent:
@@ -269,7 +323,7 @@ class PalmyraModel(Model):
                             "totalTokens": event["data"].total_tokens,
                         },
                         "metrics": {
-                            "latencyMs": 0,  # No data
+                            "latencyMs": 0,  # All palmyra models don't provide 'latency' metadata
                         },
                     },
                 }
@@ -327,6 +381,7 @@ class PalmyraModel(Model):
 
         yield {"chunk_type": "message_stop", "data": choice.finish_reason}
 
+        # Iterating until the end to fetch metadata chunk
         for chunk in response:
             _ = chunk
 
