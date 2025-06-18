@@ -85,7 +85,6 @@ a2a = [
     "httpx>=0.28.1",
     "fastapi>=0.115.12",
     "starlette>=0.46.2",
-    "protobuf==6.31.1",
 ]
 
 [tool.hatch.version]
@@ -134,17 +133,6 @@ extra-args = [
 dev-mode = true
 features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel"]
 
-[[tool.hatch.envs.hatch-test.matrix]]
-python = ["3.13", "3.12", "3.11", "3.10"]
-
-[tool.hatch.envs.hatch-test.scripts]
-run = [
-    "pytest{env:HATCH_TEST_ARGS:} {args} --ignore=tests/multiagent/a2a"
-]
-run-cov = [
-    "pytest{env:HATCH_TEST_ARGS:} --cov --cov-config=pyproject.toml {args} --ignore=tests/multiagent/a2a"
-]
-
 [tool.hatch.envs.a2a]
 dev-mode = true
 features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "a2a"]
@@ -155,6 +143,17 @@ run = [
 ]
 run-cov = [
     "pytest{env:HATCH_TEST_ARGS:} tests/multiagent/a2a --cov --cov-config=pyproject.toml {args}"
+]
+
+[[tool.hatch.envs.hatch-test.matrix]]
+python = ["3.13", "3.12", "3.11", "3.10"]
+
+[tool.hatch.envs.hatch-test.scripts]
+run = [
+    "pytest{env:HATCH_TEST_ARGS:} {args} --ignore=tests/multiagent/a2a"
+]
+run-cov = [
+    "pytest{env:HATCH_TEST_ARGS:} --cov --cov-config=pyproject.toml {args} --ignore=tests/multiagent/a2a"
 ]
 
 cov-combine = []

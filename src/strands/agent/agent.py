@@ -252,9 +252,9 @@ class Agent:
                 Defaults to True.
             trace_attributes: Custom trace attributes to apply to the agent's trace span.
             name: name of the Agent
-                Defaults to empty string.
+                Defaults to None.
             description: description of what the Agent does
-                Defaults to empty string.
+                Defaults to None.
 
         Raises:
             ValueError: If max_parallel_tools is less than 1.
