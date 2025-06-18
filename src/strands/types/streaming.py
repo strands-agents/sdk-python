@@ -12,6 +12,7 @@ from typing_extensions import TypedDict
 from .content import ContentBlockStart, Role
 from .event_loop import Metrics, StopReason, Usage
 from .guardrails import Trace
+from .media import ImageContent
 
 
 class MessageStartEvent(TypedDict):
@@ -78,11 +79,13 @@ class ContentBlockDelta(TypedDict, total=False):
         reasoningContent: Contains content regarding the reasoning that is carried out by the model.
         text: Text fragment being streamed.
         toolUse: Tool use input fragment being streamed.
+        image: Image content being streamed.
     """
 
     reasoningContent: ReasoningContentBlockDelta
     text: str
     toolUse: ContentBlockDeltaToolUse
+    image: ImageContent
 
 
 class ContentBlockDeltaEvent(TypedDict, total=False):

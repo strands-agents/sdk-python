@@ -139,6 +139,13 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
             {},
             {},
         ),
+        # Image
+        (
+            {"delta": {"image": {"format": "png", "source": {"bytes": b"image_data"}}}},
+            {"image": {"format": "png", "source": {"bytes": b"image_data"}}},
+            {"image": {"format": "png", "source": {"bytes": b"image_data"}}},
+            {"data": {"format": "png", "source": {"bytes": b"image_data"}}},
+        ),
         # Empty
         (
             {"delta": {}},
@@ -175,12 +182,14 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {"toolUseId": "123", "name": "test", "input": '{"key": "value"}'},
                 "text": "",
                 "reasoningText": "",
+                "image": None,
             },
             {
                 "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {"key": "value"}}}],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "image": None,
             },
         ),
         # Tool Use - Missing input
@@ -190,12 +199,14 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {"toolUseId": "123", "name": "test"},
                 "text": "",
                 "reasoningText": "",
+                "image": None,
             },
             {
                 "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {}}}],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "image": None,
             },
         ),
         # Text
@@ -205,12 +216,14 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {},
                 "text": "test",
                 "reasoningText": "",
+                "image": None,
             },
             {
                 "content": [{"text": "test"}],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "image": None,
             },
         ),
         # Reasoning
@@ -221,6 +234,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "test",
                 "signature": "123",
+                "image": None,
             },
             {
                 "content": [{"reasoningContent": {"reasoningText": {"text": "test", "signature": "123"}}}],
@@ -228,6 +242,24 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "",
                 "signature": "123",
+                "image": None,
+            },
+        ),
+        # Image
+        (
+            {
+                "content": [],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "image": {"format": "png", "source": {"bytes": b"image_data"}},
+            },
+            {
+                "content": [{"image": {"format": "png", "source": {"bytes": b"image_data"}}}],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "image": "",
             },
         ),
         # Empty
@@ -237,12 +269,14 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "image": None,
             },
             {
                 "content": [],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "image": None,
             },
         ),
     ],
@@ -354,6 +388,30 @@ def test_extract_usage_metrics():
             {"latencyMs": 1},
             {"calls": 1},
             [{"role": "user", "content": [{"text": "REDACTED"}]}],
+        ),
+        (
+            [
+                {"messageStart": {"role": "assistant"}},
+                {"contentBlockStart": {"start": {}}},
+                {"contentBlockDelta": {"delta": {"image": {"format": "png", "source": {"bytes": b"image_data"}}}}},
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "end_turn"}},
+                {
+                    "metadata": {
+                        "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        "metrics": {"latencyMs": 1},
+                    }
+                },
+            ],
+            "end_turn",
+            {
+                "role": "assistant",
+                "content": [{"image": {"format": "png", "source": {"bytes": b"image_data"}}}],
+            },
+            {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+            {"latencyMs": 1},
+            {"calls": 1},
+            [{"role": "user", "content": [{"text": "Some input!"}]}],
         ),
     ],
 )
