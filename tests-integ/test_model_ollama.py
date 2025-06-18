@@ -6,6 +6,13 @@ from strands import Agent
 from strands.models.ollama import OllamaModel
 
 
+def is_server_available() -> bool:
+    try:
+        return requests.get("http://localhost:11434").ok
+    except requests.exceptions.ConnectionError:
+        return False
+
+
 @pytest.fixture
 def model():
     return OllamaModel(host="http://localhost:11434", model_id="llama3.3:70b")
@@ -16,22 +23,20 @@ def agent(model):
     return Agent(model=model)
 
 
-@pytest.mark.skipif(
-    not requests.get("http://localhost:11434/api/health").ok,
-    reason="Local Ollama endpoint not available at localhost:11434",
-)
+@pytest.mark.skipif(not is_server_available(), reason="Local Ollama endpoint not available at localhost:11434")
 def test_agent(agent):
     result = agent("Say 'hello world' with no other text")
-    assert isinstance(result, str)
+    assert isinstance(result.message["content"][0]["text"], str)
 
 
-@pytest.mark.skipif(
-    not requests.get("http://localhost:11434/api/health").ok,
-    reason="Local Ollama endpoint not available at localhost:11434",
-)
+@pytest.mark.skipif(not is_server_available(), reason="Local Ollama endpoint not available at localhost:11434")
 def test_structured_output(agent):
     class Weather(BaseModel):
-        """Extract the time and weather from the response with the exact strings."""
+        """Extract the time and weather.
+
+        Time format: HH:MM
+        Weather: sunny, cloudy, rainy, etc.
+        """
 
         time: str
         weather: str

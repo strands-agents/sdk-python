@@ -40,67 +40,83 @@ class ListOfUsersWithPlanet(BaseModel):
 def test_convert_pydantic_to_tool_spec_basic():
     tool_spec = convert_pydantic_to_tool_spec(User)
 
-    # Check basic structure
-    assert tool_spec["name"] == "User"
-    assert tool_spec["description"] == "User model with name and age."
-    assert "inputSchema" in tool_spec
-    assert "json" in tool_spec["inputSchema"]
-
-    # Check schema properties
-    schema = tool_spec["inputSchema"]["json"]
-    assert schema["type"] == "object"
-    assert schema["title"] == "User"
-
-    # Check field properties
-    assert "name" in schema["properties"]
-    assert schema["properties"]["name"]["description"] == "The name of the user"
-    assert schema["properties"]["name"]["type"] == "string"
-
-    assert "age" in schema["properties"]
-    assert schema["properties"]["age"]["description"] == "The age of the user"
-    assert schema["properties"]["age"]["type"] == "integer"
-
-    # Check required fields
-    assert "required" in schema
-    assert "name" in schema["required"]
-    assert "age" in schema["required"]
-
-    # check validation
-    assert schema["properties"]["age"]["minimum"] == 18
-    assert schema["properties"]["age"]["maximum"] == 100
+    expected_spec = {
+        "name": "User",
+        "description": "User model with name and age.",
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "properties": {
+                    "name": {"description": "The name of the user", "title": "Name", "type": "string"},
+                    "age": {
+                        "description": "The age of the user",
+                        "maximum": 100,
+                        "minimum": 18,
+                        "title": "Age",
+                        "type": "integer",
+                    },
+                },
+                "title": "User",
+                "description": "User model with name and age.",
+                "required": ["name", "age"],
+            }
+        },
+    }
 
     # Verify we can construct a valid ToolSpec
     tool_spec_obj = ToolSpec(**tool_spec)
     assert tool_spec_obj is not None
+    assert tool_spec == expected_spec
 
 
 def test_convert_pydantic_to_tool_spec_complex():
     tool_spec = convert_pydantic_to_tool_spec(ListOfUsersWithPlanet)
 
-    # Assert expected properties are present in the tool spec
-    assert tool_spec["name"] == "ListOfUsersWithPlanet"
-    assert tool_spec["description"] == "List of users model with planet."
-    assert "inputSchema" in tool_spec
-    assert "json" in tool_spec["inputSchema"]
+    expected_spec = {
+        "name": "ListOfUsersWithPlanet",
+        "description": "List of users model with planet.",
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "properties": {
+                    "users": {
+                        "description": "The users",
+                        "items": {
+                            "description": "User with planet.",
+                            "title": "UserWithPlanet",
+                            "type": "object",
+                            "properties": {
+                                "name": {"description": "The name of the user", "title": "Name", "type": "string"},
+                                "age": {
+                                    "description": "The age of the user",
+                                    "maximum": 100,
+                                    "minimum": 18,
+                                    "title": "Age",
+                                    "type": "integer",
+                                },
+                                "planet": {
+                                    "description": "The planet",
+                                    "enum": ["Earth", "Mars"],
+                                    "title": "Planet",
+                                    "type": "string",
+                                },
+                            },
+                            "required": ["name", "age", "planet"],
+                        },
+                        "maxItems": 3,
+                        "minItems": 2,
+                        "title": "Users",
+                        "type": "array",
+                    }
+                },
+                "title": "ListOfUsersWithPlanet",
+                "description": "List of users model with planet.",
+                "required": ["users"],
+            }
+        },
+    }
 
-    # Check the schema properties
-    schema = tool_spec["inputSchema"]["json"]
-    assert schema["type"] == "object"
-    assert "users" in schema["properties"]
-    assert schema["properties"]["users"]["type"] == "array"
-    assert schema["properties"]["users"]["items"]["type"] == "object"
-    assert schema["properties"]["users"]["items"]["properties"]["name"]["type"] == "string"
-    assert schema["properties"]["users"]["items"]["properties"]["age"]["type"] == "integer"
-    assert schema["properties"]["users"]["items"]["properties"]["planet"]["type"] == "string"
-    assert schema["properties"]["users"]["items"]["properties"]["planet"]["enum"] == ["Earth", "Mars"]
-
-    # Check the list field properties
-    assert schema["properties"]["users"]["minItems"] == 2
-    assert schema["properties"]["users"]["maxItems"] == 3
-
-    # Verify the required fields
-    assert "required" in schema
-    assert "users" in schema["required"]
+    assert tool_spec == expected_spec
 
     # Verify we can construct a valid ToolSpec
     tool_spec_obj = ToolSpec(**tool_spec)
@@ -110,27 +126,68 @@ def test_convert_pydantic_to_tool_spec_complex():
 def test_convert_pydantic_to_tool_spec_multiple_same_type():
     tool_spec = convert_pydantic_to_tool_spec(TwoUsersWithPlanet)
 
-    # Verify the schema structure
-    assert tool_spec["name"] == "TwoUsersWithPlanet"
-    assert "user1" in tool_spec["inputSchema"]["json"]["properties"]
-    assert "user2" in tool_spec["inputSchema"]["json"]["properties"]
+    expected_spec = {
+        "name": "TwoUsersWithPlanet",
+        "description": "Two users model with planet.",
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "properties": {
+                    "user1": {
+                        "type": "object",
+                        "description": "The first user",
+                        "properties": {
+                            "name": {"description": "The name of the user", "title": "Name", "type": "string"},
+                            "age": {
+                                "description": "The age of the user",
+                                "maximum": 100,
+                                "minimum": 18,
+                                "title": "Age",
+                                "type": "integer",
+                            },
+                            "planet": {
+                                "description": "The planet",
+                                "enum": ["Earth", "Mars"],
+                                "title": "Planet",
+                                "type": "string",
+                            },
+                        },
+                        "required": ["name", "age", "planet"],
+                    },
+                    "user2": {
+                        "type": ["object", "null"],
+                        "description": "The second user",
+                        "properties": {
+                            "name": {"description": "The name of the user", "title": "Name", "type": "string"},
+                            "age": {
+                                "description": "The age of the user",
+                                "maximum": 100,
+                                "minimum": 18,
+                                "title": "Age",
+                                "type": "integer",
+                            },
+                            "planet": {
+                                "description": "The planet",
+                                "enum": ["Earth", "Mars"],
+                                "title": "Planet",
+                                "type": "string",
+                            },
+                        },
+                        "required": ["name", "age", "planet"],
+                    },
+                },
+                "title": "TwoUsersWithPlanet",
+                "description": "Two users model with planet.",
+                "required": ["user1"],
+            }
+        },
+    }
 
-    # Verify both employment fields have the same structure
-    primary = tool_spec["inputSchema"]["json"]["properties"]["user1"]
-    secondary = tool_spec["inputSchema"]["json"]["properties"]["user2"]
+    assert tool_spec == expected_spec
 
-    assert primary["type"] == "object"
-    assert secondary["type"] == ["object", "null"]
-
-    assert "properties" in primary
-    assert "name" in primary["properties"]
-    assert "age" in primary["properties"]
-    assert "planet" in primary["properties"]
-
-    assert "properties" in secondary
-    assert "name" in secondary["properties"]
-    assert "age" in secondary["properties"]
-    assert "planet" in secondary["properties"]
+    # Verify we can construct a valid ToolSpec
+    tool_spec_obj = ToolSpec(**tool_spec)
+    assert tool_spec_obj is not None
 
 
 def test_convert_pydantic_with_missing_refs():

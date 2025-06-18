@@ -8,8 +8,10 @@ dynamic = ["version"]
 description = "A model-driven approach to building AI agents in just a few lines of code"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
-authors = [{ name = "AWS", email = "opensource@amazon.com" }]
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "AWS", email = "opensource@amazon.com"},
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -26,7 +28,7 @@ classifiers = [
 dependencies = [
     "boto3>=1.26.0,<2.0.0",
     "botocore>=1.29.0,<2.0.0",
-    "docstring_parser>=0.15,<0.16.0",
+    "docstring_parser>=0.15,<1.0",
     "mcp>=1.8.0,<2.0.0",
     "pydantic>=2.0.0,<3.0.0",
     "typing-extensions>=4.13.2,<5.0.0",
@@ -44,7 +46,9 @@ Documentation = "https://strandsagents.com"
 packages = ["src/strands"]
 
 [project.optional-dependencies]
-anthropic = ["anthropic>=0.21.0,<1.0.0"]
+anthropic = [
+    "anthropic>=0.21.0,<1.0.0",
+]
 dev = [
     "commitizen>=4.4.0,<5.0.0",
     "hatch>=1.0.0,<2.0.0",
@@ -61,7 +65,7 @@ docs = [
     "sphinx-autodoc-typehints>=1.12.0,<2.0.0",
 ]
 litellm = [
-    "litellm>=1.69.0,<2.0.0",
+    "litellm>=1.72.6,<2.0.0",
 ]
 llamaapi = [
     "llama-api-client>=0.1.0,<1.0.0",
@@ -90,16 +94,25 @@ source = "vcs"
 [tool.hatch.envs.hatch-static-analysis]
 features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel"]
 dependencies = [
-    "mypy>=1.15.0,<2.0.0",
-    "ruff>=0.11.6,<0.12.0",
-    "strands-agents @ {root:uri}",
+  "mypy>=1.15.0,<2.0.0",
+  "ruff>=0.11.6,<0.12.0",
+  "strands-agents @ {root:uri}"
 ]
 
 [tool.hatch.envs.hatch-static-analysis.scripts]
-format-check = ["ruff format --check"]
-format-fix = ["ruff format"]
-lint-check = ["ruff check", "mypy -p src"]
-lint-fix = ["ruff check --fix"]
+format-check = [
+    "ruff format --check"
+]
+format-fix = [
+    "ruff format"
+]
+lint-check = [
+    "ruff check",
+    "mypy -p src"
+]
+lint-fix = [
+    "ruff check --fix"
+]
 
 [tool.hatch.envs.hatch-test]
 features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel"]
@@ -110,7 +123,11 @@ extra-dependencies = [
     "pytest-cov>=4.1.0,<5.0.0",
     "pytest-xdist>=3.0.0,<4.0.0",
 ]
-extra-args = ["-n", "auto", "-vv"]
+extra-args = [
+    "-n",
+    "auto",
+    "-vv",
+]
 
 [tool.hatch.envs.dev]
 dev-mode = true
@@ -120,14 +137,17 @@ features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel"]
 dev-mode = true
 features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "a2a"]
 
+
 [[tool.hatch.envs.hatch-test.matrix]]
 python = ["3.13", "3.12", "3.11", "3.10"]
 
 
 [tool.hatch.envs.hatch-test.scripts]
-run = ["pytest{env:HATCH_TEST_ARGS:} {args}"]
+run = [
+    "pytest{env:HATCH_TEST_ARGS:} {args}"
+]
 run-cov = [
-    "pytest{env:HATCH_TEST_ARGS:} --cov --cov-config=pyproject.toml {args}",
+    "pytest{env:HATCH_TEST_ARGS:} --cov --cov-config=pyproject.toml {args}"
 ]
 
 cov-combine = []
@@ -184,22 +204,17 @@ ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 120
-include = [
-    "examples/**/*.py",
-    "src/**/*.py",
-    "tests/**/*.py",
-    "tests-integ/**/*.py",
-]
+include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests-integ/**/*.py"]
 
 [tool.ruff.lint]
 select = [
-    "B",   # flake8-bugbear
-    "D",   # pydocstyle
-    "E",   # pycodestyle
-    "F",   # pyflakes
-    "G",   # logging format
-    "I",   # isort
-    "LOG", # logging
+  "B", # flake8-bugbear
+  "D", # pydocstyle
+  "E", # pycodestyle
+  "F", # pyflakes
+  "G", # logging format
+  "I", # isort
+  "LOG", # logging
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -209,7 +224,9 @@ select = [
 convention = "google"
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = [
+    "tests"
+]
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.run]
@@ -232,47 +249,19 @@ output = "build/coverage/coverage.xml"
 name = "cz_conventional_commits"
 tag_format = "v$version"
 bump_message = "chore(release): bump version $current_version -> $new_version"
-version_files = ["pyproject.toml:version"]
+version_files = [
+    "pyproject.toml:version",
+]
 update_changelog_on_bump = true
 style = [
-    [
-        "qmark",
-        "fg:#ff9d00 bold",
-    ],
-    [
-        "question",
-        "bold",
-    ],
-    [
-        "answer",
-        "fg:#ff9d00 bold",
-    ],
-    [
-        "pointer",
-        "fg:#ff9d00 bold",
-    ],
-    [
-        "highlighted",
-        "fg:#ff9d00 bold",
-    ],
-    [
-        "selected",
-        "fg:#cc5454",
-    ],
-    [
-        "separator",
-        "fg:#cc5454",
-    ],
-    [
-        "instruction",
-        "",
-    ],
-    [
-        "text",
-        "",
-    ],
-    [
-        "disabled",
-        "fg:#858585 italic",
-    ],
+    ["qmark", "fg:#ff9d00 bold"],
+    ["question", "bold"],
+    ["answer", "fg:#ff9d00 bold"],
+    ["pointer", "fg:#ff9d00 bold"],
+    ["highlighted", "fg:#ff9d00 bold"],
+    ["selected", "fg:#cc5454"],
+    ["separator", "fg:#cc5454"],
+    ["instruction", ""],
+    ["text", ""],
+    ["disabled", "fg:#858585 italic"]
 ]
