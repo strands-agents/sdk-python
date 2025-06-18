@@ -28,7 +28,7 @@ class CohereModel(OpenAIModel):
             **model_config: Configuration options for the Cohere model.
         """
         client_args = {
-            "base_url": "https://api.cohere.ai/compatibility/v1",
+            "base_url": "https://api.cohere.com/compatibility/v1",
             "api_key": api_key,
         }
         super().__init__(client_args=client_args, **model_config)
