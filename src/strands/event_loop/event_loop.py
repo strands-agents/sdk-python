@@ -148,7 +148,7 @@ def event_loop_cycle(
         try:
             for event in stream_messages(model, system_prompt, messages, tool_config):
                 if "callback" in event:
-                    inputs = {**event["callback"], **(kwargs if "delta" in event else {})}
+                    inputs = {**event["callback"], **(kwargs if "delta" in event["callback"] else {})}
                     callback_handler(**inputs)
             else:
                 stop_reason, message, usage, metrics = event["stop"]
