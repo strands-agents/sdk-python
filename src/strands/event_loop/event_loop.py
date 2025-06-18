@@ -136,6 +136,7 @@ def event_loop_cycle(
     metrics: Metrics
 
     # Retry loop for handling throttling exceptions
+    current_delay = INITIAL_DELAY
     for attempt in range(MAX_ATTEMPTS):
         model_id = model.config.get("model_id") if hasattr(model, "config") else None
         model_invoke_span = tracer.start_model_invoke_span(
@@ -168,7 +169,7 @@ def event_loop_cycle(
 
             # Handle throttling errors with exponential backoff
             should_retry, current_delay = handle_throttling_error(
-                e, attempt, MAX_ATTEMPTS, INITIAL_DELAY, MAX_DELAY, callback_handler, kwargs
+                e, attempt, MAX_ATTEMPTS, current_delay, MAX_DELAY, callback_handler, kwargs
             )
             if should_retry:
                 continue
