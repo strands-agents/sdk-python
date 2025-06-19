@@ -20,26 +20,6 @@ class OutputFormat(Enum):
     WEBP = "webp"
 
 
-class StylePresetEnum(str, Enum):
-    THREE_D_MODEL = "3d-model"
-    ANALOG_FILM = "analog-film"
-    ANIME = "anime"
-    CINEMATIC = "cinematic"
-    COMIC_BOOK = "comic-book"
-    DIGITAL_ART = "digital-art"
-    ENHANCE = "enhance"
-    FANTASY_ART = "fantasy-art"
-    ISOMETRIC = "isometric"
-    LINE_ART = "line-art"
-    LOW_POLY = "low-poly"
-    MODELING_COMPOUND = "modeling-compound"
-    NEON_PUNK = "neon-punk"
-    ORIGAMI = "origami"
-    PHOTOGRAPHIC = "photographic"
-    PIXEL_ART = "pixel-art"
-    TILE_TEXTURE = "tile-texture"
-
-
 def _validate_image_pixels_and_aspect_ratio(image: Union[str, BinaryIO]) -> None:
     """Validates the number of pixels in the 'image' field of the request.
 
@@ -317,9 +297,6 @@ class StabilityAiClient:
         if output_format:
             data["output_format"] = output_format.value
         if style_preset:
-            allowed_presets = [preset.value for preset in StylePresetEnum]
-            if style_preset not in allowed_presets:
-                raise ValueError(f"'style_preset' must be one of {allowed_presets}. Got '{style_preset}'.")
             data["style_preset"] = style_preset
 
         # Handle input image if provided

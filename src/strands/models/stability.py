@@ -117,12 +117,7 @@ class StabilityAiImageModel(Model):
         model_id = self.config.get("model_id")
         if model_id is None:
             raise ValueError("model_id is required")
-        self.client = StabilityAiClient(api_key=api_key, model_id=model_id)
-
-    def _validate_and_convert_config(self, config_dict: dict[str, Any]) -> None:
-        """Validate and convert configuration values to proper types."""
-        self._convert_output_format(config_dict)
-        self._convert_style_preset(config_dict)
+        self.client = StabilityAiClient(api_key=api_key)
 
     def _convert_output_format(self, config_dict: dict[str, Any]) -> None:
         """Convert string output_format to enum if needed."""
@@ -144,8 +139,6 @@ class StabilityAiImageModel(Model):
 
         self.config = cast(StabilityAiImageModel.StabilityAiImageModelConfig, config_dict)
         logger.debug("config=<%s> | initializing", self.config)
-
-        self.client = StabilityAiClient(api_key=api_key)
 
     def _validate_and_convert_config(self, config_dict: dict[str, Any]) -> None:
         """Validate and convert configuration values to proper types."""
@@ -171,25 +164,6 @@ class StabilityAiImageModel(Model):
         # Convert other fields
         self._convert_output_format(config_dict)
         self._convert_style_preset(config_dict)
-
-    def _convert_output_format(self, config_dict: dict[str, Any]) -> None:
-        """Convert string output_format to enum if needed."""
-        if "output_format" in config_dict and isinstance(config_dict["output_format"], str):
-            try:
-                config_dict["output_format"] = OutputFormat(config_dict["output_format"])
-            except ValueError as e:
-                valid_formats = [f.value for f in OutputFormat]
-                raise ValueError(f"output_format must be one of: {valid_formats}") from e
-
-    def _convert_style_preset(self, config_dict: dict[str, Any]) -> None:
-        """Convert string style_preset to enum if needed."""
-        if "style_preset" in config_dict and isinstance(config_dict["style_preset"], str):
-            try:
-                config_dict["style_preset"] = StylePreset(config_dict["style_preset"])
-            except ValueError as e:
-                valid_presets = [p.value for p in StylePreset]
-                raise ValueError(f"style_preset must be one of: {valid_presets}") from e
-
 
     def _extract_prompt_from_messages(self, messages: Messages) -> str:
         """Extract the last user message as prompt.
@@ -261,17 +235,6 @@ class StabilityAiImageModel(Model):
         request = self._build_base_request(prompt)
         self._add_optional_parameters(request)
 
-        Args:
-            messages: List of messages containing the conversation history.
-            tool_specs: Optional list of tool specifications (unused for image generation).
-            system_prompt: Optional system prompt (unused for image generation).
-
-        Returns:
-            Formatted request parameters for the Stability AI API.
-        """
-        prompt = self._extract_prompt_from_messages(messages)
-        request = self._build_base_request(prompt)
-        self._add_optional_parameters(request)
         return request
 
     @override
