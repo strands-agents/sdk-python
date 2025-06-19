@@ -50,6 +50,29 @@ class StylePreset(Enum):
     TILE_TEXTURE = "tile-texture"
 
 
+<<<<<<< HEAD
+=======
+class Defaults:
+    """Default values for Stability AI configuration."""
+
+    ASPECT_RATIO = "1:1"
+    OUTPUT_FORMAT = OutputFormat.PNG
+    STYLE_PRESET = StylePreset.PHOTOGRAPHIC
+    STRENGTH = 0.35
+    MODE = "text-to-image"
+
+
+class ChunkTypes:
+    """Chunk type constants."""
+
+    MESSAGE_START = "message_start"
+    CONTENT_START = "content_start"
+    CONTENT_BLOCK_DELTA = "content_block_delta"
+    CONTENT_STOP = "content_stop"
+    MESSAGE_STOP = "message_stop"
+
+
+>>>>>>> 2f20399 (refactor(stability): separate error classes and add mode parameter)
 class StabilityAiImageModel(Model):
     """Your custom model provider implementation."""
 
@@ -57,8 +80,19 @@ class StabilityAiImageModel(Model):
         """Configuration your model.
 
         Attributes:
+<<<<<<< HEAD
             model_id: ID of Custom model (required).
             params: Model parameters (e.g., max_tokens).
+=======
+            model_id: ID of the Stability AI model (required).
+            aspect_ratio: Aspect ratio of the output image.
+            seed: Random seed for generation.
+            output_format: Output format (jpeg, png, webp).
+            style_preset: Style preset for image generation.
+            image: Input image for img2img generation.
+            mode: Mode of operation (text-to-image, image-to-image).
+            strength: Influence of input image on output (0.0-1.0).
+>>>>>>> 2f20399 (refactor(stability): separate error classes and add mode parameter)
         """
 
         """
@@ -77,6 +111,7 @@ class StabilityAiImageModel(Model):
         output_format: NotRequired[OutputFormat]  # defaults to PNG
         style_preset: NotRequired[StylePreset]  # defaults to PHOTOGRAPHIC
         image: NotRequired[str]  # defaults to None
+        mode: NotRequired[str]
         strength: NotRequired[float]  # defaults to 0.35
 
     def __init__(self, api_key: str, **model_config: Unpack[StabilityAiImageModelConfig]) -> None:
@@ -117,6 +152,80 @@ class StabilityAiImageModel(Model):
             raise ValueError("model_id is required")
         self.client = StabilityAiClient(api_key=api_key, model_id=model_id)
 
+<<<<<<< HEAD
+=======
+    def _validate_and_convert_config(self, config_dict: dict[str, Any]) -> None:
+        """Validate and convert configuration values to proper types."""
+        self._convert_output_format(config_dict)
+        self._convert_style_preset(config_dict)
+
+    def _convert_output_format(self, config_dict: dict[str, Any]) -> None:
+        """Convert string output_format to enum if needed."""
+        if "output_format" in config_dict and isinstance(config_dict["output_format"], str):
+            try:
+                config_dict["output_format"] = OutputFormat(config_dict["output_format"])
+            except ValueError as e:
+                valid_formats = [f.value for f in OutputFormat]
+                raise ValueError(f"output_format must be one of: {valid_formats}") from e
+
+    def _convert_style_preset(self, config_dict: dict[str, Any]) -> None:
+        """Convert string style_preset to enum if needed."""
+        if "style_preset" in config_dict and isinstance(config_dict["style_preset"], str):
+            try:
+                config_dict["style_preset"] = StylePreset(config_dict["style_preset"])
+            except ValueError as e:
+                valid_presets = [p.value for p in StylePreset]
+                raise ValueError(f"style_preset must be one of: {valid_presets}") from e
+
+    def _extract_prompt_from_messages(self, messages: Messages) -> str:
+        """Extract the last user message as prompt.
+
+        Args:
+            messages: List of conversation messages.
+
+        Returns:
+            The extracted prompt text.
+
+        Raises:
+            ValueError: If no user message with text content is found.
+        """
+        for message in reversed(messages):
+            if message["role"] == "user":
+                for content in message["content"]:
+                    if isinstance(content, dict) and "text" in content:
+                        return content["text"]
+        raise ValueError("No user message found in the conversation")
+
+    def _build_base_request(self, prompt: str) -> dict[str, Any]:
+        """Build the base request with required parameters.
+
+        Args:
+            prompt: The text prompt for image generation.
+
+        Returns:
+            Dictionary with base request parameters.
+        """
+        return {
+            "prompt": prompt,
+            "aspect_ratio": self.config.get("aspect_ratio", Defaults.ASPECT_RATIO),
+            "output_format": self.config.get("output_format", Defaults.OUTPUT_FORMAT).value,
+            "style_preset": self.config.get("style_preset", Defaults.STYLE_PRESET).value,
+            "mode": self.config.get("mode", Defaults.MODE),
+        }
+
+    def _add_optional_parameters(self, request: dict[str, Any]) -> None:
+        """Add optional parameters to the request if they exist in config.
+
+        Args:
+            request: The request dictionary to modify.
+        """
+        if "seed" in self.config:
+            request["seed"] = self.config["seed"]
+        if self.config.get("image") is not None:
+            request["image"] = self.config["image"]
+            request["strength"] = self.config.get("strength", Defaults.STRENGTH)
+
+>>>>>>> 2f20399 (refactor(stability): separate error classes and add mode parameter)
     @override
     def format_request(
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None

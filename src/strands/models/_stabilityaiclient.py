@@ -93,9 +93,90 @@ def _validate_image_pixels_and_aspect_ratio(image: Union[str, BinaryIO]) -> None
 
 
 class StabilityAiError(Exception):
-    """Base exception for Stability AI API errors."""
+    """Base exception for Stability AI API errors.
 
-    pass
+    Attributes:
+        message: Error message
+        status_code: HTTP status code (if applicable)
+        response_data: Full response data from API (if available)
+    """
+
+    def __init__(self, message: str, status_code: Optional[int] = None, response_data: Optional[Dict[str, Any]] = None):
+        """Initialize the exception.
+
+        Args:
+            message: Error message
+            status_code: HTTP status code that caused the error
+            response_data: Full response data from the API
+        """
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+        self.response_data = response_data or {}
+
+    def __str__(self) -> str:
+        """String representation of the error."""
+        if self.status_code:
+            return f"[HTTP {self.status_code}] {self.message}"
+        return self.message
+
+
+### Specific error classes for common API errors
+class AuthenticationError(StabilityAiError):
+    """Raised when authentication fails (401)."""
+
+    def __init__(self, message: str = "Authentication failed", response_data: Optional[Dict[str, Any]] = None):
+        super().__init__(message, status_code=401, response_data=response_data)
+
+
+class BadRequestError(StabilityAiError):
+    """Raised when request parameters are invalid (400)."""
+
+    def __init__(self, message: str = "Invalid request parameters", response_data: Optional[Dict[str, Any]] = None):
+        super().__init__(message, status_code=400, response_data=response_data)
+
+
+class ContentModerationError(StabilityAiError):
+    """Raised when content is flagged by moderation (403)."""
+
+    def __init__(self, message: str = "Content flagged by moderation", response_data: Optional[Dict[str, Any]] = None):
+        super().__init__(message, status_code=403, response_data=response_data)
+
+
+class PayloadTooLargeError(StabilityAiError):
+    """Raised when request exceeds size limit (413)."""
+
+    def __init__(self, message: str = "Request too large (max 10MiB)", response_data: Optional[Dict[str, Any]] = None):
+        super().__init__(message, status_code=413, response_data=response_data)
+
+
+class ValidationError(StabilityAiError):
+    """Raised when request validation fails (422)."""
+
+    def __init__(self, message: str = "Request validation failed", response_data: Optional[Dict[str, Any]] = None):
+        super().__init__(message, status_code=422, response_data=response_data)
+
+
+class RateLimitError(StabilityAiError):
+    """Raised when rate limit is exceeded (429)."""
+
+    def __init__(self, message: str = "Rate limit exceeded", response_data: Optional[Dict[str, Any]] = None):
+        super().__init__(message, status_code=429, response_data=response_data)
+
+
+class InternalServerError(StabilityAiError):
+    """Raised when server encounters an error (500)."""
+
+    def __init__(self, message: str = "Internal server error", response_data: Optional[Dict[str, Any]] = None):
+        super().__init__(message, status_code=500, response_data=response_data)
+
+
+class NetworkError(StabilityAiError):
+    """Raised when network request fails."""
+
+    def __init__(self, message: str = "Network request failed", original_error: Optional[Exception] = None):
+        super().__init__(message)
+        self.original_error = original_error
 
 
 class StabilityAiClient:
@@ -251,29 +332,41 @@ class StabilityAiClient:
                 files=files,
             )
 
-            # Handle different response status codes
+            # Handle successful response
             if response.status_code == 200:
                 if return_json:
                     return cast(Dict[str, Any], response.json())
                 return cast(bytes, response.content)
-            elif response.status_code == 401:
-                raise StabilityAiError(
-                    f"Unauthorized: check authentication credentials: {response.json().get('errors', 'Unknown error')}"
+
+            # Parse error response
+            try:
+                error_data = response.json()
+                error_message = error_data.get("errors", error_data.get("message", "Unknown error"))
+            except ValueError:
+                error_data = {}
+                error_message = response.text or "Unknown error"
+
+            # Handle specific error cases
+            if response.status_code == 401:
+                raise AuthenticationError(
+                    f"Unauthorized: check authentication credentials: {error_message}", response_data=error_data
                 )
             elif response.status_code == 400:
-                raise StabilityAiError(f"Invalid parameters: {response.json().get('errors', 'Unknown error')}")
+                raise BadRequestError(f"Invalid parameters: {error_message}", response_data=error_data)
             elif response.status_code == 403:
-                raise StabilityAiError("Request flagged by content moderation")
+                raise ContentModerationError("Request flagged by content moderation", response_data=error_data)
             elif response.status_code == 413:
-                raise StabilityAiError("Request too large (max 10MiB)")
+                raise PayloadTooLargeError("Request too large (max 10MiB)", response_data=error_data)
             elif response.status_code == 422:
-                raise StabilityAiError(f"Request rejected: {response.json().get('errors', 'Unknown error')}")
+                raise ValidationError(f"Request rejected: {error_message}", response_data=error_data)
             elif response.status_code == 429:
-                raise StabilityAiError("Rate limit exceeded (max 150 requests per 10 seconds)")
+                raise RateLimitError("Rate limit exceeded (max 150 requests per 10 seconds)", response_data=error_data)
             elif response.status_code == 500:
-                raise StabilityAiError("Internal server error")
+                raise InternalServerError("Internal server error", response_data=error_data)
             else:
-                raise StabilityAiError(f"Unexpected error: {response.status_code}")
+                raise StabilityAiError(
+                    f"Unexpected error: {error_message}", status_code=response.status_code, response_data=error_data
+                )
 
         except requests.exceptions.RequestException as e:
-            raise StabilityAiError(f"Request failed: {str(e)}") from e
+            raise NetworkError(f"Request failed: {str(e)}", original_error=e) from e

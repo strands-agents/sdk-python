@@ -109,6 +109,7 @@ def test_format_request(model, messages):
         "prompt": "a beautiful sunset over mountains",
         "aspect_ratio": "1:1",
         "output_format": "png",
+        "mode": "text-to-image",
         "style_preset": "photographic",
     }
 
@@ -130,6 +131,7 @@ def test_format_request_with_optional_params(model, messages):
         "style_preset": "photographic",
         "seed": 12345,
         "image": "base64_encoded_image",
+        "mode": "text-to-image",
         "strength": 0.5,
     }
 
