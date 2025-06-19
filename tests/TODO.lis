@@ -1,5 +1,0 @@
-1. Add model id validation 
-2. Do specific config validation for the 3 models, support parameters like cfg for sd3.5
-3. Cleanup code :- Modularize. Move validation to its own methods for example. 
-4. Add test for the fixes I have made for plumbing images through the framework
-5. Add documentation similar to other model providers

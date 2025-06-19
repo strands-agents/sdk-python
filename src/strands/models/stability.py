@@ -71,10 +71,10 @@ class ChunkTypes:
 
 
 class StabilityAiImageModel(Model):
-    """Your custom model provider implementation."""
+    """Stability AI image generation model provider."""
 
     class StabilityAiImageModelConfig(TypedDict):
-        """Configuration your model.
+        """Configuration for Stability AI image model.
 
         Attributes:
             model_id: ID of the Stability AI model (required).
@@ -88,13 +88,6 @@ class StabilityAiImageModel(Model):
             strength: Influence of input image on output (0.0-1.0).
         """
 
-        """
-        image - the image to use as the starting point for the generation
-        strength - controls how much influence the image parameter has on the output image
-        aspect_ratio - the aspect ratio of the output image
-        seed - the randomness seed to use for the generation
-        output_format - the format of the output image
-        """
         # Required parameters
         model_id: str
 
@@ -109,34 +102,45 @@ class StabilityAiImageModel(Model):
         strength: NotRequired[float]  # defaults to 0.35
 
     def __init__(self, api_key: str, **model_config: Unpack[StabilityAiImageModelConfig]) -> None:
-        """Initialize provider instance.
+        """Initialize the Stability AI model provider.
 
         Args:
-            api_key: The API key for connecting to your Custom model.
-            **model_config: Configuration options for Custom model.
+            api_key: The API key for connecting to Stability AI.
+            **model_config: Configuration options for the model.
         """
-        # Set default values for optional parameters
+        config_dict = {**{"output_format": Defaults.OUTPUT_FORMAT}, **dict(model_config)}
+        self._validate_and_convert_config(config_dict)
 
-        defaults = {
-            "output_format": OutputFormat.PNG,
-        }
+        self.config = cast(StabilityAiImageModel.StabilityAiImageModelConfig, config_dict)
+        logger.debug("config=<%s> | initializing", self.config)
 
-        # Update defaults with provided config
-        config_dict = {**defaults, **dict(model_config)}
+        model_id = self.config.get("model_id")
+        if model_id is None:
+            raise ValueError("model_id is required")
+        self.client = StabilityAiClient(api_key=api_key, model_id=model_id)
 
-        # Convert string output_format to enum if provided as string
+    def _validate_and_convert_config(self, config_dict: dict[str, Any]) -> None:
+        """Validate and convert configuration values to proper types."""
+        self._convert_output_format(config_dict)
+        self._convert_style_preset(config_dict)
+
+    def _convert_output_format(self, config_dict: dict[str, Any]) -> None:
+        """Convert string output_format to enum if needed."""
         if "output_format" in config_dict and isinstance(config_dict["output_format"], str):
             try:
                 config_dict["output_format"] = OutputFormat(config_dict["output_format"])
             except ValueError as e:
-                raise ValueError(f"output_format must be one of: {[f.value for f in OutputFormat]}") from e
+                valid_formats = [f.value for f in OutputFormat]
+                raise ValueError(f"output_format must be one of: {valid_formats}") from e
 
-        # Convert string style_preset to enum if provided as string
+    def _convert_style_preset(self, config_dict: dict[str, Any]) -> None:
+        """Convert string style_preset to enum if needed."""
         if "style_preset" in config_dict and isinstance(config_dict["style_preset"], str):
             try:
                 config_dict["style_preset"] = StylePreset(config_dict["style_preset"])
             except ValueError as e:
-                raise ValueError(f"style_preset must be one of: {[f.value for f in StylePreset]}") from e
+                valid_presets = [p.value for p in StylePreset]
+                raise ValueError(f"style_preset must be one of: {valid_presets}") from e
 
         self.config = cast(StabilityAiImageModel.StabilityAiImageModelConfig, config_dict)
         logger.debug("config=<%s> | initializing", self.config)
@@ -186,6 +190,7 @@ class StabilityAiImageModel(Model):
                 valid_presets = [p.value for p in StylePreset]
                 raise ValueError(f"style_preset must be one of: {valid_presets}") from e
 
+
     def _extract_prompt_from_messages(self, messages: Messages) -> str:
         """Extract the last user message as prompt.
 
@@ -231,6 +236,7 @@ class StabilityAiImageModel(Model):
         # Only add cfg_scale for SD3.5 model
         if "cfg_scale" in self.config and self.config["model_id"] == "stability.sd3-5-large-v1:0":
             request["cfg_scale"] = self.config["cfg_scale"]
+
         if "seed" in self.config:
             request["seed"] = self.config["seed"]
         if self.config.get("image") is not None:
@@ -255,6 +261,17 @@ class StabilityAiImageModel(Model):
         request = self._build_base_request(prompt)
         self._add_optional_parameters(request)
 
+        Args:
+            messages: List of messages containing the conversation history.
+            tool_specs: Optional list of tool specifications (unused for image generation).
+            system_prompt: Optional system prompt (unused for image generation).
+
+        Returns:
+            Formatted request parameters for the Stability AI API.
+        """
+        prompt = self._extract_prompt_from_messages(messages)
+        request = self._build_base_request(prompt)
+        self._add_optional_parameters(request)
         return request
 
     @override
@@ -275,49 +292,78 @@ class StabilityAiImageModel(Model):
         """
         return self.config
 
-    @override
-    def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
-        """Format an OpenAI response event into a standardized message chunk.
+    def _format_message_start(self) -> StreamEvent:
+        """Format message start event."""
+        return {"messageStart": {"role": "assistant"}}
+
+    def _format_content_start(self) -> StreamEvent:
+        """Format content start event."""
+        return {"contentBlockStart": {"start": {}}}
+
+    def _format_content_block_delta(self, event: dict[str, Any]) -> StreamEvent:
+        """Format content block delta event.
 
         Args:
-            event: A response event from the OpenAI compatible model.
+            event: The event containing image data.
+
+        Returns:
+            Formatted content block delta event.
+        """
+        content_block_delta = cast(
+            ContentBlockDelta,
+            {
+                "image": {
+                    "format": self.config["output_format"].value,
+                    "source": {"bytes": base64.b64decode(event.get("data", b""))},
+                }
+            },
+        )
+        content_block_delta_event = ContentBlockDeltaEvent(delta=content_block_delta)
+        return {"contentBlockDelta": content_block_delta_event}
+
+    def _format_content_stop(self) -> StreamEvent:
+        """Format content stop event."""
+        return {"contentBlockStop": {}}
+
+    def _format_message_stop(self, event: dict[str, Any]) -> StreamEvent:
+        """Format message stop event.
+
+        Args:
+            event: The event containing stop reason.
+
+        Returns:
+            Formatted message stop event.
+        """
+        return {"messageStop": {"stopReason": event["data"]}}
+
+    @override
+    def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
+        """Format an event into a standardized message chunk.
+
+        Args:
+            event: A response event from the Stability AI model.
 
         Returns:
             The formatted chunk.
 
         Raises:
             RuntimeError: If chunk_type is not recognized.
-                This error should never be encountered as chunk_type is controlled in the stream method.
         """
-        match event["chunk_type"]:
-            case "message_start":
-                return {"messageStart": {"role": "assistant"}}
+        chunk_type = event["chunk_type"]
 
-            case "content_start":
-                return {"contentBlockStart": {"start": {}}}
-
-            case "content_block_delta":
-                # Have to do this cast as there are two different ContentBlockDelta types
-                # with different structures. The cast is for mypy to explicitly understand
-                # the right one, otherwise it is getting confused.
-                content_block_delta = cast(
-                    ContentBlockDelta,
-                    {
-                        "image": {
-                            "format": self.config["output_format"].value,
-                            "source": {"bytes": base64.b64decode(event.get("data", b""))},
-                        }
-                    },
-                )
-                content_block_delta_event = ContentBlockDeltaEvent(delta=content_block_delta)
-                return {"contentBlockDelta": content_block_delta_event}
-
-            case "content_stop":
-                return {"contentBlockStop": {}}
-            case "message_stop":
-                return {"messageStop": {"stopReason": event["data"]}}
+        match chunk_type:
+            case ChunkTypes.MESSAGE_START:
+                return self._format_message_start()
+            case ChunkTypes.CONTENT_START:
+                return self._format_content_start()
+            case ChunkTypes.CONTENT_BLOCK_DELTA:
+                return self._format_content_block_delta(event)
+            case ChunkTypes.CONTENT_STOP:
+                return self._format_content_stop()
+            case ChunkTypes.MESSAGE_STOP:
+                return self._format_message_stop(event)
             case _:
-                raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
+                raise RuntimeError(f"chunk_type=<{chunk_type}> | unknown type")
 
     @override
     def stream(self, request: dict[str, Any]) -> Iterable[Any]:
@@ -330,7 +376,7 @@ class StabilityAiImageModel(Model):
             An iterable of response events from the Stability AI model.
 
         Raises:
-            StabilityAiError: If the API request fails
+            StabilityAiError: If the API request fails.
         """
         yield {"chunk_type": ChunkTypes.MESSAGE_START}
         yield {"chunk_type": ChunkTypes.CONTENT_START, "data_type": "text"}
@@ -342,10 +388,15 @@ class StabilityAiImageModel(Model):
             response_json = self.client.generate_image_json(model_id, **request)
             # Yield the image data as a single event
 
-            yield {"chunk_type": "content_block_delta", "data_type": "image", "data": response_json.get("image")}
-            yield {"chunk_type": "content_stop", "data_type": "text"}
+            # Yield the image data as a single event
+            yield {
+                "chunk_type": ChunkTypes.CONTENT_BLOCK_DELTA,
+                "data_type": "image",
+                "data": response_json.get("image"),
+            }
+            yield {"chunk_type": ChunkTypes.CONTENT_STOP, "data_type": "text"}
+            yield {"chunk_type": ChunkTypes.MESSAGE_STOP, "data": response_json.get("finish_reason")}
 
-            yield {"chunk_type": "message_stop", "data": response_json.get("finish_reason")}
         except StabilityAiError as e:
             logger.error("Failed to generate image: %s", str(e))
             raise

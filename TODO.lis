@@ -1,0 +1,4 @@
+Add support for all the parameters for core and 3.5 
+Do specific config validation for the 3 models, support parameters like cfg for sd3.5
+Cleanup code :- Modularize. Move validation to its own methods for example. 
+Add documentation similar to other model providers
