@@ -61,7 +61,7 @@ class OpenAIModel(Model, abc.ABC):
             try:
                 base64.b64decode(image_bytes, validate=True)
                 logger.warning(
-                    "issue=<%s> | base64 encoded images will not be accepted in version 0.3.0",
+                    "issue=<%s> | base64 encoded images will not be accepted in a future version",
                     "https://github.com/strands-agents/sdk-python/issues/252"
                 )
             except ValueError:
