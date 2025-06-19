@@ -1,3 +1,4 @@
+import base64
 import unittest.mock
 
 import pytest
@@ -90,7 +91,24 @@ def system_prompt():
                 "image_url": {
                     "detail": "auto",
                     "format": "image/jpeg",
-                    "url": "data:image/jpeg;base64,image",
+                    "url": "data:image/jpeg;base64,aW1hZ2U=",
+                },
+                "type": "image_url",
+            },
+        ),
+        # Image - base64 encoded
+        (
+            {
+                "image": {
+                    "format": "jpg",
+                    "source": {"bytes": base64.b64encode(b"image")},
+                },
+            },
+            {
+                "image_url": {
+                    "detail": "auto",
+                    "format": "image/jpeg",
+                    "url": "data:image/jpeg;base64,aW1hZ2U=",
                 },
                 "type": "image_url",
             },
