@@ -108,6 +108,7 @@ format-fix = [
 ]
 lint-check = [
     "ruff check",
+    # excluding due to A2A and OTEL http exporter dependency conflict
     "mypy -p src --exclude src/strands/multiagent"
 ]
 lint-fix = [
@@ -154,9 +155,11 @@ python = ["3.13", "3.12", "3.11", "3.10"]
 
 [tool.hatch.envs.hatch-test.scripts]
 run = [
+    # excluding due to A2A and OTEL http exporter dependency conflict
     "pytest{env:HATCH_TEST_ARGS:} {args} --ignore=tests/multiagent/a2a"
 ]
 run-cov = [
+    # excluding due to A2A and OTEL http exporter dependency conflict
     "pytest{env:HATCH_TEST_ARGS:} --cov --cov-config=pyproject.toml {args} --ignore=tests/multiagent/a2a"
 ]
 
@@ -192,6 +195,7 @@ prepare = [
     "hatch test --all"
 ]
 test-a2a = [
+    # required to run manually due to A2A and OTEL http exporter dependency conflict
     "hatch -e a2a run run {args}"
 ]
 

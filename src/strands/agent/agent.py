@@ -217,8 +217,8 @@ class Agent:
         load_tools_from_directory: bool = True,
         trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
         *,
-        name: str | None = None,
-        description: str | None = None,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
     ):
         """Initialize the Agent with the specified configuration.
 
