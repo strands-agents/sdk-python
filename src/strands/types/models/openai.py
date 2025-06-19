@@ -59,9 +59,11 @@ class OpenAIModel(Model, abc.ABC):
             mime_type = mimetypes.types_map.get(f".{content['image']['format']}", "application/octet-stream")
             image_bytes = content["image"]["source"]["bytes"]
             try:
-                # TODO: Checking if base64 encoded for backwards compatability. In 1.0 release, we should only
-                #       accept raw bytes and base64 encode on behalf of customers.
                 base64.b64decode(image_bytes, validate=True)
+                logger.warning(
+                    "issue=<%s> | base64 encoded images will not be accepted in version 0.3.0",
+                    "https://github.com/strands-agents/sdk-python/issues/252"
+                )
             except ValueError:
                 image_bytes = base64.b64encode(image_bytes)
 
