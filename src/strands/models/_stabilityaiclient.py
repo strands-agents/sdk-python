@@ -188,19 +188,14 @@ class StabilityAiClient:
         "stability.sd3-5-large-v1:0": "https://api.stability.ai/v2beta/stable-image/generate/sd3",
     }
 
-    def __init__(
-        self, api_key: str, model_id: str, client_id: Optional[str] = None, client_version: Optional[str] = None
-    ):
+    def __init__(self, api_key: str, client_id: Optional[str] = None, client_version: Optional[str] = None):
         """Initialize the Stability AI client.
 
         Args:
             api_key: Your Stability API key
-            model_id: The model ID to use for the API request.See MODEL_ID_TO_BASE_URL for available models
             client_id: Optional client ID for debugging
             client_version: Optional client version for debugging
         """
-        self.model_id = model_id
-        self.base_url = self.MODEL_ID_TO_BASE_URL[model_id]
         self.api_key = api_key
         self.client_id = client_id
         self.client_version = client_version
@@ -223,32 +218,35 @@ class StabilityAiClient:
 
         return headers
 
-    def generate_image_bytes(self, **kwargs: Any) -> bytes:
+    def generate_image_bytes(self, model_id: str, **kwargs: Any) -> bytes:
         """Generate an image using the Stability AI API.
 
         Args:
+            model_id: The model ID to use for the API request.
             **kwargs: See _generate_image for available parameters
 
         Returns:
             bytes of the image
         """
         kwargs["return_json"] = False
-        return cast(bytes, self._generate_image(**kwargs))
+        return cast(bytes, self._generate_image(model_id, **kwargs))
 
-    def generate_image_json(self, **kwargs: Any) -> Dict[str, Any]:
+    def generate_image_json(self, model_id: str, **kwargs: Any) -> Dict[str, Any]:
         """Generate an image using the Stability AI API.
 
         Args:
+            model_id: The model ID to use for the API request.
             **kwargs: See _generate_image for available parameters
 
         Returns:
             JSON response with base64 image
         """
         kwargs["return_json"] = True
-        return cast(Dict[str, Any], self._generate_image(**kwargs))
+        return cast(Dict[str, Any], self._generate_image(model_id, **kwargs))
 
     def _generate_image(
         self,
+        model_id: str,
         prompt: str,
         negative_prompt: Optional[str] = None,
         aspect_ratio: str = "1:1",
@@ -264,6 +262,7 @@ class StabilityAiClient:
         """Generate an image using the Stability AI API.
 
         Args:
+            model_id: The model ID to use for the API request
             prompt: Text prompt for image generation
             negative_prompt: Optional text describing what not to include
             aspect_ratio: Aspect ratio of the output image
@@ -282,6 +281,11 @@ class StabilityAiClient:
         Raises:
             StabilityAiError: If the API request fails
         """
+        # Validate and prepare the base URL
+        if model_id not in self.MODEL_ID_TO_BASE_URL:
+            raise ValueError(f"Invalid model_id: {model_id}. Must be one of: {list(self.MODEL_ID_TO_BASE_URL.keys())}")
+        base_url = self.MODEL_ID_TO_BASE_URL[model_id]
+
         if isinstance(output_format, str):
             try:
                 output_format = OutputFormat(output_format)
@@ -326,7 +330,7 @@ class StabilityAiClient:
         try:
             # Make the API request
             response = requests.post(
-                self.base_url,
+                base_url,
                 headers=self._get_headers("application/json" if return_json else "image/*"),
                 data=data,
                 files=files,

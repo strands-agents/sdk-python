@@ -50,8 +50,6 @@ class StylePreset(Enum):
     TILE_TEXTURE = "tile-texture"
 
 
-<<<<<<< HEAD
-=======
 class Defaults:
     """Default values for Stability AI configuration."""
 
@@ -72,7 +70,6 @@ class ChunkTypes:
     MESSAGE_STOP = "message_stop"
 
 
->>>>>>> 2f20399 (refactor(stability): separate error classes and add mode parameter)
 class StabilityAiImageModel(Model):
     """Your custom model provider implementation."""
 
@@ -80,10 +77,6 @@ class StabilityAiImageModel(Model):
         """Configuration your model.
 
         Attributes:
-<<<<<<< HEAD
-            model_id: ID of Custom model (required).
-            params: Model parameters (e.g., max_tokens).
-=======
             model_id: ID of the Stability AI model (required).
             aspect_ratio: Aspect ratio of the output image.
             seed: Random seed for generation.
@@ -92,7 +85,6 @@ class StabilityAiImageModel(Model):
             image: Input image for img2img generation.
             mode: Mode of operation (text-to-image, image-to-image).
             strength: Influence of input image on output (0.0-1.0).
->>>>>>> 2f20399 (refactor(stability): separate error classes and add mode parameter)
         """
 
         """
@@ -111,7 +103,7 @@ class StabilityAiImageModel(Model):
         output_format: NotRequired[OutputFormat]  # defaults to PNG
         style_preset: NotRequired[StylePreset]  # defaults to PHOTOGRAPHIC
         image: NotRequired[str]  # defaults to None
-        mode: NotRequired[str]
+        mode: NotRequired[str]  # defaults to "text-to-image"
         strength: NotRequired[float]  # defaults to 0.35
 
     def __init__(self, api_key: str, **model_config: Unpack[StabilityAiImageModelConfig]) -> None:
@@ -147,15 +139,27 @@ class StabilityAiImageModel(Model):
         self.config = cast(StabilityAiImageModel.StabilityAiImageModelConfig, config_dict)
         logger.debug("config=<%s> | initializing", self.config)
 
-        model_id = self.config.get("model_id")
-        if model_id is None:
-            raise ValueError("model_id is required")
-        self.client = StabilityAiClient(api_key=api_key, model_id=model_id)
+        # model_id = self.config.get("model_id")
+        # if model_id is None:
+        #     raise ValueError("model_id is required")
+        self.client = StabilityAiClient(api_key=api_key)
 
-<<<<<<< HEAD
-=======
     def _validate_and_convert_config(self, config_dict: dict[str, Any]) -> None:
         """Validate and convert configuration values to proper types."""
+        # Validate required fields first
+        if "model_id" not in config_dict:
+            raise ValueError("model_id is required in configuration")
+
+        # Validate model_id is one of the supported models
+        valid_model_ids = [
+            "stability.stable-image-core-v1:1",
+            "stability.stable-image-ultra-v1:1",
+            "stability.sd3-5-large-v1:0",
+        ]
+        if config_dict["model_id"] not in valid_model_ids:
+            raise ValueError(f"Invalid model_id: {config_dict['model_id']}. Must be one of: {valid_model_ids}")
+
+        # Convert other fields
         self._convert_output_format(config_dict)
         self._convert_style_preset(config_dict)
 
@@ -225,7 +229,6 @@ class StabilityAiImageModel(Model):
             request["image"] = self.config["image"]
             request["strength"] = self.config.get("strength", Defaults.STRENGTH)
 
->>>>>>> 2f20399 (refactor(stability): separate error classes and add mode parameter)
     @override
     def format_request(
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
@@ -238,38 +241,11 @@ class StabilityAiImageModel(Model):
             system_prompt: Optional system prompt
 
         Returns:
-            Formatted request parameters for the Stability AI API
+            Formatted request parameters for the Stability AI API.
         """
-        # Extract the last user message as the prompt
-        # We do not need all the previous messages as context unlike an llm
-        prompt = ""
-
-        for message in reversed(messages):
-            if message["role"] == "user":
-                # Find the text content in the message
-                for content in message["content"]:
-                    if isinstance(content, dict) and "text" in content:
-                        prompt = content["text"]
-                        break
-                break
-
-        if not prompt:
-            raise ValueError("No user message found in the conversation")
-
-        # Format the request
-        request = {
-            "prompt": prompt,
-            "aspect_ratio": self.config.get("aspect_ratio", "1:1"),
-            "output_format": self.config.get("output_format", OutputFormat.PNG).value,
-            "style_preset": self.config.get("style_preset", StylePreset.PHOTOGRAPHIC).value,
-        }
-
-        # Add optional parameters if they exist in config
-        if "seed" in self.config:
-            request["seed"] = self.config["seed"]  # type: ignore[assignment]
-        if self.config.get("image") is not None:
-            request["image"] = self.config["image"]
-            request["strength"] = self.config.get("strength", 0.35)  # type: ignore[assignment]
+        prompt = self._extract_prompt_from_messages(messages)
+        request = self._build_base_request(prompt)
+        self._add_optional_parameters(request)
 
         return request
 
@@ -348,11 +324,14 @@ class StabilityAiImageModel(Model):
         Raises:
             StabilityAiError: If the API request fails
         """
-        yield {"chunk_type": "message_start"}
-        yield {"chunk_type": "content_start", "data_type": "text"}
+        yield {"chunk_type": ChunkTypes.MESSAGE_START}
+        yield {"chunk_type": ChunkTypes.CONTENT_START, "data_type": "text"}
+
+        model_id = self.config["model_id"]
+
         try:
             # Generate the image #TODO add generate_image_bytes
-            response_json = self.client.generate_image_json(**request)
+            response_json = self.client.generate_image_json(model_id, **request)
             # Yield the image data as a single event
 
             yield {"chunk_type": "content_block_delta", "data_type": "image", "data": response_json.get("image")}

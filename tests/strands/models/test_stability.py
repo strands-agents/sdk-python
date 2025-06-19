@@ -52,7 +52,7 @@ def test__init__(stability_client_cls, model_id):
     }
 
     assert tru_config == exp_config
-    stability_client_cls.assert_called_once_with(api_key="test_key", model_id=model_id)
+    stability_client_cls.assert_called_once_with(api_key="test_key")
 
 
 def test__init__with_string_enums(stability_client_cls, model_id):
