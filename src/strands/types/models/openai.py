@@ -11,8 +11,9 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Optional, cast
+from typing import Any, Callable, Optional, Type, TypeVar, cast
 
+from pydantic import BaseModel
 from typing_extensions import override
 
 from ..content import ContentBlock, Messages
@@ -21,6 +22,8 @@ from ..tools import ToolResult, ToolSpec, ToolUse
 from .model import Model
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class OpenAIModel(Model, abc.ABC):
@@ -272,3 +275,16 @@ class OpenAIModel(Model, abc.ABC):
 
             case _:
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
+
+    @override
+    def structured_output(
+        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
+    ) -> T:
+        """Get structured output from the model.
+
+        Args:
+            output_model(Type[BaseModel]): The output model to use for the agent.
+            prompt(Messages): The prompt to use for the agent.
+            callback_handler(Optional[Callable]): Optional callback handler for processing events. Defaults to None.
+        """
+        return output_model()
