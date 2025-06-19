@@ -118,8 +118,17 @@ class BedrockModel(Model):
 
         logger.debug("config=<%s> | initializing", self.config)
 
+        region_for_boto = region_name or os.getenv("AWS_REGION")
+        if region_for_boto is None:
+            region_for_boto = "us-west-2"
+            logger.warning("defaulted to us-west-2 because no region was specified")
+            logger.warning(
+                "issue=<%s> | this behavior will change in an upcoming release",
+                "https://github.com/strands-agents/sdk-python/issues/238",
+            )
+
         session = boto_session or boto3.Session(
-            region_name=region_name or os.getenv("AWS_REGION") or "us-west-2",
+            region_name=region_for_boto,
         )
 
         # Add strands-agents to the request user agent
