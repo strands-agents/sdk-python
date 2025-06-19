@@ -250,6 +250,7 @@ class StabilityAiClient:
         prompt: str,
         negative_prompt: Optional[str] = None,
         aspect_ratio: str = "1:1",
+        cfg_scale: Optional[int] = 4,
         seed: Optional[int] = None,
         output_format: Union[OutputFormat, str] = "png",
         image: Optional[BinaryIO] = None,
@@ -266,6 +267,7 @@ class StabilityAiClient:
             prompt: Text prompt for image generation
             negative_prompt: Optional text describing what not to include
             aspect_ratio: Aspect ratio of the output image
+            cfg_scale: Optional classifier-free guidance scale, only used for stability.sd3-5-large-v1:0
             seed: Random seed for generation
             output_format: Output format (jpeg, png, webp)
             image: Optional input image for img2img
@@ -273,7 +275,7 @@ class StabilityAiClient:
             style_preset: Optional style preset
             strength: Required when image is provided, controls influence of input image
             return_json: If True, returns JSON response with base64 image
-            **extra_kwargs: Additional keyword arguments (will be ignored with a warning)
+            **extra_kwargs: Additional keyword arguments
 
         Returns:
             Either image bytes or JSON response with base64 image

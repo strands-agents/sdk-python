@@ -79,6 +79,7 @@ class StabilityAiImageModel(Model):
         Attributes:
             model_id: ID of the Stability AI model (required).
             aspect_ratio: Aspect ratio of the output image.
+            cfg_scale: CFG scale for image generation (only used for stability.sd3-5-large-v1:0).
             seed: Random seed for generation.
             output_format: Output format (jpeg, png, webp).
             style_preset: Style preset for image generation.
@@ -99,6 +100,7 @@ class StabilityAiImageModel(Model):
 
         # Optional parameters with defaults
         aspect_ratio: NotRequired[str]  # defaults to "1:1"
+        cfg_scale: NotRequired[int]  # defaults to 4. Only used for stability.sd3-5-large-v1:0
         seed: NotRequired[int]  # defaults to random
         output_format: NotRequired[OutputFormat]  # defaults to PNG
         style_preset: NotRequired[StylePreset]  # defaults to PHOTOGRAPHIC
@@ -139,9 +141,6 @@ class StabilityAiImageModel(Model):
         self.config = cast(StabilityAiImageModel.StabilityAiImageModelConfig, config_dict)
         logger.debug("config=<%s> | initializing", self.config)
 
-        # model_id = self.config.get("model_id")
-        # if model_id is None:
-        #     raise ValueError("model_id is required")
         self.client = StabilityAiClient(api_key=api_key)
 
     def _validate_and_convert_config(self, config_dict: dict[str, Any]) -> None:
@@ -159,6 +158,12 @@ class StabilityAiImageModel(Model):
         if config_dict["model_id"] not in valid_model_ids:
             raise ValueError(f"Invalid model_id: {config_dict['model_id']}. Must be one of: {valid_model_ids}")
 
+        # Warn if cfg_scale is used with non-SD3.5 models
+        if "cfg_scale" in config_dict and config_dict["model_id"] != "stability.sd3-5-large-v1:0":
+            logger.warning(
+                "cfg_scale is only supported for stability.sd3-5-large-v1:0. It will be ignored for model %s",
+                config_dict["model_id"],
+            )
         # Convert other fields
         self._convert_output_format(config_dict)
         self._convert_style_preset(config_dict)
@@ -223,6 +228,9 @@ class StabilityAiImageModel(Model):
         Args:
             request: The request dictionary to modify.
         """
+        # Only add cfg_scale for SD3.5 model
+        if "cfg_scale" in self.config and self.config["model_id"] == "stability.sd3-5-large-v1:0":
+            request["cfg_scale"] = self.config["cfg_scale"]
         if "seed" in self.config:
             request["seed"] = self.config["seed"]
         if self.config.get("image") is not None:

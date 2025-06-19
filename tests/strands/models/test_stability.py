@@ -138,6 +138,77 @@ def test_format_request_with_optional_params(model, messages):
     assert request == exp_request
 
 
+def test_format_request_with_cfg_scale_sd35(stability_client, messages):
+    """Test that cfg_scale is included in request for SD3.5 model."""
+    model = StabilityAiImageModel(
+        api_key="test_key",
+        model_id="stability.sd3-5-large-v1:0",
+        cfg_scale=8,
+    )
+
+    request = model.format_request(messages)
+
+    exp_request = {
+        "prompt": "a beautiful sunset over mountains",
+        "aspect_ratio": "1:1",
+        "output_format": "png",
+        "mode": "text-to-image",
+        "style_preset": "photographic",
+        "cfg_scale": 8,
+    }
+
+    assert request == exp_request
+
+
+def test_format_request_with_cfg_scale_non_sd35(stability_client, messages):
+    """Test that cfg_scale is NOT included in request for non-SD3.5 models."""
+    model = StabilityAiImageModel(
+        api_key="test_key",
+        model_id="stability.stable-image-core-v1:1",
+        cfg_scale=8,  # This should be ignored
+    )
+
+    request = model.format_request(messages)
+
+    exp_request = {
+        "prompt": "a beautiful sunset over mountains",
+        "aspect_ratio": "1:1",
+        "output_format": "png",
+        "mode": "text-to-image",
+        "style_preset": "photographic",
+        # Note: cfg_scale is not passed in
+    }
+
+    assert request == exp_request
+    assert "cfg_scale" not in request
+
+
+def test_update_config_change_model_id(model, messages):
+    """Test updating config to change model_id."""
+    # Initial model uses stability.stable-image-ultra-v1:1 from fixture
+    initial_config = model.get_config()
+    assert initial_config["model_id"] == "stability.stable-image-ultra-v1:1"
+
+    # Update to different model
+    model.update_config(
+        model_id="stability.stable-image-core-v1:1",
+        aspect_ratio="16:9",
+    )
+
+    updated_config = model.get_config()
+    exp_config = {
+        "model_id": "stability.stable-image-core-v1:1",
+        "aspect_ratio": "16:9",
+        "output_format": OutputFormat.PNG,
+    }
+
+    assert updated_config == exp_config
+
+    # Verify the model uses the new model_id in requests
+    request = model.format_request(messages)
+    assert request["aspect_ratio"] == "16:9"
+
+
 def test_format_request_no_user_message():
     model = StabilityAiImageModel(api_key="test_key", model_id="stability.stable-image-core-v1:1")
     messages = [{"role": "assistant", "content": [{"text": "test"}]}]
