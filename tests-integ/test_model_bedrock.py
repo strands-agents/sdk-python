@@ -1,4 +1,5 @@
 import pytest
+from pydantic import BaseModel
 
 import strands
 from strands import Agent
@@ -118,3 +119,33 @@ def test_tool_use_non_streaming(non_streaming_model):
     agent("What is 123 + 456?")
 
     assert tool_was_called
+
+
+def test_structured_output_streaming(streaming_model):
+    """Test structured output with streaming model."""
+
+    class Weather(BaseModel):
+        time: str
+        weather: str
+
+    agent = Agent(model=streaming_model)
+
+    result = agent.structured_output(Weather, "The time is 12:00 and the weather is sunny")
+    assert isinstance(result, Weather)
+    assert result.time == "12:00"
+    assert result.weather == "sunny"
+
+
+def test_structured_output_non_streaming(non_streaming_model):
+    """Test structured output with non-streaming model."""
+
+    class Weather(BaseModel):
+        time: str
+        weather: str
+
+    agent = Agent(model=non_streaming_model)
+
+    result = agent.structured_output(Weather, "The time is 12:00 and the weather is sunny")
+    assert isinstance(result, Weather)
+    assert result.time == "12:00"
+    assert result.weather == "sunny"

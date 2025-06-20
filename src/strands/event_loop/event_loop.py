@@ -33,23 +33,6 @@ INITIAL_DELAY = 4
 MAX_DELAY = 240  # 4 minutes
 
 
-def initialize_state(**kwargs: Any) -> Any:
-    """Initialize the request state if not present.
-
-    Creates an empty request_state dictionary if one doesn't already exist in the
-    provided keyword arguments.
-
-    Args:
-        **kwargs: Keyword arguments that may contain a request_state.
-
-    Returns:
-        The updated kwargs dictionary with request_state initialized if needed.
-    """
-    if "request_state" not in kwargs:
-        kwargs["request_state"] = {}
-    return kwargs
-
-
 def event_loop_cycle(
     model: Model,
     system_prompt: Optional[str],
@@ -105,10 +88,11 @@ def event_loop_cycle(
     kwargs["event_loop_cycle_id"] = uuid.uuid4()
 
     event_loop_metrics: EventLoopMetrics = kwargs.get("event_loop_metrics", EventLoopMetrics())
-
     # Initialize state and get cycle trace
-    kwargs = initialize_state(**kwargs)
-    cycle_start_time, cycle_trace = event_loop_metrics.start_cycle()
+    if "request_state" not in kwargs:
+        kwargs["request_state"] = {}
+    attributes = {"event_loop_cycle_id": str(kwargs.get("event_loop_cycle_id"))}
+    cycle_start_time, cycle_trace = event_loop_metrics.start_cycle(attributes=attributes)
     kwargs["event_loop_cycle_trace"] = cycle_trace
 
     callback_handler(start=True)
@@ -232,7 +216,7 @@ def event_loop_cycle(
             )
 
         # End the cycle and return results
-        event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+        event_loop_metrics.end_cycle(cycle_start_time, cycle_trace, attributes)
         if cycle_span:
             tracer.end_event_loop_cycle_span(
                 span=cycle_span,
@@ -315,26 +299,6 @@ def recurse_event_loop(
     )
 
 
-def prepare_next_cycle(kwargs: Dict[str, Any], event_loop_metrics: EventLoopMetrics) -> Dict[str, Any]:
-    """Prepare state for the next event loop cycle.
-
-    Updates the keyword arguments with the current event loop metrics and stores the current cycle ID as the parent
-    cycle ID for the next cycle. This maintains the parent-child relationship between cycles for tracing and metrics.
-
-    Args:
-        kwargs: Current keyword arguments containing event loop state.
-        event_loop_metrics: The metrics object tracking event loop execution.
-
-    Returns:
-        Updated keyword arguments ready for the next cycle.
-    """
-    # Store parent cycle ID
-    kwargs["event_loop_metrics"] = event_loop_metrics
-    kwargs["event_loop_parent_cycle_id"] = kwargs["event_loop_cycle_id"]
-
-    return kwargs
-
-
 def _handle_tool_execution(
     stop_reason: StopReason,
     message: Message,
@@ -385,7 +349,6 @@ def _handle_tool_execution(
 
     if not tool_uses:
         return stop_reason, message, event_loop_metrics, kwargs["request_state"]
-
     tool_handler_process = partial(
         tool_handler.process,
         messages=messages,
@@ -408,7 +371,9 @@ def _handle_tool_execution(
         parallel_tool_executor=tool_execution_handler,
     )
 
-    kwargs = prepare_next_cycle(kwargs, event_loop_metrics)
+    # Store parent cycle ID for the next cycle
+    kwargs["event_loop_metrics"] = event_loop_metrics
+    kwargs["event_loop_parent_cycle_id"] = kwargs["event_loop_cycle_id"]
 
     tool_result_message: Message = {
         "role": "user",

@@ -91,6 +91,23 @@ def test__init__default_model_id(bedrock_client):
     assert tru_model_id == exp_model_id
 
 
+def test__init__with_default_region(bedrock_client):
+    """Test that BedrockModel uses the provided region."""
+    _ = bedrock_client
+    default_region = "us-west-2"
+
+    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
+        with unittest.mock.patch("strands.models.bedrock.logger.warning") as mock_warning:
+            _ = BedrockModel()
+            mock_session_cls.assert_called_once_with(region_name=default_region)
+            # Assert that warning logs are emitted
+            mock_warning.assert_any_call("defaulted to us-west-2 because no region was specified")
+            mock_warning.assert_any_call(
+                "issue=<%s> | this behavior will change in an upcoming release",
+                "https://github.com/strands-agents/sdk-python/issues/238",
+            )
+
+
 def test__init__with_custom_region(bedrock_client):
     """Test that BedrockModel uses the provided region."""
     _ = bedrock_client
