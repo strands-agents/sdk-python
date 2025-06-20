@@ -5,49 +5,40 @@
 
 import base64
 import logging
-from enum import Enum
 from typing import Any, Iterable, Optional, TypedDict, cast
 
 from typing_extensions import NotRequired, Unpack, override
 
 from strands.types.content import Messages
+from strands.types.exceptions import (
+    ContentModerationException,
+    EventLoopException,
+    ModelAuthenticationException,
+    ModelServiceException,
+    ModelThrottledException,
+    ModelValidationException,
+)
 from strands.types.models import Model
 from strands.types.streaming import ContentBlockDelta, ContentBlockDeltaEvent, StreamEvent
 from strands.types.tools import ToolSpec
 
-from ._stabilityaiclient import StabilityAiClient, StabilityAiError
+from ._stabilityaiclient import (
+    AuthenticationError,
+    BadRequestError,
+    ContentModerationError,
+    InternalServerError,
+    Mode,
+    NetworkError,
+    OutputFormat,
+    PayloadTooLargeError,
+    RateLimitError,
+    StabilityAiClient,
+    StabilityAiError,
+    StylePreset,
+    ValidationError,
+)
 
 logger = logging.getLogger(__name__)
-
-
-class OutputFormat(Enum):
-    """Supported output formats for image generation."""
-
-    JPEG = "jpeg"
-    PNG = "png"
-    WEBP = "webp"
-
-
-class StylePreset(Enum):
-    """Supported style presets for image generation."""
-
-    THREE_D_MODEL = "3d-model"
-    ANALOG_FILM = "analog-film"
-    ANIME = "anime"
-    CINEMATIC = "cinematic"
-    COMIC_BOOK = "comic-book"
-    DIGITAL_ART = "digital-art"
-    ENHANCE = "enhance"
-    FANTASY_ART = "fantasy-art"
-    ISOMETRIC = "isometric"
-    LINE_ART = "line-art"
-    LOW_POLY = "low-poly"
-    MODELING_COMPOUND = "modeling-compound"
-    NEON_PUNK = "neon-punk"
-    ORIGAMI = "origami"
-    PHOTOGRAPHIC = "photographic"
-    PIXEL_ART = "pixel-art"
-    TILE_TEXTURE = "tile-texture"
 
 
 class Defaults:
@@ -57,7 +48,7 @@ class Defaults:
     OUTPUT_FORMAT = OutputFormat.PNG
     STYLE_PRESET = StylePreset.PHOTOGRAPHIC
     STRENGTH = 0.35
-    MODE = "text-to-image"
+    MODE = Mode.TEXT_TO_IMAGE
 
 
 class ChunkTypes:
@@ -98,7 +89,7 @@ class StabilityAiImageModel(Model):
         output_format: NotRequired[OutputFormat]  # defaults to PNG
         style_preset: NotRequired[StylePreset]  # defaults to PHOTOGRAPHIC
         image: NotRequired[str]  # defaults to None
-        mode: NotRequired[str]  # defaults to "text-to-image"
+        mode: NotRequired[Mode]  # defaults to "text-to-image"
         strength: NotRequired[float]  # defaults to 0.35
 
     def __init__(self, api_key: str, **model_config: Unpack[StabilityAiImageModelConfig]) -> None:
@@ -198,7 +189,7 @@ class StabilityAiImageModel(Model):
             "aspect_ratio": self.config.get("aspect_ratio", Defaults.ASPECT_RATIO),
             "output_format": self.config.get("output_format", Defaults.OUTPUT_FORMAT).value,
             "style_preset": self.config.get("style_preset", Defaults.STYLE_PRESET).value,
-            "mode": self.config.get("mode", Defaults.MODE),
+            "mode": self.config.get("mode", Defaults.MODE).value,
         }
 
     def _add_optional_parameters(self, request: dict[str, Any]) -> None:
@@ -339,7 +330,12 @@ class StabilityAiImageModel(Model):
             An iterable of response events from the Stability AI model.
 
         Raises:
-            StabilityAiError: If the API request fails.
+            ModelAuthenticationException: If authentication fails
+            ModelValidationException: If request validation fails
+            ContentModerationException: If content is flagged
+            ModelThrottledException: If rate limit is exceeded
+            ModelServiceException: If server error occurs
+            EventLoopException: If network error occurs
         """
         yield {"chunk_type": ChunkTypes.MESSAGE_START}
         yield {"chunk_type": ChunkTypes.CONTENT_START, "data_type": "text"}
@@ -360,6 +356,31 @@ class StabilityAiImageModel(Model):
             yield {"chunk_type": ChunkTypes.CONTENT_STOP, "data_type": "text"}
             yield {"chunk_type": ChunkTypes.MESSAGE_STOP, "data": response_json.get("finish_reason")}
 
+        except AuthenticationError as e:
+            logger.error("Authentication failed: %s", str(e))
+            raise ModelAuthenticationException(str(e)) from e
+
+        except RateLimitError as e:
+            logger.warning("Rate limit exceeded: %s", str(e))
+            raise ModelThrottledException(str(e)) from e
+
+        except ContentModerationError as e:
+            logger.warning("Content flagged by moderation: %s", str(e))
+            raise ContentModerationException(str(e)) from e
+
+        except (ValidationError, BadRequestError, PayloadTooLargeError) as e:
+            logger.error("Request validation failed: %s", str(e))
+            raise ModelValidationException(str(e)) from e
+
+        except InternalServerError as e:
+            logger.error("Server error during image generation: %s", str(e))
+            raise ModelServiceException(str(e), is_transient=True) from e
+
+        except NetworkError as e:
+            logger.error("Network error during image generation: %s", str(e))
+            raise EventLoopException(e.original_error or e, request_state=request) from e
+
         except StabilityAiError as e:
-            logger.error("Failed to generate image: %s", str(e))
-            raise
+            # Catch any other StabilityAiError subclasses
+            logger.error("Unexpected error during image generation: %s", str(e))
+            raise ModelServiceException(str(e), is_transient=False) from e

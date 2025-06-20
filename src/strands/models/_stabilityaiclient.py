@@ -6,18 +6,42 @@ from typing import Any, BinaryIO, Dict, Optional, Union, cast
 import requests
 from PIL import Image
 
-
 # Validation classes and functions
-# Other validation is performed in the JSON workflow configs
-class ModeEnum(str, Enum):
+
+
+class Mode(Enum):
     TEXT_TO_IMAGE = "text-to-image"
     IMAGE_TO_IMAGE = "image-to-image"
 
 
 class OutputFormat(Enum):
-    PNG = "png"
+    """Supported output formats for image generation."""
+
     JPEG = "jpeg"
+    PNG = "png"
     WEBP = "webp"
+
+
+class StylePreset(Enum):
+    """Supported style presets for image generation."""
+
+    THREE_D_MODEL = "3d-model"
+    ANALOG_FILM = "analog-film"
+    ANIME = "anime"
+    CINEMATIC = "cinematic"
+    COMIC_BOOK = "comic-book"
+    DIGITAL_ART = "digital-art"
+    ENHANCE = "enhance"
+    FANTASY_ART = "fantasy-art"
+    ISOMETRIC = "isometric"
+    LINE_ART = "line-art"
+    LOW_POLY = "low-poly"
+    MODELING_COMPOUND = "modeling-compound"
+    NEON_PUNK = "neon-punk"
+    ORIGAMI = "origami"
+    PHOTOGRAPHIC = "photographic"
+    PIXEL_ART = "pixel-art"
+    TILE_TEXTURE = "tile-texture"
 
 
 def _validate_image_pixels_and_aspect_ratio(image: Union[str, BinaryIO]) -> None:
@@ -234,7 +258,7 @@ class StabilityAiClient:
         seed: Optional[int] = None,
         output_format: Union[OutputFormat, str] = "png",
         image: Optional[BinaryIO] = None,
-        mode: Union[ModeEnum, str] = ModeEnum.TEXT_TO_IMAGE,
+        mode: Union[Mode] = Mode.TEXT_TO_IMAGE,
         style_preset: Optional[str] = None,
         strength: Optional[float] = 0.35,
         return_json: bool = False,
@@ -278,9 +302,9 @@ class StabilityAiClient:
 
         if isinstance(mode, str):
             try:
-                mode = ModeEnum(mode)
+                mode = Mode(mode)
             except ValueError as e:
-                raise ValueError(f"Invalid mode: {mode}. Must be one of: {[e.value for e in ModeEnum]}") from e
+                raise ValueError(f"Invalid mode: {mode}. Must be one of: {[e.value for e in Mode]}") from e
 
         # Prepare the multipart form data
         files: Dict[str, Union[BinaryIO, str]] = {}

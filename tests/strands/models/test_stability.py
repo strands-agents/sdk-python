@@ -4,7 +4,32 @@ import unittest.mock
 import pytest
 
 import strands
-from strands.models.stability import OutputFormat, StabilityAiImageModel, StylePreset
+
+# Import the StabilityAI exceptions
+from strands.models._stabilityaiclient import (
+    AuthenticationError,
+    BadRequestError,
+    InternalServerError,
+    NetworkError,
+    OutputFormat,
+    PayloadTooLargeError,
+    RateLimitError,
+    StabilityAiError,
+    StylePreset,
+    ValidationError,
+)
+from strands.models._stabilityaiclient import (
+    ContentModerationError as StabilityContentModerationError,
+)
+from strands.models.stability import StabilityAiImageModel
+from strands.types.exceptions import (
+    ContentModerationException,
+    EventLoopException,
+    ModelAuthenticationException,
+    ModelServiceException,
+    ModelThrottledException,
+    ModelValidationException,
+)
 
 
 @pytest.fixture
@@ -267,3 +292,235 @@ def test_format_chunk_unknown_type():
     with pytest.raises(RuntimeError) as exc_info:
         model.format_chunk(event)
     assert "unknown type" in str(exc_info.value)
+
+
+def test_stream_authentication_error(model, stability_client):
+    """Test that AuthenticationError is converted to ModelAuthenticationException."""
+    stability_client.generate_image_json.side_effect = AuthenticationError(
+        "Invalid API key", response_data={"error": "unauthorized"}
+    )
+
+    request = {
+        "prompt": "test prompt",
+        "aspect_ratio": "1:1",
+        "output_format": "png",
+        "style_preset": "photographic",
+        "mode": "text-to-image",
+    }
+
+    with pytest.raises(ModelAuthenticationException) as exc_info:
+        list(model.stream(request))
+
+    assert "Invalid API key" in str(exc_info.value)
+
+
+def test_stream_content_moderation_error(model, stability_client):
+    """Test that ContentModerationError is converted to ContentModerationException."""
+    stability_client.generate_image_json.side_effect = StabilityContentModerationError(
+        "Content flagged by moderation", response_data={"error": "content_policy_violation"}
+    )
+
+    request = {
+        "prompt": "an unclothed woman on the beach",
+        "seed": 7,
+        "aspect_ratio": "1:1",
+        "output_format": "png",
+        "style_preset": "photographic",
+        "mode": "text-to-image",
+    }
+
+    with pytest.raises(ContentModerationException) as exc_info:
+        list(model.stream(request))
+
+    assert "Content flagged by moderation" in str(exc_info.value)
+
+
+def test_stream_validation_error(model, stability_client):
+    """Test that ValidationError is converted to ModelValidationException."""
+    stability_client.generate_image_json.side_effect = ValidationError(
+        "Prompt exceeds maximum length", response_data={"error": "validation_error", "field": "prompt"}
+    )
+
+    request = {
+        "prompt": "a" * 10001,
+        "aspect_ratio": "1:1",
+        "output_format": "png",
+        "style_preset": "photographic",
+        "mode": "text-to-image",
+    }
+
+    with pytest.raises(ModelValidationException) as exc_info:
+        list(model.stream(request))
+
+    assert "Prompt exceeds maximum length" in str(exc_info.value)
+
+
+def test_stream_bad_request_error(model, stability_client):
+    """Test that BadRequestError is converted to ModelValidationException."""
+    stability_client.generate_image_json.side_effect = BadRequestError(
+        "Invalid aspect ratio", response_data={"error": "bad_request"}
+    )
+
+    request = {
+        "prompt": "test prompt",
+        "aspect_ratio": "invalid",
+        "output_format": "png",
+        "style_preset": "photographic",
+        "mode": "text-to-image",
+    }
+
+    with pytest.raises(ModelValidationException) as exc_info:
+        list(model.stream(request))
+
+    assert "Invalid aspect ratio" in str(exc_info.value)
+
+
+def test_stream_payload_too_large_error(model, stability_client):
+    """Test that PayloadTooLargeError is converted to ModelValidationException."""
+    stability_client.generate_image_json.side_effect = PayloadTooLargeError("Request size exceeds 10MB limit")
+
+    request = {
+        "prompt": "test prompt",
+        "aspect_ratio": "1:1",
+        "output_format": "png",
+        "style_preset": "photographic",
+        "mode": "text-to-image",
+    }
+
+    with pytest.raises(ModelValidationException) as exc_info:
+        list(model.stream(request))
+
+    assert "Request size exceeds 10MB limit" in str(exc_info.value)
+
+
+def test_stream_rate_limit_error(model, stability_client):
+    """Test that RateLimitError is converted to ModelThrottledException."""
+    stability_client.generate_image_json.side_effect = RateLimitError(
+        "Rate limit exceeded. Please retry after 60 seconds.", response_data={"retry_after": 60}
+    )
+
+    request = {
+        "prompt": "test prompt",
+        "aspect_ratio": "1:1",
+        "output_format": "png",
+        "style_preset": "photographic",
+        "mode": "text-to-image",
+    }
+
+    with pytest.raises(ModelThrottledException) as exc_info:
+        list(model.stream(request))
+
+    assert "Rate limit exceeded" in str(exc_info.value)
+
+
+def test_stream_internal_server_error(model, stability_client):
+    """Test that InternalServerError is converted to ModelServiceException with is_transient=True."""
+    stability_client.generate_image_json.side_effect = InternalServerError("Service temporarily unavailable")
+
+    request = {
+        "prompt": "test prompt",
+        "aspect_ratio": "1:1",
+        "output_format": "png",
+        "style_preset": "photographic",
+        "mode": "text-to-image",
+    }
+
+    with pytest.raises(ModelServiceException) as exc_info:
+        list(model.stream(request))
+
+    assert "Service temporarily unavailable" in str(exc_info.value)
+    assert exc_info.value.is_transient is True
+
+
+def test_stream_network_error(model, stability_client):
+    """Test that NetworkError is converted to EventLoopException."""
+    original_error = ConnectionError("Connection timed out")
+    stability_client.generate_image_json.side_effect = NetworkError(
+        "Network request failed", original_error=original_error
+    )
+
+    request = {
+        "prompt": "test prompt",
+        "aspect_ratio": "1:1",
+        "output_format": "png",
+        "style_preset": "photographic",
+        "mode": "text-to-image",
+    }
+
+    with pytest.raises(EventLoopException) as exc_info:
+        list(model.stream(request))
+
+    assert exc_info.value.original_exception == original_error
+    assert exc_info.value.request_state == request
+
+
+def test_stream_generic_stability_error(model, stability_client):
+    """Test that generic StabilityAiError is converted to ModelServiceException with is_transient=False."""
+    stability_client.generate_image_json.side_effect = StabilityAiError("Unexpected error occurred", status_code=418)
+
+    request = {
+        "prompt": "test prompt",
+        "aspect_ratio": "1:1",
+        "output_format": "png",
+        "style_preset": "photographic",
+        "mode": "text-to-image",
+    }
+
+    with pytest.raises(ModelServiceException) as exc_info:
+        list(model.stream(request))
+
+    assert "Unexpected error occurred" in str(exc_info.value)
+    assert exc_info.value.is_transient is False
+
+
+def test_stream_success(model, stability_client):
+    """Test successful image generation stream."""
+    mock_response = {"image": base64.b64encode(b"fake_image_data").decode("utf-8"), "finish_reason": "SUCCESS"}
+    stability_client.generate_image_json.return_value = mock_response
+
+    request = {
+        "prompt": "a beautiful sunset",
+        "aspect_ratio": "1:1",
+        "output_format": "png",
+        "style_preset": "photographic",
+        "mode": "text-to-image",
+    }
+
+    events = list(model.stream(request))
+
+    assert len(events) == 5
+    assert events[0] == {"chunk_type": "message_start"}
+    assert events[1] == {"chunk_type": "content_start", "data_type": "text"}
+    assert events[2]["chunk_type"] == "content_block_delta"
+    assert events[2]["data_type"] == "image"
+    assert events[2]["data"] == mock_response["image"]
+    assert events[3] == {"chunk_type": "content_stop", "data_type": "text"}
+    assert events[4] == {"chunk_type": "message_stop", "data": "SUCCESS"}
+
+    # Verify the client was called with the correct parameters
+    stability_client.generate_image_json.assert_called_once_with(model.config["model_id"], **request)
+
+
+def test_stream_with_invalid_api_key_string():
+    """Test that invalid API key string raises ModelAuthenticationException."""
+    model = StabilityAiImageModel(
+        api_key="12345",  # Invalid API key (valid str format but not authorized)
+        model_id="stability.stable-image-core-v1:1",
+    )
+
+    # Mock the client to raise AuthenticationError when called
+    with unittest.mock.patch.object(model.client, "generate_image_json") as mock_generate:
+        mock_generate.side_effect = AuthenticationError("Invalid API key", response_data={"error": "unauthorized"})
+
+        request = {
+            "prompt": "test prompt",
+            "aspect_ratio": "1:1",
+            "output_format": "png",
+            "style_preset": "photographic",
+            "mode": "text-to-image",
+        }
+
+        with pytest.raises(ModelAuthenticationException) as exc_info:
+            list(model.stream(request))
+
+        assert "Invalid API key" in str(exc_info.value)
