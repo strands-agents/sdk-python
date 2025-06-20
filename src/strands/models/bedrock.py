@@ -512,7 +512,7 @@ class BedrockModel(Model):
             if "callback" in event:
                 callback_handler(**event["callback"])
         else:
-            stop_reason, messages, _, _, _ = event["stop"]
+            stop_reason, messages, _, _ = event["stop"]
 
         if stop_reason != "tool_use":
             raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
