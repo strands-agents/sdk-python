@@ -34,6 +34,32 @@ class OpenAIModel(Model, abc.ABC):
 
     config: dict[str, Any]
 
+    @staticmethod
+    def b64encode(data: bytes) -> bytes:
+        """Base64 encode the provided data.
+
+        If the data is already base64 encoded, we do nothing.
+        Note, this is a temporary method used to provide a warning to users who pass in base64 encoded data. In future
+        versions, images and documents will be base64 encoded on behalf of customers for consistency with the other
+        providers and general convenience.
+
+        Args:
+            data: Data to encode.
+
+        Returns:
+            Base64 encoded data.
+        """
+        try:
+            base64.b64decode(data, validate=True)
+            logger.warning(
+                "issue=<%s> | base64 encoded images and documents will not be accepted in future versions",
+                "https://github.com/strands-agents/sdk-python/issues/252",
+            )
+        except ValueError:
+            data = base64.b64encode(data)
+
+        return data
+
     @classmethod
     def format_request_message_content(cls, content: ContentBlock) -> dict[str, Any]:
         """Format an OpenAI compatible content block.
@@ -60,17 +86,8 @@ class OpenAIModel(Model, abc.ABC):
 
         if "image" in content:
             mime_type = mimetypes.types_map.get(f".{content['image']['format']}", "application/octet-stream")
-            image_bytes = content["image"]["source"]["bytes"]
-            try:
-                base64.b64decode(image_bytes, validate=True)
-                logger.warning(
-                    "issue=<%s> | base64 encoded images will not be accepted in a future version",
-                    "https://github.com/strands-agents/sdk-python/issues/252",
-                )
-            except ValueError:
-                image_bytes = base64.b64encode(image_bytes)
+            image_data = OpenAIModel.b64encode(content["image"]["source"]["bytes"]).decode("utf-8")
 
-            image_data = image_bytes.decode("utf-8")
             return {
                 "image_url": {
                     "detail": "auto",
