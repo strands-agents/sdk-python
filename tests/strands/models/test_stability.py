@@ -1,7 +1,9 @@
 import base64
+import io
 import unittest.mock
 
 import pytest
+from PIL import Image
 
 import strands
 
@@ -234,6 +236,58 @@ def test_update_config_change_model_id(model, messages):
     assert request["aspect_ratio"] == "16:9"
 
 
+def test_stream_image_to_image_mode(model, stability_client):
+    """Test successful image-to-image generation"""
+    # Create a 64x64 white PNG image
+    white_image = Image.new("RGB", (64, 64), color="white")
+
+    # Convert to PNG bytes
+    img_buffer = io.BytesIO()
+    white_image.save(img_buffer, format="PNG")
+    img_bytes = img_buffer.getvalue()
+
+    # Base64 encode the image
+    input_image_base64 = base64.b64encode(img_bytes).decode("utf-8")
+
+    # Mock response with a different image
+    mock_response = {
+        "image": base64.b64encode(b"fake_transformed_image_data").decode("utf-8"),
+        "finish_reason": "SUCCESS",
+    }
+    stability_client.generate_image_json.return_value = mock_response
+
+    request = {
+        "prompt": "transform this image into a sunset scene",
+        "image": input_image_base64,
+        "mode": "image-to-image",
+        "strength": 0.75,
+        "aspect_ratio": "1:1",
+        "output_format": "png",
+        "style_preset": "photographic",
+    }
+
+    events = list(model.stream(request))
+
+    # Verify the stream events
+    assert len(events) == 5
+    assert events[0] == {"chunk_type": "message_start"}
+    assert events[1] == {"chunk_type": "content_start", "data_type": "text"}
+    assert events[2]["chunk_type"] == "content_block_delta"
+    assert events[2]["data_type"] == "image"
+    assert events[2]["data"] == mock_response["image"]
+    assert events[3] == {"chunk_type": "content_stop", "data_type": "text"}
+    assert events[4] == {"chunk_type": "message_stop", "data": "SUCCESS"}
+
+    # Verify the client was called with the correct parameters including image-to-image mode
+    stability_client.generate_image_json.assert_called_once_with(model.config["model_id"], **request)
+
+    # Verify the request included the base64 image and image-to-image mode
+    call_args = stability_client.generate_image_json.call_args[1]
+    assert call_args["mode"] == "image-to-image"
+    assert call_args["image"] == input_image_base64
+    assert call_args["strength"] == 0.75
+
+
 def test_format_request_no_user_message():
     model = StabilityAiImageModel(api_key="test_key", model_id="stability.stable-image-core-v1:1")
     messages = [{"role": "assistant", "content": [{"text": "test"}]}]
@@ -292,6 +346,9 @@ def test_format_chunk_unknown_type():
     with pytest.raises(RuntimeError) as exc_info:
         model.format_chunk(event)
     assert "unknown type" in str(exc_info.value)
+
+
+# Test exceptions for stream method
 
 
 def test_stream_authentication_error(model, stability_client):
