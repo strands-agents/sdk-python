@@ -115,7 +115,7 @@ lint-fix = [
 ]
 
 [tool.hatch.envs.hatch-test]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "cohere"]
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
