@@ -418,21 +418,11 @@ def tool(tool_function):
 
 
 def test__init__invalid_name():
-    def identity(a):
-        return a
-
-    identity.TOOL_SPEC = {"name": 0}
-
     with pytest.raises(ValueError, match="Tool name must be a string"):
-        FunctionTool(identity)
 
-
-def test__init__missing_spec():
-    def identity(a):
-        return a
-
-    with pytest.raises(ValueError, match="Function identity is not decorated with @tool"):
-        FunctionTool(identity)
+        @strands.tool(name=0)
+        def identity(a):
+            return a
 
 
 def test_tool_name(tool):

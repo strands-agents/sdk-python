@@ -11,13 +11,14 @@ import sys
 from importlib import import_module, util
 from os.path import expanduser
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, overload
 
 from typing_extensions import TypedDict, cast
 
 from ..types.tools import AgentTool, Tool, ToolChoice, ToolChoiceAuto, ToolConfig, ToolSpec
+from .decorator import DecoratedFunctionTool
 from .loader import scan_module_for_tools
-from .tools import FunctionTool, PythonAgentTool, normalize_schema, normalize_tool_spec
+from .tools import PythonAgentTool, normalize_schema, normalize_tool_spec
 
 logger = logging.getLogger(__name__)
 
@@ -92,15 +93,7 @@ class ToolRegistry:
                     if not function_tools:
                         logger.warning("tool_name=<%s>, module_path=<%s> | invalid agent tool", tool_name, module_path)
 
-            # Case 5: Function decorated with @tool
-            elif inspect.isfunction(tool) and hasattr(tool, "TOOL_SPEC"):
-                try:
-                    function_tool = FunctionTool(tool)
-                    logger.debug("tool_name=<%s> | registering function tool", function_tool.tool_name)
-                    self.register_tool(function_tool)
-                    tool_names.append(function_tool.tool_name)
-                except Exception as e:
-                    logger.warning("tool_name=<%s> | failed to register function tool | %s", tool.__name__, e)
+            # Case 5: AgentTools (which also covers @tool)
             elif isinstance(tool, AgentTool):
                 self.register_tool(tool)
                 tool_names.append(tool.tool_name)
@@ -176,7 +169,12 @@ class ToolRegistry:
         logger.debug("tool_count=<%s> | tools configured", len(tool_config))
         return tool_config
 
-    def register_tool(self, tool: AgentTool) -> None:
+    # mypy has problems converting between DecoratedFunctionTool <-> AgentTool
+    @overload
+    def register_tool(self, tool: DecoratedFunctionTool) -> None: ...
+    @overload
+    def register_tool(self, tool: AgentTool) -> None: ...
+    def register_tool(self, tool: AgentTool) -> None:  # type: ignore
         """Register a tool function with the given name.
 
         Args:

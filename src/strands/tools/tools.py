@@ -145,6 +145,13 @@ class FunctionTool(AgentTool):
     This class adapts Python functions decorated with @tool to the AgentTool interface.
     """
 
+    def __new__(cls, *args: Any, **kwargs: Any) -> Any:
+        """Compatability shim to allow callers to continue working after the introduction of DecoratedFunctionTool."""
+        if isinstance(args[0], AgentTool):
+            return args[0]
+
+        return super().__new__(cls)
+
     def __init__(self, func: Callable[[ToolUse, Unpack[Any]], ToolResult], tool_name: Optional[str] = None) -> None:
         """Initialize a function-based tool.
 
