@@ -701,6 +701,106 @@ def test_event_loop_cycle_with_parent_span(
     )
 
 
+def test_event_loop_cycle_callback(
+    model,
+    model_id,
+    system_prompt,
+    messages,
+    tool_config,
+    callback_handler,
+    tool_handler,
+    tool_execution_handler,
+):
+    model.converse.return_value = [
+        {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "test"}}}},
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"value"}'}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "value"}}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "value"}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "value"}}},
+        {"contentBlockStop": {}},
+    ]
+
+    strands.event_loop.event_loop.event_loop_cycle(
+        model=model,
+        model_id=model_id,
+        system_prompt=system_prompt,
+        messages=messages,
+        tool_config=tool_config,
+        callback_handler=callback_handler,
+        tool_handler=tool_handler,
+        tool_execution_handler=tool_execution_handler,
+    )
+
+    callback_handler.assert_has_calls(
+        [
+            call(start=True),
+            call(start_event_loop=True),
+            call(event={"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "test"}}}}),
+            call(event={"contentBlockDelta": {"delta": {"toolUse": {"input": '{"value"}'}}}}),
+            call(
+                delta={"toolUse": {"input": '{"value"}'}},
+                current_tool_use={"toolUseId": "123", "name": "test", "input": {}},
+                model_id="m1",
+                event_loop_cycle_id=unittest.mock.ANY,
+                request_state={},
+                event_loop_cycle_trace=unittest.mock.ANY,
+                event_loop_cycle_span=None,
+            ),
+            call(event={"contentBlockStop": {}}),
+            call(event={"contentBlockStart": {"start": {}}}),
+            call(event={"contentBlockDelta": {"delta": {"reasoningContent": {"text": "value"}}}}),
+            call(
+                reasoningText="value",
+                delta={"reasoningContent": {"text": "value"}},
+                reasoning=True,
+                model_id="m1",
+                event_loop_cycle_id=unittest.mock.ANY,
+                request_state={},
+                event_loop_cycle_trace=unittest.mock.ANY,
+                event_loop_cycle_span=None,
+            ),
+            call(event={"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "value"}}}}),
+            call(
+                reasoning_signature="value",
+                delta={"reasoningContent": {"signature": "value"}},
+                reasoning=True,
+                model_id="m1",
+                event_loop_cycle_id=unittest.mock.ANY,
+                request_state={},
+                event_loop_cycle_trace=unittest.mock.ANY,
+                event_loop_cycle_span=None,
+            ),
+            call(event={"contentBlockStop": {}}),
+            call(event={"contentBlockStart": {"start": {}}}),
+            call(event={"contentBlockDelta": {"delta": {"text": "value"}}}),
+            call(
+                data="value",
+                delta={"text": "value"},
+                model_id="m1",
+                event_loop_cycle_id=unittest.mock.ANY,
+                request_state={},
+                event_loop_cycle_trace=unittest.mock.ANY,
+                event_loop_cycle_span=None,
+            ),
+            call(event={"contentBlockStop": {}}),
+            call(
+                message={
+                    "role": "assistant",
+                    "content": [
+                        {"toolUse": {"toolUseId": "123", "name": "test", "input": {}}},
+                        {"reasoningContent": {"reasoningText": {"text": "value", "signature": "value"}}},
+                        {"text": "value"},
+                    ],
+                },
+            ),
+        ],
+    )
+
+
 def test_request_state_initialization():
     # Call without providing request_state
     tru_stop_reason, tru_message, _, tru_request_state = strands.event_loop.event_loop.event_loop_cycle(

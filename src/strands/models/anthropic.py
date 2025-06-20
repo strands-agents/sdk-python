@@ -387,15 +387,15 @@ class AnthropicModel(Model):
             prompt(Messages): The prompt messages to use for the agent.
             callback_handler(Optional[Callable]): Optional callback handler for processing events. Defaults to None.
         """
+        callback_handler = callback_handler or PrintingCallbackHandler()
         tool_spec = convert_pydantic_to_tool_spec(output_model)
 
         response = self.converse(messages=prompt, tool_specs=[tool_spec])
-        # process the stream and get the tool use input
-        results = process_stream(
-            response, callback_handler=callback_handler or PrintingCallbackHandler(), messages=prompt
-        )
-
-        stop_reason, messages, _, _, _ = results
+        for event in process_stream(response, prompt):
+            if "callback" in event:
+                callback_handler(**event["callback"])
+        else:
+            stop_reason, messages, _, _ = event["stop"]
 
         if stop_reason != "tool_use":
             raise ValueError("No valid tool use or tool use input was found in the Anthropic response.")

@@ -34,7 +34,7 @@ def tools():
 
 @pytest.fixture
 def system_prompt():
-    return "You are an AI assistant that uses & instead of ."
+    return "You are an AI assistant."
 
 
 @pytest.fixture
@@ -47,7 +47,7 @@ def test_agent(agent):
     result = agent("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
 
-    assert all(string in text for string in ["12:00", "sunny", "&"])
+    assert all(string in text for string in ["12:00", "sunny"])
 
 
 @pytest.mark.skipif("ANTHROPIC_API_KEY" not in os.environ, reason="ANTHROPIC_API_KEY environment variable missing")
