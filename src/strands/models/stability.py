@@ -5,49 +5,40 @@
 
 import base64
 import logging
-from enum import Enum
 from typing import Any, Iterable, Optional, TypedDict, cast
 
 from typing_extensions import NotRequired, Unpack, override
 
 from strands.types.content import Messages
+from strands.types.exceptions import (
+    ContentModerationException,
+    EventLoopException,
+    ModelAuthenticationException,
+    ModelServiceException,
+    ModelThrottledException,
+    ModelValidationException,
+)
 from strands.types.models import Model
 from strands.types.streaming import ContentBlockDelta, ContentBlockDeltaEvent, StreamEvent
 from strands.types.tools import ToolSpec
 
-from ._stabilityaiclient import StabilityAiClient, StabilityAiError
+from ._stabilityaiclient import (
+    AuthenticationError,
+    BadRequestError,
+    ContentModerationError,
+    InternalServerError,
+    Mode,
+    NetworkError,
+    OutputFormat,
+    PayloadTooLargeError,
+    RateLimitError,
+    StabilityAiClient,
+    StabilityAiError,
+    StylePreset,
+    ValidationError,
+)
 
 logger = logging.getLogger(__name__)
-
-
-class OutputFormat(Enum):
-    """Supported output formats for image generation."""
-
-    JPEG = "jpeg"
-    PNG = "png"
-    WEBP = "webp"
-
-
-class StylePreset(Enum):
-    """Supported style presets for image generation."""
-
-    THREE_D_MODEL = "3d-model"
-    ANALOG_FILM = "analog-film"
-    ANIME = "anime"
-    CINEMATIC = "cinematic"
-    COMIC_BOOK = "comic-book"
-    DIGITAL_ART = "digital-art"
-    ENHANCE = "enhance"
-    FANTASY_ART = "fantasy-art"
-    ISOMETRIC = "isometric"
-    LINE_ART = "line-art"
-    LOW_POLY = "low-poly"
-    MODELING_COMPOUND = "modeling-compound"
-    NEON_PUNK = "neon-punk"
-    ORIGAMI = "origami"
-    PHOTOGRAPHIC = "photographic"
-    PIXEL_ART = "pixel-art"
-    TILE_TEXTURE = "tile-texture"
 
 
 class Defaults:
@@ -57,6 +48,7 @@ class Defaults:
     OUTPUT_FORMAT = OutputFormat.PNG
     STYLE_PRESET = StylePreset.PHOTOGRAPHIC
     STRENGTH = 0.35
+    MODE = Mode.TEXT_TO_IMAGE
 
 
 class ChunkTypes:
@@ -78,10 +70,12 @@ class StabilityAiImageModel(Model):
         Attributes:
             model_id: ID of the Stability AI model (required).
             aspect_ratio: Aspect ratio of the output image.
+            cfg_scale: CFG scale for image generation (only used for stability.sd3-5-large-v1:0).
             seed: Random seed for generation.
             output_format: Output format (jpeg, png, webp).
             style_preset: Style preset for image generation.
             image: Input image for img2img generation.
+            mode: Mode of operation (text-to-image, image-to-image).
             strength: Influence of input image on output (0.0-1.0).
         """
 
@@ -90,10 +84,12 @@ class StabilityAiImageModel(Model):
 
         # Optional parameters with defaults
         aspect_ratio: NotRequired[str]  # defaults to "1:1"
+        cfg_scale: NotRequired[int]  # defaults to 4. Only used for stability.sd3-5-large-v1:0
         seed: NotRequired[int]  # defaults to random
         output_format: NotRequired[OutputFormat]  # defaults to PNG
         style_preset: NotRequired[StylePreset]  # defaults to PHOTOGRAPHIC
         image: NotRequired[str]  # defaults to None
+        mode: NotRequired[Mode]  # defaults to "text-to-image"
         strength: NotRequired[float]  # defaults to 0.35
 
     def __init__(self, api_key: str, **model_config: Unpack[StabilityAiImageModelConfig]) -> None:
@@ -112,12 +108,7 @@ class StabilityAiImageModel(Model):
         model_id = self.config.get("model_id")
         if model_id is None:
             raise ValueError("model_id is required")
-        self.client = StabilityAiClient(api_key=api_key, model_id=model_id)
-
-    def _validate_and_convert_config(self, config_dict: dict[str, Any]) -> None:
-        """Validate and convert configuration values to proper types."""
-        self._convert_output_format(config_dict)
-        self._convert_style_preset(config_dict)
+        self.client = StabilityAiClient(api_key=api_key)
 
     def _convert_output_format(self, config_dict: dict[str, Any]) -> None:
         """Convert string output_format to enum if needed."""
@@ -136,6 +127,34 @@ class StabilityAiImageModel(Model):
             except ValueError as e:
                 valid_presets = [p.value for p in StylePreset]
                 raise ValueError(f"style_preset must be one of: {valid_presets}") from e
+
+        self.config = cast(StabilityAiImageModel.StabilityAiImageModelConfig, config_dict)
+        logger.debug("config=<%s> | initializing", self.config)
+
+    def _validate_and_convert_config(self, config_dict: dict[str, Any]) -> None:
+        """Validate and convert configuration values to proper types."""
+        # Validate required fields first
+        if "model_id" not in config_dict:
+            raise ValueError("model_id is required in configuration")
+
+        # Validate model_id is one of the supported models
+        valid_model_ids = [
+            "stability.stable-image-core-v1:1",
+            "stability.stable-image-ultra-v1:1",
+            "stability.sd3-5-large-v1:0",
+        ]
+        if config_dict["model_id"] not in valid_model_ids:
+            raise ValueError(f"Invalid model_id: {config_dict['model_id']}. Must be one of: {valid_model_ids}")
+
+        # Warn if cfg_scale is used with non-SD3.5 models
+        if "cfg_scale" in config_dict and config_dict["model_id"] != "stability.sd3-5-large-v1:0":
+            logger.warning(
+                "cfg_scale is only supported for stability.sd3-5-large-v1:0. It will be ignored for model %s",
+                config_dict["model_id"],
+            )
+        # Convert other fields
+        self._convert_output_format(config_dict)
+        self._convert_style_preset(config_dict)
 
     def _extract_prompt_from_messages(self, messages: Messages) -> str:
         """Extract the last user message as prompt.
@@ -170,6 +189,7 @@ class StabilityAiImageModel(Model):
             "aspect_ratio": self.config.get("aspect_ratio", Defaults.ASPECT_RATIO),
             "output_format": self.config.get("output_format", Defaults.OUTPUT_FORMAT).value,
             "style_preset": self.config.get("style_preset", Defaults.STYLE_PRESET).value,
+            "mode": self.config.get("mode", Defaults.MODE).value,
         }
 
     def _add_optional_parameters(self, request: dict[str, Any]) -> None:
@@ -178,6 +198,10 @@ class StabilityAiImageModel(Model):
         Args:
             request: The request dictionary to modify.
         """
+        # Only add cfg_scale for SD3.5 model
+        if "cfg_scale" in self.config and self.config["model_id"] == "stability.sd3-5-large-v1:0":
+            request["cfg_scale"] = self.config["cfg_scale"]
+
         if "seed" in self.config:
             request["seed"] = self.config["seed"]
         if self.config.get("image") is not None:
@@ -191,9 +215,9 @@ class StabilityAiImageModel(Model):
         """Format a Stability AI model request.
 
         Args:
-            messages: List of messages containing the conversation history.
-            tool_specs: Optional list of tool specifications (unused for image generation).
-            system_prompt: Optional system prompt (unused for image generation).
+            messages: List of messages containing the conversation history
+            tool_specs: Optional list of tool specifications
+            system_prompt: Optional system prompt
 
         Returns:
             Formatted request parameters for the Stability AI API.
@@ -201,6 +225,7 @@ class StabilityAiImageModel(Model):
         prompt = self._extract_prompt_from_messages(messages)
         request = self._build_base_request(prompt)
         self._add_optional_parameters(request)
+
         return request
 
     @override
@@ -305,23 +330,22 @@ class StabilityAiImageModel(Model):
             An iterable of response events from the Stability AI model.
 
         Raises:
-            StabilityAiError: If the API request fails.
+            ModelAuthenticationException: If authentication fails
+            ModelValidationException: If request validation fails
+            ContentModerationException: If content is flagged
+            ModelThrottledException: If rate limit is exceeded
+            ModelServiceException: If server error occurs
+            EventLoopException: If network error occurs
         """
         yield {"chunk_type": ChunkTypes.MESSAGE_START}
         yield {"chunk_type": ChunkTypes.CONTENT_START, "data_type": "text"}
 
+        model_id = self.config["model_id"]
+
         try:
-            # Generate the image
-            response_json = self.client.generate_image_json(
-                prompt=request["prompt"],
-                negative_prompt=request.get("negative_prompt"),
-                aspect_ratio=request.get("aspect_ratio", Defaults.ASPECT_RATIO),
-                seed=request.get("seed"),
-                output_format=request.get("output_format", "png"),
-                image=request.get("image"),
-                style_preset=request.get("style_preset"),
-                strength=request.get("strength", Defaults.STRENGTH),
-            )
+            # Generate the image #TODO add generate_image_bytes
+            response_json = self.client.generate_image_json(model_id, **request)
+            # Yield the image data as a single event
 
             # Yield the image data as a single event
             yield {
@@ -332,6 +356,31 @@ class StabilityAiImageModel(Model):
             yield {"chunk_type": ChunkTypes.CONTENT_STOP, "data_type": "text"}
             yield {"chunk_type": ChunkTypes.MESSAGE_STOP, "data": response_json.get("finish_reason")}
 
+        except AuthenticationError as e:
+            logger.error("Authentication failed: %s", str(e))
+            raise ModelAuthenticationException(str(e)) from e
+
+        except RateLimitError as e:
+            logger.warning("Rate limit exceeded: %s", str(e))
+            raise ModelThrottledException(str(e)) from e
+
+        except ContentModerationError as e:
+            logger.warning("Content flagged by moderation: %s", str(e))
+            raise ContentModerationException(str(e)) from e
+
+        except (ValidationError, BadRequestError, PayloadTooLargeError) as e:
+            logger.error("Request validation failed: %s", str(e))
+            raise ModelValidationException(str(e)) from e
+
+        except InternalServerError as e:
+            logger.error("Server error during image generation: %s", str(e))
+            raise ModelServiceException(str(e), is_transient=True) from e
+
+        except NetworkError as e:
+            logger.error("Network error during image generation: %s", str(e))
+            raise EventLoopException(e.original_error or e, request_state=request) from e
+
         except StabilityAiError as e:
-            logger.error("Failed to generate image: %s", str(e))
-            raise
+            # Catch any other StabilityAiError subclasses
+            logger.error("Unexpected error during image generation: %s", str(e))
+            raise ModelServiceException(str(e), is_transient=False) from e
