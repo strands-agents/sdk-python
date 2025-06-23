@@ -76,6 +76,7 @@ class StabilityAiImageModel(Model):
             style_preset: Style preset for image generation.
             image: Input image for img2img generation.
             mode: Mode of operation (text-to-image, image-to-image).
+            return_json: Return JSON response with base64-encoded image data. Defaults to False.
             strength: Influence of input image on output (0.0-1.0).
         """
 
@@ -90,6 +91,7 @@ class StabilityAiImageModel(Model):
         style_preset: NotRequired[StylePreset]  # defaults to PHOTOGRAPHIC
         image: NotRequired[str]  # defaults to None
         mode: NotRequired[Mode]  # defaults to "text-to-image"
+        return_json: NotRequired[bool]  # defaults to False
         strength: NotRequired[float]  # defaults to 0.35
 
     def __init__(self, api_key: str, **model_config: Unpack[StabilityAiImageModelConfig]) -> None:
@@ -99,6 +101,9 @@ class StabilityAiImageModel(Model):
             api_key: The API key for connecting to Stability AI.
             **model_config: Configuration options for the model.
         """
+        # pop the return_json to avoid it being passed into the request
+        self.return_json = model_config.pop("return_json", False)
+
         config_dict = {**{"output_format": Defaults.OUTPUT_FORMAT}, **dict(model_config)}
         self._validate_and_convert_config(config_dict)
 
@@ -145,6 +150,14 @@ class StabilityAiImageModel(Model):
         ]
         if config_dict["model_id"] not in valid_model_ids:
             raise ValueError(f"Invalid model_id: {config_dict['model_id']}. Must be one of: {valid_model_ids}")
+
+        if config_dict["model_id"] == "stability.sd3-5-large-v1:0":
+            allowed_formats = [OutputFormat.PNG, OutputFormat.JPEG]  # Compare enum to enum
+            if config_dict["output_format"] not in allowed_formats:
+                raise ValueError(
+                    f"'output_format' must be one of {[f.value for f in allowed_formats]} "
+                    f"for {config_dict['model_id']}. Got '{config_dict['output_format']}'."
+                )
 
         # Warn if cfg_scale is used with non-SD3.5 models
         if "cfg_scale" in config_dict and config_dict["model_id"] != "stability.sd3-5-large-v1:0":
@@ -263,12 +276,21 @@ class StabilityAiImageModel(Model):
         Returns:
             Formatted content block delta event.
         """
+        data = event.get("data", b"")
+
+        # Handle both bytes and base64 string
+        if isinstance(data, bytes):
+            image_bytes = data
+        else:
+            # Assume it's a base64 string
+            image_bytes = base64.b64decode(data)
+
         content_block_delta = cast(
             ContentBlockDelta,
             {
                 "image": {
                     "format": self.config["output_format"].value,
-                    "source": {"bytes": base64.b64decode(event.get("data", b""))},
+                    "source": {"bytes": image_bytes},
                 }
             },
         )
@@ -343,18 +365,23 @@ class StabilityAiImageModel(Model):
         model_id = self.config["model_id"]
 
         try:
-            # Generate the image #TODO add generate_image_bytes
-            response_json = self.client.generate_image_json(model_id, **request)
-            # Yield the image data as a single event
+            if self.return_json:
+                json_response = self.client.generate_image_json(model_id, **request)
+                image_data = json_response.get("image")  # base64 string
+                finish_reason = json_response.get("finish_reason", "SUCCESS")
+            else:
+                bytes_response = self.client.generate_image_bytes(model_id, **request)  # requests.Response object
+                image_data = bytes_response.content  # raw bytes from response body
+                finish_reason = bytes_response.headers.get("finish-reason", "SUCCESS")  # from HTTP header
 
             # Yield the image data as a single event
             yield {
                 "chunk_type": ChunkTypes.CONTENT_BLOCK_DELTA,
                 "data_type": "image",
-                "data": response_json.get("image"),
+                "data": image_data,  # Either bytes or base64 string
             }
             yield {"chunk_type": ChunkTypes.CONTENT_STOP, "data_type": "text"}
-            yield {"chunk_type": ChunkTypes.MESSAGE_STOP, "data": response_json.get("finish_reason")}
+            yield {"chunk_type": ChunkTypes.MESSAGE_STOP, "data": finish_reason}
 
         except AuthenticationError as e:
             logger.error("Authentication failed: %s", str(e))
