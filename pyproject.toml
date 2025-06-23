@@ -65,7 +65,7 @@ docs = [
     "sphinx-autodoc-typehints>=1.12.0,<2.0.0",
 ]
 litellm = [
-    "litellm>=1.72.6,<2.0.0",
+    "litellm>=1.72.6,<1.73.0",
 ]
 llamaapi = [
     "llama-api-client>=0.1.0,<1.0.0",
