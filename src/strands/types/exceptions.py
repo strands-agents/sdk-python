@@ -52,3 +52,52 @@ class ModelThrottledException(Exception):
         super().__init__(message)
 
     pass
+
+
+class ModelAuthenticationException(Exception):
+    """Exception raised when model authentication fails.
+
+    This exception is raised when the API key or other authentication
+    credentials are invalid or expired.
+    """
+
+    pass
+
+
+class ModelValidationException(Exception):
+    """Exception raised when model input validation fails.
+
+    This exception is raised when the input parameters don't meet the
+    model's requirements (e.g., invalid formats, out-of-range values).
+    """
+
+    pass
+
+
+class ContentModerationException(Exception):
+    """Exception raised when content is flagged by safety filters.
+
+    This exception is raised when the model's safety systems reject
+    the input or output content as inappropriate.
+    """
+
+    pass
+
+
+class ModelServiceException(Exception):
+    """Exception raised for model service errors.
+
+    This is a general exception for server-side errors that aren't
+    covered by more specific exceptions.
+    """
+
+    def __init__(self, message: str, is_transient: bool = False) -> None:
+        """Initialize exception.
+
+        Args:
+            message: Error message
+            is_transient: Whether the error is likely transient (retryable)
+        """
+        self.message = message
+        self.is_transient = is_transient
+        super().__init__(message)

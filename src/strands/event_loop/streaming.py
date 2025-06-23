@@ -152,7 +152,11 @@ def handle_content_block_delta(
                 reasoning=True,
                 **kwargs,
             )
-
+    elif "image" in delta_content:
+        # Handle the new ImageContent structure
+        image_content = delta_content["image"]
+        state["image"] = image_content
+        callback_handler(data=image_content, delta=delta_content, **kwargs)
     return state
 
 
@@ -170,7 +174,7 @@ def handle_content_block_stop(state: Dict[str, Any]) -> Dict[str, Any]:
     current_tool_use = state["current_tool_use"]
     text = state["text"]
     reasoning_text = state["reasoningText"]
-
+    image = state["image"]
     if current_tool_use:
         if "input" not in current_tool_use:
             current_tool_use["input"] = ""
@@ -194,7 +198,6 @@ def handle_content_block_stop(state: Dict[str, Any]) -> Dict[str, Any]:
     elif text:
         content.append({"text": text})
         state["text"] = ""
-
     elif reasoning_text:
         content.append(
             {
@@ -207,6 +210,9 @@ def handle_content_block_stop(state: Dict[str, Any]) -> Dict[str, Any]:
             }
         )
         state["reasoningText"] = ""
+    elif image:
+        content.append({"image": image})
+        state["image"] = ""
 
     return state
 
@@ -279,6 +285,7 @@ def process_stream(
         "current_tool_use": {},
         "reasoningText": "",
         "signature": "",
+        "image": None,
     }
     state["content"] = state["message"]["content"]
 
