@@ -222,7 +222,7 @@ class StabilityAiClient:
 
         return headers
 
-    def generate_image_bytes(self, model_id: str, **kwargs: Any) -> bytes:
+    def generate_image_bytes(self, model_id: str, **kwargs: Any) -> requests.Response:
         """Generate an image using the Stability AI API.
 
         Args:
@@ -230,10 +230,10 @@ class StabilityAiClient:
             **kwargs: See _generate_image for available parameters
 
         Returns:
-            bytes of the image
+            requests.Response object contining image as bytes
         """
         kwargs["return_json"] = False
-        return cast(bytes, self._generate_image(model_id, **kwargs))
+        return cast(requests.Response, self._generate_image(model_id, **kwargs))
 
     def generate_image_json(self, model_id: str, **kwargs: Any) -> Dict[str, Any]:
         """Generate an image using the Stability AI API.
@@ -263,7 +263,7 @@ class StabilityAiClient:
         strength: Optional[float] = 0.35,
         return_json: bool = False,
         **extra_kwargs: Any,
-    ) -> Union[bytes, Dict[str, Any]]:
+    ) -> Union[requests.Response, Dict[str, Any]]:
         """Generate an image using the Stability AI API.
 
         Args:
@@ -343,7 +343,12 @@ class StabilityAiClient:
             if response.status_code == 200:
                 if return_json:
                     return cast(Dict[str, Any], response.json())
-                return cast(bytes, response.content)
+                # If return_json is False, return the full requests.Response object
+                # This is because data like the seed and finish_reason are not included in the image bytes response
+                # but need to be retreived from the headers
+                else:
+                    return cast(requests.Response, response)
+                    # return response
 
             # Parse error response
             try:

@@ -6,8 +6,6 @@ import pytest
 from PIL import Image
 
 import strands
-
-# Import the StabilityAI exceptions
 from strands.models._stabilityaiclient import (
     AuthenticationError,
     BadRequestError,
@@ -91,7 +89,11 @@ def test__init__with_string_enums(stability_client_cls, model_id):
     )
 
     tru_config = model.get_config()
-    exp_config = {"model_id": model_id, "output_format": OutputFormat.JPEG, "style_preset": StylePreset.PHOTOGRAPHIC}
+    exp_config = {
+        "model_id": model_id,
+        "output_format": OutputFormat.JPEG,
+        "style_preset": StylePreset.PHOTOGRAPHIC,
+    }
 
     assert tru_config == exp_config
 
@@ -237,8 +239,11 @@ def test_update_config_change_model_id(model, messages):
 
 
 def test_stream_image_to_image_mode(model, stability_client):
-    """Test successful image-to-image generation"""
+    """Test successful image-to-image generation stream, receiving data as bytes."""
     # Create a 64x64 white PNG image
+    from unittest.mock import Mock
+
+    # Create a white 64x64 image
     white_image = Image.new("RGB", (64, 64), color="white")
 
     # Convert to PNG bytes
@@ -249,12 +254,13 @@ def test_stream_image_to_image_mode(model, stability_client):
     # Base64 encode the image
     input_image_base64 = base64.b64encode(img_bytes).decode("utf-8")
 
-    # Mock response with a different image
-    mock_response = {
-        "image": base64.b64encode(b"fake_transformed_image_data").decode("utf-8"),
-        "finish_reason": "SUCCESS",
-    }
-    stability_client.generate_image_json.return_value = mock_response
+    # Mock response - generate_image_bytes returns a Response object
+    transformed_image_bytes = b"fake_transformed_image_data"
+    mock_response = Mock()
+    mock_response.content = transformed_image_bytes
+    mock_response.headers = {"finish-reason": "SUCCESS"}
+
+    stability_client.generate_image_bytes.return_value = mock_response
 
     request = {
         "prompt": "transform this image into a sunset scene",
@@ -274,18 +280,13 @@ def test_stream_image_to_image_mode(model, stability_client):
     assert events[1] == {"chunk_type": "content_start", "data_type": "text"}
     assert events[2]["chunk_type"] == "content_block_delta"
     assert events[2]["data_type"] == "image"
-    assert events[2]["data"] == mock_response["image"]
+    # The stream method should pass raw bytes directly
+    assert events[2]["data"] == transformed_image_bytes
     assert events[3] == {"chunk_type": "content_stop", "data_type": "text"}
     assert events[4] == {"chunk_type": "message_stop", "data": "SUCCESS"}
 
-    # Verify the client was called with the correct parameters including image-to-image mode
-    stability_client.generate_image_json.assert_called_once_with(model.config["model_id"], **request)
-
-    # Verify the request included the base64 image and image-to-image mode
-    call_args = stability_client.generate_image_json.call_args[1]
-    assert call_args["mode"] == "image-to-image"
-    assert call_args["image"] == input_image_base64
-    assert call_args["strength"] == 0.75
+    # Verify generate_image_bytes was called
+    stability_client.generate_image_bytes.assert_called_once_with(model.config["model_id"], **request)
 
 
 def test_format_request_no_user_message():
@@ -313,14 +314,47 @@ def test_format_chunk_content_start():
     assert chunk == {"contentBlockStart": {"start": {}}}
 
 
-def test_format_chunk_content_block_delta():
-    model = StabilityAiImageModel(api_key="test_key", model_id="stability.stable-image-core-v1:1")
-    raw_image_data = b"raw_image_data"
-    base64_encoded_data = base64.b64encode(raw_image_data)
-    event = {"chunk_type": "content_block_delta", "data": base64_encoded_data}
+def test_format_chunk_content_block_delta(model):
+    """Test formatting content block delta event."""
+    # For bytes data (return_json=False)
+    event = {
+        "chunk_type": "content_block_delta",
+        "data": b"raw_image_data",  # Pass actual bytes
+        "data_type": "image",
+    }
 
-    chunk = model.format_chunk(event)
-    assert chunk == {"contentBlockDelta": {"delta": {"image": {"format": "png", "source": {"bytes": raw_image_data}}}}}
+    result = model.format_chunk(event)
+
+    assert result == {
+        "contentBlockDelta": {
+            "delta": {
+                "image": {
+                    "format": "png",
+                    "source": {"bytes": b"raw_image_data"},
+                }
+            }
+        }
+    }
+
+    # For base64 string data (return_json=True)
+    event_base64 = {
+        "chunk_type": "content_block_delta",
+        "data": base64.b64encode(b"raw_image_data").decode("utf-8"),  # Valid base64
+        "data_type": "image",
+    }
+
+    result_base64 = model.format_chunk(event_base64)
+
+    assert result_base64 == {
+        "contentBlockDelta": {
+            "delta": {
+                "image": {
+                    "format": "png",
+                    "source": {"bytes": b"raw_image_data"},
+                }
+            }
+        }
+    }
 
 
 def test_format_chunk_content_stop():
@@ -353,7 +387,7 @@ def test_format_chunk_unknown_type():
 
 def test_stream_authentication_error(model, stability_client):
     """Test that AuthenticationError is converted to ModelAuthenticationException."""
-    stability_client.generate_image_json.side_effect = AuthenticationError(
+    stability_client.generate_image_bytes.side_effect = AuthenticationError(
         "Invalid API key", response_data={"error": "unauthorized"}
     )
 
@@ -373,7 +407,7 @@ def test_stream_authentication_error(model, stability_client):
 
 def test_stream_content_moderation_error(model, stability_client):
     """Test that ContentModerationError is converted to ContentModerationException."""
-    stability_client.generate_image_json.side_effect = StabilityContentModerationError(
+    stability_client.generate_image_bytes.side_effect = StabilityContentModerationError(
         "Content flagged by moderation", response_data={"error": "content_policy_violation"}
     )
 
@@ -394,7 +428,7 @@ def test_stream_content_moderation_error(model, stability_client):
 
 def test_stream_validation_error(model, stability_client):
     """Test that ValidationError is converted to ModelValidationException."""
-    stability_client.generate_image_json.side_effect = ValidationError(
+    stability_client.generate_image_bytes.side_effect = ValidationError(
         "Prompt exceeds maximum length", response_data={"error": "validation_error", "field": "prompt"}
     )
 
@@ -414,7 +448,7 @@ def test_stream_validation_error(model, stability_client):
 
 def test_stream_bad_request_error(model, stability_client):
     """Test that BadRequestError is converted to ModelValidationException."""
-    stability_client.generate_image_json.side_effect = BadRequestError(
+    stability_client.generate_image_bytes.side_effect = BadRequestError(
         "Invalid aspect ratio", response_data={"error": "bad_request"}
     )
 
@@ -434,7 +468,7 @@ def test_stream_bad_request_error(model, stability_client):
 
 def test_stream_payload_too_large_error(model, stability_client):
     """Test that PayloadTooLargeError is converted to ModelValidationException."""
-    stability_client.generate_image_json.side_effect = PayloadTooLargeError("Request size exceeds 10MB limit")
+    stability_client.generate_image_bytes.side_effect = PayloadTooLargeError("Request size exceeds 10MB limit")
 
     request = {
         "prompt": "test prompt",
@@ -452,7 +486,7 @@ def test_stream_payload_too_large_error(model, stability_client):
 
 def test_stream_rate_limit_error(model, stability_client):
     """Test that RateLimitError is converted to ModelThrottledException."""
-    stability_client.generate_image_json.side_effect = RateLimitError(
+    stability_client.generate_image_bytes.side_effect = RateLimitError(
         "Rate limit exceeded. Please retry after 60 seconds.", response_data={"retry_after": 60}
     )
 
@@ -472,7 +506,7 @@ def test_stream_rate_limit_error(model, stability_client):
 
 def test_stream_internal_server_error(model, stability_client):
     """Test that InternalServerError is converted to ModelServiceException with is_transient=True."""
-    stability_client.generate_image_json.side_effect = InternalServerError("Service temporarily unavailable")
+    stability_client.generate_image_bytes.side_effect = InternalServerError("Service temporarily unavailable")
 
     request = {
         "prompt": "test prompt",
@@ -492,7 +526,7 @@ def test_stream_internal_server_error(model, stability_client):
 def test_stream_network_error(model, stability_client):
     """Test that NetworkError is converted to EventLoopException."""
     original_error = ConnectionError("Connection timed out")
-    stability_client.generate_image_json.side_effect = NetworkError(
+    stability_client.generate_image_bytes.side_effect = NetworkError(
         "Network request failed", original_error=original_error
     )
 
@@ -513,7 +547,7 @@ def test_stream_network_error(model, stability_client):
 
 def test_stream_generic_stability_error(model, stability_client):
     """Test that generic StabilityAiError is converted to ModelServiceException with is_transient=False."""
-    stability_client.generate_image_json.side_effect = StabilityAiError("Unexpected error occurred", status_code=418)
+    stability_client.generate_image_bytes.side_effect = StabilityAiError("Unexpected error occurred", status_code=418)
 
     request = {
         "prompt": "test prompt",
@@ -530,10 +564,17 @@ def test_stream_generic_stability_error(model, stability_client):
     assert exc_info.value.is_transient is False
 
 
-def test_stream_success(model, stability_client):
+def test_stream_success_image_bytes(model, stability_client):
     """Test successful image generation stream."""
-    mock_response = {"image": base64.b64encode(b"fake_image_data").decode("utf-8"), "finish_reason": "SUCCESS"}
-    stability_client.generate_image_json.return_value = mock_response
+    # Mock generate_image_bytes to return a mock Response object
+    from unittest.mock import Mock
+
+    raw_image_data = b"fake_image_data"
+    mock_response = Mock()
+    mock_response.content = raw_image_data
+    mock_response.headers = {"finish-reason": "SUCCESS"}
+
+    stability_client.generate_image_bytes.return_value = mock_response
 
     request = {
         "prompt": "a beautiful sunset",
@@ -550,12 +591,13 @@ def test_stream_success(model, stability_client):
     assert events[1] == {"chunk_type": "content_start", "data_type": "text"}
     assert events[2]["chunk_type"] == "content_block_delta"
     assert events[2]["data_type"] == "image"
-    assert events[2]["data"] == mock_response["image"]
+    # The stream method should pass raw bytes directly
+    assert events[2]["data"] == raw_image_data
     assert events[3] == {"chunk_type": "content_stop", "data_type": "text"}
     assert events[4] == {"chunk_type": "message_stop", "data": "SUCCESS"}
 
-    # Verify the client was called with the correct parameters
-    stability_client.generate_image_json.assert_called_once_with(model.config["model_id"], **request)
+    # Verify the client was called with generate_image_bytes
+    stability_client.generate_image_bytes.assert_called_once_with(model.config["model_id"], **request)
 
 
 def test_stream_with_invalid_api_key_string():
@@ -566,7 +608,7 @@ def test_stream_with_invalid_api_key_string():
     )
 
     # Mock the client to raise AuthenticationError when called
-    with unittest.mock.patch.object(model.client, "generate_image_json") as mock_generate:
+    with unittest.mock.patch.object(model.client, "generate_image_bytes") as mock_generate:
         mock_generate.side_effect = AuthenticationError("Invalid API key", response_data={"error": "unauthorized"})
 
         request = {
@@ -581,3 +623,35 @@ def test_stream_with_invalid_api_key_string():
             list(model.stream(request))
 
         assert "Invalid API key" in str(exc_info.value)
+
+
+def test_stream_with_json_response(stability_client_cls):
+    """Test streaming with JSON response."""
+    # Set up the mock before creating the model
+    mock_client = stability_client_cls.return_value
+    mock_response = {"image": base64.b64encode(b"fake_image_data").decode("utf-8"), "finish_reason": "SUCCESS"}
+    mock_client.generate_image_json.return_value = mock_response
+
+    # Now create the model with return_json=True
+    model = StabilityAiImageModel(
+        api_key="test_key",
+        model_id="stability.stable-image-core-v1:1",
+        return_json=True,  # Explicitly enable JSON mode
+    )
+
+    request = {
+        "prompt": "test prompt",
+        "aspect_ratio": "1:1",
+        "output_format": "png",
+        "style_preset": "photographic",
+        "mode": "text-to-image",
+    }
+
+    events = list(model.stream(request))
+
+    # Verify the response
+    assert len(events) == 5
+    assert events[2]["data"] == mock_response["image"]
+
+    # Now generate_image_json should be called
+    mock_client.generate_image_json.assert_called_once_with(model.config["model_id"], **request)
