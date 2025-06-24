@@ -56,6 +56,7 @@ class _DefaultCallbackHandlerSentinel:
 
 
 _DEFAULT_CALLBACK_HANDLER = _DefaultCallbackHandlerSentinel()
+_DEFAULT_AGENT_NAME = "Strands Agents"
 
 
 class Agent:
@@ -631,8 +632,12 @@ class Agent:
         """
         model_id = self.model.config.get("model_id") if hasattr(self.model, "config") else None
 
+        # Use custom agent name if provided
+        agent_name = self.name if self.name else _DEFAULT_AGENT_NAME
+
         self.trace_span = self.tracer.start_agent_span(
             prompt=prompt,
+            agent_name=agent_name,
             model_id=model_id,
             tools=self.tool_names,
             system_prompt=self.system_prompt,
