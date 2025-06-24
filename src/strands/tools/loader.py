@@ -6,15 +6,16 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 from ..types.tools import AgentTool
-from .tools import FunctionTool, PythonAgentTool
+from .decorator import DecoratedFunctionTool
+from .tools import PythonAgentTool
 
 logger = logging.getLogger(__name__)
 
 
-def load_function_tool(func: Any) -> Optional[FunctionTool]:
+def load_function_tool(func: Any) -> Optional[DecoratedFunctionTool]:
     """Load a function as a tool if it's decorated with @tool.
 
     Args:
@@ -23,20 +24,18 @@ def load_function_tool(func: Any) -> Optional[FunctionTool]:
     Returns:
         FunctionTool if successful, None otherwise.
     """
-    if not inspect.isfunction(func):
+    logger.warning(
+        "issue=<%s> | load_function_tool will be removed in a future version",
+        "https://github.com/strands-agents/sdk-python/pull/258",
+    )
+
+    if isinstance(func, DecoratedFunctionTool):
+        return func
+    else:
         return None
 
-    if not hasattr(func, "TOOL_SPEC"):
-        return None
 
-    try:
-        return FunctionTool(func)
-    except Exception as e:
-        logger.warning("tool_name=<%s> | failed to load function tool | %s", func.__name__, e)
-        return None
-
-
-def scan_module_for_tools(module: Any) -> List[FunctionTool]:
+def scan_module_for_tools(module: Any) -> List[DecoratedFunctionTool]:
     """Scan a module for function-based tools.
 
     Args:
@@ -48,19 +47,17 @@ def scan_module_for_tools(module: Any) -> List[FunctionTool]:
     tools = []
 
     for name, obj in inspect.getmembers(module):
-        # Check if this is a function with TOOL_SPEC attached
-        if inspect.isfunction(obj) and hasattr(obj, "TOOL_SPEC"):
+        if isinstance(obj, DecoratedFunctionTool):
             # Create a function tool with correct name
             try:
-                tool = FunctionTool(obj)
-                tools.append(tool)
+                tools.append(obj)
             except Exception as e:
                 logger.warning("tool_name=<%s> | failed to create function tool | %s", name, e)
 
     return tools
 
 
-def scan_directory_for_tools(directory: Path) -> Dict[str, FunctionTool]:
+def scan_directory_for_tools(directory: Path) -> Dict[str, DecoratedFunctionTool]:
     """Scan a directory for Python modules containing function-based tools.
 
     Args:
@@ -69,7 +66,7 @@ def scan_directory_for_tools(directory: Path) -> Dict[str, FunctionTool]:
     Returns:
         Dictionary mapping tool names to FunctionTool instances.
     """
-    tools: Dict[str, FunctionTool] = {}
+    tools: Dict[str, DecoratedFunctionTool] = {}
 
     if not directory.exists() or not directory.is_dir():
         return tools
@@ -91,11 +88,8 @@ def scan_directory_for_tools(directory: Path) -> Dict[str, FunctionTool]:
             # Find tools in the module
             for attr_name in dir(module):
                 attr = getattr(module, attr_name)
-                if hasattr(attr, "TOOL_SPEC") and callable(attr):
-                    tool = load_function_tool(attr)
-                    if tool:
-                        # Use the tool's name from tool_name property (which includes custom names)
-                        tools[tool.tool_name] = tool
+                if isinstance(attr, DecoratedFunctionTool):
+                    tools[attr.tool_name] = attr
 
         except Exception as e:
             logger.warning("tool_path=<%s> | failed to load tools under path | %s", file_path, e)
@@ -141,12 +135,12 @@ class ToolLoader:
 
                     func = getattr(module, function_name)
 
-                    # Check if the function has a TOOL_SPEC (from @tool decorator)
-                    if inspect.isfunction(func) and hasattr(func, "TOOL_SPEC"):
+                    if isinstance(func, DecoratedFunctionTool):
                         logger.debug(
                             "tool_name=<%s>, module_path=<%s> | found function-based tool", function_name, module_path
                         )
-                        return FunctionTool(func)
+                        # mypy has problems converting between DecoratedFunctionTool <-> AgentTool
+                        return cast(AgentTool, func)
                     else:
                         raise ValueError(
                             f"Function {function_name} in {module_path} is not a valid tool (missing @tool decorator)"
@@ -174,13 +168,12 @@ class ToolLoader:
             # First, check for function-based tools with @tool decorator
             for attr_name in dir(module):
                 attr = getattr(module, attr_name)
-                # Check if this is a function with TOOL_SPEC attached (from @tool decorator)
-                if inspect.isfunction(attr) and hasattr(attr, "TOOL_SPEC"):
+                if isinstance(attr, DecoratedFunctionTool):
                     logger.debug(
                         "tool_name=<%s>, tool_path=<%s> | found function-based tool in path", attr_name, tool_path
                     )
-                    # Return as FunctionTool
-                    return FunctionTool(attr)
+                    # mypy has problems converting between DecoratedFunctionTool <-> AgentTool
+                    return cast(AgentTool, attr)
 
             # If no function-based tools found, fall back to traditional module-level tool
             tool_spec = getattr(module, "TOOL_SPEC", None)

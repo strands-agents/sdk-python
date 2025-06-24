@@ -687,8 +687,7 @@ def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint):
     def function(system_prompt: str) -> str:
         return system_prompt
 
-    tool = strands.tools.tools.FunctionTool(function, tool_name="system_prompter")
-    agent.tool_registry.register_tool(tool)
+    agent.tool_registry.register_tool(function)
 
     mock_randint.return_value = 1
 
