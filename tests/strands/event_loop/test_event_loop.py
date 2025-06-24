@@ -1,4 +1,3 @@
-import collections
 import concurrent
 import unittest.mock
 from unittest.mock import MagicMock, call, patch
@@ -136,7 +135,7 @@ def test_event_loop_cycle_text_response(
         tool_handler=tool_handler,
         tool_execution_handler=tool_execution_handler,
     )
-    event = collections.deque(stream, maxlen=1)[0]
+    event = list(stream)[-1]
     tru_stop_reason, tru_message, _, tru_request_state = event["stop"]
 
     exp_stop_reason = "end_turn"
@@ -175,7 +174,7 @@ def test_event_loop_cycle_text_response_throttling(
         tool_handler=tool_handler,
         tool_execution_handler=tool_execution_handler,
     )
-    event = collections.deque(stream, maxlen=1)[0]
+    event = list(stream)[-1]
     tru_stop_reason, tru_message, _, tru_request_state = event["stop"]
 
     exp_stop_reason = "end_turn"
@@ -220,7 +219,7 @@ def test_event_loop_cycle_exponential_backoff(
         tool_handler=tool_handler,
         tool_execution_handler=tool_execution_handler,
     )
-    event = collections.deque(stream, maxlen=1)[0]
+    event = list(stream)[-1]
     tru_stop_reason, tru_message, _, tru_request_state = event["stop"]
 
     # Verify the final response
@@ -265,7 +264,7 @@ def test_event_loop_cycle_text_response_throttling_exceeded(
             tool_handler=tool_handler,
             tool_execution_handler=tool_execution_handler,
         )
-        collections.deque(stream, maxlen=0)
+        list(stream)
 
     mock_time.sleep.assert_has_calls(
         [
@@ -301,7 +300,7 @@ def test_event_loop_cycle_text_response_error(
             tool_handler=tool_handler,
             tool_execution_handler=tool_execution_handler,
         )
-        collections.deque(stream, maxlen=0)
+        list(stream)
 
 
 def test_event_loop_cycle_tool_result(
@@ -332,7 +331,7 @@ def test_event_loop_cycle_tool_result(
         tool_handler=tool_handler,
         tool_execution_handler=tool_execution_handler,
     )
-    event = collections.deque(stream, maxlen=1)[0]
+    event = list(stream)[-1]
     tru_stop_reason, tru_message, _, tru_request_state = event["stop"]
 
     exp_stop_reason = "end_turn"
@@ -397,7 +396,7 @@ def test_event_loop_cycle_tool_result_error(
             tool_handler=tool_handler,
             tool_execution_handler=tool_execution_handler,
         )
-        collections.deque(stream, maxlen=0)
+        list(stream)
 
 
 def test_event_loop_cycle_tool_result_no_tool_handler(
@@ -421,7 +420,7 @@ def test_event_loop_cycle_tool_result_no_tool_handler(
             tool_handler=None,
             tool_execution_handler=tool_execution_handler,
         )
-        collections.deque(stream, maxlen=0)
+        list(stream)
 
 
 def test_event_loop_cycle_tool_result_no_tool_config(
@@ -445,7 +444,7 @@ def test_event_loop_cycle_tool_result_no_tool_config(
             tool_handler=tool_handler,
             tool_execution_handler=tool_execution_handler,
         )
-        collections.deque(stream, maxlen=0)
+        list(stream)
 
 
 def test_event_loop_cycle_stop(
@@ -485,7 +484,7 @@ def test_event_loop_cycle_stop(
         tool_execution_handler=tool_execution_handler,
         request_state={"stop_event_loop": True},
     )
-    event = collections.deque(stream, maxlen=1)[0]
+    event = list(stream)[-1]
     tru_stop_reason, tru_message, _, tru_request_state = event["stop"]
 
     exp_stop_reason = "tool_use"
@@ -574,7 +573,7 @@ def test_event_loop_cycle_creates_spans(
         tool_handler=tool_handler,
         tool_execution_handler=tool_execution_handler,
     )
-    collections.deque(stream, maxlen=0)
+    list(stream)
 
     # Verify tracer methods were called correctly
     mock_get_tracer.assert_called_once()
@@ -619,7 +618,7 @@ def test_event_loop_tracing_with_model_error(
             tool_handler=tool_handler,
             tool_execution_handler=tool_execution_handler,
         )
-        collections.deque(stream, maxlen=0)
+        list(stream)
 
     # Verify error handling span methods were called
     mock_tracer.end_span_with_error.assert_called_once_with(model_span, "Input too long", model.converse.side_effect)
@@ -665,7 +664,7 @@ def test_event_loop_tracing_with_tool_execution(
         tool_handler=tool_handler,
         tool_execution_handler=tool_execution_handler,
     )
-    collections.deque(stream, maxlen=0)
+    list(stream)
 
     # Verify the parent_span parameter is passed to run_tools
     # At a minimum, verify both model spans were created (one for each model invocation)
@@ -714,7 +713,7 @@ def test_event_loop_tracing_with_throttling_exception(
             tool_handler=tool_handler,
             tool_execution_handler=tool_execution_handler,
         )
-        collections.deque(stream, maxlen=0)
+        list(stream)
 
     # Verify error span was created for the throttling exception
     assert mock_tracer.end_span_with_error.call_count == 1
@@ -759,7 +758,7 @@ def test_event_loop_cycle_with_parent_span(
         tool_execution_handler=tool_execution_handler,
         event_loop_parent_span=parent_span,
     )
-    collections.deque(stream, maxlen=0)
+    list(stream)
 
     # Verify parent_span was used when creating cycle span
     mock_tracer.start_event_loop_cycle_span.assert_called_once_with(
@@ -779,7 +778,7 @@ def test_request_state_initialization():
         tool_handler=MagicMock(),
         tool_execution_handler=MagicMock(),
     )
-    event = collections.deque(stream, maxlen=1)[0]
+    event = list(stream)[-1]
     _, _, _, tru_request_state = event["stop"]
 
     # Verify request_state was initialized to empty dict
@@ -797,7 +796,7 @@ def test_request_state_initialization():
         tool_handler=MagicMock(),
         request_state=initial_request_state,
     )
-    event = collections.deque(stream, maxlen=1)[0]
+    event = list(stream)[-1]
     _, _, _, tru_request_state = event["stop"]
 
     # Verify existing request_state was preserved
@@ -836,7 +835,7 @@ def test_prepare_next_cycle_in_tool_execution(model, tool_stream):
             tool_handler=MagicMock(),
             tool_execution_handler=MagicMock(),
         )
-        collections.deque(stream, maxlen=0)
+        list(stream)
 
         assert mock_recurse.called
 
