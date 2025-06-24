@@ -8,20 +8,19 @@ import json
 import logging
 import os
 from datetime import date, datetime, timezone
-from importlib.metadata import version
 from typing import Any, Dict, Mapping, Optional
 
 import opentelemetry.trace as trace_api
 from opentelemetry import propagate
 from opentelemetry.baggage.propagation import W3CBaggagePropagator
 from opentelemetry.propagators.composite import CompositePropagator
-from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider as SDKTracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
 from opentelemetry.trace import Span, StatusCode
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from ..agent.agent_result import AgentResult
+from ..telemetry import get_otel_resource
 from ..types.content import Message, Messages
 from ..types.streaming import Usage
 from ..types.tools import ToolResult, ToolUse
@@ -151,7 +150,6 @@ class Tracer:
         self.otlp_headers = otlp_headers or {}
         self.tracer_provider: Optional[trace_api.TracerProvider] = None
         self.tracer: Optional[trace_api.Tracer] = None
-
         propagate.set_global_textmap(
             CompositePropagator(
                 [
@@ -173,15 +171,7 @@ class Tracer:
             self.tracer = self.tracer_provider.get_tracer(self.service_name)
             return
 
-        # Create resource with service information
-        resource = Resource.create(
-            {
-                "service.name": self.service_name,
-                "service.version": version("strands-agents"),
-                "telemetry.sdk.name": "opentelemetry",
-                "telemetry.sdk.language": "python",
-            }
-        )
+        resource = get_otel_resource()
 
         # Create tracer provider
         self.tracer_provider = SDKTracerProvider(resource=resource)
@@ -216,6 +206,7 @@ class Tracer:
                 batch_processor = BatchSpanProcessor(otlp_exporter)
                 self.tracer_provider.add_span_processor(batch_processor)
                 logger.info("endpoint=<%s> | OTLP exporter configured with endpoint", endpoint)
+
             except Exception as e:
                 logger.exception("error=<%s> | Failed to configure OTLP exporter", e)
         elif self.otlp_endpoint and self.tracer_provider:

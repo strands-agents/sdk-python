@@ -3,16 +3,21 @@
 - Docs: https://docs.litellm.ai/
 """
 
+import json
 import logging
-from typing import Any, Optional, TypedDict, cast
+from typing import Any, Callable, Optional, Type, TypedDict, TypeVar, cast
 
 import litellm
+from litellm.utils import supports_response_schema
+from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
-from ..types.content import ContentBlock
+from ..types.content import ContentBlock, Messages
 from .openai import OpenAIModel
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class LiteLLMModel(OpenAIModel):
@@ -97,3 +102,43 @@ class LiteLLMModel(OpenAIModel):
             }
 
         return super().format_request_message_content(content)
+
+    @override
+    def structured_output(
+        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
+    ) -> T:
+        """Get structured output from the model.
+
+        Args:
+            output_model(Type[BaseModel]): The output model to use for the agent.
+            prompt(Messages): The prompt messages to use for the agent.
+            callback_handler(Optional[Callable]): Optional callback handler for processing events. Defaults to None.
+
+        """
+        # The LiteLLM `Client` inits with Chat().
+        # Chat() inits with self.completions
+        # completions() has a method `create()` which wraps the real completion API of Litellm
+        response = self.client.chat.completions.create(
+            model=self.get_config()["model_id"],
+            messages=super().format_request(prompt)["messages"],
+            response_format=output_model,
+        )
+
+        if not supports_response_schema(self.get_config()["model_id"]):
+            raise ValueError("Model does not support response_format")
+        if len(response.choices) > 1:
+            raise ValueError("Multiple choices found in the response.")
+
+        # Find the first choice with tool_calls
+        for choice in response.choices:
+            if choice.finish_reason == "tool_calls":
+                try:
+                    # Parse the tool call content as JSON
+                    tool_call_data = json.loads(choice.message.content)
+                    # Instantiate the output model with the parsed data
+                    return output_model(**tool_call_data)
+                except (json.JSONDecodeError, TypeError, ValueError) as e:
+                    raise ValueError(f"Failed to parse or load content into model: {e}") from e
+
+        # If no tool_calls found, raise an error
+        raise ValueError("No tool_calls found in response")

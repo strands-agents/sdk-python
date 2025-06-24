@@ -5,8 +5,9 @@
 
 import base64
 import logging
-from typing import Any, Iterable, Optional, TypedDict, cast
+from typing import Any, Callable, Iterable, Optional, Type, TypedDict, TypeVar, cast
 
+from pydantic import BaseModel
 from typing_extensions import NotRequired, Unpack, override
 
 from strands.types.content import Messages
@@ -39,6 +40,8 @@ from ._stabilityaiclient import (
 )
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class Defaults:
@@ -220,6 +223,19 @@ class StabilityAiImageModel(Model):
         if self.config.get("image") is not None:
             request["image"] = self.config["image"]
             request["strength"] = self.config.get("strength", Defaults.STRENGTH)
+
+    @override
+    def structured_output(
+        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
+    ) -> T:
+        """Get structured output from the model.
+
+        Args:
+            output_model(Type[BaseModel]): The output model to use for the agent.
+            prompt(Messages): The prompt to use for the agent.
+            callback_handler(Optional[Callable]): Optional callback handler for processing events. Defaults to None.
+        """
+        return output_model()
 
     @override
     def format_request(

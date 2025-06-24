@@ -11,8 +11,9 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Optional, cast
+from typing import Any, Callable, Optional, Type, TypeVar, cast
 
+from pydantic import BaseModel
 from typing_extensions import override
 
 from ..content import ContentBlock, Messages
@@ -22,6 +23,8 @@ from .model import Model
 
 logger = logging.getLogger(__name__)
 
+T = TypeVar("T", bound=BaseModel)
+
 
 class OpenAIModel(Model, abc.ABC):
     """Base OpenAI model provider implementation.
@@ -30,6 +33,32 @@ class OpenAIModel(Model, abc.ABC):
     """
 
     config: dict[str, Any]
+
+    @staticmethod
+    def b64encode(data: bytes) -> bytes:
+        """Base64 encode the provided data.
+
+        If the data is already base64 encoded, we do nothing.
+        Note, this is a temporary method used to provide a warning to users who pass in base64 encoded data. In future
+        versions, images and documents will be base64 encoded on behalf of customers for consistency with the other
+        providers and general convenience.
+
+        Args:
+            data: Data to encode.
+
+        Returns:
+            Base64 encoded data.
+        """
+        try:
+            base64.b64decode(data, validate=True)
+            logger.warning(
+                "issue=<%s> | base64 encoded images and documents will not be accepted in future versions",
+                "https://github.com/strands-agents/sdk-python/issues/252",
+            )
+        except ValueError:
+            data = base64.b64encode(data)
+
+        return data
 
     @classmethod
     def format_request_message_content(cls, content: ContentBlock) -> dict[str, Any]:
@@ -57,7 +86,8 @@ class OpenAIModel(Model, abc.ABC):
 
         if "image" in content:
             mime_type = mimetypes.types_map.get(f".{content['image']['format']}", "application/octet-stream")
-            image_data = content["image"]["source"]["bytes"].decode("utf-8")
+            image_data = OpenAIModel.b64encode(content["image"]["source"]["bytes"]).decode("utf-8")
+
             return {
                 "image_url": {
                     "detail": "auto",
@@ -262,3 +292,16 @@ class OpenAIModel(Model, abc.ABC):
 
             case _:
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
+
+    @override
+    def structured_output(
+        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
+    ) -> T:
+        """Get structured output from the model.
+
+        Args:
+            output_model(Type[BaseModel]): The output model to use for the agent.
+            prompt(Messages): The prompt to use for the agent.
+            callback_handler(Optional[Callable]): Optional callback handler for processing events. Defaults to None.
+        """
+        return output_model()

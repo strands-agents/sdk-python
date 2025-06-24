@@ -1,6 +1,14 @@
+from typing import Type
+
 import pytest
+from pydantic import BaseModel
 
 from strands.types.models import Model as SAModel
+
+
+class Person(BaseModel):
+    name: str
+    age: int
 
 
 class TestModel(SAModel):
@@ -9,6 +17,9 @@ class TestModel(SAModel):
 
     def get_config(self):
         return
+
+    def structured_output(self, output_model: Type[BaseModel]) -> BaseModel:
+        return output_model(name="test", age=20)
 
     def format_request(self, messages, tool_specs, system_prompt):
         return {
@@ -79,3 +90,9 @@ def test_converse(model, messages, tool_specs, system_prompt):
         },
     ]
     assert tru_events == exp_events
+
+
+def test_structured_output(model):
+    response = model.structured_output(Person)
+
+    assert response == Person(name="test", age=20)
