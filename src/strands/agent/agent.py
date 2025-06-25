@@ -15,7 +15,6 @@ import logging
 import random
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Optional, Type, TypeVar, Union, cast
-from uuid import uuid4
 
 from opentelemetry import trace
 from pydantic import BaseModel
@@ -32,6 +31,7 @@ from ..hooks import (
 )
 from ..models.bedrock import BedrockModel
 from ..models.model import Model
+from ..session.session_manager import SessionManager
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer
 from ..tools.registry import ToolRegistry
@@ -62,6 +62,7 @@ class _DefaultCallbackHandlerSentinel:
 
 _DEFAULT_CALLBACK_HANDLER = _DefaultCallbackHandlerSentinel()
 _DEFAULT_AGENT_NAME = "Strands Agents"
+_DEFAULT_AGENT_ID = "default"
 
 
 class Agent:
@@ -207,6 +208,7 @@ class Agent:
         description: Optional[str] = None,
         state: Optional[Union[AgentState, dict]] = None,
         hooks: Optional[list[HookProvider]] = None,
+        session_manager: Optional[SessionManager] = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -237,22 +239,24 @@ class Agent:
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.
                 Defaults to False.
             trace_attributes: Custom trace attributes to apply to the agent's trace span.
-            agent_id: Optional ID for the agent, useful for multi-agent scenarios.
-                If None, a UUID is generated.
+            agent_id: Optional ID for the agent, useful for session management and multi-agent scenarios.
+                Defaults to "default".
             name: name of the Agent
-                Defaults to None.
+                Defaults to "Strands Agents".
             description: description of what the Agent does
                 Defaults to None.
             state: stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
                 Defaults to an empty AgentState object.
             hooks: hooks to be added to the agent hook registry
                 Defaults to None.
+            session_manager: Manager for handling agent sessions including conversation history and state.
+                If provided, enables session-based persistence and state management.
         """
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
 
         self.system_prompt = system_prompt
-        self.agent_id = agent_id or str(uuid4())
+        self.agent_id = agent_id or _DEFAULT_AGENT_ID
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
 
@@ -312,6 +316,12 @@ class Agent:
         self.tool_caller = Agent.ToolCaller(self)
 
         self.hooks = HookRegistry()
+
+        # Initialize session management functionality
+        self.session_manager = session_manager
+        if self.session_manager:
+            self.hooks.add_hook(self.session_manager)
+
         if hooks:
             for hook in hooks:
                 self.hooks.add_hook(hook)

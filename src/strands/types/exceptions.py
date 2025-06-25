@@ -52,3 +52,9 @@ class ModelThrottledException(Exception):
         super().__init__(message)
 
     pass
+
+
+class SessionException(Exception):
+    """Exception raised when session operations fail."""
+
+    pass

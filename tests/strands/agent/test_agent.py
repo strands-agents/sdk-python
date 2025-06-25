@@ -13,10 +13,15 @@ from strands import Agent
 from strands.agent import AgentResult
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
+from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
+from strands.session.agent_session_manager import DEFAULT_SESSION_AGENT_ID, AgentSessionManager
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
+from strands.types.session import Session, SessionAgent, SessionType
+from tests.fixtures.mock_session_repository import MockedSessionRepository
+from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
 @pytest.fixture
@@ -636,7 +641,6 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
     )
 
     agent("test")
-
     callback_handler.assert_has_calls(
         [
             unittest.mock.call(init_event_loop=True),
@@ -1338,6 +1342,11 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
     mock_tracer.end_agent_span.assert_called_once_with(span=mock_span, error=test_exception)
 
 
+def test_agent_init_with_state_object():
+    agent = Agent(state=AgentState({"foo": "bar"}))
+    assert agent.state.get("foo") == "bar"
+
+
 def test_non_dict_throws_error():
     with pytest.raises(ValueError, match="state must be an AgentState object or a dict"):
         agent = Agent(state={"object", object()})
@@ -1391,3 +1400,28 @@ def test_agent_state_get_breaks_deep_dict_reference():
 
     # This will fail if AgentState reflects the updated reference
     json.dumps(agent.state.get())
+
+
+def test_agent_session_management():
+    mock_session_repository = MockedSessionRepository()
+    session_manager = AgentSessionManager(session_id="123", session_repository=mock_session_repository)
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
+    agent = Agent(session_manager=session_manager, model=model)
+    agent("Hello!")
+
+
+def test_agent_restored_from_session_management():
+    mock_session_repository = MockedSessionRepository()
+    mock_session_repository.create_session(Session(session_id="123", session_type=SessionType.AGENT))
+    mock_session_repository.create_agent(
+        "123",
+        SessionAgent(
+            agent_id=DEFAULT_SESSION_AGENT_ID,
+            state={"foo": "bar"},
+        ),
+    )
+    session_manager = AgentSessionManager(session_id="123", session_repository=mock_session_repository)
+
+    agent = Agent(session_manager=session_manager)
+
+    assert agent.state.get("foo") == "bar"
