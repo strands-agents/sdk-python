@@ -838,7 +838,3 @@ class TwelveLabsPegasusModel(Model):
             NotImplementedError: TwelveLabs Pegasus models do not support structured output.
         """
         raise NotImplementedError("TwelveLabs Pegasus models do not support structured output.")
-
-
-# For backwards compatibility
-TwelveLabsModel = TwelveLabsSearchModel

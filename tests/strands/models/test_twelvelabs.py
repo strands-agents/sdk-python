@@ -3,7 +3,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from strands.models.twelvelabs import TwelveLabsModel, TwelveLabsPegasusModel, TwelveLabsSearchModel
+from strands.models.twelvelabs import TwelveLabsPegasusModel, TwelveLabsSearchModel
 from strands.types.exceptions import ModelThrottledException
 
 
@@ -59,7 +59,7 @@ def pegasus_model_config():
 @pytest.fixture
 def model(model_config):
     """TwelveLabs model instance for testing."""
-    return TwelveLabsModel(**model_config)
+    return TwelveLabsSearchModel(**model_config)
 
 
 @pytest.fixture
@@ -95,11 +95,11 @@ def search_result():
 
 
 class TestTwelveLabsModel:
-    """Test suite for TwelveLabsModel (legacy alias for TwelveLabsSearchModel)."""
+    """Test suite for TwelveLabsSearchModel (using legacy class name for test organization)."""
 
     def test_init_with_valid_config(self, model_config):
         """Test model initialization with valid configuration."""
-        model = TwelveLabsModel(**model_config)
+        model = TwelveLabsSearchModel(**model_config)
 
         assert model.config["model_id"] == "Marengo-retrieval-2.7"
         assert model.config["index_id"] == "test-index-123"
@@ -109,7 +109,7 @@ class TestTwelveLabsModel:
         """Test model initialization fails without API key."""
         with unittest.mock.patch("strands.models.twelvelabs.os.getenv", return_value=None):
             with pytest.raises(ValueError, match="TwelveLabs API key required"):
-                TwelveLabsModel(model_id="test", index_id="test")
+                TwelveLabsSearchModel(model_id="test", index_id="test")
 
     def test_update_config(self, model):
         """Test updating model configuration."""
@@ -152,7 +152,7 @@ class TestTwelveLabsModel:
         config_without_index = {**model_config}
         del config_without_index["index_id"]
 
-        model = TwelveLabsModel(**config_without_index)
+        model = TwelveLabsSearchModel(**config_without_index)
         messages = [{"role": "user", "content": "test"}]
 
         with pytest.raises(ValueError, match="index_id must be configured"):
@@ -282,7 +282,7 @@ class TestTwelveLabsModel:
         config_without_index = {**model_config}
         del config_without_index["index_id"]
 
-        model = TwelveLabsModel(**config_without_index)
+        model = TwelveLabsSearchModel(**config_without_index)
 
         with pytest.raises(ValueError, match="index_id required"):
             model.search_videos("test")
