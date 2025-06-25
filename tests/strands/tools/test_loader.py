@@ -7,8 +7,9 @@ import unittest.mock
 import pytest
 
 import strands
+from strands.tools.decorator import DecoratedFunctionTool
 from strands.tools.loader import ToolLoader
-from strands.tools.tools import FunctionTool, PythonAgentTool
+from strands.tools.tools import PythonAgentTool
 
 
 def test_load_function_tool():
@@ -18,7 +19,7 @@ def test_load_function_tool():
 
     tool = strands.tools.loader.load_function_tool(tool_function)
 
-    assert isinstance(tool, FunctionTool)
+    assert isinstance(tool, DecoratedFunctionTool)
 
 
 def test_load_function_tool_no_function():
@@ -62,7 +63,7 @@ def test_scan_module_for_tools():
     def tool_function_4(d):
         return d
 
-    tool_function_4.TOOL_SPEC = "invalid"
+    tool_function_4.tool_spec = "invalid"
 
     mock_module = unittest.mock.MagicMock()
     mock_module.tool_function_1 = tool_function_1
@@ -73,7 +74,7 @@ def test_scan_module_for_tools():
     tools = strands.tools.loader.scan_module_for_tools(mock_module)
 
     assert len(tools) == 2
-    assert all(isinstance(tool, FunctionTool) for tool in tools)
+    assert all(isinstance(tool, DecoratedFunctionTool) for tool in tools)
 
 
 def test_scan_directory_for_tools(tmp_path):
@@ -122,7 +123,7 @@ def test_scan_directory_for_tools(tmp_path):
     exp_tool_names = ["tool_function_1", "tool_function_2"]
 
     assert tru_tool_names == exp_tool_names
-    assert all(isinstance(tool, FunctionTool) for tool in tools.values())
+    assert all(isinstance(tool, DecoratedFunctionTool) for tool in tools.values())
 
 
 def test_scan_directory_for_tools_does_not_exist():
@@ -171,7 +172,7 @@ def tool_module(tool_path):
 def test_load_python_tool_path_function_based(tool_path):
     tool = ToolLoader.load_python_tool(tool_path, "identity")
 
-    assert isinstance(tool, FunctionTool)
+    assert isinstance(tool, DecoratedFunctionTool)
 
 
 @pytest.mark.parametrize(
@@ -272,7 +273,7 @@ def test_load_python_tool_dot_function_based(tool_path, tool_module):
 
     tool = ToolLoader.load_python_tool(tool_module, "identity")
 
-    assert isinstance(tool, FunctionTool)
+    assert isinstance(tool, DecoratedFunctionTool)
 
 
 @pytest.mark.parametrize(
@@ -329,7 +330,7 @@ def test_load_python_tool_dot_missing():
 def test_load_tool(tool_path):
     tool = ToolLoader.load_tool(tool_path, "identity")
 
-    assert isinstance(tool, FunctionTool)
+    assert isinstance(tool, DecoratedFunctionTool)
 
 
 def test_load_tool_missing():
