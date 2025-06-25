@@ -1,7 +1,9 @@
 import os
+import sys
 import unittest.mock
 
 import boto3
+import pydantic
 import pytest
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError, EventStreamError
@@ -15,7 +17,10 @@ from strands.types.exceptions import ModelThrottledException
 @pytest.fixture
 def bedrock_client():
     with unittest.mock.patch.object(strands.models.bedrock.boto3, "Session") as mock_session_cls:
-        yield mock_session_cls.return_value.client.return_value
+        mock_client = mock_session_cls.return_value.client.return_value
+        mock_client.meta = unittest.mock.MagicMock()
+        mock_client.meta.region_name = "us-west-2"
+        yield mock_client
 
 
 @pytest.fixture
@@ -78,6 +83,15 @@ def tool_spec():
 @pytest.fixture
 def cache_type():
     return "default"
+
+
+@pytest.fixture
+def test_output_model_cls():
+    class TestOutputModel(pydantic.BaseModel):
+        name: str
+        age: int
+
+    return TestOutputModel
 
 
 def test__init__default_model_id(bedrock_client):
@@ -1029,3 +1043,100 @@ def test_converse_output_guardrails_redacts_output(bedrock_client):
 
     bedrock_client.converse.assert_called_once()
     bedrock_client.converse_stream.assert_not_called()
+
+
+def test_structured_output(bedrock_client, model, test_output_model_cls):
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+
+    bedrock_client.converse_stream.return_value = {
+        "stream": [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "TestOutputModel"}}}},
+            {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"name": "John", "age": 30}'}}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "tool_use"}},
+        ]
+    }
+
+    stream = model.structured_output(test_output_model_cls, messages)
+
+    tru_output = list(stream)[-1]
+    exp_output = {"output": test_output_model_cls(name="John", age=30)}
+    assert tru_output == exp_output
+
+
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
+def test_add_note_on_client_error(bedrock_client, model):
+    """Test that add_note is called on ClientError with region and model ID information."""
+    # Mock the client error response
+    error_response = {"Error": {"Code": "ValidationException", "Message": "Some error message"}}
+    bedrock_client.converse_stream.side_effect = ClientError(error_response, "ConversationStream")
+
+    # Call the stream method which should catch and add notes to the exception
+    with pytest.raises(ClientError) as err:
+        list(model.stream({"modelId": "test-model"}))
+
+    assert err.value.__notes__ == ["└ Bedrock region: us-west-2", "└ Model id: m1"]
+
+
+def test_no_add_note_when_not_available(bedrock_client, model):
+    """Verify that on any python version (even < 3.11 where add_note is not available, we get the right exception)."""
+    # Mock the client error response
+    error_response = {"Error": {"Code": "ValidationException", "Message": "Some error message"}}
+    bedrock_client.converse_stream.side_effect = ClientError(error_response, "ConversationStream")
+
+    # Call the stream method which should catch and add notes to the exception
+    with pytest.raises(ClientError):
+        list(model.stream({"modelId": "test-model"}))
+
+
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
+def test_add_note_on_access_denied_exception(bedrock_client, model):
+    """Test that add_note adds documentation link for AccessDeniedException."""
+    # Mock the client error response for access denied
+    error_response = {
+        "Error": {
+            "Code": "AccessDeniedException",
+            "Message": "An error occurred (AccessDeniedException) when calling the ConverseStream operation: "
+            "You don't have access to the model with the specified model ID.",
+        }
+    }
+    bedrock_client.converse_stream.side_effect = ClientError(error_response, "ConversationStream")
+
+    # Call the stream method which should catch and add notes to the exception
+    with pytest.raises(ClientError) as err:
+        list(model.stream({"modelId": "test-model"}))
+
+    assert err.value.__notes__ == [
+        "└ Bedrock region: us-west-2",
+        "└ Model id: m1",
+        "└ For more information see "
+        "https://strandsagents.com/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue",
+    ]
+
+
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
+def test_add_note_on_validation_exception_throughput(bedrock_client, model):
+    """Test that add_note adds documentation link for ValidationException about on-demand throughput."""
+    # Mock the client error response for validation exception
+    error_response = {
+        "Error": {
+            "Code": "ValidationException",
+            "Message": "An error occurred (ValidationException) when calling the ConverseStream operation: "
+            "Invocation of model ID anthropic.claude-3-7-sonnet-20250219-v1:0 with on-demand throughput "
+            "isn’t supported. Retry your request with the ID or ARN of an inference profile that contains "
+            "this model.",
+        }
+    }
+    bedrock_client.converse_stream.side_effect = ClientError(error_response, "ConversationStream")
+
+    # Call the stream method which should catch and add notes to the exception
+    with pytest.raises(ClientError) as err:
+        list(model.stream({"modelId": "test-model"}))
+
+    assert err.value.__notes__ == [
+        "└ Bedrock region: us-west-2",
+        "└ Model id: m1",
+        "└ For more information see "
+        "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
+    ]

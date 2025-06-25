@@ -1,6 +1,7 @@
 import unittest.mock
 
 import anthropic
+import pydantic
 import pytest
 
 import strands
@@ -39,6 +40,15 @@ def messages():
 @pytest.fixture
 def system_prompt():
     return "s1"
+
+
+@pytest.fixture
+def test_output_model_cls():
+    class TestOutputModel(pydantic.BaseModel):
+        name: str
+        age: int
+
+    return TestOutputModel
 
 
 def test__init__model_configs(anthropic_client, model_id, max_tokens):
@@ -688,3 +698,58 @@ def test_stream_bad_request_error(anthropic_client, model):
 
     with pytest.raises(anthropic.BadRequestError, match="bad"):
         next(model.stream({}))
+
+
+def test_structured_output(anthropic_client, model, test_output_model_cls):
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+
+    events = [
+        unittest.mock.Mock(type="message_start", model_dump=unittest.mock.Mock(return_value={"type": "message_start"})),
+        unittest.mock.Mock(
+            type="content_block_start",
+            model_dump=unittest.mock.Mock(
+                return_value={
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {"type": "tool_use", "id": "123", "name": "TestOutputModel"},
+                }
+            ),
+        ),
+        unittest.mock.Mock(
+            type="content_block_delta",
+            model_dump=unittest.mock.Mock(
+                return_value={
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "input_json_delta", "partial_json": '{"name": "John", "age": 30}'},
+                },
+            ),
+        ),
+        unittest.mock.Mock(
+            type="content_block_stop",
+            model_dump=unittest.mock.Mock(return_value={"type": "content_block_stop", "index": 0}),
+        ),
+        unittest.mock.Mock(
+            type="message_stop",
+            model_dump=unittest.mock.Mock(
+                return_value={"type": "message_stop", "message": {"stop_reason": "tool_use"}}
+            ),
+        ),
+        unittest.mock.Mock(
+            message=unittest.mock.Mock(
+                usage=unittest.mock.Mock(
+                    model_dump=unittest.mock.Mock(return_value={"input_tokens": 0, "output_tokens": 0})
+                ),
+            ),
+        ),
+    ]
+
+    mock_stream = unittest.mock.MagicMock()
+    mock_stream.__iter__.return_value = iter(events)
+    anthropic_client.messages.stream.return_value.__enter__.return_value = mock_stream
+
+    stream = model.structured_output(test_output_model_cls, messages)
+
+    tru_result = list(stream)[-1]
+    exp_result = {"output": test_output_model_cls(name="John", age=30)}
+    assert tru_result == exp_result

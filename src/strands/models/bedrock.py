@@ -6,7 +6,7 @@
 import json
 import logging
 import os
-from typing import Any, Callable, Iterable, List, Literal, Optional, Type, TypeVar, cast
+from typing import Any, Generator, Iterable, List, Literal, Optional, Type, TypeVar, Union, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -15,7 +15,6 @@ from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
 from ..event_loop.streaming import process_stream
-from ..handlers.callback_handler import PrintingCallbackHandler
 from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
@@ -380,6 +379,32 @@ class BedrockModel(Model):
                 logger.warning("bedrock threw context window overflow error")
                 raise ContextWindowOverflowException(e) from e
 
+            region = self.client.meta.region_name
+
+            # add_note added in Python 3.11
+            if hasattr(e, "add_note"):
+                # Aid in debugging by adding more information
+                e.add_note(f"└ Bedrock region: {region}")
+                e.add_note(f"└ Model id: {self.config.get('model_id')}")
+
+                if (
+                    e.response["Error"]["Code"] == "AccessDeniedException"
+                    and "You don't have access to the model" in error_message
+                ):
+                    e.add_note(
+                        "└ For more information see "
+                        "https://strandsagents.com/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue"
+                    )
+
+                if (
+                    e.response["Error"]["Code"] == "ValidationException"
+                    and "with on-demand throughput isn’t supported" in error_message
+                ):
+                    e.add_note(
+                        "└ For more information see "
+                        "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported"
+                    )
+
             # Otherwise raise the error
             raise e
 
@@ -495,24 +520,24 @@ class BedrockModel(Model):
 
     @override
     def structured_output(
-        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
-    ) -> T:
+        self, output_model: Type[T], prompt: Messages
+    ) -> Generator[dict[str, Union[T, Any]], None, None]:
         """Get structured output from the model.
 
         Args:
             output_model(Type[BaseModel]): The output model to use for the agent.
             prompt(Messages): The prompt messages to use for the agent.
-            callback_handler(Optional[Callable]): Optional callback handler for processing events. Defaults to None.
+
+        Yields:
+            Model events with the last being the structured output.
         """
-        callback_handler = callback_handler or PrintingCallbackHandler()
         tool_spec = convert_pydantic_to_tool_spec(output_model)
 
         response = self.converse(messages=prompt, tool_specs=[tool_spec])
         for event in process_stream(response, prompt):
-            if "callback" in event:
-                callback_handler(**event["callback"])
-        else:
-            stop_reason, messages, _, _ = event["stop"]
+            yield event
+
+        stop_reason, messages, _, _ = event["stop"]
 
         if stop_reason != "tool_use":
             raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
@@ -530,4 +555,4 @@ class BedrockModel(Model):
         if output_response is None:
             raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
 
-        return output_model(**output_response)
+        yield {"output": output_model(**output_response)}
