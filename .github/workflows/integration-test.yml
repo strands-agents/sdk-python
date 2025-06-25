@@ -3,12 +3,12 @@ name: Secure Integration test
 on:
   pull_request_target:
     branches: main
-  
+
 jobs:
   authorization-check:
     permissions: read-all
     runs-on: ubuntu-latest
-    outputs: 
+    outputs:
       approval-env: ${{ steps.collab-check.outputs.result }}
     steps:
       - name: Collaborator Check
@@ -16,7 +16,7 @@ jobs:
         id: collab-check
         with:
           result-encoding: string
-          script: | 
+          script: |
             try {
               const permissionResponse = await github.rest.repos.getCollaboratorPermissionLevel({
                 owner: context.repo.owner,
@@ -31,7 +31,7 @@ jobs:
               } else {
                 console.log(`Verifed ${context.payload.pull_request.user.login} has write access. Auto Approving PR Checks.`)
                 return "auto-approve"
-              }             
+              }
             } catch (error) {
               console.log(`${context.payload.pull_request.user.login} does not have write access. Requiring Manual Approval to run PR Checks.`)
               return "manual-approval"
@@ -45,9 +45,9 @@ jobs:
       pull-requests: read
       contents: read
     steps:
-      - name: Configure Credentials 
+      - name: Configure Credentials
         uses: aws-actions/configure-aws-credentials@v4
-        with: 
+        with:
          role-to-assume: ${{ secrets.STRANDS_INTEG_TEST_ROLE }}
          aws-region: us-east-1
          mask-aws-account-id: true
@@ -70,5 +70,3 @@ jobs:
         id: tests
         run: |
           hatch test tests-integ
-      
-    

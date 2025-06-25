@@ -418,21 +418,11 @@ def tool(tool_function):
 
 
 def test__init__invalid_name():
-    def identity(a):
-        return a
-
-    identity.TOOL_SPEC = {"name": 0}
-
     with pytest.raises(ValueError, match="Tool name must be a string"):
-        FunctionTool(identity)
 
-
-def test__init__missing_spec():
-    def identity(a):
-        return a
-
-    with pytest.raises(ValueError, match="Function identity is not decorated with @tool"):
-        FunctionTool(identity)
+        @strands.tool(name=0)
+        def identity(a):
+            return a
 
 
 def test_tool_name(tool):
@@ -520,6 +510,8 @@ def test_invoke_with_agent():
         return a, agent
 
     tool = FunctionTool(identity, tool_name="identity")
+    # FunctionTool is a pass through for AgentTool instances until we remove it in a future release (#258)
+    assert tool == identity
 
     exp_output = {"toolUseId": "unknown", "status": "success", "content": [{"text": "(2, {'state': 1})"}]}
 
