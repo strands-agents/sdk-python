@@ -19,20 +19,10 @@ def moto_autouse(moto_env, moto_mock_aws):
 
 
 @pytest.fixture
-def mock_tracer_provider():
-    with mock.patch("strands.telemetry.tracer.SDKTracerProvider") as mock_provider:
-        yield mock_provider
-
-
-@pytest.fixture
-def mock_is_initialized():
-    with mock.patch("strands.telemetry.tracer.Tracer._is_initialized") as mock_is_initialized:
-        yield mock_is_initialized
-
-
-@pytest.fixture
 def mock_get_tracer_provider():
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer_provider") as mock_get_tracer_provider:
+        mock_tracer = mock.MagicMock()
+        mock_get_tracer_provider.get_tracer.return_value = mock_tracer
         yield mock_get_tracer_provider
 
 
@@ -51,170 +41,19 @@ def mock_span():
 
 
 @pytest.fixture
-def mock_set_tracer_provider():
-    with mock.patch("strands.telemetry.tracer.trace_api.set_tracer_provider") as mock_set:
-        yield mock_set
-
-
-@pytest.fixture
-def mock_otlp_exporter():
-    with (
-        mock.patch("strands.telemetry.tracer.HAS_OTEL_EXPORTER_MODULE", True),
-        mock.patch("opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter") as mock_exporter,
-    ):
-        yield mock_exporter
-
-
-@pytest.fixture
-def mock_console_exporter():
-    with mock.patch("strands.telemetry.tracer.ConsoleSpanExporter") as mock_exporter:
-        yield mock_exporter
-
-
-@pytest.fixture
-def mock_resource():
-    with mock.patch("strands.telemetry.tracer.get_otel_resource") as mock_resource:
-        mock_resource_instance = mock.MagicMock()
-        mock_resource.return_value = mock_resource_instance
-        yield mock_resource
-
-
-@pytest.fixture
 def clean_env():
     """Fixture to provide a clean environment for each test."""
     with mock.patch.dict(os.environ, {}, clear=True):
         yield
 
 
-@pytest.fixture
-def env_with_otlp():
-    """Fixture with OTLP environment variables."""
-    with mock.patch.dict(
-        os.environ,
-        {
-            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://env-endpoint",
-        },
-    ):
-        yield
-
-
-@pytest.fixture
-def env_with_console():
-    """Fixture with console export environment variables."""
-    with mock.patch.dict(
-        os.environ,
-        {
-            "STRANDS_OTEL_ENABLE_CONSOLE_EXPORT": "true",
-        },
-    ):
-        yield
-
-
-@pytest.fixture
-def env_with_both():
-    """Fixture with both OTLP and console export environment variables."""
-    with mock.patch.dict(
-        os.environ,
-        {
-            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://env-endpoint",
-            "STRANDS_OTEL_ENABLE_CONSOLE_EXPORT": "true",
-        },
-    ):
-        yield
-
-
-@pytest.fixture
-def mock_initialize():
-    with mock.patch("strands.telemetry.tracer.Tracer._initialize_tracer") as mock_initialize:
-        yield mock_initialize
-
-
-def test_init_default(mock_is_initialized, mock_get_tracer_provider):
+def test_init_default():
     """Test initializing the Tracer with default parameters."""
-    mock_is_initialized.return_value = False
-    mock_get_tracer_provider.return_value = None
-
     tracer = Tracer()
 
     assert tracer.service_name == "strands-agents"
-    assert tracer.otlp_endpoint is None
-    assert tracer.otlp_headers == {}
-    assert tracer.enable_console_export is False
-    assert tracer.tracer_provider is None
-    assert tracer.tracer is None
-
-
-def test_init_with_env_endpoint():
-    """Test initializing the Tracer with endpoint from environment variable."""
-    with mock.patch.dict(os.environ, {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://test-endpoint"}):
-        tracer = Tracer()
-
-        assert tracer.otlp_endpoint == "http://test-endpoint"
-
-
-def test_init_with_env_console_export():
-    """Test initializing the Tracer with console export from environment variable."""
-    with mock.patch.dict(os.environ, {"STRANDS_OTEL_ENABLE_CONSOLE_EXPORT": "true"}):
-        tracer = Tracer()
-
-        assert tracer.enable_console_export is True
-
-
-def test_init_with_env_headers():
-    """Test initializing the Tracer with headers from environment variable."""
-    with mock.patch.dict(os.environ, {"OTEL_EXPORTER_OTLP_HEADERS": "key1=value1,key2=value2"}):
-        tracer = Tracer()
-
-        assert tracer.otlp_headers == {"key1": "value1", "key2": "value2"}
-
-
-def test_initialize_tracer_with_console(
-    mock_is_initialized,
-    mock_tracer_provider,
-    mock_set_tracer_provider,
-    mock_console_exporter,
-    mock_resource,
-):
-    """Test initializing the tracer with console exporter."""
-    mock_is_initialized.return_value = False
-
-    # Initialize Tracer
-    Tracer(enable_console_export=True)
-
-    # Verify the tracer provider was created with correct resource
-    mock_tracer_provider.assert_called_once_with(resource=mock_resource.return_value)
-
-    # Verify console exporter was added
-    mock_console_exporter.assert_called_once()
-    mock_tracer_provider.return_value.add_span_processor.assert_called_once()
-
-    # Verify set_tracer_provider was called
-    mock_set_tracer_provider.assert_called_once_with(mock_tracer_provider.return_value)
-
-
-def test_initialize_tracer_with_otlp(
-    mock_is_initialized, mock_tracer_provider, mock_set_tracer_provider, mock_otlp_exporter, mock_resource
-):
-    """Test initializing the tracer with OTLP exporter."""
-    mock_is_initialized.return_value = False
-
-    # Initialize Tracer
-    with (
-        mock.patch("strands.telemetry.tracer.HAS_OTEL_EXPORTER_MODULE", True),
-        mock.patch("strands.telemetry.tracer.OTLPSpanExporter", mock_otlp_exporter),
-    ):
-        Tracer(otlp_endpoint="http://test-endpoint")
-
-    # Verify the tracer provider was created with correct resource
-    mock_tracer_provider.assert_called_once_with(resource=mock_resource.return_value)
-
-    # Verify OTLP exporter was added with correct endpoint
-    mock_otlp_exporter.assert_called_once()
-    assert "endpoint" in mock_otlp_exporter.call_args.kwargs
-    assert "headers" in mock_otlp_exporter.call_args.kwargs
-
-    # Verify set_tracer_provider was called
-    mock_set_tracer_provider.assert_called_once_with(mock_tracer_provider.return_value)
+    assert tracer.tracer_provider is not None
+    assert tracer.tracer is not None
 
 
 def test_start_span_no_tracer():
@@ -222,13 +61,13 @@ def test_start_span_no_tracer():
     tracer = Tracer()
     span = tracer._start_span("test_span")
 
-    assert span is None
+    assert span is not None
 
 
 def test_start_span(mock_tracer):
     """Test starting a span with attributes."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
-        tracer = Tracer(enable_console_export=True)
+        tracer = Tracer()
         tracer.tracer = mock_tracer
 
         mock_span = mock.MagicMock()
@@ -299,7 +138,7 @@ def test_end_span_with_error_message(mock_span):
 def test_start_model_invoke_span(mock_tracer):
     """Test starting a model invoke span."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
-        tracer = Tracer(enable_console_export=True)
+        tracer = Tracer()
         tracer.tracer = mock_tracer
 
         mock_span = mock.MagicMock()
@@ -337,7 +176,7 @@ def test_end_model_invoke_span(mock_span):
 def test_start_tool_call_span(mock_tracer):
     """Test starting a tool call span."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
-        tracer = Tracer(enable_console_export=True)
+        tracer = Tracer()
         tracer.tracer = mock_tracer
 
         mock_span = mock.MagicMock()
@@ -375,7 +214,7 @@ def test_end_tool_call_span(mock_span):
 def test_start_event_loop_cycle_span(mock_tracer):
     """Test starting an event loop cycle span."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
-        tracer = Tracer(enable_console_export=True)
+        tracer = Tracer()
         tracer.tracer = mock_tracer
 
         mock_span = mock.MagicMock()
@@ -410,7 +249,7 @@ def test_end_event_loop_cycle_span(mock_span):
 def test_start_agent_span(mock_tracer):
     """Test starting an agent span."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
-        tracer = Tracer(enable_console_export=True)
+        tracer = Tracer()
         tracer.tracer = mock_tracer
 
         mock_span = mock.MagicMock()
@@ -476,10 +315,9 @@ def test_get_tracer_new_endpoint():
     # Reset the singleton first
     with mock.patch("strands.telemetry.tracer._tracer_instance", None):
         tracer1 = get_tracer()
-        tracer2 = get_tracer(otlp_endpoint="http://new-endpoint")
+        tracer2 = get_tracer()
 
-        assert tracer1 is not tracer2
-        assert tracer2.otlp_endpoint == "http://new-endpoint"
+        assert tracer1 is tracer2
 
 
 def test_get_tracer_parameters():
@@ -488,75 +326,16 @@ def test_get_tracer_parameters():
     with mock.patch("strands.telemetry.tracer._tracer_instance", None):
         tracer = get_tracer(
             service_name="test-service",
-            otlp_endpoint="http://test-endpoint",
-            otlp_headers={"key": "value"},
-            enable_console_export=True,
         )
 
         assert tracer.service_name == "test-service"
-        assert tracer.otlp_endpoint == "http://test-endpoint"
-        assert tracer.otlp_headers == {"key": "value"}
-        assert tracer.enable_console_export is True
 
 
-def test_initialize_tracer_with_invalid_otlp_endpoint(
-    mock_is_initialized, mock_tracer_provider, mock_set_tracer_provider, mock_otlp_exporter, mock_resource
-):
-    """Test initializing the tracer with an invalid OTLP endpoint."""
-    mock_is_initialized.return_value = False
-
-    mock_otlp_exporter.side_effect = Exception("Connection error")
-
-    # This should not raise an exception, but should log an error
-
-    # Initialize Tracer
-    with (
-        mock.patch("strands.telemetry.tracer.HAS_OTEL_EXPORTER_MODULE", True),
-        mock.patch("strands.telemetry.tracer.OTLPSpanExporter", mock_otlp_exporter),
-    ):
-        Tracer(otlp_endpoint="http://invalid-endpoint")
-
-    # Verify the tracer provider was created with correct resource
-    mock_tracer_provider.assert_called_once_with(resource=mock_resource.return_value)
-
-    # Verify OTLP exporter was attempted
-    mock_otlp_exporter.assert_called_once()
-
-    # Verify set_tracer_provider was still called
-    mock_set_tracer_provider.assert_called_once_with(mock_tracer_provider.return_value)
-
-
-def test_initialize_tracer_with_missing_module(
-    mock_is_initialized, mock_tracer_provider, mock_set_tracer_provider, mock_resource
-):
-    """Test initializing the tracer when the OTLP exporter module is missing."""
-    mock_is_initialized.return_value = False
-
-    # Initialize Tracer with OTLP endpoint but missing module
-    with (
-        mock.patch("strands.telemetry.tracer.HAS_OTEL_EXPORTER_MODULE", False),
-        pytest.raises(ModuleNotFoundError) as excinfo,
-    ):
-        Tracer(otlp_endpoint="http://test-endpoint")
-
-    # Verify the error message
-    assert "opentelemetry-exporter-otlp-proto-http not detected" in str(excinfo.value)
-    assert "otel http exporting is currently DISABLED" in str(excinfo.value)
-
-    # Verify the tracer provider was created with correct resource
-    mock_tracer_provider.assert_called_once_with(resource=mock_resource.return_value)
-
-    # Verify set_tracer_provider was not called since an exception was raised
-    mock_set_tracer_provider.assert_not_called()
-
-
-def test_initialize_tracer_with_custom_tracer_provider(mock_is_initialized, mock_get_tracer_provider, mock_resource):
+def test_initialize_tracer_with_custom_tracer_provider(mock_get_tracer_provider):
     """Test initializing the tracer with NoOpTracerProvider."""
-    mock_is_initialized.return_value = True
-    tracer = Tracer(otlp_endpoint="http://invalid-endpoint")
+    tracer = Tracer()
 
     mock_get_tracer_provider.assert_called()
-    mock_resource.assert_not_called()
 
     assert tracer.tracer_provider is not None
     assert tracer.tracer is not None
@@ -579,11 +358,12 @@ def test_end_span_with_exception_handling(mock_span):
         pytest.fail("_end_span should not raise exceptions")
 
 
-def test_force_flush_with_error(mock_span, mock_tracer_provider):
+def test_force_flush_with_error(mock_span, mock_get_tracer_provider):
     """Test force flush with error handling."""
     # Setup the tracer with a provider that raises an exception on force_flush
     tracer = Tracer()
-    tracer.tracer_provider = mock_tracer_provider
+
+    mock_tracer_provider = mock_get_tracer_provider.return_value
     mock_tracer_provider.force_flush.side_effect = Exception("Force flush error")
 
     # Should not raise an exception
@@ -607,7 +387,7 @@ def test_end_tool_call_span_with_none(mock_span):
 def test_start_model_invoke_span_with_parent(mock_tracer):
     """Test starting a model invoke span with a parent span."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
-        tracer = Tracer(enable_console_export=True)
+        tracer = Tracer()
         tracer.tracer = mock_tracer
 
         mock_span = mock.MagicMock()
@@ -801,50 +581,3 @@ def test_serialize_vs_json_dumps():
     custom_result = serialize({"text": japanese_text})
     assert japanese_text in custom_result
     assert "\\u" not in custom_result
-
-
-def test_init_with_no_env_or_param(clean_env):
-    """Test initializing with neither environment variable nor constructor parameter."""
-    tracer = Tracer()
-    assert tracer.otlp_endpoint is None
-    assert tracer.enable_console_export is False
-
-    tracer = Tracer(otlp_endpoint="http://param-endpoint")
-    assert tracer.otlp_endpoint == "http://param-endpoint"
-
-    tracer = Tracer(enable_console_export=True)
-    assert tracer.enable_console_export is True
-
-
-def test_constructor_params_with_otlp_env(env_with_otlp):
-    """Test constructor parameters precedence over OTLP environment variable."""
-    # Constructor parameter should take precedence
-    tracer = Tracer(otlp_endpoint="http://constructor-endpoint")
-    assert tracer.otlp_endpoint == "http://constructor-endpoint"
-
-    # Without constructor parameter, should use env var
-    tracer = Tracer()
-    assert tracer.otlp_endpoint == "http://env-endpoint"
-
-
-def test_constructor_params_with_console_env(env_with_console):
-    """Test constructor parameters precedence over console environment variable."""
-    # Constructor parameter should take precedence
-    tracer = Tracer(enable_console_export=False)
-    assert tracer.enable_console_export is False
-
-    # Without explicit constructor parameter, should use env var
-    tracer = Tracer()
-    assert tracer.enable_console_export is True
-
-
-def test_fallback_to_env_vars(env_with_both):
-    """Test fallback to environment variables when no constructor parameters."""
-    tracer = Tracer()
-    assert tracer.otlp_endpoint == "http://env-endpoint"
-    assert tracer.enable_console_export is True
-
-    # Constructor parameters should still take precedence
-    tracer = Tracer(otlp_endpoint="http://constructor-endpoint", enable_console_export=False)
-    assert tracer.otlp_endpoint == "http://constructor-endpoint"
-    assert tracer.enable_console_export is False

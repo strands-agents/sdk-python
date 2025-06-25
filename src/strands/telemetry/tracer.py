@@ -6,40 +6,19 @@ enabling trace data to be sent to OTLP endpoints.
 
 import json
 import logging
-import os
 from datetime import date, datetime, timezone
 from typing import Any, Dict, Mapping, Optional
 
 import opentelemetry.trace as trace_api
-from opentelemetry import propagate
-from opentelemetry.baggage.propagation import W3CBaggagePropagator
-from opentelemetry.propagators.composite import CompositePropagator
-from opentelemetry.sdk.trace import TracerProvider as SDKTracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
 from opentelemetry.trace import Span, StatusCode
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from ..agent.agent_result import AgentResult
-from ..telemetry import get_otel_resource
 from ..types.content import Message, Messages
 from ..types.streaming import Usage
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
 
 logger = logging.getLogger(__name__)
-
-HAS_OTEL_EXPORTER_MODULE = False
-OTEL_EXPORTER_MODULE_ERROR = (
-    "opentelemetry-exporter-otlp-proto-http not detected;"
-    "please install strands-agents with the optional 'otel' target"
-    "otel http exporting is currently DISABLED"
-)
-try:
-    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-
-    HAS_OTEL_EXPORTER_MODULE = True
-except ImportError:
-    pass
 
 
 class JSONEncoder(json.JSONEncoder):
@@ -106,119 +85,18 @@ class Tracer:
     def __init__(
         self,
         service_name: str = "strands-agents",
-        otlp_endpoint: Optional[str] = None,
-        otlp_headers: Optional[Dict[str, str]] = None,
-        enable_console_export: Optional[bool] = None,
     ):
         """Initialize the tracer.
 
         Args:
             service_name: Name of the service for OpenTelemetry.
-            otlp_endpoint: OTLP endpoint URL for sending traces.
-            otlp_headers: Headers to include with OTLP requests.
-            enable_console_export: Whether to also export traces to console.
         """
-        # Check environment variables first
-        env_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
-        env_console_export_str = os.environ.get("STRANDS_OTEL_ENABLE_CONSOLE_EXPORT")
-
-        # Constructor parameters take precedence over environment variables
-        self.otlp_endpoint = otlp_endpoint or env_endpoint
-
-        if enable_console_export is not None:
-            self.enable_console_export = enable_console_export
-        elif env_console_export_str:
-            self.enable_console_export = env_console_export_str.lower() in ("true", "1", "yes")
-        else:
-            self.enable_console_export = False
-
-        # Parse headers from environment if available
-        env_headers = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS")
-        if env_headers:
-            try:
-                headers_dict = {}
-                # Parse comma-separated key-value pairs (format: "key1=value1,key2=value2")
-                for pair in env_headers.split(","):
-                    if "=" in pair:
-                        key, value = pair.split("=", 1)
-                        headers_dict[key.strip()] = value.strip()
-                otlp_headers = headers_dict
-            except Exception as e:
-                logger.warning("error=<%s> | failed to parse OTEL_EXPORTER_OTLP_HEADERS", e)
-
         self.service_name = service_name
-        self.otlp_headers = otlp_headers or {}
         self.tracer_provider: Optional[trace_api.TracerProvider] = None
         self.tracer: Optional[trace_api.Tracer] = None
-        propagate.set_global_textmap(
-            CompositePropagator(
-                [
-                    W3CBaggagePropagator(),
-                    TraceContextTextMapPropagator(),
-                ]
-            )
-        )
-        if self.otlp_endpoint or self.enable_console_export:
-            # Create our own tracer provider
-            self._initialize_tracer()
 
-    def _initialize_tracer(self) -> None:
-        """Initialize the OpenTelemetry tracer."""
-        logger.info("initializing tracer")
-
-        if self._is_initialized():
-            self.tracer_provider = trace_api.get_tracer_provider()
-            self.tracer = self.tracer_provider.get_tracer(self.service_name)
-            return
-
-        resource = get_otel_resource()
-
-        # Create tracer provider
-        self.tracer_provider = SDKTracerProvider(resource=resource)
-
-        # Add console exporter if enabled
-        if self.enable_console_export and self.tracer_provider:
-            logger.info("enabling console export")
-            console_processor = SimpleSpanProcessor(ConsoleSpanExporter())
-            self.tracer_provider.add_span_processor(console_processor)
-
-        # Add OTLP exporter if endpoint is provided
-        if HAS_OTEL_EXPORTER_MODULE and self.otlp_endpoint and self.tracer_provider:
-            try:
-                # Ensure endpoint has the right format
-                endpoint = self.otlp_endpoint
-                if not endpoint.endswith("/v1/traces") and not endpoint.endswith("/traces"):
-                    if not endpoint.endswith("/"):
-                        endpoint += "/"
-                    endpoint += "v1/traces"
-
-                # Set default content type header if not provided
-                headers = self.otlp_headers.copy()
-                if "Content-Type" not in headers:
-                    headers["Content-Type"] = "application/x-protobuf"
-
-                # Create OTLP exporter and processor
-                otlp_exporter = OTLPSpanExporter(
-                    endpoint=endpoint,
-                    headers=headers,
-                )
-
-                batch_processor = BatchSpanProcessor(otlp_exporter)
-                self.tracer_provider.add_span_processor(batch_processor)
-                logger.info("endpoint=<%s> | OTLP exporter configured with endpoint", endpoint)
-
-            except Exception as e:
-                logger.exception("error=<%s> | Failed to configure OTLP exporter", e)
-        elif self.otlp_endpoint and self.tracer_provider:
-            raise ModuleNotFoundError(OTEL_EXPORTER_MODULE_ERROR)
-
-        # Set as global tracer provider
-        trace_api.set_tracer_provider(self.tracer_provider)
-        self.tracer = trace_api.get_tracer(self.service_name)
-
-    def _is_initialized(self) -> bool:
-        tracer_provider = trace_api.get_tracer_provider()
-        return isinstance(tracer_provider, SDKTracerProvider)
+        self.tracer_provider = trace_api.get_tracer_provider()
+        self.tracer = self.tracer_provider.get_tracer(self.service_name)
 
     def _start_span(
         self,
@@ -571,31 +449,20 @@ _tracer_instance = None
 
 def get_tracer(
     service_name: str = "strands-agents",
-    otlp_endpoint: Optional[str] = None,
-    otlp_headers: Optional[Dict[str, str]] = None,
-    enable_console_export: Optional[bool] = None,
 ) -> Tracer:
     """Get or create the global tracer.
 
     Args:
         service_name: Name of the service for OpenTelemetry.
-        otlp_endpoint: OTLP endpoint URL for sending traces.
-        otlp_headers: Headers to include with OTLP requests.
-        enable_console_export: Whether to also export traces to console.
 
     Returns:
         The global tracer instance.
     """
     global _tracer_instance
 
-    if (
-        _tracer_instance is None or (otlp_endpoint and _tracer_instance.otlp_endpoint != otlp_endpoint)  # type: ignore[unreachable]
-    ):
+    if not _tracer_instance:
         _tracer_instance = Tracer(
             service_name=service_name,
-            otlp_endpoint=otlp_endpoint,
-            otlp_headers=otlp_headers,
-            enable_console_export=enable_console_export,
         )
 
     return _tracer_instance
