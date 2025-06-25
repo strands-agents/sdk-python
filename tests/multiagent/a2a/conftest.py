@@ -22,6 +22,11 @@ def mock_strands_agent():
     mock_result.message = {"content": [{"text": "Test response"}]}
     agent.return_value = mock_result
 
+    # Setup mock tool registry
+    mock_tool_registry = MagicMock()
+    mock_tool_registry.get_all_tools_config.return_value = {}
+    agent.tool_registry = mock_tool_registry
+
     return agent
 
 

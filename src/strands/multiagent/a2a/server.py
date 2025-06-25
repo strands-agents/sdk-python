@@ -21,7 +21,7 @@ from .executor import StrandsA2AExecutor
 logger = logging.getLogger(__name__)
 
 
-class A2AAgent:
+class A2AServer:
     """A2A-compatible wrapper for Strands Agent."""
 
     def __init__(
@@ -32,6 +32,7 @@ class A2AAgent:
         host: str = "0.0.0.0",
         port: int = 9000,
         version: str = "0.0.1",
+        skills: list[AgentSkill] | None,
     ):
         """Initialize an A2A-compatible agent from a Strands agent.
 
@@ -42,6 +43,7 @@ class A2AAgent:
             host: The hostname or IP address to bind the A2A server to. Defaults to "0.0.0.0".
             port: The port to bind the A2A server to. Defaults to 9000.
             version: The version of the agent. Defaults to "0.0.1".
+            skills: The list of capabilities or functions the agent can perform.
         """
         self.host = host
         self.port = port
@@ -56,6 +58,7 @@ class A2AAgent:
             agent_executor=StrandsA2AExecutor(self.strands_agent),
             task_store=InMemoryTaskStore(),
         )
+        self._agent_skills = skills or self._get_skills_from_tools()
         logger.info("Strands' integration with A2A is experimental. Be aware of frequent breaking changes.")
 
     @property
@@ -88,9 +91,8 @@ class A2AAgent:
             capabilities=self.capabilities,
         )
 
-    @property
-    def agent_skills(self) -> list[AgentSkill]:
-        """Get the list of skills this agent provides.
+    def _get_skills_from_tools(self) -> list[AgentSkill]:
+        """Get the list of skills from Strands agent tools.
 
         Skills represent specific capabilities that the agent can perform.
         Strands agent tools are adapted to A2A skills.
@@ -98,8 +100,24 @@ class A2AAgent:
         Returns:
             list[AgentSkill]: A list of skills this agent provides.
         """
-        # TODO: translate Strands tools (native & MCP) to skills
-        return []
+        return [
+            AgentSkill(name=config["name"], id=config["name"], description=config["description"], tags=[])
+            for config in self.strands_agent.tool_registry.get_all_tools_config().values()
+        ]
+
+    @property
+    def agent_skills(self) -> list[AgentSkill]:
+        """Get the list of skills this agent provides."""
+        return self._agent_skills
+
+    @agent_skills.setter
+    def agent_skills(self, skills: list[AgentSkill]) -> None:
+        """Set the list of skills this agent provides.
+
+        Args:
+            skills: A list of AgentSkill objects to set for this agent.
+        """
+        self._agent_skills = skills
 
     def to_starlette_app(self) -> Starlette:
         """Create a Starlette application for serving this agent via HTTP.
