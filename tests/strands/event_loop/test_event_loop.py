@@ -7,6 +7,7 @@ import pytest
 import strands
 import strands.telemetry
 from strands.handlers.tool_handler import AgentToolHandler
+from strands.telemetry.metrics import EventLoopMetrics
 from strands.tools.registry import ToolRegistry
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException, ModelThrottledException
 
@@ -20,11 +21,6 @@ def mock_time():
 @pytest.fixture
 def model():
     return unittest.mock.Mock()
-
-
-@pytest.fixture
-def model_id():
-    return "m1"
 
 
 @pytest.fixture
@@ -112,7 +108,6 @@ def mock_tracer():
 
 def test_event_loop_cycle_text_response(
     model,
-    model_id,
     system_prompt,
     messages,
     tool_config,
@@ -127,13 +122,15 @@ def test_event_loop_cycle_text_response(
 
     stream = strands.event_loop.event_loop.event_loop_cycle(
         model=model,
-        model_id=model_id,
         system_prompt=system_prompt,
         messages=messages,
         tool_config=tool_config,
         callback_handler=callback_handler,
         tool_handler=tool_handler,
         tool_execution_handler=tool_execution_handler,
+        event_loop_metrics=EventLoopMetrics(),
+        event_loop_parent_span=None,
+        kwargs={},
     )
     event = list(stream)[-1]
     tru_stop_reason, tru_message, _, tru_request_state = event["stop"]
@@ -148,7 +145,6 @@ def test_event_loop_cycle_text_response(
 def test_event_loop_cycle_text_response_throttling(
     mock_time,
     model,
-    model_id,
     system_prompt,
     messages,
     tool_config,
@@ -166,13 +162,15 @@ def test_event_loop_cycle_text_response_throttling(
 
     stream = strands.event_loop.event_loop.event_loop_cycle(
         model=model,
-        model_id=model_id,
         system_prompt=system_prompt,
         messages=messages,
         tool_config=tool_config,
         callback_handler=callback_handler,
         tool_handler=tool_handler,
         tool_execution_handler=tool_execution_handler,
+        event_loop_metrics=EventLoopMetrics(),
+        event_loop_parent_span=None,
+        kwargs={},
     )
     event = list(stream)[-1]
     tru_stop_reason, tru_message, _, tru_request_state = event["stop"]
@@ -189,7 +187,6 @@ def test_event_loop_cycle_text_response_throttling(
 def test_event_loop_cycle_exponential_backoff(
     mock_time,
     model,
-    model_id,
     system_prompt,
     messages,
     tool_config,
@@ -211,13 +208,15 @@ def test_event_loop_cycle_exponential_backoff(
 
     stream = strands.event_loop.event_loop.event_loop_cycle(
         model=model,
-        model_id=model_id,
         system_prompt=system_prompt,
         messages=messages,
         tool_config=tool_config,
         callback_handler=callback_handler,
         tool_handler=tool_handler,
         tool_execution_handler=tool_execution_handler,
+        event_loop_metrics=EventLoopMetrics(),
+        event_loop_parent_span=None,
+        kwargs={},
     )
     event = list(stream)[-1]
     tru_stop_reason, tru_message, _, tru_request_state = event["stop"]
@@ -236,7 +235,6 @@ def test_event_loop_cycle_exponential_backoff(
 def test_event_loop_cycle_text_response_throttling_exceeded(
     mock_time,
     model,
-    model_id,
     system_prompt,
     messages,
     tool_config,
@@ -256,13 +254,15 @@ def test_event_loop_cycle_text_response_throttling_exceeded(
     with pytest.raises(ModelThrottledException):
         stream = strands.event_loop.event_loop.event_loop_cycle(
             model=model,
-            model_id=model_id,
             system_prompt=system_prompt,
             messages=messages,
             tool_config=tool_config,
             callback_handler=callback_handler,
             tool_handler=tool_handler,
             tool_execution_handler=tool_execution_handler,
+            event_loop_metrics=EventLoopMetrics(),
+            event_loop_parent_span=None,
+            kwargs={},
         )
         list(stream)
 
@@ -279,7 +279,6 @@ def test_event_loop_cycle_text_response_throttling_exceeded(
 
 def test_event_loop_cycle_text_response_error(
     model,
-    model_id,
     system_prompt,
     messages,
     tool_config,
@@ -292,13 +291,15 @@ def test_event_loop_cycle_text_response_error(
     with pytest.raises(RuntimeError):
         stream = strands.event_loop.event_loop.event_loop_cycle(
             model=model,
-            model_id=model_id,
             system_prompt=system_prompt,
             messages=messages,
             tool_config=tool_config,
             callback_handler=callback_handler,
             tool_handler=tool_handler,
             tool_execution_handler=tool_execution_handler,
+            event_loop_metrics=EventLoopMetrics(),
+            event_loop_parent_span=None,
+            kwargs={},
         )
         list(stream)
 
@@ -323,13 +324,15 @@ def test_event_loop_cycle_tool_result(
 
     stream = strands.event_loop.event_loop.event_loop_cycle(
         model=model,
-        model_id=model_id,
         system_prompt=system_prompt,
         messages=messages,
         tool_config=tool_config,
         callback_handler=callback_handler,
         tool_handler=tool_handler,
         tool_execution_handler=tool_execution_handler,
+        event_loop_metrics=EventLoopMetrics(),
+        event_loop_parent_span=None,
+        kwargs={},
     )
     event = list(stream)[-1]
     tru_stop_reason, tru_message, _, tru_request_state = event["stop"]
@@ -395,6 +398,9 @@ def test_event_loop_cycle_tool_result_error(
             callback_handler=callback_handler,
             tool_handler=tool_handler,
             tool_execution_handler=tool_execution_handler,
+            event_loop_metrics=EventLoopMetrics(),
+            event_loop_parent_span=None,
+            kwargs={},
         )
         list(stream)
 
@@ -419,6 +425,9 @@ def test_event_loop_cycle_tool_result_no_tool_handler(
             callback_handler=callback_handler,
             tool_handler=None,
             tool_execution_handler=tool_execution_handler,
+            event_loop_metrics=EventLoopMetrics(),
+            event_loop_parent_span=None,
+            kwargs={},
         )
         list(stream)
 
@@ -443,6 +452,9 @@ def test_event_loop_cycle_tool_result_no_tool_config(
             callback_handler=callback_handler,
             tool_handler=tool_handler,
             tool_execution_handler=tool_execution_handler,
+            event_loop_metrics=EventLoopMetrics(),
+            event_loop_parent_span=None,
+            kwargs={},
         )
         list(stream)
 
@@ -482,7 +494,9 @@ def test_event_loop_cycle_stop(
         callback_handler=callback_handler,
         tool_handler=tool_handler,
         tool_execution_handler=tool_execution_handler,
-        request_state={"stop_event_loop": True},
+        event_loop_metrics=EventLoopMetrics(),
+        event_loop_parent_span=None,
+        kwargs={"request_state": {"stop_event_loop": True}},
     )
     event = list(stream)[-1]
     tru_stop_reason, tru_message, _, tru_request_state = event["stop"]
@@ -523,13 +537,15 @@ def test_cycle_exception(
     with pytest.raises(EventLoopException):
         stream = strands.event_loop.event_loop.event_loop_cycle(
             model=model,
-            model_id=model_id,
             system_prompt=system_prompt,
             messages=messages,
             tool_config=tool_config,
             callback_handler=callback_handler,
             tool_handler=tool_handler,
             tool_execution_handler=tool_execution_handler,
+            event_loop_metrics=EventLoopMetrics(),
+            event_loop_parent_span=None,
+            kwargs={},
         )
         for event in stream:
             tru_stop_event = event
@@ -541,7 +557,6 @@ def test_cycle_exception(
 def test_event_loop_cycle_creates_spans(
     mock_get_tracer,
     model,
-    model_id,
     system_prompt,
     messages,
     tool_config,
@@ -565,13 +580,15 @@ def test_event_loop_cycle_creates_spans(
     # Call event_loop_cycle
     stream = strands.event_loop.event_loop.event_loop_cycle(
         model=model,
-        model_id=model_id,
         system_prompt=system_prompt,
         messages=messages,
         tool_config=tool_config,
         callback_handler=callback_handler,
         tool_handler=tool_handler,
         tool_execution_handler=tool_execution_handler,
+        event_loop_metrics=EventLoopMetrics(),
+        event_loop_parent_span=None,
+        kwargs={},
     )
     list(stream)
 
@@ -587,7 +604,6 @@ def test_event_loop_cycle_creates_spans(
 def test_event_loop_tracing_with_model_error(
     mock_get_tracer,
     model,
-    model_id,
     system_prompt,
     messages,
     tool_config,
@@ -610,13 +626,15 @@ def test_event_loop_tracing_with_model_error(
     with pytest.raises(ContextWindowOverflowException):
         stream = strands.event_loop.event_loop.event_loop_cycle(
             model=model,
-            model_id=model_id,
             system_prompt=system_prompt,
             messages=messages,
             tool_config=tool_config,
             callback_handler=callback_handler,
             tool_handler=tool_handler,
             tool_execution_handler=tool_execution_handler,
+            event_loop_metrics=EventLoopMetrics(),
+            event_loop_parent_span=None,
+            kwargs={},
         )
         list(stream)
 
@@ -656,13 +674,15 @@ def test_event_loop_tracing_with_tool_execution(
     # Call event_loop_cycle which should execute a tool
     stream = strands.event_loop.event_loop.event_loop_cycle(
         model=model,
-        model_id=model_id,
         system_prompt=system_prompt,
         messages=messages,
         tool_config=tool_config,
         callback_handler=callback_handler,
         tool_handler=tool_handler,
         tool_execution_handler=tool_execution_handler,
+        event_loop_metrics=EventLoopMetrics(),
+        event_loop_parent_span=None,
+        kwargs={},
     )
     list(stream)
 
@@ -676,7 +696,6 @@ def test_event_loop_tracing_with_tool_execution(
 def test_event_loop_tracing_with_throttling_exception(
     mock_get_tracer,
     model,
-    model_id,
     system_prompt,
     messages,
     tool_config,
@@ -705,13 +724,15 @@ def test_event_loop_tracing_with_throttling_exception(
     with patch("strands.event_loop.event_loop.time.sleep"):
         stream = strands.event_loop.event_loop.event_loop_cycle(
             model=model,
-            model_id=model_id,
             system_prompt=system_prompt,
             messages=messages,
             tool_config=tool_config,
             callback_handler=callback_handler,
             tool_handler=tool_handler,
             tool_execution_handler=tool_execution_handler,
+            event_loop_metrics=EventLoopMetrics(),
+            event_loop_parent_span=None,
+            kwargs={},
         )
         list(stream)
 
@@ -726,7 +747,6 @@ def test_event_loop_tracing_with_throttling_exception(
 def test_event_loop_cycle_with_parent_span(
     mock_get_tracer,
     model,
-    model_id,
     system_prompt,
     messages,
     tool_config,
@@ -749,14 +769,15 @@ def test_event_loop_cycle_with_parent_span(
     # Call event_loop_cycle with a parent span
     stream = strands.event_loop.event_loop.event_loop_cycle(
         model=model,
-        model_id=model_id,
         system_prompt=system_prompt,
         messages=messages,
         tool_config=tool_config,
         callback_handler=callback_handler,
         tool_handler=tool_handler,
         tool_execution_handler=tool_execution_handler,
+        event_loop_metrics=EventLoopMetrics(),
         event_loop_parent_span=parent_span,
+        kwargs={},
     )
     list(stream)
 
@@ -770,13 +791,15 @@ def test_request_state_initialization():
     # Call without providing request_state
     stream = strands.event_loop.event_loop.event_loop_cycle(
         model=MagicMock(),
-        model_id=MagicMock(),
         system_prompt=MagicMock(),
         messages=MagicMock(),
         tool_config=MagicMock(),
         callback_handler=MagicMock(),
         tool_handler=MagicMock(),
         tool_execution_handler=MagicMock(),
+        event_loop_metrics=EventLoopMetrics(),
+        event_loop_parent_span=None,
+        kwargs={},
     )
     event = list(stream)[-1]
     _, _, _, tru_request_state = event["stop"]
@@ -788,13 +811,15 @@ def test_request_state_initialization():
     initial_request_state = {"key": "value"}
     stream = strands.event_loop.event_loop.event_loop_cycle(
         model=MagicMock(),
-        model_id=MagicMock(),
         system_prompt=MagicMock(),
         messages=MagicMock(),
         tool_config=MagicMock(),
         callback_handler=MagicMock(),
         tool_handler=MagicMock(),
-        request_state=initial_request_state,
+        tool_execution_handler=MagicMock(),
+        event_loop_metrics=EventLoopMetrics(),
+        event_loop_parent_span=None,
+        kwargs={"request_state": initial_request_state},
     )
     event = list(stream)[-1]
     _, _, _, tru_request_state = event["stop"]
@@ -827,20 +852,21 @@ def test_prepare_next_cycle_in_tool_execution(model, tool_stream):
         # Call event_loop_cycle which should execute a tool and then call recurse_event_loop
         stream = strands.event_loop.event_loop.event_loop_cycle(
             model=model,
-            model_id=MagicMock(),
             system_prompt=MagicMock(),
             messages=MagicMock(),
             tool_config=MagicMock(),
             callback_handler=MagicMock(),
             tool_handler=MagicMock(),
             tool_execution_handler=MagicMock(),
+            event_loop_metrics=EventLoopMetrics(),
+            event_loop_parent_span=None,
+            kwargs={},
         )
         list(stream)
 
         assert mock_recurse.called
 
         # Verify required properties are present
-        recursive_kwargs = mock_recurse.call_args[1]
-        assert "event_loop_metrics" in recursive_kwargs
-        assert "event_loop_parent_cycle_id" in recursive_kwargs
-        assert recursive_kwargs["event_loop_parent_cycle_id"] == recursive_kwargs["event_loop_cycle_id"]
+        recursive_args = mock_recurse.call_args[1]
+        assert "event_loop_parent_cycle_id" in recursive_args["kwargs"]
+        assert recursive_args["kwargs"]["event_loop_parent_cycle_id"] == recursive_args["kwargs"]["event_loop_cycle_id"]

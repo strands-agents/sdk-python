@@ -346,18 +346,18 @@ def test_agent__call__passes_kwargs(mock_model, system_prompt, callback_handler,
     override_messages = [{"role": "user", "content": [{"text": "override msg"}]}]
     override_tool_config = {"test": "config"}
 
-    def check_kwargs(some_value, **kwargs):
-        assert some_value == "a_value"
-        assert kwargs is not None
-        assert kwargs["system_prompt"] == override_system_prompt
-        assert kwargs["model"] == override_model
-        assert kwargs["tool_execution_handler"] == override_tool_execution_handler
-        assert kwargs["event_loop_metrics"] == override_event_loop_metrics
-        assert kwargs["callback_handler"] == override_callback_handler
-        assert kwargs["tool_handler"] == override_tool_handler
-        assert kwargs["messages"] == override_messages
-        assert kwargs["tool_config"] == override_tool_config
-        assert kwargs["agent"] == agent
+    def check_kwargs(**kwargs):
+        kwargs_kwargs = kwargs["kwargs"]
+        assert kwargs_kwargs["some_value"] == "a_value"
+        assert kwargs_kwargs["system_prompt"] == override_system_prompt
+        assert kwargs_kwargs["model"] == override_model
+        assert kwargs_kwargs["tool_execution_handler"] == override_tool_execution_handler
+        assert kwargs_kwargs["event_loop_metrics"] == override_event_loop_metrics
+        assert kwargs_kwargs["callback_handler"] == override_callback_handler
+        assert kwargs_kwargs["tool_handler"] == override_tool_handler
+        assert kwargs_kwargs["messages"] == override_messages
+        assert kwargs_kwargs["tool_config"] == override_tool_config
+        assert kwargs_kwargs["agent"] == agent
 
         # Return expected values from event_loop_cycle
         yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
@@ -632,8 +632,6 @@ def test_agent__call__callback(mock_model, agent, callback_handler):
                 event_loop_cycle_id=unittest.mock.ANY,
                 event_loop_cycle_span=unittest.mock.ANY,
                 event_loop_cycle_trace=unittest.mock.ANY,
-                event_loop_metrics=unittest.mock.ANY,
-                event_loop_parent_span=unittest.mock.ANY,
                 request_state={},
             ),
             unittest.mock.call(event={"contentBlockStop": {}}),
@@ -645,8 +643,6 @@ def test_agent__call__callback(mock_model, agent, callback_handler):
                 event_loop_cycle_id=unittest.mock.ANY,
                 event_loop_cycle_span=unittest.mock.ANY,
                 event_loop_cycle_trace=unittest.mock.ANY,
-                event_loop_metrics=unittest.mock.ANY,
-                event_loop_parent_span=unittest.mock.ANY,
                 reasoning=True,
                 reasoningText="value",
                 request_state={},
@@ -658,8 +654,6 @@ def test_agent__call__callback(mock_model, agent, callback_handler):
                 event_loop_cycle_id=unittest.mock.ANY,
                 event_loop_cycle_span=unittest.mock.ANY,
                 event_loop_cycle_trace=unittest.mock.ANY,
-                event_loop_metrics=unittest.mock.ANY,
-                event_loop_parent_span=unittest.mock.ANY,
                 reasoning=True,
                 reasoning_signature="value",
                 request_state={},
@@ -674,8 +668,6 @@ def test_agent__call__callback(mock_model, agent, callback_handler):
                 event_loop_cycle_id=unittest.mock.ANY,
                 event_loop_cycle_span=unittest.mock.ANY,
                 event_loop_cycle_trace=unittest.mock.ANY,
-                event_loop_metrics=unittest.mock.ANY,
-                event_loop_parent_span=unittest.mock.ANY,
                 request_state={},
             ),
             unittest.mock.call(event={"contentBlockStop": {}}),
@@ -725,9 +717,7 @@ def test_agent_tool_user_message_override(agent):
             },
             {
                 "text": (
-                    "agent.tool.tool_decorated direct tool call.\n"
-                    "Input parameters: "
-                    '{"random_string": "abcdEfghI123", "user_message_override": "test override"}\n'
+                    'agent.tool.tool_decorated direct tool call.\nInput parameters: {"random_string": "abcdEfghI123"}\n'
                 ),
             },
         ],
@@ -738,9 +728,8 @@ def test_agent_tool_user_message_override(agent):
 
 
 def test_agent_tool_do_not_record_tool(agent):
-    agent.tool.tool_decorated(
-        random_string="abcdEfghI123", user_message_override="test override", record_direct_tool_call=False
-    )
+    agent.record_direct_tool_call = False
+    agent.tool.tool_decorated(random_string="abcdEfghI123", user_message_override="test override")
 
     tru_messages = agent.messages
     exp_messages = []
@@ -795,9 +784,7 @@ def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint):
         messages=unittest.mock.ANY,
         tool_config=unittest.mock.ANY,
         callback_handler=unittest.mock.ANY,
-        tool_execution_handler=unittest.mock.ANY,
-        event_loop_metrics=unittest.mock.ANY,
-        agent=agent,
+        kwargs={"system_prompt": "tool prompt"},
     )
 
 
@@ -956,9 +943,9 @@ async def test_stream_async_passes_kwargs(agent, mock_model, mock_event_loop_cyc
         ],
     ]
 
-    def check_kwargs(some_value, **kwargs):
-        assert some_value == "a_value"
-        assert kwargs is not None
+    def check_kwargs(**kwargs):
+        kwargs_kwargs = kwargs["kwargs"]
+        assert kwargs_kwargs["some_value"] == "a_value"
         # Return expected values from event_loop_cycle
         yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
 
