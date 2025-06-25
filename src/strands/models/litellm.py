@@ -5,7 +5,7 @@
 
 import json
 import logging
-from typing import Any, Callable, Optional, Type, TypedDict, TypeVar, cast
+from typing import Any, Generator, Optional, Type, TypedDict, TypeVar, Union, cast
 
 import litellm
 from litellm.utils import supports_response_schema
@@ -105,15 +105,16 @@ class LiteLLMModel(OpenAIModel):
 
     @override
     def structured_output(
-        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
-    ) -> T:
+        self, output_model: Type[T], prompt: Messages
+    ) -> Generator[dict[str, Union[T, Any]], None, None]:
         """Get structured output from the model.
 
         Args:
             output_model(Type[BaseModel]): The output model to use for the agent.
             prompt(Messages): The prompt messages to use for the agent.
-            callback_handler(Optional[Callable]): Optional callback handler for processing events. Defaults to None.
 
+        Yields:
+            Model events with the last being the structured output.
         """
         # The LiteLLM `Client` inits with Chat().
         # Chat() inits with self.completions
@@ -136,7 +137,8 @@ class LiteLLMModel(OpenAIModel):
                     # Parse the tool call content as JSON
                     tool_call_data = json.loads(choice.message.content)
                     # Instantiate the output model with the parsed data
-                    return output_model(**tool_call_data)
+                    yield {"output": output_model(**tool_call_data)}
+                    return
                 except (json.JSONDecodeError, TypeError, ValueError) as e:
                     raise ValueError(f"Failed to parse or load content into model: {e}") from e
 

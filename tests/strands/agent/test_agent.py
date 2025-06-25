@@ -898,7 +898,7 @@ class User(BaseModel):
 def test_agent_method_structured_output(agent):
     # Mock the structured_output method on the model
     expected_user = User(name="Jane Doe", age=30, email="jane@doe.com")
-    agent.model.structured_output = unittest.mock.Mock(return_value=expected_user)
+    agent.model.structured_output = unittest.mock.Mock(return_value=[{"output": expected_user}])
 
     prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
 
@@ -906,9 +906,7 @@ def test_agent_method_structured_output(agent):
     assert result == expected_user
 
     # Verify the model's structured_output was called with correct arguments
-    agent.model.structured_output.assert_called_once_with(
-        User, [{"role": "user", "content": [{"text": prompt}]}], agent.callback_handler
-    )
+    agent.model.structured_output.assert_called_once_with(User, [{"role": "user", "content": [{"text": prompt}]}])
 
 
 @pytest.mark.asyncio

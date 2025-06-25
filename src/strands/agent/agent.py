@@ -16,7 +16,7 @@ import os
 import random
 from concurrent.futures import ThreadPoolExecutor
 from threading import Thread
-from typing import Any, AsyncIterator, Callable, Dict, List, Mapping, Optional, Type, TypeVar, Union
+from typing import Any, AsyncIterator, Callable, Dict, List, Mapping, Optional, Type, TypeVar, Union, cast
 from uuid import uuid4
 
 from opentelemetry import trace
@@ -423,7 +423,12 @@ class Agent:
             messages.append({"role": "user", "content": [{"text": prompt}]})
 
         # get the structured output from the model
-        return self.model.structured_output(output_model, messages, self.callback_handler)
+        events = self.model.structured_output(output_model, messages)
+        for event in events:
+            if "callback" in event:
+                self.callback_handler(**cast(dict, event["callback"]))
+
+        return event["output"]
 
     async def stream_async(self, prompt: str, **kwargs: Any) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.

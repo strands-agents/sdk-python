@@ -5,7 +5,7 @@
 
 import json
 import logging
-from typing import Any, Callable, Iterable, Optional, Type, TypeVar, cast
+from typing import Any, Generator, Iterable, Optional, Type, TypeVar, Union, cast
 
 from ollama import Client as OllamaClient
 from pydantic import BaseModel
@@ -316,14 +316,16 @@ class OllamaModel(Model):
 
     @override
     def structured_output(
-        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
-    ) -> T:
+        self, output_model: Type[T], prompt: Messages
+    ) -> Generator[dict[str, Union[T, Any]], None, None]:
         """Get structured output from the model.
 
         Args:
             output_model(Type[BaseModel]): The output model to use for the agent.
             prompt(Messages): The prompt messages to use for the agent.
-            callback_handler(Optional[Callable]): Optional callback handler for processing events. Defaults to None.
+
+        Yields:
+            Model events with the last being the structured output.
         """
         formatted_request = self.format_request(messages=prompt)
         formatted_request["format"] = output_model.model_json_schema()
@@ -332,6 +334,6 @@ class OllamaModel(Model):
 
         try:
             content = response.message.content.strip()
-            return output_model.model_validate_json(content)
+            yield {"output": output_model.model_validate_json(content)}
         except Exception as e:
             raise ValueError(f"Failed to parse or load content into model: {e}") from e
