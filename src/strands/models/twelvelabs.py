@@ -479,7 +479,7 @@ class TwelveLabsPegasusModel(Model):
             model_id: TwelveLabs model ID (default: "pegasus1.3")
             index_id: Index ID for video storage
             temperature: Generation temperature (0.0-1.0)
-            default_video_id: Default video ID for analysis
+            video_id: Default video ID for analysis
             engine_options: Pegasus engine options (visual, audio)
         """
 
@@ -487,7 +487,7 @@ class TwelveLabsPegasusModel(Model):
         model_id: str
         index_id: Optional[str]
         temperature: Optional[float]
-        default_video_id: Optional[str]
+        video_id: Optional[str]
         engine_options: Optional[List[Literal["visual", "audio"]]]
 
     def __init__(
@@ -526,7 +526,7 @@ class TwelveLabsPegasusModel(Model):
             **model_config: Configuration overrides.
         """
         # Filter to only valid TwelveLabsPegasusConfig keys to avoid TypedDict type error
-        valid_keys = {"api_key", "model_id", "index_id", "temperature", "default_video_id", "engine_options"}
+        valid_keys = {"api_key", "model_id", "index_id", "temperature", "video_id", "engine_options"}
         filtered_config = {k: v for k, v in model_config.items() if k in valid_keys}
         self.config.update(filtered_config)  # type: ignore[typeddict-item]
 
@@ -582,8 +582,8 @@ class TwelveLabsPegasusModel(Model):
         if not prompt.strip():
             raise ValueError("Pegasus requires a text prompt")
 
-        # Use configured default video_id
-        video_id = self.config.get("default_video_id")
+        # Use configured video_id
+        video_id = self.config.get("video_id")
 
         if not video_id:
             raise ValueError("No video_id provided in configuration")
@@ -638,7 +638,7 @@ class TwelveLabsPegasusModel(Model):
             self.video_cache[video_hash] = video_id
 
             # Automatically set as default video for analysis
-            self.config["default_video_id"] = video_id
+            self.config["video_id"] = video_id
             logger.info("Video indexed successfully! Video ID: %s (set as default)", video_id)
 
             return video_id
@@ -684,9 +684,7 @@ class TwelveLabsPegasusModel(Model):
 
         if not video_id:
             logger.warning("No video ID provided")
-            yield from self._error_response(
-                "No video ID specified. Please provide a video or set default_video_id in config."
-            )
+            yield from self._error_response("No video ID specified. Please provide a video or set video_id in config.")
             return
 
         try:
@@ -777,10 +775,10 @@ class TwelveLabsPegasusModel(Model):
         Returns:
             Pegasus response text
         """
-        video_id = video_id or self.config.get("default_video_id")
+        video_id = video_id or self.config.get("video_id")
 
         if not video_id:
-            raise ValueError("video_id required - provide directly or set default_video_id in config")
+            raise ValueError("video_id required - provide directly or set video_id in config")
 
         temperature = kwargs.get("temperature", self.config.get("temperature", 0.7))
 

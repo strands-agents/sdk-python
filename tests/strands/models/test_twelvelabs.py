@@ -50,7 +50,7 @@ def pegasus_model_config():
         "model_id": "pegasus1.3",
         "index_id": "test-index-456",
         "api_key": "test-api-key",
-        "default_video_id": "test-video-789",
+        "video_id": "test-video-789",
         "temperature": 0.8,
         "engine_options": ["visual", "audio"],
     }
@@ -442,7 +442,7 @@ class TestTwelveLabsPegasusModel:
 
         assert model.config["model_id"] == "pegasus1.3"
         assert model.config["index_id"] == "test-index-456"
-        assert model.config["default_video_id"] == "test-video-789"
+        assert model.config["video_id"] == "test-video-789"
         assert model.config["temperature"] == 0.8
         assert model.config["engine_options"] == ["visual", "audio"]
         assert model._api_key == "test-api-key"
@@ -468,10 +468,10 @@ class TestTwelveLabsPegasusModel:
         """Test that update_config only accepts valid configuration keys."""
         model = TwelveLabsPegasusModel(**pegasus_model_config)
 
-        model.update_config(temperature=0.9, invalid_key="should_be_ignored", default_video_id="new-video")
+        model.update_config(temperature=0.9, invalid_key="should_be_ignored", video_id="new-video")
 
         assert model.config["temperature"] == 0.9
-        assert model.config["default_video_id"] == "new-video"
+        assert model.config["video_id"] == "new-video"
         assert "invalid_key" not in model.config
 
     def test_format_request_with_valid_messages(self, pegasus_model_config):
@@ -513,7 +513,7 @@ class TestTwelveLabsPegasusModel:
     def test_format_request_no_video_id(self, pegasus_model_config):
         """Test format_request fails without video_id."""
         config = {**pegasus_model_config}
-        del config["default_video_id"]
+        del config["video_id"]
         model = TwelveLabsPegasusModel(**config)
         messages = [{"role": "user", "content": "test prompt"}]
 
@@ -544,7 +544,7 @@ class TestTwelveLabsPegasusModel:
             video_id = model.upload_video("/path/to/video.mp4")
 
             assert video_id == "uploaded_video_456"
-            assert model.config["default_video_id"] == "uploaded_video_456"
+            assert model.config["video_id"] == "uploaded_video_456"
             assert model.video_cache["fake_hash"] == "uploaded_video_456"
             mock_client.task.create.assert_called_once_with(index_id="test-index-456", file=b"fake_video_data")
 
@@ -593,7 +593,7 @@ class TestTwelveLabsPegasusModel:
     def test_analyze_video_no_video_id(self, pegasus_model_config):
         """Test analyze_video fails without video_id."""
         config = {**pegasus_model_config}
-        del config["default_video_id"]
+        del config["video_id"]
         model = TwelveLabsPegasusModel(**config)
 
         with pytest.raises(ValueError, match="video_id required"):
