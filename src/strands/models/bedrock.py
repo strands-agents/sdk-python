@@ -379,6 +379,32 @@ class BedrockModel(Model):
                 logger.warning("bedrock threw context window overflow error")
                 raise ContextWindowOverflowException(e) from e
 
+            region = self.client.meta.region_name
+
+            # add_note added in Python 3.11
+            if hasattr(e, "add_note"):
+                # Aid in debugging by adding more information
+                e.add_note(f"└ Bedrock region: {region}")
+                e.add_note(f"└ Model id: {self.config.get('model_id')}")
+
+                if (
+                    e.response["Error"]["Code"] == "AccessDeniedException"
+                    and "You don't have access to the model" in error_message
+                ):
+                    e.add_note(
+                        "└ For more information see "
+                        "https://strandsagents.com/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue"
+                    )
+
+                if (
+                    e.response["Error"]["Code"] == "ValidationException"
+                    and "with on-demand throughput isn’t supported" in error_message
+                ):
+                    e.add_note(
+                        "└ For more information see "
+                        "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported"
+                    )
+
             # Otherwise raise the error
             raise e
 
