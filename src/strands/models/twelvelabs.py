@@ -10,45 +10,36 @@ import logging
 import os
 from typing import Any, Dict, Iterable, List, Literal, Optional, TypedDict, Union, cast
 
-from typing_extensions import Required, Unpack, override
+from twelvelabs import TwelveLabs
+from typing_extensions import Unpack, override
 
-from ..types.content import ContentBlock, Messages  
-from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
+from ..types.content import Messages
+from ..types.exceptions import ModelThrottledException
 from ..types.models import Model
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolSpec
-
-try:
-    from twelvelabs import TwelveLabs
-    TWELVELABS_AVAILABLE = True
-except ImportError:
-    TWELVELABS_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_TWELVELABS_MODEL = "Marengo-retrieval-2.7"
 
 # Error codes for TwelveLabs Search API
-TWELVELABS_THROTTLING_MESSAGES = [
-    "usage_limit_exceeded"
-]
+TWELVELABS_THROTTLING_MESSAGES = ["usage_limit_exceeded"]
 
-TWELVELABS_AUTHENTICATION_MESSAGES = [
-    "api_key_invalid"
-]
+TWELVELABS_AUTHENTICATION_MESSAGES = ["api_key_invalid"]
 
 TWELVELABS_SEARCH_MESSAGES = [
     "search_option_not_supported",
-    "search_option_combination_not_supported", 
+    "search_option_combination_not_supported",
     "search_filter_invalid",
     "search_page_token_expired",
-    "index_not_supported_for_search"
+    "index_not_supported_for_search",
 ]
 
 
 class TwelveLabsModel(Model):
     """TwelveLabs model provider implementation for video search.
-    
+
     This provider enables semantic video search using TwelveLabs' Marengo model
     through natural language queries, without requiring direct embedding management.
     """
@@ -58,14 +49,14 @@ class TwelveLabsModel(Model):
 
         Attributes:
             api_key: TwelveLabs API key (falls back to TWELVELABS_API_KEY env var)
-            model_id: TwelveLabs model ID (default: "Marengo-retrieval-2.7")  
+            model_id: TwelveLabs model ID (default: "Marengo-retrieval-2.7")
             index_id: Index ID for searches
             search_options: Default search modalities ["visual", "audio"]
             group_by: Default grouping for results ("video" or "clip")
             threshold: Default confidence threshold ("high", "medium", "low", "none")
             page_limit: Default maximum results per page
         """
-        
+
         api_key: Optional[str]
         model_id: str
         index_id: Optional[str]
@@ -83,16 +74,11 @@ class TwelveLabsModel(Model):
         Args:
             **model_config: Configuration options for the TwelveLabs model.
         """
-        if not TWELVELABS_AVAILABLE:
-            raise ImportError(
-                "TwelveLabs SDK not available. Install with: pip install twelvelabs-python"
-            )
-
         self.config = TwelveLabsModel.TwelveLabsConfig(
             model_id=DEFAULT_TWELVELABS_MODEL,
             search_options=["visual"],  # Changed from ["visual", "audio"] to just ["visual"]
             group_by="clip",
-            page_limit=10
+            page_limit=10,
         )
         self.update_config(**model_config)
 
@@ -103,18 +89,21 @@ class TwelveLabsModel(Model):
                 "TwelveLabs API key required. Set TWELVELABS_API_KEY environment variable "
                 "or pass api_key in model config"
             )
-        
+
         self._api_key = api_key
         logger.debug("TwelveLabs model provider initialized with model_id=%s", self.config["model_id"])
 
     @override
-    def update_config(self, **model_config: Unpack[TwelveLabsConfig]) -> None:
+    def update_config(self, **model_config: Any) -> None:
         """Update the TwelveLabs model configuration.
 
         Args:
             **model_config: Configuration overrides.
         """
-        self.config.update(model_config)
+        # Filter to only valid TwelveLabsConfig keys to avoid TypedDict type error
+        valid_keys = {"api_key", "model_id", "index_id", "search_options", "group_by", "threshold", "page_limit"}
+        filtered_config = {k: v for k, v in model_config.items() if k in valid_keys}
+        self.config.update(filtered_config)  # type: ignore[typeddict-item]
 
     @override
     def get_config(self) -> TwelveLabsConfig:
@@ -133,7 +122,7 @@ class TwelveLabsModel(Model):
         system_prompt: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Format a TwelveLabs search request from conversation messages.
-        
+
         This method analyzes the conversation to extract search parameters
         and formats them for the TwelveLabs Search API.
 
@@ -147,23 +136,26 @@ class TwelveLabsModel(Model):
         """
         # Extract the latest user message as the search query
         search_query = ""
-        
+
         for message in reversed(messages):
             if message.get("role") == "user":
                 # Extract text content from the message
-                content = message.get("content", [])
+                content: Union[str, List[Any]] = message.get("content", [])
+
+                # Handle both string content (legacy/test format) and list content (standard format)
                 if isinstance(content, str):
+                    # Direct string content
                     search_query = content
                     break
                 elif isinstance(content, list):
+                    # Standard List[ContentBlock] format
                     for block in content:
-                        if isinstance(block, dict):
-                            if block.get("type") == "text" or "text" in block:
-                                search_query = block.get("text", "")
+                        if isinstance(block, dict) and "text" in block:
+                            search_query = block.get("text", "")
                             break
                     if search_query:
                         break
-        
+
         index_id = self.config.get("index_id")
         if not index_id:
             raise ValueError("index_id must be configured in TwelveLabsConfig")
@@ -176,9 +168,10 @@ class TwelveLabsModel(Model):
             "threshold": self.config.get("threshold"),
             "page_limit": self.config.get("page_limit", 10),
         }
-        
-        logger.info(f"Formatted TwelveLabs search request: query_text='{search_query[:50]}{'...' if len(search_query) > 50 else ''}', index_id='{index_id}'")
-        
+
+        query_preview = search_query[:50] + ("..." if len(search_query) > 50 else "")
+        logger.info("Formatted TwelveLabs search request: query_text='%s', index_id='%s'", query_preview, index_id)
+
         return formatted_request
 
     @override
@@ -209,17 +202,20 @@ class TwelveLabsModel(Model):
         """
         query_text = request.get("query_text")
         index_id = request.get("index_id")
-        
-        logger.info(f"Starting TwelveLabs search: query='{query_text[:50] if query_text else ''}{'...' if query_text and len(query_text) > 50 else ''}', index='{index_id}'")
-        
+
+        query_preview = (query_text[:50] if query_text else "") + ("..." if query_text and len(query_text) > 50 else "")
+        logger.info("Starting TwelveLabs search: query='%s', index='%s'", query_preview, index_id)
+
         if not query_text:
             logger.warning("No search query provided")
             yield from self._error_response("No search query provided in the conversation.")
             return
-            
+
         if not index_id:
             logger.warning("No index ID provided")
-            yield from self._error_response("No index ID specified. Please provide an index ID or set a default in the model config.")
+            yield from self._error_response(
+                "No index ID specified. Please provide an index ID or set a default in the model config."
+            )
             return
 
         try:
@@ -233,47 +229,48 @@ class TwelveLabsModel(Model):
                     threshold=request.get("threshold"),
                     page_limit=request.get("page_limit"),
                 )
-                
+
                 # Start streaming response
                 yield {"messageStart": {"role": "assistant"}}
-                yield {"contentBlockStart": {"start": {"text": ""}}}
+                yield {"contentBlockStart": {"start": {}}}
 
                 # Format and stream results
-                total_results = getattr(result.pool, 'total_count', 0) if hasattr(result, 'pool') else 0
-                logger.info(f"TwelveLabs search completed: {total_results} results")
-                
+                total_results = getattr(result.pool, "total_count", 0) if hasattr(result, "pool") else 0
+                logger.info("TwelveLabs search completed: %d results", total_results)
+
                 response_text = "Video Search Results\n\n"
-                response_text += f"Query: \"{query_text}\"\n"
+                response_text += f'Query: "{query_text}"\n'
                 response_text += f"Index: {index_id}\n"
                 response_text += f"Found {total_results} total results\n\n"
 
                 # Process search results
                 search_results = []
                 for item in result.data:
-                    if request.get("group_by") == "video" and hasattr(item, 'clips'):
+                    if request.get("group_by") == "video" and hasattr(item, "clips"):
                         # Video-grouped results
-                        video_result = {
-                            "video_id": item.id,
-                            "clips": []
-                        }
+                        video_result = {"video_id": item.id, "clips": []}
                         for clip in item.clips:
-                            video_result["clips"].append({
-                                "score": clip.score,
-                                "start": clip.start,
-                                "end": clip.end,
-                                "confidence": clip.confidence,
-                                "video_id": clip.video_id,
-                            })
+                            video_result["clips"].append(
+                                {
+                                    "score": clip.score,
+                                    "start": clip.start,
+                                    "end": clip.end,
+                                    "confidence": clip.confidence,
+                                    "video_id": clip.video_id,
+                                }
+                            )
                         search_results.append(video_result)
                     else:
                         # Clip-level results
-                        search_results.append({
-                            "score": item.score,
-                            "start": item.start,
-                            "end": item.end,
-                            "confidence": item.confidence,
-                            "video_id": item.video_id,
-                        })
+                        search_results.append(
+                            {
+                                "score": item.score,
+                                "start": item.start,
+                                "end": item.end,
+                                "confidence": item.confidence,
+                                "video_id": item.video_id,
+                            }
+                        )
 
                 # Format detailed results
                 if search_results:
@@ -282,8 +279,11 @@ class TwelveLabsModel(Model):
                         if request.get("group_by") == "video":
                             response_text += f"\n{i}. Video ID: {result_item['video_id']}\n"
                             response_text += f"   Found {len(result_item['clips'])} clips\n"
-                            for j, clip in enumerate(result_item['clips'][:3], 1):
-                                response_text += f"   {j}. Score: {clip['score']:.3f} | {clip['start']:.1f}s-{clip['end']:.1f}s | {clip['confidence']}\n"
+                            for j, clip in enumerate(result_item["clips"][:3], 1):
+                                response_text += (
+                                    f"   {j}. Score: {clip['score']:.3f} | "
+                                    f"{clip['start']:.1f}s-{clip['end']:.1f}s | {clip['confidence']}\n"
+                                )
                         else:
                             response_text += f"\n{i}. Video: {result_item['video_id']}\n"
                             response_text += f"   Score: {result_item['score']:.3f}\n"
@@ -306,49 +306,44 @@ class TwelveLabsModel(Model):
                                 "returned_results": len(search_results),
                                 "query": query_text,
                                 "index_id": index_id,
-                                "model_id": self.config["model_id"]
+                                "model_id": self.config["model_id"],
                             }
-                        }
+                        },
                     }
                 }
 
         except Exception as e:
             error_msg = str(e)
             error_msg_lower = error_msg.lower()
-            logger.error(f"TwelveLabs search error: {error_msg}", exc_info=True)
-            
+            logger.exception("TwelveLabs search error: %s", error_msg)
+
             # Check for throttling/rate limiting
             if any(throttle_msg in error_msg_lower for throttle_msg in TWELVELABS_THROTTLING_MESSAGES):
                 raise ModelThrottledException(f"TwelveLabs API throttling: {error_msg}") from e
-            
+
             # Check for authentication errors
             if any(auth_msg in error_msg_lower for auth_msg in TWELVELABS_AUTHENTICATION_MESSAGES):
                 logger.warning("TwelveLabs authentication error")
                 yield from self._error_response(f"Authentication failed: {error_msg}")
                 return
-            
+
             # Check for search-specific errors
             if any(search_msg in error_msg_lower for search_msg in TWELVELABS_SEARCH_MESSAGES):
                 logger.warning("TwelveLabs search error")
                 yield from self._error_response(f"Search error: {error_msg}")
                 return
-            
+
             # For other errors, stream error response
             yield from self._error_response(f"Search failed: {error_msg}")
 
-    def search_videos(
-        self,
-        query_text: str,
-        index_id: Optional[str] = None,
-        **search_params: Any
-    ) -> Dict[str, Any]:
+    def search_videos(self, query_text: str, index_id: Optional[str] = None, **search_params: Any) -> Dict[str, Any]:
         """Direct video search method (non-streaming).
-        
+
         Args:
             query_text: Natural language search query
             index_id: Index ID (uses default if not provided)
             **search_params: Additional search parameters
-            
+
         Returns:
             Dictionary containing search results
         """
@@ -356,7 +351,7 @@ class TwelveLabsModel(Model):
 
         if not index_id:
             raise ValueError("index_id required - provide directly or set index_id in config")
-            
+
         try:
             with TwelveLabs(self._api_key) as client:
                 result = client.search.query(
@@ -366,16 +361,19 @@ class TwelveLabsModel(Model):
                     group_by=search_params.get("group_by", self.config.get("group_by")),
                     threshold=search_params.get("threshold", self.config.get("threshold")),
                     page_limit=search_params.get("page_limit", self.config.get("page_limit")),
-                    **{k: v for k, v in search_params.items() 
-                       if k not in ["search_options", "group_by", "threshold", "page_limit"]}
+                    **{
+                        k: v
+                        for k, v in search_params.items()
+                        if k not in ["search_options", "group_by", "threshold", "page_limit"]
+                    },
                 )
-                
+
                 # Format results
                 search_results = []
-                total_results = getattr(result.pool, 'total_count', 0) if hasattr(result, 'pool') else 0
-                
+                total_results = getattr(result.pool, "total_count", 0) if hasattr(result, "pool") else 0
+
                 for item in result.data:
-                    if search_params.get("group_by") == "video" and hasattr(item, 'clips'):
+                    if search_params.get("group_by") == "video" and hasattr(item, "clips"):
                         video_result = {
                             "video_id": item.id,
                             "clips": [
@@ -387,59 +385,70 @@ class TwelveLabsModel(Model):
                                     "video_id": clip.video_id,
                                 }
                                 for clip in item.clips
-                            ]
+                            ],
                         }
                         search_results.append(video_result)
                     else:
-                        search_results.append({
-                            "score": item.score,
-                            "start": item.start,
-                            "end": item.end,
-                            "confidence": item.confidence,
-                            "video_id": item.video_id,
-                        })
-                
+                        search_results.append(
+                            {
+                                "score": item.score,
+                                "start": item.start,
+                                "end": item.end,
+                                "confidence": item.confidence,
+                                "video_id": item.video_id,
+                            }
+                        )
+
                 return {
                     "results": search_results,
                     "total_results": total_results,
                     "query": query_text,
                     "index_id": index_id,
-                    "model_id": self.config["model_id"]
+                    "model_id": self.config["model_id"],
                 }
-                
+
         except Exception as e:
             error_msg = str(e)
             error_msg_lower = error_msg.lower()
-            logger.error(f"TwelveLabs search error: {error_msg}", exc_info=True)
-            
+            logger.exception("TwelveLabs search error: %s", error_msg)
+
             # Check for throttling/rate limiting
             if any(throttle_msg in error_msg_lower for throttle_msg in TWELVELABS_THROTTLING_MESSAGES):
                 raise ModelThrottledException(f"TwelveLabs API throttling: {error_msg}") from e
-            
+
             # Check for authentication errors
             if any(auth_msg in error_msg_lower for auth_msg in TWELVELABS_AUTHENTICATION_MESSAGES):
                 logger.warning("TwelveLabs authentication error")
                 raise ValueError(f"TwelveLabs authentication error: {error_msg}") from e
-            
+
             # Check for search-specific errors
             if any(search_msg in error_msg_lower for search_msg in TWELVELABS_SEARCH_MESSAGES):
                 logger.warning("TwelveLabs search error")
                 raise ValueError(f"TwelveLabs search error: {error_msg}") from e
-            
+
             # For other errors, re-raise the original exception
             raise
 
     def _error_response(self, message: str) -> Iterable[StreamEvent]:
         """Generate standardized error response events.
-        
+
         Args:
             message: Error message to display
-            
+
         Yields:
             Streaming events for error response
         """
         yield {"messageStart": {"role": "assistant"}}
-        yield {"contentBlockStart": {"start": {"text": ""}}}
+        yield {"contentBlockStart": {"start": {}}}
         yield {"contentBlockDelta": {"delta": {"text": f"Error: {message}"}}}
         yield {"contentBlockStop": {}}
         yield {"messageStop": {"stopReason": "end_turn"}}
+
+    @override
+    def structured_output(self, output_model: Any, prompt: Any, callback_handler: Any = None) -> Any:
+        """TwelveLabs does not support structured output.
+
+        Raises:
+            NotImplementedError: TwelveLabs models do not support structured output.
+        """
+        raise NotImplementedError("TwelveLabs models do not support structured output.")
