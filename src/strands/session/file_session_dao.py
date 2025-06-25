@@ -1,0 +1,237 @@
+"""File-based session DAO for local filesystem storage."""
+
+import json
+import os
+import shutil
+import tempfile
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, cast
+
+from .exceptions import SessionException
+from .session_dao import SessionDAO
+from .session_models import Session, SessionAgent, SessionMessage
+
+
+class FileSessionDAO(SessionDAO):
+    """File-based session DAO for local filesystem storage."""
+
+    def __init__(self, storage_dir: Optional[str] = None):
+        """Initialize FileSessionDAO with filesystem storage.
+
+        Args:
+            storage_dir: Directory for local filesystem storage (defaults to temp dir)
+        """
+        self.storage_dir = storage_dir or os.path.join(tempfile.gettempdir(), "strands/sessions")
+        os.makedirs(self.storage_dir, exist_ok=True)
+
+    def _get_session_path(self, session_id: str) -> str:
+        """Get session directory path."""
+        return os.path.join(self.storage_dir, f"session_{session_id}")
+
+    def _get_agent_path(self, session_id: str, agent_id: str) -> str:
+        """Get agent directory path."""
+        session_path = self._get_session_path(session_id)
+        return os.path.join(session_path, "agents", f"agent_{agent_id}")
+
+    def _get_message_path(self, session_id: str, agent_id: str, message_id: str) -> str:
+        """Get message file path."""
+        agent_path = self._get_agent_path(session_id, agent_id)
+        return os.path.join(agent_path, "messages", f"message_{message_id}.json")
+
+    def _read_file(self, path: str) -> Dict[str, Any]:
+        """Read JSON file."""
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return cast(dict[str, Any], json.load(f))
+        except FileNotFoundError as e:
+            raise SessionException(f"File not found: {path}") from e
+        except json.JSONDecodeError as e:
+            raise SessionException(f"Invalid JSON in file {path}: {e}") from e
+
+    def _write_file(self, path: str, data: Dict[str, Any]) -> None:
+        """Write JSON file."""
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            raise SessionException(f"Failed to write file {path}: {e}") from e
+
+    def create_session(self, session: Session) -> Session:
+        """Create a new session."""
+        session_dir = self._get_session_path(session.session_id)
+        if os.path.exists(session_dir):
+            raise SessionException(f"Session {session.session_id} already exists")
+
+        # Create directory structure
+        os.makedirs(session_dir, exist_ok=True)
+        os.makedirs(os.path.join(session_dir, "agents"), exist_ok=True)
+
+        # Write session file
+        session_file = os.path.join(session_dir, "session.json")
+        session_data = session.to_dict()
+        self._write_file(session_file, session_data)
+
+        return session
+
+    def read_session(self, session_id: str) -> Session:
+        """Read session data."""
+        session_file = os.path.join(self._get_session_path(session_id), "session.json")
+        if not os.path.exists(session_file):
+            raise SessionException(f"Session {session_id} does not exist")
+
+        session_data = self._read_file(session_file)
+        return Session.from_dict(session_data)
+
+    def update_session(self, session: Session) -> None:
+        """Update session data."""
+        session.updated_at = datetime.now(timezone.utc).isoformat()
+        session_data = session.to_dict()
+        session_file = os.path.join(self._get_session_path(session.session_id), "session.json")
+        self._write_file(session_file, session_data)
+
+    def list_sessions(self) -> List[Session]:
+        """List all sessions."""
+        if not os.path.exists(self.storage_dir):
+            return []
+
+        sessions = []
+        for item in os.listdir(self.storage_dir):
+            if item.startswith("session_") and os.path.isdir(os.path.join(self.storage_dir, item)):
+                session_id = item[8:]  # Remove "session_" prefix
+                try:
+                    sessions.append(self.read_session(session_id))
+                except SessionException:
+                    # Skip corrupted sessions
+                    continue
+
+        return sessions
+
+    def delete_session(self, session_id: str) -> None:
+        """Delete session and all associated data."""
+        session_dir = self._get_session_path(session_id)
+        if not os.path.exists(session_dir):
+            raise SessionException(f"Session {session_id} does not exist")
+
+        shutil.rmtree(session_dir)
+
+    def create_agent(self, session_id: str, session_agent: SessionAgent) -> None:
+        """Create a new agent in the session."""
+        agent_id = session_agent.agent_id
+        agent_data = session_agent.to_dict()
+
+        agent_dir = self._get_agent_path(session_id, agent_id)
+        os.makedirs(agent_dir, exist_ok=True)
+        os.makedirs(os.path.join(agent_dir, "messages"), exist_ok=True)
+
+        agent_file = os.path.join(agent_dir, "agent.json")
+        self._write_file(agent_file, agent_data)
+
+    def read_agent(self, session_id: str, agent_id: str) -> SessionAgent:
+        """Read agent data."""
+        agent_file = os.path.join(self._get_agent_path(session_id, agent_id), "agent.json")
+        if not os.path.exists(agent_file):
+            raise SessionException(f"Agent {agent_id} does not exist in session {session_id}")
+
+        agent_data = self._read_file(agent_file)
+        return SessionAgent.from_dict(agent_data)
+
+    def update_agent(self, session_id: str, SessionAgent: SessionAgent) -> None:
+        """Update agent data."""
+        agent_id = SessionAgent.agent_id
+        agent_data = SessionAgent.to_dict()
+        agent_file = os.path.join(self._get_agent_path(session_id, agent_id), "agent.json")
+        self._write_file(agent_file, agent_data)
+
+    def delete_agent(self, session_id: str, agent_id: str) -> None:
+        """Delete an agent from the session."""
+        agent_dir = self._get_agent_path(session_id, agent_id)
+        if not os.path.exists(agent_dir):
+            raise SessionException(f"Agent {agent_id} does not exist in session {session_id}")
+
+        shutil.rmtree(agent_dir)
+
+    def list_agents(self, session_id: str) -> List[SessionAgent]:
+        """List all agents in the session."""
+        agents_dir = os.path.join(self._get_session_path(session_id), "agents")
+        if not os.path.exists(agents_dir):
+            return []
+
+        agents = []
+        for item in os.listdir(agents_dir):
+            if item.startswith("agent_") and os.path.isdir(os.path.join(agents_dir, item)):
+                agent_id = item[6:]  # Remove "agent_" prefix
+                try:
+                    agents.append(self.read_agent(session_id, agent_id))
+                except SessionException:
+                    # Skip corrupted agents
+                    continue
+
+        return agents
+
+    def create_message(self, session_id: str, agent_id: str, session_message: SessionMessage) -> None:
+        """Create a new message for the agent."""
+        message_id = session_message.message_id
+        message_data = session_message.to_dict()
+        message_file = self._get_message_path(session_id, agent_id, message_id)
+        self._write_file(message_file, message_data)
+
+    def read_message(self, session_id: str, agent_id: str, message_id: str) -> SessionMessage:
+        """Read message data."""
+        message_file = self._get_message_path(session_id, agent_id, message_id)
+        if not os.path.exists(message_file):
+            raise SessionException(f"Message {message_id} does not exist for agent {agent_id} in session {session_id}")
+
+        message_data = self._read_file(message_file)
+        return SessionMessage.from_dict(message_data)
+
+    def update_message(self, session_id: str, agent_id: str, session_message: SessionMessage) -> None:
+        """Update message data."""
+        message_id = session_message.message_id
+        message_data = session_message.to_dict()
+        message_file = self._get_message_path(session_id, agent_id, message_id)
+        self._write_file(message_file, message_data)
+
+    def delete_message(self, session_id: str, agent_id: str, message_id: str) -> None:
+        """Delete a message from the agent."""
+        message_file = self._get_message_path(session_id, agent_id, message_id)
+        if not os.path.exists(message_file):
+            raise SessionException(f"Message {message_id} does not exist for agent {agent_id} in session {session_id}")
+
+        os.remove(message_file)
+
+    def list_messages(
+        self, session_id: str, agent_id: str, limit: Optional[int] = None, offset: int = 0
+    ) -> List[SessionMessage]:
+        """List messages for an agent with pagination."""
+        messages_dir = os.path.join(self._get_agent_path(session_id, agent_id), "messages")
+        if not os.path.exists(messages_dir):
+            return []
+
+        # Get all message files and sort by creation time (newest first)
+        message_files = []
+        for filename in os.listdir(messages_dir):
+            if filename.startswith("message_") and filename.endswith(".json"):
+                file_path = os.path.join(messages_dir, filename)
+                message_files.append((file_path, os.path.getctime(file_path)))
+
+        # Sort by creation time (newest first)
+        message_files.sort(key=lambda x: x[1], reverse=True)
+
+        # Apply pagination
+        if limit is not None:
+            message_files = message_files[offset : offset + limit]
+        else:
+            message_files = message_files[offset:]
+
+        # Read message data
+        messages: List[SessionMessage] = []
+        for file_path, _ in message_files:
+            try:
+                message_data = self._read_file(file_path)
+                messages.append(SessionMessage.from_dict(message_data))
+            except SessionException:
+                # Skip corrupted files
+                continue
+
+        return messages

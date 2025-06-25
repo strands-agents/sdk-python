@@ -14,7 +14,7 @@ class AgentState:
     """
 
     def __init__(self, initial_state: Optional[Dict[str, Dict[str, Any]]] = None):
-        """Initialize AgentState with default and SDK namespaces."""
+        """Initialize AgentState."""
         self._state: Dict[str, Dict[str, Any]]
         if initial_state:
             self._validate_json_serializable(initial_state)

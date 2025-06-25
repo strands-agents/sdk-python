@@ -308,6 +308,100 @@ class EventLoopMetrics:
         }
         return summary
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert the EventLoopMetrics to a dictionary representation.
+
+        Returns:
+            A dictionary containing all metrics data, suitable for serialization.
+        """
+        return {
+            "cycle_count": self.cycle_count,
+            "tool_metrics": {
+                tool_name: {
+                    "tool": metrics.tool,
+                    "call_count": metrics.call_count,
+                    "success_count": metrics.success_count,
+                    "error_count": metrics.error_count,
+                    "total_time": metrics.total_time,
+                }
+                for tool_name, metrics in self.tool_metrics.items()
+            },
+            "cycle_durations": self.cycle_durations,
+            "traces": [trace.to_dict() for trace in self.traces],
+            "accumulated_usage": dict(self.accumulated_usage),
+            "accumulated_metrics": dict(self.accumulated_metrics),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "EventLoopMetrics":
+        """Create an EventLoopMetrics instance from a dictionary representation.
+
+        Args:
+            data: Dictionary containing the metrics data.
+
+        Returns:
+            A new EventLoopMetrics instance with the data from the dictionary.
+        """
+        instance = cls()
+        instance.cycle_count = data.get("cycle_count", 0)
+        instance.cycle_durations = data.get("cycle_durations", [])
+
+        # Reconstruct tool metrics
+        tool_metrics_data = data.get("tool_metrics", {})
+        for tool_name, metrics_data in tool_metrics_data.items():
+            tool_metrics = ToolMetrics(
+                tool=metrics_data["tool"],
+                call_count=metrics_data.get("call_count", 0),
+                success_count=metrics_data.get("success_count", 0),
+                error_count=metrics_data.get("error_count", 0),
+                total_time=metrics_data.get("total_time", 0.0),
+            )
+            instance.tool_metrics[tool_name] = tool_metrics
+
+        # Reconstruct traces
+        traces_data = data.get("traces", [])
+        instance.traces = [cls._trace_from_dict(trace_data) for trace_data in traces_data]
+
+        # Reconstruct accumulated usage and metrics
+        accumulated_usage_data = data.get("accumulated_usage", {})
+        instance.accumulated_usage = Usage(
+            inputTokens=accumulated_usage_data.get("inputTokens", 0),
+            outputTokens=accumulated_usage_data.get("outputTokens", 0),
+            totalTokens=accumulated_usage_data.get("totalTokens", 0),
+        )
+
+        accumulated_metrics_data = data.get("accumulated_metrics", {})
+        instance.accumulated_metrics = Metrics(latencyMs=accumulated_metrics_data.get("latencyMs", 0))
+
+        return instance
+
+    @staticmethod
+    def _trace_from_dict(data: Dict[str, Any]) -> Trace:
+        """Create a Trace instance from a dictionary representation.
+
+        Args:
+            data: Dictionary containing the trace data.
+
+        Returns:
+            A new Trace instance with the data from the dictionary.
+        """
+        trace = Trace(
+            name=data.get("name", ""),
+            parent_id=data.get("parent_id"),
+            start_time=data.get("start_time"),
+            raw_name=data.get("raw_name"),
+            metadata=data.get("metadata", {}),
+            message=data.get("message"),
+        )
+        trace.id = data.get("id", trace.id)
+        trace.end_time = data.get("end_time")
+
+        # Reconstruct children
+        children_data = data.get("children", [])
+        trace.children = [EventLoopMetrics._trace_from_dict(child_data) for child_data in children_data]
+
+        return trace
+
 
 def _metrics_summary_to_lines(event_loop_metrics: EventLoopMetrics, allowed_names: Set[str]) -> Iterable[str]:
     """Convert event loop metrics to a series of formatted text lines.
