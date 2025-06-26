@@ -5,9 +5,10 @@
 
 import json
 import logging
-from typing import Any, Dict, Iterable, List, Optional, TypedDict, Union, cast
+from typing import Any, Dict, Generator, Iterable, List, Optional, Type, TypedDict, TypeVar, Union, cast
 
 import writerai
+from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
@@ -17,6 +18,8 @@ from ..types.streaming import StreamEvent
 from ..types.tools import ToolResult, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class WriterModel(Model):
@@ -385,3 +388,29 @@ class WriterModel(Model):
             _ = chunk
 
         yield {"chunk_type": "metadata", "data": chunk.usage}
+
+    @override
+    def structured_output(
+        self, output_model: Type[T], prompt: Messages
+    ) -> Generator[dict[str, Union[T, Any]], None, None]:
+        """Get structured output from the model.
+
+        Args:
+            output_model(Type[BaseModel]): The output model to use for the agent.
+            prompt(Messages): The prompt messages to use for the agent.
+        """
+        formatted_request = self.format_request(messages=prompt)
+        formatted_request["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"schema": output_model.model_json_schema()},
+        }
+        formatted_request["stream"] = False
+        formatted_request.pop("stream_options", None)
+
+        response = self.client.chat.chat(**formatted_request)
+
+        try:
+            content = response.choices[0].message.content.strip()
+            yield {"output": output_model.model_validate_json(content)}
+        except Exception as e:
+            raise ValueError(f"Failed to parse or load content into model: {e}") from e
