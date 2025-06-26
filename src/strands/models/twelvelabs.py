@@ -24,7 +24,7 @@ from ..types.tools import ToolSpec
 logger = logging.getLogger(__name__)
 
 DEFAULT_SEARCH_MODEL = "Marengo-retrieval-2.7"
-DEFAULT_PEGASUS_MODEL = "pegasus1.3"
+DEFAULT_PEGASUS_MODEL = "pegasus1.2"
 
 # Error codes for TwelveLabs API
 TWELVELABS_THROTTLING_MESSAGES = ["usage_limit_exceeded", "rate_limit_exceeded"]
@@ -476,7 +476,7 @@ class TwelveLabsPegasusModel(Model):
 
         Attributes:
             api_key: TwelveLabs API key (falls back to TWELVELABS_API_KEY env var)
-            model_id: TwelveLabs model ID (default: "pegasus1.3")
+            model_id: TwelveLabs model ID (default: "pegasus1.2")
             index_id: Index ID for video storage
             temperature: Generation temperature (0.0-1.0)
             video_id: Default video ID for analysis

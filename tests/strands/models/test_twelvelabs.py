@@ -47,7 +47,7 @@ def search_model_config():
 def pegasus_model_config():
     """Pegasus model configuration for testing."""
     return {
-        "model_id": "pegasus1.3",
+        "model_id": "pegasus1.2",
         "index_id": "test-index-456",
         "api_key": "test-api-key",
         "video_id": "test-video-789",
@@ -440,7 +440,7 @@ class TestTwelveLabsPegasusModel:
         """Test Pegasus model initialization with valid configuration."""
         model = TwelveLabsPegasusModel(**pegasus_model_config)
 
-        assert model.config["model_id"] == "pegasus1.3"
+        assert model.config["model_id"] == "pegasus1.2"
         assert model.config["index_id"] == "test-index-456"
         assert model.config["video_id"] == "test-video-789"
         assert model.config["temperature"] == 0.8
@@ -453,7 +453,7 @@ class TestTwelveLabsPegasusModel:
         with unittest.mock.patch("strands.models.twelvelabs.os.getenv", return_value="env-api-key"):
             model = TwelveLabsPegasusModel()
 
-        assert model.config["model_id"] == "pegasus1.3"
+        assert model.config["model_id"] == "pegasus1.2"
         assert model.config["temperature"] == 0.7
         assert model.config["engine_options"] == ["visual", "audio"]
         assert model._api_key == "env-api-key"
