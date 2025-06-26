@@ -118,6 +118,7 @@ from strands import Agent
 from strands.models import BedrockModel
 from strands.models.ollama import OllamaModel
 from strands.models.llamaapi import LlamaAPIModel
+from strands.models.portkey import PortkeyModel
 
 # Bedrock
 bedrock_model = BedrockModel(
@@ -141,6 +142,17 @@ llama_model = LlamaAPIModel(
     model_id="Llama-4-Maverick-17B-128E-Instruct-FP8",
 )
 agent = Agent(model=llama_model)
+response = agent("Tell me about Agentic AI")
+
+# Portkey for all models
+portkey_model = PortkeyModel(
+    api_key="<PORTKEY_API_KEY>",
+    model_id="anthropic.claude-3-5-sonnet-20241022-v2:0",
+    virtual_key="<BEDROCK_VIRTUAL_KEY>",
+    provider="bedrock",
+    base_url="http://portkey-service-gateway.service.prod.example.com/v1",
+)
+agent = Agent(model=portkey_model)
 response = agent("Tell me about Agentic AI")
 ```
 
