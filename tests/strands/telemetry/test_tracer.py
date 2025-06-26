@@ -5,6 +5,7 @@ from unittest import mock
 
 import pytest
 from opentelemetry.trace import (
+    SpanKind,
     StatusCode,  # type: ignore
 )
 
@@ -75,7 +76,7 @@ def test_start_span(mock_tracer):
 
         span = tracer._start_span("test_span", attributes={"key": "value"})
 
-        mock_tracer.start_span.assert_called_once_with(name="test_span", context=None)
+        mock_tracer.start_span.assert_called_once_with(name="test_span", context=None, kind=SpanKind.INTERNAL)
         mock_span.set_attribute.assert_any_call("key", "value")
         assert span is not None
 
@@ -151,6 +152,7 @@ def test_start_model_invoke_span(mock_tracer):
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "Model invoke"
+        assert mock_tracer.start_span.call_args[1]["kind"] == SpanKind.CLIENT
         mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
         mock_span.set_attribute.assert_any_call("agent.name", "TestAgent")
         mock_span.set_attribute.assert_any_call("gen_ai.request.model", model_id)

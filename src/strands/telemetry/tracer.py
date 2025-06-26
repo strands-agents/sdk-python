@@ -77,9 +77,6 @@ class Tracer:
 
     When the OTEL_EXPORTER_OTLP_ENDPOINT environment variable is set, traces
     are sent to the OTLP endpoint.
-
-    When the STRANDS_OTEL_ENABLE_CONSOLE_EXPORT environment variable is set,
-    traces are printed to the console.
     """
 
     def __init__(
@@ -103,6 +100,7 @@ class Tracer:
         span_name: str,
         parent_span: Optional[Span] = None,
         attributes: Optional[Dict[str, AttributeValue]] = None,
+        span_kind: trace_api.SpanKind = trace_api.SpanKind.INTERNAL,
     ) -> Optional[Span]:
         """Generic helper method to start a span with common attributes.
 
@@ -110,6 +108,7 @@ class Tracer:
             span_name: Name of the span to create
             parent_span: Optional parent span to link this span to
             attributes: Dictionary of attributes to set on the span
+            span_kind: enum of OptenTelemetry SpanKind
 
         Returns:
             The created span, or None if tracing is not enabled
@@ -118,7 +117,7 @@ class Tracer:
             return None
 
         context = trace_api.set_span_in_context(parent_span) if parent_span else None
-        span = self.tracer.start_span(name=span_name, context=context)
+        span = self.tracer.start_span(name=span_name, context=context, kind=span_kind)
 
         # Set start time as a common attribute
         span.set_attribute("gen_ai.event.start_time", datetime.now(timezone.utc).isoformat())
@@ -230,7 +229,7 @@ class Tracer:
         # Add additional kwargs as attributes
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
 
-        return self._start_span("Model invoke", parent_span, attributes)
+        return self._start_span("Model invoke", parent_span, attributes, span_kind=trace_api.SpanKind.CLIENT)
 
     def end_model_invoke_span(
         self, span: Span, message: Message, usage: Usage, error: Optional[Exception] = None
@@ -274,7 +273,7 @@ class Tracer:
         attributes.update(kwargs)
 
         span_name = f"Tool: {tool['name']}"
-        return self._start_span(span_name, parent_span, attributes)
+        return self._start_span(span_name, parent_span, attributes, span_kind=trace_api.SpanKind.INTERNAL)
 
     def end_tool_call_span(
         self, span: Span, tool_result: Optional[ToolResult], error: Optional[Exception] = None
@@ -335,7 +334,7 @@ class Tracer:
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
 
         span_name = f"Cycle {event_loop_cycle_id}"
-        return self._start_span(span_name, parent_span, attributes)
+        return self._start_span(span_name, parent_span, attributes, span_kind=trace_api.SpanKind.INTERNAL)
 
     def end_event_loop_cycle_span(
         self,
@@ -405,7 +404,7 @@ class Tracer:
         # Add additional kwargs as attributes
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
 
-        return self._start_span(agent_name, attributes=attributes)
+        return self._start_span(agent_name, attributes=attributes, span_kind=trace_api.SpanKind.CLIENT)
 
     def end_agent_span(
         self,
