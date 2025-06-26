@@ -2,9 +2,7 @@ import copy
 import importlib
 import os
 import textwrap
-import threading
 import unittest.mock
-from time import sleep
 
 import pytest
 from pydantic import BaseModel
@@ -914,27 +912,30 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle):
     agent = Agent()
 
     # Define the side effect to simulate callback handler being called multiple times
-    def call_callback_handler(*args, **kwargs):
-        # Extract the callback handler from kwargs
-        callback_handler = kwargs.get("callback_handler")
-        # Call the callback handler with different data values
-        callback_handler(data="First chunk")
-        callback_handler(data="Second chunk")
-        callback_handler(data="Final chunk", complete=True)
+    def test_event_loop(*args, **kwargs):
+        yield {"callback": {"data": "First chunk"}}
+        yield {"callback": {"data": "Second chunk"}}
+        yield {"callback": {"data": "Final chunk", "complete": True}}
+
         # Return expected values from event_loop_cycle
         yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
 
-    mock_event_loop_cycle.side_effect = call_callback_handler
+    mock_event_loop_cycle.side_effect = test_event_loop
+    mock_callback = unittest.mock.Mock()
 
-    iterator = agent.stream_async("test message")
-    actual_events = [e async for e in iterator]
+    iterator = agent.stream_async("test message", callback_handler=mock_callback)
 
-    assert actual_events == [
-        {"init_event_loop": True},
+    tru_events = [e async for e in iterator]
+    exp_events = [
+        {"init_event_loop": True, "callback_handler": mock_callback},
         {"data": "First chunk"},
         {"data": "Second chunk"},
         {"complete": True, "data": "Final chunk"},
     ]
+    assert tru_events == exp_events
+
+    exp_calls = [unittest.mock.call(**event) for event in exp_events]
+    mock_callback.assert_has_calls(exp_calls)
 
 
 @pytest.mark.asyncio
@@ -980,115 +981,6 @@ async def test_stream_async_raises_exceptions(mock_event_loop_cycle):
     await anext(iterator)
     with pytest.raises(ValueError, match="Test exception"):
         await anext(iterator)
-
-
-@pytest.mark.asyncio
-async def test_stream_async_can_be_invoked_twice(mock_event_loop_cycle):
-    """Test that run can be invoked twice with different agents."""
-    # Define different responses for the first and second invocations
-    exp_call_1 = [{"data": "First call - event 1"}, {"data": "First call - event 2", "complete": True}]
-    exp_call_2 = [{"data": "Second call - event 1"}, {"data": "Second call - event 2", "complete": True}]
-
-    # Set up the mock to handle two different calls
-    call_count = 0
-
-    def mock_event_loop_call(**kwargs):
-        nonlocal call_count
-        # Extract the callback handler from kwargs
-        callback_handler = kwargs.get("callback_handler")
-        events_to_use = exp_call_1 if call_count == 0 else exp_call_2
-        call_count += 1
-
-        for event in events_to_use:
-            callback_handler(**event)
-
-        # Return expected values from event_loop_cycle
-        yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
-
-    mock_event_loop_cycle.side_effect = mock_event_loop_call
-
-    agent1 = Agent()
-
-    iter_1 = agent1.stream_async("First prompt")
-    act_call_1 = [e async for e in iter_1]
-    assert act_call_1 == [{"init_event_loop": True}, *exp_call_1]
-
-    iter_2 = agent1.stream_async("Second prompt")
-    act_call_2 = [e async for e in iter_2]
-    assert act_call_2 == [{"init_event_loop": True}, *exp_call_2]
-
-    # Verify the mock was called twice
-    assert call_count == 2
-    assert mock_event_loop_cycle.call_count == 2
-
-    # Verify the correct arguments were passed to event_loop_cycle
-    # First call
-    args1, kwargs1 = mock_event_loop_cycle.call_args_list[0]
-    assert kwargs1.get("model") == agent1.model
-    assert kwargs1.get("system_prompt") == agent1.system_prompt
-    assert kwargs1.get("messages") == agent1.messages
-    assert kwargs1.get("tool_config") == agent1.tool_config
-    assert "callback_handler" in kwargs1
-
-    # Second call
-    args2, kwargs2 = mock_event_loop_cycle.call_args_list[1]
-    assert kwargs2.get("model") == agent1.model
-    assert kwargs2.get("system_prompt") == agent1.system_prompt
-    assert kwargs2.get("messages") == agent1.messages
-    assert kwargs2.get("tool_config") == agent1.tool_config
-    assert "callback_handler" in kwargs2
-
-
-@pytest.mark.asyncio
-async def test_run_non_blocking_behavior(mock_event_loop_cycle):
-    """Test that when one thread is blocked in run, other threads can continue execution."""
-
-    # This event will be used to signal when the first thread has started
-    unblock_background_thread = threading.Event()
-    is_blocked = False
-
-    # Define a side effect that blocks until explicitly allowed to continue
-    def blocking_call(**kwargs):
-        nonlocal is_blocked
-        # Extract the callback handler from kwargs
-        callback_handler = kwargs.get("callback_handler")
-        callback_handler(data="First event")
-        is_blocked = True
-        unblock_background_thread.wait(timeout=5.0)
-        is_blocked = False
-        callback_handler(data="Last event", complete=True)
-        # Return expected values from event_loop_cycle
-        yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
-
-    mock_event_loop_cycle.side_effect = blocking_call
-
-    # Create and start the background thread
-    agent = Agent()
-    iterator = agent.stream_async("This will block")
-
-    # Ensure it emits the first event
-    assert await anext(iterator) == {"init_event_loop": True}
-    assert await anext(iterator) == {"data": "First event"}
-
-    retry_count = 0
-    while not is_blocked and retry_count < 10:
-        sleep(1)
-        retry_count += 1
-    assert is_blocked
-
-    # Ensure it emits the next event
-    unblock_background_thread.set()
-    assert await anext(iterator) == {"data": "Last event", "complete": True}
-
-    retry_count = 0
-    while is_blocked and retry_count < 10:
-        sleep(1)
-        retry_count += 1
-    assert not is_blocked
-
-    # Ensure the iterator is exhausted
-    remaining = [it async for it in iterator]
-    assert len(remaining) == 0
 
 
 def test_agent_init_with_trace_attributes():
