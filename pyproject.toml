@@ -78,7 +78,7 @@ ollama = [
 openai = [
     "openai>=1.68.0,<2.0.0",
 ]
-palmyra = [
+writer = [
     "writer-sdk>=2.2.0"
 ]
 
@@ -87,7 +87,7 @@ palmyra = [
 source = "vcs"
 
 [tool.hatch.envs.hatch-static-analysis]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "palmyra"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "writer"]
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
   "ruff>=0.11.6,<0.12.0",
@@ -110,7 +110,7 @@ lint-fix = [
 ]
 
 [tool.hatch.envs.hatch-test]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "palmyra"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "writer"]
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
@@ -126,7 +126,7 @@ extra-args = [
 
 [tool.hatch.envs.dev]
 dev-mode = true
-features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "palmyra"]
+features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "writer"]
 
 
 

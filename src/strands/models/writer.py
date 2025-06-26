@@ -1,4 +1,4 @@
-"""Palmyra model provider.
+"""Writer model provider.
 
 - Docs: https://dev.writer.com/home/introduction
 """
@@ -19,11 +19,11 @@ from ..types.tools import ToolResult, ToolSpec, ToolUse
 logger = logging.getLogger(__name__)
 
 
-class PalmyraModel(Model):
-    """Palmyra API model provider implementation."""
+class WriterModel(Model):
+    """Writer API model provider implementation."""
 
-    class PalmyraConfig(TypedDict, total=False):
-        """Configuration options for Palmyra API.
+    class WriterConfig(TypedDict, total=False):
+        """Configuration options for Writer API.
 
         Attributes:
             model: Model name to use (e.g. palmyra-x5, palmyra-x4, etc.).
@@ -33,7 +33,6 @@ class PalmyraModel(Model):
             response_format: The response format to use for the chat completion.
             stop: Default stop sequences.
             stream_options: Additional options for streaming.
-            tool_choice: Functions calling mode.
             temperature: What sampling temperature to use.
             top_p: Threshold for 'nucleus sampling'
         """
@@ -47,14 +46,14 @@ class PalmyraModel(Model):
         temperature: Optional[float]
         top_p: Optional[float]
 
-    def __init__(self, client_args: Optional[dict[str, Any]] = None, **model_config: Unpack[PalmyraConfig]):
+    def __init__(self, client_args: Optional[dict[str, Any]] = None, **model_config: Unpack[WriterConfig]):
         """Initialize provider instance.
 
         Args:
-            client_args: Arguments for the Palmyra client (e.g., api_key, base_url, timeout, etc.).
-            **model_config: Configuration options for the Palmyra model.
+            client_args: Arguments for the Writer client (e.g., api_key, base_url, timeout, etc.).
+            **model_config: Configuration options for the Writer model.
         """
-        self.config = PalmyraModel.PalmyraConfig(**model_config)
+        self.config = WriterModel.WriterConfig(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
 
@@ -62,8 +61,8 @@ class PalmyraModel(Model):
         self.client = writerai.Client(**client_args)
 
     @override
-    def update_config(self, **model_config: Unpack[PalmyraConfig]) -> None:  # type: ignore[override]
-        """Update the Palmyra Model configuration with the provided arguments.
+    def update_config(self, **model_config: Unpack[WriterConfig]) -> None:  # type: ignore[override]
+        """Update the Writer Model configuration with the provided arguments.
 
         Args:
             **model_config: Configuration overrides.
@@ -71,17 +70,17 @@ class PalmyraModel(Model):
         self.config.update(model_config)
 
     @override
-    def get_config(self) -> PalmyraConfig:
-        """Get the Palmyra model configuration.
+    def get_config(self) -> WriterConfig:
+        """Get the Writer model configuration.
 
         Returns:
-            The Palmyra model configuration.
+            The Writer model configuration.
         """
         return self.config
 
     def _format_request_message_contents_vision(self, contents: list[ContentBlock]) -> list[dict[str, Any]]:
         def _format_content_vision(content: ContentBlock) -> dict[str, Any]:
-            """Format a Palmyra content block.
+            """Format a Writer content block.
 
             - NOTE: "reasoningContent", "video" and "image" are not supported currently.
 
@@ -89,10 +88,10 @@ class PalmyraModel(Model):
                 content: Message content.
 
             Returns:
-                Palmyra formatted content block for models, which support vision content format.
+                Writer formatted content block for models, which support vision content format.
 
             Raises:
-                TypeError: If the content block type cannot be converted to a Palmyra-compatible format.
+                TypeError: If the content block type cannot be converted to a Writer-compatible format.
             """
             if "text" in content:
                 return {"text": content["text"], "type": "text"}
@@ -107,7 +106,7 @@ class PalmyraModel(Model):
 
     def _format_request_message_contents(self, contents: list[ContentBlock]) -> str:
         def _format_content(content: ContentBlock) -> str:
-            """Format a Palmyra content block.
+            """Format a Writer content block.
 
             - NOTE: "reasoningContent", "video" and "image" are not supported currently.
 
@@ -115,10 +114,10 @@ class PalmyraModel(Model):
                 content: Message content.
 
             Returns:
-                Palmyra formatted content block.
+                Writer formatted content block.
 
             Raises:
-                TypeError: If the content block type cannot be converted to a Palmyra-compatible format.
+                TypeError: If the content block type cannot be converted to a Writer-compatible format.
             """
             if "text" in content:
                 return content["text"]
@@ -143,13 +142,13 @@ class PalmyraModel(Model):
             return ""
 
     def _format_request_message_tool_call(self, tool_use: ToolUse) -> dict[str, Any]:
-        """Format a Palmyra tool call.
+        """Format a Writer tool call.
 
         Args:
             tool_use: Tool use requested by the model.
 
         Returns:
-            Palmyra formatted tool call.
+            Writer formatted tool call.
         """
         return {
             "function": {
@@ -161,13 +160,13 @@ class PalmyraModel(Model):
         }
 
     def _format_request_tool_message(self, tool_result: ToolResult) -> dict[str, Any]:
-        """Format a Palmyra tool message.
+        """Format a Writer tool message.
 
         Args:
             tool_result: Tool result collected from a tool execution.
 
         Returns:
-            Palmyra formatted tool message.
+            Writer formatted tool message.
         """
         contents = cast(
             list[ContentBlock],
@@ -189,14 +188,14 @@ class PalmyraModel(Model):
         }
 
     def _format_request_messages(self, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
-        """Format a Palmyra compatible messages array.
+        """Format a Writer compatible messages array.
 
         Args:
             messages: List of message objects to be processed by the model.
             system_prompt: System prompt to provide context to the model.
 
         Returns:
-            Palmyra compatible messages array.
+            Writer compatible messages array.
         """
         formatted_messages: list[dict[str, Any]]
         formatted_messages = [{"role": "system", "content": system_prompt}] if system_prompt else []
@@ -251,7 +250,7 @@ class PalmyraModel(Model):
             "stream": True,
         }
 
-        # Palmyra don't support empty tools attribute
+        # Writer don't support empty tools attribute
         if tool_specs:
             request["tools"] = [
                 {

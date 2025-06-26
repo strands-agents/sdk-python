@@ -3,18 +3,18 @@ import unittest.mock
 import pytest
 
 import strands
-from strands.models.palmyra import PalmyraModel
+from strands.models.writer import WriterModel
 
 
 @pytest.fixture
-def palmyra_client_cls():
-    with unittest.mock.patch.object(strands.models.palmyra.writerai, "Client") as mock_client_cls:
+def writer_client_cls():
+    with unittest.mock.patch.object(strands.models.writer.writerai, "Client") as mock_client_cls:
         yield mock_client_cls
 
 
 @pytest.fixture
-def palmyra_client(palmyra_client_cls):
-    return palmyra_client_cls.return_value
+def writer_client(writer_client_cls):
+    return writer_client_cls.return_value
 
 
 @pytest.fixture
@@ -33,10 +33,10 @@ def stream_options():
 
 
 @pytest.fixture
-def model(palmyra_client, model_name, stream_options, client_args):
-    _ = palmyra_client
+def model(writer_client, model_name, stream_options, client_args):
+    _ = writer_client
 
-    return PalmyraModel(client_args, model=model_name, stream_options=stream_options)
+    return WriterModel(client_args, model=model_name, stream_options=stream_options)
 
 
 @pytest.fixture
@@ -49,15 +49,15 @@ def system_prompt():
     return "System prompt"
 
 
-def test__init__(palmyra_client_cls, model_name, stream_options, client_args):
-    model = PalmyraModel(client_args=client_args, model=model_name, stream_options=stream_options)
+def test__init__(writer_client_cls, model_name, stream_options, client_args):
+    model = WriterModel(client_args=client_args, model=model_name, stream_options=stream_options)
 
     config = model.get_config()
     exp_config = {"stream_options": stream_options, "model": model_name}
 
     assert config == exp_config
 
-    palmyra_client_cls.assert_called_once_with(api_key=client_args.get("api_key", ""))
+    writer_client_cls.assert_called_once_with(api_key=client_args.get("api_key", ""))
 
 
 def test_update_config(model):
@@ -226,7 +226,7 @@ def test_format_request_with_unsupported_type(model, content, content_type):
         model.format_request(messages)
 
 
-def test_stream(palmyra_client, model, model_name):
+def test_stream(writer_client, model, model_name):
     mock_tool_call_1_part_1 = unittest.mock.Mock(index=0)
     mock_tool_call_2_part_1 = unittest.mock.Mock(index=1)
     mock_delta_1 = unittest.mock.Mock(
@@ -246,7 +246,7 @@ def test_stream(palmyra_client, model, model_name):
     mock_event_3 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="tool_calls", delta=mock_delta_3)])
     mock_event_4 = unittest.mock.Mock()
 
-    palmyra_client.chat.chat.return_value = iter([mock_event_1, mock_event_2, mock_event_3, mock_event_4])
+    writer_client.chat.chat.return_value = iter([mock_event_1, mock_event_2, mock_event_3, mock_event_4])
 
     request = {
         "model": model_name,
@@ -272,10 +272,10 @@ def test_stream(palmyra_client, model, model_name):
     ]
 
     assert events == exp_events
-    palmyra_client.chat.chat(**request)
+    writer_client.chat.chat(**request)
 
 
-def test_stream_empty(palmyra_client, model, model_name):
+def test_stream_empty(writer_client, model, model_name):
     mock_delta = unittest.mock.Mock(content=None, tool_calls=None)
     mock_usage = unittest.mock.Mock(prompt_tokens=0, completion_tokens=0, total_tokens=0)
 
@@ -284,7 +284,7 @@ def test_stream_empty(palmyra_client, model, model_name):
     mock_event_3 = unittest.mock.Mock()
     mock_event_4 = unittest.mock.Mock(usage=mock_usage)
 
-    palmyra_client.chat.chat.return_value = iter([mock_event_1, mock_event_2, mock_event_3, mock_event_4])
+    writer_client.chat.chat.return_value = iter([mock_event_1, mock_event_2, mock_event_3, mock_event_4])
 
     request = {"model": model_name, "messages": [{"role": "user", "content": []}]}
     response = model.stream(request)
@@ -299,10 +299,10 @@ def test_stream_empty(palmyra_client, model, model_name):
     ]
 
     assert events == exp_events
-    palmyra_client.chat.chat.assert_called_once_with(**request)
+    writer_client.chat.chat.assert_called_once_with(**request)
 
 
-def test_stream_with_empty_choices(palmyra_client, model, model_name):
+def test_stream_with_empty_choices(writer_client, model, model_name):
     mock_delta = unittest.mock.Mock(content="content", tool_calls=None)
     mock_usage = unittest.mock.Mock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
 
@@ -312,7 +312,7 @@ def test_stream_with_empty_choices(palmyra_client, model, model_name):
     mock_event_4 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
     mock_event_5 = unittest.mock.Mock(usage=mock_usage)
 
-    palmyra_client.chat.chat.return_value = iter([mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5])
+    writer_client.chat.chat.return_value = iter([mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5])
 
     request = {"model": model_name, "messages": [{"role": "user", "content": ["test"]}]}
     response = model.stream(request)
@@ -329,4 +329,4 @@ def test_stream_with_empty_choices(palmyra_client, model, model_name):
     ]
 
     assert events == exp_events
-    palmyra_client.chat.chat.assert_called_once_with(**request)
+    writer_client.chat.chat.assert_called_once_with(**request)

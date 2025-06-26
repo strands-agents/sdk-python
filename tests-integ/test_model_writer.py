@@ -4,7 +4,7 @@ import pytest
 
 import strands
 from strands import Agent
-from strands.models.palmyra import PalmyraModel
+from strands.models.writer import WriterModel
 
 if not os.getenv("WRITER_API_KEY"):
     pytest.skip("WRITER_API_KEY environment variable missing", allow_module_level=True)
@@ -12,7 +12,7 @@ if not os.getenv("WRITER_API_KEY"):
 
 @pytest.fixture
 def model():
-    return PalmyraModel(
+    return WriterModel(
         model="palmyra-x5",
         client_args={"api_key": os.getenv("WRITER_API_KEY", "")},
         stream_options={"include_usage": True},
