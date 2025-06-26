@@ -107,6 +107,13 @@ def test_format_request_message_content(content, exp_result):
     assert tru_result == exp_result
 
 
+def test_format_request_message_content_unsupported_type():
+    content = {"unsupported": {}}
+
+    with pytest.raises(TypeError, match="content_type=<unsupported> | unsupported type"):
+        SAOpenAIModel.format_request_message_content(content)
+
+
 def test_format_request_message_tool_call():
     tool_use = {
         "input": {"expression": "2+2"},
