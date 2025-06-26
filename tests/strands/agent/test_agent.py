@@ -7,6 +7,7 @@ import unittest.mock
 from time import sleep
 
 import pytest
+from pydantic import BaseModel
 
 import strands
 from strands import Agent
@@ -361,7 +362,7 @@ def test_agent__call__passes_kwargs(mock_model, system_prompt, callback_handler,
         assert kwargs["agent"] == agent
 
         # Return expected values from event_loop_cycle
-        return "stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {}
+        yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
 
     mock_event_loop_cycle.side_effect = check_kwargs
 
@@ -601,6 +602,99 @@ def test_agent__call__invalid_tool_use_event_loop_exception(mock_model, agent, t
         agent("test message")
 
 
+def test_agent__call__callback(mock_model, agent, callback_handler):
+    mock_model.mock_converse.return_value = [
+        {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "test"}}}},
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"value"}'}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "value"}}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "value"}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "value"}}},
+        {"contentBlockStop": {}},
+    ]
+
+    agent("test")
+
+    callback_handler.assert_has_calls(
+        [
+            unittest.mock.call(init_event_loop=True),
+            unittest.mock.call(start=True),
+            unittest.mock.call(start_event_loop=True),
+            unittest.mock.call(
+                event={"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "test"}}}}
+            ),
+            unittest.mock.call(event={"contentBlockDelta": {"delta": {"toolUse": {"input": '{"value"}'}}}}),
+            unittest.mock.call(
+                agent=agent,
+                current_tool_use={"toolUseId": "123", "name": "test", "input": {}},
+                delta={"toolUse": {"input": '{"value"}'}},
+                event_loop_cycle_id=unittest.mock.ANY,
+                event_loop_cycle_span=None,
+                event_loop_cycle_trace=unittest.mock.ANY,
+                event_loop_metrics=unittest.mock.ANY,
+                event_loop_parent_span=None,
+                request_state={},
+            ),
+            unittest.mock.call(event={"contentBlockStop": {}}),
+            unittest.mock.call(event={"contentBlockStart": {"start": {}}}),
+            unittest.mock.call(event={"contentBlockDelta": {"delta": {"reasoningContent": {"text": "value"}}}}),
+            unittest.mock.call(
+                agent=agent,
+                delta={"reasoningContent": {"text": "value"}},
+                event_loop_cycle_id=unittest.mock.ANY,
+                event_loop_cycle_span=None,
+                event_loop_cycle_trace=unittest.mock.ANY,
+                event_loop_metrics=unittest.mock.ANY,
+                event_loop_parent_span=None,
+                reasoning=True,
+                reasoningText="value",
+                request_state={},
+            ),
+            unittest.mock.call(event={"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "value"}}}}),
+            unittest.mock.call(
+                agent=agent,
+                delta={"reasoningContent": {"signature": "value"}},
+                event_loop_cycle_id=unittest.mock.ANY,
+                event_loop_cycle_span=None,
+                event_loop_cycle_trace=unittest.mock.ANY,
+                event_loop_metrics=unittest.mock.ANY,
+                event_loop_parent_span=None,
+                reasoning=True,
+                reasoning_signature="value",
+                request_state={},
+            ),
+            unittest.mock.call(event={"contentBlockStop": {}}),
+            unittest.mock.call(event={"contentBlockStart": {"start": {}}}),
+            unittest.mock.call(event={"contentBlockDelta": {"delta": {"text": "value"}}}),
+            unittest.mock.call(
+                agent=agent,
+                data="value",
+                delta={"text": "value"},
+                event_loop_cycle_id=unittest.mock.ANY,
+                event_loop_cycle_span=None,
+                event_loop_cycle_trace=unittest.mock.ANY,
+                event_loop_metrics=unittest.mock.ANY,
+                event_loop_parent_span=None,
+                request_state={},
+            ),
+            unittest.mock.call(event={"contentBlockStop": {}}),
+            unittest.mock.call(
+                message={
+                    "role": "assistant",
+                    "content": [
+                        {"toolUse": {"toolUseId": "123", "name": "test", "input": {}}},
+                        {"reasoningContent": {"reasoningText": {"text": "value", "signature": "value"}}},
+                        {"text": "value"},
+                    ],
+                },
+            ),
+        ],
+    )
+
+
 def test_agent_tool(mock_randint, agent):
     conversation_manager_spy = unittest.mock.Mock(wraps=agent.conversation_manager)
     agent.conversation_manager = conversation_manager_spy
@@ -686,8 +780,7 @@ def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint):
     def function(system_prompt: str) -> str:
         return system_prompt
 
-    tool = strands.tools.tools.FunctionTool(function, tool_name="system_prompter")
-    agent.tool_registry.register_tool(tool)
+    agent.tool_registry.register_tool(function)
 
     mock_randint.return_value = 1
 
@@ -793,6 +886,29 @@ def test_agent_callback_handler_custom_handler_used():
     assert agent.callback_handler is custom_handler
 
 
+# mock the User(name='Jane Doe', age=30, email='jane@doe.com')
+class User(BaseModel):
+    """A user of the system."""
+
+    name: str
+    age: int
+    email: str
+
+
+def test_agent_method_structured_output(agent):
+    # Mock the structured_output method on the model
+    expected_user = User(name="Jane Doe", age=30, email="jane@doe.com")
+    agent.model.structured_output = unittest.mock.Mock(return_value=[{"output": expected_user}])
+
+    prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
+
+    result = agent.structured_output(User, prompt)
+    assert result == expected_user
+
+    # Verify the model's structured_output was called with correct arguments
+    agent.model.structured_output.assert_called_once_with(User, [{"role": "user", "content": [{"text": prompt}]}])
+
+
 @pytest.mark.asyncio
 async def test_stream_async_returns_all_events(mock_event_loop_cycle):
     agent = Agent()
@@ -806,7 +922,7 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle):
         callback_handler(data="Second chunk")
         callback_handler(data="Final chunk", complete=True)
         # Return expected values from event_loop_cycle
-        return "stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {}
+        yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
 
     mock_event_loop_cycle.side_effect = call_callback_handler
 
@@ -843,7 +959,7 @@ async def test_stream_async_passes_kwargs(agent, mock_model, mock_event_loop_cyc
         assert some_value == "a_value"
         assert kwargs is not None
         # Return expected values from event_loop_cycle
-        return "stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {}
+        yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
 
     mock_event_loop_cycle.side_effect = check_kwargs
 
@@ -887,7 +1003,7 @@ async def test_stream_async_can_be_invoked_twice(mock_event_loop_cycle):
             callback_handler(**event)
 
         # Return expected values from event_loop_cycle
-        return "stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {}
+        yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
 
     mock_event_loop_cycle.side_effect = mock_event_loop_call
 
@@ -942,7 +1058,7 @@ async def test_run_non_blocking_behavior(mock_event_loop_cycle):
         is_blocked = False
         callback_handler(data="Last event", complete=True)
         # Return expected values from event_loop_cycle
-        return "stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {}
+        yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
 
     mock_event_loop_cycle.side_effect = blocking_call
 
@@ -1077,7 +1193,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
         callback_handler(data="Second chunk")
         callback_handler(data="Final chunk", complete=True)
         # Return expected values from event_loop_cycle
-        return "stop", {"role": "assistant", "content": [{"text": "Agent Response"}]}, {}, {}
+        yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Agent Response"}]}, {}, {})}
 
     mock_event_loop_cycle.side_effect = call_callback_handler
 
@@ -1183,7 +1299,9 @@ def test_event_loop_cycle_includes_parent_span(mock_get_tracer, mock_event_loop_
     mock_get_tracer.return_value = mock_tracer
 
     # Setup mock for event_loop_cycle
-    mock_event_loop_cycle.return_value = ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
+    mock_event_loop_cycle.return_value = [
+        {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
+    ]
 
     # Create agent and make a call
     agent = Agent(model=mock_model)

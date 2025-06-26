@@ -1,5 +1,6 @@
 import unittest.mock
 
+import pydantic
 import pytest
 
 import strands
@@ -37,6 +38,15 @@ def messages():
 @pytest.fixture
 def system_prompt():
     return "s1"
+
+
+@pytest.fixture
+def test_output_model_cls():
+    class TestOutputModel(pydantic.BaseModel):
+        name: str
+        age: int
+
+    return TestOutputModel
 
 
 def test__init__(litellm_client_cls, model_id):
@@ -102,4 +112,23 @@ def test_update_config(model, model_id):
 )
 def test_format_request_message_content(content, exp_result):
     tru_result = LiteLLMModel.format_request_message_content(content)
+    assert tru_result == exp_result
+
+
+def test_structured_output(litellm_client, model, test_output_model_cls):
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+
+    mock_choice = unittest.mock.Mock()
+    mock_choice.finish_reason = "tool_calls"
+    mock_choice.message.content = '{"name": "John", "age": 30}'
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+
+    litellm_client.chat.completions.create.return_value = mock_response
+
+    with unittest.mock.patch.object(strands.models.litellm, "supports_response_schema", return_value=True):
+        stream = model.structured_output(test_output_model_cls, messages)
+        tru_result = list(stream)[-1]
+
+    exp_result = {"output": test_output_model_cls(name="John", age=30)}
     assert tru_result == exp_result

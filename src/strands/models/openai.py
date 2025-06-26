@@ -4,14 +4,19 @@
 """
 
 import logging
-from typing import Any, Iterable, Optional, Protocol, TypedDict, cast
+from typing import Any, Generator, Iterable, Optional, Protocol, Type, TypedDict, TypeVar, Union, cast
 
 import openai
+from openai.types.chat.parsed_chat_completion import ParsedChatCompletion
+from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
+from ..types.content import Messages
 from ..types.models import OpenAIModel as SAOpenAIModel
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class Client(Protocol):
@@ -125,3 +130,37 @@ class OpenAIModel(SAOpenAIModel):
             _ = event
 
         yield {"chunk_type": "metadata", "data": event.usage}
+
+    @override
+    def structured_output(
+        self, output_model: Type[T], prompt: Messages
+    ) -> Generator[dict[str, Union[T, Any]], None, None]:
+        """Get structured output from the model.
+
+        Args:
+            output_model(Type[BaseModel]): The output model to use for the agent.
+            prompt(Messages): The prompt messages to use for the agent.
+
+        Yields:
+            Model events with the last being the structured output.
+        """
+        response: ParsedChatCompletion = self.client.beta.chat.completions.parse(  # type: ignore
+            model=self.get_config()["model_id"],
+            messages=super().format_request(prompt)["messages"],
+            response_format=output_model,
+        )
+
+        parsed: T | None = None
+        # Find the first choice with tool_calls
+        if len(response.choices) > 1:
+            raise ValueError("Multiple choices found in the OpenAI response.")
+
+        for choice in response.choices:
+            if isinstance(choice.message.parsed, output_model):
+                parsed = choice.message.parsed
+                break
+
+        if parsed:
+            yield {"output": parsed}
+        else:
+            raise ValueError("No valid tool use or tool use input was found in the OpenAI response.")

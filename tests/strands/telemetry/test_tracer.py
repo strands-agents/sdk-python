@@ -58,7 +58,10 @@ def mock_set_tracer_provider():
 
 @pytest.fixture
 def mock_otlp_exporter():
-    with mock.patch("strands.telemetry.tracer.OTLPSpanExporter") as mock_exporter:
+    with (
+        mock.patch("strands.telemetry.tracer.HAS_OTEL_EXPORTER_MODULE", True),
+        mock.patch("opentelemetry.exporter.otlp.proto.http.trace_exporter.OTLPSpanExporter") as mock_exporter,
+    ):
         yield mock_exporter
 
 
@@ -70,7 +73,9 @@ def mock_console_exporter():
 
 @pytest.fixture
 def mock_resource():
-    with mock.patch("strands.telemetry.tracer.Resource") as mock_resource:
+    with mock.patch("strands.telemetry.tracer.get_otel_resource") as mock_resource:
+        mock_resource_instance = mock.MagicMock()
+        mock_resource.return_value = mock_resource_instance
         yield mock_resource
 
 
@@ -172,14 +177,12 @@ def test_initialize_tracer_with_console(
 ):
     """Test initializing the tracer with console exporter."""
     mock_is_initialized.return_value = False
-    mock_resource_instance = mock.MagicMock()
-    mock_resource.create.return_value = mock_resource_instance
 
     # Initialize Tracer
     Tracer(enable_console_export=True)
 
     # Verify the tracer provider was created with correct resource
-    mock_tracer_provider.assert_called_once_with(resource=mock_resource_instance)
+    mock_tracer_provider.assert_called_once_with(resource=mock_resource.return_value)
 
     # Verify console exporter was added
     mock_console_exporter.assert_called_once()
@@ -195,14 +198,15 @@ def test_initialize_tracer_with_otlp(
     """Test initializing the tracer with OTLP exporter."""
     mock_is_initialized.return_value = False
 
-    mock_resource_instance = mock.MagicMock()
-    mock_resource.create.return_value = mock_resource_instance
-
     # Initialize Tracer
-    Tracer(otlp_endpoint="http://test-endpoint")
+    with (
+        mock.patch("strands.telemetry.tracer.HAS_OTEL_EXPORTER_MODULE", True),
+        mock.patch("strands.telemetry.tracer.OTLPSpanExporter", mock_otlp_exporter),
+    ):
+        Tracer(otlp_endpoint="http://test-endpoint")
 
     # Verify the tracer provider was created with correct resource
-    mock_tracer_provider.assert_called_once_with(resource=mock_resource_instance)
+    mock_tracer_provider.assert_called_once_with(resource=mock_resource.return_value)
 
     # Verify OTLP exporter was added with correct endpoint
     mock_otlp_exporter.assert_called_once()
@@ -501,17 +505,19 @@ def test_initialize_tracer_with_invalid_otlp_endpoint(
     """Test initializing the tracer with an invalid OTLP endpoint."""
     mock_is_initialized.return_value = False
 
-    mock_resource_instance = mock.MagicMock()
-    mock_resource.create.return_value = mock_resource_instance
     mock_otlp_exporter.side_effect = Exception("Connection error")
 
     # This should not raise an exception, but should log an error
 
     # Initialize Tracer
-    Tracer(otlp_endpoint="http://invalid-endpoint")
+    with (
+        mock.patch("strands.telemetry.tracer.HAS_OTEL_EXPORTER_MODULE", True),
+        mock.patch("strands.telemetry.tracer.OTLPSpanExporter", mock_otlp_exporter),
+    ):
+        Tracer(otlp_endpoint="http://invalid-endpoint")
 
     # Verify the tracer provider was created with correct resource
-    mock_tracer_provider.assert_called_once_with(resource=mock_resource_instance)
+    mock_tracer_provider.assert_called_once_with(resource=mock_resource.return_value)
 
     # Verify OTLP exporter was attempted
     mock_otlp_exporter.assert_called_once()
@@ -520,7 +526,31 @@ def test_initialize_tracer_with_invalid_otlp_endpoint(
     mock_set_tracer_provider.assert_called_once_with(mock_tracer_provider.return_value)
 
 
-def test_initialize_tracer_with_custom_tracer_provider(mock_get_tracer_provider, mock_resource):
+def test_initialize_tracer_with_missing_module(
+    mock_is_initialized, mock_tracer_provider, mock_set_tracer_provider, mock_resource
+):
+    """Test initializing the tracer when the OTLP exporter module is missing."""
+    mock_is_initialized.return_value = False
+
+    # Initialize Tracer with OTLP endpoint but missing module
+    with (
+        mock.patch("strands.telemetry.tracer.HAS_OTEL_EXPORTER_MODULE", False),
+        pytest.raises(ModuleNotFoundError) as excinfo,
+    ):
+        Tracer(otlp_endpoint="http://test-endpoint")
+
+    # Verify the error message
+    assert "opentelemetry-exporter-otlp-proto-http not detected" in str(excinfo.value)
+    assert "otel http exporting is currently DISABLED" in str(excinfo.value)
+
+    # Verify the tracer provider was created with correct resource
+    mock_tracer_provider.assert_called_once_with(resource=mock_resource.return_value)
+
+    # Verify set_tracer_provider was not called since an exception was raised
+    mock_set_tracer_provider.assert_not_called()
+
+
+def test_initialize_tracer_with_custom_tracer_provider(mock_is_initialized, mock_get_tracer_provider, mock_resource):
     """Test initializing the tracer with NoOpTracerProvider."""
     mock_is_initialized.return_value = True
     tracer = Tracer(otlp_endpoint="http://invalid-endpoint")

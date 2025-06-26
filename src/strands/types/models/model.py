@@ -2,13 +2,17 @@
 
 import abc
 import logging
-from typing import Any, Iterable, Optional
+from typing import Any, Generator, Iterable, Optional, Type, TypeVar, Union
+
+from pydantic import BaseModel
 
 from ..content import Messages
 from ..streaming import StreamEvent
 from ..tools import ToolSpec
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class Model(abc.ABC):
@@ -35,6 +39,25 @@ class Model(abc.ABC):
 
         Returns:
             The model's configuration.
+        """
+        pass
+
+    @abc.abstractmethod
+    # pragma: no cover
+    def structured_output(
+        self, output_model: Type[T], prompt: Messages
+    ) -> Generator[dict[str, Union[T, Any]], None, None]:
+        """Get structured output from the model.
+
+        Args:
+            output_model(Type[BaseModel]): The output model to use for the agent.
+            prompt(Messages): The prompt messages to use for the agent.
+
+        Yields:
+            Model events with the last being the structured output.
+
+        Raises:
+            ValidationException: The response format from the model does not match the output_model
         """
         pass
 

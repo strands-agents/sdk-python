@@ -7,11 +7,14 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Iterable, Optional, TypedDict, cast
+from typing import Any, Generator, Iterable, Optional, Type, TypedDict, TypeVar, Union, cast
 
 import anthropic
+from pydantic import BaseModel
 from typing_extensions import Required, Unpack, override
 
+from ..event_loop.streaming import process_stream
+from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.models import Model
@@ -19,6 +22,8 @@ from ..types.streaming import StreamEvent
 from ..types.tools import ToolSpec
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class AnthropicModel(Model):
@@ -356,10 +361,10 @@ class AnthropicModel(Model):
             with self.client.messages.stream(**request) as stream:
                 for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
-                        yield event.dict()
+                        yield event.model_dump()
 
                 usage = event.message.usage  # type: ignore
-                yield {"type": "metadata", "usage": usage.dict()}
+                yield {"type": "metadata", "usage": usage.model_dump()}
 
         except anthropic.RateLimitError as error:
             raise ModelThrottledException(str(error)) from error
@@ -369,3 +374,42 @@ class AnthropicModel(Model):
                 raise ContextWindowOverflowException(str(error)) from error
 
             raise error
+
+    @override
+    def structured_output(
+        self, output_model: Type[T], prompt: Messages
+    ) -> Generator[dict[str, Union[T, Any]], None, None]:
+        """Get structured output from the model.
+
+        Args:
+            output_model(Type[BaseModel]): The output model to use for the agent.
+            prompt(Messages): The prompt messages to use for the agent.
+
+        Yields:
+            Model events with the last being the structured output.
+        """
+        tool_spec = convert_pydantic_to_tool_spec(output_model)
+
+        response = self.converse(messages=prompt, tool_specs=[tool_spec])
+        for event in process_stream(response, prompt):
+            yield event
+
+        stop_reason, messages, _, _ = event["stop"]
+
+        if stop_reason != "tool_use":
+            raise ValueError("No valid tool use or tool use input was found in the Anthropic response.")
+
+        content = messages["content"]
+        output_response: dict[str, Any] | None = None
+        for block in content:
+            # if the tool use name doesn't match the tool spec name, skip, and if the block is not a tool use, skip.
+            # if the tool use name never matches, raise an error.
+            if block.get("toolUse") and block["toolUse"]["name"] == tool_spec["name"]:
+                output_response = block["toolUse"]["input"]
+            else:
+                continue
+
+        if output_response is None:
+            raise ValueError("No valid tool use or tool use input was found in the Anthropic response.")
+
+        yield {"output": output_model(**output_response)}
