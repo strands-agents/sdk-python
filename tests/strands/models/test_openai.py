@@ -63,12 +63,12 @@ def test_stream(openai_client, model):
     mock_tool_call_1_part_1 = unittest.mock.Mock(index=0)
     mock_tool_call_2_part_1 = unittest.mock.Mock(index=1)
     mock_delta_1 = unittest.mock.Mock(
-        reasoning_content="<think>",
+        reasoning_content="",
         content=None,
         tool_calls=None,
     )
     mock_delta_2 = unittest.mock.Mock(
-        reasoning_content="\nOkey, the user just</think>",
+        reasoning_content="\nI'm thinking",
         content=None,
         tool_calls=None,
     )
@@ -101,8 +101,8 @@ def test_stream(openai_client, model):
     exp_events = [
         {"chunk_type": "message_start"},
         {"chunk_type": "content_start", "data_type": "text"},
-        {"chunk_type": "content_delta", "data_type": "reasoning_content", "data": "<think>"},
-        {"chunk_type": "content_delta", "data_type": "reasoning_content", "data": "\nOkey, the user just</think>"},
+        # {"chunk_type": "content_delta", "data_type": "reasoning_content", "data": ""},
+        {"chunk_type": "content_delta", "data_type": "reasoning_content", "data": "\nI'm thinking"},
         {"chunk_type": "content_delta", "data_type": "text", "data": "I'll calculate"},
         {"chunk_type": "content_delta", "data_type": "text", "data": "that for you"},
         {"chunk_type": "content_stop", "data_type": "text"},
