@@ -46,6 +46,15 @@ class AgentSessionManager(SessionManager):
 
         session_message = SessionMessage.from_dict(dict(message))
         self.session_dao.create_message(self.session_id, agent.id, session_message)
+        self.session_dao.update_agent(
+            self.session_id,
+            SessionAgent(
+                agent_id=agent.id,
+                session_id=self.session_id,
+                event_loop_metrics=agent.event_loop_metrics.to_dict(),
+                state=agent.state.get(),
+            ),
+        )
 
     def initialize_agent(self, agent: "Agent") -> None:
         """Restore agent data from the current session.
@@ -81,7 +90,12 @@ class AgentSessionManager(SessionManager):
             logger.debug("Session not found, creating new session")
             # Session doesn't exist, create new one
             session = Session(session_id=self.session_id, session_type=SessionType.AGENT)
-            session_agent = SessionAgent(agent_id=agent.id, session_id=self.session_id, state=agent.state.get())
+            session_agent = SessionAgent(
+                agent_id=agent.id,
+                session_id=self.session_id,
+                event_loop_metrics=agent.event_loop_metrics.to_dict(),
+                state=agent.state.get(),
+            )
             self.session_dao.create_session(session)
             self.session_dao.create_agent(self.session_id, session_agent)
             for message in agent.messages:

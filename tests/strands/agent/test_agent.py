@@ -690,6 +690,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler):
                         {"text": "value"},
                     ],
                 },
+                agent=agent,
             ),
         ],
     )

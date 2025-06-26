@@ -49,7 +49,8 @@ class SessionAgent:
 
     agent_id: str
     session_id: str
-    state: Dict[str, Any] = field(default_factory=dict)
+    event_loop_metrics: dict[str, Any]
+    state: dict[str, Any] = field(default_factory=dict)
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 

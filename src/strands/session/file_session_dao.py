@@ -11,6 +11,10 @@ from .exceptions import SessionException
 from .session_dao import SessionDAO
 from .session_models import Session, SessionAgent, SessionMessage
 
+SESSION_PREFIX = "session_"
+AGENT_PREFIX = "agent_"
+MESSAGE_PREFIX = "message_"
+
 
 class FileSessionDAO(SessionDAO):
     """File-based session DAO for local filesystem storage."""
@@ -26,17 +30,17 @@ class FileSessionDAO(SessionDAO):
 
     def _get_session_path(self, session_id: str) -> str:
         """Get session directory path."""
-        return os.path.join(self.storage_dir, f"session_{session_id}")
+        return os.path.join(self.storage_dir, f"{SESSION_PREFIX}{session_id}")
 
     def _get_agent_path(self, session_id: str, agent_id: str) -> str:
         """Get agent directory path."""
         session_path = self._get_session_path(session_id)
-        return os.path.join(session_path, "agents", f"agent_{agent_id}")
+        return os.path.join(session_path, "agents", f"{AGENT_PREFIX}{agent_id}")
 
     def _get_message_path(self, session_id: str, agent_id: str, message_id: str) -> str:
         """Get message file path."""
         agent_path = self._get_agent_path(session_id, agent_id)
-        return os.path.join(agent_path, "messages", f"message_{message_id}.json")
+        return os.path.join(agent_path, "messages", f"{MESSAGE_PREFIX}{message_id}.json")
 
     def _read_file(self, path: str) -> Dict[str, Any]:
         """Read JSON file."""
@@ -97,13 +101,9 @@ class FileSessionDAO(SessionDAO):
 
         sessions = []
         for item in os.listdir(self.storage_dir):
-            if item.startswith("session_") and os.path.isdir(os.path.join(self.storage_dir, item)):
-                session_id = item[8:]  # Remove "session_" prefix
-                try:
-                    sessions.append(self.read_session(session_id))
-                except SessionException:
-                    # Skip corrupted sessions
-                    continue
+            if item.startswith(SESSION_PREFIX) and os.path.isdir(os.path.join(self.storage_dir, item)):
+                session_id = item[len(SESSION_PREFIX) :]  # Remove "session_" prefix
+                sessions.append(self.read_session(session_id))
 
         return sessions
 
@@ -159,13 +159,9 @@ class FileSessionDAO(SessionDAO):
 
         agents = []
         for item in os.listdir(agents_dir):
-            if item.startswith("agent_") and os.path.isdir(os.path.join(agents_dir, item)):
-                agent_id = item[6:]  # Remove "agent_" prefix
-                try:
-                    agents.append(self.read_agent(session_id, agent_id))
-                except SessionException:
-                    # Skip corrupted agents
-                    continue
+            if item.startswith(AGENT_PREFIX) and os.path.isdir(os.path.join(agents_dir, item)):
+                agent_id = item[len(AGENT_PREFIX) :]  # Remove "agent_" prefix
+                agents.append(self.read_agent(session_id, agent_id))
 
         return agents
 
@@ -211,7 +207,7 @@ class FileSessionDAO(SessionDAO):
         # Get all message files and sort by creation time (newest first)
         message_files = []
         for filename in os.listdir(messages_dir):
-            if filename.startswith("message_") and filename.endswith(".json"):
+            if filename.startswith(MESSAGE_PREFIX) and filename.endswith(".json"):
                 file_path = os.path.join(messages_dir, filename)
                 message_files.append((file_path, os.path.getctime(file_path)))
 
@@ -227,11 +223,7 @@ class FileSessionDAO(SessionDAO):
         # Read message data
         messages: List[SessionMessage] = []
         for file_path, _ in message_files:
-            try:
-                message_data = self._read_file(file_path)
-                messages.append(SessionMessage.from_dict(message_data))
-            except SessionException:
-                # Skip corrupted files
-                continue
+            message_data = self._read_file(file_path)
+            messages.append(SessionMessage.from_dict(message_data))
 
         return messages

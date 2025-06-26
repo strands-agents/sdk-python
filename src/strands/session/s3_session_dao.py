@@ -11,6 +11,10 @@ from .exceptions import SessionException
 from .session_dao import SessionDAO
 from .session_models import Session, SessionAgent, SessionMessage
 
+SESSION_PREFIX = "session_"
+AGENT_PREFIX = "agent_"
+MESSAGE_PREFIX = "message_"
+
 
 class S3SessionDAO(SessionDAO):
     """S3-based session DAO for cloud storage."""
@@ -53,17 +57,17 @@ class S3SessionDAO(SessionDAO):
 
     def _get_session_path(self, session_id: str) -> str:
         """Get session S3 prefix."""
-        return f"{self.prefix}session_{session_id}/"
+        return f"{self.prefix}{SESSION_PREFIX}{session_id}/"
 
     def _get_agent_path(self, session_id: str, agent_id: str) -> str:
         """Get agent S3 prefix."""
         session_path = self._get_session_path(session_id)
-        return f"{session_path}agents/agent_{agent_id}/"
+        return f"{session_path}agents/{AGENT_PREFIX}{agent_id}/"
 
     def _get_message_path(self, session_id: str, agent_id: str, message_id: str) -> str:
         """Get message S3 key."""
         agent_path = self._get_agent_path(session_id, agent_id)
-        return f"{agent_path}messages/message_{message_id}.json"
+        return f"{agent_path}messages/{MESSAGE_PREFIX}{message_id}.json"
 
     def _read_s3_object(self, key: str) -> Dict[str, Any]:
         """Read JSON object from S3."""
@@ -134,13 +138,9 @@ class S3SessionDAO(SessionDAO):
                         prefix = prefix_info["Prefix"]
                         # Extract session ID from prefix like "session_123/"
                         session_part = prefix.rstrip("/").split("/")[-1]
-                        if session_part.startswith("session_"):
-                            session_id = session_part[8:]  # Remove "session_" prefix
-                            try:
-                                sessions.append(self.read_session(session_id))
-                            except SessionException:
-                                # Skip corrupted sessions
-                                continue
+                        if session_part.startswith(SESSION_PREFIX):
+                            session_id = session_part[len(SESSION_PREFIX) :]  # Remove "session_" prefix
+                            sessions.append(self.read_session(session_id))
 
             return sessions
 
@@ -227,13 +227,9 @@ class S3SessionDAO(SessionDAO):
                         prefix = prefix_info["Prefix"]
                         # Extract agent ID from prefix like "agents/agent_123/"
                         agent_part = prefix.split("/")[-2]  # Get "agent_123"
-                        if agent_part.startswith("agent_"):
-                            agent_id = agent_part[6:]  # Remove "agent_" prefix
-                            try:
-                                agents.append(self.read_agent(session_id, agent_id))
-                            except SessionException:
-                                # Skip corrupted agents
-                                continue
+                        if agent_part.startswith(AGENT_PREFIX):
+                            agent_id = agent_part[len(AGENT_PREFIX) :]  # Remove "agent_" prefix
+                            agents.append(self.read_agent(session_id, agent_id))
 
             return agents
 
@@ -305,12 +301,8 @@ class S3SessionDAO(SessionDAO):
             # Read message data
             messages: List[SessionMessage] = []
             for key, _ in message_objects:
-                try:
-                    message_data = self._read_s3_object(key)
-                    messages.append(SessionMessage.from_dict(message_data))
-                except SessionException:
-                    # Skip corrupted objects
-                    continue
+                message_data = self._read_s3_object(key)
+                messages.append(SessionMessage.from_dict(message_data))
 
             return messages
 

@@ -181,7 +181,10 @@ def event_loop_cycle(
 
         # Add the response message to the conversation
         messages.append(message)
-        yield {"callback": {"message": message, "agent": kwargs["agent"]}}
+        callback_data = {"message": message}
+        if "agent" in kwargs:
+            callback_data["agent"] = kwargs["agent"]
+        yield {"callback": callback_data}
 
         # Update metrics
         event_loop_metrics.update_usage(usage)
@@ -374,7 +377,10 @@ def _handle_tool_execution(
     }
 
     messages.append(tool_result_message)
-    yield {"callback": {"message": tool_result_message, "agent": kwargs["agent"]}}
+    callback_data = {"message": tool_result_message}
+    if "agent" in kwargs:
+        callback_data["agent"] = kwargs["agent"]
+    yield {"callback": callback_data}
 
     if cycle_span:
         tracer = get_tracer()
