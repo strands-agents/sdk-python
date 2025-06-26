@@ -18,7 +18,7 @@ from ..telemetry.metrics import EventLoopMetrics, Trace
 from ..telemetry.tracer import get_tracer
 from ..tools.executor import run_tools, validate_and_prepare_tools
 from ..types.content import Message, Messages
-from ..types.event_loop import ParallelToolExecutorInterface
+from ..types.event_loop import EventLoopConfig, ParallelToolExecutorInterface
 from ..types.exceptions import ContextWindowOverflowException, EventLoopException, ModelThrottledException
 from ..types.models import Model
 from ..types.streaming import Metrics, StopReason
@@ -27,10 +27,6 @@ from .message_processor import clean_orphaned_empty_tool_uses
 from .streaming import stream_messages
 
 logger = logging.getLogger(__name__)
-
-MAX_ATTEMPTS = 6
-INITIAL_DELAY = 4
-MAX_DELAY = 240  # 4 minutes
 
 
 def event_loop_cycle(
@@ -41,6 +37,7 @@ def event_loop_cycle(
     callback_handler: Callable[..., Any],
     tool_handler: Optional[ToolHandler],
     tool_execution_handler: Optional[ParallelToolExecutorInterface] = None,
+    event_loop_config: Optional[EventLoopConfig] = None,
     **kwargs: Any,
 ) -> Generator[dict[str, Any], None, None]:
     """Execute a single cycle of the event loop.
@@ -64,6 +61,7 @@ def event_loop_cycle(
         callback_handler: Callback for processing events as they happen.
         tool_handler: Handler for executing tools.
         tool_execution_handler: Optional handler for parallel tool execution.
+        event_loop_config: Configuration for the event loop behavior.
         **kwargs: Additional arguments including:
 
             - event_loop_metrics: Metrics tracking object
@@ -119,9 +117,15 @@ def event_loop_cycle(
     usage: Any
     metrics: Metrics
 
+    # Get event loop configuration or use defaults
+    config = event_loop_config or EventLoopConfig()
+    max_attempts = config.max_attempts
+    initial_delay = config.initial_delay
+    max_delay = config.max_delay
+
     # Retry loop for handling throttling exceptions
-    current_delay = INITIAL_DELAY
-    for attempt in range(MAX_ATTEMPTS):
+    current_delay = initial_delay
+    for attempt in range(max_attempts):
         model_id = model.config.get("model_id") if hasattr(model, "config") else None
         model_invoke_span = tracer.start_model_invoke_span(
             parent_span=cycle_span,
@@ -152,7 +156,7 @@ def event_loop_cycle(
             if model_invoke_span:
                 tracer.end_span_with_error(model_invoke_span, str(e), e)
 
-            if attempt + 1 == MAX_ATTEMPTS:
+            if attempt + 1 == max_attempts:
                 yield {"callback": {"force_stop": True, "force_stop_reason": str(e)}}
                 raise e
 
@@ -161,11 +165,11 @@ def event_loop_cycle(
                 "| throttling exception encountered "
                 "| delaying before next retry",
                 current_delay,
-                MAX_ATTEMPTS,
+                max_attempts,
                 attempt + 1,
             )
             time.sleep(current_delay)
-            current_delay = min(current_delay * 2, MAX_DELAY)
+            current_delay = min(current_delay * 2, max_delay)
 
             yield {"callback": {"event_loop_throttled_delay": current_delay, **kwargs}}
 

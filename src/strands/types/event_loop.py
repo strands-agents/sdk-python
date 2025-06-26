@@ -1,5 +1,6 @@
 """Event loop-related type definitions for the SDK."""
 
+from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Iterator, Literal, Optional, Protocol
 
 from typing_extensions import TypedDict, runtime_checkable
@@ -109,3 +110,20 @@ class ParallelToolExecutorInterface(Protocol):
         Args:
             wait: If True, shutdown will not return until all running futures have finished executing.
         """
+
+
+@dataclass(frozen=True)
+class EventLoopConfig:
+    """Configuration for the event loop behavior.
+
+    This class defines the configuration parameters for the event loop's retry and throttling behavior.
+
+    Attributes:
+        max_attempts: Maximum number of retry attempts for throttled requests (default: 6)
+        initial_delay: Initial delay in seconds before retrying (default: 4)
+        max_delay: Maximum delay in seconds between retries (default: 240)
+    """
+
+    max_attempts: int = 6
+    initial_delay: int = 4
+    max_delay: int = 240
