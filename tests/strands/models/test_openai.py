@@ -101,7 +101,6 @@ def test_stream(openai_client, model):
     exp_events = [
         {"chunk_type": "message_start"},
         {"chunk_type": "content_start", "data_type": "text"},
-        # {"chunk_type": "content_delta", "data_type": "reasoning_content", "data": ""},
         {"chunk_type": "content_delta", "data_type": "reasoning_content", "data": "\nI'm thinking"},
         {"chunk_type": "content_delta", "data_type": "text", "data": "I'll calculate"},
         {"chunk_type": "content_delta", "data_type": "text", "data": "that for you"},
