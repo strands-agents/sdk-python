@@ -737,6 +737,18 @@ def test_agent_tool_do_not_record_tool(agent):
     assert tru_messages == exp_messages
 
 
+def test_agent_tool_do_not_record_tool_with_method_override(agent):
+    agent.record_direct_tool_call = True
+    agent.tool.tool_decorated(
+        random_string="abcdEfghI123", user_message_override="test override", record_direct_tool_call=False
+    )
+
+    tru_messages = agent.messages
+    exp_messages = []
+
+    assert tru_messages == exp_messages
+
+
 def test_agent_tool_tool_does_not_exist(agent):
     with pytest.raises(AttributeError):
         agent.tool.does_not_exist()

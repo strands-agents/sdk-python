@@ -97,11 +97,17 @@ class Agent:
                 AttributeError: If no tool with the given name exists or if multiple tools match the given name.
             """
 
-            def caller(user_message_override: Optional[str] = None, **kwargs: Any) -> Any:
+            def caller(
+                user_message_override: Optional[str] = None,
+                record_direct_tool_call: Optional[bool] = None,
+                **kwargs: Any,
+            ) -> Any:
                 """Call a tool directly by name.
 
                 Args:
                     user_message_override: Optional custom message to record instead of default
+                    record_direct_tool_call: Whether to record direct tool calls in message history. Overrides class
+                        attribute if provided.
                     **kwargs: Keyword arguments to pass to the tool.
 
                 Returns:
@@ -131,7 +137,12 @@ class Agent:
                     kwargs=kwargs,
                 )
 
-                if self._agent.record_direct_tool_call:
+                if record_direct_tool_call is not None:
+                    should_record_direct_tool_call = record_direct_tool_call
+                else:
+                    should_record_direct_tool_call = self._agent.record_direct_tool_call
+
+                if should_record_direct_tool_call:
                     # Create a record of this tool execution in the message history
                     self._agent._record_tool_execution(
                         tool_use, tool_result, user_message_override, self._agent.messages
