@@ -159,7 +159,7 @@ def test_stream_empty(openai_client, model):
 
 
 def test_stream_with_empty_choices(openai_client, model):
-    mock_delta = unittest.mock.Mock(content="content", tool_calls=None)
+    mock_delta = unittest.mock.Mock(content="content", tool_calls=None, reasoning_content=None)
     mock_usage = unittest.mock.Mock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
 
     # Event with no choices attribute
