@@ -582,7 +582,6 @@ def get_tracer(
         otlp_endpoint: OTLP endpoint URL for sending traces.
         otlp_headers: Headers to include with OTLP requests.
         enable_console_export: Whether to also export traces to console.
-        tracer_provider: Optional existing TracerProvider to use instead of creating a new one.
 
     Returns:
         The global tracer instance.
