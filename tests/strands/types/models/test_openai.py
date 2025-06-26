@@ -335,3 +335,10 @@ def test_format_request(model, messages, tool_specs, system_prompt):
 def test_format_chunk(event, exp_chunk, model):
     tru_chunk = model.format_chunk(event)
     assert tru_chunk == exp_chunk
+
+
+def test_format_chunk_unknown_type(model):
+    event = {"chunk_type": "unknown"}
+
+    with pytest.raises(RuntimeError, match="chunk_type=<unknown> | unknown type"):
+        model.format_chunk(event)
