@@ -1,6 +1,7 @@
 import os
 
 import pytest
+from pydantic import BaseModel
 
 import strands
 from strands import Agent
@@ -33,7 +34,7 @@ def tools():
 
 @pytest.fixture
 def system_prompt():
-    return "You are an AI assistant that uses & instead of ."
+    return "You are an AI assistant."
 
 
 @pytest.fixture
@@ -46,4 +47,17 @@ def test_agent(agent):
     result = agent("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
 
-    assert all(string in text for string in ["12:00", "sunny", "&"])
+    assert all(string in text for string in ["12:00", "sunny"])
+
+
+@pytest.mark.skipif("ANTHROPIC_API_KEY" not in os.environ, reason="ANTHROPIC_API_KEY environment variable missing")
+def test_structured_output(model):
+    class Weather(BaseModel):
+        time: str
+        weather: str
+
+    agent = Agent(model=model)
+    result = agent.structured_output(Weather, "The time is 12:00 and the weather is sunny")
+    assert isinstance(result, Weather)
+    assert result.time == "12:00"
+    assert result.weather == "sunny"

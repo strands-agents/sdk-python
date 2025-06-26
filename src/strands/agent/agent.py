@@ -16,10 +16,11 @@ import os
 import random
 from concurrent.futures import ThreadPoolExecutor
 from threading import Thread
-from typing import Any, AsyncIterator, Callable, Dict, List, Mapping, Optional, Union
+from typing import Any, AsyncIterator, Callable, Dict, List, Mapping, Optional, Type, TypeVar, Union, cast
 from uuid import uuid4
 
 from opentelemetry import trace
+from pydantic import BaseModel
 
 from ..event_loop.event_loop import event_loop_cycle
 from ..handlers.callback_handler import CompositeCallbackHandler, PrintingCallbackHandler, null_callback_handler
@@ -42,6 +43,9 @@ from .conversation_manager import (
 )
 
 logger = logging.getLogger(__name__)
+
+# TypeVar for generic structured output
+T = TypeVar("T", bound=BaseModel)
 
 
 # Sentinel class and object to distinguish between explicit None and default parameter value
@@ -84,6 +88,7 @@ class Agent:
             """Call tool as a function.
 
             This method enables the method-style interface (e.g., `agent.tool.tool_name(param="value")`).
+            It matches underscore-separated names to hyphenated tool names (e.g., 'some_thing' matches 'some-thing').
 
             Args:
                 name: The name of the attribute (tool) being accessed.
@@ -92,8 +97,29 @@ class Agent:
                 A function that when called will execute the named tool.
 
             Raises:
-                AttributeError: If no tool with the given name exists.
+                AttributeError: If no tool with the given name exists or if multiple tools match the given name.
             """
+
+            def find_normalized_tool_name() -> Optional[str]:
+                """Lookup the tool represented by name, replacing characters with underscores as necessary."""
+                tool_registry = self._agent.tool_registry.registry
+
+                if tool_registry.get(name, None):
+                    return name
+
+                # If the desired name contains underscores, it might be a placeholder for characters that can't be
+                # represented as python identifiers but are valid as tool names, such as dashes. In that case, find
+                # all tools that can be represented with the normalized name
+                if "_" in name:
+                    filtered_tools = [
+                        tool_name for (tool_name, tool) in tool_registry.items() if tool_name.replace("-", "_") == name
+                    ]
+
+                    # The registry itself defends against similar names, so we can just take the first match
+                    if filtered_tools:
+                        return filtered_tools[0]
+
+                raise AttributeError(f"Tool '{name}' not found")
 
             def caller(**kwargs: Any) -> Any:
                 """Call a tool directly by name.
@@ -115,14 +141,13 @@ class Agent:
                 Raises:
                     AttributeError: If the tool doesn't exist.
                 """
-                if name not in self._agent.tool_registry.registry:
-                    raise AttributeError(f"Tool '{name}' not found")
+                normalized_name = find_normalized_tool_name()
 
                 # Create unique tool ID and set up the tool request
                 tool_id = f"tooluse_{name}_{random.randint(100000000, 999999999)}"
                 tool_use = {
                     "toolUseId": tool_id,
-                    "name": name,
+                    "name": normalized_name,
                     "input": kwargs.copy(),
                 }
 
@@ -195,6 +220,9 @@ class Agent:
         record_direct_tool_call: bool = True,
         load_tools_from_directory: bool = True,
         trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
+        *,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -227,6 +255,10 @@ class Agent:
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.
                 Defaults to True.
             trace_attributes: Custom trace attributes to apply to the agent's trace span.
+            name: name of the Agent
+                Defaults to None.
+            description: description of what the Agent does
+                Defaults to None.
 
         Raises:
             ValueError: If max_parallel_tools is less than 1.
@@ -287,8 +319,9 @@ class Agent:
         # Initialize tracer instance (no-op if not configured)
         self.tracer = get_tracer()
         self.trace_span: Optional[trace.Span] = None
-
         self.tool_caller = Agent.ToolCaller(self)
+        self.name = name
+        self.description = description
 
     @property
     def tool(self) -> ToolCaller:
@@ -365,6 +398,37 @@ class Agent:
 
             # Re-raise the exception to preserve original behavior
             raise
+
+    def structured_output(self, output_model: Type[T], prompt: Optional[str] = None) -> T:
+        """This method allows you to get structured output from the agent.
+
+        If you pass in a prompt, it will be added to the conversation history and the agent will respond to it.
+        If you don't pass in a prompt, it will use only the conversation history to respond.
+        If no conversation history exists and no prompt is provided, an error will be raised.
+
+        For smaller models, you may want to use the optional prompt string to add additional instructions to explicitly
+        instruct the model to output the structured data.
+
+        Args:
+            output_model(Type[BaseModel]): The output model (a JSON schema written as a Pydantic BaseModel)
+                that the agent will use when responding.
+            prompt(Optional[str]): The prompt to use for the agent.
+        """
+        messages = self.messages
+        if not messages and not prompt:
+            raise ValueError("No conversation history or prompt provided")
+
+        # add the prompt as the last message
+        if prompt:
+            messages.append({"role": "user", "content": [{"text": prompt}]})
+
+        # get the structured output from the model
+        events = self.model.structured_output(output_model, messages)
+        for event in events:
+            if "callback" in event:
+                self.callback_handler(**cast(dict, event["callback"]))
+
+        return event["output"]
 
     async def stream_async(self, prompt: str, **kwargs: Any) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
@@ -487,7 +551,7 @@ class Agent:
 
         try:
             # Execute the main event loop cycle
-            stop_reason, message, metrics, state = event_loop_cycle(
+            events = event_loop_cycle(
                 model=model,
                 system_prompt=system_prompt,
                 messages=messages,  # will be modified by event_loop_cycle
@@ -500,6 +564,11 @@ class Agent:
                 event_loop_parent_span=self.trace_span,
                 **kwargs,
             )
+            for event in events:
+                if "callback" in event:
+                    callback_handler(**event["callback"])
+
+            stop_reason, message, metrics, state = event["stop"]
 
             return AgentResult(stop_reason, message, metrics, state)
 

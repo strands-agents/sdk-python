@@ -1,4 +1,5 @@
 import pytest
+from pydantic import BaseModel
 
 import strands
 from strands import Agent
@@ -7,7 +8,7 @@ from strands.models.litellm import LiteLLMModel
 
 @pytest.fixture
 def model():
-    return LiteLLMModel(model_id="us.anthropic.claude-3-7-sonnet-20250219-v1:0")
+    return LiteLLMModel(model_id="bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0")
 
 
 @pytest.fixture
@@ -33,3 +34,16 @@ def test_agent(agent):
     text = result.message["content"][0]["text"].lower()
 
     assert all(string in text for string in ["12:00", "sunny"])
+
+
+def test_structured_output(model):
+    class Weather(BaseModel):
+        time: str
+        weather: str
+
+    agent_no_tools = Agent(model=model)
+
+    result = agent_no_tools.structured_output(Weather, "The time is 12:00 and the weather is sunny")
+    assert isinstance(result, Weather)
+    assert result.time == "12:00"
+    assert result.weather == "sunny"

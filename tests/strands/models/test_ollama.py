@@ -1,6 +1,7 @@
 import json
 import unittest.mock
 
+import pydantic
 import pytest
 
 import strands
@@ -39,6 +40,15 @@ def messages():
 @pytest.fixture
 def system_prompt():
     return "s1"
+
+
+@pytest.fixture
+def test_output_model_cls():
+    class TestOutputModel(pydantic.BaseModel):
+        name: str
+        age: int
+
+    return TestOutputModel
 
 
 def test__init__model_configs(ollama_client, model_id, host):
@@ -457,3 +467,18 @@ def test_stream_with_tool_calls(ollama_client, model):
 
     assert tru_events == exp_events
     ollama_client.chat.assert_called_once_with(**request)
+
+
+def test_structured_output(ollama_client, model, test_output_model_cls):
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+
+    mock_response = unittest.mock.Mock()
+    mock_response.message.content = '{"name": "John", "age": 30}'
+
+    ollama_client.chat.return_value = mock_response
+
+    stream = model.structured_output(test_output_model_cls, messages)
+
+    tru_result = list(stream)[-1]
+    exp_result = {"output": test_output_model_cls(name="John", age=30)}
+    assert tru_result == exp_result

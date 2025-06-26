@@ -1,3 +1,4 @@
+import base64
 import unittest.mock
 
 import pytest
@@ -90,7 +91,24 @@ def system_prompt():
                 "image_url": {
                     "detail": "auto",
                     "format": "image/jpeg",
-                    "url": "data:image/jpeg;base64,image",
+                    "url": "data:image/jpeg;base64,aW1hZ2U=",
+                },
+                "type": "image_url",
+            },
+        ),
+        # Image - base64 encoded
+        (
+            {
+                "image": {
+                    "format": "jpg",
+                    "source": {"bytes": base64.b64encode(b"image")},
+                },
+            },
+            {
+                "image_url": {
+                    "detail": "auto",
+                    "format": "image/jpeg",
+                    "url": "data:image/jpeg;base64,aW1hZ2U=",
                 },
                 "type": "image_url",
             },
@@ -349,3 +367,15 @@ def test_format_chunk_unknown_type(model):
 
     with pytest.raises(RuntimeError, match="chunk_type=<unknown> | unknown type"):
         model.format_chunk(event)
+
+
+@pytest.mark.parametrize(
+    ("data", "exp_result"),
+    [
+        (b"image", b"aW1hZ2U="),
+        (b"aW1hZ2U=", b"aW1hZ2U="),
+    ],
+)
+def test_b64encode(data, exp_result):
+    tru_result = SAOpenAIModel.b64encode(data)
+    assert tru_result == exp_result

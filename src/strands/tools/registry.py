@@ -17,7 +17,7 @@ from typing_extensions import TypedDict, cast
 
 from ..types.tools import AgentTool, Tool, ToolChoice, ToolChoiceAuto, ToolConfig, ToolSpec
 from .loader import scan_module_for_tools
-from .tools import FunctionTool, PythonAgentTool, normalize_schema, normalize_tool_spec
+from .tools import PythonAgentTool, normalize_schema, normalize_tool_spec
 
 logger = logging.getLogger(__name__)
 
@@ -92,15 +92,7 @@ class ToolRegistry:
                     if not function_tools:
                         logger.warning("tool_name=<%s>, module_path=<%s> | invalid agent tool", tool_name, module_path)
 
-            # Case 5: Function decorated with @tool
-            elif inspect.isfunction(tool) and hasattr(tool, "TOOL_SPEC"):
-                try:
-                    function_tool = FunctionTool(tool)
-                    logger.debug("tool_name=<%s> | registering function tool", function_tool.tool_name)
-                    self.register_tool(function_tool)
-                    tool_names.append(function_tool.tool_name)
-                except Exception as e:
-                    logger.warning("tool_name=<%s> | failed to register function tool | %s", tool.__name__, e)
+            # Case 5: AgentTools (which also covers @tool)
             elif isinstance(tool, AgentTool):
                 self.register_tool(tool)
                 tool_names.append(tool.tool_name)
@@ -176,6 +168,7 @@ class ToolRegistry:
         logger.debug("tool_count=<%s> | tools configured", len(tool_config))
         return tool_config
 
+    # mypy has problems converting between DecoratedFunctionTool <-> AgentTool
     def register_tool(self, tool: AgentTool) -> None:
         """Register a tool function with the given name.
 
@@ -188,6 +181,21 @@ class ToolRegistry:
             tool.tool_type,
             tool.is_dynamic,
         )
+
+        if self.registry.get(tool.tool_name) is None:
+            normalized_name = tool.tool_name.replace("-", "_")
+
+            matching_tools = [
+                tool_name
+                for (tool_name, tool) in self.registry.items()
+                if tool_name.replace("-", "_") == normalized_name
+            ]
+
+            if matching_tools:
+                raise ValueError(
+                    f"Tool name '{tool.tool_name}' already exists as '{matching_tools[0]}'."
+                    " Cannot add a duplicate tool which differs by a '-' or '_'"
+                )
 
         # Register in main registry
         self.registry[tool.tool_name] = tool
