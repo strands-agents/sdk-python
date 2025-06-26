@@ -32,7 +32,7 @@ class A2AServer:
         host: str = "0.0.0.0",
         port: int = 9000,
         version: str = "0.0.1",
-        skills: list[AgentSkill] | None,
+        skills: list[AgentSkill] | None = None,
     ):
         """Initialize an A2A-compatible agent from a Strands agent.
 
@@ -58,7 +58,7 @@ class A2AServer:
             agent_executor=StrandsA2AExecutor(self.strands_agent),
             task_store=InMemoryTaskStore(),
         )
-        self._agent_skills = skills or self._get_skills_from_tools()
+        self._agent_skills = skills
         logger.info("Strands' integration with A2A is experimental. Be aware of frequent breaking changes.")
 
     @property
@@ -108,7 +108,7 @@ class A2AServer:
     @property
     def agent_skills(self) -> list[AgentSkill]:
         """Get the list of skills this agent provides."""
-        return self._agent_skills
+        return self._agent_skills if self._agent_skills is not None else self._get_skills_from_tools()
 
     @agent_skills.setter
     def agent_skills(self, skills: list[AgentSkill]) -> None:
