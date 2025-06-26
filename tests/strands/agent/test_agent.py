@@ -1314,3 +1314,15 @@ def test_event_loop_cycle_includes_parent_span(mock_get_tracer, mock_event_loop_
     kwargs = mock_event_loop_cycle.call_args[1]
     assert "event_loop_parent_span" in kwargs
     assert kwargs["event_loop_parent_span"] == mock_span
+
+
+def test_non_dict_throws_error():
+    with pytest.raises(ValueError, match="state must be an AgentState object or a dict"):
+        agent = Agent(state={"object", object()})
+        print(agent.state)
+
+
+def test_non_json_serializable_state_throws_error():
+    with pytest.raises(ValueError, match="Value is not JSON serializable"):
+        agent = Agent(state={"object": object()})
+        print(agent.state)

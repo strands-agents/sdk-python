@@ -224,7 +224,7 @@ class Agent:
         *,
         name: Optional[str] = None,
         description: Optional[str] = None,
-        state: Optional[AgentState] = None,
+        state: Optional[Union[AgentState, dict]] = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -261,7 +261,7 @@ class Agent:
                 Defaults to None.
             description: description of what the Agent does
                 Defaults to None.
-            state: stateful information for the agent
+            state: stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
                 Defaults to an empty AgentState object.
 
         Raises:
@@ -325,7 +325,17 @@ class Agent:
         self.trace_span: Optional[trace.Span] = None
 
         # Initialize agent state management
-        self.state = state or AgentState()
+        if state is not None:
+            if isinstance(state, dict):
+                self.state = AgentState(state)
+            elif isinstance(state, AgentState):
+                print("HERE!")
+                print(type(state))
+                self.state = state
+            else:
+                raise ValueError("state must be an AgentState object or a dict")
+        else:
+            self.state = AgentState()
 
         self.tool_caller = Agent.ToolCaller(self)
         self.name = name

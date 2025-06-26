@@ -8,6 +8,7 @@ from .mocked_model_provider import MockedModelProvider
 @tool
 def update_state(agent: Agent):
     agent.state.set("hello", "world")
+    agent.state.set("foo", "baz")
 
 
 def test_agent_state_update_from_tool():
@@ -20,10 +21,16 @@ def test_agent_state_update_from_tool():
     ]
     mocked_model_provider = MockedModelProvider(agent_messages)
 
-    agent = Agent(model=mocked_model_provider, tools=[update_state])
+    agent = Agent(
+        model=mocked_model_provider,
+        tools=[update_state],
+        state={"foo": "bar"},
+    )
 
     assert agent.state.get("hello") is None
+    assert agent.state.get("foo") == "bar"
 
     agent("Invoke Mocked!")
 
     assert agent.state.get("hello") == "world"
+    assert agent.state.get("foo") == "baz"
