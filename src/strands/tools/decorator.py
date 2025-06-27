@@ -195,7 +195,7 @@ class FunctionToolMetadata:
             schema: The Pydantic-generated JSON schema to clean up (modified in place).
         """
         # Remove Pydantic metadata
-        keys_to_remove = ["title", "$defs", "additionalProperties"]
+        keys_to_remove = ["title", "additionalProperties"]
         for key in keys_to_remove:
             if key in schema:
                 del schema[key]

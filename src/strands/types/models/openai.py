@@ -262,6 +262,9 @@ class OpenAIModel(Model, abc.ABC):
                         "contentBlockDelta": {"delta": {"toolUse": {"input": event["data"].function.arguments or ""}}}
                     }
 
+                if event["data_type"] == "reasoning_content":
+                    return {"contentBlockDelta": {"delta": {"reasoningContent": {"text": event["data"]}}}}
+
                 return {"contentBlockDelta": {"delta": {"text": event["data"]}}}
 
             case "content_stop":
