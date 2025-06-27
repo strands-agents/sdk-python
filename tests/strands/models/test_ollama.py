@@ -415,7 +415,8 @@ def test_format_chunk_other(model):
         model.format_chunk(event)
 
 
-def test_stream(ollama_client, model):
+@pytest.mark.asyncio
+async def test_stream(ollama_client, model):
     mock_event = unittest.mock.Mock()
     mock_event.message.tool_calls = None
     mock_event.message.content = "Hello"
@@ -426,7 +427,7 @@ def test_stream(ollama_client, model):
     request = {"model": "m1", "messages": [{"role": "user", "content": "Hello"}]}
     response = model.stream(request)
 
-    tru_events = list(response)
+    tru_events = [event async for event in response]
     exp_events = [
         {"chunk_type": "message_start"},
         {"chunk_type": "content_start", "data_type": "text"},
@@ -440,7 +441,8 @@ def test_stream(ollama_client, model):
     ollama_client.chat.assert_called_once_with(**request)
 
 
-def test_stream_with_tool_calls(ollama_client, model):
+@pytest.mark.asyncio
+async def test_stream_with_tool_calls(ollama_client, model):
     mock_event = unittest.mock.Mock()
     mock_tool_call = unittest.mock.Mock()
     mock_event.message.tool_calls = [mock_tool_call]
@@ -452,7 +454,7 @@ def test_stream_with_tool_calls(ollama_client, model):
     request = {"model": "m1", "messages": [{"role": "user", "content": "Calculate 2+2"}]}
     response = model.stream(request)
 
-    tru_events = list(response)
+    tru_events = [event async for event in response]
     exp_events = [
         {"chunk_type": "message_start"},
         {"chunk_type": "content_start", "data_type": "text"},
@@ -469,7 +471,8 @@ def test_stream_with_tool_calls(ollama_client, model):
     ollama_client.chat.assert_called_once_with(**request)
 
 
-def test_structured_output(ollama_client, model, test_output_model_cls):
+@pytest.mark.asyncio
+async def test_structured_output(ollama_client, model, test_output_model_cls):
     messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
 
     mock_response = unittest.mock.Mock()
@@ -479,6 +482,6 @@ def test_structured_output(ollama_client, model, test_output_model_cls):
 
     stream = model.structured_output(test_output_model_cls, messages)
 
-    tru_result = list(stream)[-1]
+    tru_result = [event async for event in stream][-1]
     exp_result = {"output": test_output_model_cls(name="John", age=30)}
     assert tru_result == exp_result

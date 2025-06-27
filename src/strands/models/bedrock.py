@@ -6,7 +6,7 @@
 import json
 import logging
 import os
-from typing import Any, Generator, Iterable, List, Literal, Optional, Type, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, Iterable, List, Literal, Optional, Type, TypeVar, Union, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -315,7 +315,7 @@ class BedrockModel(Model):
         return events
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[StreamEvent]:
+    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[StreamEvent, None]:
         """Send the request to the Bedrock model and get the response.
 
         This method calls either the Bedrock converse_stream API or the converse API
@@ -345,14 +345,16 @@ class BedrockModel(Model):
                     ):
                         guardrail_data = chunk["metadata"]["trace"]["guardrail"]
                         if self._has_blocked_guardrail(guardrail_data):
-                            yield from self._generate_redaction_events()
+                            for event in self._generate_redaction_events():
+                                yield event
                     yield chunk
             else:
                 # Non-streaming implementation
                 response = self.client.converse(**request)
 
                 # Convert and yield from the response
-                yield from self._convert_non_streaming_to_streaming(response)
+                for event in self._convert_non_streaming_to_streaming(response):
+                    yield event
 
                 # Check for guardrail triggers after yielding any events (same as streaming path)
                 if (
@@ -360,7 +362,8 @@ class BedrockModel(Model):
                     and "guardrail" in response["trace"]
                     and self._has_blocked_guardrail(response["trace"]["guardrail"])
                 ):
-                    yield from self._generate_redaction_events()
+                    for event in self._generate_redaction_events():
+                        yield event
 
         except ClientError as e:
             error_message = str(e)
@@ -514,9 +517,9 @@ class BedrockModel(Model):
         return False
 
     @override
-    def structured_output(
+    async def structured_output(
         self, output_model: Type[T], prompt: Messages
-    ) -> Generator[dict[str, Union[T, Any]], None, None]:
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:
@@ -529,7 +532,7 @@ class BedrockModel(Model):
         tool_spec = convert_pydantic_to_tool_spec(output_model)
 
         response = self.converse(messages=prompt, tool_specs=[tool_spec])
-        for event in process_stream(response, prompt):
+        async for event in process_stream(response, prompt):
             yield event
 
         stop_reason, messages, _, _ = event["stop"]

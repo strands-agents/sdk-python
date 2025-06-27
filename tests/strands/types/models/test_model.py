@@ -1,5 +1,3 @@
-from typing import Type
-
 import pytest
 from pydantic import BaseModel
 
@@ -18,8 +16,8 @@ class TestModel(SAModel):
     def get_config(self):
         return
 
-    def structured_output(self, output_model: Type[BaseModel]) -> BaseModel:
-        return output_model(name="test", age=20)
+    async def structured_output(self, output_model):
+        yield output_model(name="test", age=20)
 
     def format_request(self, messages, tool_specs, system_prompt):
         return {
@@ -31,7 +29,7 @@ class TestModel(SAModel):
     def format_chunk(self, event):
         return {"event": event}
 
-    def stream(self, request):
+    async def stream(self, request):
         yield {"request": request}
 
 
@@ -74,10 +72,11 @@ def system_prompt():
     return "s1"
 
 
-def test_converse(model, messages, tool_specs, system_prompt):
+@pytest.mark.asyncio
+async def test_converse(model, messages, tool_specs, system_prompt):
     response = model.converse(messages, tool_specs, system_prompt)
 
-    tru_events = list(response)
+    tru_events = [event async for event in response]
     exp_events = [
         {
             "event": {
@@ -92,7 +91,10 @@ def test_converse(model, messages, tool_specs, system_prompt):
     assert tru_events == exp_events
 
 
-def test_structured_output(model):
+@pytest.mark.asyncio
+async def test_structured_output(model):
     response = model.structured_output(Person)
 
-    assert response == Person(name="test", age=20)
+    tru_output = [event async for event in response][-1]
+    exp_output = Person(name="test", age=20)
+    assert tru_output == exp_output

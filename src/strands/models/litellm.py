@@ -5,7 +5,7 @@
 
 import json
 import logging
-from typing import Any, Generator, Optional, Type, TypedDict, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, Optional, Type, TypedDict, TypeVar, Union, cast
 
 import litellm
 from litellm.utils import supports_response_schema
@@ -104,9 +104,9 @@ class LiteLLMModel(OpenAIModel):
         return super().format_request_message_content(content)
 
     @override
-    def structured_output(
+    async def structured_output(
         self, output_model: Type[T], prompt: Messages
-    ) -> Generator[dict[str, Union[T, Any]], None, None]:
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:

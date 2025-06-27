@@ -12,7 +12,7 @@ import logging
 import time
 import uuid
 from functools import partial
-from typing import Any, Callable, Generator, Optional, cast
+from typing import Any, AsyncGenerator, Callable, Optional, cast
 
 from ..telemetry.metrics import EventLoopMetrics, Trace
 from ..telemetry.tracer import get_tracer
@@ -33,7 +33,7 @@ INITIAL_DELAY = 4
 MAX_DELAY = 240  # 4 minutes
 
 
-def event_loop_cycle(
+async def event_loop_cycle(
     model: Model,
     system_prompt: Optional[str],
     messages: Messages,
@@ -42,7 +42,7 @@ def event_loop_cycle(
     tool_handler: Optional[ToolHandler],
     tool_execution_handler: Optional[ParallelToolExecutorInterface] = None,
     **kwargs: Any,
-) -> Generator[dict[str, Any], None, None]:
+) -> AsyncGenerator[dict[str, Any], None]:
     """Execute a single cycle of the event loop.
 
     This core function processes a single conversation turn, handling model inference, tool execution, and error
@@ -132,7 +132,7 @@ def event_loop_cycle(
         try:
             # TODO: To maintain backwards compatability, we need to combine the stream event with kwargs before yielding
             #       to the callback handler. This will be revisited when migrating to strongly typed events.
-            for event in stream_messages(model, system_prompt, messages, tool_config):
+            async for event in stream_messages(model, system_prompt, messages, tool_config):
                 if "callback" in event:
                     yield {"callback": {**event["callback"], **(kwargs if "delta" in event["callback"] else {})}}
 
@@ -202,7 +202,7 @@ def event_loop_cycle(
                 )
 
             # Handle tool execution
-            yield from _handle_tool_execution(
+            events = _handle_tool_execution(
                 stop_reason,
                 message,
                 model,
@@ -218,6 +218,9 @@ def event_loop_cycle(
                 cycle_start_time,
                 kwargs,
             )
+            async for event in events:
+                yield event
+
             return
 
         # End the cycle and return results
@@ -250,9 +253,9 @@ def event_loop_cycle(
     yield {"stop": (stop_reason, message, event_loop_metrics, kwargs["request_state"])}
 
 
-def recurse_event_loop(
+async def recurse_event_loop(
     **kwargs: Any,
-) -> Generator[dict[str, Any], None, None]:
+) -> AsyncGenerator[dict[str, Any], None]:
     """Make a recursive call to event_loop_cycle with the current state.
 
     This function is used when the event loop needs to continue processing after tool execution.
@@ -284,12 +287,14 @@ def recurse_event_loop(
     cycle_trace.add_child(recursive_trace)
 
     yield {"callback": {"start": True}}
-    yield from event_loop_cycle(**kwargs)
+    events = event_loop_cycle(**kwargs)
+    async for event in events:
+        yield event
 
     recursive_trace.end()
 
 
-def _handle_tool_execution(
+async def _handle_tool_execution(
     stop_reason: StopReason,
     message: Message,
     model: Model,
@@ -304,7 +309,7 @@ def _handle_tool_execution(
     cycle_span: Any,
     cycle_start_time: float,
     kwargs: dict[str, Any],
-) -> Generator[dict[str, Any], None, None]:
+) -> AsyncGenerator[dict[str, Any], None]:
     tool_uses: list[ToolUse] = []
     tool_results: list[ToolResult] = []
     invalid_tool_use_ids: list[str] = []
@@ -385,7 +390,7 @@ def _handle_tool_execution(
         yield {"stop": (stop_reason, message, event_loop_metrics, kwargs["request_state"])}
         return
 
-    yield from recurse_event_loop(
+    events = recurse_event_loop(
         model=model,
         system_prompt=system_prompt,
         messages=messages,
@@ -394,3 +399,5 @@ def _handle_tool_execution(
         tool_handler=tool_handler,
         **kwargs,
     )
+    async for event in events:
+        yield event

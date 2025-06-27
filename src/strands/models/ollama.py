@@ -5,7 +5,7 @@
 
 import json
 import logging
-from typing import Any, Generator, Iterable, Optional, Type, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, Optional, Type, TypeVar, Union, cast
 
 from ollama import Client as OllamaClient
 from pydantic import BaseModel
@@ -283,7 +283,7 @@ class OllamaModel(Model):
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Send the request to the Ollama model and get the streaming response.
 
         This method calls the Ollama chat API and returns the stream of response events.
@@ -315,9 +315,9 @@ class OllamaModel(Model):
         yield {"chunk_type": "metadata", "data": event}
 
     @override
-    def structured_output(
+    async def structured_output(
         self, output_model: Type[T], prompt: Messages
-    ) -> Generator[dict[str, Union[T, Any]], None, None]:
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:

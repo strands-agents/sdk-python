@@ -18,6 +18,15 @@ def moto_autouse(moto_env, moto_mock_aws):
     _ = moto_mock_aws
 
 
+@pytest.fixture
+def alist():
+    async def gen(items):
+        for item in items:
+            yield item
+
+    return gen
+
+
 @pytest.mark.parametrize(
     ("messages", "exp_result"),
     [
@@ -526,20 +535,24 @@ def test_extract_usage_metrics():
         ),
     ],
 )
-def test_process_stream(response, exp_events):
+@pytest.mark.asyncio
+async def test_process_stream(response, exp_events, alist):
     messages = [{"role": "user", "content": [{"text": "Some input!"}]}]
-    stream = strands.event_loop.streaming.process_stream(response, messages)
+    stream = strands.event_loop.streaming.process_stream(alist(response), messages)
 
-    tru_events = list(stream)
+    tru_events = [event async for event in stream]
     assert tru_events == exp_events
 
 
-def test_stream_messages():
+@pytest.mark.asyncio
+async def test_stream_messages(alist):
     mock_model = unittest.mock.MagicMock()
-    mock_model.converse.return_value = [
-        {"contentBlockDelta": {"delta": {"text": "test"}}},
-        {"contentBlockStop": {}},
-    ]
+    mock_model.converse.return_value = alist(
+        [
+            {"contentBlockDelta": {"delta": {"text": "test"}}},
+            {"contentBlockStop": {}},
+        ]
+    )
 
     stream = strands.event_loop.streaming.stream_messages(
         mock_model,
@@ -548,7 +561,7 @@ def test_stream_messages():
         tool_config=None,
     )
 
-    tru_events = list(stream)
+    tru_events = [event async for event in stream]
     exp_events = [
         {
             "callback": {

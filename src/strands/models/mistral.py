@@ -6,7 +6,7 @@
 import base64
 import json
 import logging
-from typing import Any, Callable, Dict, Generator, Iterable, List, Optional, Type, TypeVar, Union
+from typing import Any, AsyncGenerator, Callable, Dict, Iterable, List, Optional, Type, TypeVar, Union
 
 from mistralai import Mistral
 from pydantic import BaseModel
@@ -393,7 +393,7 @@ class MistralModel(Model):
             yield {"chunk_type": "metadata", "data": response.usage}
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Send the request to the Mistral model and get the streaming response.
 
         Args:
@@ -406,10 +406,11 @@ class MistralModel(Model):
             ModelThrottledException: When the model service is throttling requests.
         """
         try:
-            if self.config.get("stream", True) is False:
+            if not self.config.get("stream", True):
                 # Use non-streaming API
                 response = self.client.chat.complete(**request)
-                yield from self._handle_non_streaming_response(response)
+                for event in self._handle_non_streaming_response(response):
+                    yield event
                 return
 
             # Use the streaming API
@@ -470,9 +471,9 @@ class MistralModel(Model):
             raise
 
     @override
-    def structured_output(
+    async def structured_output(
         self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
-    ) -> Generator[dict[str, Union[T, Any]], None, None]:
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:

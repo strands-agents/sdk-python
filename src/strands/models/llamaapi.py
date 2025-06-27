@@ -8,7 +8,7 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Generator, Iterable, Optional, Type, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, Optional, Type, TypeVar, Union, cast
 
 import llama_api_client
 from llama_api_client import LlamaAPIClient
@@ -324,7 +324,7 @@ class LlamaAPIModel(Model):
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Send the request to the model and get a streaming response.
 
         Args:
@@ -391,7 +391,7 @@ class LlamaAPIModel(Model):
     @override
     def structured_output(
         self, output_model: Type[T], prompt: Messages
-    ) -> Generator[dict[str, Union[T, Any]], None, None]:
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:
