@@ -82,7 +82,7 @@ otel = [
 ]
 
 writer = [
-    "writer-sdk>=2.2.0"
+    "writer-sdk>=2.2.0,<3.0.0"
 ]
 
 a2a = [
