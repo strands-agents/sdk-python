@@ -1,5 +1,6 @@
 """Agent state management."""
 
+import copy
 import json
 from typing import Any, Dict, Optional
 
@@ -13,12 +14,12 @@ class AgentState:
     - Get/set/delete operations
     """
 
-    def __init__(self, initial_state: Optional[Dict[str, Dict[str, Any]]] = None):
+    def __init__(self, initial_state: Optional[Dict[str, Any]] = None):
         """Initialize AgentState."""
         self._state: Dict[str, Dict[str, Any]]
         if initial_state:
             self._validate_json_serializable(initial_state)
-            self._state = initial_state.copy()
+            self._state = copy.deepcopy(initial_state)
         else:
             self._state = {}
 
@@ -35,7 +36,7 @@ class AgentState:
         self._validate_key(key)
         self._validate_json_serializable(value)
 
-        self._state[key] = value
+        self._state[key] = copy.deepcopy(value)
 
     def get(self, key: Optional[str] = None) -> Any:
         """Get a value or entire state.
@@ -47,10 +48,10 @@ class AgentState:
             The stored value, entire state dict, or None if not found
         """
         if key is None:
-            return self._state.copy()
+            return copy.deepcopy(self._state)
         else:
             # Return specific key
-            return self._state.get(key)
+            return copy.deepcopy(self._state.get(key))
 
     def delete(self, key: str) -> None:
         """Delete a specific key from the state.

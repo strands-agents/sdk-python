@@ -1,5 +1,6 @@
 import copy
 import importlib
+import json
 import os
 import textwrap
 import threading
@@ -1326,3 +1327,37 @@ def test_non_json_serializable_state_throws_error():
     with pytest.raises(ValueError, match="Value is not JSON serializable"):
         agent = Agent(state={"object": object()})
         print(agent.state)
+
+
+def test_agent_state_breaks_dict_reference():
+    ref_dict = {"hello": "world"}
+    agent = Agent(state=ref_dict)
+    ref_dict["hello"] = object()
+
+    json.dumps(agent.state.get())
+
+
+def test_agent_state_breaks_deep_dict_reference():
+    ref_dict = {"world": "!"}
+    init_dict = {"hello": ref_dict}
+    agent = Agent(state=init_dict)
+    ref_dict["world"] = object()
+
+    json.dumps(agent.state.get())
+
+
+def test_agent_state_set_breaks_dict_reference():
+    agent = Agent()
+    ref_dict = {"hello": "world"}
+    agent.state.set("hello", ref_dict)
+    ref_dict["hello"] = object()
+
+    json.dumps(agent.state.get())
+
+
+def test_agent_state_get_breaks_deep_dict_reference():
+    agent = Agent(state={"hello": {"world": "!"}})
+    ref_state = agent.state.get()
+    ref_state["hello"]["world"] = object()
+
+    json.dumps(agent.state.get())
