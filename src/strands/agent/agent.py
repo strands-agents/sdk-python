@@ -410,9 +410,9 @@ class Agent:
         instruct the model to output the structured data.
 
         Args:
-            output_model(Type[BaseModel]): The output model (a JSON schema written as a Pydantic BaseModel)
+            output_model: The output model (a JSON schema written as a Pydantic BaseModel)
                 that the agent will use when responding.
-            prompt(Optional[str]): The prompt to use for the agent.
+            prompt: The prompt to use for the agent.
         """
         messages = self.messages
         if not messages and not prompt:
