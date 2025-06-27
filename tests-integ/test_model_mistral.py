@@ -13,7 +13,7 @@ def streaming_model():
     return MistralModel(
         model_id="mistral-medium-latest",
         api_key=os.getenv("MISTRAL_API_KEY"),
-        streaming=True,
+        stream=True,
         temperature=0.7,
         max_tokens=1000,
         top_p=0.9,
@@ -25,7 +25,7 @@ def non_streaming_model():
     return MistralModel(
         model_id="mistral-medium-latest",
         api_key=os.getenv("MISTRAL_API_KEY"),
-        streaming=False,
+        stream=False,
         temperature=0.7,
         max_tokens=1000,
         top_p=0.9,

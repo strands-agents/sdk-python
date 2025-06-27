@@ -36,6 +36,24 @@ def messages():
 
 
 @pytest.fixture
+def tool_use_messages():
+    return [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "calc_123",
+                        "name": "calculator",
+                        "input": {"expression": "2+2"},
+                    },
+                },
+            ],
+        }
+    ]
+
+
+@pytest.fixture
 def system_prompt():
     return "You are a helpful assistant"
 
@@ -45,48 +63,50 @@ def test__init__model_configs(mistral_client, model_id, max_tokens):
 
     model = MistralModel(model_id=model_id, max_tokens=max_tokens, temperature=0.7)
 
-    tru_temperature = model.get_config().get("temperature")
+    actual_temperature = model.get_config().get("temperature")
     exp_temperature = 0.7
 
-    assert tru_temperature == exp_temperature
+    assert actual_temperature == exp_temperature
 
 
 def test_update_config(model, model_id):
     model.update_config(model_id=model_id)
 
-    tru_model_id = model.get_config().get("model_id")
+    actual_model_id = model.get_config().get("model_id")
     exp_model_id = model_id
 
-    assert tru_model_id == exp_model_id
+    assert actual_model_id == exp_model_id
 
 
 def test_format_request_default(model, messages, model_id):
-    tru_request = model.format_request(messages)
+    actual_request = model.format_request(messages)
     exp_request = {
         "model": model_id,
         "messages": [{"role": "user", "content": "test"}],
         "max_tokens": 100,
+        "stream": True,
     }
 
-    assert tru_request == exp_request
+    assert actual_request == exp_request
 
 
 def test_format_request_with_temperature(model, messages, model_id):
     model.update_config(temperature=0.8)
 
-    tru_request = model.format_request(messages)
+    actual_request = model.format_request(messages)
     exp_request = {
         "model": model_id,
         "messages": [{"role": "user", "content": "test"}],
         "max_tokens": 100,
         "temperature": 0.8,
+        "stream": True,
     }
 
-    assert tru_request == exp_request
+    assert actual_request == exp_request
 
 
 def test_format_request_with_system_prompt(model, messages, model_id, system_prompt):
-    tru_request = model.format_request(messages, system_prompt=system_prompt)
+    actual_request = model.format_request(messages, system_prompt=system_prompt)
     exp_request = {
         "model": model_id,
         "messages": [
@@ -94,9 +114,10 @@ def test_format_request_with_system_prompt(model, messages, model_id, system_pro
             {"role": "user", "content": "test"},
         ],
         "max_tokens": 100,
+        "stream": True,
     }
 
-    assert tru_request == exp_request
+    assert actual_request == exp_request
 
 
 def test_format_request_with_tool_use(model, model_id):
@@ -115,7 +136,7 @@ def test_format_request_with_tool_use(model, model_id):
         },
     ]
 
-    tru_request = model.format_request(messages)
+    actual_request = model.format_request(messages)
     exp_request = {
         "model": model_id,
         "messages": [
@@ -135,9 +156,10 @@ def test_format_request_with_tool_use(model, model_id):
             }
         ],
         "max_tokens": 100,
+        "stream": True,
     }
 
-    assert tru_request == exp_request
+    assert actual_request == exp_request
 
 
 def test_format_request_with_tool_result(model, model_id):
@@ -156,7 +178,7 @@ def test_format_request_with_tool_result(model, model_id):
         }
     ]
 
-    tru_request = model.format_request(messages)
+    actual_request = model.format_request(messages)
     exp_request = {
         "model": model_id,
         "messages": [
@@ -168,9 +190,10 @@ def test_format_request_with_tool_result(model, model_id):
             }
         ],
         "max_tokens": 100,
+        "stream": True,
     }
 
-    assert tru_request == exp_request
+    assert actual_request == exp_request
 
 
 def test_format_request_with_tool_specs(model, messages, model_id):
@@ -188,11 +211,12 @@ def test_format_request_with_tool_specs(model, messages, model_id):
         }
     ]
 
-    tru_request = model.format_request(messages, tool_specs)
+    actual_request = model.format_request(messages, tool_specs)
     exp_request = {
         "model": model_id,
         "messages": [{"role": "user", "content": "test"}],
         "max_tokens": 100,
+        "stream": True,
         "tools": [
             {
                 "type": "function",
@@ -209,7 +233,7 @@ def test_format_request_with_tool_specs(model, messages, model_id):
         ],
     }
 
-    assert tru_request == exp_request
+    assert actual_request == exp_request
 
 
 def test_format_request_with_all_optional_params(model, messages, model_id):
@@ -226,13 +250,14 @@ def test_format_request_with_all_optional_params(model, messages, model_id):
         }
     ]
 
-    tru_request = model.format_request(messages, tool_specs)
+    actual_request = model.format_request(messages, tool_specs)
     exp_request = {
         "model": model_id,
         "messages": [{"role": "user", "content": "test"}],
         "max_tokens": 100,
         "temperature": 0.7,
         "top_p": 0.9,
+        "stream": True,
         "tools": [
             {
                 "type": "function",
@@ -245,25 +270,25 @@ def test_format_request_with_all_optional_params(model, messages, model_id):
         ],
     }
 
-    assert tru_request == exp_request
+    assert actual_request == exp_request
 
 
 def test_format_chunk_message_start(model):
     event = {"chunk_type": "message_start"}
 
-    tru_chunk = model.format_chunk(event)
+    actual_chunk = model.format_chunk(event)
     exp_chunk = {"messageStart": {"role": "assistant"}}
 
-    assert tru_chunk == exp_chunk
+    assert actual_chunk == exp_chunk
 
 
 def test_format_chunk_content_start_text(model):
     event = {"chunk_type": "content_start", "data_type": "text"}
 
-    tru_chunk = model.format_chunk(event)
+    actual_chunk = model.format_chunk(event)
     exp_chunk = {"contentBlockStart": {"start": {}}}
 
-    assert tru_chunk == exp_chunk
+    assert actual_chunk == exp_chunk
 
 
 def test_format_chunk_content_start_tool(model):
@@ -273,19 +298,19 @@ def test_format_chunk_content_start_tool(model):
 
     event = {"chunk_type": "content_start", "data_type": "tool", "data": mock_tool_call}
 
-    tru_chunk = model.format_chunk(event)
+    actual_chunk = model.format_chunk(event)
     exp_chunk = {"contentBlockStart": {"start": {"toolUse": {"name": "calculator", "toolUseId": "calc_123"}}}}
 
-    assert tru_chunk == exp_chunk
+    assert actual_chunk == exp_chunk
 
 
 def test_format_chunk_content_delta_text(model):
     event = {"chunk_type": "content_delta", "data_type": "text", "data": "Hello"}
 
-    tru_chunk = model.format_chunk(event)
+    actual_chunk = model.format_chunk(event)
     exp_chunk = {"contentBlockDelta": {"delta": {"text": "Hello"}}}
 
-    assert tru_chunk == exp_chunk
+    assert actual_chunk == exp_chunk
 
 
 def test_format_chunk_content_delta_tool(model):
@@ -295,46 +320,46 @@ def test_format_chunk_content_delta_tool(model):
         "data": '{"expression": "2+2"}',
     }
 
-    tru_chunk = model.format_chunk(event)
+    actual_chunk = model.format_chunk(event)
     exp_chunk = {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}}}
 
-    assert tru_chunk == exp_chunk
+    assert actual_chunk == exp_chunk
 
 
 def test_format_chunk_content_stop(model):
     event = {"chunk_type": "content_stop"}
 
-    tru_chunk = model.format_chunk(event)
+    actual_chunk = model.format_chunk(event)
     exp_chunk = {"contentBlockStop": {}}
 
-    assert tru_chunk == exp_chunk
+    assert actual_chunk == exp_chunk
 
 
 def test_format_chunk_message_stop_end_turn(model):
     event = {"chunk_type": "message_stop", "data": "stop"}
 
-    tru_chunk = model.format_chunk(event)
+    actual_chunk = model.format_chunk(event)
     exp_chunk = {"messageStop": {"stopReason": "end_turn"}}
 
-    assert tru_chunk == exp_chunk
+    assert actual_chunk == exp_chunk
 
 
 def test_format_chunk_message_stop_tool_use(model):
     event = {"chunk_type": "message_stop", "data": "tool_calls"}
 
-    tru_chunk = model.format_chunk(event)
+    actual_chunk = model.format_chunk(event)
     exp_chunk = {"messageStop": {"stopReason": "tool_use"}}
 
-    assert tru_chunk == exp_chunk
+    assert actual_chunk == exp_chunk
 
 
 def test_format_chunk_message_stop_max_tokens(model):
     event = {"chunk_type": "message_stop", "data": "length"}
 
-    tru_chunk = model.format_chunk(event)
+    actual_chunk = model.format_chunk(event)
     exp_chunk = {"messageStop": {"stopReason": "max_tokens"}}
 
-    assert tru_chunk == exp_chunk
+    assert actual_chunk == exp_chunk
 
 
 def test_format_chunk_metadata(model):
@@ -349,7 +374,7 @@ def test_format_chunk_metadata(model):
         "latency_ms": 250,
     }
 
-    tru_chunk = model.format_chunk(event)
+    actual_chunk = model.format_chunk(event)
     exp_chunk = {
         "metadata": {
             "usage": {
@@ -363,7 +388,7 @@ def test_format_chunk_metadata(model):
         },
     }
 
-    assert tru_chunk == exp_chunk
+    assert actual_chunk == exp_chunk
 
 
 def test_format_chunk_metadata_no_latency(model):
@@ -377,7 +402,7 @@ def test_format_chunk_metadata_no_latency(model):
         "data": mock_usage,
     }
 
-    tru_chunk = model.format_chunk(event)
+    actual_chunk = model.format_chunk(event)
     exp_chunk = {
         "metadata": {
             "usage": {
@@ -391,7 +416,7 @@ def test_format_chunk_metadata_no_latency(model):
         },
     }
 
-    assert tru_chunk == exp_chunk
+    assert actual_chunk == exp_chunk
 
 
 def test_format_chunk_unknown(model):

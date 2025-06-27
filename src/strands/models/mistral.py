@@ -42,14 +42,14 @@ class MistralModel(Model):
             max_tokens: Maximum number of tokens to generate in the response.
             temperature: Controls randomness in generation (0.0 to 1.0).
             top_p: Controls diversity via nucleus sampling.
-            streaming: Whether to enable streaming responses.
+            stream: Whether to enable streaming responses.
         """
 
         model_id: str
         max_tokens: Optional[int]
         temperature: Optional[float]
         top_p: Optional[float]
-        streaming: Optional[bool]
+        stream: Optional[bool]
 
     def __init__(
         self,
@@ -65,11 +65,28 @@ class MistralModel(Model):
             client_args: Additional arguments for the Mistral client.
             **model_config: Configuration options for the Mistral model.
         """
+        if "temperature" in model_config and model_config["temperature"] is not None:
+            temp = model_config["temperature"]
+            if not 0.0 <= temp <= 1.0:
+                raise ValueError(f"temperature must be between 0.0 and 1.0, got {temp}")
+            # Warn if temperature is above recommended range
+            if temp > 0.7:
+                logger.warning(
+                    "temperature=%s is above the recommended range (0.0-0.7). "
+                    "High values may produce unpredictable results.",
+                    temp,
+                )
+
+        if "top_p" in model_config and model_config["top_p"] is not None:
+            top_p = model_config["top_p"]
+            if not 0.0 <= top_p <= 1.0:
+                raise ValueError(f"top_p must be between 0.0 and 1.0, got {top_p}")
+
         self.config = MistralModel.MistralConfig(**model_config)
 
-        # Set default streaming to True if not specified
-        if "streaming" not in self.config:
-            self.config["streaming"] = True
+        # Set default stream to True if not specified
+        if "stream" not in self.config:
+            self.config["stream"] = True
 
         logger.debug("config=<%s> | initializing", self.config)
 
@@ -121,9 +138,6 @@ class MistralModel(Model):
                 format_value = image_data.get("format", "jpeg")
                 media_type = f"image/{format_value}"
                 return {"type": "image_url", "image_url": f"data:{media_type};base64,{base64_data}"}
-
-            # if "url" in image_data:
-            #     return {"type": "image_url", "image_url": image_data["url"]}
 
             raise TypeError("content_type=<image> | unsupported image format")
 
@@ -249,6 +263,8 @@ class MistralModel(Model):
             request["temperature"] = self.config["temperature"]
         if "top_p" in self.config:
             request["top_p"] = self.config["top_p"]
+        if "stream" in self.config:
+            request["stream"] = self.config["stream"]
 
         if tool_specs:
             request["tools"] = [
@@ -390,7 +406,7 @@ class MistralModel(Model):
             ModelThrottledException: When the model service is throttling requests.
         """
         try:
-            if self.config.get("streaming", True) is False:
+            if self.config.get("stream", True) is False:
                 # Use non-streaming API
                 response = self.client.chat.complete(**request)
                 yield from self._handle_non_streaming_response(response)
