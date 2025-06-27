@@ -436,21 +436,24 @@ def test_format_chunk_unknown(model):
         model.format_chunk(event)
 
 
-def test_stream_rate_limit_error(mistral_client, model):
+@pytest.mark.asyncio
+async def test_stream_rate_limit_error(mistral_client, model):
     mistral_client.chat.stream.side_effect = Exception("rate limit exceeded (429)")
 
     with pytest.raises(ModelThrottledException, match="rate limit exceeded"):
-        list(model.stream({}))
+        [_ async for _ in model.stream({})]
 
 
-def test_stream_other_error(mistral_client, model):
+@pytest.mark.asyncio
+async def test_stream_other_error(mistral_client, model):
     mistral_client.chat.stream.side_effect = Exception("some other error")
 
     with pytest.raises(Exception, match="some other error"):
-        list(model.stream({}))
+        [_ async for _ in model.stream({})]
 
 
-def test_structured_output_success(mistral_client, model, test_output_model_cls):
+@pytest.mark.asyncio
+async def test_structured_output_success(mistral_client, model, test_output_model_cls):
     messages = [{"role": "user", "content": [{"text": "Extract data"}]}]
 
     mock_response = unittest.mock.Mock()
@@ -462,12 +465,13 @@ def test_structured_output_success(mistral_client, model, test_output_model_cls)
 
     stream = model.structured_output(test_output_model_cls, messages)
 
-    tru_result = list(stream)[-1]
+    tru_result = [event async for event in stream][-1]
     exp_result = {"output": test_output_model_cls(name="John", age=30)}
     assert tru_result == exp_result
 
 
-def test_structured_output_no_tool_calls(mistral_client, model, test_output_model_cls):
+@pytest.mark.asyncio
+async def test_structured_output_no_tool_calls(mistral_client, model, test_output_model_cls):
     mock_response = unittest.mock.Mock()
     mock_response.choices = [unittest.mock.Mock()]
     mock_response.choices[0].message.tool_calls = None
@@ -478,10 +482,11 @@ def test_structured_output_no_tool_calls(mistral_client, model, test_output_mode
 
     with pytest.raises(ValueError, match="No tool calls found in response"):
         stream = model.structured_output(test_output_model_cls, prompt)
-        next(stream)
+        [_ async for _ in stream]
 
 
-def test_structured_output_invalid_json(mistral_client, model, test_output_model_cls):
+@pytest.mark.asyncio
+async def test_structured_output_invalid_json(mistral_client, model, test_output_model_cls):
     mock_response = unittest.mock.Mock()
     mock_response.choices = [unittest.mock.Mock()]
     mock_response.choices[0].message.tool_calls = [unittest.mock.Mock()]
@@ -493,4 +498,4 @@ def test_structured_output_invalid_json(mistral_client, model, test_output_model
 
     with pytest.raises(ValueError, match="Failed to parse tool call arguments into model"):
         stream = model.structured_output(test_output_model_cls, prompt)
-        next(stream)
+        [_ async for _ in stream]

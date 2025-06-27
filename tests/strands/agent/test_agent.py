@@ -161,6 +161,15 @@ def agent(
     return agent
 
 
+@pytest.fixture
+def alist():
+    async def gen(items):
+        for item in items:
+            yield item
+
+    return gen
+
+
 def test_agent__init__tool_loader_format(tool_decorated, tool_module, tool_imported, tool_registry):
     _ = tool_registry
 
@@ -222,30 +231,35 @@ def test_agent__call__(
     callback_handler,
     agent,
     tool,
+    alist,
 ):
     conversation_manager_spy = unittest.mock.Mock(wraps=agent.conversation_manager)
     agent.conversation_manager = conversation_manager_spy
 
     mock_model.mock_converse.side_effect = [
-        [
-            {
-                "contentBlockStart": {
-                    "start": {
-                        "toolUse": {
-                            "toolUseId": "t1",
-                            "name": tool.tool_spec["name"],
+        alist(
+            [
+                {
+                    "contentBlockStart": {
+                        "start": {
+                            "toolUse": {
+                                "toolUseId": "t1",
+                                "name": tool.tool_spec["name"],
+                            },
                         },
                     },
                 },
-            },
-            {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"random_string": "abcdEfghI123"}'}}}},
-            {"contentBlockStop": {}},
-            {"messageStop": {"stopReason": "tool_use"}},
-        ],
-        [
-            {"contentBlockDelta": {"delta": {"text": "test text"}}},
-            {"contentBlockStop": {}},
-        ],
+                {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"random_string": "abcdEfghI123"}'}}}},
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "tool_use"}},
+            ]
+        ),
+        alist(
+            [
+                {"contentBlockDelta": {"delta": {"text": "test text"}}},
+                {"contentBlockStop": {}},
+            ]
+        ),
     ]
 
     result = agent("test message")
@@ -320,21 +334,25 @@ def test_agent__call__(
     conversation_manager_spy.apply_management.assert_called_with(agent)
 
 
-def test_agent__call__passes_kwargs(mock_model, system_prompt, callback_handler, agent, tool, mock_event_loop_cycle):
+def test_agent__call__passes_kwargs(
+    mock_model, system_prompt, callback_handler, agent, tool, mock_event_loop_cycle, alist
+):
     mock_model.mock_converse.side_effect = [
-        [
-            {
-                "contentBlockStart": {
-                    "start": {
-                        "toolUse": {
-                            "toolUseId": "t1",
-                            "name": tool.tool_spec["name"],
+        alist(
+            [
+                {
+                    "contentBlockStart": {
+                        "start": {
+                            "toolUse": {
+                                "toolUseId": "t1",
+                                "name": tool.tool_spec["name"],
+                            },
                         },
                     },
                 },
-            },
-            {"messageStop": {"stopReason": "tool_use"}},
-        ],
+                {"messageStop": {"stopReason": "tool_use"}},
+            ]
+        ),
     ]
 
     override_system_prompt = "Override system prompt"
@@ -346,7 +364,7 @@ def test_agent__call__passes_kwargs(mock_model, system_prompt, callback_handler,
     override_messages = [{"role": "user", "content": [{"text": "override msg"}]}]
     override_tool_config = {"test": "config"}
 
-    def check_kwargs(some_value, **kwargs):
+    async def check_kwargs(some_value, **kwargs):
         assert some_value == "a_value"
         assert kwargs is not None
         assert kwargs["system_prompt"] == override_system_prompt
@@ -380,7 +398,7 @@ def test_agent__call__passes_kwargs(mock_model, system_prompt, callback_handler,
     mock_event_loop_cycle.assert_called_once()
 
 
-def test_agent__call__retry_with_reduced_context(mock_model, agent, tool):
+def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, alist):
     conversation_manager_spy = unittest.mock.Mock(wraps=agent.conversation_manager)
     agent.conversation_manager = conversation_manager_spy
 
@@ -400,14 +418,16 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool):
 
     mock_model.mock_converse.side_effect = [
         ContextWindowOverflowException(RuntimeError("Input is too long for requested model")),
-        [
-            {
-                "contentBlockStart": {"start": {}},
-            },
-            {"contentBlockDelta": {"delta": {"text": "Green!"}}},
-            {"contentBlockStop": {}},
-            {"messageStop": {"stopReason": "end_turn"}},
-        ],
+        alist(
+            [
+                {
+                    "contentBlockStart": {"start": {}},
+                },
+                {"contentBlockDelta": {"delta": {"text": "Green!"}}},
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "end_turn"}},
+            ]
+        ),
     ]
 
     agent("And now?")
@@ -507,7 +527,7 @@ def test_agent__call__tool_truncation_doesnt_infinite_loop(mock_model, agent):
         agent("Test!")
 
 
-def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool):
+def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, alist):
     conversation_manager_spy = unittest.mock.Mock(wraps=agent.conversation_manager)
     agent.conversation_manager = conversation_manager_spy
 
@@ -521,26 +541,28 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool):
     agent.messages = messages
 
     mock_model.mock_converse.side_effect = [
-        [
-            {
-                "contentBlockStart": {
-                    "start": {
-                        "toolUse": {
-                            "toolUseId": "t1",
-                            "name": tool.tool_spec["name"],
+        alist(
+            [
+                {
+                    "contentBlockStart": {
+                        "start": {
+                            "toolUse": {
+                                "toolUseId": "t1",
+                                "name": tool.tool_spec["name"],
+                            },
                         },
                     },
                 },
-            },
-            {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"random_string": "abcdEfghI123"}'}}}},
-            {"contentBlockStop": {}},
-            {"messageStop": {"stopReason": "tool_use"}},
-        ],
+                {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"random_string": "abcdEfghI123"}'}}}},
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "tool_use"}},
+            ]
+        ),
         # Will truncate the tool result
         ContextWindowOverflowException(RuntimeError("Input is too long for requested model")),
         # Will reduce the context
         ContextWindowOverflowException(RuntimeError("Input is too long for requested model")),
-        [],
+        alist([]),
     ]
 
     agent("test message")
@@ -577,22 +599,24 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool):
     assert conversation_manager_spy.apply_management.call_count == 1
 
 
-def test_agent__call__invalid_tool_use_event_loop_exception(mock_model, agent, tool):
+def test_agent__call__invalid_tool_use_event_loop_exception(mock_model, agent, tool, alist):
     mock_model.mock_converse.side_effect = [
-        [
-            {
-                "contentBlockStart": {
-                    "start": {
-                        "toolUse": {
-                            "toolUseId": "t1",
-                            "name": tool.tool_spec["name"],
+        alist(
+            [
+                {
+                    "contentBlockStart": {
+                        "start": {
+                            "toolUse": {
+                                "toolUseId": "t1",
+                                "name": tool.tool_spec["name"],
+                            },
                         },
                     },
                 },
-            },
-            {"contentBlockStop": {}},
-            {"messageStop": {"stopReason": "tool_use"}},
-        ],
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "tool_use"}},
+            ]
+        ),
         RuntimeError,
     ]
 
@@ -600,19 +624,21 @@ def test_agent__call__invalid_tool_use_event_loop_exception(mock_model, agent, t
         agent("test message")
 
 
-def test_agent__call__callback(mock_model, agent, callback_handler):
-    mock_model.mock_converse.return_value = [
-        {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "test"}}}},
-        {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"value"}'}}}},
-        {"contentBlockStop": {}},
-        {"contentBlockStart": {"start": {}}},
-        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "value"}}}},
-        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "value"}}}},
-        {"contentBlockStop": {}},
-        {"contentBlockStart": {"start": {}}},
-        {"contentBlockDelta": {"delta": {"text": "value"}}},
-        {"contentBlockStop": {}},
-    ]
+def test_agent__call__callback(mock_model, agent, callback_handler, alist):
+    mock_model.mock_converse.return_value = alist(
+        [
+            {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "test"}}}},
+            {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"value"}'}}}},
+            {"contentBlockStop": {}},
+            {"contentBlockStart": {"start": {}}},
+            {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "value"}}}},
+            {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "value"}}}},
+            {"contentBlockStop": {}},
+            {"contentBlockStart": {"start": {}}},
+            {"contentBlockDelta": {"delta": {"text": "value"}}},
+            {"contentBlockStop": {}},
+        ]
+    )
 
     agent("test")
 
@@ -893,10 +919,10 @@ class User(BaseModel):
     email: str
 
 
-def test_agent_method_structured_output(agent):
+def test_agent_method_structured_output(agent, alist):
     # Mock the structured_output method on the model
     expected_user = User(name="Jane Doe", age=30, email="jane@doe.com")
-    agent.model.structured_output = unittest.mock.Mock(return_value=[{"output": expected_user}])
+    agent.model.structured_output = unittest.mock.Mock(return_value=alist([{"output": expected_user}]))
 
     prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
 
@@ -912,7 +938,7 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle):
     agent = Agent()
 
     # Define the side effect to simulate callback handler being called multiple times
-    def test_event_loop(*args, **kwargs):
+    async def test_event_loop(*args, **kwargs):
         yield {"callback": {"data": "First chunk"}}
         yield {"callback": {"data": "Second chunk"}}
         yield {"callback": {"data": "Final chunk", "complete": True}}
@@ -939,24 +965,26 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle):
 
 
 @pytest.mark.asyncio
-async def test_stream_async_passes_kwargs(agent, mock_model, mock_event_loop_cycle):
+async def test_stream_async_passes_kwargs(agent, mock_model, mock_event_loop_cycle, alist):
     mock_model.mock_converse.side_effect = [
-        [
-            {
-                "contentBlockStart": {
-                    "start": {
-                        "toolUse": {
-                            "toolUseId": "t1",
-                            "name": "a_tool",
+        alist(
+            [
+                {
+                    "contentBlockStart": {
+                        "start": {
+                            "toolUse": {
+                                "toolUseId": "t1",
+                                "name": "a_tool",
+                            },
                         },
                     },
                 },
-            },
-            {"messageStop": {"stopReason": "tool_use"}},
-        ],
+                {"messageStop": {"stopReason": "tool_use"}},
+            ]
+        ),
     ]
 
-    def check_kwargs(some_value, **kwargs):
+    async def check_kwargs(some_value, **kwargs):
         assert some_value == "a_value"
         assert kwargs is not None
         # Return expected values from event_loop_cycle
@@ -1033,7 +1061,7 @@ def test_agent_init_initializes_tracer(mock_get_tracer):
 
 
 @unittest.mock.patch("strands.agent.agent.get_tracer")
-def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model):
+def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model, alist):
     """Test that __call__ creates and ends a span when the call succeeds."""
     # Setup mock tracer and span
     mock_tracer = unittest.mock.MagicMock()
@@ -1043,10 +1071,12 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
 
     # Setup mock model response
     mock_model.mock_converse.side_effect = [
-        [
-            {"contentBlockDelta": {"delta": {"text": "test response"}}},
-            {"contentBlockStop": {}},
-        ],
+        alist(
+            [
+                {"contentBlockDelta": {"delta": {"text": "test response"}}},
+                {"contentBlockStop": {}},
+            ]
+        ),
     ]
 
     # Create agent and make a call
@@ -1077,7 +1107,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
     mock_get_tracer.return_value = mock_tracer
 
     # Define the side effect to simulate callback handler being called multiple times
-    def call_callback_handler(*args, **kwargs):
+    async def call_callback_handler(*args, **kwargs):
         # Extract the callback handler from kwargs
         callback_handler = kwargs.get("callback_handler")
         # Call the callback handler with different data values
@@ -1182,7 +1212,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
 
 
 @unittest.mock.patch("strands.agent.agent.get_tracer")
-def test_event_loop_cycle_includes_parent_span(mock_get_tracer, mock_event_loop_cycle, mock_model):
+def test_event_loop_cycle_includes_parent_span(mock_get_tracer, mock_event_loop_cycle, mock_model, alist):
     """Test that event_loop_cycle is called with the parent span."""
     # Setup mock tracer and span
     mock_tracer = unittest.mock.MagicMock()
@@ -1191,9 +1221,9 @@ def test_event_loop_cycle_includes_parent_span(mock_get_tracer, mock_event_loop_
     mock_get_tracer.return_value = mock_tracer
 
     # Setup mock for event_loop_cycle
-    mock_event_loop_cycle.return_value = [
-        {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
-    ]
+    mock_event_loop_cycle.return_value = alist(
+        [{"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}]
+    )
 
     # Create agent and make a call
     agent = Agent(model=mock_model)

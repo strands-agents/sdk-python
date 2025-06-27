@@ -11,7 +11,7 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Generator, Optional, Type, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, Optional, Type, TypeVar, Union, cast
 
 from pydantic import BaseModel
 from typing_extensions import override
@@ -297,9 +297,9 @@ class OpenAIModel(Model, abc.ABC):
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
     @override
-    def structured_output(
+    async def structured_output(
         self, output_model: Type[T], prompt: Messages
-    ) -> Generator[dict[str, Union[T, Any]], None, None]:
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:

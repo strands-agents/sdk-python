@@ -9,12 +9,13 @@ The Agent interface supports two complementary interaction patterns:
 2. Method-style for direct tool access: `agent.tool.tool_name(param1="value")`
 """
 
+import asyncio
 import json
 import logging
 import os
 import random
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, AsyncIterator, Callable, Generator, Mapping, Optional, Type, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Optional, Type, TypeVar, Union, cast
 
 from opentelemetry import trace
 from pydantic import BaseModel
@@ -381,21 +382,22 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
-        callback_handler = kwargs.get("callback_handler", self.callback_handler)
+
+        async def acall() -> AgentResult:
+            callback_handler = kwargs.get("callback_handler", self.callback_handler)
+
+            events = self._run_loop(callback_handler, prompt, kwargs)
+            async for event in events:
+                if "callback" in event:
+                    callback_handler(**event["callback"])
+
+            return AgentResult(*event["stop"])
 
         self._start_agent_trace_span(prompt)
 
         try:
-            events = self._run_loop(callback_handler, prompt, kwargs)
-            for event in events:
-                if "callback" in event:
-                    callback_handler(**event["callback"])
-
-            stop_reason, message, metrics, state = event["stop"]
-            result = AgentResult(stop_reason, message, metrics, state)
-
+            result = asyncio.run(acall())
             self._end_agent_trace_span(response=result)
-
             return result
 
         except Exception as e:
@@ -417,6 +419,15 @@ class Agent:
                 that the agent will use when responding.
             prompt: The prompt to use for the agent.
         """
+
+        async def acall(messages: Messages) -> T:
+            events = self.model.structured_output(output_model, messages)
+            async for event in events:
+                if "callback" in event:
+                    self.callback_handler(**cast(dict, event["callback"]))
+
+            return event["output"]
+
         messages = self.messages
         if not messages and not prompt:
             raise ValueError("No conversation history or prompt provided")
@@ -425,13 +436,7 @@ class Agent:
         if prompt:
             messages.append({"role": "user", "content": [{"text": prompt}]})
 
-        # get the structured output from the model
-        events = self.model.structured_output(output_model, messages)
-        for event in events:
-            if "callback" in event:
-                self.callback_handler(**cast(dict, event["callback"]))
-
-        return event["output"]
+        return asyncio.run(acall(messages))
 
     async def stream_async(self, prompt: str, **kwargs: Any) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
@@ -469,23 +474,21 @@ class Agent:
 
         try:
             events = self._run_loop(callback_handler, prompt, kwargs)
-            for event in events:
+            async for event in events:
                 if "callback" in event:
                     callback_handler(**event["callback"])
                     yield event["callback"]
 
-            stop_reason, message, metrics, state = event["stop"]
-            result = AgentResult(stop_reason, message, metrics, state)
-
+            result = AgentResult(*event["stop"])
             self._end_agent_trace_span(response=result)
 
         except Exception as e:
             self._end_agent_trace_span(error=e)
             raise
 
-    def _run_loop(
+    async def _run_loop(
         self, callback_handler: Callable[..., Any], prompt: str, kwargs: dict[str, Any]
-    ) -> Generator[dict[str, Any], None, None]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the agent's event loop with the given prompt and parameters."""
         try:
             # Extract key parameters
@@ -497,14 +500,16 @@ class Agent:
             self.messages.append(new_message)
 
             # Execute the event loop cycle with retry logic for context limits
-            yield from self._execute_event_loop_cycle(callback_handler, kwargs)
+            events = self._execute_event_loop_cycle(callback_handler, kwargs)
+            async for event in events:
+                yield event
 
         finally:
             self.conversation_manager.apply_management(self)
 
-    def _execute_event_loop_cycle(
+    async def _execute_event_loop_cycle(
         self, callback_handler: Callable[..., Any], kwargs: dict[str, Any]
-    ) -> Generator[dict[str, Any], None, None]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the event loop cycle with retry logic for context window limits.
 
         This internal method handles the execution of the event loop cycle and implements
@@ -527,7 +532,7 @@ class Agent:
 
         try:
             # Execute the main event loop cycle
-            yield from event_loop_cycle(
+            events = event_loop_cycle(
                 model=model,
                 system_prompt=system_prompt,
                 messages=messages,  # will be modified by event_loop_cycle
@@ -540,11 +545,15 @@ class Agent:
                 event_loop_parent_span=self.trace_span,
                 **kwargs,
             )
+            async for event in events:
+                yield event
 
         except ContextWindowOverflowException as e:
             # Try reducing the context size and retrying
             self.conversation_manager.reduce_context(self, e=e)
-            yield from self._execute_event_loop_cycle(callback_handler_override, kwargs)
+            events = self._execute_event_loop_cycle(callback_handler_override, kwargs)
+            async for event in events:
+                yield event
 
     def _record_tool_execution(
         self,

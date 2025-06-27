@@ -115,7 +115,8 @@ def test_format_request_message_content(content, exp_result):
     assert tru_result == exp_result
 
 
-def test_structured_output(litellm_client, model, test_output_model_cls):
+@pytest.mark.asyncio
+async def test_structured_output(litellm_client, model, test_output_model_cls):
     messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
 
     mock_choice = unittest.mock.Mock()
@@ -128,7 +129,7 @@ def test_structured_output(litellm_client, model, test_output_model_cls):
 
     with unittest.mock.patch.object(strands.models.litellm, "supports_response_schema", return_value=True):
         stream = model.structured_output(test_output_model_cls, messages)
-        tru_result = list(stream)[-1]
+        tru_result = [event async for event in stream][-1]
 
     exp_result = {"output": test_output_model_cls(name="John", age=30)}
     assert tru_result == exp_result

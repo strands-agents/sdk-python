@@ -4,7 +4,7 @@
 """
 
 import logging
-from typing import Any, Generator, Iterable, Optional, Protocol, Type, TypedDict, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, Optional, Protocol, Type, TypedDict, TypeVar, Union, cast
 
 import openai
 from openai.types.chat.parsed_chat_completion import ParsedChatCompletion
@@ -82,7 +82,7 @@ class OpenAIModel(SAOpenAIModel):
         return cast(OpenAIModel.OpenAIConfig, self.config)
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Send the request to the OpenAI model and get the streaming response.
 
         Args:
@@ -139,9 +139,9 @@ class OpenAIModel(SAOpenAIModel):
         yield {"chunk_type": "metadata", "data": event.usage}
 
     @override
-    def structured_output(
+    async def structured_output(
         self, output_model: Type[T], prompt: Messages
-    ) -> Generator[dict[str, Union[T, Any]], None, None]:
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:

@@ -16,7 +16,7 @@ class TestOpenAIModel(SAOpenAIModel):
     def get_config(self):
         return
 
-    def stream(self, request):
+    async def stream(self, request):
         yield {"request": request}
 
 
