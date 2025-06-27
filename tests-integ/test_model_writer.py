@@ -49,13 +49,13 @@ def test_agent(agent):
 
 
 @pytest.mark.skipif("WRITER_API_KEY" not in os.environ, reason="WRITER_API_KEY environment variable missing")
-def test_structured_output(model):
+def test_structured_output(agent):
     class Weather(BaseModel):
         time: str
         weather: str
 
-    agent = Agent(model=model)
     result = agent.structured_output(Weather, "The time is 12:00 and the weather is sunny")
+
     assert isinstance(result, Weather)
     assert result.time == "12:00"
     assert result.weather == "sunny"

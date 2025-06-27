@@ -151,7 +151,7 @@ def test_format_request_with_tool_use(model, model_name, stream_options):
     assert request == exp_request
 
 
-def test_format_request_with_tool_resultsasync(model, model_name, stream_options):
+def test_format_request_with_tool_results(model, model_name, stream_options):
     messages = [
         {
             "role": "user",
@@ -186,6 +186,44 @@ def test_format_request_with_tool_resultsasync(model, model_name, stream_options
     assert request == exp_request
 
 
+def test_format_request_with_image(model, model_name, stream_options):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"bytes": b"lovely sunny day"},
+                    },
+                },
+            ],
+        },
+    ]
+
+    request = model.format_request(messages)
+    exp_request = {
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "image_url": {
+                            "url": "data:image/png;base64,bG92ZWx5IHN1bm55IGRheQ==",
+                        },
+                        "type": "image_url",
+                    },
+                ],
+            },
+        ],
+        "model": model_name,
+        "stream": True,
+        "stream_options": stream_options,
+    }
+
+    assert request == exp_request
+
+
 def test_format_request_with_empty_content(model, model_name, stream_options):
     messages = [
         {
@@ -208,7 +246,7 @@ def test_format_request_with_empty_content(model, model_name, stream_options):
 @pytest.mark.parametrize(
     ("content", "content_type"),
     [
-        ({"image": {}}, "image"),
+        ({"video": {}}, "video"),
         ({"document": {}}, "document"),
         ({"reasoningContent": {}}, "reasoningContent"),
         ({"other": {}}, "other"),

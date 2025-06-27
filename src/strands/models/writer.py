@@ -3,8 +3,10 @@
 - Docs: https://dev.writer.com/home/introduction
 """
 
+import base64
 import json
 import logging
+import mimetypes
 from typing import Any, Dict, Generator, Iterable, List, Optional, Type, TypedDict, TypeVar, Union, cast
 
 import writerai
@@ -33,7 +35,6 @@ class WriterModel(Model):
             logprobs: Return logprobs or not.
             max_tokens: Maximum number of tokens to generate.
             n: Number of chat completions to generate for each prompt.
-            response_format: The response format to use for the chat completion.
             stop: Default stop sequences.
             stream_options: Additional options for streaming.
             temperature: What sampling temperature to use.
@@ -83,9 +84,9 @@ class WriterModel(Model):
 
     def _format_request_message_contents_vision(self, contents: list[ContentBlock]) -> list[dict[str, Any]]:
         def _format_content_vision(content: ContentBlock) -> dict[str, Any]:
-            """Format a Writer content block.
+            """Format a Writer content block for Palmyra V5 request.
 
-            - NOTE: "reasoningContent", "video" and "image" are not supported currently.
+            - NOTE: "reasoningContent", "document" and "video" are not supported currently.
 
             Args:
                 content: Message content.
@@ -99,6 +100,17 @@ class WriterModel(Model):
             if "text" in content:
                 return {"text": content["text"], "type": "text"}
 
+            if "image" in content:
+                mime_type = mimetypes.types_map.get(f".{content['image']['format']}", "application/octet-stream")
+                image_data = base64.b64encode(content["image"]["source"]["bytes"]).decode("utf-8")
+
+                return {
+                    "image_url": {
+                        "url": f"data:{mime_type};base64,{image_data}",
+                    },
+                    "type": "image_url",
+                }
+
             raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
         return [
@@ -109,9 +121,9 @@ class WriterModel(Model):
 
     def _format_request_message_contents(self, contents: list[ContentBlock]) -> str:
         def _format_content(content: ContentBlock) -> str:
-            """Format a Writer content block.
+            """Format a Writer content block for Palmyra models (except V5) request.
 
-            - NOTE: "reasoningContent", "video" and "image" are not supported currently.
+            - NOTE: "reasoningContent", "document", "video" and "image" are not supported currently.
 
             Args:
                 content: Message content.
