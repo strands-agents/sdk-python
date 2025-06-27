@@ -14,7 +14,7 @@ import logging
 import os
 import random
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, AsyncIterator, Callable, Generator, Mapping, Optional, Type, TypeVar, Union, cast
+from typing import Any, AsyncIterator, Callable, Generator, List, Mapping, Optional, Type, TypeVar, Union, cast
 
 from opentelemetry import trace
 from pydantic import BaseModel
@@ -512,10 +512,10 @@ class Agent:
 
     def _record_tool_execution(
         self,
-        tool: dict[str, Any],
-        tool_result: dict[str, Any],
+        tool: ToolUse,
+        tool_result: ToolResult,
         user_message_override: Optional[str],
-        messages: list[dict[str, Any]],
+        messages: Messages,
     ) -> None:
         """Record a tool execution in the message history.
 
