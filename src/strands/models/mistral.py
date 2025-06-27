@@ -1,4 +1,4 @@
-"""Mistral API model provider.
+"""Mistral AI model provider.
 
 - Docs: https://docs.mistral.ai/
 """
