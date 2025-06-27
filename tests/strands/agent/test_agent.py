@@ -7,7 +7,6 @@ import unittest.mock
 from unittest.mock import call
 
 import pytest
-from mocks.mock_hook_provider import MockHookProvider
 from pydantic import BaseModel
 
 import strands
@@ -20,6 +19,8 @@ from strands.hooks.events import AgentInitializedEvent, EndRequestEvent, StartRe
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
+
+from ..mocks.mock_hook_provider import MockHookProvider
 
 
 @pytest.fixture

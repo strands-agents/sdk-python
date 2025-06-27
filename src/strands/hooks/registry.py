@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Generator, Protocol, Type, TypeVar
 
 if TYPE_CHECKING:
-    from strands import Agent
+    from ..agent import Agent
 
 
 @dataclass
@@ -100,9 +100,9 @@ class HookRegistry:
     cleanup events, and provides type-safe event dispatching.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize an empty hook registry."""
-        self._registered_callbacks = {}
+        self._registered_callbacks: dict[Type, list[HookCallback]] = {}
 
     def add_callback(self, event_type: Type, callback: HookCallback) -> None:
         """Register a callback function for a specific event type.
