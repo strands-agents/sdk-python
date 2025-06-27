@@ -329,8 +329,6 @@ class Agent:
             if isinstance(state, dict):
                 self.state = AgentState(state)
             elif isinstance(state, AgentState):
-                print("HERE!")
-                print(type(state))
                 self.state = state
             else:
                 raise ValueError("state must be an AgentState object or a dict")
