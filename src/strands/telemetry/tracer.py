@@ -218,7 +218,7 @@ class Tracer:
         """
         attributes: Dict[str, AttributeValue] = {
             "gen_ai.system": "strands-agents",
-            "agent.name": agent_name,
+            "gen_ai.operation.name": "chat",
             "gen_ai.agent.name": agent_name,
             "gen_ai.prompt": serialize(messages),
         }
@@ -245,7 +245,9 @@ class Tracer:
         attributes: Dict[str, AttributeValue] = {
             "gen_ai.completion": serialize(message["content"]),
             "gen_ai.usage.prompt_tokens": usage["inputTokens"],
+            "gen_ai.usage.input_tokens": usage["inputTokens"],
             "gen_ai.usage.completion_tokens": usage["outputTokens"],
+            "gen_ai.usage.output_tokens": usage["outputTokens"],
             "gen_ai.usage.total_tokens": usage["totalTokens"],
         }
 
@@ -264,6 +266,7 @@ class Tracer:
         """
         attributes: Dict[str, AttributeValue] = {
             "gen_ai.prompt": serialize(tool),
+            "gen_ai.system": "strands-agents",
             "tool.name": tool["name"],
             "tool.id": tool["toolUseId"],
             "tool.parameters": serialize(tool["input"]),
@@ -435,6 +438,8 @@ class Tracer:
                     {
                         "gen_ai.usage.prompt_tokens": accumulated_usage["inputTokens"],
                         "gen_ai.usage.completion_tokens": accumulated_usage["outputTokens"],
+                        "gen_ai.usage.input_tokens": accumulated_usage["inputTokens"],
+                        "gen_ai.usage.output_tokens": accumulated_usage["outputTokens"],
                         "gen_ai.usage.total_tokens": accumulated_usage["totalTokens"],
                     }
                 )
