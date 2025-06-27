@@ -22,6 +22,8 @@ from pydantic import BaseModel
 from ..event_loop.event_loop import event_loop_cycle
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..handlers.tool_handler import AgentToolHandler
+from ..hooks.events import AgentInitializedEvent, EndRequestEvent, StartRequestEvent
+from ..hooks.registry import HookRegistry
 from ..models.bedrock import BedrockModel
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer
@@ -308,6 +310,10 @@ class Agent:
         self.name = name
         self.description = description
 
+        self._hooks = HookRegistry()
+        # Register built-in hook providers (like ConversationManager) here
+        self._hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
+
     @property
     def tool(self) -> ToolCaller:
         """Call tool as a function.
@@ -473,6 +479,8 @@ class Agent:
 
     def _run_loop(self, prompt: str, kwargs: dict[str, Any]) -> Generator[dict[str, Any], None, None]:
         """Execute the agent's event loop with the given prompt and parameters."""
+        self._hooks.invoke_callbacks(StartRequestEvent(agent=self))
+
         try:
             # Extract key parameters
             yield {"callback": {"init_event_loop": True, **kwargs}}
@@ -487,6 +495,7 @@ class Agent:
 
         finally:
             self.conversation_manager.apply_management(self)
+            self._hooks.invoke_callbacks(EndRequestEvent(agent=self))
 
     def _execute_event_loop_cycle(self, kwargs: dict[str, Any]) -> Generator[dict[str, Any], None, None]:
         """Execute the event loop cycle with retry logic for context window limits.
