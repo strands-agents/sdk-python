@@ -82,6 +82,10 @@ openai = [
 otel = [
     "opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0",
 ]
+writer = [
+    "writer-sdk>=2.2.0,<3.0.0"
+]
+
 a2a = [
     "a2a-sdk>=0.2.6",
     "uvicorn>=0.34.2",
@@ -95,7 +99,8 @@ a2a = [
 source = "vcs"
 
 [tool.hatch.envs.hatch-static-analysis]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel","mistral"]
+features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel", "mistral", "writer"]
+
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
   "ruff>=0.11.6,<0.12.0",
@@ -119,7 +124,8 @@ lint-fix = [
 ]
 
 [tool.hatch.envs.hatch-test]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel","mistral"]
+features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel", "mistral", "writer"]
+
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
@@ -135,7 +141,7 @@ extra-args = [
 
 [tool.hatch.envs.dev]
 dev-mode = true
-features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel","mistral"]
+features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel", "mistral", "writer"]
 
 [tool.hatch.envs.a2a]
 dev-mode = true
