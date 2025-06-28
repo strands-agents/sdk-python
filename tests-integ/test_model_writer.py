@@ -11,7 +11,7 @@ from strands.models.writer import WriterModel
 @pytest.fixture
 def model():
     return WriterModel(
-        model="palmyra-x4",
+        model_id="palmyra-x4",
         client_args={"api_key": os.getenv("WRITER_API_KEY", "")},
         stream_options={"include_usage": True},
     )

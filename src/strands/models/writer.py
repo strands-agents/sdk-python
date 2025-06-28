@@ -31,7 +31,7 @@ class WriterModel(Model):
         """Configuration options for Writer API.
 
         Attributes:
-            model: Model name to use (e.g. palmyra-x5, palmyra-x4, etc.).
+            model_id: Model name to use (e.g. palmyra-x5, palmyra-x4, etc.).
             logprobs: Return logprobs or not.
             max_tokens: Maximum number of tokens to generate.
             n: Number of chat completions to generate for each prompt.
@@ -41,7 +41,7 @@ class WriterModel(Model):
             top_p: Threshold for 'nucleus sampling'
         """
 
-        model: str
+        model_id: str
         logprobs: bool
         max_tokens: Optional[int]
         n: Optional[int]
@@ -191,7 +191,7 @@ class WriterModel(Model):
             ],
         )
 
-        if self.get_config().get("model", "") == "palmyra-x5":
+        if self.get_config().get("model_id", "") == "palmyra-x5":
             formatted_contents = self._format_request_message_contents_vision(contents)
         else:
             formatted_contents = self._format_request_message_contents(contents)  # type: ignore [assignment]
@@ -219,7 +219,7 @@ class WriterModel(Model):
             contents = message["content"]
 
             # Only palmyra V5 support multiple content. Other models support only '{"content": "text_content"}'
-            if self.get_config().get("model", "") == "palmyra-x5":
+            if self.get_config().get("model_id", "") == "palmyra-x5":
                 formatted_contents: str | list[dict[str, Any]] = self._format_request_message_contents_vision(contents)
             else:
                 formatted_contents = self._format_request_message_contents(contents)
@@ -264,6 +264,12 @@ class WriterModel(Model):
             "messages": self._format_request_messages(messages, system_prompt),
             "stream": True,
         }
+        try:
+            request["model"] = request.pop(
+                "model_id"
+            )  # To be consisted with other models WriterConfig use 'model_id' arg, but Writer API wait for 'model' arg
+        except KeyError as e:
+            raise KeyError("Please specify a model ID. Use 'model_id' keyword argument.") from e
 
         # Writer don't support empty tools attribute
         if tool_specs:

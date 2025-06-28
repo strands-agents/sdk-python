@@ -23,7 +23,7 @@ def client_args():
 
 
 @pytest.fixture
-def model_name():
+def model_id():
     return "palmyra-x5"
 
 
@@ -33,10 +33,10 @@ def stream_options():
 
 
 @pytest.fixture
-def model(writer_client, model_name, stream_options, client_args):
+def model(writer_client, model_id, stream_options, client_args):
     _ = writer_client
 
-    return WriterModel(client_args, model=model_name, stream_options=stream_options)
+    return WriterModel(client_args, model_id=model_id, stream_options=stream_options)
 
 
 @pytest.fixture
@@ -49,11 +49,11 @@ def system_prompt():
     return "System prompt"
 
 
-def test__init__(writer_client_cls, model_name, stream_options, client_args):
-    model = WriterModel(client_args=client_args, model=model_name, stream_options=stream_options)
+def test__init__(writer_client_cls, model_id, stream_options, client_args):
+    model = WriterModel(client_args=client_args, model_id=model_id, stream_options=stream_options)
 
     config = model.get_config()
-    exp_config = {"stream_options": stream_options, "model": model_name}
+    exp_config = {"stream_options": stream_options, "model_id": model_id}
 
     assert config == exp_config
 
@@ -61,33 +61,33 @@ def test__init__(writer_client_cls, model_name, stream_options, client_args):
 
 
 def test_update_config(model):
-    model.update_config(model="palmyra-x4")
+    model.update_config(model_id="palmyra-x4")
 
-    model_id = model.get_config().get("model")
+    model_id = model.get_config().get("model_id")
 
     assert model_id == "palmyra-x4"
 
 
-def test_format_request_basic(model, messages, model_name, stream_options):
+def test_format_request_basic(model, messages, model_id, stream_options):
     request = model.format_request(messages)
 
     exp_request = {
         "stream": True,
         "messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}],
-        "model": model_name,
+        "model": model_id,
         "stream_options": stream_options,
     }
 
     assert request == exp_request
 
 
-def test_format_request_with_params(model, messages, model_name, stream_options):
+def test_format_request_with_params(model, messages, model_id, stream_options):
     model.update_config(temperature=0.19)
 
     request = model.format_request(messages)
     exp_request = {
         "messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}],
-        "model": model_name,
+        "model": model_id,
         "stream_options": stream_options,
         "temperature": 0.19,
         "stream": True,
@@ -96,7 +96,7 @@ def test_format_request_with_params(model, messages, model_name, stream_options)
     assert request == exp_request
 
 
-def test_format_request_with_system_prompt(model, messages, model_name, stream_options, system_prompt):
+def test_format_request_with_system_prompt(model, messages, model_id, stream_options, system_prompt):
     request = model.format_request(messages, system_prompt=system_prompt)
 
     exp_request = {
@@ -104,7 +104,7 @@ def test_format_request_with_system_prompt(model, messages, model_name, stream_o
             {"content": "System prompt", "role": "system"},
             {"content": [{"text": "test", "type": "text"}], "role": "user"},
         ],
-        "model": model_name,
+        "model": model_id,
         "stream_options": stream_options,
         "stream": True,
     }
@@ -112,7 +112,7 @@ def test_format_request_with_system_prompt(model, messages, model_name, stream_o
     assert request == exp_request
 
 
-def test_format_request_with_tool_use(model, model_name, stream_options):
+def test_format_request_with_tool_use(model, model_id, stream_options):
     messages = [
         {
             "role": "assistant",
@@ -143,7 +143,7 @@ def test_format_request_with_tool_use(model, model_name, stream_options):
                 ],
             },
         ],
-        "model": model_name,
+        "model": model_id,
         "stream_options": stream_options,
         "stream": True,
     }
@@ -151,7 +151,7 @@ def test_format_request_with_tool_use(model, model_name, stream_options):
     assert request == exp_request
 
 
-def test_format_request_with_tool_results(model, model_name, stream_options):
+def test_format_request_with_tool_results(model, model_id, stream_options):
     messages = [
         {
             "role": "user",
@@ -178,7 +178,7 @@ def test_format_request_with_tool_results(model, model_name, stream_options):
                 "tool_call_id": "c1",
             },
         ],
-        "model": model_name,
+        "model": model_id,
         "stream_options": stream_options,
         "stream": True,
     }
@@ -186,7 +186,7 @@ def test_format_request_with_tool_results(model, model_name, stream_options):
     assert request == exp_request
 
 
-def test_format_request_with_image(model, model_name, stream_options):
+def test_format_request_with_image(model, model_id, stream_options):
     messages = [
         {
             "role": "user",
@@ -216,7 +216,7 @@ def test_format_request_with_image(model, model_name, stream_options):
                 ],
             },
         ],
-        "model": model_name,
+        "model": model_id,
         "stream": True,
         "stream_options": stream_options,
     }
@@ -224,7 +224,7 @@ def test_format_request_with_image(model, model_name, stream_options):
     assert request == exp_request
 
 
-def test_format_request_with_empty_content(model, model_name, stream_options):
+def test_format_request_with_empty_content(model, model_id, stream_options):
     messages = [
         {
             "role": "user",
@@ -235,7 +235,7 @@ def test_format_request_with_empty_content(model, model_name, stream_options):
     tru_request = model.format_request(messages)
     exp_request = {
         "messages": [],
-        "model": model_name,
+        "model": model_id,
         "stream_options": stream_options,
         "stream": True,
     }
@@ -264,7 +264,7 @@ def test_format_request_with_unsupported_type(model, content, content_type):
         model.format_request(messages)
 
 
-def test_stream(writer_client, model, model_name):
+def test_stream(writer_client, model, model_id):
     mock_tool_call_1_part_1 = unittest.mock.Mock(index=0)
     mock_tool_call_2_part_1 = unittest.mock.Mock(index=1)
     mock_delta_1 = unittest.mock.Mock(
@@ -287,7 +287,7 @@ def test_stream(writer_client, model, model_name):
     writer_client.chat.chat.return_value = iter([mock_event_1, mock_event_2, mock_event_3, mock_event_4])
 
     request = {
-        "model": model_name,
+        "model": model_id,
         "messages": [{"role": "user", "content": [{"type": "text", "text": "calculate 2+2"}]}],
     }
     response = model.stream(request)
@@ -313,7 +313,7 @@ def test_stream(writer_client, model, model_name):
     writer_client.chat.chat(**request)
 
 
-def test_stream_empty(writer_client, model, model_name):
+def test_stream_empty(writer_client, model, model_id):
     mock_delta = unittest.mock.Mock(content=None, tool_calls=None)
     mock_usage = unittest.mock.Mock(prompt_tokens=0, completion_tokens=0, total_tokens=0)
 
@@ -324,7 +324,7 @@ def test_stream_empty(writer_client, model, model_name):
 
     writer_client.chat.chat.return_value = iter([mock_event_1, mock_event_2, mock_event_3, mock_event_4])
 
-    request = {"model": model_name, "messages": [{"role": "user", "content": []}]}
+    request = {"model": model_id, "messages": [{"role": "user", "content": []}]}
     response = model.stream(request)
 
     events = list(response)
@@ -340,7 +340,7 @@ def test_stream_empty(writer_client, model, model_name):
     writer_client.chat.chat.assert_called_once_with(**request)
 
 
-def test_stream_with_empty_choices(writer_client, model, model_name):
+def test_stream_with_empty_choices(writer_client, model, model_id):
     mock_delta = unittest.mock.Mock(content="content", tool_calls=None)
     mock_usage = unittest.mock.Mock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
 
@@ -352,7 +352,7 @@ def test_stream_with_empty_choices(writer_client, model, model_name):
 
     writer_client.chat.chat.return_value = iter([mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5])
 
-    request = {"model": model_name, "messages": [{"role": "user", "content": ["test"]}]}
+    request = {"model": model_id, "messages": [{"role": "user", "content": ["test"]}]}
     response = model.stream(request)
 
     events = list(response)
