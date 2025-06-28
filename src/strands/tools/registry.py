@@ -538,6 +538,10 @@ class ToolRegistry:
                 }
                 continue
 
+            # It is expected that type and description are already included in referenced $def.
+            if "$ref" in prop_def:
+                continue
+
             if "type" not in prop_def:
                 prop_def["type"] = "string"
             if "description" not in prop_def:

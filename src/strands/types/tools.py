@@ -241,37 +241,16 @@ class ToolHandler(ABC):
     """Abstract base class for handling tool execution within the agent framework."""
 
     @abstractmethod
-    # pragma: no cover
-    def preprocess(
-        self,
-        tool: ToolUse,
-        tool_config: ToolConfig,
-        **kwargs: Any,
-    ) -> Optional[ToolResult]:
-        """Preprocess a tool use request before execution.
-
-        Args:
-            tool: The tool use request to preprocess.
-            tool_config: The tool configuration for the current session.
-            **kwargs: Additional context-specific arguments.
-
-        Returns:
-            A preprocessed tool result object.
-        """
-        ...
-
-    @abstractmethod
-    # pragma: no cover
     def process(
         self,
         tool: ToolUse,
         *,
-        messages: "Messages",
         model: "Model",
         system_prompt: Optional[str],
+        messages: "Messages",
         tool_config: ToolConfig,
         callback_handler: Any,
-        **kwargs: Any,
+        kwargs: dict[str, Any],
     ) -> ToolResult:
         """Process a tool use request and execute the tool.
 
@@ -282,7 +261,7 @@ class ToolHandler(ABC):
             system_prompt: The system prompt for the conversation.
             tool_config: The tool configuration for the current session.
             callback_handler: Callback for processing events as they happen.
-            **kwargs: Additional context-specific arguments.
+            kwargs: Additional context-specific arguments.
 
         Returns:
             The result of the tool execution.

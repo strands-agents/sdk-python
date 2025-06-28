@@ -50,8 +50,8 @@ class Model(abc.ABC):
         """Get structured output from the model.
 
         Args:
-            output_model(Type[BaseModel]): The output model to use for the agent.
-            prompt(Messages): The prompt messages to use for the agent.
+            output_model: The output model to use for the agent.
+            prompt: The prompt messages to use for the agent.
 
         Yields:
             Model events with the last being the structured output.
@@ -130,6 +130,7 @@ class Model(abc.ABC):
         """
         logger.debug("formatting request")
         request = self.format_request(messages, tool_specs, system_prompt)
+        logger.debug("formatted request=<%s>", request)
 
         logger.debug("invoking model")
         response = self.stream(request)

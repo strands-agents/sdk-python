@@ -1,6 +1,7 @@
 import os
 import sys
 import unittest.mock
+from unittest.mock import ANY
 
 import boto3
 import pydantic
@@ -10,17 +11,30 @@ from botocore.exceptions import ClientError, EventStreamError
 
 import strands
 from strands.models import BedrockModel
-from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID
+from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, DEFAULT_BEDROCK_REGION
 from strands.types.exceptions import ModelThrottledException
 
 
 @pytest.fixture
-def bedrock_client():
+def session_cls():
+    # Mock the creation of a Session so that we don't depend on environment variables or profiles
     with unittest.mock.patch.object(strands.models.bedrock.boto3, "Session") as mock_session_cls:
-        mock_client = mock_session_cls.return_value.client.return_value
-        mock_client.meta = unittest.mock.MagicMock()
-        mock_client.meta.region_name = "us-west-2"
-        yield mock_client
+        mock_session_cls.return_value.region_name = None
+        yield mock_session_cls
+
+
+@pytest.fixture
+def mock_client_method(session_cls):
+    # the boto3.Session().client(...) method
+    return session_cls.return_value.client
+
+
+@pytest.fixture
+def bedrock_client(session_cls):
+    mock_client = session_cls.return_value.client.return_value
+    mock_client.meta = unittest.mock.MagicMock()
+    mock_client.meta.region_name = "us-west-2"
+    yield mock_client
 
 
 @pytest.fixture
@@ -105,41 +119,61 @@ def test__init__default_model_id(bedrock_client):
     assert tru_model_id == exp_model_id
 
 
-def test__init__with_default_region(bedrock_client):
+def test__init__with_default_region(session_cls, mock_client_method):
     """Test that BedrockModel uses the provided region."""
-    _ = bedrock_client
-    default_region = "us-west-2"
-
-    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
-        with unittest.mock.patch("strands.models.bedrock.logger.warning") as mock_warning:
-            _ = BedrockModel()
-            mock_session_cls.assert_called_once_with(region_name=default_region)
-            # Assert that warning logs are emitted
-            mock_warning.assert_any_call("defaulted to us-west-2 because no region was specified")
-            mock_warning.assert_any_call(
-                "issue=<%s> | this behavior will change in an upcoming release",
-                "https://github.com/strands-agents/sdk-python/issues/238",
-            )
+    with unittest.mock.patch.object(os, "environ", {}):
+        BedrockModel()
+        session_cls.return_value.client.assert_called_with(
+            region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY
+        )
 
 
-def test__init__with_custom_region(bedrock_client):
+def test__init__with_session_region(session_cls, mock_client_method):
     """Test that BedrockModel uses the provided region."""
-    _ = bedrock_client
+    session_cls.return_value.region_name = "eu-blah-1"
+
+    BedrockModel()
+
+    mock_client_method.assert_called_with(region_name="eu-blah-1", config=ANY, service_name=ANY)
+
+
+def test__init__with_custom_region(mock_client_method):
+    """Test that BedrockModel uses the provided region."""
     custom_region = "us-east-1"
-
-    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
-        _ = BedrockModel(region_name=custom_region)
-        mock_session_cls.assert_called_once_with(region_name=custom_region)
+    BedrockModel(region_name=custom_region)
+    mock_client_method.assert_called_with(region_name=custom_region, config=ANY, service_name=ANY)
 
 
-def test__init__with_environment_variable_region(bedrock_client):
-    """Test that BedrockModel uses the provided region."""
-    _ = bedrock_client
-    os.environ["AWS_REGION"] = "eu-west-1"
+def test__init__with_default_environment_variable_region(mock_client_method):
+    """Test that BedrockModel uses the AWS_REGION since we code that in."""
+    with unittest.mock.patch.object(os, "environ", {"AWS_REGION": "eu-west-2"}):
+        BedrockModel()
 
-    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
-        _ = BedrockModel()
-        mock_session_cls.assert_called_once_with(region_name="eu-west-1")
+    mock_client_method.assert_called_with(region_name="eu-west-2", config=ANY, service_name=ANY)
+
+
+def test__init__region_precedence(mock_client_method, session_cls):
+    """Test that BedrockModel uses the correct ordering of precedence when determining region."""
+    with unittest.mock.patch.object(os, "environ", {"AWS_REGION": "us-environment-1"}) as mock_os_environ:
+        session_cls.return_value.region_name = "us-session-1"
+
+        # specifying a region always wins out
+        BedrockModel(region_name="us-specified-1")
+        mock_client_method.assert_called_with(region_name="us-specified-1", config=ANY, service_name=ANY)
+
+        # other-wise uses the session's
+        BedrockModel()
+        mock_client_method.assert_called_with(region_name="us-session-1", config=ANY, service_name=ANY)
+
+        # environment variable next
+        session_cls.return_value.region_name = None
+        BedrockModel()
+        mock_client_method.assert_called_with(region_name="us-environment-1", config=ANY, service_name=ANY)
+
+        mock_os_environ.pop("AWS_REGION")
+        session_cls.return_value.region_name = None  # No session region
+        BedrockModel()
+        mock_client_method.assert_called_with(region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY)
 
 
 def test__init__with_region_and_session_raises_value_error():

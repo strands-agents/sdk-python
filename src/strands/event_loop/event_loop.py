@@ -14,6 +14,8 @@ import uuid
 from functools import partial
 from typing import Any, Callable, Generator, Optional, cast
 
+from opentelemetry import trace
+
 from ..telemetry.metrics import EventLoopMetrics, Trace
 from ..telemetry.tracer import get_tracer
 from ..tools.executor import run_tools, validate_and_prepare_tools
@@ -40,8 +42,10 @@ def event_loop_cycle(
     tool_config: Optional[ToolConfig],
     callback_handler: Callable[..., Any],
     tool_handler: Optional[ToolHandler],
-    tool_execution_handler: Optional[ParallelToolExecutorInterface] = None,
-    **kwargs: Any,
+    tool_execution_handler: Optional[ParallelToolExecutorInterface],
+    event_loop_metrics: EventLoopMetrics,
+    event_loop_parent_span: Optional[trace.Span],
+    kwargs: dict[str, Any],
 ) -> Generator[dict[str, Any], None, None]:
     """Execute a single cycle of the event loop.
 
@@ -64,13 +68,13 @@ def event_loop_cycle(
         callback_handler: Callback for processing events as they happen.
         tool_handler: Handler for executing tools.
         tool_execution_handler: Optional handler for parallel tool execution.
-        **kwargs: Additional arguments including:
+        event_loop_metrics: Metrics tracking object for the event loop.
+        event_loop_parent_span: Span for the parent of this event loop.
+        kwargs: Additional arguments including:
 
-            - event_loop_metrics: Metrics tracking object
             - request_state: State maintained across cycles
             - event_loop_cycle_id: Unique ID for this cycle
             - event_loop_cycle_span: Current tracing Span for this cycle
-            - event_loop_parent_span: Parent tracing Span for this cycle
 
     Yields:
         Model and tool invocation events. The last event is a tuple containing:
@@ -87,7 +91,6 @@ def event_loop_cycle(
     # Initialize cycle state
     kwargs["event_loop_cycle_id"] = uuid.uuid4()
 
-    event_loop_metrics: EventLoopMetrics = kwargs.get("event_loop_metrics", EventLoopMetrics())
     # Initialize state and get cycle trace
     if "request_state" not in kwargs:
         kwargs["request_state"] = {}
@@ -100,9 +103,8 @@ def event_loop_cycle(
 
     # Create tracer span for this event loop cycle
     tracer = get_tracer()
-    parent_span = kwargs.get("event_loop_parent_span")
     cycle_span = tracer.start_event_loop_cycle_span(
-        event_loop_kwargs=kwargs, parent_span=parent_span, messages=messages
+        event_loop_kwargs=kwargs, parent_span=event_loop_parent_span, messages=messages
     )
     kwargs["event_loop_cycle_span"] = cycle_span
 
@@ -213,6 +215,7 @@ def event_loop_cycle(
                 callback_handler,
                 tool_execution_handler,
                 event_loop_metrics,
+                event_loop_parent_span,
                 cycle_trace,
                 cycle_span,
                 cycle_start_time,
@@ -251,23 +254,33 @@ def event_loop_cycle(
 
 
 def recurse_event_loop(
-    **kwargs: Any,
+    model: Model,
+    system_prompt: Optional[str],
+    messages: Messages,
+    tool_config: Optional[ToolConfig],
+    callback_handler: Callable[..., Any],
+    tool_handler: Optional[ToolHandler],
+    tool_execution_handler: Optional[ParallelToolExecutorInterface],
+    event_loop_metrics: EventLoopMetrics,
+    event_loop_parent_span: Optional[trace.Span],
+    kwargs: dict[str, Any],
 ) -> Generator[dict[str, Any], None, None]:
     """Make a recursive call to event_loop_cycle with the current state.
 
     This function is used when the event loop needs to continue processing after tool execution.
 
     Args:
-        **kwargs: Arguments to pass to event_loop_cycle, including:
+        model: Provider for running model inference
+        system_prompt: System prompt instructions for the model
+        messages: Conversation history messages
+        tool_config: Configuration for available tools
+        callback_handler: Callback for processing events as they happen
+        tool_handler: Handler for tool execution
+        tool_execution_handler: Optional handler for parallel tool execution.
+        event_loop_metrics: Metrics tracking object for the event loop.
+        event_loop_parent_span: Span for the parent of this event loop.
+        kwargs: Arguments to pass through event_loop_cycle
 
-            - model: Provider for running model inference
-            - system_prompt: System prompt instructions for the model
-            - messages: Conversation history messages
-            - tool_config: Configuration for available tools
-            - callback_handler: Callback for processing events as they happen
-            - tool_handler: Handler for tool execution
-            - event_loop_cycle_trace: Trace for the current cycle
-            - event_loop_metrics: Metrics tracking object
 
     Yields:
         Results from event_loop_cycle where the last result contains:
@@ -284,7 +297,18 @@ def recurse_event_loop(
     cycle_trace.add_child(recursive_trace)
 
     yield {"callback": {"start": True}}
-    yield from event_loop_cycle(**kwargs)
+    yield from event_loop_cycle(
+        model=model,
+        system_prompt=system_prompt,
+        messages=messages,
+        tool_config=tool_config,
+        callback_handler=callback_handler,
+        tool_handler=tool_handler,
+        tool_execution_handler=tool_execution_handler,
+        event_loop_metrics=event_loop_metrics,
+        event_loop_parent_span=event_loop_parent_span,
+        kwargs=kwargs,
+    )
 
     recursive_trace.end()
 
@@ -300,6 +324,7 @@ def _handle_tool_execution(
     callback_handler: Callable[..., Any],
     tool_execution_handler: Optional[ParallelToolExecutorInterface],
     event_loop_metrics: EventLoopMetrics,
+    event_loop_parent_span: Optional[trace.Span],
     cycle_trace: Trace,
     cycle_span: Any,
     cycle_start_time: float,
@@ -323,6 +348,7 @@ def _handle_tool_execution(
         callback_handler (Callable[..., Any]): Callback for processing events as they happen.
         tool_execution_handler (Optional[ParallelToolExecutorInterface]): Optional handler for parallel tool execution.
         event_loop_metrics (EventLoopMetrics): Metrics tracking object for the event loop.
+        event_loop_parent_span (Any): Span for the parent of this event loop.
         cycle_trace (Trace): Trace object for the current event loop cycle.
         cycle_span (Any): Span object for tracing the cycle (type may vary).
         cycle_start_time (float): Start time of the current cycle.
@@ -344,12 +370,12 @@ def _handle_tool_execution(
 
     tool_handler_process = partial(
         tool_handler.process,
-        messages=messages,
         model=model,
         system_prompt=system_prompt,
+        messages=messages,
         tool_config=tool_config,
         callback_handler=callback_handler,
-        **kwargs,
+        kwargs=kwargs,
     )
 
     run_tools(
@@ -365,7 +391,6 @@ def _handle_tool_execution(
     )
 
     # Store parent cycle ID for the next cycle
-    kwargs["event_loop_metrics"] = event_loop_metrics
     kwargs["event_loop_parent_cycle_id"] = kwargs["event_loop_cycle_id"]
 
     tool_result_message: Message = {
@@ -392,5 +417,8 @@ def _handle_tool_execution(
         tool_config=tool_config,
         callback_handler=callback_handler,
         tool_handler=tool_handler,
-        **kwargs,
+        tool_execution_handler=tool_execution_handler,
+        event_loop_metrics=event_loop_metrics,
+        event_loop_parent_span=event_loop_parent_span,
+        kwargs=kwargs,
     )

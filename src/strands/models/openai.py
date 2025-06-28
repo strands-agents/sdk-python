@@ -107,6 +107,13 @@ class OpenAIModel(SAOpenAIModel):
             if choice.delta.content:
                 yield {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
 
+            if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
+                yield {
+                    "chunk_type": "content_delta",
+                    "data_type": "reasoning_content",
+                    "data": choice.delta.reasoning_content,
+                }
+
             for tool_call in choice.delta.tool_calls or []:
                 tool_calls.setdefault(tool_call.index, []).append(tool_call)
 
@@ -138,8 +145,8 @@ class OpenAIModel(SAOpenAIModel):
         """Get structured output from the model.
 
         Args:
-            output_model(Type[BaseModel]): The output model to use for the agent.
-            prompt(Messages): The prompt messages to use for the agent.
+            output_model: The output model to use for the agent.
+            prompt: The prompt messages to use for the agent.
 
         Yields:
             Model events with the last being the structured output.

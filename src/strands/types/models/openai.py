@@ -262,6 +262,9 @@ class OpenAIModel(Model, abc.ABC):
                         "contentBlockDelta": {"delta": {"toolUse": {"input": event["data"].function.arguments or ""}}}
                     }
 
+                if event["data_type"] == "reasoning_content":
+                    return {"contentBlockDelta": {"delta": {"reasoningContent": {"text": event["data"]}}}}
+
                 return {"contentBlockDelta": {"delta": {"text": event["data"]}}}
 
             case "content_stop":
@@ -300,8 +303,8 @@ class OpenAIModel(Model, abc.ABC):
         """Get structured output from the model.
 
         Args:
-            output_model(Type[BaseModel]): The output model to use for the agent.
-            prompt(Messages): The prompt to use for the agent.
+            output_model: The output model to use for the agent.
+            prompt: The prompt to use for the agent.
 
         Yields:
             Model events with the last being the structured output.

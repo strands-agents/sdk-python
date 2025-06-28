@@ -306,6 +306,11 @@ def test_format_request(model, messages, tool_specs, system_prompt):
             },
             {"contentBlockDelta": {"delta": {"toolUse": {"input": ""}}}},
         ),
+        # Content Delta - Reasoning Text
+        (
+            {"chunk_type": "content_delta", "data_type": "reasoning_content", "data": "I'm thinking"},
+            {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "I'm thinking"}}}},
+        ),
         # Content Delta - Text
         (
             {"chunk_type": "content_delta", "data_type": "text", "data": "hello"},

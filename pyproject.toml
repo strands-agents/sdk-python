@@ -70,17 +70,18 @@ litellm = [
 llamaapi = [
     "llama-api-client>=0.1.0,<1.0.0",
 ]
+mistral = [
+    "mistralai>=1.8.2",
+]
 ollama = [
     "ollama>=0.4.8,<1.0.0",
 ]
 openai = [
     "openai>=1.68.0,<2.0.0",
 ]
-
 otel = [
     "opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0",
 ]
-
 writer = [
     "writer-sdk>=2.2.0,<3.0.0"
 ]
@@ -98,7 +99,7 @@ a2a = [
 source = "vcs"
 
 [tool.hatch.envs.hatch-static-analysis]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "writer"]
+features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel", "mistral", "writer"]
 
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
@@ -123,7 +124,7 @@ lint-fix = [
 ]
 
 [tool.hatch.envs.hatch-test]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "writer"]
+features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel", "mistral", "writer"]
 
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
@@ -140,7 +141,7 @@ extra-args = [
 
 [tool.hatch.envs.dev]
 dev-mode = true
-features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel", "writer"]
+features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel", "mistral", "writer"]
 
 [tool.hatch.envs.a2a]
 dev-mode = true

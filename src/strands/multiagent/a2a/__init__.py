@@ -9,6 +9,6 @@ Classes:
     A2AAgent: A wrapper that adapts a Strands Agent to be A2A-compatible.
 """
 
-from .agent import A2AAgent
+from .server import A2AServer
 
-__all__ = ["A2AAgent"]
+__all__ = ["A2AServer"]

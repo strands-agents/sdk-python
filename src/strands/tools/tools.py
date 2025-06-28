@@ -81,6 +81,11 @@ def _normalize_property(prop_name: str, prop_def: Any) -> Dict[str, Any]:
 
     # Copy existing property, ensuring defaults
     normalized_prop = prop_def.copy()
+
+    # It is expected that type and description are already included in referenced $def.
+    if "$ref" in normalized_prop:
+        return normalized_prop
+
     normalized_prop.setdefault("type", "string")
     normalized_prop.setdefault("description", f"Property {prop_name}")
     return normalized_prop

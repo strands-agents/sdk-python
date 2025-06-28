@@ -195,7 +195,7 @@ class FunctionToolMetadata:
             schema: The Pydantic-generated JSON schema to clean up (modified in place).
         """
         # Remove Pydantic metadata
-        keys_to_remove = ["title", "$defs", "additionalProperties"]
+        keys_to_remove = ["title", "additionalProperties"]
         for key in keys_to_remove:
             if key in schema:
                 del schema[key]
@@ -530,15 +530,14 @@ def tool(  # type: ignore
         ```python
         @tool
         def my_tool(name: str, count: int = 1) -> str:
-            '''Does something useful with the provided parameters.
-
-    Args:
-                name: The name to process
-                count: Number of times to process (default: 1)
-
-    Returns:
-                A message with the result
-            '''
+            # Does something useful with the provided parameters.
+            #
+            # Parameters:
+            #   name: The name to process
+            #   count: Number of times to process (default: 1)
+            #
+            # Returns:
+            #   A message with the result
             return f"Processed {name} {count} times"
 
         agent = Agent(tools=[my_tool])
