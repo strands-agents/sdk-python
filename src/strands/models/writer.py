@@ -338,10 +338,11 @@ class WriterModel(Model):
                 return {
                     "metadata": {
                         "usage": {
-                            "inputTokens": event["data"].prompt_tokens,
-                            "outputTokens": event["data"].completion_tokens,
-                            "totalTokens": event["data"].total_tokens,
-                        },
+                            "inputTokens": event["data"].prompt_tokens if event["data"] else 0,
+                            "outputTokens": event["data"].completion_tokens if event["data"] else 0,
+                            "totalTokens": event["data"].total_tokens if event["data"] else 0,
+                        },  # If 'stream_options' param is unset, empty metadata will be provided.
+                        # To avoid errors replacing expected fields with default zero value
                         "metrics": {
                             "latencyMs": 0,  # All palmyra models don't provide 'latency' metadata
                         },
