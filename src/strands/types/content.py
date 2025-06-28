@@ -118,6 +118,7 @@ class DeltaContent(TypedDict, total=False):
 
     text: str
     toolUse: Dict[Literal["input"], str]
+    image: ImageContent
 
 
 class ContentBlockStartToolUse(TypedDict):
@@ -142,7 +143,7 @@ class ContentBlockStart(TypedDict, total=False):
     toolUse: Optional[ContentBlockStartToolUse]
 
 
-class ContentBlockDelta(TypedDict):
+class ContentBlockDelta(TypedDict, total=False):
     """The content block delta event.
 
     Attributes:

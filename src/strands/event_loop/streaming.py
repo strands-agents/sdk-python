@@ -102,13 +102,14 @@ def handle_content_block_start(event: ContentBlockStartEvent) -> dict[str, Any]:
 
 
 def handle_content_block_delta(
-    event: ContentBlockDeltaEvent, state: dict[str, Any]
+    event: ContentBlockDeltaEvent, state: dict[str, Any], **kwargs: Any
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Handles content block delta updates by appending text, tool input, or reasoning content to the state.
 
     Args:
         event: Delta event.
         state: The current state of message processing.
+        **kwargs: Additional keyword arguments to pass to the callback handler.
 
     Returns:
         Updated state with appended text or tool input.
@@ -150,7 +151,11 @@ def handle_content_block_delta(
                 "delta": delta_content,
                 "reasoning": True,
             }
-
+    elif "image" in delta_content:
+        # Handle the new ImageContent structure
+        image_content = delta_content["image"]
+        state["image"] = image_content
+        callback_event["callback"] = {"image": image_content, "delta": delta_content, **kwargs}
     return state, callback_event
 
 
@@ -168,7 +173,7 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
     current_tool_use = state["current_tool_use"]
     text = state["text"]
     reasoning_text = state["reasoningText"]
-
+    image = state["image"]
     if current_tool_use:
         if "input" not in current_tool_use:
             current_tool_use["input"] = ""
@@ -192,7 +197,6 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
     elif text:
         content.append({"text": text})
         state["text"] = ""
-
     elif reasoning_text:
         content.append(
             {
@@ -205,6 +209,9 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
             }
         )
         state["reasoningText"] = ""
+    elif image:
+        content.append({"image": image})
+        state["image"] = ""
 
     return state
 
@@ -272,6 +279,7 @@ def process_stream(
         "current_tool_use": {},
         "reasoningText": "",
         "signature": "",
+        "image": None,
     }
     state["content"] = state["message"]["content"]
 

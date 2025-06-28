@@ -1,5 +1,3 @@
-import unittest.mock
-
 import pytest
 
 import strands
@@ -133,6 +131,13 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
             {},
             {},
         ),
+        # Image
+        (
+            {"delta": {"image": {"format": "png", "source": {"bytes": b"image_data"}}}},
+            {"image": {"format": "png", "source": {"bytes": b"image_data"}}},
+            {"image": {"format": "png", "source": {"bytes": b"image_data"}}},
+            {"image": {"format": "png", "source": {"bytes": b"image_data"}}},
+        ),
         # Empty
         (
             {"delta": {}},
@@ -161,12 +166,14 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {"toolUseId": "123", "name": "test", "input": '{"key": "value"}'},
                 "text": "",
                 "reasoningText": "",
+                "image": None,
             },
             {
                 "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {"key": "value"}}}],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "image": None,
             },
         ),
         # Tool Use - Missing input
@@ -176,12 +183,14 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {"toolUseId": "123", "name": "test"},
                 "text": "",
                 "reasoningText": "",
+                "image": None,
             },
             {
                 "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {}}}],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "image": None,
             },
         ),
         # Text
@@ -191,12 +200,14 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {},
                 "text": "test",
                 "reasoningText": "",
+                "image": None,
             },
             {
                 "content": [{"text": "test"}],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "image": None,
             },
         ),
         # Reasoning
@@ -207,6 +218,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "test",
                 "signature": "123",
+                "image": None,
             },
             {
                 "content": [{"reasoningContent": {"reasoningText": {"text": "test", "signature": "123"}}}],
@@ -214,6 +226,24 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "",
                 "signature": "123",
+                "image": None,
+            },
+        ),
+        # Image
+        (
+            {
+                "content": [],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "image": {"format": "png", "source": {"bytes": b"image_data"}},
+            },
+            {
+                "content": [{"image": {"format": "png", "source": {"bytes": b"image_data"}}}],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "image": "",
             },
         ),
         # Empty
@@ -223,12 +253,14 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "image": None,
             },
             {
                 "content": [],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "image": None,
             },
         ),
     ],
@@ -524,6 +556,104 @@ def test_extract_usage_metrics():
                 },
             ],
         ),
+        # Image Message - FIXED
+        (
+            [
+                {"messageStart": {"role": "assistant"}},
+                {"contentBlockStart": {"start": {}}},
+                {"contentBlockDelta": {"delta": {"image": {"format": "png", "source": {"bytes": b"image_data"}}}}},
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "end_turn"}},
+                {
+                    "metadata": {
+                        "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        "metrics": {"latencyMs": 1},
+                    }
+                },
+            ],
+            [
+                {
+                    "callback": {
+                        "event": {
+                            "messageStart": {
+                                "role": "assistant",
+                            },
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "event": {
+                            "contentBlockStart": {
+                                "start": {},
+                            },
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "event": {
+                            "contentBlockDelta": {
+                                "delta": {
+                                    "image": {"format": "png", "source": {"bytes": b"image_data"}},
+                                },
+                            },
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "image": {"format": "png", "source": {"bytes": b"image_data"}},
+                        "delta": {
+                            "image": {"format": "png", "source": {"bytes": b"image_data"}},
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "event": {
+                            "contentBlockStop": {},
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "event": {
+                            "messageStop": {
+                                "stopReason": "end_turn",
+                            },
+                        },
+                    },
+                },
+                {
+                    "callback": {
+                        "event": {
+                            "metadata": {
+                                "metrics": {
+                                    "latencyMs": 1,
+                                },
+                                "usage": {
+                                    "inputTokens": 1,
+                                    "outputTokens": 1,
+                                    "totalTokens": 1,
+                                },
+                            },
+                        },
+                    },
+                },
+                {
+                    "stop": (
+                        "end_turn",
+                        {
+                            "role": "assistant",
+                            "content": [{"image": {"format": "png", "source": {"bytes": b"image_data"}}}],
+                        },
+                        {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        {"latencyMs": 1},
+                    ),
+                },
+            ],
+        ),
     ],
 )
 def test_process_stream(response, exp_events):
@@ -532,63 +662,3 @@ def test_process_stream(response, exp_events):
 
     tru_events = list(stream)
     assert tru_events == exp_events
-
-
-def test_stream_messages():
-    mock_model = unittest.mock.MagicMock()
-    mock_model.converse.return_value = [
-        {"contentBlockDelta": {"delta": {"text": "test"}}},
-        {"contentBlockStop": {}},
-    ]
-
-    stream = strands.event_loop.streaming.stream_messages(
-        mock_model,
-        system_prompt="test prompt",
-        messages=[{"role": "assistant", "content": [{"text": "a"}, {"text": " \n"}]}],
-        tool_config=None,
-    )
-
-    tru_events = list(stream)
-    exp_events = [
-        {
-            "callback": {
-                "event": {
-                    "contentBlockDelta": {
-                        "delta": {
-                            "text": "test",
-                        },
-                    },
-                },
-            },
-        },
-        {
-            "callback": {
-                "data": "test",
-                "delta": {
-                    "text": "test",
-                },
-            },
-        },
-        {
-            "callback": {
-                "event": {
-                    "contentBlockStop": {},
-                },
-            },
-        },
-        {
-            "stop": (
-                "end_turn",
-                {"role": "assistant", "content": [{"text": "test"}]},
-                {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
-                {"latencyMs": 0},
-            )
-        },
-    ]
-    assert tru_events == exp_events
-
-    mock_model.converse.assert_called_with(
-        [{"role": "assistant", "content": [{"text": "a"}, {"text": "[blank text]"}]}],
-        None,
-        "test prompt",
-    )

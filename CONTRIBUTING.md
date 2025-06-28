@@ -143,3 +143,37 @@ If you discover a potential security issue in this project we ask that you notif
 ## Licensing
 
 See the [LICENSE](./LICENSE) file for our project's licensing. We will ask you to confirm the licensing of your contribution.
+
+## Stability Specific Instructions 
+
+* Modified files 
+
+   1. src/strands/event_loop/streaming.py
+   2. tests/strands/event_loop/test_streaming.py
+
+   These files have fixes to make the image return to agent consumers work.
+
+* New Files 
+	1. src/strands/models/_stabilityaiclient.py - A class with a rest client implementation for Stability
+	2. src/strands/models/stability.py - The main model provider implementation
+	3. tests-integ/test_model_stability.py - Integration test to test the image generation workflow.
+	4. tests/TODO.lis - A text file containing TODOs.
+	5. tests/strands/models/test_stability.py - Unit tests for the model provider
+
+
+* Running the stability tests and testing the code 
+
+You can run the integration test for the stability model as follows 
+```
+   cd path/to/strands-agents-sdk-python
+   export STABILITY_API_KEY=<your api key>
+   hatch test tests-integ/test_model_stability.py 
+```
+
+You can also install this as a editable module in a python project and write a agent 
+
+```
+pip install -e /path/to/strands-agents-sdk-python
+Sample code similar to
+https://gist.github.com/sayanc82/17f0d2442acd78f74f8393f58b552c54
+```
