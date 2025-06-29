@@ -364,6 +364,51 @@ def test_format_request_cache(model, messages, model_id, tool_spec, cache_type):
     assert tru_request == exp_request
 
 
+def test_message_with_both_document_sources(bedrock_client, model):
+    """Test that messages with both S3 and bytes document sources are properly formatted."""
+    # Setup mock response
+    bedrock_client.converse_stream.return_value = {
+        "stream": [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockDelta": {"delta": {"text": "I've analyzed both documents."}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    }
+
+    # Create document with both source types (this is allowed by the type but might not be valid for the API)
+    document = {
+        "format": "pdf",
+        "name": "test.pdf",
+        "source": {
+            "bytes": b"test document content",
+            "s3Location": {"bucket": "test-bucket", "key": "documents/test.pdf"},
+        },
+    }
+
+    # Create message with the mixed document
+    messages = [{"role": "user", "content": [{"text": "Please analyze this document"}, document]}]
+
+    # Call converse and collect events
+    list(model.converse(messages))
+
+    # Verify the request was made with both document sources
+    args, kwargs = bedrock_client.converse_stream.call_args
+    request = kwargs
+
+    # Extract the document content from the request
+    request_messages = request["messages"]
+    user_message = request_messages[0]
+    document_content = user_message["content"][1]
+
+    # Verify both sources were included in the request
+    assert "bytes" in document_content["source"]
+    assert "s3Location" in document_content["source"]
+    assert document_content["source"]["bytes"] == b"test document content"
+    assert document_content["source"]["s3Location"]["bucket"] == "test-bucket"
+    assert document_content["source"]["s3Location"]["key"] == "documents/test.pdf"
+
+
 def test_format_chunk(model):
     tru_chunk = model.format_chunk("event")
     exp_chunk = "event"

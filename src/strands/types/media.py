@@ -13,14 +13,33 @@ DocumentFormat = Literal["pdf", "csv", "doc", "docx", "xls", "xlsx", "html", "tx
 """Supported document formats."""
 
 
-class DocumentSource(TypedDict):
+class S3Location(TypedDict, total=False):
+    """Contains the S3 location information for a document.
+
+    Attributes:
+        bucket: The S3 bucket name.
+        key: The S3 object key.
+
+    Note:
+        Both bucket and key are required for a valid S3 location,
+        but they are marked as optional in the type definition to allow
+        for runtime validation in the code.
+    """
+
+    bucket: str
+    key: str
+
+
+class DocumentSource(TypedDict, total=False):
     """Contains the content of a document.
 
     Attributes:
         bytes: The binary content of the document.
+        s3Location: The S3 location of the document (for Bedrock Nova models).
     """
 
     bytes: bytes
+    s3Location: S3Location
 
 
 class DocumentContent(TypedDict):
@@ -29,7 +48,7 @@ class DocumentContent(TypedDict):
     Attributes:
         format: The format of the document (e.g., "pdf", "txt").
         name: The name of the document.
-        source: The source containing the document's binary content.
+        source: The source containing the document's binary content or S3 location.
     """
 
     format: Literal["pdf", "csv", "doc", "docx", "xls", "xlsx", "html", "txt", "md"]
