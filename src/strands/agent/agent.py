@@ -361,7 +361,7 @@ class Agent:
             async for event in events:
                 _ = event
 
-            return event["result"]
+            return cast(AgentResult, event["result"])
 
         return asyncio.run(acall())
 
