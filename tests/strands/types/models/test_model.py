@@ -100,7 +100,8 @@ async def test_structured_output(model):
     assert tru_output == exp_output
 
 
-def test_converse_logging(model, messages, tool_specs, system_prompt, caplog):
+@pytest.mark.asyncio
+async def test_converse_logging(model, messages, tool_specs, system_prompt, caplog):
     """Test that converse method logs the formatted request at debug level."""
     import logging
 
@@ -109,7 +110,7 @@ def test_converse_logging(model, messages, tool_specs, system_prompt, caplog):
 
     # Execute the converse method
     response = model.converse(messages, tool_specs, system_prompt)
-    list(response)  # Consume the generator to trigger all logging
+    [_ async for _ in response]
 
     # Check that the expected log messages are present
     assert "formatting request" in caplog.text

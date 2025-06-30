@@ -334,9 +334,7 @@ def test_agent__call__(
     conversation_manager_spy.apply_management.assert_called_with(agent)
 
 
-def test_agent__call__passes_kwargs(
-    mock_model, system_prompt, callback_handler, agent, tool, mock_event_loop_cycle, alist
-):
+def test_agent__call__passes_kwargs(mock_model, agent, tool, mock_event_loop_cycle, alist):
     mock_model.mock_converse.side_effect = [
         alist(
             [
@@ -364,7 +362,7 @@ def test_agent__call__passes_kwargs(
     override_messages = [{"role": "user", "content": [{"text": "override msg"}]}]
     override_tool_config = {"test": "config"}
 
-    async def check_kwargs(some_value, **kwargs):
+    async def check_kwargs(**kwargs):
         kwargs_kwargs = kwargs["kwargs"]
         assert kwargs_kwargs["some_value"] == "a_value"
         assert kwargs_kwargs["system_prompt"] == override_system_prompt
@@ -983,7 +981,7 @@ async def test_stream_async_passes_kwargs(agent, mock_model, mock_event_loop_cyc
         ),
     ]
 
-    async def check_kwargs(some_value, **kwargs):
+    async def check_kwargs(**kwargs):
         kwargs_kwargs = kwargs["kwargs"]
         assert kwargs_kwargs["some_value"] == "a_value"
         # Return expected values from event_loop_cycle
