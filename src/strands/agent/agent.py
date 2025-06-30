@@ -359,9 +359,9 @@ class Agent:
         async def acall() -> AgentResult:
             events = self.stream_async(prompt, **kwargs)
             async for event in events:
-                pass
+                _ = event
 
-            return event
+            return cast(AgentResult, event)
 
         return asyncio.run(acall())
 

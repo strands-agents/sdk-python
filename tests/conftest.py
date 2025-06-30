@@ -72,6 +72,7 @@ def boto3_profile_path(boto3_profile, tmp_path, monkeypatch):
 
 ## Async
 
+
 @pytest.fixture
 def agenerator():
     async def agenerator(items):
