@@ -361,7 +361,7 @@ class Agent:
             async for event in events:
                 _ = event
 
-            return cast(AgentResult, event)
+            return event["result"]
 
         return asyncio.run(acall())
 
@@ -441,7 +441,8 @@ class Agent:
                     yield event["callback"]
 
             result = AgentResult(*event["stop"])
-            yield result
+            callback_handler(result=result)
+            yield {"result": result}
 
             self._end_agent_trace_span(response=result)
 

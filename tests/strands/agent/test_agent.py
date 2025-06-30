@@ -945,9 +945,14 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle):
         {"data": "First chunk"},
         {"data": "Second chunk"},
         {"complete": True, "data": "Final chunk"},
-        AgentResult(
-            stop_reason="stop", message={"role": "assistant", "content": [{"text": "Response"}]}, metrics={}, state={}
-        ),
+        {
+            "result": AgentResult(
+                stop_reason="stop",
+                message={"role": "assistant", "content": [{"text": "Response"}]},
+                metrics={},
+                state={},
+            ),
+        },
     ]
     assert tru_events == exp_events
 
@@ -988,9 +993,14 @@ async def test_stream_async_passes_kwargs(agent, mock_model, mock_event_loop_cyc
     tru_events = [event async for event in stream]
     exp_events = [
         {"init_event_loop": True, "some_value": "a_value"},
-        AgentResult(
-            stop_reason="stop", message={"role": "assistant", "content": [{"text": "Response"}]}, metrics={}, state={}
-        ),
+        {
+            "result": AgentResult(
+                stop_reason="stop",
+                message={"role": "assistant", "content": [{"text": "Response"}]},
+                metrics={},
+                state={},
+            ),
+        },
     ]
     assert tru_events == exp_events
 
