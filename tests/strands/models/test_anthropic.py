@@ -691,7 +691,7 @@ async def test_stream_bad_request_overflow_error(overflow_message, anthropic_cli
     )
 
     with pytest.raises(ContextWindowOverflowException):
-        [_ async for _ in model.stream({})]
+        await anext(model.stream({}))
 
 
 @pytest.mark.asyncio
@@ -701,7 +701,7 @@ async def test_stream_bad_request_error(anthropic_client, model):
     )
 
     with pytest.raises(anthropic.BadRequestError, match="bad"):
-        [_ async for _ in model.stream({})]
+        await anext(model.stream({}))
 
 
 @pytest.mark.asyncio

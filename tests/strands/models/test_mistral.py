@@ -482,7 +482,7 @@ async def test_structured_output_no_tool_calls(mistral_client, model, test_outpu
 
     with pytest.raises(ValueError, match="No tool calls found in response"):
         stream = model.structured_output(test_output_model_cls, prompt)
-        [_ async for _ in stream]
+        await anext(stream)
 
 
 @pytest.mark.asyncio
@@ -498,4 +498,4 @@ async def test_structured_output_invalid_json(mistral_client, model, test_output
 
     with pytest.raises(ValueError, match="Failed to parse tool call arguments into model"):
         stream = model.structured_output(test_output_model_cls, prompt)
-        [_ async for _ in stream]
+        await anext(stream)
