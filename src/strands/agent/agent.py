@@ -357,25 +357,13 @@ class Agent:
         """
 
         async def acall() -> AgentResult:
-            callback_handler = kwargs.get("callback_handler", self.callback_handler)
-
-            events = self._run_loop(callback_handler, prompt, kwargs)
+            events = self.stream_async(prompt, **kwargs)
             async for event in events:
-                if "callback" in event:
-                    callback_handler(**event["callback"])
+                pass
 
-            return AgentResult(*event["stop"])
+            return event
 
-        self._start_agent_trace_span(prompt)
-
-        try:
-            result = asyncio.run(acall())
-            self._end_agent_trace_span(response=result)
-            return result
-
-        except Exception as e:
-            self._end_agent_trace_span(error=e)
-            raise
+        return asyncio.run(acall())
 
     def structured_output(self, output_model: Type[T], prompt: Optional[str] = None) -> T:
         """This method allows you to get structured output from the agent.
@@ -453,6 +441,8 @@ class Agent:
                     yield event["callback"]
 
             result = AgentResult(*event["stop"])
+            yield result
+
             self._end_agent_trace_span(response=result)
 
         except Exception as e:
