@@ -8,7 +8,7 @@ via hook provider objects.
 """
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Generator, Protocol, Type, TypeVar
+from typing import TYPE_CHECKING, Callable, Generator, Generic, Protocol, Type, TypeVar
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -36,7 +36,7 @@ class HookEvent:
 
 
 T = TypeVar("T", bound=Callable)
-TEvent = TypeVar("TEvent", bound=HookEvent)
+TEvent = TypeVar("TEvent", bound=HookEvent, contravariant=True)
 
 
 class HookProvider(Protocol):
@@ -66,7 +66,7 @@ class HookProvider(Protocol):
         ...
 
 
-class HookCallback(Protocol):
+class HookCallback(Protocol, Generic[TEvent]):
     """Protocol for callback functions that handle hook events.
 
     Hook callbacks are functions that receive a single strongly-typed event
@@ -80,7 +80,7 @@ class HookCallback(Protocol):
         ```
     """
 
-    def __call__(self, event: Any) -> None:
+    def __call__(self, event: TEvent) -> None:
         """Handle a hook event.
 
         Args:
@@ -104,7 +104,7 @@ class HookRegistry:
         """Initialize an empty hook registry."""
         self._registered_callbacks: dict[Type, list[HookCallback]] = {}
 
-    def add_callback(self, event_type: Type, callback: HookCallback) -> None:
+    def add_callback(self, event_type: Type[TEvent], callback: HookCallback[TEvent]) -> None:
         """Register a callback function for a specific event type.
 
         Args:
@@ -166,7 +166,7 @@ class HookRegistry:
         for callback in self.get_callbacks_for(event):
             callback(event)
 
-    def get_callbacks_for(self, event: TEvent) -> Generator[HookCallback, None, None]:
+    def get_callbacks_for(self, event: TEvent) -> Generator[HookCallback[TEvent], None, None]:
         """Get callbacks registered for the given event in the appropriate order.
 
         This method returns callbacks in registration order for normal events,
