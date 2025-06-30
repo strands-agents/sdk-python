@@ -483,6 +483,6 @@ async def test_structured_output(ollama_client, model, test_output_model_cls, al
     stream = model.structured_output(test_output_model_cls, messages)
     events = await alist(stream)
 
-    tru_result =  events[-1]
+    tru_result = events[-1]
     exp_result = {"output": test_output_model_cls(name="John", age=30)}
     assert tru_result == exp_result
