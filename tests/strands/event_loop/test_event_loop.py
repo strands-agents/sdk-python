@@ -106,15 +106,6 @@ def mock_tracer():
     return tracer
 
 
-@pytest.fixture
-def alist():
-    async def gen(items):
-        for item in items:
-            yield item
-
-    return gen
-
-
 @pytest.mark.asyncio
 async def test_event_loop_cycle_text_response(
     model,
@@ -124,9 +115,9 @@ async def test_event_loop_cycle_text_response(
     callback_handler,
     tool_handler,
     tool_execution_handler,
-    alist,
+    agenerator,
 ):
-    model.converse.return_value = alist(
+    model.converse.return_value = agenerator(
         [
             {"contentBlockDelta": {"delta": {"text": "test text"}}},
             {"contentBlockStop": {}},
@@ -165,11 +156,11 @@ async def test_event_loop_cycle_text_response_throttling(
     callback_handler,
     tool_handler,
     tool_execution_handler,
-    alist,
+    agenerator,
 ):
     model.converse.side_effect = [
         ModelThrottledException("ThrottlingException | ConverseStream"),
-        alist(
+        agenerator(
             [
                 {"contentBlockDelta": {"delta": {"text": "test text"}}},
                 {"contentBlockStop": {}},
@@ -211,7 +202,7 @@ async def test_event_loop_cycle_exponential_backoff(
     callback_handler,
     tool_handler,
     tool_execution_handler,
-    alist,
+    agenerator,
 ):
     """Test that the exponential backoff works correctly with multiple retries."""
     # Set up the model to raise throttling exceptions multiple times before succeeding
@@ -219,7 +210,7 @@ async def test_event_loop_cycle_exponential_backoff(
         ModelThrottledException("ThrottlingException | ConverseStream"),
         ModelThrottledException("ThrottlingException | ConverseStream"),
         ModelThrottledException("ThrottlingException | ConverseStream"),
-        alist(
+        agenerator(
             [
                 {"contentBlockDelta": {"delta": {"text": "test text"}}},
                 {"contentBlockStop": {}},
@@ -337,11 +328,11 @@ async def test_event_loop_cycle_tool_result(
     tool_handler,
     tool_execution_handler,
     tool_stream,
-    alist,
+    agenerator,
 ):
     model.converse.side_effect = [
-        alist(tool_stream),
-        alist(
+        agenerator(tool_stream),
+        agenerator(
             [
                 {"contentBlockDelta": {"delta": {"text": "test text"}}},
                 {"contentBlockStop": {}},
@@ -414,9 +405,9 @@ async def test_event_loop_cycle_tool_result_error(
     tool_handler,
     tool_execution_handler,
     tool_stream,
-    alist,
+    agenerator,
 ):
-    model.converse.side_effect = [alist(tool_stream)]
+    model.converse.side_effect = [agenerator(tool_stream)]
 
     with pytest.raises(EventLoopException):
         stream = strands.event_loop.event_loop.event_loop_cycle(
@@ -443,9 +434,9 @@ async def test_event_loop_cycle_tool_result_no_tool_handler(
     callback_handler,
     tool_execution_handler,
     tool_stream,
-    alist,
+    agenerator,
 ):
-    model.converse.side_effect = [alist(tool_stream)]
+    model.converse.side_effect = [agenerator(tool_stream)]
 
     with pytest.raises(EventLoopException):
         stream = strands.event_loop.event_loop.event_loop_cycle(
@@ -472,9 +463,9 @@ async def test_event_loop_cycle_tool_result_no_tool_config(
     tool_handler,
     tool_execution_handler,
     tool_stream,
-    alist,
+    agenerator,
 ):
-    model.converse.side_effect = [alist(tool_stream)]
+    model.converse.side_effect = [agenerator(tool_stream)]
 
     with pytest.raises(EventLoopException):
         stream = strands.event_loop.event_loop.event_loop_cycle(
@@ -502,10 +493,10 @@ async def test_event_loop_cycle_stop(
     tool_handler,
     tool_execution_handler,
     tool,
-    alist,
+    agenerator,
 ):
     model.converse.side_effect = [
-        alist(
+        agenerator(
             [
                 {
                     "contentBlockStart": {
@@ -566,12 +557,12 @@ async def test_cycle_exception(
     tool_handler,
     tool_execution_handler,
     tool_stream,
-    alist,
+    agenerator,
 ):
     model.converse.side_effect = [
-        alist(tool_stream),
-        alist(tool_stream),
-        alist(tool_stream),
+        agenerator(tool_stream),
+        agenerator(tool_stream),
+        agenerator(tool_stream),
         ValueError("Invalid error presented"),
     ]
 
@@ -609,7 +600,7 @@ async def test_event_loop_cycle_creates_spans(
     tool_handler,
     tool_execution_handler,
     mock_tracer,
-    alist,
+    agenerator,
 ):
     # Setup
     mock_get_tracer.return_value = mock_tracer
@@ -618,7 +609,7 @@ async def test_event_loop_cycle_creates_spans(
     model_span = MagicMock()
     mock_tracer.start_model_invoke_span.return_value = model_span
 
-    model.converse.return_value = alist(
+    model.converse.return_value = agenerator(
         [
             {"contentBlockDelta": {"delta": {"text": "test text"}}},
             {"contentBlockStop": {}},
@@ -704,7 +695,7 @@ async def test_event_loop_tracing_with_tool_execution(
     tool_execution_handler,
     tool_stream,
     mock_tracer,
-    alist,
+    agenerator,
 ):
     # Setup
     mock_get_tracer.return_value = mock_tracer
@@ -715,8 +706,8 @@ async def test_event_loop_tracing_with_tool_execution(
 
     # Set up model to return tool use and then text response
     model.converse.side_effect = [
-        alist(tool_stream),
-        alist(
+        agenerator(tool_stream),
+        agenerator(
             [
                 {"contentBlockDelta": {"delta": {"text": "test text"}}},
                 {"contentBlockStop": {}},
@@ -757,7 +748,7 @@ async def test_event_loop_tracing_with_throttling_exception(
     tool_handler,
     tool_execution_handler,
     mock_tracer,
-    alist,
+    agenerator,
 ):
     # Setup
     mock_get_tracer.return_value = mock_tracer
@@ -769,7 +760,7 @@ async def test_event_loop_tracing_with_throttling_exception(
     # Set up model to raise a throttling exception and then succeed
     model.converse.side_effect = [
         ModelThrottledException("Throttling Error"),
-        alist(
+        agenerator(
             [
                 {"contentBlockDelta": {"delta": {"text": "test text"}}},
                 {"contentBlockStop": {}},
@@ -812,7 +803,7 @@ async def test_event_loop_cycle_with_parent_span(
     tool_handler,
     tool_execution_handler,
     mock_tracer,
-    alist,
+    agenerator,
 ):
     # Setup
     mock_get_tracer.return_value = mock_tracer
@@ -820,7 +811,7 @@ async def test_event_loop_cycle_with_parent_span(
     cycle_span = MagicMock()
     mock_tracer.start_event_loop_cycle_span.return_value = cycle_span
 
-    model.converse.return_value = alist(
+    model.converse.return_value = agenerator(
         [
             {"contentBlockDelta": {"delta": {"text": "test text"}}},
             {"contentBlockStop": {}},
@@ -891,11 +882,11 @@ async def test_request_state_initialization():
 
 
 @pytest.mark.asyncio
-async def test_prepare_next_cycle_in_tool_execution(model, tool_stream, alist):
+async def test_prepare_next_cycle_in_tool_execution(model, tool_stream, agenerator):
     """Test that cycle ID and metrics are properly updated during tool execution."""
     model.converse.side_effect = [
-        alist(tool_stream),
-        alist(
+        agenerator(tool_stream),
+        agenerator(
             [
                 {"contentBlockStop": {}},
             ]
@@ -905,7 +896,7 @@ async def test_prepare_next_cycle_in_tool_execution(model, tool_stream, alist):
     # Create a mock for recurse_event_loop to capture the kwargs passed to it
     with unittest.mock.patch.object(strands.event_loop.event_loop, "recurse_event_loop") as mock_recurse:
         # Set up mock to return a valid response
-        mock_recurse.return_value = alist(
+        mock_recurse.return_value = agenerator(
             [
                 (
                     "end_turn",

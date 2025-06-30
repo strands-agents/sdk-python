@@ -18,15 +18,6 @@ def moto_autouse(moto_env, moto_mock_aws):
     _ = moto_mock_aws
 
 
-@pytest.fixture
-def alist():
-    async def gen(items):
-        for item in items:
-            yield item
-
-    return gen
-
-
 @pytest.mark.parametrize(
     ("messages", "exp_result"),
     [
@@ -536,18 +527,18 @@ def test_extract_usage_metrics():
     ],
 )
 @pytest.mark.asyncio
-async def test_process_stream(response, exp_events, alist):
+async def test_process_stream(response, exp_events, agenerator):
     messages = [{"role": "user", "content": [{"text": "Some input!"}]}]
-    stream = strands.event_loop.streaming.process_stream(alist(response), messages)
+    stream = strands.event_loop.streaming.process_stream(agenerator(response), messages)
 
     tru_events = [event async for event in stream]
     assert tru_events == exp_events
 
 
 @pytest.mark.asyncio
-async def test_stream_messages(alist):
+async def test_stream_messages(agenerator):
     mock_model = unittest.mock.MagicMock()
-    mock_model.converse.return_value = alist(
+    mock_model.converse.return_value = agenerator(
         [
             {"contentBlockDelta": {"delta": {"text": "test"}}},
             {"contentBlockStop": {}},
