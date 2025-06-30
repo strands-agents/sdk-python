@@ -1031,6 +1031,24 @@ def test_agent_init_initializes_tracer(mock_get_tracer):
     assert agent.trace_span is None
 
 
+def test_agent_trace_span_uses_custom_name():
+    """Test that trace span uses custom name when provided."""
+    custom_name = "Custom Agent Name"
+    agent = Agent(name=custom_name)
+
+    # Mock the tracer to verify the name is passed correctly
+    mock_tracer = unittest.mock.Mock()
+    agent.tracer = mock_tracer
+
+    # Call the method that uses the name
+    agent._start_agent_trace_span("test prompt")
+
+    # Verify the custom name was used
+    mock_tracer.start_agent_span.assert_called_once()
+    args, kwargs = mock_tracer.start_agent_span.call_args
+    assert kwargs["agent_name"] == custom_name
+
+
 @unittest.mock.patch("strands.agent.agent.get_tracer")
 def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model):
     """Test that __call__ creates and ends a span when the call succeeds."""
@@ -1055,6 +1073,7 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
         prompt="test prompt",
+        agent_name="Strands Agents",
         model_id=unittest.mock.ANY,
         tools=agent.tool_names,
         system_prompt=agent.system_prompt,
@@ -1097,6 +1116,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
         prompt="test prompt",
+        agent_name="Strands Agents",
         model_id=unittest.mock.ANY,
         tools=agent.tool_names,
         system_prompt=agent.system_prompt,
@@ -1134,6 +1154,7 @@ def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_mod
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
         prompt="test prompt",
+        agent_name="Strands Agents",
         model_id=unittest.mock.ANY,
         tools=agent.tool_names,
         system_prompt=agent.system_prompt,
@@ -1170,6 +1191,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
         prompt="test prompt",
+        agent_name="Strands Agents",
         model_id=unittest.mock.ANY,
         tools=agent.tool_names,
         system_prompt=agent.system_prompt,
