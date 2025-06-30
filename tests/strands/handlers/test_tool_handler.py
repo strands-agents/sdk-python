@@ -40,10 +40,6 @@ def tool_use_error(tool_registry):
     return {"toolUseId": "error", "name": "error", "input": {}}
 
 
-def test_preprocess(tool_handler, tool_use_identity):
-    tool_handler.preprocess(tool_use_identity, tool_config={})
-
-
 def test_process(tool_handler, tool_use_identity):
     tru_result = tool_handler.process(
         tool_use_identity,
@@ -52,6 +48,7 @@ def test_process(tool_handler, tool_use_identity):
         messages=[],
         tool_config={},
         callback_handler=unittest.mock.Mock(),
+        kwargs={},
     )
     exp_result = {"toolUseId": "identity", "status": "success", "content": [{"text": "1"}]}
 
@@ -66,6 +63,7 @@ def test_process_missing_tool(tool_handler):
         messages=[],
         tool_config={},
         callback_handler=unittest.mock.Mock(),
+        kwargs={},
     )
     exp_result = {
         "toolUseId": "missing",

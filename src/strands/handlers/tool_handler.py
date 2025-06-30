@@ -1,11 +1,12 @@
 """This module provides handlers for managing tool invocations."""
 
 import logging
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 from ..tools.registry import ToolRegistry
+from ..types.content import Messages
 from ..types.models import Model
-from ..types.tools import ToolConfig, ToolHandler, ToolResult, ToolUse
+from ..types.tools import ToolConfig, ToolHandler, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -25,34 +26,16 @@ class AgentToolHandler(ToolHandler):
         """
         self.tool_registry = tool_registry
 
-    def preprocess(
-        self,
-        tool: ToolUse,
-        tool_config: ToolConfig,
-        **kwargs: Any,
-    ) -> Optional[ToolResult]:
-        """Preprocess a tool before invocation (not implemented).
-
-        Args:
-            tool: The tool use object to preprocess.
-            tool_config: Configuration for the tool.
-            **kwargs: Additional keyword arguments.
-
-        Returns:
-            Result of preprocessing, if any.
-        """
-        pass
-
     def process(
         self,
-        tool: Any,
+        tool: ToolUse,
         *,
         model: Model,
         system_prompt: Optional[str],
-        messages: List[Any],
-        tool_config: Any,
+        messages: Messages,
+        tool_config: ToolConfig,
         callback_handler: Any,
-        **kwargs: Any,
+        kwargs: dict[str, Any],
     ) -> Any:
         """Process a tool invocation.
 
@@ -65,7 +48,7 @@ class AgentToolHandler(ToolHandler):
             messages: The conversation history.
             tool_config: Configuration for the tool.
             callback_handler: Callback for processing events as they happen.
-            **kwargs: Additional keyword arguments passed to the tool.
+            kwargs: Additional keyword arguments passed to the tool.
 
         Returns:
             The result of the tool invocation, or an error response if the tool fails or is not found.

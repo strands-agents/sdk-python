@@ -130,6 +130,7 @@ class Model(abc.ABC):
         """
         logger.debug("formatting request")
         request = self.format_request(messages, tool_specs, system_prompt)
+        logger.debug("formatted request=<%s>", request)
 
         logger.debug("invoking model")
         response = self.stream(request)
