@@ -937,14 +937,20 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle):
     mock_event_loop_cycle.side_effect = test_event_loop
     mock_callback = unittest.mock.Mock()
 
-    iterator = agent.stream_async("test message", callback_handler=mock_callback)
+    stream = agent.stream_async("test message", callback_handler=mock_callback)
 
-    tru_events = [e async for e in iterator]
+    tru_events = [event async for event in stream]
     exp_events = [
         {"init_event_loop": True, "callback_handler": mock_callback},
         {"data": "First chunk"},
         {"data": "Second chunk"},
         {"complete": True, "data": "Final chunk"},
+        AgentResult(
+            stop_reason="stop",
+            message={"role": "assistant", "content": [{"text": "Response"}]},
+            metrics={},
+            state={}
+        ),
     ]
     assert tru_events == exp_events
 
@@ -980,10 +986,20 @@ async def test_stream_async_passes_kwargs(agent, mock_model, mock_event_loop_cyc
 
     mock_event_loop_cycle.side_effect = check_kwargs
 
-    iterator = agent.stream_async("test message", some_value="a_value")
-    actual_events = [e async for e in iterator]
+    stream = agent.stream_async("test message", some_value="a_value")
 
-    assert actual_events == [{"init_event_loop": True, "some_value": "a_value"}]
+    tru_events = [event async for event in stream]
+    exp_events = [
+        {"init_event_loop": True, "some_value": "a_value"},
+        AgentResult(
+            stop_reason="stop",
+            message={"role": "assistant", "content": [{"text": "Response"}]},
+            metrics={},
+            state={}
+        ),
+    ]
+    assert tru_events == exp_events
+
     assert mock_event_loop_cycle.call_count == 1
 
 
@@ -992,11 +1008,11 @@ async def test_stream_async_raises_exceptions(mock_event_loop_cycle):
     mock_event_loop_cycle.side_effect = ValueError("Test exception")
 
     agent = Agent()
-    iterator = agent.stream_async("test message")
+    stream = agent.stream_async("test message")
 
-    await anext(iterator)
+    await anext(stream)
     with pytest.raises(ValueError, match="Test exception"):
-        await anext(iterator)
+        await anext(stream)
 
 
 def test_agent_init_with_trace_attributes():
@@ -1109,9 +1125,9 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
 
     # Create agent and make a call
     agent = Agent(model=mock_model)
-    iterator = agent.stream_async("test prompt")
-    async for _event in iterator:
-        pass  # NoOp
+    stream = agent.stream_async("test prompt")
+    async for _ in stream:
+        pass
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
@@ -1182,9 +1198,9 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
 
     # Call the agent and catch the exception
     with pytest.raises(ValueError):
-        iterator = agent.stream_async("test prompt")
-        async for _event in iterator:
-            pass  # NoOp
+        stream = agent.stream_async("test prompt")
+        async for _ in stream:
+            pass
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
