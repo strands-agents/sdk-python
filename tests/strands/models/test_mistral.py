@@ -437,23 +437,23 @@ def test_format_chunk_unknown(model):
 
 
 @pytest.mark.asyncio
-async def test_stream_rate_limit_error(mistral_client, model):
+async def test_stream_rate_limit_error(mistral_client, model, alist):
     mistral_client.chat.stream.side_effect = Exception("rate limit exceeded (429)")
 
     with pytest.raises(ModelThrottledException, match="rate limit exceeded"):
-        [_ async for _ in model.stream({})]
+        await alist(model.stream({}))
 
 
 @pytest.mark.asyncio
-async def test_stream_other_error(mistral_client, model):
+async def test_stream_other_error(mistral_client, model, alist):
     mistral_client.chat.stream.side_effect = Exception("some other error")
 
     with pytest.raises(Exception, match="some other error"):
-        [_ async for _ in model.stream({})]
+        await alist(model.stream({}))
 
 
 @pytest.mark.asyncio
-async def test_structured_output_success(mistral_client, model, test_output_model_cls):
+async def test_structured_output_success(mistral_client, model, test_output_model_cls, alist):
     messages = [{"role": "user", "content": [{"text": "Extract data"}]}]
 
     mock_response = unittest.mock.Mock()
@@ -464,8 +464,9 @@ async def test_structured_output_success(mistral_client, model, test_output_mode
     mistral_client.chat.complete.return_value = mock_response
 
     stream = model.structured_output(test_output_model_cls, messages)
+    events = await alist(stream)
 
-    tru_result = [event async for event in stream][-1]
+    tru_result = events[-1]
     exp_result = {"output": test_output_model_cls(name="John", age=30)}
     assert tru_result == exp_result
 

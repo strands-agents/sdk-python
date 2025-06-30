@@ -406,13 +406,13 @@ def test_format_chunk(model):
 
 
 @pytest.mark.asyncio
-async def test_stream(bedrock_client, model):
+async def test_stream(bedrock_client, model, alist):
     bedrock_client.converse_stream.return_value = {"stream": ["e1", "e2"]}
 
     request = {"a": 1}
     response = model.stream(request)
 
-    tru_events = [event async for event in response]
+    tru_events = await alist(response)
     exp_events = ["e1", "e2"]
 
     assert tru_events == exp_events
@@ -420,7 +420,7 @@ async def test_stream(bedrock_client, model):
 
 
 @pytest.mark.asyncio
-async def test_stream_throttling_exception_from_event_stream_error(bedrock_client, model):
+async def test_stream_throttling_exception_from_event_stream_error(bedrock_client, model, alist):
     error_message = "Rate exceeded"
     bedrock_client.converse_stream.side_effect = EventStreamError(
         {"Error": {"Message": error_message, "Code": "ThrottlingException"}}, "ConverseStream"
@@ -429,14 +429,14 @@ async def test_stream_throttling_exception_from_event_stream_error(bedrock_clien
     request = {"a": 1}
 
     with pytest.raises(ModelThrottledException) as excinfo:
-        [_ async for _ in model.stream(request)]
+        await alist(model.stream(request))
 
     assert error_message in str(excinfo.value)
     bedrock_client.converse_stream.assert_called_once_with(a=1)
 
 
 @pytest.mark.asyncio
-async def test_stream_throttling_exception_from_general_exception(bedrock_client, model):
+async def test_stream_throttling_exception_from_general_exception(bedrock_client, model, alist):
     error_message = "ThrottlingException: Rate exceeded for ConverseStream"
     bedrock_client.converse_stream.side_effect = ClientError(
         {"Error": {"Message": error_message, "Code": "ThrottlingException"}}, "Any"
@@ -445,28 +445,28 @@ async def test_stream_throttling_exception_from_general_exception(bedrock_client
     request = {"a": 1}
 
     with pytest.raises(ModelThrottledException) as excinfo:
-        [_ async for _ in model.stream(request)]
+        await alist(model.stream(request))
 
     assert error_message in str(excinfo.value)
     bedrock_client.converse_stream.assert_called_once_with(a=1)
 
 
 @pytest.mark.asyncio
-async def test_general_exception_is_raised(bedrock_client, model):
+async def test_general_exception_is_raised(bedrock_client, model, alist):
     error_message = "Should be raised up"
     bedrock_client.converse_stream.side_effect = ValueError(error_message)
 
     request = {"a": 1}
 
     with pytest.raises(ValueError) as excinfo:
-        [_ async for _ in model.stream(request)]
+        await alist(model.stream(request))
 
     assert error_message in str(excinfo.value)
     bedrock_client.converse_stream.assert_called_once_with(a=1)
 
 
 @pytest.mark.asyncio
-async def test_converse(bedrock_client, model, messages, tool_spec, model_id, additional_request_fields):
+async def test_converse(bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist):
     bedrock_client.converse_stream.return_value = {"stream": ["e1", "e2"]}
 
     request = {
@@ -484,7 +484,7 @@ async def test_converse(bedrock_client, model, messages, tool_spec, model_id, ad
     model.update_config(additional_request_fields=additional_request_fields)
     response = model.converse(messages, [tool_spec])
 
-    tru_chunks = [chunk async for chunk in response]
+    tru_chunks = await alist(response)
     exp_chunks = ["e1", "e2"]
 
     assert tru_chunks == exp_chunks
@@ -493,7 +493,7 @@ async def test_converse(bedrock_client, model, messages, tool_spec, model_id, ad
 
 @pytest.mark.asyncio
 async def test_converse_stream_input_guardrails(
-    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields
+    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
 ):
     metadata_event = {
         "metadata": {
@@ -535,7 +535,7 @@ async def test_converse_stream_input_guardrails(
     model.update_config(additional_request_fields=additional_request_fields)
     response = model.converse(messages, [tool_spec])
 
-    tru_chunks = [chunk async for chunk in response]
+    tru_chunks = await alist(response)
     exp_chunks = [
         {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
         metadata_event,
@@ -547,7 +547,7 @@ async def test_converse_stream_input_guardrails(
 
 @pytest.mark.asyncio
 async def test_converse_stream_output_guardrails(
-    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields
+    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
 ):
     model.update_config(guardrail_redact_input=False, guardrail_redact_output=True)
     metadata_event = {
@@ -592,7 +592,7 @@ async def test_converse_stream_output_guardrails(
     model.update_config(additional_request_fields=additional_request_fields)
     response = model.converse(messages, [tool_spec])
 
-    tru_chunks = [chunk async for chunk in response]
+    tru_chunks = await alist(response)
     exp_chunks = [
         {"redactContent": {"redactAssistantContentMessage": "[Assistant output redacted.]"}},
         metadata_event,
@@ -604,7 +604,7 @@ async def test_converse_stream_output_guardrails(
 
 @pytest.mark.asyncio
 async def test_converse_output_guardrails_redacts_input_and_output(
-    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields
+    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
 ):
     model.update_config(guardrail_redact_output=True)
     metadata_event = {
@@ -649,7 +649,7 @@ async def test_converse_output_guardrails_redacts_input_and_output(
     model.update_config(additional_request_fields=additional_request_fields)
     response = model.converse(messages, [tool_spec])
 
-    tru_chunks = [chunk async for chunk in response]
+    tru_chunks = await alist(response)
     exp_chunks = [
         {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
         {"redactContent": {"redactAssistantContentMessage": "[Assistant output redacted.]"}},
@@ -662,7 +662,7 @@ async def test_converse_output_guardrails_redacts_input_and_output(
 
 @pytest.mark.asyncio
 async def test_converse_output_no_blocked_guardrails_doesnt_redact(
-    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields
+    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
 ):
     metadata_event = {
         "metadata": {
@@ -706,7 +706,7 @@ async def test_converse_output_no_blocked_guardrails_doesnt_redact(
     model.update_config(additional_request_fields=additional_request_fields)
     response = model.converse(messages, [tool_spec])
 
-    tru_chunks = [chunk async for chunk in response]
+    tru_chunks = await alist(response)
     exp_chunks = [metadata_event]
 
     assert tru_chunks == exp_chunks
@@ -715,7 +715,7 @@ async def test_converse_output_no_blocked_guardrails_doesnt_redact(
 
 @pytest.mark.asyncio
 async def test_converse_output_no_guardrail_redact(
-    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields
+    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
 ):
     metadata_event = {
         "metadata": {
@@ -763,7 +763,7 @@ async def test_converse_output_no_guardrail_redact(
     )
     response = model.converse(messages, [tool_spec])
 
-    tru_chunks = [chunk async for chunk in response]
+    tru_chunks = await alist(response)
     exp_chunks = [metadata_event]
 
     assert tru_chunks == exp_chunks
@@ -771,7 +771,7 @@ async def test_converse_output_no_guardrail_redact(
 
 
 @pytest.mark.asyncio
-async def test_stream_with_streaming_false(bedrock_client):
+async def test_stream_with_streaming_false(bedrock_client, alist):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
@@ -783,7 +783,7 @@ async def test_stream_with_streaming_false(bedrock_client):
     request = {"modelId": "test-model"}
     response = model.stream(request)
 
-    tru_events = [event async for event in response]
+    tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockDelta": {"delta": {"text": "test"}}},
@@ -797,7 +797,7 @@ async def test_stream_with_streaming_false(bedrock_client):
 
 
 @pytest.mark.asyncio
-async def test_stream_with_streaming_false_and_tool_use(bedrock_client):
+async def test_stream_with_streaming_false_and_tool_use(bedrock_client, alist):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {
@@ -814,7 +814,7 @@ async def test_stream_with_streaming_false_and_tool_use(bedrock_client):
     request = {"modelId": "test-model"}
     response = model.stream(request)
 
-    tru_events = [event async for event in response]
+    tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "dummyTool"}}}},
@@ -829,7 +829,7 @@ async def test_stream_with_streaming_false_and_tool_use(bedrock_client):
 
 
 @pytest.mark.asyncio
-async def test_stream_with_streaming_false_and_reasoning(bedrock_client):
+async def test_stream_with_streaming_false_and_reasoning(bedrock_client, alist):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {
@@ -852,7 +852,7 @@ async def test_stream_with_streaming_false_and_reasoning(bedrock_client):
     request = {"modelId": "test-model"}
     response = model.stream(request)
 
-    tru_events = [event async for event in response]
+    tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "Thinking really hard...."}}}},
@@ -868,7 +868,7 @@ async def test_stream_with_streaming_false_and_reasoning(bedrock_client):
 
 
 @pytest.mark.asyncio
-async def test_converse_and_reasoning_no_signature(bedrock_client):
+async def test_converse_and_reasoning_no_signature(bedrock_client, alist):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {
@@ -891,7 +891,7 @@ async def test_converse_and_reasoning_no_signature(bedrock_client):
     request = {"modelId": "test-model"}
     response = model.stream(request)
 
-    tru_events = [event async for event in response]
+    tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "Thinking really hard...."}}}},
@@ -905,7 +905,7 @@ async def test_converse_and_reasoning_no_signature(bedrock_client):
 
 
 @pytest.mark.asyncio
-async def test_stream_with_streaming_false_with_metrics_and_usage(bedrock_client):
+async def test_stream_with_streaming_false_with_metrics_and_usage(bedrock_client, alist):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
@@ -919,7 +919,7 @@ async def test_stream_with_streaming_false_with_metrics_and_usage(bedrock_client
     request = {"modelId": "test-model"}
     response = model.stream(request)
 
-    tru_events = [event async for event in response]
+    tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockDelta": {"delta": {"text": "test"}}},
@@ -940,7 +940,7 @@ async def test_stream_with_streaming_false_with_metrics_and_usage(bedrock_client
 
 
 @pytest.mark.asyncio
-async def test_converse_input_guardrails(bedrock_client):
+async def test_converse_input_guardrails(bedrock_client, alist):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
@@ -961,7 +961,7 @@ async def test_converse_input_guardrails(bedrock_client):
     request = {"modelId": "test-model"}
     response = model.stream(request)
 
-    tru_events = [event async for event in response]
+    tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockDelta": {"delta": {"text": "test"}}},
@@ -991,7 +991,7 @@ async def test_converse_input_guardrails(bedrock_client):
 
 
 @pytest.mark.asyncio
-async def test_converse_output_guardrails(bedrock_client):
+async def test_converse_output_guardrails(bedrock_client, alist):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
@@ -1013,7 +1013,7 @@ async def test_converse_output_guardrails(bedrock_client):
     request = {"modelId": "test-model"}
     response = model.stream(request)
 
-    tru_events = [event async for event in response]
+    tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockDelta": {"delta": {"text": "test"}}},
@@ -1045,7 +1045,7 @@ async def test_converse_output_guardrails(bedrock_client):
 
 
 @pytest.mark.asyncio
-async def test_converse_output_guardrails_redacts_output(bedrock_client):
+async def test_converse_output_guardrails_redacts_output(bedrock_client, alist):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
@@ -1067,7 +1067,7 @@ async def test_converse_output_guardrails_redacts_output(bedrock_client):
     request = {"modelId": "test-model"}
     response = model.stream(request)
 
-    tru_events = [event async for event in response]
+    tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockDelta": {"delta": {"text": "test"}}},
@@ -1099,7 +1099,7 @@ async def test_converse_output_guardrails_redacts_output(bedrock_client):
 
 
 @pytest.mark.asyncio
-async def test_structured_output(bedrock_client, model, test_output_model_cls):
+async def test_structured_output(bedrock_client, model, test_output_model_cls, alist):
     messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
 
     bedrock_client.converse_stream.return_value = {
@@ -1113,15 +1113,16 @@ async def test_structured_output(bedrock_client, model, test_output_model_cls):
     }
 
     stream = model.structured_output(test_output_model_cls, messages)
+    events = await alist(stream)
 
-    tru_output = [event async for event in stream][-1]
+    tru_output = events[-1]
     exp_output = {"output": test_output_model_cls(name="John", age=30)}
     assert tru_output == exp_output
 
 
 @pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
 @pytest.mark.asyncio
-async def test_add_note_on_client_error(bedrock_client, model):
+async def test_add_note_on_client_error(bedrock_client, model, alist):
     """Test that add_note is called on ClientError with region and model ID information."""
     # Mock the client error response
     error_response = {"Error": {"Code": "ValidationException", "Message": "Some error message"}}
@@ -1129,13 +1130,13 @@ async def test_add_note_on_client_error(bedrock_client, model):
 
     # Call the stream method which should catch and add notes to the exception
     with pytest.raises(ClientError) as err:
-        [_ async for _ in model.stream({"modelId": "test-model"})]
+        await alist(model.stream({"modelId": "test-model"}))
 
     assert err.value.__notes__ == ["└ Bedrock region: us-west-2", "└ Model id: m1"]
 
 
 @pytest.mark.asyncio
-async def test_no_add_note_when_not_available(bedrock_client, model):
+async def test_no_add_note_when_not_available(bedrock_client, model, alist):
     """Verify that on any python version (even < 3.11 where add_note is not available, we get the right exception)."""
     # Mock the client error response
     error_response = {"Error": {"Code": "ValidationException", "Message": "Some error message"}}
@@ -1143,12 +1144,12 @@ async def test_no_add_note_when_not_available(bedrock_client, model):
 
     # Call the stream method which should catch and add notes to the exception
     with pytest.raises(ClientError):
-        [_ async for _ in model.stream({"modelId": "test-model"})]
+        await alist(model.stream({"modelId": "test-model"}))
 
 
 @pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
 @pytest.mark.asyncio
-async def test_add_note_on_access_denied_exception(bedrock_client, model):
+async def test_add_note_on_access_denied_exception(bedrock_client, model, alist):
     """Test that add_note adds documentation link for AccessDeniedException."""
     # Mock the client error response for access denied
     error_response = {
@@ -1162,7 +1163,7 @@ async def test_add_note_on_access_denied_exception(bedrock_client, model):
 
     # Call the stream method which should catch and add notes to the exception
     with pytest.raises(ClientError) as err:
-        [_ async for _ in model.stream({"modelId": "test-model"})]
+        await alist(model.stream({"modelId": "test-model"}))
 
     assert err.value.__notes__ == [
         "└ Bedrock region: us-west-2",
@@ -1174,7 +1175,7 @@ async def test_add_note_on_access_denied_exception(bedrock_client, model):
 
 @pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
 @pytest.mark.asyncio
-async def test_add_note_on_validation_exception_throughput(bedrock_client, model):
+async def test_add_note_on_validation_exception_throughput(bedrock_client, model, alist):
     """Test that add_note adds documentation link for ValidationException about on-demand throughput."""
     # Mock the client error response for validation exception
     error_response = {
@@ -1190,7 +1191,7 @@ async def test_add_note_on_validation_exception_throughput(bedrock_client, model
 
     # Call the stream method which should catch and add notes to the exception
     with pytest.raises(ClientError) as err:
-        [_ async for _ in model.stream({"modelId": "test-model"})]
+        await alist(model.stream({"modelId": "test-model"}))
 
     assert err.value.__notes__ == [
         "└ Bedrock region: us-west-2",

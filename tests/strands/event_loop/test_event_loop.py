@@ -116,6 +116,7 @@ async def test_event_loop_cycle_text_response(
     tool_handler,
     tool_execution_handler,
     agenerator,
+    alist,
 ):
     model.converse.return_value = agenerator(
         [
@@ -136,8 +137,8 @@ async def test_event_loop_cycle_text_response(
         event_loop_parent_span=None,
         kwargs={},
     )
-    event = [event async for event in stream][-1]
-    tru_stop_reason, tru_message, _, tru_request_state = event["stop"]
+    events = await alist(stream)
+    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
@@ -157,6 +158,7 @@ async def test_event_loop_cycle_text_response_throttling(
     tool_handler,
     tool_execution_handler,
     agenerator,
+    alist,
 ):
     model.converse.side_effect = [
         ModelThrottledException("ThrottlingException | ConverseStream"),
@@ -180,8 +182,8 @@ async def test_event_loop_cycle_text_response_throttling(
         event_loop_parent_span=None,
         kwargs={},
     )
-    event = [event async for event in stream][-1]
-    tru_stop_reason, tru_message, _, tru_request_state = event["stop"]
+    events = await alist(stream)
+    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
@@ -203,6 +205,7 @@ async def test_event_loop_cycle_exponential_backoff(
     tool_handler,
     tool_execution_handler,
     agenerator,
+    alist,
 ):
     """Test that the exponential backoff works correctly with multiple retries."""
     # Set up the model to raise throttling exceptions multiple times before succeeding
@@ -230,8 +233,8 @@ async def test_event_loop_cycle_exponential_backoff(
         event_loop_parent_span=None,
         kwargs={},
     )
-    event = [event async for event in stream][-1]
-    tru_stop_reason, tru_message, _, tru_request_state = event["stop"]
+    events = await alist(stream)
+    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
 
     # Verify the final response
     assert tru_stop_reason == "end_turn"
@@ -254,6 +257,7 @@ async def test_event_loop_cycle_text_response_throttling_exceeded(
     callback_handler,
     tool_handler,
     tool_execution_handler,
+    alist,
 ):
     model.converse.side_effect = [
         ModelThrottledException("ThrottlingException | ConverseStream"),
@@ -277,7 +281,7 @@ async def test_event_loop_cycle_text_response_throttling_exceeded(
             event_loop_parent_span=None,
             kwargs={},
         )
-        [_ async for _ in stream]
+        await alist(stream)
 
     mock_time.sleep.assert_has_calls(
         [
@@ -299,6 +303,7 @@ async def test_event_loop_cycle_text_response_error(
     callback_handler,
     tool_handler,
     tool_execution_handler,
+    alist,
 ):
     model.converse.side_effect = RuntimeError("Unhandled error")
 
@@ -315,7 +320,7 @@ async def test_event_loop_cycle_text_response_error(
             event_loop_parent_span=None,
             kwargs={},
         )
-        [_ async for _ in stream]
+        await alist(stream)
 
 
 @pytest.mark.asyncio
@@ -329,6 +334,7 @@ async def test_event_loop_cycle_tool_result(
     tool_execution_handler,
     tool_stream,
     agenerator,
+    alist,
 ):
     model.converse.side_effect = [
         agenerator(tool_stream),
@@ -352,8 +358,8 @@ async def test_event_loop_cycle_tool_result(
         event_loop_parent_span=None,
         kwargs={},
     )
-    event = [event async for event in stream][-1]
-    tru_stop_reason, tru_message, _, tru_request_state = event["stop"]
+    events = await alist(stream)
+    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
@@ -406,6 +412,7 @@ async def test_event_loop_cycle_tool_result_error(
     tool_execution_handler,
     tool_stream,
     agenerator,
+    alist,
 ):
     model.converse.side_effect = [agenerator(tool_stream)]
 
@@ -422,7 +429,7 @@ async def test_event_loop_cycle_tool_result_error(
             event_loop_parent_span=None,
             kwargs={},
         )
-        [_ async for _ in stream]
+        await alist(stream)
 
 
 @pytest.mark.asyncio
@@ -435,6 +442,7 @@ async def test_event_loop_cycle_tool_result_no_tool_handler(
     tool_execution_handler,
     tool_stream,
     agenerator,
+    alist,
 ):
     model.converse.side_effect = [agenerator(tool_stream)]
 
@@ -451,7 +459,7 @@ async def test_event_loop_cycle_tool_result_no_tool_handler(
             event_loop_parent_span=None,
             kwargs={},
         )
-        [_ async for _ in stream]
+        await alist(stream)
 
 
 @pytest.mark.asyncio
@@ -464,6 +472,7 @@ async def test_event_loop_cycle_tool_result_no_tool_config(
     tool_execution_handler,
     tool_stream,
     agenerator,
+    alist,
 ):
     model.converse.side_effect = [agenerator(tool_stream)]
 
@@ -480,7 +489,7 @@ async def test_event_loop_cycle_tool_result_no_tool_config(
             event_loop_parent_span=None,
             kwargs={},
         )
-        [_ async for _ in stream]
+        await alist(stream)
 
 
 @pytest.mark.asyncio
@@ -494,6 +503,7 @@ async def test_event_loop_cycle_stop(
     tool_execution_handler,
     tool,
     agenerator,
+    alist,
 ):
     model.converse.side_effect = [
         agenerator(
@@ -526,8 +536,8 @@ async def test_event_loop_cycle_stop(
         event_loop_parent_span=None,
         kwargs={"request_state": {"stop_event_loop": True}},
     )
-    event = [event async for event in stream][-1]
-    tru_stop_reason, tru_message, _, tru_request_state = event["stop"]
+    events = await alist(stream)
+    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
 
     exp_stop_reason = "tool_use"
     exp_message = {
@@ -601,6 +611,7 @@ async def test_event_loop_cycle_creates_spans(
     tool_execution_handler,
     mock_tracer,
     agenerator,
+    alist,
 ):
     # Setup
     mock_get_tracer.return_value = mock_tracer
@@ -629,7 +640,7 @@ async def test_event_loop_cycle_creates_spans(
         event_loop_parent_span=None,
         kwargs={},
     )
-    [_ async for _ in stream]
+    await alist(stream)
 
     # Verify tracer methods were called correctly
     mock_get_tracer.assert_called_once()
@@ -651,6 +662,7 @@ async def test_event_loop_tracing_with_model_error(
     tool_handler,
     tool_execution_handler,
     mock_tracer,
+    alist,
 ):
     # Setup
     mock_get_tracer.return_value = mock_tracer
@@ -676,7 +688,7 @@ async def test_event_loop_tracing_with_model_error(
             event_loop_parent_span=None,
             kwargs={},
         )
-        [_ async for _ in stream]
+        await alist(stream)
 
     # Verify error handling span methods were called
     mock_tracer.end_span_with_error.assert_called_once_with(model_span, "Input too long", model.converse.side_effect)
@@ -696,6 +708,7 @@ async def test_event_loop_tracing_with_tool_execution(
     tool_stream,
     mock_tracer,
     agenerator,
+    alist,
 ):
     # Setup
     mock_get_tracer.return_value = mock_tracer
@@ -728,7 +741,7 @@ async def test_event_loop_tracing_with_tool_execution(
         event_loop_parent_span=None,
         kwargs={},
     )
-    [_ async for _ in stream]
+    await alist(stream)
 
     # Verify the parent_span parameter is passed to run_tools
     # At a minimum, verify both model spans were created (one for each model invocation)
@@ -749,6 +762,7 @@ async def test_event_loop_tracing_with_throttling_exception(
     tool_execution_handler,
     mock_tracer,
     agenerator,
+    alist,
 ):
     # Setup
     mock_get_tracer.return_value = mock_tracer
@@ -782,7 +796,7 @@ async def test_event_loop_tracing_with_throttling_exception(
             event_loop_parent_span=None,
             kwargs={},
         )
-        [_ async for _ in stream]
+        await alist(stream)
 
     # Verify error span was created for the throttling exception
     assert mock_tracer.end_span_with_error.call_count == 1
@@ -804,6 +818,7 @@ async def test_event_loop_cycle_with_parent_span(
     tool_execution_handler,
     mock_tracer,
     agenerator,
+    alist,
 ):
     # Setup
     mock_get_tracer.return_value = mock_tracer
@@ -831,7 +846,7 @@ async def test_event_loop_cycle_with_parent_span(
         event_loop_parent_span=parent_span,
         kwargs={},
     )
-    [_ async for _ in stream]
+    await alist(stream)
 
     # Verify parent_span was used when creating cycle span
     mock_tracer.start_event_loop_cycle_span.assert_called_once_with(
@@ -840,7 +855,7 @@ async def test_event_loop_cycle_with_parent_span(
 
 
 @pytest.mark.asyncio
-async def test_request_state_initialization():
+async def test_request_state_initialization(alist):
     # Call without providing request_state
     stream = strands.event_loop.event_loop.event_loop_cycle(
         model=MagicMock(),
@@ -854,8 +869,8 @@ async def test_request_state_initialization():
         event_loop_parent_span=None,
         kwargs={},
     )
-    event = [event async for event in stream][-1]
-    _, _, _, tru_request_state = event["stop"]
+    events = await alist(stream)
+    _, _, _, tru_request_state = events[-1]["stop"]
 
     # Verify request_state was initialized to empty dict
     assert tru_request_state == {}
@@ -874,15 +889,15 @@ async def test_request_state_initialization():
         event_loop_parent_span=None,
         kwargs={"request_state": initial_request_state},
     )
-    event = [event async for event in stream][-1]
-    _, _, _, tru_request_state = event["stop"]
+    events = await alist(stream)
+    _, _, _, tru_request_state = events[-1]["stop"]
 
     # Verify existing request_state was preserved
     assert tru_request_state == initial_request_state
 
 
 @pytest.mark.asyncio
-async def test_prepare_next_cycle_in_tool_execution(model, tool_stream, agenerator):
+async def test_prepare_next_cycle_in_tool_execution(model, tool_stream, agenerator, alist):
     """Test that cycle ID and metrics are properly updated during tool execution."""
     model.converse.side_effect = [
         agenerator(tool_stream),
@@ -920,7 +935,7 @@ async def test_prepare_next_cycle_in_tool_execution(model, tool_stream, agenerat
             event_loop_parent_span=None,
             kwargs={},
         )
-        [_ async for _ in stream]
+        await alist(stream)
 
         assert mock_recurse.called
 

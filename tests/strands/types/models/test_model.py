@@ -73,10 +73,10 @@ def system_prompt():
 
 
 @pytest.mark.asyncio
-async def test_converse(model, messages, tool_specs, system_prompt):
+async def test_converse(model, messages, tool_specs, system_prompt, alist):
     response = model.converse(messages, tool_specs, system_prompt)
 
-    tru_events = [event async for event in response]
+    tru_events = await alist(response)
     exp_events = [
         {
             "event": {
@@ -92,16 +92,17 @@ async def test_converse(model, messages, tool_specs, system_prompt):
 
 
 @pytest.mark.asyncio
-async def test_structured_output(model):
+async def test_structured_output(model, alist):
     response = model.structured_output(Person)
+    events = await alist(response)
 
-    tru_output = [event async for event in response][-1]
+    tru_output = events[-1]
     exp_output = Person(name="test", age=20)
     assert tru_output == exp_output
 
 
 @pytest.mark.asyncio
-async def test_converse_logging(model, messages, tool_specs, system_prompt, caplog):
+async def test_converse_logging(model, messages, tool_specs, system_prompt, caplog, alist):
     """Test that converse method logs the formatted request at debug level."""
     import logging
 
@@ -110,7 +111,7 @@ async def test_converse_logging(model, messages, tool_specs, system_prompt, capl
 
     # Execute the converse method
     response = model.converse(messages, tool_specs, system_prompt)
-    [_ async for _ in response]
+    await alist(response)
 
     # Check that the expected log messages are present
     assert "formatting request" in caplog.text

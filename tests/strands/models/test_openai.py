@@ -70,7 +70,7 @@ def test_update_config(model, model_id):
 
 
 @pytest.mark.asyncio
-async def test_stream(openai_client, model):
+async def test_stream(openai_client, model, alist):
     mock_tool_call_1_part_1 = unittest.mock.Mock(index=0)
     mock_tool_call_2_part_1 = unittest.mock.Mock(index=1)
     mock_delta_1 = unittest.mock.Mock(
@@ -108,7 +108,7 @@ async def test_stream(openai_client, model):
 
     request = {"model": "m1", "messages": [{"role": "user", "content": [{"type": "text", "text": "calculate 2+2"}]}]}
     response = model.stream(request)
-    tru_events = [event async for event in response]
+    tru_events = await alist(response)
     exp_events = [
         {"chunk_type": "message_start"},
         {"chunk_type": "content_start", "data_type": "text"},
@@ -133,7 +133,7 @@ async def test_stream(openai_client, model):
 
 
 @pytest.mark.asyncio
-async def test_stream_empty(openai_client, model):
+async def test_stream_empty(openai_client, model, alist):
     mock_delta = unittest.mock.Mock(content=None, tool_calls=None, reasoning_content=None)
     mock_usage = unittest.mock.Mock(prompt_tokens=0, completion_tokens=0, total_tokens=0)
 
@@ -147,7 +147,7 @@ async def test_stream_empty(openai_client, model):
     request = {"model": "m1", "messages": [{"role": "user", "content": []}]}
     response = model.stream(request)
 
-    tru_events = [event async for event in response]
+    tru_events = await alist(response)
     exp_events = [
         {"chunk_type": "message_start"},
         {"chunk_type": "content_start", "data_type": "text"},
@@ -161,7 +161,7 @@ async def test_stream_empty(openai_client, model):
 
 
 @pytest.mark.asyncio
-async def test_stream_with_empty_choices(openai_client, model):
+async def test_stream_with_empty_choices(openai_client, model, alist):
     mock_delta = unittest.mock.Mock(content="content", tool_calls=None, reasoning_content=None)
     mock_usage = unittest.mock.Mock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
 
@@ -187,7 +187,7 @@ async def test_stream_with_empty_choices(openai_client, model):
     request = {"model": "m1", "messages": [{"role": "user", "content": ["test"]}]}
     response = model.stream(request)
 
-    tru_events = [event async for event in response]
+    tru_events = await alist(response)
     exp_events = [
         {"chunk_type": "message_start"},
         {"chunk_type": "content_start", "data_type": "text"},
@@ -203,7 +203,7 @@ async def test_stream_with_empty_choices(openai_client, model):
 
 
 @pytest.mark.asyncio
-async def test_structured_output(openai_client, model, test_output_model_cls):
+async def test_structured_output(openai_client, model, test_output_model_cls, alist):
     messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
 
     mock_parsed_instance = test_output_model_cls(name="John", age=30)
@@ -215,7 +215,8 @@ async def test_structured_output(openai_client, model, test_output_model_cls):
     openai_client.beta.chat.completions.parse.return_value = mock_response
 
     stream = model.structured_output(test_output_model_cls, messages)
+    events = await alist(stream)
 
-    tru_result = [event async for event in stream][-1]
+    tru_result = events[-1]
     exp_result = {"output": test_output_model_cls(name="John", age=30)}
     assert tru_result == exp_result

@@ -922,7 +922,7 @@ def test_agent_method_structured_output(agent, agenerator):
 
 
 @pytest.mark.asyncio
-async def test_stream_async_returns_all_events(mock_event_loop_cycle):
+async def test_stream_async_returns_all_events(mock_event_loop_cycle, alist):
     agent = Agent()
 
     # Define the side effect to simulate callback handler being called multiple times
@@ -939,7 +939,7 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle):
 
     stream = agent.stream_async("test message", callback_handler=mock_callback)
 
-    tru_events = [event async for event in stream]
+    tru_events = await alist(stream)
     exp_events = [
         {"init_event_loop": True, "callback_handler": mock_callback},
         {"data": "First chunk"},
@@ -961,7 +961,7 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle):
 
 
 @pytest.mark.asyncio
-async def test_stream_async_passes_kwargs(agent, mock_model, mock_event_loop_cycle, agenerator):
+async def test_stream_async_passes_kwargs(agent, mock_model, mock_event_loop_cycle, agenerator, alist):
     mock_model.mock_converse.side_effect = [
         agenerator(
             [
@@ -990,7 +990,7 @@ async def test_stream_async_passes_kwargs(agent, mock_model, mock_event_loop_cyc
 
     stream = agent.stream_async("test message", some_value="a_value")
 
-    tru_events = [event async for event in stream]
+    tru_events = await alist(stream)
     exp_events = [
         {"init_event_loop": True, "some_value": "a_value"},
         {
@@ -1106,7 +1106,7 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
 
 @pytest.mark.asyncio
 @unittest.mock.patch("strands.agent.agent.get_tracer")
-async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_tracer, mock_event_loop_cycle):
+async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_tracer, mock_event_loop_cycle, alist):
     """Test that stream_async creates and ends a span when the call succeeds."""
     # Setup mock tracer and span
     mock_tracer = unittest.mock.MagicMock()
@@ -1130,8 +1130,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
     # Create agent and make a call
     agent = Agent(model=mock_model)
     stream = agent.stream_async("test prompt")
-    async for _ in stream:
-        pass
+    await alist(stream)
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
@@ -1185,7 +1184,7 @@ def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_mod
 
 @pytest.mark.asyncio
 @unittest.mock.patch("strands.agent.agent.get_tracer")
-async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tracer, mock_model):
+async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tracer, mock_model, alist):
     """Test that stream_async creates and ends a span when the call succeeds."""
     # Setup mock tracer and span
     mock_tracer = unittest.mock.MagicMock()
@@ -1203,8 +1202,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
     # Call the agent and catch the exception
     with pytest.raises(ValueError):
         stream = agent.stream_async("test prompt")
-        async for _ in stream:
-            pass
+        await alist(stream)
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(

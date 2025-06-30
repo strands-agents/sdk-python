@@ -625,7 +625,7 @@ def test_format_chunk_unknown(model):
 
 
 @pytest.mark.asyncio
-async def test_stream(anthropic_client, model):
+async def test_stream(anthropic_client, model, alist):
     mock_event_1 = unittest.mock.Mock(
         type="message_start",
         dict=lambda: {"type": "message_start"},
@@ -653,7 +653,7 @@ async def test_stream(anthropic_client, model):
     request = {"model": "m1"}
     response = model.stream(request)
 
-    tru_events = [event async for event in response]
+    tru_events = await alist(response)
     exp_events = [
         {"type": "message_start"},
         {
@@ -667,13 +667,13 @@ async def test_stream(anthropic_client, model):
 
 
 @pytest.mark.asyncio
-async def test_stream_rate_limit_error(anthropic_client, model):
+async def test_stream_rate_limit_error(anthropic_client, model, alist):
     anthropic_client.messages.stream.side_effect = anthropic.RateLimitError(
         "rate limit", response=unittest.mock.Mock(), body=None
     )
 
     with pytest.raises(ModelThrottledException, match="rate limit"):
-        [_ async for _ in model.stream({})]
+        await alist(model.stream({}))
 
 
 @pytest.mark.parametrize(
@@ -705,7 +705,7 @@ async def test_stream_bad_request_error(anthropic_client, model):
 
 
 @pytest.mark.asyncio
-async def test_structured_output(anthropic_client, model, test_output_model_cls):
+async def test_structured_output(anthropic_client, model, test_output_model_cls, alist):
     messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
 
     events = [
@@ -754,7 +754,8 @@ async def test_structured_output(anthropic_client, model, test_output_model_cls)
     anthropic_client.messages.stream.return_value.__enter__.return_value = mock_stream
 
     stream = model.structured_output(test_output_model_cls, messages)
+    events = await alist(stream)
 
-    tru_result = [event async for event in stream][-1]
+    tru_result = events[-1]
     exp_result = {"output": test_output_model_cls(name="John", age=30)}
     assert tru_result == exp_result
