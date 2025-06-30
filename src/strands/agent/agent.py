@@ -504,7 +504,7 @@ class Agent:
                 tool_config=self.tool_config,
                 callback_handler=callback_handler,
                 tool_handler=self.tool_handler,
-                tool_execution_handler=self.tool_pool_wrapper,
+                tool_execution_handler=self.thread_pool_wrapper,
                 event_loop_metrics=self.event_loop_metrics,
                 event_loop_parent_span=self.trace_span,
                 kwargs=kwargs,
