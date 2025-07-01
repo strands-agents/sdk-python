@@ -61,7 +61,8 @@ def run_tools(
         event_loop_metrics.add_tool_usage(tool, tool_duration, tool_trace, tool_success, message)
         cycle_trace.add_child(tool_trace)
 
-        tracer.end_tool_call_span(tool_call_span, result)
+        if tool_call_span:
+            tracer.end_tool_call_span(tool_call_span, result)
 
     def work(
         tool: ToolUse,
