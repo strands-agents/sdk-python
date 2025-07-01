@@ -6,7 +6,7 @@
 import base64
 import json
 import logging
-from typing import Any, AsyncGenerator, Callable, Iterable, Optional, Type, TypeVar, Union
+from typing import Any, AsyncGenerator, Iterable, Optional, Type, TypeVar, Union
 
 from mistralai import Mistral
 from pydantic import BaseModel
@@ -472,7 +472,9 @@ class MistralModel(Model):
 
     @override
     async def structured_output(
-        self, output_model: Type[T], prompt: Messages,
+        self,
+        output_model: Type[T],
+        prompt: Messages,
     ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
