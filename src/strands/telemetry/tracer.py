@@ -81,14 +81,9 @@ class Tracer:
 
     def __init__(
         self,
-        service_name: str = "strands-agents",
-    ):
-        """Initialize the tracer.
-
-        Args:
-            service_name: Name of the service for OpenTelemetry.
-        """
-        self.service_name = service_name
+    ) -> None:
+        """Initialize the tracer."""
+        self.service_name = __name__
         self.tracer_provider: Optional[trace_api.TracerProvider] = None
         self.tracer: Optional[trace_api.Tracer] = None
 
@@ -505,9 +500,7 @@ class Tracer:
 _tracer_instance = None
 
 
-def get_tracer(
-    service_name: str = "strands-agents",
-) -> Tracer:
+def get_tracer() -> Tracer:
     """Get or create the global tracer.
 
     Args:
@@ -519,9 +512,7 @@ def get_tracer(
     global _tracer_instance
 
     if not _tracer_instance:
-        _tracer_instance = Tracer(
-            service_name=service_name,
-        )
+        _tracer_instance = Tracer()
 
     return _tracer_instance
 

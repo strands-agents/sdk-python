@@ -52,7 +52,7 @@ def test_init_default():
     """Test initializing the Tracer with default parameters."""
     tracer = Tracer()
 
-    assert tracer.service_name == "strands-agents"
+    assert tracer.service_name == "strands.telemetry.tracer"
     assert tracer.tracer_provider is not None
     assert tracer.tracer is not None
 
@@ -345,17 +345,6 @@ def test_get_tracer_new_endpoint():
         tracer2 = get_tracer()
 
         assert tracer1 is tracer2
-
-
-def test_get_tracer_parameters():
-    """Test that get_tracer passes parameters correctly."""
-    # Reset the singleton first
-    with mock.patch("strands.telemetry.tracer._tracer_instance", None):
-        tracer = get_tracer(
-            service_name="test-service",
-        )
-
-        assert tracer.service_name == "test-service"
 
 
 def test_initialize_tracer_with_custom_tracer_provider(mock_get_tracer_provider):

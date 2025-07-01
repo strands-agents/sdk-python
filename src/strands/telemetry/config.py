@@ -7,10 +7,13 @@ for OpenTelemetry components and other telemetry infrastructure shared across St
 import logging
 from importlib.metadata import version
 
+import opentelemetry.metrics as metrics_api
+import opentelemetry.sdk.metrics as metrics_sdk
 import opentelemetry.trace as trace_api
 from opentelemetry import propagate
 from opentelemetry.baggage.propagation import W3CBaggagePropagator
 from opentelemetry.propagators.composite import CompositePropagator
+from opentelemetry.sdk.metrics.export import ConsoleMetricExporter, PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider as SDKTracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
@@ -65,6 +68,9 @@ class StrandsTelemetry:
         >>> telemetry.setup_console_exporter()
         >>> telemetry.setup_otlp_exporter()
 
+        To setup global meter provider
+        >>> telemetry.setup_meter(enable_console_exporter=True, enable_otlp_exporter=True) # default are False
+
     Note:
         - The tracer provider is automatically initialized upon instantiation
         - When no tracer_provider is provided, the instance sets itself as the global provider
@@ -86,15 +92,15 @@ class StrandsTelemetry:
         The instance is ready to use immediately after initialization, though
         trace exporters must be configured separately using the setup methods.
         """
+        self.resource = get_otel_resource()
         if tracer_provider:
             self.tracer_provider = tracer_provider
         else:
-            self.resource = get_otel_resource()
             self._initialize_tracer()
 
     def _initialize_tracer(self) -> None:
         """Initialize the OpenTelemetry tracer."""
-        logger.info("initializing tracer")
+        logger.info("Initializing tracer")
 
         # Create tracer provider
         self.tracer_provider = SDKTracerProvider(resource=self.resource)
@@ -115,7 +121,7 @@ class StrandsTelemetry:
     def setup_console_exporter(self) -> "StrandsTelemetry":
         """Set up console exporter for the tracer provider."""
         try:
-            logger.info("enabling console export")
+            logger.info("Enabling console export")
             console_processor = SimpleSpanProcessor(ConsoleSpanExporter())
             self.tracer_provider.add_span_processor(console_processor)
         except Exception as e:
@@ -133,4 +139,31 @@ class StrandsTelemetry:
             logger.info("OTLP exporter configured")
         except Exception as e:
             logger.exception("error=<%s> | Failed to configure OTLP exporter", e)
+        return self
+
+    def setup_meter(
+        self, enable_console_exporter: bool = False, enable_otlp_exporter: bool = False
+    ) -> "StrandsTelemetry":
+        """Initialize the OpenTelemetry Meter."""
+        logger.info("Initializing meter")
+        metrics_readers = []
+        try:
+            if enable_console_exporter:
+                logger.info("Enabling console metrics exporter")
+                console_reader = PeriodicExportingMetricReader(ConsoleMetricExporter())
+                metrics_readers.append(console_reader)
+            if enable_otlp_exporter:
+                logger.info("Enabling OTLP metrics exporter")
+                from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
+
+                otlp_reader = PeriodicExportingMetricReader(OTLPMetricExporter())
+                metrics_readers.append(otlp_reader)
+        except Exception as e:
+            logger.exception("error=<%s> | Failed to configure OTLP metrics exporter", e)
+
+        self.meter_provider = metrics_sdk.MeterProvider(resource=self.resource, metric_readers=metrics_readers)
+
+        # Set as global tracer provider
+        metrics_api.set_meter_provider(self.meter_provider)
+        logger.info("Strands Meter configured")
         return self
