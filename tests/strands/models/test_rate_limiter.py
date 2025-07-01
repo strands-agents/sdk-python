@@ -370,7 +370,10 @@ def test_token_bucket__high_throughput(mock_time: MockTime) -> None:
 def test_rate_limiter_registry__get_or_create_bucket__new_bucket() -> None:
     """Test creating a new bucket in registry and verify its configuration."""
     registry = RateLimiterRegistry()
+    buckets = []  # Keep strong references
+
     bucket = registry.get_or_create_bucket("test-key", capacity=DEFAULT_TEST_RPM, window=DEFAULT_TEST_WINDOW)
+    buckets.append(bucket)
 
     assert isinstance(bucket, TokenBucket)
     assert bucket._capacity == DEFAULT_TEST_RPM
@@ -380,9 +383,11 @@ def test_rate_limiter_registry__get_or_create_bucket__new_bucket() -> None:
 def test_rate_limiter_registry__get_or_create_bucket__existing_bucket() -> None:
     """Test getting existing bucket from registry returns same instance."""
     registry = RateLimiterRegistry()
+    buckets = []  # Keep strong references
 
     # Create bucket
     bucket1 = registry.get_or_create_bucket("test-key", capacity=DEFAULT_TEST_RPM, window=DEFAULT_TEST_WINDOW)
+    buckets.append(bucket1)
 
     # Get same bucket (even with different params)
     bucket2 = registry.get_or_create_bucket("test-key", capacity=100, window=100)
@@ -395,23 +400,28 @@ def test_rate_limiter_registry__get_or_create_bucket__existing_bucket() -> None:
 def test_rate_limiter_registry__remove_bucket() -> None:
     """Test removing bucket from registry."""
     registry = RateLimiterRegistry()
+    buckets = []  # Keep strong references
 
     # Create and remove bucket
     bucket1 = registry.get_or_create_bucket("test-key", capacity=60)
+    buckets.append(bucket1)
     registry.remove_bucket("test-key")
 
     # Creating again should give new instance
     bucket2 = registry.get_or_create_bucket("test-key", capacity=60)
+    buckets.append(bucket2)
     assert bucket1 is not bucket2
 
 
 def test_rate_limiter_registry__clear() -> None:
     """Test clearing all buckets from registry."""
     registry = RateLimiterRegistry()
+    buckets = []  # Keep strong references
 
     # Create multiple buckets
     bucket1 = registry.get_or_create_bucket("key1", capacity=60)
     bucket2 = registry.get_or_create_bucket("key2", capacity=60)
+    buckets.extend([bucket1, bucket2])
 
     # Clear registry
     registry.clear()
@@ -419,6 +429,7 @@ def test_rate_limiter_registry__clear() -> None:
     # Creating again should give new instances
     bucket1_new = registry.get_or_create_bucket("key1", capacity=60)
     bucket2_new = registry.get_or_create_bucket("key2", capacity=60)
+    buckets.extend([bucket1_new, bucket2_new])
 
     assert bucket1 is not bucket1_new
     assert bucket2 is not bucket2_new
@@ -428,6 +439,7 @@ def test_rate_limiter_registry__thread_safety() -> None:
     """Test concurrent access to registry."""
     registry = RateLimiterRegistry()
     buckets: List[TokenBucket] = []
+    models: List[RateLimitedModel] = []  # Keep strong references
     lock = threading.Lock()
 
     def get_bucket(key: str) -> None:
@@ -435,6 +447,9 @@ def test_rate_limiter_registry__thread_safety() -> None:
         bucket = registry.get_or_create_bucket(key, capacity=60)
         with lock:
             buckets.append(bucket)
+            # Create a model to hold strong reference
+            model = RateLimitedModel(MockModel(), RateLimitConfig(rpm=60, bucket_key=key))
+            models.append(model)
 
     # Create threads accessing same and different keys
     threads = []

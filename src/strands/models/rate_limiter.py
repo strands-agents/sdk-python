@@ -13,7 +13,8 @@ support both sync and async operation.
 import logging
 import threading
 import time
-from typing import Any, Dict, Optional, Protocol, Type, TypeVar, Union, runtime_checkable
+import weakref
+from typing import Any, Generic, Optional, Protocol, Type, TypeVar, Union, overload, runtime_checkable
 
 from typing_extensions import TypedDict, cast
 
@@ -197,12 +198,13 @@ class RateLimiterRegistry:
     """Registry for managing shared rate limit buckets.
 
     This registry ensures that multiple model instances can share the same
-    rate limit bucket when configured with the same bucket key.
+    rate limit bucket when configured with the same bucket key. Buckets are
+    automatically removed when no longer referenced by any model instances.
     """
 
     def __init__(self) -> None:
         """Initialize the registry."""
-        self._buckets: Dict[str, TokenBucket] = {}
+        self._buckets: weakref.WeakValueDictionary[str, TokenBucket] = weakref.WeakValueDictionary()
         self._lock = threading.Lock()
 
     def get_or_create_bucket(self, key: str, capacity: int, window: int = 60) -> TokenBucket:
@@ -217,10 +219,13 @@ class RateLimiterRegistry:
             The token bucket instance.
         """
         with self._lock:
-            if key not in self._buckets:
+            # Try to get existing bucket
+            bucket = self._buckets.get(key)
+            if bucket is None:
                 logger.debug("bucket_key=<%s>, capacity=<%s> | creating new rate limit bucket", key, capacity)
-                self._buckets[key] = TokenBucket(capacity, window)
-            return self._buckets[key]
+                bucket = TokenBucket(capacity, window)
+                self._buckets[key] = bucket
+            return bucket
 
     def remove_bucket(self, key: str) -> None:
         """Remove a bucket from the registry.
@@ -246,8 +251,11 @@ class RateLimiterRegistry:
 # Global registry instance
 _rate_limiter_registry = RateLimiterRegistry()
 
+# Use TypeVar to preserve the original type when wrapping
+T = TypeVar("T", bound=RateLimitableModel)
 
-class RateLimitedModel:
+
+class RateLimitedModel(Generic[T]):
     """Wrapper that adds rate limiting to any model provider.
 
     This wrapper intercepts calls to model methods and applies rate limiting
@@ -290,7 +298,7 @@ class RateLimitedModel:
 
     def __init__(
         self,
-        model: RateLimitableModel,
+        model: T,
         config: RateLimitConfig,
     ) -> None:
         """Initialize the rate-limited model wrapper.
@@ -418,10 +426,7 @@ class RateLimitedModel:
             raise AttributeError(f"{type(self._model).__name__} has no attribute 'structured_output'")
 
 
-# Use TypeVar to preserve the original type when wrapping
-T = TypeVar("T")
-
-
+@overload
 def rate_limit_model(
     model_or_class: T,
     rpm: int,
@@ -429,7 +434,28 @@ def rate_limit_model(
     bucket_key: Optional[str] = None,
     timeout: Optional[float] = None,
     window: int = 60,
-) -> Union[RateLimitedModel, Type[RateLimitedModel]]:
+) -> RateLimitedModel[T]: ...
+
+
+@overload
+def rate_limit_model(
+    model_or_class: Type[T],
+    rpm: int,
+    *,
+    bucket_key: Optional[str] = None,
+    timeout: Optional[float] = None,
+    window: int = 60,
+) -> Type[RateLimitedModel[T]]: ...
+
+
+def rate_limit_model(
+    model_or_class: Union[T, Type[T]],
+    rpm: int,
+    *,
+    bucket_key: Optional[str] = None,
+    timeout: Optional[float] = None,
+    window: int = 60,
+) -> Union[RateLimitedModel[T], Type[RateLimitedModel[T]]]:
     """Apply rate limiting to a model instance or class.
 
     This function can be used in two ways:
@@ -525,26 +551,22 @@ def rate_limit_model(
     )
 
     if isinstance(model_or_class, type):
-        # It's a class - create a wrapper class
-        class RateLimitedClass(model_or_class):  # type: ignore[misc,valid-type]
-            """Rate-limited version of the model class."""
+        # It's a class - create a factory function that looks like a class
+        def create_rate_limited(*args: Any, **kwargs: Any) -> RateLimitedModel[T]:
+            """Create a rate-limited instance of the model."""
+            instance = model_or_class(*args, **kwargs)
+            return RateLimitedModel(instance, config)
 
-            def __new__(cls, *args: Any, **kwargs: Any) -> Any:
-                # Create an instance of the base model class
-                instance = super().__new__(model_or_class)
-                instance.__init__(*args, **kwargs)
-                # Wrap it with rate limiting
-                return RateLimitedModel(cast(RateLimitableModel, instance), config)
+        # Make it look like a class for better user experience
+        create_rate_limited.__name__ = f"RateLimited{model_or_class.__name__}"
+        create_rate_limited.__qualname__ = f"RateLimited{model_or_class.__qualname__}"
+        create_rate_limited.__module__ = model_or_class.__module__
 
-        # Update class metadata
-        RateLimitedClass.__name__ = f"RateLimited{model_or_class.__name__}"
-        RateLimitedClass.__qualname__ = f"RateLimited{model_or_class.__qualname__}"
-        RateLimitedClass.__module__ = model_or_class.__module__
-
-        return cast(Type[RateLimitedModel], RateLimitedClass)
+        # Type-wise, return it as a class type
+        return cast(Type[RateLimitedModel[T]], create_rate_limited)
     else:
         # It's an instance - wrap it directly
-        return RateLimitedModel(cast(RateLimitableModel, model_or_class), config)
+        return RateLimitedModel(model_or_class, config)
 
 
 def reset_rate_limits_for_testing() -> None:

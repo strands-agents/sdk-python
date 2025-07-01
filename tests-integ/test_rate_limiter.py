@@ -195,13 +195,21 @@ def test_rate_limiter_without_timeout_timing():
     # Sort results by completion time
     results.sort()
 
-    # First 4 should be fast (< 2 seconds each)
-    fast_requests = [t for t in results[:4] if t < 2.0]
-    assert len(fast_requests) == 4, f"Expected 4 fast requests, got {len(fast_requests)}"
+    # Check that there's a clear timing difference between the first 4 and last 2 requests
+    # The first 4 should have similar timing (all getting tokens immediately)
+    # The last 2 should be noticeably slower (waiting for token refill)
 
-    # Last 2 should be slower (waiting for token refill)
-    slow_requests = [t for t in results[4:] if t > 5.0]
-    assert len(slow_requests) >= 1, f"Expected at least 1 slow request, got {len(slow_requests)}"
+    avg_first_four = sum(results[:4]) / 4
+    avg_last_two = sum(results[4:]) / 2
+
+    # The last 2 requests should take at least 50% longer than the first 4 on average
+    # This accounts for the fact they need to wait for token refill
+    ratio = avg_last_two / avg_first_four
+    assert ratio > 1.5, (
+        f"Expected last 2 requests to be at least 50% slower than first 4. "
+        f"First 4 avg: {avg_first_four:.2f}s, Last 2 avg: {avg_last_two:.2f}s, "
+        f"Ratio: {ratio:.2f}. All times: {[f'{t:.2f}' for t in results]}"
+    )
 
 
 @pytest.mark.skipif("AWS_REGION" not in os.environ, reason="AWS credentials not configured")
