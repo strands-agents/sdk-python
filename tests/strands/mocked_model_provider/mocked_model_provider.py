@@ -39,7 +39,9 @@ class MockedModelProvider(Model):
         pass
 
     async def structured_output(
-        self, output_model: Type[T], prompt: Messages,
+        self,
+        output_model: Type[T],
+        prompt: Messages,
     ) -> AsyncGenerator[Any, None]:
         pass
 
