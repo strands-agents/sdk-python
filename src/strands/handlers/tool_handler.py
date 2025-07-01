@@ -1,10 +1,8 @@
 """This module provides handlers for managing tool invocations."""
 
 import logging
-from datetime import datetime
 from typing import Any, Optional
 
-from .formatter import EnhancedToolFormatter
 from ..tools.registry import ToolRegistry
 from ..types.content import Messages
 from ..types.models import Model
@@ -66,13 +64,9 @@ class AgentToolHandler(ToolHandler):
         tool_func = tool_info if tool_info is not None else self.tool_registry.registry.get(tool_name)
 
         # Display tool call with parameters (if callback handler supports it)
-        agent = kwargs.get('agent')
-        agent_name = agent.name if agent and hasattr(agent, 'name') and agent.name else 'my_agent'
-        callback_handler.tool_formatter.display_tool_call(
-            tool_name,
-            tool_input,
-            agent_name
-        )
+        agent = kwargs.get("agent")
+        agent_name = agent.name if agent and hasattr(agent, "name") and agent.name else "my_agent"
+        callback_handler.tool_formatter.display_tool_call(tool_name, tool_input, agent_name)
         try:
             # Check if tool exists
             if not tool_func:
@@ -109,11 +103,11 @@ class AgentToolHandler(ToolHandler):
 
     def _format_tool_name_with_context(self, tool_name: str, agent_name: str = "my_agent") -> str:
         """Format tool name with context information (agent name, MCP server, etc.).
-        
+
         Args:
             tool_name: Original tool name
             agent_name: Name of the agent calling the tool
-            
+
         Returns:
             Formatted tool name with context
         """
@@ -122,34 +116,44 @@ class AgentToolHandler(ToolHandler):
             server_name, local_tool_name = self._parse_mcp_tool_name(tool_name)
             if server_name and local_tool_name and server_name != local_tool_name:
                 return f"{agent_name} {server_name}({local_tool_name})"
-        
+
         # For non-MCP tools, return original name
         return tool_name
 
     def _is_mcp_tool(self, tool_name: str) -> bool:
         """Check if a tool is likely an MCP tool based on naming patterns.
-        
+
         Args:
             tool_name: Tool name to check
-            
+
         Returns:
             True if likely an MCP tool
         """
-        return (
-            "/" in tool_name or 
-            any(tool_name.startswith(prefix) for prefix in [
-                "playwright_", "filesystem_", "git_", "browser_", 
-                "aws_", "github_", "sqlite_", "postgres_", "docker_",
-                "kubernetes_", "redis_", "mongodb_", "mysql_"
-            ])
+        return "/" in tool_name or any(
+            tool_name.startswith(prefix)
+            for prefix in [
+                "playwright_",
+                "filesystem_",
+                "git_",
+                "browser_",
+                "aws_",
+                "github_",
+                "sqlite_",
+                "postgres_",
+                "docker_",
+                "kubernetes_",
+                "redis_",
+                "mongodb_",
+                "mysql_",
+            ]
         )
 
     def _parse_mcp_tool_name(self, tool_name: str) -> tuple[str, str]:
         """Parse MCP tool name to extract server name and local tool name.
-        
+
         Args:
             tool_name: Full MCP tool name
-            
+
         Returns:
             Tuple of (server_name, local_tool_name)
         """
@@ -158,12 +162,12 @@ class AgentToolHandler(ToolHandler):
             parts = tool_name.split("/", 1)
             if len(parts) == 2:
                 return parts[0], parts[1]
-        
+
         # Handle underscore format like "playwright_navigate"
         if "_" in tool_name:
             parts = tool_name.split("_", 1)
             if len(parts) == 2:
                 return parts[0], parts[1]
-        
+
         # If no clear separation, return the tool name as both
         return tool_name, tool_name

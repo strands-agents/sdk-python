@@ -12,11 +12,10 @@ class PrintingCallbackHandler:
     def __init__(self) -> None:
         """Initialize handler."""
         self.tool_count = 0
-        self.active_tools = {}  # Track tool_use_id -> tool_name mapping
+        self.active_tools: dict[str, str] = {}  # Track tool_use_id -> tool_name mapping
         self.previous_tool_use = None
         self.tool_formatter = EnhancedToolFormatter()
-        self.active_tools = {}  # Track tool_use_id -> tool_name mapping
-        self.formatted_tool_names = {}  # Track tool_use_id -> formatted_tool_name mapping
+        self.formatted_tool_names: dict[str, str] = {}  # Track tool_use_id -> formatted_tool_name mapping
 
     def __call__(self, **kwargs: Any) -> None:
         """Stream text output and tool invocations to stdout.
@@ -45,7 +44,7 @@ class PrintingCallbackHandler:
         if current_tool_use and current_tool_use.get("name"):
             tool_name = current_tool_use.get("name", "Unknown tool")
             tool_use_id = current_tool_use.get("toolUseId", "")
-            
+
             # Track this tool for later result matching
             if tool_use_id and self.previous_tool_use != current_tool_use:
                 self.previous_tool_use = current_tool_use
@@ -67,14 +66,15 @@ class PrintingCallbackHandler:
                         # Get the tool name from our tracking
                         tool_name = self.active_tools.get(tool_use_id, "Unknown Tool")
 
-
                         # Display tool completion result
                         success = status == "success"
 
                         formatted_result = self.tool_formatter.format_tool_completion(
-                            tool_name, success, result_content if success else None,
+                            tool_name,
+                            success,
+                            result_content if success else None,
                             error=result_content if not success else None,
-                            formatted_tool_name=tool_name
+                            formatted_tool_name=tool_name,
                         )
                         print(f"{formatted_result}")
 
