@@ -1,5 +1,5 @@
 import json
-from typing import Any, Callable, Iterable, Optional, Type, TypeVar
+from typing import Any, AsyncGenerator, Iterable, Optional, Type, TypeVar
 
 from pydantic import BaseModel
 
@@ -38,13 +38,16 @@ class MockedModelProvider(Model):
     def update_config(self, **model_config: Any) -> None:
         pass
 
-    def structured_output(
-        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
-    ) -> T:
+    async def structured_output(
+        self, output_model: Type[T], prompt: Messages,
+    ) -> AsyncGenerator[Any, None]:
         pass
 
-    def stream(self, request: Any) -> Iterable[Any]:
-        yield from self.map_agent_message_to_events(self.agent_responses[self.index])
+    async def stream(self, request: Any) -> AsyncGenerator[Any, None]:
+        events = self.map_agent_message_to_events(self.agent_responses[self.index])
+        for event in events:
+            yield event
+
         self.index += 1
 
     def map_agent_message_to_events(self, agent_message: Message) -> Iterable[dict[str, Any]]:
