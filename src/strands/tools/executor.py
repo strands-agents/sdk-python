@@ -61,8 +61,7 @@ def run_tools(
         event_loop_metrics.add_tool_usage(tool, tool_duration, tool_trace, tool_success, message)
         cycle_trace.add_child(tool_trace)
 
-        if tool_call_span:
-            tracer.end_tool_call_span(tool_call_span, result)
+        tracer.end_tool_call_span(tool_call_span, result)
 
     def work(
         tool: ToolUse,
@@ -102,16 +101,14 @@ def run_tools(
         while not all(worker.done() for worker in workers):
             if not worker_queue.empty():
                 worker_id, event = worker_queue.get()
-                if "callback" in event:
-                    yield event
+                yield event
                 worker_events[worker_id].set()
 
     else:
         # Sequential execution fallback
         for tool_use in tool_uses:
             for event in handle(tool_use):
-                if "callback" in event:
-                    yield event
+                yield event
 
             tool_results.append(event["result"])
 
