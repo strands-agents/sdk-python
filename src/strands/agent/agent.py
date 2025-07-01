@@ -133,7 +133,6 @@ class Agent:
                     system_prompt=self._agent.system_prompt,
                     messages=self._agent.messages,
                     tool_config=self._agent.tool_config,
-                    callback_handler=self._agent.callback_handler,
                     kwargs=kwargs,
                 )
 
@@ -359,7 +358,7 @@ class Agent:
         self._start_agent_trace_span(prompt)
 
         try:
-            events = self._run_loop(callback_handler, prompt, kwargs)
+            events = self._run_loop(prompt, kwargs)
             for event in events:
                 if "callback" in event:
                     callback_handler(**event["callback"])
@@ -441,7 +440,7 @@ class Agent:
         self._start_agent_trace_span(prompt)
 
         try:
-            events = self._run_loop(callback_handler, prompt, kwargs)
+            events = self._run_loop(prompt, kwargs)
             for event in events:
                 if "callback" in event:
                     callback_handler(**event["callback"])
@@ -456,9 +455,7 @@ class Agent:
             self._end_agent_trace_span(error=e)
             raise
 
-    def _run_loop(
-        self, callback_handler: Callable[..., Any], prompt: str, kwargs: dict[str, Any]
-    ) -> Generator[dict[str, Any], None, None]:
+    def _run_loop(self, prompt: str, kwargs: dict[str, Any]) -> Generator[dict[str, Any], None, None]:
         """Execute the agent's event loop with the given prompt and parameters."""
         try:
             # Extract key parameters
@@ -470,14 +467,12 @@ class Agent:
             self.messages.append(new_message)
 
             # Execute the event loop cycle with retry logic for context limits
-            yield from self._execute_event_loop_cycle(callback_handler, kwargs)
+            yield from self._execute_event_loop_cycle(kwargs)
 
         finally:
             self.conversation_manager.apply_management(self)
 
-    def _execute_event_loop_cycle(
-        self, callback_handler: Callable[..., Any], kwargs: dict[str, Any]
-    ) -> Generator[dict[str, Any], None, None]:
+    def _execute_event_loop_cycle(self, kwargs: dict[str, Any]) -> Generator[dict[str, Any], None, None]:
         """Execute the event loop cycle with retry logic for context window limits.
 
         This internal method handles the execution of the event loop cycle and implements
@@ -497,7 +492,6 @@ class Agent:
                 system_prompt=self.system_prompt,
                 messages=self.messages,  # will be modified by event_loop_cycle
                 tool_config=self.tool_config,
-                callback_handler=callback_handler,
                 tool_handler=self.tool_handler,
                 tool_execution_handler=self.thread_pool_wrapper,
                 event_loop_metrics=self.event_loop_metrics,
@@ -508,7 +502,7 @@ class Agent:
         except ContextWindowOverflowException as e:
             # Try reducing the context size and retrying
             self.conversation_manager.reduce_context(self, e=e)
-            yield from self._execute_event_loop_cycle(callback_handler, kwargs)
+            yield from self._execute_event_loop_cycle(kwargs)
 
     def _record_tool_execution(
         self,

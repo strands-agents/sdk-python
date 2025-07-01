@@ -795,7 +795,6 @@ def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint):
         system_prompt="You are a helpful assistant.",
         messages=unittest.mock.ANY,
         tool_config=unittest.mock.ANY,
-        callback_handler=unittest.mock.ANY,
         kwargs={"system_prompt": "tool prompt"},
     )
 
@@ -1075,18 +1074,10 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
     mock_tracer.start_agent_span.return_value = mock_span
     mock_get_tracer.return_value = mock_tracer
 
-    # Define the side effect to simulate callback handler being called multiple times
-    def call_callback_handler(*args, **kwargs):
-        # Extract the callback handler from kwargs
-        callback_handler = kwargs.get("callback_handler")
-        # Call the callback handler with different data values
-        callback_handler(data="First chunk")
-        callback_handler(data="Second chunk")
-        callback_handler(data="Final chunk", complete=True)
-        # Return expected values from event_loop_cycle
+    def test_event_loop(*args, **kwargs):
         yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Agent Response"}]}, {}, {})}
 
-    mock_event_loop_cycle.side_effect = call_callback_handler
+    mock_event_loop_cycle.side_effect = test_event_loop
 
     # Create agent and make a call
     agent = Agent(model=mock_model)

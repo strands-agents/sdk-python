@@ -6,7 +6,7 @@
 import base64
 import json
 import logging
-from typing import Any, Callable, Dict, Generator, Iterable, List, Optional, Type, TypeVar, Union
+from typing import Any, Dict, Generator, Iterable, List, Optional, Type, TypeVar, Union
 
 from mistralai import Mistral
 from pydantic import BaseModel
@@ -471,14 +471,15 @@ class MistralModel(Model):
 
     @override
     def structured_output(
-        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
+        self,
+        output_model: Type[T],
+        prompt: Messages,
     ) -> Generator[dict[str, Union[T, Any]], None, None]:
         """Get structured output from the model.
 
         Args:
             output_model: The output model to use for the agent.
             prompt: The prompt messages to use for the agent.
-            callback_handler: Optional callback handler for processing events.
 
         Returns:
             An instance of the output model with the generated data.
