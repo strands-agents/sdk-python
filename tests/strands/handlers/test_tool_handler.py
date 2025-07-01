@@ -47,7 +47,6 @@ def test_process(tool_handler, tool_use_identity):
         system_prompt="p1",
         messages=[],
         tool_config={},
-        callback_handler=unittest.mock.Mock(),
         kwargs={},
     )
     exp_result = {"toolUseId": "identity", "status": "success", "content": [{"text": "1"}]}
@@ -62,7 +61,6 @@ def test_process_missing_tool(tool_handler):
         system_prompt="p1",
         messages=[],
         tool_config={},
-        callback_handler=unittest.mock.Mock(),
         kwargs={},
     )
     exp_result = {

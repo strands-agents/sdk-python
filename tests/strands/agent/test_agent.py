@@ -1,5 +1,6 @@
 import copy
 import importlib
+import json
 import os
 import textwrap
 import unittest.mock
@@ -810,7 +811,6 @@ def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint):
         system_prompt="You are a helpful assistant.",
         messages=unittest.mock.ANY,
         tool_config=unittest.mock.ANY,
-        callback_handler=unittest.mock.ANY,
         kwargs={"system_prompt": "tool prompt"},
     )
 
@@ -1114,18 +1114,10 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
     mock_tracer.start_agent_span.return_value = mock_span
     mock_get_tracer.return_value = mock_tracer
 
-    # Define the side effect to simulate callback handler being called multiple times
-    async def call_callback_handler(*args, **kwargs):
-        # Extract the callback handler from kwargs
-        callback_handler = kwargs.get("callback_handler")
-        # Call the callback handler with different data values
-        callback_handler(data="First chunk")
-        callback_handler(data="Second chunk")
-        callback_handler(data="Final chunk", complete=True)
-        # Return expected values from event_loop_cycle
+    async def test_event_loop(*args, **kwargs):
         yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Agent Response"}]}, {}, {})}
 
-    mock_event_loop_cycle.side_effect = call_callback_handler
+    mock_event_loop_cycle.side_effect = test_event_loop
 
     # Create agent and make a call
     agent = Agent(model=mock_model)
@@ -1240,3 +1232,58 @@ def test_event_loop_cycle_includes_parent_span(mock_get_tracer, mock_event_loop_
     kwargs = mock_event_loop_cycle.call_args[1]
     assert "event_loop_parent_span" in kwargs
     assert kwargs["event_loop_parent_span"] == mock_span
+
+
+def test_non_dict_throws_error():
+    with pytest.raises(ValueError, match="state must be an AgentState object or a dict"):
+        agent = Agent(state={"object", object()})
+        print(agent.state)
+
+
+def test_non_json_serializable_state_throws_error():
+    with pytest.raises(ValueError, match="Value is not JSON serializable"):
+        agent = Agent(state={"object": object()})
+        print(agent.state)
+
+
+def test_agent_state_breaks_dict_reference():
+    ref_dict = {"hello": "world"}
+    agent = Agent(state=ref_dict)
+
+    # Make sure shallow object references do not affect state maintained by AgentState
+    ref_dict["hello"] = object()
+
+    # This will fail if AgentState reflects the updated reference
+    json.dumps(agent.state.get())
+
+
+def test_agent_state_breaks_deep_dict_reference():
+    ref_dict = {"world": "!"}
+    init_dict = {"hello": ref_dict}
+    agent = Agent(state=init_dict)
+    # Make sure deep reference changes do not affect state mained by AgentState
+    ref_dict["world"] = object()
+
+    # This will fail if AgentState reflects the updated reference
+    json.dumps(agent.state.get())
+
+
+def test_agent_state_set_breaks_dict_reference():
+    agent = Agent()
+    ref_dict = {"hello": "world"}
+    # Set should copy the input, and not maintain the reference to the original object
+    agent.state.set("hello", ref_dict)
+    ref_dict["hello"] = object()
+
+    # This will fail if AgentState reflects the updated reference
+    json.dumps(agent.state.get())
+
+
+def test_agent_state_get_breaks_deep_dict_reference():
+    agent = Agent(state={"hello": {"world": "!"}})
+    # Get should not return a reference to the internal state
+    ref_state = agent.state.get()
+    ref_state["hello"]["world"] = object()
+
+    # This will fail if AgentState reflects the updated reference
+    json.dumps(agent.state.get())

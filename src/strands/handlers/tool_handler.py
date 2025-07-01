@@ -34,7 +34,6 @@ class AgentToolHandler(ToolHandler):
         system_prompt: Optional[str],
         messages: Messages,
         tool_config: ToolConfig,
-        callback_handler: Any,
         kwargs: dict[str, Any],
     ) -> Any:
         """Process a tool invocation.
@@ -47,7 +46,6 @@ class AgentToolHandler(ToolHandler):
             system_prompt: The system prompt for the agent.
             messages: The conversation history.
             tool_config: Configuration for the tool.
-            callback_handler: Callback for processing events as they happen.
             kwargs: Additional keyword arguments passed to the tool.
 
         Returns:
@@ -81,7 +79,6 @@ class AgentToolHandler(ToolHandler):
                     "system_prompt": system_prompt,
                     "messages": messages,
                     "tool_config": tool_config,
-                    "callback_handler": callback_handler,
                 }
             )
 

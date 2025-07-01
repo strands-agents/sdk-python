@@ -6,7 +6,7 @@
 import base64
 import json
 import logging
-from typing import Any, AsyncGenerator, Callable, Dict, Iterable, List, Optional, Type, TypeVar, Union
+from typing import Any, AsyncGenerator, Callable, Iterable, Optional, Type, TypeVar, Union
 
 from mistralai import Mistral
 from pydantic import BaseModel
@@ -114,7 +114,7 @@ class MistralModel(Model):
         """
         return self.config
 
-    def _format_request_message_content(self, content: ContentBlock) -> Union[str, Dict[str, Any]]:
+    def _format_request_message_content(self, content: ContentBlock) -> Union[str, dict[str, Any]]:
         """Format a Mistral content block.
 
         Args:
@@ -170,7 +170,7 @@ class MistralModel(Model):
         Returns:
             Mistral formatted tool message.
         """
-        content_parts: List[str] = []
+        content_parts: list[str] = []
         for content in tool_result["content"]:
             if "json" in content:
                 content_parts.append(json.dumps(content["json"]))
@@ -205,9 +205,9 @@ class MistralModel(Model):
             role = message["role"]
             contents = message["content"]
 
-            text_contents: List[str] = []
-            tool_calls: List[Dict[str, Any]] = []
-            tool_messages: List[Dict[str, Any]] = []
+            text_contents: list[str] = []
+            tool_calls: list[dict[str, Any]] = []
+            tool_messages: list[dict[str, Any]] = []
 
             for content in contents:
                 if "text" in content:
@@ -220,7 +220,7 @@ class MistralModel(Model):
                     tool_messages.append(self._format_request_tool_message(content["toolResult"]))
 
             if text_contents or tool_calls:
-                formatted_message: Dict[str, Any] = {
+                formatted_message: dict[str, Any] = {
                     "role": role,
                     "content": " ".join(text_contents) if text_contents else "",
                 }
@@ -252,7 +252,7 @@ class MistralModel(Model):
             TypeError: If a message contains a content block type that cannot be converted to a Mistral-compatible
                 format.
         """
-        request: Dict[str, Any] = {
+        request: dict[str, Any] = {
             "model": self.config["model_id"],
             "messages": self._format_request_messages(messages, system_prompt),
         }
@@ -419,7 +419,7 @@ class MistralModel(Model):
             yield {"chunk_type": "message_start"}
 
             content_started = False
-            current_tool_calls: Dict[str, Dict[str, str]] = {}
+            current_tool_calls: dict[str, dict[str, str]] = {}
             accumulated_text = ""
 
             for chunk in stream_response:
@@ -472,14 +472,13 @@ class MistralModel(Model):
 
     @override
     async def structured_output(
-        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
+        self, output_model: Type[T], prompt: Messages,
     ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:
             output_model: The output model to use for the agent.
             prompt: The prompt messages to use for the agent.
-            callback_handler: Optional callback handler for processing events.
 
         Returns:
             An instance of the output model with the generated data.

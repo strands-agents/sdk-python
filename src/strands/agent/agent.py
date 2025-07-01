@@ -39,6 +39,7 @@ from .conversation_manager import (
     ConversationManager,
     SlidingWindowConversationManager,
 )
+from .state import AgentState
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +135,6 @@ class Agent:
                     system_prompt=self._agent.system_prompt,
                     messages=self._agent.messages,
                     tool_config=self._agent.tool_config,
-                    callback_handler=self._agent.callback_handler,
                     kwargs=kwargs,
                 )
 
@@ -194,6 +194,7 @@ class Agent:
         *,
         name: Optional[str] = None,
         description: Optional[str] = None,
+        state: Optional[Union[AgentState, dict]] = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -230,6 +231,8 @@ class Agent:
                 Defaults to None.
             description: description of what the Agent does
                 Defaults to None.
+            state: stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
+                Defaults to an empty AgentState object.
 
         Raises:
             ValueError: If max_parallel_tools is less than 1.
@@ -290,6 +293,18 @@ class Agent:
         # Initialize tracer instance (no-op if not configured)
         self.tracer = get_tracer()
         self.trace_span: Optional[trace.Span] = None
+
+        # Initialize agent state management
+        if state is not None:
+            if isinstance(state, dict):
+                self.state = AgentState(state)
+            elif isinstance(state, AgentState):
+                self.state = state
+            else:
+                raise ValueError("state must be an AgentState object or a dict")
+        else:
+            self.state = AgentState()
+
         self.tool_caller = Agent.ToolCaller(self)
         self.name = name
         self.description = description
@@ -434,7 +449,7 @@ class Agent:
         self._start_agent_trace_span(prompt)
 
         try:
-            events = self._run_loop(callback_handler, prompt, kwargs)
+            events = self._run_loop(prompt, kwargs)
             async for event in events:
                 if "callback" in event:
                     callback_handler(**event["callback"])
@@ -450,9 +465,7 @@ class Agent:
             self._end_agent_trace_span(error=e)
             raise
 
-    async def _run_loop(
-        self, callback_handler: Callable[..., Any], prompt: str, kwargs: dict[str, Any]
-    ) -> AsyncGenerator[dict[str, Any], None]:
+    async def _run_loop(self, prompt: str, kwargs: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the agent's event loop with the given prompt and parameters."""
         try:
             # Extract key parameters
@@ -464,16 +477,14 @@ class Agent:
             self.messages.append(new_message)
 
             # Execute the event loop cycle with retry logic for context limits
-            events = self._execute_event_loop_cycle(callback_handler, kwargs)
+            events = self._execute_event_loop_cycle(kwargs)
             async for event in events:
                 yield event
 
         finally:
             self.conversation_manager.apply_management(self)
 
-    async def _execute_event_loop_cycle(
-        self, callback_handler: Callable[..., Any], kwargs: dict[str, Any]
-    ) -> AsyncGenerator[dict[str, Any], None]:
+    async def _execute_event_loop_cycle(self, kwargs: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the event loop cycle with retry logic for context window limits.
 
         This internal method handles the execution of the event loop cycle and implements
@@ -493,7 +504,6 @@ class Agent:
                 system_prompt=self.system_prompt,
                 messages=self.messages,  # will be modified by event_loop_cycle
                 tool_config=self.tool_config,
-                callback_handler=callback_handler,
                 tool_handler=self.tool_handler,
                 tool_execution_handler=self.thread_pool_wrapper,
                 event_loop_metrics=self.event_loop_metrics,
@@ -506,7 +516,7 @@ class Agent:
         except ContextWindowOverflowException as e:
             # Try reducing the context size and retrying
             self.conversation_manager.reduce_context(self, e=e)
-            events = self._execute_event_loop_cycle(callback_handler, kwargs)
+            events = self._execute_event_loop_cycle(kwargs)
             async for event in events:
                 yield event
 

@@ -12,7 +12,7 @@ import logging
 import time
 import uuid
 from functools import partial
-from typing import Any, AsyncGenerator, Callable, Optional, cast
+from typing import Any, AsyncGenerator, Optional, cast
 
 from opentelemetry import trace
 
@@ -40,7 +40,6 @@ async def event_loop_cycle(
     system_prompt: Optional[str],
     messages: Messages,
     tool_config: Optional[ToolConfig],
-    callback_handler: Callable[..., Any],
     tool_handler: Optional[ToolHandler],
     tool_execution_handler: Optional[ParallelToolExecutorInterface],
     event_loop_metrics: EventLoopMetrics,
@@ -65,7 +64,6 @@ async def event_loop_cycle(
         system_prompt: System prompt instructions for the model.
         messages: Conversation history messages.
         tool_config: Configuration for available tools.
-        callback_handler: Callback for processing events as they happen.
         tool_handler: Handler for executing tools.
         tool_execution_handler: Optional handler for parallel tool execution.
         event_loop_metrics: Metrics tracking object for the event loop.
@@ -212,7 +210,6 @@ async def event_loop_cycle(
                 messages,
                 tool_config,
                 tool_handler,
-                callback_handler,
                 tool_execution_handler,
                 event_loop_metrics,
                 event_loop_parent_span,
@@ -261,7 +258,6 @@ async def recurse_event_loop(
     system_prompt: Optional[str],
     messages: Messages,
     tool_config: Optional[ToolConfig],
-    callback_handler: Callable[..., Any],
     tool_handler: Optional[ToolHandler],
     tool_execution_handler: Optional[ParallelToolExecutorInterface],
     event_loop_metrics: EventLoopMetrics,
@@ -277,7 +273,6 @@ async def recurse_event_loop(
         system_prompt: System prompt instructions for the model
         messages: Conversation history messages
         tool_config: Configuration for available tools
-        callback_handler: Callback for processing events as they happen
         tool_handler: Handler for tool execution
         tool_execution_handler: Optional handler for parallel tool execution.
         event_loop_metrics: Metrics tracking object for the event loop.
@@ -306,7 +301,6 @@ async def recurse_event_loop(
         system_prompt=system_prompt,
         messages=messages,
         tool_config=tool_config,
-        callback_handler=callback_handler,
         tool_handler=tool_handler,
         tool_execution_handler=tool_execution_handler,
         event_loop_metrics=event_loop_metrics,
@@ -327,7 +321,6 @@ async def _handle_tool_execution(
     messages: Messages,
     tool_config: ToolConfig,
     tool_handler: ToolHandler,
-    callback_handler: Callable[..., Any],
     tool_execution_handler: Optional[ParallelToolExecutorInterface],
     event_loop_metrics: EventLoopMetrics,
     event_loop_parent_span: Optional[trace.Span],
@@ -351,7 +344,6 @@ async def _handle_tool_execution(
         messages (Messages): The conversation history messages.
         tool_config (ToolConfig): Configuration for available tools.
         tool_handler (ToolHandler): Handler for tool execution.
-        callback_handler (Callable[..., Any]): Callback for processing events as they happen.
         tool_execution_handler (Optional[ParallelToolExecutorInterface]): Optional handler for parallel tool execution.
         event_loop_metrics (EventLoopMetrics): Metrics tracking object for the event loop.
         event_loop_parent_span (Any): Span for the parent of this event loop.
@@ -380,7 +372,6 @@ async def _handle_tool_execution(
         system_prompt=system_prompt,
         messages=messages,
         tool_config=tool_config,
-        callback_handler=callback_handler,
         kwargs=kwargs,
     )
 
@@ -421,7 +412,6 @@ async def _handle_tool_execution(
         system_prompt=system_prompt,
         messages=messages,
         tool_config=tool_config,
-        callback_handler=callback_handler,
         tool_handler=tool_handler,
         tool_execution_handler=tool_execution_handler,
         event_loop_metrics=event_loop_metrics,
