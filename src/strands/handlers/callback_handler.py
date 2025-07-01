@@ -46,10 +46,10 @@ class PrintingCallbackHandler:
             tool_use_id = current_tool_use.get("toolUseId", "")
 
             # Track this tool for later result matching
-            if tool_use_id and self.previous_tool_use != current_tool_use:
+            if self.previous_tool_use != current_tool_use:
                 self.previous_tool_use = current_tool_use
                 self.tool_count += 1
-                self.active_tools[tool_use_id] = tool_name
+                self.active_tools[tool_use_id] = tool_name if tool_use_id else ""
 
         # Handle tool results
         if message and message.get("role") == "user" and "content" in message:

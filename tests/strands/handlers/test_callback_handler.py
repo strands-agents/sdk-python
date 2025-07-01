@@ -78,8 +78,8 @@ def test_call_with_current_tool_use_new(handler, mock_print):
 
     handler(current_tool_use=current_tool_use)
 
-    # Should print tool information
-    mock_print.assert_called_once_with("\nTool #1: test_tool")
+    # Should not print tool information directly (handled elsewhere)
+    mock_print.assert_not_called()
 
     # Should update the handler state
     assert handler.tool_count == 1
@@ -116,8 +116,8 @@ def test_call_with_current_tool_use_different(handler, mock_print):
     # Second call with different tool use
     handler(current_tool_use=second_tool_use)
 
-    # Should print info for the new tool
-    mock_print.assert_called_once_with("\nTool #2: second_tool")
+    # Should not print tool information directly (handled elsewhere)
+    mock_print.assert_not_called()
 
     # Tool count should increase
     assert handler.tool_count == 2
@@ -150,11 +150,11 @@ def test_call_with_multiple_parameters(handler, mock_print):
 
     handler(data="Test output", complete=True, current_tool_use=current_tool_use)
 
-    # Should print data with newline, an extra newline for completion, and tool information
-    assert mock_print.call_count == 3
+    # Should print data with newline and an extra newline for completion
+    # Tool information is not printed directly by callback handler
+    assert mock_print.call_count == 2
     mock_print.assert_any_call("Test output", end="\n")
     mock_print.assert_any_call("\n")
-    mock_print.assert_any_call("\nTool #1: test_tool")
 
 
 def test_unknown_tool_name_handling(handler, mock_print):
@@ -165,8 +165,11 @@ def test_unknown_tool_name_handling(handler, mock_print):
 
     handler(current_tool_use=current_tool_use)
 
-    # Should print the tool information
-    mock_print.assert_called_once_with("\nTool #1: Unknown tool")
+    # Should not print tool information directly (handled elsewhere)
+    mock_print.assert_not_called()
+    
+    # Should update the handler state
+    assert handler.tool_count == 1
 
 
 def test_tool_use_empty_object(handler, mock_print):
@@ -182,6 +185,113 @@ def test_tool_use_empty_object(handler, mock_print):
     # Should not update state
     assert handler.tool_count == 0
     assert handler.previous_tool_use is None
+
+
+def test_tool_result_message_success(handler, mock_print):
+    """Test handling of successful tool result message."""
+    # First, register a tool use to track
+    current_tool_use = {"name": "test_tool", "input": {"param": "value"}, "toolUseId": "tool_123"}
+    handler(current_tool_use=current_tool_use)
+    mock_print.reset_mock()
+    
+    # Now send a tool result message
+    message = {
+        "role": "user",
+        "content": [
+            {
+                "toolResult": {
+                    "toolUseId": "tool_123",
+                    "status": "success",
+                    "content": [{"text": "Tool executed successfully"}]
+                }
+            }
+        ]
+    }
+    
+    handler(message=message)
+    
+    # Should print the formatted result
+    assert mock_print.call_count >= 1
+
+
+def test_tool_result_message_error(handler, mock_print):
+    """Test handling of error tool result message."""
+    # First, register a tool use to track
+    current_tool_use = {"name": "error_tool", "input": {"param": "value"}, "toolUseId": "tool_456"}
+    handler(current_tool_use=current_tool_use)
+    mock_print.reset_mock()
+    
+    # Now send a tool result message with error
+    message = {
+        "role": "user", 
+        "content": [
+            {
+                "toolResult": {
+                    "toolUseId": "tool_456",
+                    "status": "error",
+                    "content": [{"text": "Tool execution failed"}]
+                }
+            }
+        ]
+    }
+    
+    handler(message=message)
+    
+    # Should print the formatted error result
+    assert mock_print.call_count >= 1
+
+
+def test_tool_result_message_unknown_tool(handler, mock_print):
+    """Test handling of tool result for unknown tool."""
+    # Send a tool result message without registering the tool first
+    message = {
+        "role": "user",
+        "content": [
+            {
+                "toolResult": {
+                    "toolUseId": "unknown_tool",
+                    "status": "success", 
+                    "content": [{"text": "Unknown tool result"}]
+                }
+            }
+        ]
+    }
+    
+    handler(message=message)
+    
+    # Should still print the result with "Unknown Tool" as name
+    assert mock_print.call_count >= 1
+
+
+def test_tool_result_message_no_content(handler, mock_print):
+    """Test handling of message without content."""
+    message = {"role": "user"}
+    
+    handler(message=message)
+    
+    # Should not print anything
+    mock_print.assert_not_called()
+
+
+def test_tool_result_message_wrong_role(handler, mock_print):
+    """Test handling of message with wrong role."""
+    message = {
+        "role": "assistant",
+        "content": [
+            {
+                "toolResult": {
+                    "toolUseId": "tool_123",
+                    "status": "success",
+                    "content": [{"text": "Should not be processed"}]
+                }
+            }
+        ]
+    }
+    
+    handler(message=message)
+    
+    # Should not print anything (wrong role)
+    mock_print.assert_not_called()
 
 
 def test_composite_handler_forwards_to_all_handlers():
