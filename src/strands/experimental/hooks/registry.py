@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Generator, Generic, Protocol, Type, TypeVar
 
 if TYPE_CHECKING:
-    from ..agent import Agent
+    from ...agent import Agent
 
 
 @dataclass

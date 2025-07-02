@@ -28,16 +28,16 @@ Example Usage:
 This replaces the older callback_handler approach with a more composable,
 type-safe system that supports multiple subscribers per event type.
 """
-# Exporting nothing yet until hook stabilize
-# from .events import AgentInitializedEvent, EndRequestEvent, StartRequestEvent
-# from .registry import HookCallback, HookEvent, HookProvider, HookRegistry
-#
-# __all__ = [
-#     "AgentInitializedEvent",
-#     "StartRequestEvent",
-#     "EndRequestEvent",
-#     "HookEvent",
-#     "HookProvider",
-#     "HookCallback",
-#     "HookRegistry",
-# ]
+
+from .events import AgentInitializedEvent, EndRequestEvent, StartRequestEvent
+from .registry import HookCallback, HookEvent, HookProvider, HookRegistry
+
+__all__ = [
+    "AgentInitializedEvent",
+    "StartRequestEvent",
+    "EndRequestEvent",
+    "HookEvent",
+    "HookProvider",
+    "HookCallback",
+    "HookRegistry",
+]

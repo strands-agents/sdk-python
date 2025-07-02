@@ -20,10 +20,9 @@ from opentelemetry import trace
 from pydantic import BaseModel
 
 from ..event_loop.event_loop import event_loop_cycle
+from ..experimental.hooks import AgentInitializedEvent, EndRequestEvent, HookRegistry, StartRequestEvent
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..handlers.tool_handler import AgentToolHandler
-from ..hooks.events import AgentInitializedEvent, EndRequestEvent, StartRequestEvent
-from ..hooks.registry import HookRegistry
 from ..models.bedrock import BedrockModel
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer

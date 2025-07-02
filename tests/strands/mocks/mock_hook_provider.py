@@ -1,6 +1,6 @@
 from typing import Type
 
-from strands.hooks.registry import HookEvent, HookProvider, HookRegistry
+from strands.experimental.hooks import HookEvent, HookProvider, HookRegistry
 
 
 class MockHookProvider(HookProvider):

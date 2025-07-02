@@ -14,8 +14,8 @@ from strands import Agent
 from strands.agent import AgentResult
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
+from strands.experimental.hooks import AgentInitializedEvent, EndRequestEvent, StartRequestEvent
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
-from strands.hooks.events import AgentInitializedEvent, EndRequestEvent, StartRequestEvent
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
@@ -724,7 +724,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler):
     )
 
 
-@unittest.mock.patch("strands.hooks.registry.HookRegistry.invoke_callbacks")
+@unittest.mock.patch("strands.experimental.hooks.registry.HookRegistry.invoke_callbacks")
 def test_agent_hooks__init__(mock_invoke_callbacks):
     """Verify that the AgentInitializedEvent is emitted on Agent construction."""
     agent = Agent()

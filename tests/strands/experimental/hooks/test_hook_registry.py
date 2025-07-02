@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from strands.hooks.registry import HookEvent, HookProvider, HookRegistry
+from strands.experimental.hooks import HookEvent, HookProvider, HookRegistry
 
 
 @dataclass
