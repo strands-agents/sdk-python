@@ -370,7 +370,13 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
-        return asyncio.run(self.invoke_async(prompt, **kwargs))
+
+        def execute() -> AgentResult:
+            return asyncio.run(self.invoke_async(prompt, **kwargs))
+
+        with ThreadPoolExecutor() as executor:
+            future = executor.submit(execute)
+            return future.result()
 
     def structured_output(self, output_model: Type[T], prompt: Optional[str] = None) -> T:
         """This method allows you to get structured output from the agent.
@@ -389,7 +395,13 @@ class Agent:
         Raises:
             ValueError: If no conversation history or prompt is provided.
         """
-        return asyncio.run(self.structured_output_async(output_model, prompt))
+
+        def execute() -> T:
+            return asyncio.run(self.structured_output_async(output_model, prompt))
+
+        with ThreadPoolExecutor() as executor:
+            future = executor.submit(execute)
+            return future.result()
 
     async def structured_output_async(self, output_model: Type[T], prompt: Optional[str] = None) -> T:
         """This method allows you to get structured output from the agent.
