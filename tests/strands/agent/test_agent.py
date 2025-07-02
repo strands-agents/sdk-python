@@ -19,8 +19,7 @@ from strands.handlers.callback_handler import PrintingCallbackHandler, null_call
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
-
-from ..mocks.mock_hook_provider import MockHookProvider
+from tests.fixtures.mock_hook_provider import MockHookProvider
 
 
 @pytest.fixture
