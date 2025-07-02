@@ -18,6 +18,7 @@ def moto_autouse(moto_env):
 @pytest.fixture
 def tool_handler(request):
     def handler(tool_use):
+        yield {"event": "abc"}
         return {
             **params,
             "toolUseId": tool_use["toolUseId"],
@@ -102,7 +103,9 @@ def test_run_tools(
         cycle_trace,
         parallel_tool_executor,
     )
-    list(stream)
+
+    tru_events = list(stream)
+    exp_events = [{"event": "abc"}]
 
     tru_results = tool_results
     exp_results = [
@@ -117,7 +120,7 @@ def test_run_tools(
         },
     ]
 
-    assert tru_results == exp_results
+    assert tru_events == exp_events and tru_results == exp_results
 
 
 @pytest.mark.parametrize("invalid_tool_use_ids", [["t1"]], indirect=True)

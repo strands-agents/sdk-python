@@ -128,7 +128,7 @@ class Agent:
                 }
 
                 # Execute the tool
-                tool_result = self._agent.tool_handler.process(
+                events = self._agent.tool_handler.process(
                     tool=tool_use,
                     model=self._agent.model,
                     system_prompt=self._agent.system_prompt,
@@ -136,6 +136,12 @@ class Agent:
                     tool_config=self._agent.tool_config,
                     kwargs=kwargs,
                 )
+
+                try:
+                    while True:
+                        next(events)
+                except StopIteration as stop:
+                    tool_result = cast(ToolResult, stop.value)
 
                 if record_direct_tool_call is not None:
                     should_record_direct_tool_call = record_direct_tool_call
