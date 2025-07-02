@@ -700,6 +700,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
         ],
     )
 
+
 @pytest.mark.asyncio
 async def test_agent__call__in_async_context(mock_model, agent, agenerator):
     mock_model.mock_converse.return_value = agenerator(
