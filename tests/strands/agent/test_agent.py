@@ -756,6 +756,16 @@ async def test_agent_hooks_stream_async(agent, mock_hook_messages, hook_provider
     assert hook_provider.events_received == [StartRequestEvent(agent=agent), EndRequestEvent(agent=agent)]
 
 
+def test_agent_hooks_structured_output(agent, mock_hook_messages, hook_provider):
+    """Verify that the correct hook events are emitted as part of structured_output."""
+
+    expected_user = User(name="Jane Doe", age=30, email="jane@doe.com")
+    agent.model.structured_output = unittest.mock.Mock(return_value=[{"output": expected_user}])
+    agent.structured_output(User, "example prompt")
+
+    assert hook_provider.events_received == [StartRequestEvent(agent=agent), EndRequestEvent(agent=agent)]
+
+
 def test_agent_tool(mock_randint, agent):
     conversation_manager_spy = unittest.mock.Mock(wraps=agent.conversation_manager)
     agent.conversation_manager = conversation_manager_spy

@@ -411,21 +411,26 @@ class Agent:
                 that the agent will use when responding.
             prompt: The prompt to use for the agent.
         """
-        messages = self.messages
-        if not messages and not prompt:
-            raise ValueError("No conversation history or prompt provided")
+        self._hooks.invoke_callbacks(StartRequestEvent(agent=self))
 
-        # add the prompt as the last message
-        if prompt:
-            messages.append({"role": "user", "content": [{"text": prompt}]})
+        try:
+            messages = self.messages
+            if not messages and not prompt:
+                raise ValueError("No conversation history or prompt provided")
 
-        # get the structured output from the model
-        events = self.model.structured_output(output_model, messages)
-        for event in events:
-            if "callback" in event:
-                self.callback_handler(**cast(dict, event["callback"]))
+            # add the prompt as the last message
+            if prompt:
+                messages.append({"role": "user", "content": [{"text": prompt}]})
 
-        return event["output"]
+            # get the structured output from the model
+            events = self.model.structured_output(output_model, messages)
+            for event in events:
+                if "callback" in event:
+                    self.callback_handler(**cast(dict, event["callback"]))
+
+            return event["output"]
+        finally:
+            self._hooks.invoke_callbacks(EndRequestEvent(agent=self))
 
     async def stream_async(self, prompt: str, **kwargs: Any) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
