@@ -23,6 +23,7 @@ from ..event_loop.event_loop import event_loop_cycle
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..handlers.tool_handler import AgentToolHandler
 from ..models.bedrock import BedrockModel
+from ..session.session_manager import SessionManager
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer
 from ..tools.registry import ToolRegistry
@@ -192,8 +193,10 @@ class Agent:
         trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
         *,
         name: Optional[str] = None,
+        id: Optional[str] = None,
         description: Optional[str] = None,
         state: Optional[Union[AgentState, dict]] = None,
+        session_manager: Optional["SessionManager"] = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -228,10 +231,15 @@ class Agent:
             trace_attributes: Custom trace attributes to apply to the agent's trace span.
             name: name of the Agent
                 Defaults to None.
+            id: identifier for the agent, used by session manager.
+                Defaults to uuid4().
             description: description of what the Agent does
                 Defaults to None.
             state: stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
                 Defaults to an empty AgentState object.
+            session_manager: Manager for handling agent sessions including conversation history and state.
+                If provided, enables session-based persistence and state management. The session manager
+                handles agent_id, and session identification internally.
 
         Raises:
             ValueError: If max_parallel_tools is less than 1.
@@ -304,9 +312,17 @@ class Agent:
         else:
             self.state = AgentState()
 
+        # Initialize session management functionality
+        self.session_manager = session_manager
+
         self.tool_caller = Agent.ToolCaller(self)
         self.name = name
+        self.id = id
         self.description = description
+
+        # Setup session callback handler if session is enabled
+        if self.session_manager:
+            self.session_manager.initialize_agent(self)
 
     @property
     def tool(self) -> ToolCaller:
@@ -482,6 +498,10 @@ class Agent:
             new_message: Message = {"role": "user", "content": message_content}
             self.messages.append(new_message)
 
+            # Save message if session manager is available
+            if self.session_manager:
+                self.session_manager.append_message_to_agent_session(self, new_message)
+
             # Execute the event loop cycle with retry logic for context limits
             yield from self._execute_event_loop_cycle(kwargs)
 
@@ -574,6 +594,13 @@ class Agent:
         messages.append(tool_use_msg)
         messages.append(tool_result_msg)
         messages.append(assistant_msg)
+
+        # Save to conversation manager if available
+        if self.session_manager:
+            self.session_manager.append_message_to_agent_session(self, user_msg)
+            self.session_manager.append_message_to_agent_session(self, tool_use_msg)
+            self.session_manager.append_message_to_agent_session(self, tool_result_msg)
+            self.session_manager.append_message_to_agent_session(self, assistant_msg)
 
     def _start_agent_trace_span(self, prompt: str) -> None:
         """Starts a trace span for the agent.
