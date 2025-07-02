@@ -700,6 +700,45 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
         ],
     )
 
+@pytest.mark.asyncio
+async def test_agent__call__in_async_context(mock_model, agent, agenerator):
+    mock_model.mock_converse.return_value = agenerator(
+        [
+            {
+                "contentBlockStart": {"start": {}},
+            },
+            {"contentBlockDelta": {"delta": {"text": "abc"}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    )
+
+    result = agent("test")
+
+    tru_message = result.message
+    exp_message = {"content": [{"text": "abc"}], "role": "assistant"}
+    assert tru_message == exp_message
+
+
+@pytest.mark.asyncio
+async def test_agent_invoke_async(mock_model, agent, agenerator):
+    mock_model.mock_converse.return_value = agenerator(
+        [
+            {
+                "contentBlockStart": {"start": {}},
+            },
+            {"contentBlockDelta": {"delta": {"text": "abc"}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    )
+
+    result = await agent.invoke_async("test")
+
+    tru_message = result.message
+    exp_message = {"content": [{"text": "abc"}], "role": "assistant"}
+    assert tru_message == exp_message
+
 
 def test_agent_tool(mock_randint, agent):
     conversation_manager_spy = unittest.mock.Mock(wraps=agent.conversation_manager)
@@ -907,17 +946,39 @@ class User(BaseModel):
     email: str
 
 
-def test_agent_method_structured_output(agent, agenerator):
-    # Mock the structured_output method on the model
-    expected_user = User(name="Jane Doe", age=30, email="jane@doe.com")
-    agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": expected_user}]))
+def test_agent_structured_output(agent, agenerator):
+    exp_result = User(name="Jane Doe", age=30, email="jane@doe.com")
+    agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": exp_result}]))
 
     prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
 
-    result = agent.structured_output(User, prompt)
-    assert result == expected_user
+    tru_result = agent.structured_output(User, prompt)
+    assert tru_result == exp_result
 
-    # Verify the model's structured_output was called with correct arguments
+    agent.model.structured_output.assert_called_once_with(User, [{"role": "user", "content": [{"text": prompt}]}])
+
+
+@pytest.mark.asyncio
+async def test_agent_structured_output_in_async_context(agent, agenerator):
+    exp_result = User(name="Jane Doe", age=30, email="jane@doe.com")
+    agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": exp_result}]))
+
+    prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
+
+    tru_result = await agent.structured_output_async(User, prompt)
+    assert tru_result == exp_result
+
+
+@pytest.mark.asyncio
+async def test_agent_structured_output_async(agent, agenerator):
+    exp_result = User(name="Jane Doe", age=30, email="jane@doe.com")
+    agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": exp_result}]))
+
+    prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
+
+    tru_result = agent.structured_output(User, prompt)
+    assert tru_result == exp_result
+
     agent.model.structured_output.assert_called_once_with(User, [{"role": "user", "content": [{"text": prompt}]}])
 
 
