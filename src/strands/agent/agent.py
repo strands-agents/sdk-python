@@ -378,6 +378,30 @@ class Agent:
             future = executor.submit(execute)
             return future.result()
 
+    async def invoke_async(self, prompt: str, **kwargs: Any) -> AgentResult:
+        """Process a natural language prompt through the agent's event loop.
+
+        This method implements the conversational interface (e.g., `agent("hello!")`). It adds the user's prompt to
+        the conversation history, processes it through the model, executes any tool calls, and returns the final result.
+
+        Args:
+            prompt: The natural language prompt from the user.
+            **kwargs: Additional parameters to pass through the event loop.
+
+        Returns:
+            Result object containing:
+
+                - stop_reason: Why the event loop stopped (e.g., "end_turn", "max_tokens")
+                - message: The final message from the model
+                - metrics: Performance metrics from the event loop
+                - state: The final state of the event loop
+        """
+        events = self.stream_async(prompt, **kwargs)
+        async for event in events:
+            _ = event
+
+        return cast(AgentResult, event["result"])
+
     def structured_output(self, output_model: Type[T], prompt: Optional[str] = None) -> T:
         """This method allows you to get structured output from the agent.
 
@@ -433,30 +457,6 @@ class Agent:
                 self.callback_handler(**cast(dict, event["callback"]))
 
         return event["output"]
-
-    async def invoke_async(self, prompt: str, **kwargs: Any) -> AgentResult:
-        """Process a natural language prompt through the agent's event loop.
-
-        This method implements the conversational interface (e.g., `agent("hello!")`). It adds the user's prompt to
-        the conversation history, processes it through the model, executes any tool calls, and returns the final result.
-
-        Args:
-            prompt: The natural language prompt from the user.
-            **kwargs: Additional parameters to pass through the event loop.
-
-        Returns:
-            Result object containing:
-
-                - stop_reason: Why the event loop stopped (e.g., "end_turn", "max_tokens")
-                - message: The final message from the model
-                - metrics: Performance metrics from the event loop
-                - state: The final state of the event loop
-        """
-        events = self.stream_async(prompt, **kwargs)
-        async for event in events:
-            _ = event
-
-        return cast(AgentResult, event["result"])
 
     async def stream_async(self, prompt: str, **kwargs: Any) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
