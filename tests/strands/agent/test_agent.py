@@ -337,7 +337,6 @@ def test_agent__call__passes_kwargs(mock_model, system_prompt, callback_handler,
 
     override_system_prompt = "Override system prompt"
     override_model = unittest.mock.Mock()
-    override_tool_execution_handler = unittest.mock.Mock()
     override_event_loop_metrics = unittest.mock.Mock()
     override_callback_handler = unittest.mock.Mock()
     override_tool_handler = unittest.mock.Mock()
@@ -349,7 +348,6 @@ def test_agent__call__passes_kwargs(mock_model, system_prompt, callback_handler,
         assert kwargs_kwargs["some_value"] == "a_value"
         assert kwargs_kwargs["system_prompt"] == override_system_prompt
         assert kwargs_kwargs["model"] == override_model
-        assert kwargs_kwargs["tool_execution_handler"] == override_tool_execution_handler
         assert kwargs_kwargs["event_loop_metrics"] == override_event_loop_metrics
         assert kwargs_kwargs["callback_handler"] == override_callback_handler
         assert kwargs_kwargs["tool_handler"] == override_tool_handler
@@ -367,7 +365,6 @@ def test_agent__call__passes_kwargs(mock_model, system_prompt, callback_handler,
         some_value="a_value",
         system_prompt=override_system_prompt,
         model=override_model,
-        tool_execution_handler=override_tool_execution_handler,
         event_loop_metrics=override_event_loop_metrics,
         callback_handler=override_callback_handler,
         tool_handler=override_tool_handler,

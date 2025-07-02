@@ -26,7 +26,6 @@ from ..models.bedrock import BedrockModel
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer
 from ..tools.registry import ToolRegistry
-from ..tools.thread_pool_executor import ThreadPoolExecutorWrapper
 from ..tools.watcher import ToolWatcher
 from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
@@ -268,7 +267,6 @@ class Agent:
         self.thread_pool_wrapper = None
         if max_parallel_tools > 1:
             self.thread_pool = ThreadPoolExecutor(max_workers=max_parallel_tools)
-            self.thread_pool_wrapper = ThreadPoolExecutorWrapper(self.thread_pool)
         elif max_parallel_tools < 1:
             raise ValueError("max_parallel_tools must be greater than 0")
 
@@ -347,8 +345,8 @@ class Agent:
 
         Ensures proper shutdown of the thread pool executor if one exists.
         """
-        if self.thread_pool_wrapper and hasattr(self.thread_pool_wrapper, "shutdown"):
-            self.thread_pool_wrapper.shutdown(wait=False)
+        if self.thread_pool:
+            self.thread_pool.shutdown(wait=False)
             logger.debug("thread pool executor shutdown complete")
 
     def __call__(self, prompt: str, **kwargs: Any) -> AgentResult:
@@ -509,7 +507,7 @@ class Agent:
                 messages=self.messages,  # will be modified by event_loop_cycle
                 tool_config=self.tool_config,
                 tool_handler=self.tool_handler,
-                tool_execution_handler=self.thread_pool_wrapper,
+                thread_pool=self.thread_pool,
                 event_loop_metrics=self.event_loop_metrics,
                 event_loop_parent_span=self.trace_span,
                 kwargs=kwargs,

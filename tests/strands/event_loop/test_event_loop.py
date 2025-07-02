@@ -49,9 +49,8 @@ def tool_handler(tool_registry):
 
 
 @pytest.fixture
-def tool_execution_handler():
-    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    return strands.tools.ThreadPoolExecutorWrapper(pool)
+def thread_pool():
+    return concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
 
 @pytest.fixture
@@ -106,7 +105,7 @@ def test_event_loop_cycle_text_response(
     messages,
     tool_config,
     tool_handler,
-    tool_execution_handler,
+    thread_pool,
 ):
     model.converse.return_value = [
         {"contentBlockDelta": {"delta": {"text": "test text"}}},
@@ -119,7 +118,7 @@ def test_event_loop_cycle_text_response(
         messages=messages,
         tool_config=tool_config,
         tool_handler=tool_handler,
-        tool_execution_handler=tool_execution_handler,
+        thread_pool=thread_pool,
         event_loop_metrics=EventLoopMetrics(),
         event_loop_parent_span=None,
         kwargs={},
@@ -141,7 +140,7 @@ def test_event_loop_cycle_text_response_throttling(
     messages,
     tool_config,
     tool_handler,
-    tool_execution_handler,
+    thread_pool,
 ):
     model.converse.side_effect = [
         ModelThrottledException("ThrottlingException | ConverseStream"),
@@ -157,7 +156,7 @@ def test_event_loop_cycle_text_response_throttling(
         messages=messages,
         tool_config=tool_config,
         tool_handler=tool_handler,
-        tool_execution_handler=tool_execution_handler,
+        thread_pool=thread_pool,
         event_loop_metrics=EventLoopMetrics(),
         event_loop_parent_span=None,
         kwargs={},
@@ -181,7 +180,7 @@ def test_event_loop_cycle_exponential_backoff(
     messages,
     tool_config,
     tool_handler,
-    tool_execution_handler,
+    thread_pool,
 ):
     """Test that the exponential backoff works correctly with multiple retries."""
     # Set up the model to raise throttling exceptions multiple times before succeeding
@@ -201,7 +200,7 @@ def test_event_loop_cycle_exponential_backoff(
         messages=messages,
         tool_config=tool_config,
         tool_handler=tool_handler,
-        tool_execution_handler=tool_execution_handler,
+        thread_pool=thread_pool,
         event_loop_metrics=EventLoopMetrics(),
         event_loop_parent_span=None,
         kwargs={},
@@ -227,7 +226,7 @@ def test_event_loop_cycle_text_response_throttling_exceeded(
     messages,
     tool_config,
     tool_handler,
-    tool_execution_handler,
+    thread_pool,
 ):
     model.converse.side_effect = [
         ModelThrottledException("ThrottlingException | ConverseStream"),
@@ -245,7 +244,7 @@ def test_event_loop_cycle_text_response_throttling_exceeded(
             messages=messages,
             tool_config=tool_config,
             tool_handler=tool_handler,
-            tool_execution_handler=tool_execution_handler,
+            thread_pool=thread_pool,
             event_loop_metrics=EventLoopMetrics(),
             event_loop_parent_span=None,
             kwargs={},
@@ -269,7 +268,7 @@ def test_event_loop_cycle_text_response_error(
     messages,
     tool_config,
     tool_handler,
-    tool_execution_handler,
+    thread_pool,
 ):
     model.converse.side_effect = RuntimeError("Unhandled error")
 
@@ -280,7 +279,7 @@ def test_event_loop_cycle_text_response_error(
             messages=messages,
             tool_config=tool_config,
             tool_handler=tool_handler,
-            tool_execution_handler=tool_execution_handler,
+            thread_pool=thread_pool,
             event_loop_metrics=EventLoopMetrics(),
             event_loop_parent_span=None,
             kwargs={},
@@ -294,7 +293,7 @@ def test_event_loop_cycle_tool_result(
     messages,
     tool_config,
     tool_handler,
-    tool_execution_handler,
+    thread_pool,
     tool_stream,
 ):
     model.converse.side_effect = [
@@ -311,7 +310,7 @@ def test_event_loop_cycle_tool_result(
         messages=messages,
         tool_config=tool_config,
         tool_handler=tool_handler,
-        tool_execution_handler=tool_execution_handler,
+        thread_pool=thread_pool,
         event_loop_metrics=EventLoopMetrics(),
         event_loop_parent_span=None,
         kwargs={},
@@ -365,7 +364,7 @@ def test_event_loop_cycle_tool_result_error(
     messages,
     tool_config,
     tool_handler,
-    tool_execution_handler,
+    thread_pool,
     tool_stream,
 ):
     model.converse.side_effect = [tool_stream]
@@ -377,7 +376,7 @@ def test_event_loop_cycle_tool_result_error(
             messages=messages,
             tool_config=tool_config,
             tool_handler=tool_handler,
-            tool_execution_handler=tool_execution_handler,
+            thread_pool=thread_pool,
             event_loop_metrics=EventLoopMetrics(),
             event_loop_parent_span=None,
             kwargs={},
@@ -390,7 +389,7 @@ def test_event_loop_cycle_tool_result_no_tool_handler(
     system_prompt,
     messages,
     tool_config,
-    tool_execution_handler,
+    thread_pool,
     tool_stream,
 ):
     model.converse.side_effect = [tool_stream]
@@ -402,7 +401,7 @@ def test_event_loop_cycle_tool_result_no_tool_handler(
             messages=messages,
             tool_config=tool_config,
             tool_handler=None,
-            tool_execution_handler=tool_execution_handler,
+            thread_pool=thread_pool,
             event_loop_metrics=EventLoopMetrics(),
             event_loop_parent_span=None,
             kwargs={},
@@ -415,7 +414,7 @@ def test_event_loop_cycle_tool_result_no_tool_config(
     system_prompt,
     messages,
     tool_handler,
-    tool_execution_handler,
+    thread_pool,
     tool_stream,
 ):
     model.converse.side_effect = [tool_stream]
@@ -427,7 +426,7 @@ def test_event_loop_cycle_tool_result_no_tool_config(
             messages=messages,
             tool_config=None,
             tool_handler=tool_handler,
-            tool_execution_handler=tool_execution_handler,
+            thread_pool=thread_pool,
             event_loop_metrics=EventLoopMetrics(),
             event_loop_parent_span=None,
             kwargs={},
@@ -441,7 +440,7 @@ def test_event_loop_cycle_stop(
     messages,
     tool_config,
     tool_handler,
-    tool_execution_handler,
+    thread_pool,
     tool,
 ):
     model.converse.side_effect = [
@@ -467,7 +466,7 @@ def test_event_loop_cycle_stop(
         messages=messages,
         tool_config=tool_config,
         tool_handler=tool_handler,
-        tool_execution_handler=tool_execution_handler,
+        thread_pool=thread_pool,
         event_loop_metrics=EventLoopMetrics(),
         event_loop_parent_span=None,
         kwargs={"request_state": {"stop_event_loop": True}},
@@ -499,7 +498,7 @@ def test_cycle_exception(
     messages,
     tool_config,
     tool_handler,
-    tool_execution_handler,
+    thread_pool,
     tool_stream,
 ):
     model.converse.side_effect = [tool_stream, tool_stream, tool_stream, ValueError("Invalid error presented")]
@@ -514,7 +513,7 @@ def test_cycle_exception(
             messages=messages,
             tool_config=tool_config,
             tool_handler=tool_handler,
-            tool_execution_handler=tool_execution_handler,
+            thread_pool=thread_pool,
             event_loop_metrics=EventLoopMetrics(),
             event_loop_parent_span=None,
             kwargs={},
@@ -533,7 +532,7 @@ def test_event_loop_cycle_creates_spans(
     messages,
     tool_config,
     tool_handler,
-    tool_execution_handler,
+    thread_pool,
     mock_tracer,
 ):
     # Setup
@@ -555,7 +554,7 @@ def test_event_loop_cycle_creates_spans(
         messages=messages,
         tool_config=tool_config,
         tool_handler=tool_handler,
-        tool_execution_handler=tool_execution_handler,
+        thread_pool=thread_pool,
         event_loop_metrics=EventLoopMetrics(),
         event_loop_parent_span=None,
         kwargs={},
@@ -578,7 +577,7 @@ def test_event_loop_tracing_with_model_error(
     messages,
     tool_config,
     tool_handler,
-    tool_execution_handler,
+    thread_pool,
     mock_tracer,
 ):
     # Setup
@@ -599,7 +598,7 @@ def test_event_loop_tracing_with_model_error(
             messages=messages,
             tool_config=tool_config,
             tool_handler=tool_handler,
-            tool_execution_handler=tool_execution_handler,
+            thread_pool=thread_pool,
             event_loop_metrics=EventLoopMetrics(),
             event_loop_parent_span=None,
             kwargs={},
@@ -618,7 +617,7 @@ def test_event_loop_tracing_with_tool_execution(
     messages,
     tool_config,
     tool_handler,
-    tool_execution_handler,
+    thread_pool,
     tool_stream,
     mock_tracer,
 ):
@@ -645,7 +644,7 @@ def test_event_loop_tracing_with_tool_execution(
         messages=messages,
         tool_config=tool_config,
         tool_handler=tool_handler,
-        tool_execution_handler=tool_execution_handler,
+        thread_pool=thread_pool,
         event_loop_metrics=EventLoopMetrics(),
         event_loop_parent_span=None,
         kwargs={},
@@ -666,7 +665,7 @@ def test_event_loop_tracing_with_throttling_exception(
     messages,
     tool_config,
     tool_handler,
-    tool_execution_handler,
+    thread_pool,
     mock_tracer,
 ):
     # Setup
@@ -693,7 +692,7 @@ def test_event_loop_tracing_with_throttling_exception(
             messages=messages,
             tool_config=tool_config,
             tool_handler=tool_handler,
-            tool_execution_handler=tool_execution_handler,
+            thread_pool=thread_pool,
             event_loop_metrics=EventLoopMetrics(),
             event_loop_parent_span=None,
             kwargs={},
@@ -715,7 +714,7 @@ def test_event_loop_cycle_with_parent_span(
     messages,
     tool_config,
     tool_handler,
-    tool_execution_handler,
+    thread_pool,
     mock_tracer,
 ):
     # Setup
@@ -736,7 +735,7 @@ def test_event_loop_cycle_with_parent_span(
         messages=messages,
         tool_config=tool_config,
         tool_handler=tool_handler,
-        tool_execution_handler=tool_execution_handler,
+        thread_pool=thread_pool,
         event_loop_metrics=EventLoopMetrics(),
         event_loop_parent_span=parent_span,
         kwargs={},
@@ -757,7 +756,7 @@ def test_request_state_initialization():
         messages=MagicMock(),
         tool_config=MagicMock(),
         tool_handler=MagicMock(),
-        tool_execution_handler=MagicMock(),
+        thread_pool=MagicMock(),
         event_loop_metrics=EventLoopMetrics(),
         event_loop_parent_span=None,
         kwargs={},
@@ -776,7 +775,7 @@ def test_request_state_initialization():
         messages=MagicMock(),
         tool_config=MagicMock(),
         tool_handler=MagicMock(),
-        tool_execution_handler=MagicMock(),
+        thread_pool=MagicMock(),
         event_loop_metrics=EventLoopMetrics(),
         event_loop_parent_span=None,
         kwargs={"request_state": initial_request_state},
@@ -816,7 +815,7 @@ def test_prepare_next_cycle_in_tool_execution(model, tool_stream):
             messages=MagicMock(),
             tool_config=MagicMock(),
             tool_handler=MagicMock(),
-            tool_execution_handler=MagicMock(),
+            thread_pool=MagicMock(),
             event_loop_metrics=EventLoopMetrics(),
             event_loop_parent_span=None,
             kwargs={},
