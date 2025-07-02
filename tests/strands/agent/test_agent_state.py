@@ -2,7 +2,11 @@
 
 import pytest
 
+from strands import Agent, tool
 from strands.agent.state import AgentState
+from strands.types.content import Messages
+
+from ...fixtures.mocked_model_provider import MockedModelProvider
 
 
 def test_set_and_get():
@@ -109,3 +113,33 @@ def test_initial_state():
     assert state.get("key1") == "value1"
     assert state.get("key2") == "value2"
     assert state.get() == initial
+
+
+def test_agent_state_update_from_tool():
+    @tool
+    def update_state(agent: Agent):
+        agent.state.set("hello", "world")
+        agent.state.set("foo", "baz")
+
+    agent_messages: Messages = [
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"name": "update_state", "toolUseId": "123", "input": {}}}],
+        },
+        {"role": "assistant", "content": [{"text": "I invoked a tool!"}]},
+    ]
+    mocked_model_provider = MockedModelProvider(agent_messages)
+
+    agent = Agent(
+        model=mocked_model_provider,
+        tools=[update_state],
+        state={"foo": "bar"},
+    )
+
+    assert agent.state.get("hello") is None
+    assert agent.state.get("foo") == "bar"
+
+    agent("Invoke Mocked!")
+
+    assert agent.state.get("hello") == "world"
+    assert agent.state.get("foo") == "baz"
