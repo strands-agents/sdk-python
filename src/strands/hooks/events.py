@@ -27,6 +27,11 @@ class StartRequestEvent(HookEvent):
     This event is fired when the agent begins processing a new user request,
     before any model inference or tool execution occurs. Hook providers can
     use this event to perform request-level setup, logging, or validation.
+
+    This event is triggered at the beginning of the following api calls:
+      - Agent.__call__
+      - Agent.stream_async
+      - Agent.structured_output
     """
 
     pass
@@ -42,6 +47,11 @@ class EndRequestEvent(HookEvent):
 
     Note: This event uses reverse callback ordering, meaning callbacks registered
     later will be invoked first during cleanup.
+
+    This event is triggered at the end of the following api calls:
+      - Agent.__call__
+      - Agent.stream_async
+      - Agent.structured_output
     """
 
     @property
