@@ -102,7 +102,7 @@ def event_loop_cycle(
     # Create tracer span for this event loop cycle
     tracer = get_tracer()
     cycle_span = tracer.start_event_loop_cycle_span(
-        event_loop_kwargs=kwargs, parent_span=event_loop_parent_span, messages=messages
+        event_loop_kwargs=kwargs, messages=messages, parent_span=event_loop_parent_span
     )
     kwargs["event_loop_cycle_span"] = cycle_span
 
@@ -124,8 +124,8 @@ def event_loop_cycle(
     for attempt in range(MAX_ATTEMPTS):
         model_id = model.config.get("model_id") if hasattr(model, "config") else None
         model_invoke_span = tracer.start_model_invoke_span(
-            parent_span=cycle_span,
             messages=messages,
+            parent_span=cycle_span,
             model_id=model_id,
         )
 
@@ -140,7 +140,7 @@ def event_loop_cycle(
             kwargs.setdefault("request_state", {})
 
             if model_invoke_span:
-                tracer.end_model_invoke_span(model_invoke_span, message, usage)
+                tracer.end_model_invoke_span(model_invoke_span, message, usage, stop_reason)
             break  # Success! Break out of retry loop
 
         except ContextWindowOverflowException as e:
