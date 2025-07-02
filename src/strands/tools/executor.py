@@ -4,7 +4,7 @@ import logging
 import queue
 import threading
 import time
-from typing import Any, Callable, Generator, Optional
+from typing import Any, Callable, Generator, Optional, cast
 
 from opentelemetry import trace
 
@@ -44,7 +44,7 @@ def run_tools(
         Events of the tool invocations. Tool results are appended to `tool_results`.
     """
 
-    def handle(tool: ToolUse) -> Generator[dict[str, ToolResult], None, None]:
+    def handle(tool: ToolUse) -> Generator[dict[str, Any], None, ToolResult]:
         tracer = get_tracer()
         tool_call_span = tracer.start_tool_call_span(tool, parent_span)
 
@@ -53,7 +53,7 @@ def run_tools(
         tool_start_time = time.time()
 
         result = handler(tool)
-        yield {"result": result}
+        yield {"result": result}  # Placeholder until handler becomes a generator from which we can yield from
 
         tool_success = result.get("status") == "success"
         tool_duration = time.time() - tool_start_time
@@ -64,19 +64,24 @@ def run_tools(
         if tool_call_span:
             tracer.end_tool_call_span(tool_call_span, result)
 
+        return result
+
     def work(
         tool: ToolUse,
         worker_id: int,
         worker_queue: queue.Queue,
         worker_event: threading.Event,
-        worker_lock: threading.Lock,
-    ) -> None:
-        for event in handle(tool):
-            worker_queue.put((worker_id, event))
-            worker_event.wait()
+    ) -> ToolResult:
+        events = handle(tool)
 
-        with worker_lock:
-            tool_results.append(event["result"])
+        while True:
+            try:
+                event = next(events)
+                worker_queue.put((worker_id, event))
+                worker_event.wait()
+
+            except StopIteration as stop:
+                return cast(ToolResult, stop.value)
 
     tool_uses = [tool_use for tool_use in tool_uses if tool_use.get("toolUseId") not in invalid_tool_use_ids]
 
@@ -89,12 +94,9 @@ def run_tools(
 
         worker_queue: queue.Queue[tuple[int, dict[str, Any]]] = queue.Queue()
         worker_events = [threading.Event() for _ in range(len(tool_uses))]
-        worker_lock = threading.Lock()
 
         workers = [
-            parallel_tool_executor.submit(
-                work, tool_use, worker_id, worker_queue, worker_events[worker_id], worker_lock
-            )
+            parallel_tool_executor.submit(work, tool_use, worker_id, worker_queue, worker_events[worker_id])
             for worker_id, tool_use in enumerate(tool_uses)
         ]
         logger.debug("tool_count=<%s> | submitted tasks to parallel executor", len(tool_uses))
@@ -105,13 +107,13 @@ def run_tools(
                 yield event
                 worker_events[worker_id].set()
 
+        tool_results.extend([worker.result() for worker in workers])
+
     else:
         # Sequential execution fallback
         for tool_use in tool_uses:
-            for event in handle(tool_use):
-                yield event
-
-            tool_results.append(event["result"])
+            result = yield from handle(tool_use)
+            tool_results.append(result)
 
 
 def validate_and_prepare_tools(
