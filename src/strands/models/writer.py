@@ -32,9 +32,7 @@ class WriterModel(Model):
 
         Attributes:
             model_id: Model name to use (e.g. palmyra-x5, palmyra-x4, etc.).
-            logprobs: Return logprobs or not.
             max_tokens: Maximum number of tokens to generate.
-            n: Number of chat completions to generate for each prompt.
             stop: Default stop sequences.
             stream_options: Additional options for streaming.
             temperature: What sampling temperature to use.
@@ -42,9 +40,7 @@ class WriterModel(Model):
         """
 
         model_id: str
-        logprobs: bool
         max_tokens: Optional[int]
-        n: Optional[int]
         stop: Optional[Union[str, List[str]]]
         stream_options: Dict[str, Any]
         temperature: Optional[float]
