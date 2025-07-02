@@ -370,22 +370,13 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
-
-        async def acall() -> AgentResult:
-            events = self.stream_async(prompt, **kwargs)
-            async for event in events:
-                _ = event
-
-            return cast(AgentResult, event["result"])
-
-        return asyncio.run(acall())
+        return asyncio.run(self.invoke_async(prompt, **kwargs))
 
     def structured_output(self, output_model: Type[T], prompt: Optional[str] = None) -> T:
         """This method allows you to get structured output from the agent.
 
         If you pass in a prompt, it will be added to the conversation history and the agent will respond to it.
         If you don't pass in a prompt, it will use only the conversation history to respond.
-        If no conversation history exists and no prompt is provided, an error will be raised.
 
         For smaller models, you may want to use the optional prompt string to add additional instructions to explicitly
         instruct the model to output the structured data.
@@ -394,25 +385,66 @@ class Agent:
             output_model: The output model (a JSON schema written as a Pydantic BaseModel)
                 that the agent will use when responding.
             prompt: The prompt to use for the agent.
+
+        Raises:
+            ValueError: If no conversation history or prompt is provided.
         """
+        return asyncio.run(self.structured_output_async(output_model, prompt))
 
-        async def acall(messages: Messages) -> T:
-            events = self.model.structured_output(output_model, messages)
-            async for event in events:
-                if "callback" in event:
-                    self.callback_handler(**cast(dict, event["callback"]))
+    async def structured_output_async(self, output_model: Type[T], prompt: Optional[str] = None) -> T:
+        """This method allows you to get structured output from the agent.
 
-            return event["output"]
+        If you pass in a prompt, it will be added to the conversation history and the agent will respond to it.
+        If you don't pass in a prompt, it will use only the conversation history to respond.
 
-        messages = self.messages
-        if not messages and not prompt:
+        For smaller models, you may want to use the optional prompt string to add additional instructions to explicitly
+        instruct the model to output the structured data.
+
+        Args:
+            output_model: The output model (a JSON schema written as a Pydantic BaseModel)
+                that the agent will use when responding.
+            prompt: The prompt to use for the agent.
+
+        Raises:
+            ValueError: If no conversation history or prompt is provided.
+        """
+        if not self.messages and not prompt:
             raise ValueError("No conversation history or prompt provided")
 
         # add the prompt as the last message
         if prompt:
-            messages.append({"role": "user", "content": [{"text": prompt}]})
+            self.messages.append({"role": "user", "content": [{"text": prompt}]})
 
-        return asyncio.run(acall(messages))
+        events = self.model.structured_output(output_model, self.messages)
+        async for event in events:
+            if "callback" in event:
+                self.callback_handler(**cast(dict, event["callback"]))
+
+        return event["output"]
+
+    async def invoke_async(self, prompt: str, **kwargs: Any) -> AgentResult:
+        """Process a natural language prompt through the agent's event loop.
+
+        This method implements the conversational interface (e.g., `agent("hello!")`). It adds the user's prompt to
+        the conversation history, processes it through the model, executes any tool calls, and returns the final result.
+
+        Args:
+            prompt: The natural language prompt from the user.
+            **kwargs: Additional parameters to pass through the event loop.
+
+        Returns:
+            Result object containing:
+
+                - stop_reason: Why the event loop stopped (e.g., "end_turn", "max_tokens")
+                - message: The final message from the model
+                - metrics: Performance metrics from the event loop
+                - state: The final state of the event loop
+        """
+        events = self.stream_async(prompt, **kwargs)
+        async for event in events:
+            _ = event
+
+        return cast(AgentResult, event["result"])
 
     async def stream_async(self, prompt: str, **kwargs: Any) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
