@@ -61,7 +61,7 @@ class OpenAIModel(SAOpenAIModel):
         logger.debug("config=<%s> | initializing", self.config)
 
         client_args = client_args or {}
-        self.client = openai.OpenAI(**client_args)
+        self.client = openai.AsyncOpenAI(**client_args)
 
     @override
     def update_config(self, **model_config: Unpack[OpenAIConfig]) -> None:  # type: ignore[override]
@@ -91,14 +91,14 @@ class OpenAIModel(SAOpenAIModel):
         Returns:
             An iterable of response events from the OpenAI model.
         """
-        response = self.client.chat.completions.create(**request)
+        response = await self.client.chat.completions.create(**request)
 
         yield {"chunk_type": "message_start"}
         yield {"chunk_type": "content_start", "data_type": "text"}
 
         tool_calls: dict[int, list[Any]] = {}
 
-        for event in response:
+        async for event in response:
             # Defensive: skip events with empty or missing choices
             if not getattr(event, "choices", None):
                 continue
@@ -133,7 +133,7 @@ class OpenAIModel(SAOpenAIModel):
         yield {"chunk_type": "message_stop", "data": choice.finish_reason}
 
         # Skip remaining events as we don't have use for anything except the final usage payload
-        for event in response:
+        async for event in response:
             _ = event
 
         yield {"chunk_type": "metadata", "data": event.usage}
@@ -151,7 +151,7 @@ class OpenAIModel(SAOpenAIModel):
         Yields:
             Model events with the last being the structured output.
         """
-        response: ParsedChatCompletion = self.client.beta.chat.completions.parse(  # type: ignore
+        response: ParsedChatCompletion = await self.client.beta.chat.completions.parse(  # type: ignore
             model=self.get_config()["model_id"],
             messages=super().format_request(prompt)["messages"],
             response_format=output_model,
