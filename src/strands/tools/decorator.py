@@ -386,15 +386,6 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         """
         return "function"
 
-    @property
-    def tool_func(self) -> Callable[P, R]:
-        """Get the undecorated tool function.
-
-        Returns:
-            Undecorated tool function.
-        """
-        return self._tool_func
-
     @override
     def stream(self, tool_use: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolGenerator:
         """Stream the tool with a tool use specification.

@@ -49,7 +49,7 @@ def test_tool_func_not_decorated():
 
     tool = strands.tool(func=identity, name="identity")
 
-    tru_name = tool.tool_func.__name__
+    tru_name = tool._tool_func.__name__
     exp_name = "identity"
 
     assert tru_name == exp_name
@@ -193,7 +193,7 @@ Args:
 
     # Make sure these are set properly
     assert test_tool.__wrapped__ is not None
-    assert test_tool.__doc__ == test_tool.tool_func.__doc__
+    assert test_tool.__doc__ == test_tool._tool_func.__doc__
 
 
 def test_tool_with_custom_name_description():

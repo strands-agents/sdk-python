@@ -101,4 +101,4 @@ class MCPAgentTool(AgentTool):
             A standardized tool result dictionary with status and content.
         """
         return self.invoke(tool_use, *args, **kwargs)
-        yield  # type: ignore
+        yield  # type: ignore  # Need yield to create generator, but left unreachable as we have no events
