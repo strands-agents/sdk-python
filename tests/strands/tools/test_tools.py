@@ -2,7 +2,6 @@ import pytest
 
 import strands
 from strands.tools.tools import (
-    FunctionTool,
     InvalidToolUseNameException,
     PythonAgentTool,
     normalize_schema,
@@ -408,13 +407,8 @@ def function():
 
 
 @pytest.fixture
-def tool_function(function):
+def tool(function):
     return strands.tools.tool(function)
-
-
-@pytest.fixture
-def tool(tool_function):
-    return FunctionTool(tool_function, tool_name="identity")
 
 
 def test__init__invalid_name():
@@ -476,9 +470,7 @@ def test_original_function_not_decorated():
     def identity(a: int):
         return a
 
-    identity.TOOL_SPEC = {}
-
-    tool = FunctionTool(identity, tool_name="identity")
+    tool = strands.tool(func=identity, name="identity")
 
     tru_name = tool.original_function.__name__
     exp_name = "identity"
@@ -509,39 +501,9 @@ def test_invoke_with_agent():
     def identity(a: int, agent: dict = None):
         return a, agent
 
-    tool = FunctionTool(identity, tool_name="identity")
-    # FunctionTool is a pass through for AgentTool instances until we remove it in a future release (#258)
-    assert tool == identity
-
     exp_output = {"toolUseId": "unknown", "status": "success", "content": [{"text": "(2, {'state': 1})"}]}
 
-    tru_output = tool.invoke({"input": {"a": 2}}, agent={"state": 1})
-
-    assert tru_output == exp_output
-
-
-def test_invoke_exception():
-    def identity(a: int):
-        return a
-
-    identity.TOOL_SPEC = {}
-
-    tool = FunctionTool(identity, tool_name="identity")
-
-    tru_output = tool.invoke({}, invalid=1)
-    exp_output = {
-        "toolUseId": "unknown",
-        "status": "error",
-        "content": [
-            {
-                "text": (
-                    "Error executing function: "
-                    "test_invoke_exception.<locals>.identity() "
-                    "got an unexpected keyword argument 'invalid'"
-                )
-            }
-        ],
-    }
+    tru_output = identity.invoke({"input": {"a": 2}}, agent={"state": 1})
 
     assert tru_output == exp_output
 

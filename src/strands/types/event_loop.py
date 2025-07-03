@@ -65,6 +65,9 @@ class Future(Protocol):
             Any: The result of the asynchronous operation.
         """
 
+    def done(self) -> bool:
+        """Returns true if future is done executing."""
+
 
 @runtime_checkable
 class ParallelToolExecutorInterface(Protocol):

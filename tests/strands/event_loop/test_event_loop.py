@@ -60,10 +60,9 @@ def tool(tool_registry):
     def tool_for_testing(random_string: str) -> str:
         return random_string
 
-    function_tool = strands.tools.tools.FunctionTool(tool_for_testing)
-    tool_registry.register_tool(function_tool)
+    tool_registry.register_tool(tool_for_testing)
 
-    return function_tool
+    return tool_for_testing
 
 
 @pytest.fixture

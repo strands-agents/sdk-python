@@ -6,7 +6,7 @@ from typing import Any, Optional
 from ..tools.registry import ToolRegistry
 from ..types.content import Messages
 from ..types.models import Model
-from ..types.tools import ToolConfig, ToolHandler, ToolUse
+from ..types.tools import ToolConfig, ToolGenerator, ToolHandler, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class AgentToolHandler(ToolHandler):
         messages: Messages,
         tool_config: ToolConfig,
         kwargs: dict[str, Any],
-    ) -> Any:
+    ) -> ToolGenerator:
         """Process a tool invocation.
 
         Looks up the tool in the registry and invokes it with the provided parameters.
@@ -48,8 +48,11 @@ class AgentToolHandler(ToolHandler):
             tool_config: Configuration for the tool.
             kwargs: Additional keyword arguments passed to the tool.
 
+        Yields:
+            Events of the tool invocation.
+
         Returns:
-            The result of the tool invocation, or an error response if the tool fails or is not found.
+            The final tool result or an error response if the tool fails or is not found.
         """
         logger.debug("tool=<%s> | invoking", tool)
         tool_use_id = tool["toolUseId"]
@@ -82,7 +85,9 @@ class AgentToolHandler(ToolHandler):
                 }
             )
 
-            return tool_func.invoke(tool, **kwargs)
+            result = tool_func.invoke(tool, **kwargs)
+            yield {"result": result}  # Placeholder until tool_func becomes a generator from which we can yield from
+            return result
 
         except Exception as e:
             logger.exception("tool_name=<%s> | failed to process tool", tool_name)

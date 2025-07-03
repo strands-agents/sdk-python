@@ -21,6 +21,7 @@ from opentelemetry import trace
 from pydantic import BaseModel
 
 from ..event_loop.event_loop import event_loop_cycle
+from ..experimental.hooks import AgentInitializedEvent, EndRequestEvent, HookRegistry, StartRequestEvent
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..handlers.tool_handler import AgentToolHandler
 from ..models.bedrock import BedrockModel
@@ -129,7 +130,7 @@ class Agent:
                 }
 
                 # Execute the tool
-                tool_result = self._agent.tool_handler.process(
+                events = self._agent.tool_handler.process(
                     tool=tool_use,
                     model=self._agent.model,
                     system_prompt=self._agent.system_prompt,
@@ -137,6 +138,12 @@ class Agent:
                     tool_config=self._agent.tool_config,
                     kwargs=kwargs,
                 )
+
+                try:
+                    while True:
+                        next(events)
+                except StopIteration as stop:
+                    tool_result = cast(ToolResult, stop.value)
 
                 if record_direct_tool_call is not None:
                     should_record_direct_tool_call = record_direct_tool_call
@@ -309,6 +316,10 @@ class Agent:
         self.name = name
         self.description = description
 
+        self._hooks = HookRegistry()
+        # Register built-in hook providers (like ConversationManager) here
+        self._hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
+
     @property
     def tool(self) -> ToolCaller:
         """Call tool as a function.
@@ -419,7 +430,6 @@ class Agent:
         Raises:
             ValueError: If no conversation history or prompt is provided.
         """
-
         def execute() -> T:
             return asyncio.run(self.structured_output_async(output_model, prompt))
 
@@ -444,19 +454,25 @@ class Agent:
         Raises:
             ValueError: If no conversation history or prompt is provided.
         """
-        if not self.messages and not prompt:
-            raise ValueError("No conversation history or prompt provided")
+        self._hooks.invoke_callbacks(StartRequestEvent(agent=self))
 
-        # add the prompt as the last message
-        if prompt:
-            self.messages.append({"role": "user", "content": [{"text": prompt}]})
+        try:
+            if not self.messages and not prompt:
+                raise ValueError("No conversation history or prompt provided")
 
-        events = self.model.structured_output(output_model, self.messages)
-        async for event in events:
-            if "callback" in event:
-                self.callback_handler(**cast(dict, event["callback"]))
+            # add the prompt as the last message
+            if prompt:
+                self.messages.append({"role": "user", "content": [{"text": prompt}]})
 
-        return event["output"]
+            events = self.model.structured_output(output_model, self.messages)
+            async for event in events:
+                if "callback" in event:
+                    self.callback_handler(**cast(dict, event["callback"]))
+
+            return event["output"]
+
+        finally:
+            self._hooks.invoke_callbacks(EndRequestEvent(agent=self))
 
     async def stream_async(self, prompt: str, **kwargs: Any) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
@@ -511,6 +527,8 @@ class Agent:
 
     async def _run_loop(self, prompt: str, kwargs: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the agent's event loop with the given prompt and parameters."""
+        self._hooks.invoke_callbacks(StartRequestEvent(agent=self))
+
         try:
             # Extract key parameters
             yield {"callback": {"init_event_loop": True, **kwargs}}
@@ -527,6 +545,7 @@ class Agent:
 
         finally:
             self.conversation_manager.apply_management(self)
+            self._hooks.invoke_callbacks(EndRequestEvent(agent=self))
 
     async def _execute_event_loop_cycle(self, kwargs: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the event loop cycle with retry logic for context window limits.
