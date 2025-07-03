@@ -41,28 +41,32 @@ def mock_model(request):
 
 
 @pytest.fixture
-def mock_hook_messages(mock_model, tool):
+def mock_hook_messages(mock_model, tool, agenerator):
     """Fixture which returns a standard set of events for verifying hooks."""
     mock_model.mock_converse.side_effect = [
-        [
-            {
-                "contentBlockStart": {
-                    "start": {
-                        "toolUse": {
-                            "toolUseId": "t1",
-                            "name": tool.tool_spec["name"],
+        agenerator(
+            [
+                {
+                    "contentBlockStart": {
+                        "start": {
+                            "toolUse": {
+                                "toolUseId": "t1",
+                                "name": tool.tool_spec["name"],
+                            },
                         },
                     },
                 },
-            },
-            {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"random_string": "abcdEfghI123"}'}}}},
-            {"contentBlockStop": {}},
-            {"messageStop": {"stopReason": "tool_use"}},
-        ],
-        [
-            {"contentBlockDelta": {"delta": {"text": "test text"}}},
-            {"contentBlockStop": {}},
-        ],
+                {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"random_string": "abcdEfghI123"}'}}}},
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "tool_use"}},
+            ],
+        ),
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "test text"}}},
+                {"contentBlockStop": {}},
+            ],
+        ),
     ]
 
     return mock_model.mock_converse
@@ -197,6 +201,16 @@ def agent(
         agent.tool_registry.register_tool(tool_decorated)
 
     return agent
+
+
+@pytest.fixture
+def user():
+    class User(BaseModel):
+        name: str
+        age: int
+        email: str
+
+    return User(name="Jane Doe", age=30, email="jane@doe.com")
 
 
 def test_agent__init__tool_loader_format(tool_decorated, tool_module, tool_imported, tool_registry):
@@ -810,16 +824,6 @@ async def test_agent_hooks_stream_async(agent, mock_hook_messages, hook_provider
     assert hook_provider.events_received == [StartRequestEvent(agent=agent), EndRequestEvent(agent=agent)]
 
 
-def test_agent_hooks_structured_output(agent, mock_hook_messages, hook_provider):
-    """Verify that the correct hook events are emitted as part of structured_output."""
-
-    expected_user = User(name="Jane Doe", age=30, email="jane@doe.com")
-    agent.model.structured_output = unittest.mock.Mock(return_value=[{"output": expected_user}])
-    agent.structured_output(User, "example prompt")
-
-    assert hook_provider.events_received == [StartRequestEvent(agent=agent), EndRequestEvent(agent=agent)]
-
-
 def test_agent_tool(mock_randint, agent):
     conversation_manager_spy = unittest.mock.Mock(wraps=agent.conversation_manager)
     agent.conversation_manager = conversation_manager_spy
@@ -1014,49 +1018,47 @@ def test_agent_callback_handler_custom_handler_used():
     assert agent.callback_handler is custom_handler
 
 
-# mock the User(name='Jane Doe', age=30, email='jane@doe.com')
-class User(BaseModel):
-    """A user of the system."""
-
-    name: str
-    age: int
-    email: str
-
-
-def test_agent_structured_output(agent, agenerator):
-    exp_result = User(name="Jane Doe", age=30, email="jane@doe.com")
-    agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": exp_result}]))
+def test_agent_structured_output(agent, user, agenerator):
+    agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": user}]))
 
     prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
 
-    tru_result = agent.structured_output(User, prompt)
+    tru_result = agent.structured_output(type(user), prompt)
+    exp_result = user
     assert tru_result == exp_result
 
-    agent.model.structured_output.assert_called_once_with(User, [{"role": "user", "content": [{"text": prompt}]}])
+    agent.model.structured_output.assert_called_once_with(type(user), [{"role": "user", "content": [{"text": prompt}]}])
 
 
 @pytest.mark.asyncio
-async def test_agent_structured_output_in_async_context(agent, agenerator):
-    exp_result = User(name="Jane Doe", age=30, email="jane@doe.com")
-    agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": exp_result}]))
+async def test_agent_structured_output_in_async_context(agent, user, agenerator):
+    agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": user}]))
 
     prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
 
-    tru_result = await agent.structured_output_async(User, prompt)
+    tru_result = await agent.structured_output_async(type(user), prompt)
+    exp_result = user
     assert tru_result == exp_result
 
 
 @pytest.mark.asyncio
-async def test_agent_structured_output_async(agent, agenerator):
-    exp_result = User(name="Jane Doe", age=30, email="jane@doe.com")
-    agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": exp_result}]))
+async def test_agent_structured_output_async(agent, user, agenerator):
+    agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": user}]))
 
     prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
 
-    tru_result = agent.structured_output(User, prompt)
+    tru_result = agent.structured_output(type(user), prompt)
+    exp_result = user
     assert tru_result == exp_result
 
-    agent.model.structured_output.assert_called_once_with(User, [{"role": "user", "content": [{"text": prompt}]}])
+    agent.model.structured_output.assert_called_once_with(type(user), [{"role": "user", "content": [{"text": prompt}]}])
+
+
+def test_agent_hooks_structured_output(agent, user, mock_hook_messages, hook_provider, agenerator):
+    agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": user}]))
+    agent.structured_output(type(user), "example prompt")
+
+    assert hook_provider.events_received == [StartRequestEvent(agent=agent), EndRequestEvent(agent=agent)]
 
 
 @pytest.mark.asyncio
