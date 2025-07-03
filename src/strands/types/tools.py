@@ -6,7 +6,7 @@ These types are modeled after the Bedrock API.
 """
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Generator, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Generator, Literal, Optional, Protocol, Union, cast
 
 from typing_extensions import TypedDict
 
@@ -151,6 +151,25 @@ class ToolConfig(TypedDict):
     toolChoice: ToolChoice
 
 
+class ToolFunc(Protocol):
+    """Function signature for Python decorated and module based tools."""
+
+    __name__: str
+
+    def __call__(
+        self, *args: Any, **kwargs: Any
+    ) -> Union[
+        ToolResult,
+        Generator[Union[ToolResult, Any], None, None],
+    ]:
+        """Function signature for Python decorated and module based tools.
+
+        Returns:
+            Tool result directly or a generator that yields events and returns a tool result.
+        """
+        ...
+
+
 class AgentTool(ABC):
     """Abstract base class for all SDK tools.
 
@@ -197,20 +216,42 @@ class AgentTool(ABC):
         """
         return False
 
-    @abstractmethod
-    # pragma: no cover
-    def invoke(self, tool: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolResult:
+    def invoke(self, tool_use: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolResult:
         """Execute the tool's functionality with the given tool use request.
 
         Args:
-            tool: The tool use request containing tool ID and parameters.
+            tool_use: The tool use request containing tool ID and parameters.
             *args: Positional arguments to pass to the tool.
             **kwargs: Keyword arguments to pass to the tool.
 
         Returns:
             The result of the tool execution.
         """
-        pass
+        events = self.stream(tool_use, *args, **kwargs)
+
+        try:
+            while True:
+                next(events)
+        except StopIteration as stop:
+            return cast(ToolResult, stop.value)
+
+    @abstractmethod
+    # pragma: no cover
+    def stream(self, tool_use: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolGenerator:
+        """Stream tool events and return the final result.
+
+        Args:
+            tool_use: The tool use request containing tool ID and parameters.
+            *args: Positional arguments to pass to the tool.
+            **kwargs: Keyword arguments to pass to the tool.
+
+        Yield:
+            Tool events.
+
+        Returns:
+            The result of the tool execution.
+        """
+        ...
 
     @property
     def is_dynamic(self) -> bool:

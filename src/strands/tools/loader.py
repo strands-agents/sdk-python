@@ -108,7 +108,7 @@ class ToolLoader:
             if not callable(tool_func):
                 raise TypeError(f"Tool {tool_name} function is not callable")
 
-            return PythonAgentTool(tool_name, tool_spec, callback=tool_func)
+            return PythonAgentTool(tool_name, tool_spec, tool_func)
 
         except Exception:
             logger.exception("tool_name=<%s>, sys_path=<%s> | failed to load python tool", tool_name, sys.path)

@@ -75,7 +75,7 @@ async def event_loop_cycle(
             - event_loop_cycle_span: Current tracing Span for this cycle
 
     Yields:
-        Model and tool invocation events. The last event is a tuple containing:
+        Model and tool stream events. The last event is a tuple containing:
 
             - StopReason: Reason the model stopped generating (e.g., "tool_use")
             - Message: The generated message from the model
@@ -353,8 +353,8 @@ async def _handle_tool_execution(
         kwargs: Additional keyword arguments, including request state.
 
     Yields:
-        Tool invocation events along with events yielded from a recursive call to the event loop. The last event is a
-        tuple containing:
+        Tool stream events along with events yielded from a recursive call to the event loop. The last event is a tuple
+        containing:
             - The stop reason,
             - The updated message,
             - The updated event loop metrics,

@@ -131,7 +131,7 @@ class Agent:
 
                 # Execute the tool
                 events = self._agent.tool_handler.process(
-                    tool=tool_use,
+                    tool_use,
                     model=self._agent.model,
                     system_prompt=self._agent.system_prompt,
                     messages=self._agent.messages,
