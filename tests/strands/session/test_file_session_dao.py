@@ -7,10 +7,10 @@ from unittest.mock import patch
 
 import pytest
 
-from strands.session.exceptions import SessionException
-from strands.session.file_session_dao import FileSessionDAO
+from strands.session.file_session_manager import FileSessionManager
 from strands.session.session_models import Session, SessionAgent, SessionMessage, SessionType
 from strands.types.content import ContentBlock
+from strands.types.exceptions import SessionException
 
 
 @pytest.fixture
@@ -23,7 +23,7 @@ def temp_dir():
 @pytest.fixture
 def file_dao(temp_dir):
     """Create FileSessionDAO with temporary directory."""
-    return FileSessionDAO(storage_dir=temp_dir)
+    return FileSessionManager(storage_dir=temp_dir)
 
 
 @pytest.fixture
@@ -49,14 +49,14 @@ class TestFileSessionDAOInitialization:
 
     def test_init_with_custom_directory(self, temp_dir):
         """Test initialization with custom storage directory."""
-        dao = FileSessionDAO(storage_dir=temp_dir)
+        dao = FileSessionManager(storage_dir=temp_dir)
 
         assert dao.storage_dir == temp_dir
         assert os.path.exists(temp_dir)
 
     def test_init_with_default_directory(self):
         """Test initialization with default temp directory."""
-        dao = FileSessionDAO()
+        dao = FileSessionManager()
 
         assert dao.storage_dir is not None
         assert "strands/sessions" in dao.storage_dir
@@ -65,7 +65,7 @@ class TestFileSessionDAOInitialization:
     def test_directory_creation(self, temp_dir):
         """Test that storage directory is created if it doesn't exist."""
         storage_path = os.path.join(temp_dir, "custom", "sessions")
-        FileSessionDAO(storage_dir=storage_path)
+        FileSessionManager(storage_dir=storage_path)
 
         assert os.path.exists(storage_path)
 

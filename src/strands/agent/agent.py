@@ -322,7 +322,7 @@ class Agent:
 
         # Setup session callback handler if session is enabled
         if self.session_manager:
-            self.session_manager.initialize_agent(self)
+            self.session_manager.initialize(self)
 
     @property
     def tool(self) -> ToolCaller:
@@ -500,7 +500,7 @@ class Agent:
 
             # Save message if session manager is available
             if self.session_manager:
-                self.session_manager.append_message_to_agent_session(self, new_message)
+                self.session_manager.append_message(self, new_message)
 
             # Execute the event loop cycle with retry logic for context limits
             yield from self._execute_event_loop_cycle(kwargs)
@@ -597,10 +597,10 @@ class Agent:
 
         # Save to conversation manager if available
         if self.session_manager:
-            self.session_manager.append_message_to_agent_session(self, user_msg)
-            self.session_manager.append_message_to_agent_session(self, tool_use_msg)
-            self.session_manager.append_message_to_agent_session(self, tool_result_msg)
-            self.session_manager.append_message_to_agent_session(self, assistant_msg)
+            self.session_manager.append_message(self, user_msg)
+            self.session_manager.append_message(self, tool_use_msg)
+            self.session_manager.append_message(self, tool_result_msg)
+            self.session_manager.append_message(self, assistant_msg)
 
     def _start_agent_trace_span(self, prompt: str) -> None:
         """Starts a trace span for the agent.

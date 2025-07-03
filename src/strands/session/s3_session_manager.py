@@ -1,4 +1,4 @@
-"""S3-based session DAO for cloud storage."""
+"""S3-based session manager for AWS S3 cloud storage."""
 
 import json
 from typing import Any, Dict, List, Optional, cast
@@ -7,7 +7,8 @@ import boto3
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
 
-from .exceptions import SessionException
+from ..types.exceptions import SessionException
+from .agent_session_manager import AgentSessionManager
 from .session_dao import SessionDAO
 from .session_models import Session, SessionAgent, SessionMessage
 
@@ -16,20 +17,22 @@ AGENT_PREFIX = "agent_"
 MESSAGE_PREFIX = "message_"
 
 
-class S3SessionDAO(SessionDAO):
-    """S3-based session DAO for cloud storage."""
+class S3SessionManager(AgentSessionManager, SessionDAO):
+    """S3-based session manager for cloud storage."""
 
     def __init__(
         self,
+        session_id: str,
         bucket: str,
         prefix: str = "",
         boto_session: Optional[boto3.Session] = None,
         boto_client_config: Optional[BotocoreConfig] = None,
         region_name: Optional[str] = None,
     ):
-        """Initialize S3SessionDAO with S3 storage.
+        """Initialize S3SessionManager with S3 storage.
 
         Args:
+            session_id: ID for the session
             bucket: S3 bucket name (required)
             prefix: S3 key prefix for storage organization
             boto_session: Optional boto3 session
@@ -54,6 +57,8 @@ class S3SessionDAO(SessionDAO):
             client_config = BotocoreConfig(user_agent_extra="strands-agents")
 
         self.client = session.client(service_name="s3", config=client_config)
+
+        super().__init__(session_id=session_id, session_dao=self)
 
     def _get_session_path(self, session_id: str) -> str:
         """Get session S3 prefix."""

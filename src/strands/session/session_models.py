@@ -20,7 +20,7 @@ class SessionType(str, Enum):
 
 @dataclass
 class SessionMessage:
-    """Message within a session with metadata."""
+    """Message within a SessionAgent."""
 
     role: str
     content: List[ContentBlock]
@@ -45,7 +45,7 @@ class SessionMessage:
 
 @dataclass
 class SessionAgent:
-    """Agent within a session with lazy message loading."""
+    """Agent within a Session."""
 
     agent_id: str
     session_id: str

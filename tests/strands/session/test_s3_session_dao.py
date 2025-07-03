@@ -7,10 +7,10 @@ import boto3
 import pytest
 from moto import mock_aws
 
-from strands.session.exceptions import SessionException
-from strands.session.s3_session_dao import S3SessionDAO
+from strands.session.s3_session_manager import S3SessionDAO
 from strands.session.session_models import Session, SessionAgent, SessionMessage, SessionType
 from strands.types.content import ContentBlock
+from strands.types.exceptions import SessionException
 
 
 @pytest.fixture

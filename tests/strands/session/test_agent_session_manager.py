@@ -7,16 +7,16 @@ import pytest
 from strands.agent.state import AgentState
 from strands.handlers.callback_handler import CompositeCallbackHandler
 from strands.session.agent_session_manager import AgentSessionManager
-from strands.session.exceptions import SessionException
-from strands.session.file_session_dao import FileSessionDAO
+from strands.session.file_session_manager import FileSessionManager
 from strands.session.session_models import Session, SessionAgent, SessionMessage, SessionType
 from strands.types.content import ContentBlock, Message
+from strands.types.exceptions import SessionException
 
 
 @pytest.fixture
 def mock_dao():
     """Create mock DAO for testing."""
-    return Mock(spec=FileSessionDAO)
+    return Mock(spec=FileSessionManager)
 
 
 @pytest.fixture
@@ -75,7 +75,7 @@ class TestAgentSessionManagerInitialization:
         manager = AgentSessionManager(session_id=session_id)
 
         assert manager.session_id == session_id
-        assert isinstance(manager.session_dao, FileSessionDAO)
+        assert isinstance(manager.session_dao, FileSessionManager)
 
     def test_init_stores_session_id(self, mock_dao):
         """Test that session ID is properly stored."""
@@ -88,13 +88,13 @@ class TestAgentSessionManagerInitialization:
 class TestAgentSessionManagerMessageOperations:
     """Tests for message operations."""
 
-    def test_append_message_to_agent_session(self, agent_session_manager, mock_dao, mock_agent, sample_message):
+    def test_append_message(self, agent_session_manager, mock_dao, mock_agent, sample_message):
         """Test appending message to agent session."""
         # Setup
         mock_dao.create_message = Mock()
 
         # Execute
-        agent_session_manager.append_message_to_agent_session(mock_agent, sample_message)
+        agent_session_manager.append_message(mock_agent, sample_message)
 
         # Verify
         mock_dao.create_message.assert_called_once()
@@ -109,13 +109,13 @@ class TestAgentSessionManagerMessageOperations:
         agent.id = None
 
         with pytest.raises(ValueError, match="`agent.id` must be set"):
-            agent_session_manager.append_message_to_agent_session(agent, sample_message)
+            agent_session_manager.append_message(agent, sample_message)
 
     def test_message_conversion_to_session_message(self, agent_session_manager, mock_dao, mock_agent, sample_message):
         """Test that Message is properly converted to SessionMessage."""
         mock_dao.create_message = Mock()
 
-        agent_session_manager.append_message_to_agent_session(mock_agent, sample_message)
+        agent_session_manager.append_message(mock_agent, sample_message)
 
         # Verify SessionMessage was created with correct data
         call_args = mock_dao.create_message.call_args

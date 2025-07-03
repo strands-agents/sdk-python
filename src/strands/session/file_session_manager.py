@@ -1,4 +1,4 @@
-"""File-based session DAO for local filesystem storage."""
+"""File-based session manager for local filesystem storage."""
 
 import json
 import os
@@ -7,7 +7,8 @@ import tempfile
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, cast
 
-from .exceptions import SessionException
+from ..types.exceptions import SessionException
+from .agent_session_manager import AgentSessionManager
 from .session_dao import SessionDAO
 from .session_models import Session, SessionAgent, SessionMessage
 
@@ -16,17 +17,20 @@ AGENT_PREFIX = "agent_"
 MESSAGE_PREFIX = "message_"
 
 
-class FileSessionDAO(SessionDAO):
-    """File-based session DAO for local filesystem storage."""
+class FileSessionManager(AgentSessionManager, SessionDAO):
+    """File-based session manager for local filesystem storage."""
 
-    def __init__(self, storage_dir: Optional[str] = None):
-        """Initialize FileSessionDAO with filesystem storage.
+    def __init__(self, session_id: str, storage_dir: Optional[str] = None):
+        """Initialize FileSession with filesystem storage.
 
         Args:
+            session_id: ID for the session
             storage_dir: Directory for local filesystem storage (defaults to temp dir)
         """
         self.storage_dir = storage_dir or os.path.join(tempfile.gettempdir(), "strands/sessions")
         os.makedirs(self.storage_dir, exist_ok=True)
+
+        super().__init__(session_id=session_id, session_dao=self)
 
     def _get_session_path(self, session_id: str) -> str:
         """Get session directory path."""

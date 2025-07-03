@@ -18,7 +18,7 @@ def test_is_abstract_base_class():
 
 def test_abstract_methods_defined():
     """Test that all required abstract methods are defined."""
-    expected_methods = ["append_message_to_agent_session", "initialize_agent"]
+    expected_methods = ["append_message", "initialize_agent"]
 
     for method_name in expected_methods:
         assert hasattr(SessionManager, method_name)
@@ -41,14 +41,14 @@ def test_concrete_implementation_required():
 
 def test_method_signatures():
     """Test that abstract methods have correct signatures."""
-    assert hasattr(SessionManager.append_message_to_agent_session, "__annotations__")
+    assert hasattr(SessionManager.append_message, "__annotations__")
     assert hasattr(SessionManager.initialize_agent, "__annotations__")
 
 
 class MockSessionManager(SessionManager):
     """Mock implementation for testing abstract method behavior."""
 
-    def append_message_to_agent_session(self, agent, message):
+    def append_message(self, agent, message):
         raise NotImplementedError("Test implementation")
 
     def initialize_agent(self, agent):
@@ -66,7 +66,7 @@ def test_abstract_methods_raise_not_implemented():
     manager = MockSessionManager()
 
     with pytest.raises(NotImplementedError):
-        manager.append_message_to_agent_session(None, None)
+        manager.append_message(None, None)
 
     with pytest.raises(NotImplementedError):
         manager.initialize_agent(None)

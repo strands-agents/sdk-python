@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 class SessionManager(ABC):
-    """Abstract interface for managing agent sessions.
+    """Abstract interface for managing sessions.
 
     A session represents a complete interaction context including conversation
     history, user information, agent state, and metadata. This interface provides
@@ -18,7 +18,7 @@ class SessionManager(ABC):
     """
 
     @abstractmethod
-    def append_message_to_agent_session(self, agent: "Agent", message: Message) -> None:
+    def append_message(self, agent: "Agent", message: Message) -> None:
         """Append a message to the agent's session.
 
         Args:
@@ -31,15 +31,11 @@ class SessionManager(ABC):
         raise NotImplementedError("Subclasses must implement update_session")
 
     @abstractmethod
-    def initialize_agent(self, agent: "Agent") -> None:
-        """Update session data from an agent's current state.
-
-        Saves the agent's current conversation history and state back to
-        the session storage.
+    def initialize(self, agent: "Agent") -> None:
+        """Initialize an agent with a session.
 
         Args:
-            agent: Agent instance to save session data from
-
+            agent: Agent instance to sync with a session
         Raises:
             SessionException: If update operation fails
         """
