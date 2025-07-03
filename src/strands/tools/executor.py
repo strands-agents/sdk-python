@@ -13,13 +13,13 @@ from ..telemetry.metrics import EventLoopMetrics, Trace
 from ..telemetry.tracer import get_tracer
 from ..tools.tools import InvalidToolUseNameException, validate_tool_use
 from ..types.content import Message
-from ..types.tools import ToolResult, ToolUse
+from ..types.tools import ToolGenerator, ToolResult, ToolUse
 
 logger = logging.getLogger(__name__)
 
 
 def run_tools(
-    handler: Callable[[ToolUse], ToolResult],
+    handler: Callable[[ToolUse], Generator[dict[str, Any], None, ToolResult]],
     tool_uses: list[ToolUse],
     event_loop_metrics: EventLoopMetrics,
     invalid_tool_use_ids: list[str],
@@ -44,7 +44,7 @@ def run_tools(
         Events of the tool invocations. Tool results are appended to `tool_results`.
     """
 
-    def handle(tool: ToolUse) -> Generator[dict[str, Any], None, ToolResult]:
+    def handle(tool: ToolUse) -> ToolGenerator:
         tracer = get_tracer()
         tool_call_span = tracer.start_tool_call_span(tool, parent_span)
 
@@ -52,8 +52,7 @@ def run_tools(
         tool_trace = Trace(f"Tool: {tool_name}", parent_id=cycle_trace.id, raw_name=tool_name)
         tool_start_time = time.time()
 
-        result = handler(tool)
-        yield {"result": result}  # Placeholder until handler becomes a generator from which we can yield from
+        result = yield from handler(tool)
 
         tool_success = result.get("status") == "success"
         tool_duration = time.time() - tool_start_time
@@ -74,14 +73,14 @@ def run_tools(
     ) -> ToolResult:
         events = handle(tool)
 
-        while True:
-            try:
+        try:
+            while True:
                 event = next(events)
                 worker_queue.put((worker_id, event))
                 worker_event.wait()
 
-            except StopIteration as stop:
-                return cast(ToolResult, stop.value)
+        except StopIteration as stop:
+            return cast(ToolResult, stop.value)
 
     tool_uses = [tool_use for tool_use in tool_uses if tool_use.get("toolUseId") not in invalid_tool_use_ids]
 

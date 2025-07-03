@@ -4,6 +4,7 @@ import json
 import os
 import textwrap
 import unittest.mock
+from unittest.mock import call
 
 import pytest
 from pydantic import BaseModel
@@ -13,10 +14,12 @@ from strands import Agent
 from strands.agent import AgentResult
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
+from strands.experimental.hooks import AgentInitializedEvent, EndRequestEvent, StartRequestEvent
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
+from tests.fixtures.mock_hook_provider import MockHookProvider
 
 
 @pytest.fixture
@@ -35,6 +38,34 @@ def mock_model(request):
     mock.converse.side_effect = converse
 
     return mock
+
+
+@pytest.fixture
+def mock_hook_messages(mock_model, tool):
+    """Fixture which returns a standard set of events for verifying hooks."""
+    mock_model.mock_converse.side_effect = [
+        [
+            {
+                "contentBlockStart": {
+                    "start": {
+                        "toolUse": {
+                            "toolUseId": "t1",
+                            "name": tool.tool_spec["name"],
+                        },
+                    },
+                },
+            },
+            {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"random_string": "abcdEfghI123"}'}}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "tool_use"}},
+        ],
+        [
+            {"contentBlockDelta": {"delta": {"text": "test text"}}},
+            {"contentBlockStop": {}},
+        ],
+    ]
+
+    return mock_model.mock_converse
 
 
 @pytest.fixture
@@ -132,6 +163,11 @@ def tools(request, tool):
 
 
 @pytest.fixture
+def hook_provider():
+    return MockHookProvider([AgentInitializedEvent, StartRequestEvent, EndRequestEvent])
+
+
+@pytest.fixture
 def agent(
     mock_model,
     system_prompt,
@@ -142,6 +178,7 @@ def agent(
     tool_registry,
     tool_decorated,
     request,
+    hook_provider,
 ):
     agent = Agent(
         model=mock_model,
@@ -150,6 +187,9 @@ def agent(
         messages=messages,
         tools=tools,
     )
+
+    # for now, hooks are private
+    agent._hooks.add_hook(hook_provider)
 
     # Only register the tool directly if tools wasn't parameterized
     if not hasattr(request, "param") or request.param is None:
@@ -680,6 +720,48 @@ def test_agent__call__callback(mock_model, agent, callback_handler):
     )
 
 
+@unittest.mock.patch("strands.experimental.hooks.registry.HookRegistry.invoke_callbacks")
+def test_agent_hooks__init__(mock_invoke_callbacks):
+    """Verify that the AgentInitializedEvent is emitted on Agent construction."""
+    agent = Agent()
+
+    # Verify AgentInitialized event was invoked
+    mock_invoke_callbacks.assert_called_once()
+    assert mock_invoke_callbacks.call_args == call(AgentInitializedEvent(agent=agent))
+
+
+def test_agent_hooks__call__(agent, mock_hook_messages, hook_provider):
+    """Verify that the correct hook events are emitted as part of __call__."""
+
+    agent("test message")
+
+    assert hook_provider.events_received == [StartRequestEvent(agent=agent), EndRequestEvent(agent=agent)]
+
+
+@pytest.mark.asyncio
+async def test_agent_hooks_stream_async(agent, mock_hook_messages, hook_provider):
+    """Verify that the correct hook events are emitted as part of stream_async."""
+    iterator = agent.stream_async("test message")
+    await anext(iterator)
+    assert hook_provider.events_received == [StartRequestEvent(agent=agent)]
+
+    # iterate the rest
+    async for _ in iterator:
+        pass
+
+    assert hook_provider.events_received == [StartRequestEvent(agent=agent), EndRequestEvent(agent=agent)]
+
+
+def test_agent_hooks_structured_output(agent, mock_hook_messages, hook_provider):
+    """Verify that the correct hook events are emitted as part of structured_output."""
+
+    expected_user = User(name="Jane Doe", age=30, email="jane@doe.com")
+    agent.model.structured_output = unittest.mock.Mock(return_value=[{"output": expected_user}])
+    agent.structured_output(User, "example prompt")
+
+    assert hook_provider.events_received == [StartRequestEvent(agent=agent), EndRequestEvent(agent=agent)]
+
+
 def test_agent_tool(mock_randint, agent):
     conversation_manager_spy = unittest.mock.Mock(wraps=agent.conversation_manager)
     agent.conversation_manager = conversation_manager_spy
@@ -768,7 +850,7 @@ def test_agent_init_with_no_model_or_model_id():
 
 
 def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint):
-    agent.tool_handler = unittest.mock.Mock()
+    agent.tool_handler = unittest.mock.Mock(process=unittest.mock.Mock(return_value=iter([])))
 
     @strands.tools.tool(name="system_prompter")
     def function(system_prompt: str) -> str:
@@ -795,7 +877,7 @@ def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint):
 
 
 def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint):
-    agent.tool_handler = unittest.mock.Mock()
+    agent.tool_handler = unittest.mock.Mock(process=unittest.mock.Mock(return_value=iter([])))
 
     tool_name = "system-prompter"
 
@@ -823,8 +905,6 @@ def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint):
 
 
 def test_agent_tool_with_no_normalized_match(agent, tool_registry, mock_randint):
-    agent.tool_handler = unittest.mock.Mock()
-
     mock_randint.return_value = 1
 
     with pytest.raises(AttributeError) as err:

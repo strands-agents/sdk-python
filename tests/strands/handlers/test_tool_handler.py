@@ -26,8 +26,8 @@ def tool_use_identity(tool_registry):
     return {"toolUseId": "identity", "name": "identity", "input": {"a": 1}}
 
 
-def test_process(tool_handler, tool_use_identity):
-    tru_result = tool_handler.process(
+def test_process(tool_handler, tool_use_identity, generate):
+    process = tool_handler.process(
         tool_use_identity,
         model=unittest.mock.Mock(),
         system_prompt="p1",
@@ -35,13 +35,15 @@ def test_process(tool_handler, tool_use_identity):
         tool_config={},
         kwargs={},
     )
+
+    _, tru_result = generate(process)
     exp_result = {"toolUseId": "identity", "status": "success", "content": [{"text": "1"}]}
 
     assert tru_result == exp_result
 
 
-def test_process_missing_tool(tool_handler):
-    tru_result = tool_handler.process(
+def test_process_missing_tool(tool_handler, generate):
+    process = tool_handler.process(
         tool={"toolUseId": "missing", "name": "missing", "input": {}},
         model=unittest.mock.Mock(),
         system_prompt="p1",
@@ -49,6 +51,8 @@ def test_process_missing_tool(tool_handler):
         tool_config={},
         kwargs={},
     )
+
+    _, tru_result = generate(process)
     exp_result = {
         "toolUseId": "missing",
         "status": "error",
