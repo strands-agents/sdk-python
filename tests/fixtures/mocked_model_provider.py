@@ -72,7 +72,7 @@ class MockedModelProvider(Model):
                         }
                     }
                 }
-                yield {"contentBlockDelta": {"delta": {"tool_use": {"input": json.dumps(content["toolUse"]["input"])}}}}
+                yield {"contentBlockDelta": {"delta": {"toolUse": {"input": json.dumps(content["toolUse"]["input"])}}}}
                 yield {"contentBlockStop": {}}
 
         yield {"messageStop": {"stopReason": stop_reason}}
