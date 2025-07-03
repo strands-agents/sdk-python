@@ -14,7 +14,7 @@ class MockHookProvider(HookProvider):
 
     def register_hooks(self, registry: HookRegistry) -> None:
         for event_type in self.events_types:
-            registry.add_callback(event_type, self._add_event)
+            registry.add_callback(event_type, self.add_event)
 
-    def _add_event(self, event: HookEvent) -> None:
+    def add_event(self, event: HookEvent) -> None:
         self.events_received.append(event)

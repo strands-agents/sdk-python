@@ -8,7 +8,7 @@ via hook provider objects.
 """
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Callable, Generator, Generic, Protocol, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Generator, Generic, Protocol, Type, TypeVar
 
 if TYPE_CHECKING:
     from ...agent import Agent
@@ -33,6 +33,40 @@ class HookEvent:
             invoke callbacks in reverse order (e.g., cleanup/teardown events).
         """
         return False
+
+    ### Code below is infrastructure for disallowing updates to properties ###
+    ### that aren't expected to be updated from hook callbacks.            ###
+
+    def _can_write(self, name: str) -> bool:
+        """Check if the given property can be written to.
+
+        Args:
+            name: The name of the property to check.
+
+        Returns:
+            True if the property can be written to, False otherwise.
+        """
+        return False
+
+    def __post_init__(self) -> None:
+        """Disallow writes to non-approved properties."""
+        # This is needed as otherwise the class can't be initialized at all, so we trigger
+        # this after class initialization
+        super().__setattr__("_disallow_writes", True)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Prevent setting attributes on hook events.
+
+        Raises:
+            AttributeError: Always raised to prevent setting attributes on hook events.
+        """
+        #  Allow setting attributes:
+        #    - during init (when __dict__) doesn't exist
+        #    - if the subclass specifically said the property is writable
+        if not hasattr(self, "_disallow_writes") or self._can_write(name):
+            return super().__setattr__(name, value)
+
+        raise AttributeError(f"Property {name} is not writable")
 
 
 T = TypeVar("T", bound=Callable)

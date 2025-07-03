@@ -1,14 +1,18 @@
 """This module provides handlers for managing tool invocations."""
 
 import logging
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
+from ..experimental.hooks import AfterToolInvocation, BeforeToolInvocation
 from ..tools.registry import ToolRegistry
 from ..types.content import Messages
 from ..types.models import Model
-from ..types.tools import ToolConfig, ToolGenerator, ToolHandler, ToolUse
+from ..types.tools import ToolConfig, ToolGenerator, ToolHandler, ToolResult, ToolUse
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from ..agent import Agent
 
 
 class AgentToolHandler(ToolHandler):
@@ -18,13 +22,15 @@ class AgentToolHandler(ToolHandler):
     invoking them with the appropriate parameters.
     """
 
-    def __init__(self, tool_registry: ToolRegistry) -> None:
+    def __init__(self, agent: "Agent", tool_registry: ToolRegistry) -> None:
         """Initialize handler.
 
         Args:
+            agent: The agent associated with this tool handler.
             tool_registry: Registry of available tools.
         """
         self.tool_registry = tool_registry
+        self.agent = agent
 
     def process(
         self,
@@ -55,44 +61,75 @@ class AgentToolHandler(ToolHandler):
             The final tool result or an error response if the tool fails or is not found.
         """
         logger.debug("tool=<%s> | invoking", tool)
-        tool_use_id = tool["toolUseId"]
         tool_name = tool["name"]
 
         # Get the tool info
         tool_info = self.tool_registry.dynamic_tools.get(tool_name)
         tool_func = tool_info if tool_info is not None else self.tool_registry.registry.get(tool_name)
 
+        # Add standard arguments to kwargs for Python tools
+        kwargs.update(
+            {
+                "model": model,
+                "system_prompt": system_prompt,
+                "messages": messages,
+                "tool_config": tool_config,
+            }
+        )
+
+        before_event = BeforeToolInvocation(
+            agent=self.agent,
+            selected_tool=tool_func,
+            tool_use=tool,
+            kwargs=kwargs,
+        )
+        self.agent._hooks.invoke_callbacks(before_event)
+
         try:
+            selected_tool = before_event.selected_tool
+            tool_use = before_event.tool_use
+
             # Check if tool exists
-            if not tool_func:
+            if not selected_tool:
                 logger.error(
                     "tool_name=<%s>, available_tools=<%s> | tool not found in registry",
                     tool_name,
                     list(self.tool_registry.registry.keys()),
                 )
                 return {
-                    "toolUseId": tool_use_id,
+                    "toolUseId": str(tool_use.get("toolUseId")),
                     "status": "error",
                     "content": [{"text": f"Unknown tool: {tool_name}"}],
                 }
-            # Add standard arguments to kwargs for Python tools
-            kwargs.update(
-                {
-                    "model": model,
-                    "system_prompt": system_prompt,
-                    "messages": messages,
-                    "tool_config": tool_config,
-                }
-            )
 
-            result = tool_func.invoke(tool, **kwargs)
-            yield {"result": result}  # Placeholder until tool_func becomes a generator from which we can yield from
-            return result
+            result = selected_tool.invoke(tool_use, **kwargs)
+            after_event = AfterToolInvocation(
+                agent=self.agent,
+                selected_tool=selected_tool,
+                tool_use=tool_use,
+                kwargs=kwargs,
+                result=result,
+            )
+            self.agent._hooks.invoke_callbacks(after_event)
+            yield {
+                "result": after_event.result
+            }  # Placeholder until tool_func becomes a generator from which we can yield from
+            return after_event.result
 
         except Exception as e:
             logger.exception("tool_name=<%s> | failed to process tool", tool_name)
-            return {
-                "toolUseId": tool_use_id,
+            error_result: ToolResult = {
+                "toolUseId": str(tool_use.get("toolUseId")),
                 "status": "error",
                 "content": [{"text": f"Error: {str(e)}"}],
             }
+            after_event = AfterToolInvocation(
+                agent=self.agent,
+                selected_tool=selected_tool,
+                tool_use=tool_use,
+                kwargs=kwargs,
+                result=error_result,
+                exception=e,
+            )
+            self.agent._hooks.invoke_callbacks(after_event)
+            return after_event.result

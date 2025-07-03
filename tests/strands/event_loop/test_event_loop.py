@@ -45,7 +45,7 @@ def tool_registry():
 
 @pytest.fixture
 def tool_handler(tool_registry):
-    return AgentToolHandler(tool_registry)
+    return AgentToolHandler(agent=unittest.mock.Mock(), tool_registry=tool_registry)
 
 
 @pytest.fixture

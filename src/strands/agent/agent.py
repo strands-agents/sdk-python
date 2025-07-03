@@ -283,7 +283,7 @@ class Agent:
         self.load_tools_from_directory = load_tools_from_directory
 
         self.tool_registry = ToolRegistry()
-        self.tool_handler = AgentToolHandler(tool_registry=self.tool_registry)
+        self.tool_handler = AgentToolHandler(agent=self, tool_registry=self.tool_registry)
 
         # Process tool list if provided
         if tools is not None:
