@@ -430,6 +430,7 @@ class Agent:
         Raises:
             ValueError: If no conversation history or prompt is provided.
         """
+
         def execute() -> T:
             return asyncio.run(self.structured_output_async(output_model, prompt))
 

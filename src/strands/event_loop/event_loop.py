@@ -375,7 +375,7 @@ async def _handle_tool_execution(
         kwargs=kwargs,
     )
 
-    yield from run_tools(
+    tool_events = run_tools(
         handler=tool_handler_process,
         tool_uses=tool_uses,
         event_loop_metrics=event_loop_metrics,
@@ -385,6 +385,8 @@ async def _handle_tool_execution(
         parent_span=cycle_span,
         parallel_tool_executor=tool_execution_handler,
     )
+    for tool_event in tool_events:
+        yield tool_event
 
     # Store parent cycle ID for the next cycle
     kwargs["event_loop_parent_cycle_id"] = kwargs["event_loop_cycle_id"]
