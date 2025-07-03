@@ -1231,6 +1231,7 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
         prompt="test prompt",
+        agent_name="Strands Agents",
         model_id=unittest.mock.ANY,
         tools=agent.tool_names,
         system_prompt=agent.system_prompt,
@@ -1264,6 +1265,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
         prompt="test prompt",
+        agent_name="Strands Agents",
         model_id=unittest.mock.ANY,
         tools=agent.tool_names,
         system_prompt=agent.system_prompt,
@@ -1301,6 +1303,7 @@ def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_mod
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
         prompt="test prompt",
+        agent_name="Strands Agents",
         model_id=unittest.mock.ANY,
         tools=agent.tool_names,
         system_prompt=agent.system_prompt,
@@ -1336,6 +1339,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
         prompt="test prompt",
+        agent_name="Strands Agents",
         model_id=unittest.mock.ANY,
         tools=agent.tool_names,
         system_prompt=agent.system_prompt,

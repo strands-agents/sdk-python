@@ -406,7 +406,7 @@ class Tracer:
     def start_agent_span(
         self,
         prompt: str,
-        agent_name: str = "Strands Agent",
+        agent_name: str,
         model_id: Optional[str] = None,
         tools: Optional[list] = None,
         custom_trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
