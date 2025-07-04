@@ -9,7 +9,7 @@ from strands.models.openai import OpenAIModel
 
 @pytest.fixture
 def openai_client_cls():
-    with unittest.mock.patch.object(strands.models.openai.openai, "OpenAI") as mock_client_cls:
+    with unittest.mock.patch.object(strands.models.openai.openai, "AsyncOpenAI") as mock_client_cls:
         yield mock_client_cls
 
 
@@ -70,7 +70,7 @@ def test_update_config(model, model_id):
 
 
 @pytest.mark.asyncio
-async def test_stream(openai_client, model, alist):
+async def test_stream(openai_client, model, agenerator, alist):
     mock_tool_call_1_part_1 = unittest.mock.Mock(index=0)
     mock_tool_call_2_part_1 = unittest.mock.Mock(index=1)
     mock_delta_1 = unittest.mock.Mock(
@@ -102,8 +102,8 @@ async def test_stream(openai_client, model, alist):
     mock_event_5 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="tool_calls", delta=mock_delta_5)])
     mock_event_6 = unittest.mock.Mock()
 
-    openai_client.chat.completions.create.return_value = iter(
-        [mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5, mock_event_6]
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5, mock_event_6])
     )
 
     request = {"model": "m1", "messages": [{"role": "user", "content": [{"type": "text", "text": "calculate 2+2"}]}]}
@@ -133,7 +133,7 @@ async def test_stream(openai_client, model, alist):
 
 
 @pytest.mark.asyncio
-async def test_stream_empty(openai_client, model, alist):
+async def test_stream_empty(openai_client, model, agenerator, alist):
     mock_delta = unittest.mock.Mock(content=None, tool_calls=None, reasoning_content=None)
     mock_usage = unittest.mock.Mock(prompt_tokens=0, completion_tokens=0, total_tokens=0)
 
@@ -142,7 +142,9 @@ async def test_stream_empty(openai_client, model, alist):
     mock_event_3 = unittest.mock.Mock()
     mock_event_4 = unittest.mock.Mock(usage=mock_usage)
 
-    openai_client.chat.completions.create.return_value = iter([mock_event_1, mock_event_2, mock_event_3, mock_event_4])
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3, mock_event_4]),
+    )
 
     request = {"model": "m1", "messages": [{"role": "user", "content": []}]}
     response = model.stream(request)
@@ -161,7 +163,7 @@ async def test_stream_empty(openai_client, model, alist):
 
 
 @pytest.mark.asyncio
-async def test_stream_with_empty_choices(openai_client, model, alist):
+async def test_stream_with_empty_choices(openai_client, model, agenerator, alist):
     mock_delta = unittest.mock.Mock(content="content", tool_calls=None, reasoning_content=None)
     mock_usage = unittest.mock.Mock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
 
@@ -180,8 +182,8 @@ async def test_stream_with_empty_choices(openai_client, model, alist):
     # Final event with usage info
     mock_event_5 = unittest.mock.Mock(usage=mock_usage)
 
-    openai_client.chat.completions.create.return_value = iter(
-        [mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5]
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5])
     )
 
     request = {"model": "m1", "messages": [{"role": "user", "content": ["test"]}]}
@@ -212,7 +214,7 @@ async def test_structured_output(openai_client, model, test_output_model_cls, al
     mock_response = unittest.mock.Mock()
     mock_response.choices = [mock_choice]
 
-    openai_client.beta.chat.completions.parse.return_value = mock_response
+    openai_client.beta.chat.completions.parse = unittest.mock.AsyncMock(return_value=mock_response)
 
     stream = model.structured_output(test_output_model_cls, messages)
     events = await alist(stream)
