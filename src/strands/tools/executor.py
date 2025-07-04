@@ -102,6 +102,8 @@ def run_tools(
                 yield event
                 worker_events[worker_id].set()
 
+            time.sleep(0.001)
+
         tool_results.extend([worker.result() for worker in workers])
 
     else:
