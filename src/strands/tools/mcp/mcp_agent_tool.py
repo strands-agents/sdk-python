@@ -9,8 +9,9 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from mcp.types import Tool as MCPTool
+from typing_extensions import override
 
-from ...types.tools import AgentTool, ToolResult, ToolSpec, ToolUse
+from ...types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
 
 if TYPE_CHECKING:
     from .mcp_client import MCPClient
@@ -73,13 +74,22 @@ class MCPAgentTool(AgentTool):
         """
         return "python"
 
-    def invoke(self, tool: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolResult:
-        """Invoke the MCP tool.
+    @override
+    def stream(self, tool_use: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolGenerator:
+        """Stream the MCP tool.
 
-        This method delegates the tool invocation to the MCP server connection,
-        passing the tool use ID, tool name, and input arguments.
+        This method delegates the tool stream to the MCP server connection, passing the tool use ID, tool name, and
+        input arguments.
+
+        Yields:
+            No events.
+
+        Returns:
+            A standardized tool result dictionary with status and content.
         """
-        logger.debug("invoking MCP tool '%s' with tool_use_id=%s", self.tool_name, tool["toolUseId"])
+        logger.debug("tool_name=<%s>, tool_use_id=<%s> | streaming", self.tool_name, tool_use["toolUseId"])
+
         return self.mcp_client.call_tool_sync(
-            tool_use_id=tool["toolUseId"], name=self.tool_name, arguments=tool["input"]
+            tool_use_id=tool_use["toolUseId"], name=self.tool_name, arguments=tool_use["input"]
         )
+        yield  # type: ignore  # Need yield to create generator, but left unreachable as we have no events

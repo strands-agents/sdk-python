@@ -30,8 +30,8 @@ def test_process_tools_with_invalid_path():
 
 
 def test_register_tool_with_similar_name_raises():
-    tool_1 = PythonAgentTool(tool_name="tool-like-this", tool_spec=MagicMock(), callback=lambda: None)
-    tool_2 = PythonAgentTool(tool_name="tool_like_this", tool_spec=MagicMock(), callback=lambda: None)
+    tool_1 = PythonAgentTool(tool_name="tool-like-this", tool_spec=MagicMock(), tool_func=lambda: None)
+    tool_2 = PythonAgentTool(tool_name="tool_like_this", tool_spec=MagicMock(), tool_func=lambda: None)
 
     tool_registry = ToolRegistry()
 

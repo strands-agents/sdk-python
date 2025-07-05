@@ -347,11 +347,7 @@ class ToolRegistry:
             # Validate tool spec
             self.validate_tool_spec(module.TOOL_SPEC)
 
-            new_tool = PythonAgentTool(
-                tool_name=tool_name,
-                tool_spec=module.TOOL_SPEC,
-                callback=tool_function,
-            )
+            new_tool = PythonAgentTool(tool_name, module.TOOL_SPEC, tool_function)
 
             # Register the tool
             self.register_tool(new_tool)
@@ -431,11 +427,7 @@ class ToolRegistry:
                                     continue
 
                                 tool_spec = module.TOOL_SPEC
-                                tool = PythonAgentTool(
-                                    tool_name=tool_name,
-                                    tool_spec=tool_spec,
-                                    callback=tool_function,
-                                )
+                                tool = PythonAgentTool(tool_name, tool_spec, tool_function)
                                 self.register_tool(tool)
                                 successful_loads += 1
 
@@ -463,11 +455,7 @@ class ToolRegistry:
                                 continue
 
                             tool_spec = module.TOOL_SPEC
-                            tool = PythonAgentTool(
-                                tool_name=tool_name,
-                                tool_spec=tool_spec,
-                                callback=tool_function,
-                            )
+                            tool = PythonAgentTool(tool_name, tool_spec, tool_function)
                             self.register_tool(tool)
                             successful_loads += 1
 
