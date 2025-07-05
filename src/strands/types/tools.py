@@ -6,15 +6,11 @@ These types are modeled after the Bedrock API.
 """
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Generator, Literal, Optional, Union
+from typing import Any, Generator, Literal, Union
 
 from typing_extensions import TypedDict
 
 from .media import DocumentContent, ImageContent
-
-if TYPE_CHECKING:
-    from .content import Messages
-    from .models import Model
 
 JSONSchema = dict
 """Type alias for JSON Schema dictionaries."""
@@ -239,36 +235,3 @@ class AgentTool(ABC):
             "Name": self.tool_name,
             "Type": self.tool_type,
         }
-
-
-class ToolHandler(ABC):
-    """Abstract base class for handling tool execution within the agent framework."""
-
-    @abstractmethod
-    def process(
-        self,
-        tool: ToolUse,
-        *,
-        model: "Model",
-        system_prompt: Optional[str],
-        messages: "Messages",
-        tool_config: ToolConfig,
-        kwargs: dict[str, Any],
-    ) -> ToolGenerator:
-        """Process a tool use request and execute the tool.
-
-        Args:
-            tool: The tool use request to process.
-            messages: The current conversation history.
-            model: The model being used for the conversation.
-            system_prompt: The system prompt for the conversation.
-            tool_config: The tool configuration for the current session.
-            kwargs: Additional context-specific arguments.
-
-        Yields:
-            Events of the tool invocation.
-
-        Returns:
-            The final tool result.
-        """
-        ...

@@ -130,14 +130,7 @@ class Agent:
                 }
 
                 # Execute the tool
-                events = self._agent.tool_handler.process(
-                    tool=tool_use,
-                    model=self._agent.model,
-                    system_prompt=self._agent.system_prompt,
-                    messages=self._agent.messages,
-                    tool_config=self._agent.tool_config,
-                    kwargs=kwargs,
-                )
+                events = self._agent.tool_handler.run_tool(tool=tool_use, kwargs=kwargs)
 
                 try:
                     while True:
@@ -283,7 +276,7 @@ class Agent:
         self.load_tools_from_directory = load_tools_from_directory
 
         self.tool_registry = ToolRegistry()
-        self.tool_handler = AgentToolHandler(tool_registry=self.tool_registry)
+        self.tool_handler = AgentToolHandler(agent=self)
 
         # Process tool list if provided
         if tools is not None:
@@ -563,14 +556,7 @@ class Agent:
         try:
             # Execute the main event loop cycle
             events = event_loop_cycle(
-                model=self.model,
-                system_prompt=self.system_prompt,
-                messages=self.messages,  # will be modified by event_loop_cycle
-                tool_config=self.tool_config,
-                tool_handler=self.tool_handler,
-                thread_pool=self.thread_pool,
-                event_loop_metrics=self.event_loop_metrics,
-                event_loop_parent_span=self.trace_span,
+                agent=self,
                 kwargs=kwargs,
             )
             async for event in events:

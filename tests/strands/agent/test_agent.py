@@ -833,7 +833,7 @@ def test_agent_init_with_no_model_or_model_id():
 
 
 def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint):
-    agent.tool_handler = unittest.mock.Mock(process=unittest.mock.Mock(return_value=iter([])))
+    agent.tool_handler = unittest.mock.Mock(run_tool=unittest.mock.Mock(return_value=iter([])))
 
     @strands.tools.tool(name="system_prompter")
     def function(system_prompt: str) -> str:
@@ -845,22 +845,18 @@ def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint):
 
     agent.tool.system_prompter(system_prompt="tool prompt")
 
-    agent.tool_handler.process.assert_called_with(
+    agent.tool_handler.run_tool.assert_called_with(
         tool={
             "toolUseId": "tooluse_system_prompter_1",
             "name": "system_prompter",
             "input": {"system_prompt": "tool prompt"},
         },
-        model=unittest.mock.ANY,
-        system_prompt="You are a helpful assistant.",
-        messages=unittest.mock.ANY,
-        tool_config=unittest.mock.ANY,
         kwargs={"system_prompt": "tool prompt"},
     )
 
 
 def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint):
-    agent.tool_handler = unittest.mock.Mock(process=unittest.mock.Mock(return_value=iter([])))
+    agent.tool_handler = unittest.mock.Mock(run_tool=unittest.mock.Mock(return_value=iter([])))
 
     tool_name = "system-prompter"
 
@@ -875,8 +871,8 @@ def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint):
     agent.tool.system_prompter(system_prompt="tool prompt")
 
     # Verify the correct tool was invoked
-    assert agent.tool_handler.process.call_count == 1
-    tool_call = agent.tool_handler.process.call_args.kwargs.get("tool")
+    assert agent.tool_handler.run_tool.call_count == 1
+    tool_call = agent.tool_handler.run_tool.call_args.kwargs.get("tool")
 
     assert tool_call == {
         # Note that the tool-use uses the "python safe" name
@@ -1265,31 +1261,6 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
 
     # Verify span was ended with the exception
     mock_tracer.end_agent_span.assert_called_once_with(span=mock_span, error=test_exception)
-
-
-@unittest.mock.patch("strands.agent.agent.get_tracer")
-def test_event_loop_cycle_includes_parent_span(mock_get_tracer, mock_event_loop_cycle, mock_model, agenerator):
-    """Test that event_loop_cycle is called with the parent span."""
-    # Setup mock tracer and span
-    mock_tracer = unittest.mock.MagicMock()
-    mock_span = unittest.mock.MagicMock()
-    mock_tracer.start_agent_span.return_value = mock_span
-    mock_get_tracer.return_value = mock_tracer
-
-    # Setup mock for event_loop_cycle
-    mock_event_loop_cycle.return_value = agenerator(
-        [{"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}]
-    )
-
-    # Create agent and make a call
-    agent = Agent(model=mock_model)
-    agent("test prompt")
-
-    # Verify event_loop_cycle was called with the span
-    mock_event_loop_cycle.assert_called_once()
-    kwargs = mock_event_loop_cycle.call_args[1]
-    assert "event_loop_parent_span" in kwargs
-    assert kwargs["event_loop_parent_span"] == mock_span
 
 
 def test_non_dict_throws_error():

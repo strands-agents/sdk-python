@@ -1,51 +1,38 @@
 """This module provides handlers for managing tool invocations."""
 
 import logging
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any
 
-from ..tools.registry import ToolRegistry
-from ..types.content import Messages
-from ..types.models import Model
-from ..types.tools import ToolConfig, ToolGenerator, ToolHandler, ToolUse
+from ..types.tools import ToolGenerator, ToolUse
+
+if TYPE_CHECKING:
+    from ..agent import Agent
 
 logger = logging.getLogger(__name__)
 
 
-class AgentToolHandler(ToolHandler):
+class AgentToolHandler:
     """Handler for processing tool invocations in agent.
 
     This class implements the ToolHandler interface and provides functionality for looking up tools in a registry and
     invoking them with the appropriate parameters.
     """
 
-    def __init__(self, tool_registry: ToolRegistry) -> None:
+    def __init__(self, agent: "Agent") -> None:
         """Initialize handler.
 
         Args:
-            tool_registry: Registry of available tools.
+            agent: The agent for which this handler has been created.
         """
-        self.tool_registry = tool_registry
+        self.agent = agent
 
-    def process(
-        self,
-        tool: ToolUse,
-        *,
-        model: Model,
-        system_prompt: Optional[str],
-        messages: Messages,
-        tool_config: ToolConfig,
-        kwargs: dict[str, Any],
-    ) -> ToolGenerator:
+    def run_tool(self, tool: ToolUse, kwargs: dict[str, Any]) -> ToolGenerator:
         """Process a tool invocation.
 
         Looks up the tool in the registry and invokes it with the provided parameters.
 
         Args:
             tool: The tool object to process, containing name and parameters.
-            model: The model being used for the agent.
-            system_prompt: The system prompt for the agent.
-            messages: The conversation history.
-            tool_config: Configuration for the tool.
             kwargs: Additional keyword arguments passed to the tool.
 
         Yields:
@@ -59,8 +46,8 @@ class AgentToolHandler(ToolHandler):
         tool_name = tool["name"]
 
         # Get the tool info
-        tool_info = self.tool_registry.dynamic_tools.get(tool_name)
-        tool_func = tool_info if tool_info is not None else self.tool_registry.registry.get(tool_name)
+        tool_info = self.agent.tool_registry.dynamic_tools.get(tool_name)
+        tool_func = tool_info if tool_info is not None else self.agent.tool_registry.registry.get(tool_name)
 
         try:
             # Check if tool exists
@@ -68,7 +55,7 @@ class AgentToolHandler(ToolHandler):
                 logger.error(
                     "tool_name=<%s>, available_tools=<%s> | tool not found in registry",
                     tool_name,
-                    list(self.tool_registry.registry.keys()),
+                    list(self.agent.tool_registry.registry.keys()),
                 )
                 return {
                     "toolUseId": tool_use_id,
@@ -78,10 +65,10 @@ class AgentToolHandler(ToolHandler):
             # Add standard arguments to kwargs for Python tools
             kwargs.update(
                 {
-                    "model": model,
-                    "system_prompt": system_prompt,
-                    "messages": messages,
-                    "tool_config": tool_config,
+                    "model": self.agent.model,
+                    "system_prompt": self.agent.system_prompt,
+                    "messages": self.agent.messages,
+                    "tool_config": self.agent.tool_config,
                 }
             )
 
