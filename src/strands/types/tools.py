@@ -6,7 +6,7 @@ These types are modeled after the Bedrock API.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Generator, Literal, Protocol, Union
+from typing import Any, Callable, Generator, Literal, Protocol, Union, cast
 
 from typing_extensions import TypedDict
 
