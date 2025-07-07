@@ -11,7 +11,6 @@ import mimetypes
 from typing import Any, AsyncGenerator, Optional, Type, TypeVar, Union, cast
 
 import llama_api_client
-from llama_api_client import LlamaAPIClient
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
@@ -63,10 +62,8 @@ class LlamaAPIModel(Model):
         self.config = LlamaAPIModel.LlamaConfig(**model_config)
         logger.debug("config=<%s> | initializing", self.config)
 
-        if not client_args:
-            self.client = LlamaAPIClient()
-        else:
-            self.client = LlamaAPIClient(**client_args)
+        client_args = client_args or {}
+        self.client = llama_api_client.AsyncLlamaAPIClient(**client_args)
 
     @override
     def update_config(self, **model_config: Unpack[LlamaConfig]) -> None:  # type: ignore
@@ -337,7 +334,7 @@ class LlamaAPIModel(Model):
             ModelThrottledException: When the model service is throttling requests from the client.
         """
         try:
-            response = self.client.chat.completions.create(**request)
+            response = await self.client.chat.completions.create(**request)
         except llama_api_client.RateLimitError as e:
             raise ModelThrottledException(str(e)) from e
 
@@ -348,7 +345,7 @@ class LlamaAPIModel(Model):
         curr_tool_call_id = None
 
         metrics_event = None
-        for chunk in response:
+        async for chunk in response:
             if chunk.event.event_type == "start":
                 yield {"chunk_type": "content_start", "data_type": "text"}
             elif chunk.event.event_type in ["progress", "complete"] and chunk.event.delta.type == "text":
