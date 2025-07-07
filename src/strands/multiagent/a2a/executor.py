@@ -128,8 +128,7 @@ class StrandsA2AExecutor(AgentExecutor):
         logger.debug("Streaming event: %s", event)
         if "data" in event:
             # process data chunks from agent
-            text_content = event["data"]
-            if text_content:
+            if text_content := event["data"]:
                 await updater.update_status(
                     TaskState.working,
                     new_agent_text_message(
@@ -160,8 +159,7 @@ class StrandsA2AExecutor(AgentExecutor):
                 if isinstance(content, list):
                     for block in content:
                         if isinstance(block, dict) and "text" in block:
-                            text_content = block["text"]
-                            if text_content:
+                            if text_content := block["text"]:
                                 final_content += text_content
                 elif isinstance(content, str):
                     final_content = content
