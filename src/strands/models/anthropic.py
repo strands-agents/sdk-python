@@ -72,7 +72,7 @@ class AnthropicModel(Model):
         logger.debug("config=<%s> | initializing", self.config)
 
         client_args = client_args or {}
-        self.client = anthropic.Anthropic(**client_args)
+        self.client = anthropic.AsyncAnthropic(**client_args)
 
     @override
     def update_config(self, **model_config: Unpack[AnthropicConfig]) -> None:  # type: ignore[override]
@@ -358,8 +358,8 @@ class AnthropicModel(Model):
             ModelThrottledException: If the request is throttled by Anthropic.
         """
         try:
-            with self.client.messages.stream(**request) as stream:
-                for event in stream:
+            async with self.client.messages.stream(**request) as stream:
+                async for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
                         yield event.model_dump()
 
