@@ -61,3 +61,22 @@ def test_structured_output(model):
     assert isinstance(result, Weather)
     assert result.time == "12:00"
     assert result.weather == "sunny"
+
+
+@pytest.mark.skipif("ANTHROPIC_API_KEY" not in os.environ, reason="ANTHROPIC_API_KEY environment variable missing")
+def test_multi_modal_input(agent, yellow_img):
+    content = [
+        {"text": "what is in this image"},
+        {
+            "image": {
+                "format": "png",
+                "source": {
+                    "bytes": yellow_img,
+                },
+            },
+        },
+    ]
+    result = agent(content)
+    text = result.message["content"][0]["text"].lower()
+
+    assert "yellow" in text

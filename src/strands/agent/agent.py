@@ -353,14 +353,14 @@ class Agent:
             self.thread_pool.shutdown(wait=False)
             logger.debug("thread pool executor shutdown complete")
 
-    def __call__(self, prompt: str, **kwargs: Any) -> AgentResult:
+    def __call__(self, prompt: Union[str, list[ContentBlock]], **kwargs: Any) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
         This method implements the conversational interface (e.g., `agent("hello!")`). It adds the user's prompt to
         the conversation history, processes it through the model, executes any tool calls, and returns the final result.
 
         Args:
-            prompt: The natural language prompt from the user.
+            prompt: User input as text or list of ContentBlock objects for multi-modal content.
             **kwargs: Additional parameters to pass through the event loop.
 
         Returns:
@@ -379,14 +379,14 @@ class Agent:
             future = executor.submit(execute)
             return future.result()
 
-    async def invoke_async(self, prompt: str, **kwargs: Any) -> AgentResult:
+    async def invoke_async(self, prompt: Union[str, list[ContentBlock]], **kwargs: Any) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
         This method implements the conversational interface (e.g., `agent("hello!")`). It adds the user's prompt to
         the conversation history, processes it through the model, executes any tool calls, and returns the final result.
 
         Args:
-            prompt: The natural language prompt from the user.
+            prompt: User input as text or list of ContentBlock objects for multi-modal content.
             **kwargs: Additional parameters to pass through the event loop.
 
         Returns:
@@ -465,7 +465,7 @@ class Agent:
         finally:
             self._hooks.invoke_callbacks(EndRequestEvent(agent=self))
 
-    async def stream_async(self, prompt: str, **kwargs: Any) -> AsyncIterator[Any]:
+    async def stream_async(self, prompt: Union[str, list[ContentBlock]], **kwargs: Any) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
 
         This method provides an asynchronous interface for streaming agent events, allowing
@@ -474,7 +474,7 @@ class Agent:
         async environments.
 
         Args:
-            prompt: The natural language prompt from the user.
+            prompt: User input as text or list of ContentBlock objects for multi-modal content.
             **kwargs: Additional parameters to pass to the event loop.
 
         Returns:
@@ -497,10 +497,13 @@ class Agent:
         """
         callback_handler = kwargs.get("callback_handler", self.callback_handler)
 
-        self._start_agent_trace_span(prompt)
+        content: list[ContentBlock] = [{"text": prompt}] if isinstance(prompt, str) else prompt
+        message: Message = {"role": "user", "content": content}
+
+        self._start_agent_trace_span(message)
 
         try:
-            events = self._run_loop(prompt, kwargs)
+            events = self._run_loop(message, kwargs)
             async for event in events:
                 if "callback" in event:
                     callback_handler(**event["callback"])
@@ -516,18 +519,22 @@ class Agent:
             self._end_agent_trace_span(error=e)
             raise
 
-    async def _run_loop(self, prompt: str, kwargs: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
-        """Execute the agent's event loop with the given prompt and parameters."""
+    async def _run_loop(self, message: Message, kwargs: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
+        """Execute the agent's event loop with the given message and parameters.
+
+        Args:
+            message: The user message to add to the conversation.
+            kwargs: Additional parameters to pass to the event loop.
+
+        Yields:
+            Events from the event loop cycle.
+        """
         self._hooks.invoke_callbacks(StartRequestEvent(agent=self))
 
         try:
-            # Extract key parameters
             yield {"callback": {"init_event_loop": True, **kwargs}}
 
-            # Set up the user message with optional knowledge base retrieval
-            message_content: list[ContentBlock] = [{"text": prompt}]
-            new_message: Message = {"role": "user", "content": message_content}
-            self.messages.append(new_message)
+            self.messages.append(message)
 
             # Execute the event loop cycle with retry logic for context limits
             events = self._execute_event_loop_cycle(kwargs)
@@ -622,16 +629,16 @@ class Agent:
         messages.append(tool_result_msg)
         messages.append(assistant_msg)
 
-    def _start_agent_trace_span(self, prompt: str) -> None:
+    def _start_agent_trace_span(self, message: Message) -> None:
         """Starts a trace span for the agent.
 
         Args:
-            prompt: The natural language prompt from the user.
+            message: The user message.
         """
         model_id = self.model.config.get("model_id") if hasattr(self.model, "config") else None
 
         self.trace_span = self.tracer.start_agent_span(
-            prompt=prompt,
+            message=message,
             agent_name=self.name,
             model_id=model_id,
             tools=self.tool_names,
