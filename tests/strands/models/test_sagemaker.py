@@ -225,7 +225,8 @@ class TestSageMakerAIModel:
     #     assert "tools" in payload
     #     assert payload["tools"] == []
 
-    def test_stream_with_streaming_enabled(self, sagemaker_client, model):
+    @pytest.mark.asyncio
+    async def test_stream_with_streaming_enabled(self, sagemaker_client, model):
         """Test streaming response with streaming enabled."""
         # Mock the response from SageMaker
         mock_response = {
@@ -269,7 +270,7 @@ class TestSageMakerAIModel:
             "Accept": "application/json",
         }
 
-        response = list(model.stream(request))
+        response = [chunk async for chunk in model.stream(request)]
 
         assert len(response) >= 5
         assert response[0] == {"chunk_type": "message_start"}
@@ -279,7 +280,8 @@ class TestSageMakerAIModel:
 
         sagemaker_client.invoke_endpoint_with_response_stream.assert_called_once_with(**request)
 
-    def test_stream_with_tool_calls(self, sagemaker_client, model):
+    @pytest.mark.asyncio
+    async def test_stream_with_tool_calls(self, sagemaker_client, model):
         """Test streaming response with tool calls."""
         # Mock the response from SageMaker with tool calls
         mock_response = {
@@ -294,6 +296,7 @@ class TestSageMakerAIModel:
                                             "content": None,
                                             "tool_calls": [
                                                 {
+                                                    "index": 0,
                                                     "id": "tool123",
                                                     "type": "function",
                                                     "function": {
@@ -314,69 +317,40 @@ class TestSageMakerAIModel:
         }
         sagemaker_client.invoke_endpoint_with_response_stream.return_value = mock_response
 
-        # Mock the implementation of stream method to avoid the error
-        with unittest.mock.patch.object(model, "stream", autospec=True) as mock_stream:
-            # Create a simplified response that matches what we expect
-            mock_stream.return_value = [
-                {"chunk_type": "message_start"},
-                {"chunk_type": "content_start", "data_type": "text"},
-                {"chunk_type": "content_stop", "data_type": "text"},
-                {
-                    "chunk_type": "content_start",
-                    "data_type": "tool",
-                    "data": ToolCall(
-                        id="tool123",
-                        type="function",
-                        function={"name": "get_weather", "arguments": '{"location": "Paris"}'},
-                    ),
-                },
-                {
-                    "chunk_type": "content_delta",
-                    "data_type": "tool",
-                    "data": ToolCall(
-                        id="tool123",
-                        type="function",
-                        function={"name": "get_weather", "arguments": '{"location": "Paris"}'},
-                    ),
-                },
-                {"chunk_type": "content_stop", "data_type": "tool"},
-                {"chunk_type": "message_stop", "data": "tool_calls"},
-            ]
+        request = {
+            "EndpointName": "test-endpoint",
+            "Body": "{}",
+            "ContentType": "application/json",
+            "Accept": "application/json",
+        }
 
-            request = {
-                "EndpointName": "test-endpoint",
-                "Body": "{}",
-                "ContentType": "application/json",
-                "Accept": "application/json",
-            }
+        response = [chunk async for chunk in model.stream(request)]
 
-            response = list(mock_stream(request))
+        # Verify the response contains tool call events
+        assert len(response) >= 4
+        assert response[0] == {"chunk_type": "message_start"}
+        assert response[-1] == {"chunk_type": "message_stop", "data": "tool_calls"}
 
-            # Verify the response contains tool call events
-            assert len(response) >= 5
-            assert response[0] == {"chunk_type": "message_start"}
-            assert response[1] == {"chunk_type": "content_start", "data_type": "text"}
-            assert response[2] == {"chunk_type": "content_stop", "data_type": "text"}
+        # Find tool call events
+        tool_start = next(
+            (e for e in response if e.get("chunk_type") == "content_start" and e.get("data_type") == "tool"), None
+        )
+        tool_delta = next(
+            (e for e in response if e.get("chunk_type") == "content_delta" and e.get("data_type") == "tool"), None
+        )
+        tool_stop = next(
+            (e for e in response if e.get("chunk_type") == "content_stop" and e.get("data_type") == "tool"), None
+        )
 
-            # Find tool call events
-            tool_start = next(
-                (e for e in response if e.get("chunk_type") == "content_start" and e.get("data_type") == "tool"), None
-            )
-            tool_delta = next(
-                (e for e in response if e.get("chunk_type") == "content_delta" and e.get("data_type") == "tool"), None
-            )
-            tool_stop = next(
-                (e for e in response if e.get("chunk_type") == "content_stop" and e.get("data_type") == "tool"), None
-            )
+        assert tool_start is not None
+        assert tool_delta is not None
+        assert tool_stop is not None
+        assert tool_delta["data"].id == "tool123"
+        assert tool_delta["data"].function.name == "get_weather"
+        assert tool_delta["data"].function.arguments == '{"location": "Paris"}'
 
-            assert tool_start is not None
-            assert tool_delta is not None
-            assert tool_stop is not None
-            assert tool_delta["data"].id == "tool123"
-            assert tool_delta["data"].function.name == "get_weather"
-            assert tool_delta["data"].function.arguments == '{"location": "Paris"}'
-
-    def test_stream_with_partial_json(self, sagemaker_client, model):
+    @pytest.mark.asyncio
+    async def test_stream_with_partial_json(self, sagemaker_client, model):
         """Test streaming response with partial JSON chunks."""
         # Mock the response from SageMaker with split JSON
         mock_response = {
@@ -394,7 +368,7 @@ class TestSageMakerAIModel:
             "Accept": "application/json",
         }
 
-        response = list(model.stream(request))
+        response = [chunk async for chunk in model.stream(request)]
 
         assert len(response) == 5
         assert response[0] == {"chunk_type": "message_start"}
@@ -407,7 +381,8 @@ class TestSageMakerAIModel:
         assert response[3] == {"chunk_type": "content_stop", "data_type": "text"}
         assert response[4] == {"chunk_type": "message_stop", "data": "stop"}
 
-    def test_stream_non_streaming(self, sagemaker_client, model):
+    @pytest.mark.asyncio
+    async def test_stream_non_streaming(self, sagemaker_client, model):
         """Test non-streaming response."""
         # Configure model for non-streaming
         model.config["stream"] = False
@@ -435,7 +410,7 @@ class TestSageMakerAIModel:
             "Accept": "application/json",
         }
 
-        response = list(model.stream(request))
+        response = [chunk async for chunk in model.stream(request)]
 
         assert len(response) >= 6
         assert response[0] == {"chunk_type": "message_start"}
@@ -448,7 +423,8 @@ class TestSageMakerAIModel:
 
         sagemaker_client.invoke_endpoint.assert_called_once_with(**request)
 
-    def test_stream_non_streaming_with_tool_calls(self, sagemaker_client, model):
+    @pytest.mark.asyncio
+    async def test_stream_non_streaming_with_tool_calls(self, sagemaker_client, model):
         """Test non-streaming response with tool calls."""
         # Configure model for non-streaming
         model.config["stream"] = False
@@ -485,7 +461,7 @@ class TestSageMakerAIModel:
             "Accept": "application/json",
         }
 
-        response = list(model.stream(request))
+        response = [chunk async for chunk in model.stream(request)]
 
         # Verify basic structure
         assert len(response) >= 7

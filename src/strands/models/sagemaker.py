@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, Iterable, Literal, Optional, TypedDict, cast, Union
+from typing import Any, AsyncGenerator, Literal, Optional, TypedDict, Union, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -52,8 +52,8 @@ class FunctionCall:
         Args:
             **kwargs: Keyword arguments for the function call.
         """
-        self.name = kwargs.get("name")
-        self.arguments = kwargs.get("arguments")
+        self.name = kwargs.get("name", "")
+        self.arguments = kwargs.get("arguments", "")
 
 
 @dataclass
@@ -76,9 +76,9 @@ class ToolCall:
         Args:
             **kwargs: Keyword arguments for the tool call.
         """
-        self.id = kwargs.get("id")
+        self.id = kwargs.get("id", "")
         self.type = "function"
-        self.function = FunctionCall(**kwargs.get("function"))
+        self.function = FunctionCall(**kwargs.get("function", {}))
 
 
 class SageMakerAIModel(OpenAIModel):
@@ -114,9 +114,7 @@ class SageMakerAIModel(OpenAIModel):
             boto_session: Boto Session to use when calling the SageMaker Runtime.
             boto_client_config: Configuration to use when creating the SageMaker-Runtime Boto Client.
         """
-        if model_config.get("stream", "") == "":
-            model_config["stream"] = True
-
+        model_config.setdefault("stream", True)
         self.config = dict(model_config)
         logger.debug("config=<%s> | initializing", self.config)
 
@@ -129,10 +127,7 @@ class SageMakerAIModel(OpenAIModel):
             existing_user_agent = getattr(boto_client_config, "user_agent_extra", None)
 
             # Append 'strands-agents' to existing user_agent_extra or set it if not present
-            if existing_user_agent:
-                new_user_agent = f"{existing_user_agent} strands-agents"
-            else:
-                new_user_agent = "strands-agents"
+            new_user_agent = f"{existing_user_agent} strands-agents" if existing_user_agent else "strands-agents"
 
             client_config = boto_client_config.merge(BotocoreConfig(user_agent_extra=new_user_agent))
         else:
@@ -191,11 +186,14 @@ class SageMakerAIModel(OpenAIModel):
             # Add all key-values from the model config to the payload except endpoint_name and inference_component_name
             **{k: v for k, v in self.config.items() if k not in ["endpoint_name", "inference_component_name"]},
         }
-        
+
         # Remove tools and tool_choice if tools = []
-        if payload["tools"] == []:
+        if not payload["tools"]:
             payload.pop("tools")
             payload.pop("tool_choice", None)
+        else:
+            # Ensure the model can use tools when available
+            payload["tool_choice"] = "auto"
 
         # TODO: this should be a @override of format_request_message
         for message in payload["messages"]:
@@ -206,7 +204,7 @@ class SageMakerAIModel(OpenAIModel):
             elif message.get("role", "") == "tool":
                 logger.debug("message content:<%s> | streaming message content", message["content"])
                 logger.debug("message content type:<%s> | streaming message content type", type(message["content"]))
-                if type(message["content"]) == str:
+                if isinstance(message["content"], str):
                     message["content"] = json.loads(message["content"])["content"]
                 message["content"] = message["content"][0]["text"]
 
@@ -225,7 +223,7 @@ class SageMakerAIModel(OpenAIModel):
         return request
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Send the request to the Amazon SageMaker AI model and get the streaming response.
 
         This method calls the Amazon SageMaker AI chat API and returns the stream of response events.
@@ -242,12 +240,13 @@ class SageMakerAIModel(OpenAIModel):
             # Message start
             yield {"chunk_type": "message_start"}
 
-            yield {"chunk_type": "content_start", "data_type": "text"}
-
             # Parse the content
             finish_reason = ""
             partial_content = ""
             tool_calls: dict[int, list[Any]] = {}
+            has_text_content = False
+            text_content_started = False
+
             for event in response["Body"]:
                 chunk = event["PayloadPart"]["Bytes"].decode("utf-8")
                 partial_content += chunk  # Some messages are randomly split and not JSON decodable- not sure why
@@ -256,11 +255,18 @@ class SageMakerAIModel(OpenAIModel):
                     partial_content = ""
                     choice = content["choices"][0]
 
-                    # Start yielding message chunks
+                    # Handle text content
                     if choice["delta"].get("content", None):
+                        if not text_content_started:
+                            yield {"chunk_type": "content_start", "data_type": "text"}
+                            text_content_started = True
+                        has_text_content = True
                         yield {"chunk_type": "content_delta", "data_type": "text", "data": choice["delta"]["content"]}
+
+                    # Handle tool calls
                     for tool_call in choice["delta"].get("tool_calls", []):
                         tool_calls.setdefault(tool_call["index"], []).append(tool_call)
+
                     if choice["finish_reason"] is not None:
                         finish_reason = choice["finish_reason"]
                         break
@@ -269,7 +275,9 @@ class SageMakerAIModel(OpenAIModel):
                     # Continue accumulating content until we have valid JSON
                     continue
 
-            yield {"chunk_type": "content_stop", "data_type": "text"}
+            # Close text content if it was started
+            if text_content_started:
+                yield {"chunk_type": "content_stop", "data_type": "text"}
 
             # Handle tool calling
             for tool_deltas in tool_calls.values():
@@ -277,6 +285,11 @@ class SageMakerAIModel(OpenAIModel):
                 for tool_delta in tool_deltas:
                     yield {"chunk_type": "content_delta", "data_type": "tool", "data": ToolCall(**tool_delta)}
                 yield {"chunk_type": "content_stop", "data_type": "tool"}
+
+            # If no content was generated at all, ensure we have empty text content
+            if not has_text_content and not tool_calls:
+                yield {"chunk_type": "content_start", "data_type": "text"}
+                yield {"chunk_type": "content_stop", "data_type": "text"}
 
             # Message close
             yield {"chunk_type": "message_stop", "data": finish_reason}
