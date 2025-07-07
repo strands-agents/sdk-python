@@ -254,7 +254,7 @@ async def recurse_event_loop(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGen
     recursive_trace.end()
 
 
-def run_tool(agent: Agent, tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolGenerator:
+def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolGenerator:
     """Process a tool invocation.
 
     Looks up the tool in the registry and streams it with the provided parameters.

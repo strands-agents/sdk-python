@@ -726,8 +726,8 @@ async def test_prepare_next_cycle_in_tool_execution(agent, model, tool_stream, a
 
 def test_run_tool(agent, tool, generate):
     process = run_tool(
-        agent=agent,
-        tool={"toolUseId": "tool_use_id", "name": tool.tool_name, "input": {"random_string": "a_string"}},
+        agent,
+        tool_use={"toolUseId": "tool_use_id", "name": tool.tool_name, "input": {"random_string": "a_string"}},
         kwargs={},
     )
 
@@ -739,8 +739,8 @@ def test_run_tool(agent, tool, generate):
 
 def test_run_tool_missing_tool(agent, generate):
     process = run_tool(
-        agent=agent,
-        tool={"toolUseId": "missing", "name": "missing", "input": {}},
+        agent,
+        tool_use={"toolUseId": "missing", "name": "missing", "input": {}},
         kwargs={},
     )
 
