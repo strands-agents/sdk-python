@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, AsyncGenerator, AsyncIterable, Optional
 
 from ..types.content import ContentBlock, Message, Messages
 from ..types.models import Model
@@ -80,7 +80,7 @@ def handle_message_start(event: MessageStartEvent, message: Message) -> Message:
     return message
 
 
-def handle_content_block_start(event: ContentBlockStartEvent) -> Dict[str, Any]:
+def handle_content_block_start(event: ContentBlockStartEvent) -> dict[str, Any]:
     """Handles the start of a content block by extracting tool usage information if any.
 
     Args:
@@ -102,31 +102,31 @@ def handle_content_block_start(event: ContentBlockStartEvent) -> Dict[str, Any]:
 
 
 def handle_content_block_delta(
-    event: ContentBlockDeltaEvent, state: Dict[str, Any], callback_handler: Any, **kwargs: Any
-) -> Dict[str, Any]:
+    event: ContentBlockDeltaEvent, state: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Handles content block delta updates by appending text, tool input, or reasoning content to the state.
 
     Args:
         event: Delta event.
         state: The current state of message processing.
-        callback_handler: Callback for processing events as they happen.
-        **kwargs: Additional keyword arguments to pass to the callback handler.
 
     Returns:
         Updated state with appended text or tool input.
     """
     delta_content = event["delta"]
 
+    callback_event = {}
+
     if "toolUse" in delta_content:
         if "input" not in state["current_tool_use"]:
             state["current_tool_use"]["input"] = ""
 
         state["current_tool_use"]["input"] += delta_content["toolUse"]["input"]
-        callback_handler(delta=delta_content, current_tool_use=state["current_tool_use"], **kwargs)
+        callback_event["callback"] = {"delta": delta_content, "current_tool_use": state["current_tool_use"]}
 
     elif "text" in delta_content:
         state["text"] += delta_content["text"]
-        callback_handler(data=delta_content["text"], delta=delta_content, **kwargs)
+        callback_event["callback"] = {"data": delta_content["text"], "delta": delta_content}
 
     elif "reasoningContent" in delta_content:
         if "text" in delta_content["reasoningContent"]:
@@ -134,29 +134,27 @@ def handle_content_block_delta(
                 state["reasoningText"] = ""
 
             state["reasoningText"] += delta_content["reasoningContent"]["text"]
-            callback_handler(
-                reasoningText=delta_content["reasoningContent"]["text"],
-                delta=delta_content,
-                reasoning=True,
-                **kwargs,
-            )
+            callback_event["callback"] = {
+                "reasoningText": delta_content["reasoningContent"]["text"],
+                "delta": delta_content,
+                "reasoning": True,
+            }
 
         elif "signature" in delta_content["reasoningContent"]:
             if "signature" not in state:
                 state["signature"] = ""
 
             state["signature"] += delta_content["reasoningContent"]["signature"]
-            callback_handler(
-                reasoning_signature=delta_content["reasoningContent"]["signature"],
-                delta=delta_content,
-                reasoning=True,
-                **kwargs,
-            )
+            callback_event["callback"] = {
+                "reasoning_signature": delta_content["reasoningContent"]["signature"],
+                "delta": delta_content,
+                "reasoning": True,
+            }
 
-    return state
+    return state, callback_event
 
 
-def handle_content_block_stop(state: Dict[str, Any]) -> Dict[str, Any]:
+def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
     """Handles the end of a content block by finalizing tool usage, text content, or reasoning content.
 
     Args:
@@ -165,7 +163,7 @@ def handle_content_block_stop(state: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Updated state with finalized content block.
     """
-    content: List[ContentBlock] = state["content"]
+    content: list[ContentBlock] = state["content"]
 
     current_tool_use = state["current_tool_use"]
     text = state["text"]
@@ -223,7 +221,7 @@ def handle_message_stop(event: MessageStopEvent) -> StopReason:
     return event["stopReason"]
 
 
-def handle_redact_content(event: RedactContentEvent, messages: Messages, state: Dict[str, Any]) -> None:
+def handle_redact_content(event: RedactContentEvent, messages: Messages, state: dict[str, Any]) -> None:
     """Handles redacting content from the input or output.
 
     Args:
@@ -238,7 +236,7 @@ def handle_redact_content(event: RedactContentEvent, messages: Messages, state: 
         state["message"]["content"] = [{"text": event["redactAssistantContentMessage"]}]
 
 
-def extract_usage_metrics(event: MetadataEvent) -> Tuple[Usage, Metrics]:
+def extract_usage_metrics(event: MetadataEvent) -> tuple[Usage, Metrics]:
     """Extracts usage metrics from the metadata chunk.
 
     Args:
@@ -253,27 +251,22 @@ def extract_usage_metrics(event: MetadataEvent) -> Tuple[Usage, Metrics]:
     return usage, metrics
 
 
-def process_stream(
-    chunks: Iterable[StreamEvent],
-    callback_handler: Any,
+async def process_stream(
+    chunks: AsyncIterable[StreamEvent],
     messages: Messages,
-    **kwargs: Any,
-) -> Tuple[StopReason, Message, Usage, Metrics, Any]:
+) -> AsyncGenerator[dict[str, Any], None]:
     """Processes the response stream from the API, constructing the final message and extracting usage metrics.
 
     Args:
         chunks: The chunks of the response stream from the model.
-        callback_handler: Callback for processing events as they happen.
         messages: The agents messages.
-        **kwargs: Additional keyword arguments that will be passed to the callback handler.
-            And also returned in the request_state.
 
     Returns:
-        The reason for stopping, the constructed message, the usage metrics, and the updated request state.
+        The reason for stopping, the constructed message, and the usage metrics.
     """
     stop_reason: StopReason = "end_turn"
 
-    state: Dict[str, Any] = {
+    state: dict[str, Any] = {
         "message": {"role": "assistant", "content": []},
         "text": "",
         "current_tool_use": {},
@@ -285,18 +278,16 @@ def process_stream(
     usage: Usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
     metrics: Metrics = Metrics(latencyMs=0)
 
-    kwargs.setdefault("request_state", {})
-
-    for chunk in chunks:
-        # Callback handler call here allows each event to be visible to the caller
-        callback_handler(event=chunk)
+    async for chunk in chunks:
+        yield {"callback": {"event": chunk}}
 
         if "messageStart" in chunk:
             state["message"] = handle_message_start(chunk["messageStart"], state["message"])
         elif "contentBlockStart" in chunk:
             state["current_tool_use"] = handle_content_block_start(chunk["contentBlockStart"])
         elif "contentBlockDelta" in chunk:
-            state = handle_content_block_delta(chunk["contentBlockDelta"], state, callback_handler, **kwargs)
+            state, callback_event = handle_content_block_delta(chunk["contentBlockDelta"], state)
+            yield callback_event
         elif "contentBlockStop" in chunk:
             state = handle_content_block_stop(state)
         elif "messageStop" in chunk:
@@ -306,17 +297,15 @@ def process_stream(
         elif "redactContent" in chunk:
             handle_redact_content(chunk["redactContent"], messages, state)
 
-    return stop_reason, state["message"], usage, metrics, kwargs["request_state"]
+    yield {"stop": (stop_reason, state["message"], usage, metrics)}
 
 
-def stream_messages(
+async def stream_messages(
     model: Model,
     system_prompt: Optional[str],
     messages: Messages,
     tool_config: Optional[ToolConfig],
-    callback_handler: Any,
-    **kwargs: Any,
-) -> Tuple[StopReason, Message, Usage, Metrics, Any]:
+) -> AsyncGenerator[dict[str, Any], None]:
     """Streams messages to the model and processes the response.
 
     Args:
@@ -324,12 +313,9 @@ def stream_messages(
         system_prompt: The system prompt to send.
         messages: List of messages to send.
         tool_config: Configuration for the tools to use.
-        callback_handler: Callback for processing events as they happen.
-        **kwargs: Additional keyword arguments that will be passed to the callback handler.
-            And also returned in the request_state.
 
     Returns:
-        The reason for stopping, the final message, the usage metrics, and updated request state.
+        The reason for stopping, the final message, and the usage metrics
     """
     logger.debug("model=<%s> | streaming messages", model)
 
@@ -337,4 +323,5 @@ def stream_messages(
     tool_specs = [tool["toolSpec"] for tool in tool_config.get("tools", [])] or None if tool_config else None
 
     chunks = model.converse(messages, tool_specs, system_prompt)
-    return process_stream(chunks, callback_handler, messages, **kwargs)
+    async for event in process_stream(chunks, messages):
+        yield event

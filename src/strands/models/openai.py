@@ -4,14 +4,19 @@
 """
 
 import logging
-from typing import Any, Iterable, Optional, Protocol, TypedDict, cast
+from typing import Any, AsyncGenerator, Optional, Protocol, Type, TypedDict, TypeVar, Union, cast
 
 import openai
+from openai.types.chat.parsed_chat_completion import ParsedChatCompletion
+from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
+from ..types.content import Messages
 from ..types.models import OpenAIModel as SAOpenAIModel
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class Client(Protocol):
@@ -77,7 +82,7 @@ class OpenAIModel(SAOpenAIModel):
         return cast(OpenAIModel.OpenAIConfig, self.config)
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Send the request to the OpenAI model and get the streaming response.
 
         Args:
@@ -102,6 +107,13 @@ class OpenAIModel(SAOpenAIModel):
             if choice.delta.content:
                 yield {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
 
+            if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
+                yield {
+                    "chunk_type": "content_delta",
+                    "data_type": "reasoning_content",
+                    "data": choice.delta.reasoning_content,
+                }
+
             for tool_call in choice.delta.tool_calls or []:
                 tool_calls.setdefault(tool_call.index, []).append(tool_call)
 
@@ -125,3 +137,37 @@ class OpenAIModel(SAOpenAIModel):
             _ = event
 
         yield {"chunk_type": "metadata", "data": event.usage}
+
+    @override
+    async def structured_output(
+        self, output_model: Type[T], prompt: Messages
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        """Get structured output from the model.
+
+        Args:
+            output_model: The output model to use for the agent.
+            prompt: The prompt messages to use for the agent.
+
+        Yields:
+            Model events with the last being the structured output.
+        """
+        response: ParsedChatCompletion = self.client.beta.chat.completions.parse(  # type: ignore
+            model=self.get_config()["model_id"],
+            messages=super().format_request(prompt)["messages"],
+            response_format=output_model,
+        )
+
+        parsed: T | None = None
+        # Find the first choice with tool_calls
+        if len(response.choices) > 1:
+            raise ValueError("Multiple choices found in the OpenAI response.")
+
+        for choice in response.choices:
+            if isinstance(choice.message.parsed, output_model):
+                parsed = choice.message.parsed
+                break
+
+        if parsed:
+            yield {"output": parsed}
+        else:
+            raise ValueError("No valid tool use or tool use input was found in the OpenAI response.")

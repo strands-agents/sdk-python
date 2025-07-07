@@ -1,4 +1,5 @@
 import pytest
+from pydantic import BaseModel
 
 import strands
 from strands import Agent
@@ -50,12 +51,13 @@ def test_non_streaming_agent(non_streaming_agent):
     assert len(str(result)) > 0
 
 
-def test_streaming_model_events(streaming_model):
+@pytest.mark.asyncio
+async def test_streaming_model_events(streaming_model, alist):
     """Test streaming model events."""
     messages = [{"role": "user", "content": [{"text": "Hello"}]}]
 
     # Call converse and collect events
-    events = list(streaming_model.converse(messages))
+    events = await alist(streaming_model.converse(messages))
 
     # Verify basic structure of events
     assert any("messageStart" in event for event in events)
@@ -63,12 +65,13 @@ def test_streaming_model_events(streaming_model):
     assert any("messageStop" in event for event in events)
 
 
-def test_non_streaming_model_events(non_streaming_model):
+@pytest.mark.asyncio
+async def test_non_streaming_model_events(non_streaming_model, alist):
     """Test non-streaming model events."""
     messages = [{"role": "user", "content": [{"text": "Hello"}]}]
 
     # Call converse and collect events
-    events = list(non_streaming_model.converse(messages))
+    events = await alist(non_streaming_model.converse(messages))
 
     # Verify basic structure of events
     assert any("messageStart" in event for event in events)
@@ -118,3 +121,33 @@ def test_tool_use_non_streaming(non_streaming_model):
     agent("What is 123 + 456?")
 
     assert tool_was_called
+
+
+def test_structured_output_streaming(streaming_model):
+    """Test structured output with streaming model."""
+
+    class Weather(BaseModel):
+        time: str
+        weather: str
+
+    agent = Agent(model=streaming_model)
+
+    result = agent.structured_output(Weather, "The time is 12:00 and the weather is sunny")
+    assert isinstance(result, Weather)
+    assert result.time == "12:00"
+    assert result.weather == "sunny"
+
+
+def test_structured_output_non_streaming(non_streaming_model):
+    """Test structured output with non-streaming model."""
+
+    class Weather(BaseModel):
+        time: str
+        weather: str
+
+    agent = Agent(model=non_streaming_model)
+
+    result = agent.structured_output(Weather, "The time is 12:00 and the weather is sunny")
+    assert isinstance(result, Weather)
+    assert result.time == "12:00"
+    assert result.weather == "sunny"

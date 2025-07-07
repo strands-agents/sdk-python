@@ -1,6 +1,7 @@
 import json
 import unittest.mock
 
+import pydantic
 import pytest
 
 import strands
@@ -39,6 +40,15 @@ def messages():
 @pytest.fixture
 def system_prompt():
     return "s1"
+
+
+@pytest.fixture
+def test_output_model_cls():
+    class TestOutputModel(pydantic.BaseModel):
+        name: str
+        age: int
+
+    return TestOutputModel
 
 
 def test__init__model_configs(ollama_client, model_id, host):
@@ -405,7 +415,8 @@ def test_format_chunk_other(model):
         model.format_chunk(event)
 
 
-def test_stream(ollama_client, model):
+@pytest.mark.asyncio
+async def test_stream(ollama_client, model, alist):
     mock_event = unittest.mock.Mock()
     mock_event.message.tool_calls = None
     mock_event.message.content = "Hello"
@@ -416,7 +427,7 @@ def test_stream(ollama_client, model):
     request = {"model": "m1", "messages": [{"role": "user", "content": "Hello"}]}
     response = model.stream(request)
 
-    tru_events = list(response)
+    tru_events = await alist(response)
     exp_events = [
         {"chunk_type": "message_start"},
         {"chunk_type": "content_start", "data_type": "text"},
@@ -430,7 +441,8 @@ def test_stream(ollama_client, model):
     ollama_client.chat.assert_called_once_with(**request)
 
 
-def test_stream_with_tool_calls(ollama_client, model):
+@pytest.mark.asyncio
+async def test_stream_with_tool_calls(ollama_client, model, alist):
     mock_event = unittest.mock.Mock()
     mock_tool_call = unittest.mock.Mock()
     mock_event.message.tool_calls = [mock_tool_call]
@@ -442,7 +454,7 @@ def test_stream_with_tool_calls(ollama_client, model):
     request = {"model": "m1", "messages": [{"role": "user", "content": "Calculate 2+2"}]}
     response = model.stream(request)
 
-    tru_events = list(response)
+    tru_events = await alist(response)
     exp_events = [
         {"chunk_type": "message_start"},
         {"chunk_type": "content_start", "data_type": "text"},
@@ -457,3 +469,20 @@ def test_stream_with_tool_calls(ollama_client, model):
 
     assert tru_events == exp_events
     ollama_client.chat.assert_called_once_with(**request)
+
+
+@pytest.mark.asyncio
+async def test_structured_output(ollama_client, model, test_output_model_cls, alist):
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+
+    mock_response = unittest.mock.Mock()
+    mock_response.message.content = '{"name": "John", "age": 30}'
+
+    ollama_client.chat.return_value = mock_response
+
+    stream = model.structured_output(test_output_model_cls, messages)
+    events = await alist(stream)
+
+    tru_result = events[-1]
+    exp_result = {"output": test_output_model_cls(name="John", age=30)}
+    assert tru_result == exp_result

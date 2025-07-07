@@ -68,3 +68,42 @@ def boto3_profile_path(boto3_profile, tmp_path, monkeypatch):
     monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", str(path))
 
     return path
+
+
+## Async
+
+
+@pytest.fixture(scope="session")
+def agenerator():
+    async def agenerator(items):
+        for item in items:
+            yield item
+
+    return agenerator
+
+
+@pytest.fixture(scope="session")
+def alist():
+    async def alist(items):
+        return [item async for item in items]
+
+    return alist
+
+
+## Itertools
+
+
+@pytest.fixture(scope="session")
+def generate():
+    def generate(generator):
+        events = []
+
+        try:
+            while True:
+                event = next(generator)
+                events.append(event)
+
+        except StopIteration as stop:
+            return events, stop.value
+
+    return generate

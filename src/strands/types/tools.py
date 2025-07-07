@@ -6,7 +6,7 @@ These types are modeled after the Bedrock API.
 """
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Generator, Literal, Optional, Union
 
 from typing_extensions import TypedDict
 
@@ -90,7 +90,7 @@ class ToolResult(TypedDict):
         toolUseId: The unique identifier of the tool use request that produced this result.
     """
 
-    content: List[ToolResultContent]
+    content: list[ToolResultContent]
     status: ToolResultStatus
     toolUseId: str
 
@@ -122,9 +122,9 @@ class ToolChoiceTool(TypedDict):
 
 
 ToolChoice = Union[
-    Dict[Literal["auto"], ToolChoiceAuto],
-    Dict[Literal["any"], ToolChoiceAny],
-    Dict[Literal["tool"], ToolChoiceTool],
+    dict[Literal["auto"], ToolChoiceAuto],
+    dict[Literal["any"], ToolChoiceAny],
+    dict[Literal["tool"], ToolChoiceTool],
 ]
 """
 Configuration for how the model should choose tools.
@@ -135,6 +135,10 @@ Configuration for how the model should choose tools.
 """
 
 
+ToolGenerator = Generator[dict[str, Any], None, ToolResult]
+"""Generator of tool events and a returned tool result."""
+
+
 class ToolConfig(TypedDict):
     """Configuration for tools in a model request.
 
@@ -143,7 +147,7 @@ class ToolConfig(TypedDict):
         toolChoice: Configuration for how the model should choose tools.
     """
 
-    tools: List[Tool]
+    tools: list[Tool]
     toolChoice: ToolChoice
 
 
@@ -241,38 +245,16 @@ class ToolHandler(ABC):
     """Abstract base class for handling tool execution within the agent framework."""
 
     @abstractmethod
-    # pragma: no cover
-    def preprocess(
-        self,
-        tool: ToolUse,
-        tool_config: ToolConfig,
-        **kwargs: Any,
-    ) -> Optional[ToolResult]:
-        """Preprocess a tool use request before execution.
-
-        Args:
-            tool: The tool use request to preprocess.
-            tool_config: The tool configuration for the current session.
-            **kwargs: Additional context-specific arguments.
-
-        Returns:
-            A preprocessed tool result object.
-        """
-        ...
-
-    @abstractmethod
-    # pragma: no cover
     def process(
         self,
         tool: ToolUse,
         *,
-        messages: "Messages",
         model: "Model",
         system_prompt: Optional[str],
+        messages: "Messages",
         tool_config: ToolConfig,
-        callback_handler: Any,
-        **kwargs: Any,
-    ) -> ToolResult:
+        kwargs: dict[str, Any],
+    ) -> ToolGenerator:
         """Process a tool use request and execute the tool.
 
         Args:
@@ -281,10 +263,12 @@ class ToolHandler(ABC):
             model: The model being used for the conversation.
             system_prompt: The system prompt for the conversation.
             tool_config: The tool configuration for the current session.
-            callback_handler: Callback for processing events as they happen.
-            **kwargs: Additional context-specific arguments.
+            kwargs: Additional context-specific arguments.
+
+        Yields:
+            Events of the tool invocation.
 
         Returns:
-            The result of the tool execution.
+            The final tool result.
         """
         ...

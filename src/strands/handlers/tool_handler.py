@@ -1,11 +1,12 @@
 """This module provides handlers for managing tool invocations."""
 
 import logging
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 from ..tools.registry import ToolRegistry
+from ..types.content import Messages
 from ..types.models import Model
-from ..types.tools import ToolConfig, ToolHandler, ToolResult, ToolUse
+from ..types.tools import ToolConfig, ToolGenerator, ToolHandler, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -25,35 +26,16 @@ class AgentToolHandler(ToolHandler):
         """
         self.tool_registry = tool_registry
 
-    def preprocess(
-        self,
-        tool: ToolUse,
-        tool_config: ToolConfig,
-        **kwargs: Any,
-    ) -> Optional[ToolResult]:
-        """Preprocess a tool before invocation (not implemented).
-
-        Args:
-            tool: The tool use object to preprocess.
-            tool_config: Configuration for the tool.
-            **kwargs: Additional keyword arguments.
-
-        Returns:
-            Result of preprocessing, if any.
-        """
-        pass
-
     def process(
         self,
-        tool: Any,
+        tool: ToolUse,
         *,
         model: Model,
         system_prompt: Optional[str],
-        messages: List[Any],
-        tool_config: Any,
-        callback_handler: Any,
-        **kwargs: Any,
-    ) -> Any:
+        messages: Messages,
+        tool_config: ToolConfig,
+        kwargs: dict[str, Any],
+    ) -> ToolGenerator:
         """Process a tool invocation.
 
         Looks up the tool in the registry and invokes it with the provided parameters.
@@ -64,11 +46,13 @@ class AgentToolHandler(ToolHandler):
             system_prompt: The system prompt for the agent.
             messages: The conversation history.
             tool_config: Configuration for the tool.
-            callback_handler: Callback for processing events as they happen.
-            **kwargs: Additional keyword arguments passed to the tool.
+            kwargs: Additional keyword arguments passed to the tool.
+
+        Yields:
+            Events of the tool invocation.
 
         Returns:
-            The result of the tool invocation, or an error response if the tool fails or is not found.
+            The final tool result or an error response if the tool fails or is not found.
         """
         logger.debug("tool=<%s> | invoking", tool)
         tool_use_id = tool["toolUseId"]
@@ -98,11 +82,12 @@ class AgentToolHandler(ToolHandler):
                     "system_prompt": system_prompt,
                     "messages": messages,
                     "tool_config": tool_config,
-                    "callback_handler": callback_handler,
                 }
             )
 
-            return tool_func.invoke(tool, **kwargs)
+            result = tool_func.invoke(tool, **kwargs)
+            yield {"result": result}  # Placeholder until tool_func becomes a generator from which we can yield from
+            return result
 
         except Exception as e:
             logger.exception("tool_name=<%s> | failed to process tool", tool_name)
