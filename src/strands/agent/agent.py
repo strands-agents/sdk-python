@@ -20,10 +20,9 @@ from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Option
 from opentelemetry import trace
 from pydantic import BaseModel
 
-from ..event_loop.event_loop import event_loop_cycle
+from ..event_loop.event_loop import event_loop_cycle, run_tool
 from ..experimental.hooks import AgentInitializedEvent, EndRequestEvent, HookRegistry, StartRequestEvent
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
-from ..handlers.tool_handler import AgentToolHandler
 from ..models.bedrock import BedrockModel
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer
@@ -130,14 +129,7 @@ class Agent:
                 }
 
                 # Execute the tool
-                events = self._agent.tool_handler.process(
-                    tool_use,
-                    model=self._agent.model,
-                    system_prompt=self._agent.system_prompt,
-                    messages=self._agent.messages,
-                    tool_config=self._agent.tool_config,
-                    kwargs=kwargs,
-                )
+                events = run_tool(self._agent, tool_use, kwargs)
 
                 try:
                     while True:
@@ -283,7 +275,6 @@ class Agent:
         self.load_tools_from_directory = load_tools_from_directory
 
         self.tool_registry = ToolRegistry()
-        self.tool_handler = AgentToolHandler(tool_registry=self.tool_registry)
 
         # Process tool list if provided
         if tools is not None:
@@ -563,14 +554,7 @@ class Agent:
         try:
             # Execute the main event loop cycle
             events = event_loop_cycle(
-                model=self.model,
-                system_prompt=self.system_prompt,
-                messages=self.messages,  # will be modified by event_loop_cycle
-                tool_config=self.tool_config,
-                tool_handler=self.tool_handler,
-                thread_pool=self.thread_pool,
-                event_loop_metrics=self.event_loop_metrics,
-                event_loop_parent_span=self.trace_span,
+                agent=self,
                 kwargs=kwargs,
             )
             async for event in events:

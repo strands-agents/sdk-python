@@ -5,7 +5,7 @@ import queue
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Generator, Optional, cast
+from typing import Any, Generator, Optional, cast
 
 from opentelemetry import trace
 
@@ -13,13 +13,13 @@ from ..telemetry.metrics import EventLoopMetrics, Trace
 from ..telemetry.tracer import get_tracer
 from ..tools.tools import InvalidToolUseNameException, validate_tool_use
 from ..types.content import Message
-from ..types.tools import ToolGenerator, ToolResult, ToolUse
+from ..types.tools import RunToolHandler, ToolGenerator, ToolResult, ToolUse
 
 logger = logging.getLogger(__name__)
 
 
 def run_tools(
-    handler: Callable[[ToolUse], Generator[dict[str, Any], None, ToolResult]],
+    handler: RunToolHandler,
     tool_uses: list[ToolUse],
     event_loop_metrics: EventLoopMetrics,
     invalid_tool_use_ids: list[str],
@@ -101,6 +101,8 @@ def run_tools(
                 worker_id, event = worker_queue.get()
                 yield event
                 worker_events[worker_id].set()
+
+            time.sleep(0.001)
 
         tool_results.extend([worker.result() for worker in workers])
 

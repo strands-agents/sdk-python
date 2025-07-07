@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
-from .openai import OpenAIModel
+from ..types.models.openai import OpenAIModel
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +102,63 @@ class LiteLLMModel(OpenAIModel):
             }
 
         return super().format_request_message_content(content)
+
+    @override
+    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
+        """Send the request to the LiteLLM model and get the streaming response.
+
+        Args:
+            request: The formatted request to send to the LiteLLM model.
+
+        Returns:
+            An iterable of response events from the LiteLLM model.
+        """
+        response = self.client.chat.completions.create(**request)
+
+        yield {"chunk_type": "message_start"}
+        yield {"chunk_type": "content_start", "data_type": "text"}
+
+        tool_calls: dict[int, list[Any]] = {}
+
+        for event in response:
+            # Defensive: skip events with empty or missing choices
+            if not getattr(event, "choices", None):
+                continue
+            choice = event.choices[0]
+
+            if choice.delta.content:
+                yield {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
+
+            if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
+                yield {
+                    "chunk_type": "content_delta",
+                    "data_type": "reasoning_content",
+                    "data": choice.delta.reasoning_content,
+                }
+
+            for tool_call in choice.delta.tool_calls or []:
+                tool_calls.setdefault(tool_call.index, []).append(tool_call)
+
+            if choice.finish_reason:
+                break
+
+        yield {"chunk_type": "content_stop", "data_type": "text"}
+
+        for tool_deltas in tool_calls.values():
+            yield {"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]}
+
+            for tool_delta in tool_deltas:
+                yield {"chunk_type": "content_delta", "data_type": "tool", "data": tool_delta}
+
+            yield {"chunk_type": "content_stop", "data_type": "tool"}
+
+        yield {"chunk_type": "message_stop", "data": choice.finish_reason}
+
+        # Skip remaining events as we don't have use for anything except the final usage payload
+        for event in response:
+            _ = event
+
+        yield {"chunk_type": "metadata", "data": event.usage}
 
     @override
     async def structured_output(
