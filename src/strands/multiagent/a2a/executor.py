@@ -104,7 +104,7 @@ class StrandsA2AExecutor(AgentExecutor):
             context: The A2A request context, containing the user's input and other metadata.
             updater: The task updater for managing task state and sending the final result.
         """
-        logger.info("Executing request in non-streaming mode")
+        logger.info("Executing request in synchronous mode")
         user_input = context.get_user_input()
         try:
             await updater.update_status(TaskState.working)
@@ -179,7 +179,7 @@ class StrandsA2AExecutor(AgentExecutor):
         always raises an UnsupportedOperationError.
 
         Args:
-            context: The A2A request context for.
+            context: The A2A request context.
             event_queue: The A2A event queue.
 
         Raises:
