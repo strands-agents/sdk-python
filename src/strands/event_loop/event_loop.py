@@ -265,7 +265,7 @@ def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolG
         kwargs: Additional keyword arguments passed to the tool.
 
     Yields:
-        Events of the tool invocation.
+        Events of the tool stream.
 
     Returns:
         The final tool result or an error response if the tool fails or is not found.

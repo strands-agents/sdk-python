@@ -2,7 +2,6 @@
 
 Examples include:
 
-- Processing tool invocations
 - Displaying events from the event stream
 """
 
