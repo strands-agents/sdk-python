@@ -9,12 +9,11 @@ from strands.models.sagemaker import SageMakerAIModel
 
 @pytest.fixture
 def model():
-    model_config = SageMakerAIModel.SageMakerAIModelConfig(
-        endpoint_name=os.getenv("SAGEMAKER_ENDPOINT_NAME", "mistral-small-2501-sm-js"),
-        max_tokens=1024,
-        temperature=0.7,
+    endpoint_config = SageMakerAIModel.SageMakerAIEndpointConfig(
+        endpoint_name=os.getenv("SAGEMAKER_ENDPOINT_NAME", "mistral-small-2501-sm-js"), region_name="us-east-1"
     )
-    return SageMakerAIModel(model_config=model_config)
+    payload_config = SageMakerAIModel.SageMakerAIPayloadSchema(max_tokens=1024, temperature=0.7, stream=False)
+    return SageMakerAIModel(endpoint_config=endpoint_config, payload_config=payload_config)
 
 
 @pytest.fixture

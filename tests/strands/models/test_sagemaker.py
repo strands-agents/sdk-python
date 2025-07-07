@@ -32,22 +32,30 @@ def sagemaker_client(boto_session):
 
 
 @pytest.fixture
-def model_config() -> Dict[str, Any]:
-    """Default model configuration for tests."""
+def endpoint_config() -> Dict[str, Any]:
+    """Default endpoint configuration for tests."""
     return {
         "endpoint_name": "test-endpoint",
         "inference_component_name": "test-component",
-        "stream": True,
-        "max_tokens": 1024,
-        "temperature": 0.7,
+        "region_name": "us-east-1",
         "additional_args": {"top_p": 0.9},
     }
 
 
 @pytest.fixture
-def model(boto_session, model_config):
+def payload_config() -> Dict[str, Any]:
+    """Default payload configuration for tests."""
+    return {
+        "max_tokens": 1024,
+        "temperature": 0.7,
+        "stream": True,
+    }
+
+
+@pytest.fixture
+def model(boto_session, endpoint_config, payload_config):
     """SageMaker model instance with mocked boto session."""
-    return SageMakerAIModel(model_config=model_config, boto_session=boto_session)
+    return SageMakerAIModel(endpoint_config=endpoint_config, payload_config=payload_config, boto_session=boto_session)
 
 
 @pytest.fixture
@@ -85,11 +93,14 @@ class TestSageMakerAIModel:
 
     def test_init_default(self, boto_session):
         """Test initialization with default parameters."""
-        model_config = {"endpoint_name": "test-endpoint"}
-        model = SageMakerAIModel(model_config=model_config, boto_session=boto_session)
+        endpoint_config = {"endpoint_name": "test-endpoint", "region_name": "us-east-1"}
+        payload_config = {"max_tokens": 1024}
+        model = SageMakerAIModel(
+            endpoint_config=endpoint_config, payload_config=payload_config, boto_session=boto_session
+        )
 
-        assert model.config["endpoint_name"] == "test-endpoint"
-        assert model.config.get("stream", True) is True
+        assert model.endpoint_config["endpoint_name"] == "test-endpoint"
+        assert model.payload_config.get("stream", True) is True
 
         boto_session.client.assert_called_once_with(
             service_name="sagemaker-runtime",
@@ -98,28 +109,30 @@ class TestSageMakerAIModel:
 
     def test_init_with_all_params(self, boto_session):
         """Test initialization with all parameters."""
-        model_config = {
+        endpoint_config = {
             "endpoint_name": "test-endpoint",
             "inference_component_name": "test-component",
+            "region_name": "us-west-2",
+        }
+        payload_config = {
             "stream": False,
             "max_tokens": 1024,
             "temperature": 0.7,
         }
-        region_name = "us-west-2"
         client_config = BotocoreConfig(user_agent_extra="test-agent")
 
         model = SageMakerAIModel(
-            model_config=model_config,
+            endpoint_config=endpoint_config,
+            payload_config=payload_config,
             boto_session=boto_session,
             boto_client_config=client_config,
-            region_name=region_name,
         )
 
-        assert model.config["endpoint_name"] == "test-endpoint"
-        assert model.config["inference_component_name"] == "test-component"
-        assert model.config["stream"] is False
-        assert model.config["max_tokens"] == 1024
-        assert model.config["temperature"] == 0.7
+        assert model.endpoint_config["endpoint_name"] == "test-endpoint"
+        assert model.endpoint_config["inference_component_name"] == "test-component"
+        assert model.payload_config["stream"] is False
+        assert model.payload_config["max_tokens"] == 1024
+        assert model.payload_config["temperature"] == 0.7
 
         boto_session.client.assert_called_once_with(
             service_name="sagemaker-runtime",
@@ -128,11 +141,13 @@ class TestSageMakerAIModel:
 
     def test_init_with_client_config(self, boto_session):
         """Test initialization with client configuration."""
-        model_config = {"endpoint_name": "test-endpoint"}
+        endpoint_config = {"endpoint_name": "test-endpoint", "region_name": "us-east-1"}
+        payload_config = {"max_tokens": 1024}
         client_config = BotocoreConfig(user_agent_extra="test-agent")
 
         SageMakerAIModel(
-            model_config=model_config,
+            endpoint_config=endpoint_config,
+            payload_config=payload_config,
             boto_session=boto_session,
             boto_client_config=client_config,
         )
@@ -150,19 +165,19 @@ class TestSageMakerAIModel:
 
     def test_update_config(self, model):
         """Test updating model configuration."""
-        new_config = {"temperature": 0.5, "top_p": 0.9}
+        new_config = {"target_model": "new-model", "target_variant": "new-variant"}
         model.update_config(**new_config)
 
-        assert model.config["temperature"] == 0.5
-        assert model.config["top_p"] == 0.9
+        assert model.endpoint_config["target_model"] == "new-model"
+        assert model.endpoint_config["target_variant"] == "new-variant"
         # Original values should be preserved
-        assert model.config["endpoint_name"] == "test-endpoint"
-        assert model.config["inference_component_name"] == "test-component"
+        assert model.endpoint_config["endpoint_name"] == "test-endpoint"
+        assert model.endpoint_config["inference_component_name"] == "test-component"
 
-    def test_get_config(self, model, model_config):
+    def test_get_config(self, model, endpoint_config):
         """Test getting model configuration."""
         config = model.get_config()
-        assert config == model.config
+        assert config == model.endpoint_config
         assert isinstance(config, dict)
 
     # def test_format_request_messages_with_system_prompt(self, model):
@@ -385,7 +400,7 @@ class TestSageMakerAIModel:
     async def test_stream_non_streaming(self, sagemaker_client, model):
         """Test non-streaming response."""
         # Configure model for non-streaming
-        model.config["stream"] = False
+        model.payload_config["stream"] = False
 
         # Mock the response from SageMaker
         mock_response = {"Body": unittest.mock.MagicMock()}
@@ -427,7 +442,7 @@ class TestSageMakerAIModel:
     async def test_stream_non_streaming_with_tool_calls(self, sagemaker_client, model):
         """Test non-streaming response with tool calls."""
         # Configure model for non-streaming
-        model.config["stream"] = False
+        model.payload_config["stream"] = False
 
         # Mock the response from SageMaker with tool calls
         mock_response = {"Body": unittest.mock.MagicMock()}
