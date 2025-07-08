@@ -15,33 +15,31 @@ import logging
 import os
 import random
 from concurrent.futures import ThreadPoolExecutor
-from threading import Thread
-from typing import Any, AsyncIterator, Callable, Dict, List, Mapping, Optional, Type, TypeVar, Union
-from uuid import uuid4
+from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Optional, Type, TypeVar, Union, cast
 
 from opentelemetry import trace
 from pydantic import BaseModel
 
-from ..event_loop.event_loop import event_loop_cycle
-from ..handlers.callback_handler import CompositeCallbackHandler, PrintingCallbackHandler, null_callback_handler
-from ..handlers.tool_handler import AgentToolHandler
+from ..event_loop.event_loop import event_loop_cycle, run_tool
+from ..experimental.hooks import AgentInitializedEvent, EndRequestEvent, HookRegistry, StartRequestEvent
+from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..models.bedrock import BedrockModel
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer
 from ..tools.registry import ToolRegistry
-from ..tools.thread_pool_executor import ThreadPoolExecutorWrapper
 from ..tools.watcher import ToolWatcher
 from ..types.content import ContentBlock, Message, Messages
 from ..types.event_loop import EventLoopConfig
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.models import Model
-from ..types.tools import ToolConfig
+from ..types.tools import ToolConfig, ToolResult, ToolUse
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
 from .conversation_manager import (
     ConversationManager,
     SlidingWindowConversationManager,
 )
+from .state import AgentState
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +55,7 @@ class _DefaultCallbackHandlerSentinel:
 
 
 _DEFAULT_CALLBACK_HANDLER = _DefaultCallbackHandlerSentinel()
+_DEFAULT_AGENT_NAME = "Strands Agents"
 
 
 class Agent:
@@ -101,40 +100,18 @@ class Agent:
                 AttributeError: If no tool with the given name exists or if multiple tools match the given name.
             """
 
-            def find_normalized_tool_name() -> Optional[str]:
-                """Lookup the tool represented by name, replacing characters with underscores as necessary."""
-                tool_registry = self._agent.tool_registry.registry
-
-                if tool_registry.get(name, None):
-                    return name
-
-                # If the desired name contains underscores, it might be a placeholder for characters that can't be
-                # represented as python identifiers but are valid as tool names, such as dashes. In that case, find
-                # all tools that can be represented with the normalized name
-                if "_" in name:
-                    filtered_tools = [
-                        tool_name for (tool_name, tool) in tool_registry.items() if tool_name.replace("-", "_") == name
-                    ]
-
-                    # The registry itself defends against similar names, so we can just take the first match
-                    if filtered_tools:
-                        return filtered_tools[0]
-
-                raise AttributeError(f"Tool '{name}' not found")
-
-            def caller(**kwargs: Any) -> Any:
+            def caller(
+                user_message_override: Optional[str] = None,
+                record_direct_tool_call: Optional[bool] = None,
+                **kwargs: Any,
+            ) -> Any:
                 """Call a tool directly by name.
 
                 Args:
+                    user_message_override: Optional custom message to record instead of default
+                    record_direct_tool_call: Whether to record direct tool calls in message history. Overrides class
+                        attribute if provided.
                     **kwargs: Keyword arguments to pass to the tool.
-
-                        - user_message_override: Custom message to record instead of default
-                        - tool_execution_handler: Custom handler for tool execution
-                        - event_loop_metrics: Custom metrics collector
-                        - messages: Custom message history to use
-                        - tool_config: Custom tool configuration
-                        - callback_handler: Custom callback handler
-                        - record_direct_tool_call: Whether to record this call in history
 
                 Returns:
                     The result returned by the tool.
@@ -142,63 +119,35 @@ class Agent:
                 Raises:
                     AttributeError: If the tool doesn't exist.
                 """
-                normalized_name = find_normalized_tool_name()
+                normalized_name = self._find_normalized_tool_name(name)
 
                 # Create unique tool ID and set up the tool request
                 tool_id = f"tooluse_{name}_{random.randint(100000000, 999999999)}"
-                tool_use = {
+                tool_use: ToolUse = {
                     "toolUseId": tool_id,
                     "name": normalized_name,
                     "input": kwargs.copy(),
                 }
 
-                # Extract tool execution parameters
-                user_message_override = kwargs.get("user_message_override", None)
-                tool_execution_handler = kwargs.get("tool_execution_handler", self._agent.thread_pool_wrapper)
-                event_loop_metrics = kwargs.get("event_loop_metrics", self._agent.event_loop_metrics)
-                messages = kwargs.get("messages", self._agent.messages)
-                tool_config = kwargs.get("tool_config", self._agent.tool_config)
-                callback_handler = kwargs.get("callback_handler", self._agent.callback_handler)
-                record_direct_tool_call = kwargs.get("record_direct_tool_call", self._agent.record_direct_tool_call)
-
-                # Process tool call
-                handler_kwargs = {
-                    k: v
-                    for k, v in kwargs.items()
-                    if k
-                    not in [
-                        "tool_execution_handler",
-                        "event_loop_metrics",
-                        "messages",
-                        "tool_config",
-                        "callback_handler",
-                        "tool_handler",
-                        "system_prompt",
-                        "model",
-                        "model_id",
-                        "user_message_override",
-                        "agent",
-                        "record_direct_tool_call",
-                    ]
-                }
-
                 # Execute the tool
-                tool_result = self._agent.tool_handler.process(
-                    tool=tool_use,
-                    model=self._agent.model,
-                    system_prompt=self._agent.system_prompt,
-                    messages=messages,
-                    tool_config=tool_config,
-                    callback_handler=callback_handler,
-                    tool_execution_handler=tool_execution_handler,
-                    event_loop_metrics=event_loop_metrics,
-                    agent=self._agent,
-                    **handler_kwargs,
-                )
+                events = run_tool(self._agent, tool_use, kwargs)
 
-                if record_direct_tool_call:
+                try:
+                    while True:
+                        next(events)
+                except StopIteration as stop:
+                    tool_result = cast(ToolResult, stop.value)
+
+                if record_direct_tool_call is not None:
+                    should_record_direct_tool_call = record_direct_tool_call
+                else:
+                    should_record_direct_tool_call = self._agent.record_direct_tool_call
+
+                if should_record_direct_tool_call:
                     # Create a record of this tool execution in the message history
-                    self._agent._record_tool_execution(tool_use, tool_result, user_message_override, messages)
+                    self._agent._record_tool_execution(
+                        tool_use, tool_result, user_message_override, self._agent.messages
+                    )
 
                 # Apply window management
                 self._agent.conversation_manager.apply_management(self._agent)
@@ -207,11 +156,32 @@ class Agent:
 
             return caller
 
+        def _find_normalized_tool_name(self, name: str) -> str:
+            """Lookup the tool represented by name, replacing characters with underscores as necessary."""
+            tool_registry = self._agent.tool_registry.registry
+
+            if tool_registry.get(name, None):
+                return name
+
+            # If the desired name contains underscores, it might be a placeholder for characters that can't be
+            # represented as python identifiers but are valid as tool names, such as dashes. In that case, find
+            # all tools that can be represented with the normalized name
+            if "_" in name:
+                filtered_tools = [
+                    tool_name for (tool_name, tool) in tool_registry.items() if tool_name.replace("-", "_") == name
+                ]
+
+                # The registry itself defends against similar names, so we can just take the first match
+                if filtered_tools:
+                    return filtered_tools[0]
+
+            raise AttributeError(f"Tool '{name}' not found")
+
     def __init__(
         self,
         model: Union[Model, str, None] = None,
         messages: Optional[Messages] = None,
-        tools: Optional[List[Union[str, Dict[str, str], Any]]] = None,
+        tools: Optional[list[Union[str, dict[str, str], Any]]] = None,
         system_prompt: Optional[str] = None,
         callback_handler: Optional[
             Union[Callable[..., Any], _DefaultCallbackHandlerSentinel]
@@ -225,6 +195,7 @@ class Agent:
         *,
         name: Optional[str] = None,
         description: Optional[str] = None,
+        state: Optional[Union[AgentState, dict]] = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -263,6 +234,8 @@ class Agent:
                 Defaults to None.
             description: description of what the Agent does
                 Defaults to None.
+            state: stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
+                Defaults to an empty AgentState object.
 
         Raises:
             ValueError: If max_parallel_tools is less than 1.
@@ -286,7 +259,7 @@ class Agent:
         self.conversation_manager = conversation_manager if conversation_manager else SlidingWindowConversationManager()
 
         # Process trace attributes to ensure they're of compatible types
-        self.trace_attributes: Dict[str, AttributeValue] = {}
+        self.trace_attributes: dict[str, AttributeValue] = {}
         if trace_attributes:
             for k, v in trace_attributes.items():
                 if isinstance(v, (str, int, float, bool)) or (
@@ -299,7 +272,6 @@ class Agent:
         self.thread_pool_wrapper = None
         if max_parallel_tools > 1:
             self.thread_pool = ThreadPoolExecutor(max_workers=max_parallel_tools)
-            self.thread_pool_wrapper = ThreadPoolExecutorWrapper(self.thread_pool)
         elif max_parallel_tools < 1:
             raise ValueError("max_parallel_tools must be greater than 0")
 
@@ -307,7 +279,6 @@ class Agent:
         self.load_tools_from_directory = load_tools_from_directory
 
         self.tool_registry = ToolRegistry()
-        self.tool_handler = AgentToolHandler(tool_registry=self.tool_registry)
 
         # Process tool list if provided
         if tools is not None:
@@ -324,9 +295,25 @@ class Agent:
         # Initialize tracer instance (no-op if not configured)
         self.tracer = get_tracer()
         self.trace_span: Optional[trace.Span] = None
+
+        # Initialize agent state management
+        if state is not None:
+            if isinstance(state, dict):
+                self.state = AgentState(state)
+            elif isinstance(state, AgentState):
+                self.state = state
+            else:
+                raise ValueError("state must be an AgentState object or a dict")
+        else:
+            self.state = AgentState()
+
         self.tool_caller = Agent.ToolCaller(self)
-        self.name = name
+        self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
+
+        self._hooks = HookRegistry()
+        # Register built-in hook providers (like ConversationManager) here
+        self._hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
 
     @property
     def tool(self) -> ToolCaller:
@@ -344,7 +331,7 @@ class Agent:
         return self.tool_caller
 
     @property
-    def tool_names(self) -> List[str]:
+    def tool_names(self) -> list[str]:
         """Get a list of all registered tool names.
 
         Returns:
@@ -367,8 +354,8 @@ class Agent:
 
         Ensures proper shutdown of the thread pool executor if one exists.
         """
-        if self.thread_pool_wrapper and hasattr(self.thread_pool_wrapper, "shutdown"):
-            self.thread_pool_wrapper.shutdown(wait=False)
+        if self.thread_pool:
+            self.thread_pool.shutdown(wait=False)
             logger.debug("thread pool executor shutdown complete")
 
     def __call__(self, prompt: str, **kwargs: Any) -> AgentResult:
@@ -379,7 +366,7 @@ class Agent:
 
         Args:
             prompt: The natural language prompt from the user.
-            **kwargs: Additional parameters to pass to the event loop.
+            **kwargs: Additional parameters to pass through the event loop.
 
         Returns:
             Result object containing:
@@ -389,46 +376,99 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
-        self._start_agent_trace_span(prompt)
 
-        try:
-            # Run the event loop and get the result
-            result = self._run_loop(prompt, kwargs)
+        def execute() -> AgentResult:
+            return asyncio.run(self.invoke_async(prompt, **kwargs))
 
-            self._end_agent_trace_span(response=result)
+        with ThreadPoolExecutor() as executor:
+            future = executor.submit(execute)
+            return future.result()
 
-            return result
-        except Exception as e:
-            self._end_agent_trace_span(error=e)
+    async def invoke_async(self, prompt: str, **kwargs: Any) -> AgentResult:
+        """Process a natural language prompt through the agent's event loop.
 
-            # Re-raise the exception to preserve original behavior
-            raise
+        This method implements the conversational interface (e.g., `agent("hello!")`). It adds the user's prompt to
+        the conversation history, processes it through the model, executes any tool calls, and returns the final result.
+
+        Args:
+            prompt: The natural language prompt from the user.
+            **kwargs: Additional parameters to pass through the event loop.
+
+        Returns:
+            Result object containing:
+
+                - stop_reason: Why the event loop stopped (e.g., "end_turn", "max_tokens")
+                - message: The final message from the model
+                - metrics: Performance metrics from the event loop
+                - state: The final state of the event loop
+        """
+        events = self.stream_async(prompt, **kwargs)
+        async for event in events:
+            _ = event
+
+        return cast(AgentResult, event["result"])
 
     def structured_output(self, output_model: Type[T], prompt: Optional[str] = None) -> T:
         """This method allows you to get structured output from the agent.
 
         If you pass in a prompt, it will be added to the conversation history and the agent will respond to it.
         If you don't pass in a prompt, it will use only the conversation history to respond.
-        If no conversation history exists and no prompt is provided, an error will be raised.
 
         For smaller models, you may want to use the optional prompt string to add additional instructions to explicitly
         instruct the model to output the structured data.
 
         Args:
-            output_model(Type[BaseModel]): The output model (a JSON schema written as a Pydantic BaseModel)
+            output_model: The output model (a JSON schema written as a Pydantic BaseModel)
                 that the agent will use when responding.
-            prompt(Optional[str]): The prompt to use for the agent.
+            prompt: The prompt to use for the agent.
+
+        Raises:
+            ValueError: If no conversation history or prompt is provided.
         """
-        messages = self.messages
-        if not messages and not prompt:
-            raise ValueError("No conversation history or prompt provided")
 
-        # add the prompt as the last message
-        if prompt:
-            messages.append({"role": "user", "content": [{"text": prompt}]})
+        def execute() -> T:
+            return asyncio.run(self.structured_output_async(output_model, prompt))
 
-        # get the structured output from the model
-        return self.model.structured_output(output_model, messages, self.callback_handler)
+        with ThreadPoolExecutor() as executor:
+            future = executor.submit(execute)
+            return future.result()
+
+    async def structured_output_async(self, output_model: Type[T], prompt: Optional[str] = None) -> T:
+        """This method allows you to get structured output from the agent.
+
+        If you pass in a prompt, it will be added to the conversation history and the agent will respond to it.
+        If you don't pass in a prompt, it will use only the conversation history to respond.
+
+        For smaller models, you may want to use the optional prompt string to add additional instructions to explicitly
+        instruct the model to output the structured data.
+
+        Args:
+            output_model: The output model (a JSON schema written as a Pydantic BaseModel)
+                that the agent will use when responding.
+            prompt: The prompt to use for the agent.
+
+        Raises:
+            ValueError: If no conversation history or prompt is provided.
+        """
+        self._hooks.invoke_callbacks(StartRequestEvent(agent=self))
+
+        try:
+            if not self.messages and not prompt:
+                raise ValueError("No conversation history or prompt provided")
+
+            # add the prompt as the last message
+            if prompt:
+                self.messages.append({"role": "user", "content": [{"text": prompt}]})
+
+            events = self.model.structured_output(output_model, self.messages)
+            async for event in events:
+                if "callback" in event:
+                    self.callback_handler(**cast(dict, event["callback"]))
+
+            return event["output"]
+
+        finally:
+            self._hooks.invoke_callbacks(EndRequestEvent(agent=self))
 
     async def stream_async(self, prompt: str, **kwargs: Any) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
@@ -460,131 +500,84 @@ class Agent:
                     yield event["data"]
             ```
         """
+        callback_handler = kwargs.get("callback_handler", self.callback_handler)
+
         self._start_agent_trace_span(prompt)
 
-        _stop_event = uuid4()
-
-        queue = asyncio.Queue[Any]()
-        loop = asyncio.get_event_loop()
-
-        def enqueue(an_item: Any) -> None:
-            nonlocal queue
-            nonlocal loop
-            loop.call_soon_threadsafe(queue.put_nowait, an_item)
-
-        def queuing_callback_handler(**handler_kwargs: Any) -> None:
-            enqueue(handler_kwargs.copy())
-
-        def target_callback() -> None:
-            nonlocal kwargs
-
-            try:
-                result = self._run_loop(prompt, kwargs, supplementary_callback_handler=queuing_callback_handler)
-                self._end_agent_trace_span(response=result)
-            except Exception as e:
-                self._end_agent_trace_span(error=e)
-                enqueue(e)
-            finally:
-                enqueue(_stop_event)
-
-        thread = Thread(target=target_callback, daemon=True)
-        thread.start()
-
         try:
-            while True:
-                item = await queue.get()
-                if item == _stop_event:
-                    break
-                if isinstance(item, Exception):
-                    raise item
-                yield item
-        finally:
-            thread.join()
+            events = self._run_loop(prompt, kwargs)
+            async for event in events:
+                if "callback" in event:
+                    callback_handler(**event["callback"])
+                    yield event["callback"]
 
-    def _run_loop(
-        self, prompt: str, kwargs: Dict[str, Any], supplementary_callback_handler: Optional[Callable[..., Any]] = None
-    ) -> AgentResult:
+            result = AgentResult(*event["stop"])
+            callback_handler(result=result)
+            yield {"result": result}
+
+            self._end_agent_trace_span(response=result)
+
+        except Exception as e:
+            self._end_agent_trace_span(error=e)
+            raise
+
+    async def _run_loop(self, prompt: str, kwargs: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the agent's event loop with the given prompt and parameters."""
-        try:
-            # If the call had a callback_handler passed in, then for this event_loop
-            # cycle we call both handlers as the callback_handler
-            invocation_callback_handler = (
-                CompositeCallbackHandler(self.callback_handler, supplementary_callback_handler)
-                if supplementary_callback_handler is not None
-                else self.callback_handler
-            )
+        self._hooks.invoke_callbacks(StartRequestEvent(agent=self))
 
+        try:
             # Extract key parameters
-            invocation_callback_handler(init_event_loop=True, **kwargs)
+            yield {"callback": {"init_event_loop": True, **kwargs}}
 
             # Set up the user message with optional knowledge base retrieval
-            message_content: List[ContentBlock] = [{"text": prompt}]
+            message_content: list[ContentBlock] = [{"text": prompt}]
             new_message: Message = {"role": "user", "content": message_content}
             self.messages.append(new_message)
 
             # Execute the event loop cycle with retry logic for context limits
-            return self._execute_event_loop_cycle(invocation_callback_handler, kwargs)
+            events = self._execute_event_loop_cycle(kwargs)
+            async for event in events:
+                yield event
 
         finally:
             self.conversation_manager.apply_management(self)
+            self._hooks.invoke_callbacks(EndRequestEvent(agent=self))
 
-    def _execute_event_loop_cycle(self, callback_handler: Callable[..., Any], kwargs: Dict[str, Any]) -> AgentResult:
+    async def _execute_event_loop_cycle(self, kwargs: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the event loop cycle with retry logic for context window limits.
 
         This internal method handles the execution of the event loop cycle and implements
         retry logic for handling context window overflow exceptions by reducing the
         conversation context and retrying.
 
-        Returns:
-            The result of the event loop cycle.
+        Yields:
+            Events of the loop cycle.
         """
-        # Extract parameters with fallbacks to instance values
-        system_prompt = kwargs.pop("system_prompt", self.system_prompt)
-        model = kwargs.pop("model", self.model)
-        tool_execution_handler = kwargs.pop("tool_execution_handler", self.thread_pool_wrapper)
-        event_loop_metrics = kwargs.pop("event_loop_metrics", self.event_loop_metrics)
-        callback_handler_override = kwargs.pop("callback_handler", callback_handler)
-        tool_handler = kwargs.pop("tool_handler", self.tool_handler)
-        messages = kwargs.pop("messages", self.messages)
-        tool_config = kwargs.pop("tool_config", self.tool_config)
-        kwargs.pop("agent", None)  # Remove agent to avoid conflicts
+        # Add `Agent` to kwargs to keep backwards-compatibility
+        kwargs["agent"] = self
 
         try:
             # Execute the main event loop cycle
             events = event_loop_cycle(
-                model=model,
-                system_prompt=system_prompt,
-                messages=messages,  # will be modified by event_loop_cycle
-                tool_config=tool_config,
-                callback_handler=callback_handler_override,
-                tool_handler=tool_handler,
-                tool_execution_handler=tool_execution_handler,
-                event_loop_metrics=event_loop_metrics,
-                event_loop_config=self.event_loop_config,
                 agent=self,
-                event_loop_parent_span=self.trace_span,
-                **kwargs,
+                kwargs=kwargs,
             )
-            for event in events:
-                if "callback" in event:
-                    callback_handler(**event["callback"])
-
-            stop_reason, message, metrics, state = event["stop"]
-
-            return AgentResult(stop_reason, message, metrics, state)
+            async for event in events:
+                yield event
 
         except ContextWindowOverflowException as e:
             # Try reducing the context size and retrying
-
             self.conversation_manager.reduce_context(self, e=e)
-            return self._execute_event_loop_cycle(callback_handler_override, kwargs)
+            events = self._execute_event_loop_cycle(kwargs)
+            async for event in events:
+                yield event
 
     def _record_tool_execution(
         self,
-        tool: Dict[str, Any],
-        tool_result: Dict[str, Any],
+        tool: ToolUse,
+        tool_result: ToolResult,
         user_message_override: Optional[str],
-        messages: List[Dict[str, Any]],
+        messages: Messages,
     ) -> None:
         """Record a tool execution in the message history.
 
@@ -602,7 +595,7 @@ class Agent:
             messages: The message history to append to.
         """
         # Create user message describing the tool call
-        user_msg_content = [
+        user_msg_content: list[ContentBlock] = [
             {"text": (f"agent.tool.{tool['name']} direct tool call.\nInput parameters: {json.dumps(tool['input'])}\n")}
         ]
 
@@ -611,19 +604,19 @@ class Agent:
             user_msg_content.insert(0, {"text": f"{user_message_override}\n"})
 
         # Create the message sequence
-        user_msg = {
+        user_msg: Message = {
             "role": "user",
             "content": user_msg_content,
         }
-        tool_use_msg = {
+        tool_use_msg: Message = {
             "role": "assistant",
             "content": [{"toolUse": tool}],
         }
-        tool_result_msg = {
+        tool_result_msg: Message = {
             "role": "user",
             "content": [{"toolResult": tool_result}],
         }
-        assistant_msg = {
+        assistant_msg: Message = {
             "role": "assistant",
             "content": [{"text": f"agent.{tool['name']} was called"}],
         }
@@ -644,6 +637,7 @@ class Agent:
 
         self.trace_span = self.tracer.start_agent_span(
             prompt=prompt,
+            agent_name=self.name,
             model_id=model_id,
             tools=self.tool_names,
             system_prompt=self.system_prompt,
@@ -663,7 +657,7 @@ class Agent:
             error: Error to record as a trace attribute.
         """
         if self.trace_span:
-            trace_attributes: Dict[str, Any] = {
+            trace_attributes: dict[str, Any] = {
                 "span": self.trace_span,
             }
 

@@ -6,7 +6,7 @@
 import json
 import logging
 import os
-from typing import Any, Callable, Iterable, List, Literal, Optional, Type, TypeVar, cast
+from typing import Any, AsyncGenerator, Iterable, List, Literal, Optional, Type, TypeVar, Union, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -15,7 +15,6 @@ from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
 from ..event_loop.streaming import process_stream
-from ..handlers.callback_handler import PrintingCallbackHandler
 from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
@@ -26,6 +25,7 @@ from ..types.tools import ToolSpec
 logger = logging.getLogger(__name__)
 
 DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+DEFAULT_BEDROCK_REGION = "us-west-2"
 
 BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
     "Input is too long for requested model",
@@ -118,18 +118,7 @@ class BedrockModel(Model):
 
         logger.debug("config=<%s> | initializing", self.config)
 
-        region_for_boto = region_name or os.getenv("AWS_REGION")
-        if region_for_boto is None:
-            region_for_boto = "us-west-2"
-            logger.warning("defaulted to us-west-2 because no region was specified")
-            logger.warning(
-                "issue=<%s> | this behavior will change in an upcoming release",
-                "https://github.com/strands-agents/sdk-python/issues/238",
-            )
-
-        session = boto_session or boto3.Session(
-            region_name=region_for_boto,
-        )
+        session = boto_session or boto3.Session()
 
         # Add strands-agents to the request user agent
         if boto_client_config:
@@ -145,10 +134,15 @@ class BedrockModel(Model):
         else:
             client_config = BotocoreConfig(user_agent_extra="strands-agents")
 
+        resolved_region = region_name or session.region_name or os.environ.get("AWS_REGION") or DEFAULT_BEDROCK_REGION
+
         self.client = session.client(
             service_name="bedrock-runtime",
             config=client_config,
+            region_name=resolved_region,
         )
+
+        logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
 
     @override
     def update_config(self, **model_config: Unpack[BedrockConfig]) -> None:  # type: ignore
@@ -321,7 +315,7 @@ class BedrockModel(Model):
         return events
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[StreamEvent]:
+    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[StreamEvent, None]:
         """Send the request to the Bedrock model and get the response.
 
         This method calls either the Bedrock converse_stream API or the converse API
@@ -351,14 +345,16 @@ class BedrockModel(Model):
                     ):
                         guardrail_data = chunk["metadata"]["trace"]["guardrail"]
                         if self._has_blocked_guardrail(guardrail_data):
-                            yield from self._generate_redaction_events()
+                            for event in self._generate_redaction_events():
+                                yield event
                     yield chunk
             else:
                 # Non-streaming implementation
                 response = self.client.converse(**request)
 
                 # Convert and yield from the response
-                yield from self._convert_non_streaming_to_streaming(response)
+                for event in self._convert_non_streaming_to_streaming(response):
+                    yield event
 
                 # Check for guardrail triggers after yielding any events (same as streaming path)
                 if (
@@ -366,7 +362,8 @@ class BedrockModel(Model):
                     and "guardrail" in response["trace"]
                     and self._has_blocked_guardrail(response["trace"]["guardrail"])
                 ):
-                    yield from self._generate_redaction_events()
+                    for event in self._generate_redaction_events():
+                        yield event
 
         except ClientError as e:
             error_message = str(e)
@@ -379,6 +376,32 @@ class BedrockModel(Model):
             if any(overflow_message in error_message for overflow_message in BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES):
                 logger.warning("bedrock threw context window overflow error")
                 raise ContextWindowOverflowException(e) from e
+
+            region = self.client.meta.region_name
+
+            # add_note added in Python 3.11
+            if hasattr(e, "add_note"):
+                # Aid in debugging by adding more information
+                e.add_note(f"└ Bedrock region: {region}")
+                e.add_note(f"└ Model id: {self.config.get('model_id')}")
+
+                if (
+                    e.response["Error"]["Code"] == "AccessDeniedException"
+                    and "You don't have access to the model" in error_message
+                ):
+                    e.add_note(
+                        "└ For more information see "
+                        "https://strandsagents.com/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue"
+                    )
+
+                if (
+                    e.response["Error"]["Code"] == "ValidationException"
+                    and "with on-demand throughput isn’t supported" in error_message
+                ):
+                    e.add_note(
+                        "└ For more information see "
+                        "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported"
+                    )
 
             # Otherwise raise the error
             raise e
@@ -494,25 +517,25 @@ class BedrockModel(Model):
         return False
 
     @override
-    def structured_output(
-        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
-    ) -> T:
+    async def structured_output(
+        self, output_model: Type[T], prompt: Messages
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:
-            output_model(Type[BaseModel]): The output model to use for the agent.
-            prompt(Messages): The prompt messages to use for the agent.
-            callback_handler(Optional[Callable]): Optional callback handler for processing events. Defaults to None.
+            output_model: The output model to use for the agent.
+            prompt: The prompt messages to use for the agent.
+
+        Yields:
+            Model events with the last being the structured output.
         """
-        callback_handler = callback_handler or PrintingCallbackHandler()
         tool_spec = convert_pydantic_to_tool_spec(output_model)
 
         response = self.converse(messages=prompt, tool_specs=[tool_spec])
-        for event in process_stream(response, prompt):
-            if "callback" in event:
-                callback_handler(**event["callback"])
-        else:
-            stop_reason, messages, _, _ = event["stop"]
+        async for event in process_stream(response, prompt):
+            yield event
+
+        stop_reason, messages, _, _ = event["stop"]
 
         if stop_reason != "tool_use":
             raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
@@ -530,4 +553,4 @@ class BedrockModel(Model):
         if output_response is None:
             raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
 
-        return output_model(**output_response)
+        yield {"output": output_model(**output_response)}

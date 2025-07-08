@@ -8,7 +8,7 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Callable, Iterable, Optional, Type, TypeVar, cast
+from typing import Any, AsyncGenerator, Optional, Type, TypeVar, Union, cast
 
 import llama_api_client
 from llama_api_client import LlamaAPIClient
@@ -324,7 +324,7 @@ class LlamaAPIModel(Model):
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Send the request to the model and get a streaming response.
 
         Args:
@@ -390,14 +390,16 @@ class LlamaAPIModel(Model):
 
     @override
     def structured_output(
-        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
-    ) -> T:
+        self, output_model: Type[T], prompt: Messages
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:
-            output_model(Type[BaseModel]): The output model to use for the agent.
-            prompt(Messages): The prompt messages to use for the agent.
-            callback_handler(Optional[Callable]): Optional callback handler for processing events. Defaults to None.
+            output_model: The output model to use for the agent.
+            prompt: The prompt messages to use for the agent.
+
+        Yields:
+            Model events with the last being the structured output.
 
         Raises:
             NotImplementedError: Structured output is not currently supported for LlamaAPI models.

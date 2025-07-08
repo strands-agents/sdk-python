@@ -7,14 +7,13 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Callable, Iterable, Optional, Type, TypedDict, TypeVar, cast
+from typing import Any, AsyncGenerator, Optional, Type, TypedDict, TypeVar, Union, cast
 
 import anthropic
 from pydantic import BaseModel
 from typing_extensions import Required, Unpack, override
 
 from ..event_loop.streaming import process_stream
-from ..handlers.callback_handler import PrintingCallbackHandler
 from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
@@ -345,7 +344,7 @@ class AnthropicModel(Model):
                 raise RuntimeError(f"event_type=<{event['type']} | unknown type")
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Send the request to the Anthropic model and get the streaming response.
 
         Args:
@@ -377,25 +376,25 @@ class AnthropicModel(Model):
             raise error
 
     @override
-    def structured_output(
-        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
-    ) -> T:
+    async def structured_output(
+        self, output_model: Type[T], prompt: Messages
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:
-            output_model(Type[BaseModel]): The output model to use for the agent.
-            prompt(Messages): The prompt messages to use for the agent.
-            callback_handler(Optional[Callable]): Optional callback handler for processing events. Defaults to None.
+            output_model: The output model to use for the agent.
+            prompt: The prompt messages to use for the agent.
+
+        Yields:
+            Model events with the last being the structured output.
         """
-        callback_handler = callback_handler or PrintingCallbackHandler()
         tool_spec = convert_pydantic_to_tool_spec(output_model)
 
         response = self.converse(messages=prompt, tool_specs=[tool_spec])
-        for event in process_stream(response, prompt):
-            if "callback" in event:
-                callback_handler(**event["callback"])
-        else:
-            stop_reason, messages, _, _ = event["stop"]
+        async for event in process_stream(response, prompt):
+            yield event
+
+        stop_reason, messages, _, _ = event["stop"]
 
         if stop_reason != "tool_use":
             raise ValueError("No valid tool use or tool use input was found in the Anthropic response.")
@@ -413,4 +412,4 @@ class AnthropicModel(Model):
         if output_response is None:
             raise ValueError("No valid tool use or tool use input was found in the Anthropic response.")
 
-        return output_model(**output_response)
+        yield {"output": output_model(**output_response)}

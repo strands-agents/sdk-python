@@ -23,7 +23,7 @@ class NullConversationManager(ConversationManager):
         """Does nothing to the conversation history.
 
         Args:
-            agent: The agent whose conversation history will remain unmodified.
+            _agent: The agent whose conversation history will remain unmodified.
         """
         pass
 
@@ -31,7 +31,7 @@ class NullConversationManager(ConversationManager):
         """Does not reduce context and raises an exception.
 
         Args:
-            agent: The agent whose conversation history will remain unmodified.
+            _agent: The agent whose conversation history will remain unmodified.
             e: The exception that triggered the context reduction, if any.
 
         Raises:

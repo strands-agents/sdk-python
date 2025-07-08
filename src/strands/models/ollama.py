@@ -5,7 +5,7 @@
 
 import json
 import logging
-from typing import Any, Callable, Iterable, Optional, Type, TypeVar, cast
+from typing import Any, AsyncGenerator, Optional, Type, TypeVar, Union, cast
 
 from ollama import Client as OllamaClient
 from pydantic import BaseModel
@@ -283,7 +283,7 @@ class OllamaModel(Model):
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Send the request to the Ollama model and get the streaming response.
 
         This method calls the Ollama chat API and returns the stream of response events.
@@ -315,15 +315,17 @@ class OllamaModel(Model):
         yield {"chunk_type": "metadata", "data": event}
 
     @override
-    def structured_output(
-        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
-    ) -> T:
+    async def structured_output(
+        self, output_model: Type[T], prompt: Messages
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:
-            output_model(Type[BaseModel]): The output model to use for the agent.
-            prompt(Messages): The prompt messages to use for the agent.
-            callback_handler(Optional[Callable]): Optional callback handler for processing events. Defaults to None.
+            output_model: The output model to use for the agent.
+            prompt: The prompt messages to use for the agent.
+
+        Yields:
+            Model events with the last being the structured output.
         """
         formatted_request = self.format_request(messages=prompt)
         formatted_request["format"] = output_model.model_json_schema()
@@ -332,6 +334,6 @@ class OllamaModel(Model):
 
         try:
             content = response.message.content.strip()
-            return output_model.model_validate_json(content)
+            yield {"output": output_model.model_validate_json(content)}
         except Exception as e:
             raise ValueError(f"Failed to parse or load content into model: {e}") from e

@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, Generator, Iterable, Optional
+from typing import Any, AsyncGenerator, AsyncIterable, Optional
 
 from ..types.content import ContentBlock, Message, Messages
 from ..types.models import Model
@@ -251,10 +251,10 @@ def extract_usage_metrics(event: MetadataEvent) -> tuple[Usage, Metrics]:
     return usage, metrics
 
 
-def process_stream(
-    chunks: Iterable[StreamEvent],
+async def process_stream(
+    chunks: AsyncIterable[StreamEvent],
     messages: Messages,
-) -> Generator[dict[str, Any], None, None]:
+) -> AsyncGenerator[dict[str, Any], None]:
     """Processes the response stream from the API, constructing the final message and extracting usage metrics.
 
     Args:
@@ -278,7 +278,7 @@ def process_stream(
     usage: Usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
     metrics: Metrics = Metrics(latencyMs=0)
 
-    for chunk in chunks:
+    async for chunk in chunks:
         yield {"callback": {"event": chunk}}
 
         if "messageStart" in chunk:
@@ -300,12 +300,12 @@ def process_stream(
     yield {"stop": (stop_reason, state["message"], usage, metrics)}
 
 
-def stream_messages(
+async def stream_messages(
     model: Model,
     system_prompt: Optional[str],
     messages: Messages,
     tool_config: Optional[ToolConfig],
-) -> Generator[dict[str, Any], None, None]:
+) -> AsyncGenerator[dict[str, Any], None]:
     """Streams messages to the model and processes the response.
 
     Args:
@@ -323,4 +323,5 @@ def stream_messages(
     tool_specs = [tool["toolSpec"] for tool in tool_config.get("tools", [])] or None if tool_config else None
 
     chunks = model.converse(messages, tool_specs, system_prompt)
-    yield from process_stream(chunks, messages)
+    async for event in process_stream(chunks, messages):
+        yield event
