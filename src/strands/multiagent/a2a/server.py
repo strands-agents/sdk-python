@@ -33,8 +33,6 @@ class A2AServer:
         port: int = 9000,
         version: str = "0.0.1",
         skills: list[AgentSkill] | None = None,
-        # AgentCapabilities
-        streaming: bool = False,
     ):
         """Initialize an A2A-compatible agent from a Strands agent.
 
@@ -46,7 +44,6 @@ class A2AServer:
             port: The port to bind the A2A server to. Defaults to 9000.
             version: The version of the agent. Defaults to "0.0.1".
             skills: The list of capabilities or functions the agent can perform.
-            streaming: Whether the agent supports streaming capabilities. Defaults to False.
         """
         self.host = host
         self.port = port
@@ -55,9 +52,9 @@ class A2AServer:
         self.strands_agent = agent
         self.name = self.strands_agent.name
         self.description = self.strands_agent.description
-        self.capabilities = AgentCapabilities(streaming=streaming)
+        self.capabilities = AgentCapabilities(streaming=True)
         self.request_handler = DefaultRequestHandler(
-            agent_executor=StrandsA2AExecutor(self.strands_agent, self.capabilities),
+            agent_executor=StrandsA2AExecutor(self.strands_agent),
             task_store=InMemoryTaskStore(),
         )
         self._agent_skills = skills

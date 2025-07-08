@@ -2,8 +2,10 @@
 
 This module provides the StrandsA2AExecutor class, which adapts a Strands Agent
 to be used as an executor in the A2A protocol. It handles the execution of agent
-requests and the conversion of Strands Agent responses to A2A events with support
-for both streaming and non-streaming modes based on agent capabilities.
+requests and the conversion of Strands Agent streamed responses to A2A events.
+
+The A2A AgentExecutor ensures clients recieve responses for synchronous and
+streamed requests to the A2AServer.
 """
 
 import logging
@@ -12,7 +14,7 @@ from typing import Any
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.tasks import TaskUpdater
-from a2a.types import AgentCapabilities, InternalError, Part, TaskState, TextPart, UnsupportedOperationError
+from a2a.types import InternalError, Part, TaskState, TextPart, UnsupportedOperationError
 from a2a.utils import new_agent_text_message, new_task
 from a2a.utils.errors import ServerError
 
@@ -25,22 +27,17 @@ logger = logging.getLogger(__name__)
 class StrandsA2AExecutor(AgentExecutor):
     """Executor that adapts a Strands Agent to the A2A protocol.
 
-    This executor supports both streaming and non-streaming modes based on
-    the agent's capabilities configuration. It automatically selects the
-    appropriate execution mode and handles the conversion of Strands Agent
-    responses to A2A protocol events.
+    This executor uses streaming mode to handle the execution of agent requests
+    and converts Strands Agent responses to A2A protocol events.
     """
 
-    def __init__(self, agent: SAAgent, capabilities: AgentCapabilities):
+    def __init__(self, agent: SAAgent):
         """Initialize a StrandsA2AExecutor.
 
         Args:
             agent: The Strands Agent instance to adapt to the A2A protocol.
-            capabilities: The agent capabilities configuration that determines
-                whether streaming or synchronous execution is used.
         """
         self.agent = agent
-        self.capabilities = capabilities
 
     async def execute(
         self,
@@ -49,9 +46,8 @@ class StrandsA2AExecutor(AgentExecutor):
     ) -> None:
         """Execute a request using the Strands Agent and send the response as A2A events.
 
-        This method executes the user's input using the Strands Agent and converts
-        the agent's response to A2A events. It automatically chooses between streaming
-        and synchronous execution based on the agent's capabilities configuration.
+        This method executes the user's input using the Strands Agent in streaming mode
+        and converts the agent's response to A2A events.
 
         Args:
             context: The A2A request context, containing the user's input and task metadata.
@@ -68,10 +64,7 @@ class StrandsA2AExecutor(AgentExecutor):
         updater = TaskUpdater(event_queue, task.id, task.contextId)
 
         try:
-            if self.capabilities.streaming:
-                await self._execute_streaming(context, updater)
-            else:
-                await self._execute_sync(context, updater)
+            await self._execute_streaming(context, updater)
         except Exception as e:
             raise ServerError(error=InternalError()) from e
 
@@ -94,26 +87,6 @@ class StrandsA2AExecutor(AgentExecutor):
             logger.exception("Error in streaming execution")
             raise
 
-    async def _execute_sync(self, context: RequestContext, updater: TaskUpdater) -> None:
-        """Execute request in non-streaming mode.
-
-        Executes the agent synchronously and sends the complete response once
-        the agent has finished processing.
-
-        Args:
-            context: The A2A request context, containing the user's input and other metadata.
-            updater: The task updater for managing task state and sending the final result.
-        """
-        logger.info("Executing request in synchronous mode")
-        user_input = context.get_user_input()
-        try:
-            await updater.update_status(TaskState.working)
-            result = await self.agent.invoke_async(user_input)
-            await self._handle_agent_result(result, updater)
-        except Exception:
-            logger.exception("Error in synchronous execution")
-            raise
-
     async def _handle_streaming_event(self, event: dict[str, Any], updater: TaskUpdater) -> None:
         """Handle a single streaming event from the Strands Agent.
 
@@ -127,7 +100,6 @@ class StrandsA2AExecutor(AgentExecutor):
         """
         logger.debug("Streaming event: %s", event)
         if "data" in event:
-            # process data chunks from agent
             if text_content := event["data"]:
                 await updater.update_status(
                     TaskState.working,
@@ -152,23 +124,11 @@ class StrandsA2AExecutor(AgentExecutor):
             result: The agent result object containing the final response, or None if no result.
             updater: The task updater for managing task state and adding the final artifact.
         """
-        if result and result.message:
-            final_content = ""
-            if isinstance(result.message, dict) and "content" in result.message:
-                content = result.message["content"]
-                if isinstance(content, list):
-                    for block in content:
-                        if isinstance(block, dict) and "text" in block:
-                            if text_content := block["text"]:
-                                final_content += text_content
-                elif isinstance(content, str):
-                    final_content = content
-
-            if final_content:
-                await updater.add_artifact(
-                    [Part(root=TextPart(text=final_content))],
-                    name="agent_response",
-                )
+        if final_content := str(result):
+            await updater.add_artifact(
+                [Part(root=TextPart(text=final_content))],
+                name="agent_response",
+            )
         await updater.complete()
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:

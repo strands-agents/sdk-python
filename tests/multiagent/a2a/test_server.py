@@ -44,27 +44,14 @@ def test_a2a_agent_initialization_with_custom_values(mock_strands_agent):
     assert a2a_agent.port == 8080
     assert a2a_agent.http_url == "http://127.0.0.1:8080/"
     assert a2a_agent.version == "1.0.0"
-    assert a2a_agent.capabilities.streaming is False
-
-
-def test_a2a_agent_initialization_with_streaming_enabled(mock_strands_agent):
-    """Test that A2AAgent initializes correctly with streaming enabled."""
-    a2a_agent = A2AServer(
-        mock_strands_agent,
-        streaming=True,
-    )
-
     assert a2a_agent.capabilities.streaming is True
 
 
-def test_a2a_agent_initialization_with_streaming_disabled(mock_strands_agent):
-    """Test that A2AAgent initializes correctly with streaming disabled."""
-    a2a_agent = A2AServer(
-        mock_strands_agent,
-        streaming=False,
-    )
+def test_a2a_agent_initialization_with_streaming_always_enabled(mock_strands_agent):
+    """Test that A2AAgent always initializes with streaming enabled."""
+    a2a_agent = A2AServer(mock_strands_agent)
 
-    assert a2a_agent.capabilities.streaming is False
+    assert a2a_agent.capabilities.streaming is True
 
 
 def test_a2a_agent_initialization_with_custom_skills(mock_strands_agent):
@@ -492,23 +479,14 @@ def test_serve_with_custom_kwargs(mock_run, mock_strands_agent):
     assert kwargs["reload"] is True
 
 
-def test_executor_created_with_correct_capabilities(mock_strands_agent):
-    """Test that the executor is created with the correct capabilities."""
+def test_executor_created_correctly(mock_strands_agent):
+    """Test that the executor is created correctly."""
     from strands.multiagent.a2a.executor import StrandsA2AExecutor
 
-    # Test with streaming enabled
-    a2a_agent = A2AServer(mock_strands_agent, streaming=True)
+    a2a_agent = A2AServer(mock_strands_agent)
 
     assert isinstance(a2a_agent.request_handler.agent_executor, StrandsA2AExecutor)
-    assert a2a_agent.request_handler.agent_executor.capabilities.streaming is True
     assert a2a_agent.request_handler.agent_executor.agent == mock_strands_agent
-
-    # Test with streaming disabled
-    a2a_agent_no_streaming = A2AServer(mock_strands_agent, streaming=False)
-
-    assert isinstance(a2a_agent_no_streaming.request_handler.agent_executor, StrandsA2AExecutor)
-    assert a2a_agent_no_streaming.request_handler.agent_executor.capabilities.streaming is False
-    assert a2a_agent_no_streaming.request_handler.agent_executor.agent == mock_strands_agent
 
 
 @patch("uvicorn.run", side_effect=KeyboardInterrupt)
