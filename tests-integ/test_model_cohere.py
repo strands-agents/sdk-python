@@ -4,15 +4,21 @@ import pytest
 
 import strands
 from strands import Agent
-from strands.models.cohere import CohereModel
+from strands.models.openai import OpenAIModel
 
 
 @pytest.fixture
 def model():
-    return CohereModel(
+    return OpenAIModel(
+        client_args={
+            "base_url": "https://api.cohere.com/compatibility/v1",
+            "api_key": os.getenv("CO_API_KEY"),
+        },
         model_id="command-a-03-2025",
-        api_key=os.getenv("CO_API_KEY"),
-    )
+        params={
+            "stream_options": None
+        }
+)
 
 
 @pytest.fixture
