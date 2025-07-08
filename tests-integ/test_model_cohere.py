@@ -15,10 +15,8 @@ def model():
             "api_key": os.getenv("CO_API_KEY"),
         },
         model_id="command-a-03-2025",
-        params={
-            "stream_options": None
-        }
-)
+        params={"stream_options": None},
+    )
 
 
 @pytest.fixture
