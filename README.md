@@ -187,6 +187,48 @@ We welcome contributions! See our [Contributing Guide](CONTRIBUTING.md) for deta
 - Code of Conduct
 - Reporting of security issues
 
+## Agent and Tool Registries
+
+### AgentRegistry
+
+The `AgentRegistry` provides a global registry for agent classes. You can register, look up, and (in the future) discover agents by name.
+
+```python
+from strands.agent import AgentRegistry
+
+registry = AgentRegistry()
+registry.register("summarizer", MySummarizerAgent)
+agent_cls = registry.get("summarizer")
+```
+
+### GlobalToolRegistry
+
+The `GlobalToolRegistry` allows you to register and manage all tools across the system, not just per-agent.
+
+```python
+from strands.tools import GlobalToolRegistry
+
+global_tools = GlobalToolRegistry()
+global_tools.register("calculator", calculator_tool)
+tool = global_tools.get("calculator")
+```
+
+### Mapping ToolRegistry to an Agent
+
+You can provide a custom `ToolRegistry` (or `GlobalToolRegistry`) to an agent, allowing agents to share or use custom tool sets:
+
+```python
+from strands.agent import Agent
+from strands.tools import GlobalToolRegistry
+
+global_tools = GlobalToolRegistry()
+global_tools.register("calculator", calculator_tool)
+
+agent = Agent(tool_registry=global_tools)
+```
+
+If you do not provide a `tool_registry`, each agent will have its own `ToolRegistry` by default.
+
 ## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
