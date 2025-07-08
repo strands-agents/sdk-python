@@ -11,9 +11,9 @@ from botocore.config import Config as BotocoreConfig
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
-from ..types.content import Messages
-from ..types.models import OpenAIModel
-from ..types.tools import ToolSpec
+from strands.types.content import Messages, ContentBlock
+from strands.types.models import OpenAIModel
+from strands.types.tools import ToolSpec
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -285,6 +285,7 @@ class SageMakerAIModel(OpenAIModel):
                 tool_calls: dict[int, list[Any]] = {}
                 has_text_content = False
                 text_content_started = False
+                reasoning_content_started = False
 
                 for event in response["Body"]:
                     chunk = event["PayloadPart"]["Bytes"].decode("utf-8")
@@ -306,6 +307,17 @@ class SageMakerAIModel(OpenAIModel):
                                 "data": choice["delta"]["content"],
                             }
 
+                        # Handle reasoning content
+                        if choice["delta"].get("reasoning_content", None):
+                            if not reasoning_content_started:
+                                yield {"chunk_type": "content_start", "data_type": "reasoning_content"}
+                                reasoning_content_started = True
+                            yield {
+                                "chunk_type": "content_delta",
+                                "data_type": "reasoning_content",
+                                "data": choice["delta"]["reasoning_content"],
+                            }
+
                         # Handle tool calls
                         for tool_call in choice["delta"].get("tool_calls", []):
                             tool_calls.setdefault(tool_call["index"], []).append(tool_call)
@@ -318,6 +330,10 @@ class SageMakerAIModel(OpenAIModel):
                         # Continue accumulating content until we have valid JSON
                         continue
 
+                # Close reasoning content if it was started
+                if reasoning_content_started:
+                    yield {"chunk_type": "content_stop", "data_type": "reasoning_content"}
+                
                 # Close text content if it was started
                 if text_content_started:
                     yield {"chunk_type": "content_stop", "data_type": "text"}
@@ -336,9 +352,10 @@ class SageMakerAIModel(OpenAIModel):
 
                 # Message close
                 yield {"chunk_type": "message_stop", "data": finish_reason}
-                # Handle usage metadata - TODO: not supported in current Response Schema!
-                # Ref: https://docs.djl.ai/master/docs/serving/serving/docs/lmi/user_guides/chat_input_output_schema.html#response-schema
-                # yield {"chunk_type": "metadata", "data": UsageMetadata(**choice["usage"])}
+
+                # Return metadata
+                if choice.get("usage", None):
+                    yield {"chunk_type": "metadata", "data": UsageMetadata(**choice["usage"])}
 
             else:
                 # Not all SageMaker AI models support streaming!
@@ -356,6 +373,16 @@ class SageMakerAIModel(OpenAIModel):
                 yield {"chunk_type": "content_start", "data_type": "text"}
                 yield {"chunk_type": "content_delta", "data_type": "text", "data": message["content"] or ""}
                 yield {"chunk_type": "content_stop", "data_type": "text"}
+
+                # Handle reasoning content
+                if message.get("reasoning_content", None):
+                    yield {"chunk_type": "content_start", "data_type": "reasoning_content"}
+                    yield {
+                        "chunk_type": "content_delta",
+                        "data_type": "reasoning_content",
+                        "data": message["reasoning_content"],
+                    }
+                    yield {"chunk_type": "content_stop", "data_type": "reasoning_content"}
 
                 # Handle the tool calling, if any
                 if message_stop_reason == "tool_calls":
@@ -378,6 +405,39 @@ class SageMakerAIModel(OpenAIModel):
         ) as e:
             logger.error("SageMaker error: %s", str(e))
             yield {"chunk_type": "error", "data": f"SageMaker error: {str(e)}"}
+
+    
+    @override
+    @classmethod
+    def format_request_message_content(cls, content: ContentBlock) -> dict[str, Any]:
+        """Format a content block.
+
+        Args:
+            content: Message content.
+
+        Returns:
+            Formatted content block.
+
+        Raises:
+            TypeError: If the content block type cannot be converted to a SageMaker-compatible format.
+        """
+        if "reasoningContent" in content:
+            return {
+                "signature": content["reasoningContent"]["reasoningText"]["signature"],
+                "thinking": content["reasoningContent"]["reasoningText"]["text"],
+                "type": "thinking",
+            }
+
+        if "video" in content:
+            return {
+                "type": "video_url",
+                "video_url": {
+                    "detail": "auto",
+                    "url": content["video"]["source"]["bytes"],
+                },
+            }
+
+        return super().format_request_message_content(content)
 
     @override
     async def structured_output(
