@@ -404,7 +404,7 @@ class SageMakerAIModel(OpenAIModel):
             self.client.exceptions.ModelNotReadyException,
         ) as e:
             logger.error("SageMaker error: %s", str(e))
-            yield {"chunk_type": "error", "data": f"SageMaker error: {str(e)}"}
+            # yield {"chunk_type": "error", "data": f"SageMaker error: {str(e)}"}
 
     @override
     @classmethod
