@@ -419,7 +419,7 @@ class MistralModel(Model):
             yield {"chunk_type": "message_start"}
 
             content_started = False
-            current_tool_calls: dict[str, dict[str, str]] = {}
+            tool_calls: dict[str, list[Any]] = {}
             accumulated_text = ""
 
             async for chunk in stream_response:
@@ -440,24 +440,23 @@ class MistralModel(Model):
                         if hasattr(delta, "tool_calls") and delta.tool_calls:
                             for tool_call in delta.tool_calls:
                                 tool_id = tool_call.id
-
-                                if tool_id not in current_tool_calls:
-                                    yield {"chunk_type": "content_start", "data_type": "tool", "data": tool_call}
-                                    current_tool_calls[tool_id] = {"name": tool_call.function.name, "arguments": ""}
-
-                                if hasattr(tool_call.function, "arguments"):
-                                    current_tool_calls[tool_id]["arguments"] += tool_call.function.arguments
-                                    yield {
-                                        "chunk_type": "content_delta",
-                                        "data_type": "tool",
-                                        "data": tool_call.function.arguments,
-                                    }
+                                tool_calls.setdefault(tool_id, []).append(tool_call)
 
                     if hasattr(choice, "finish_reason") and choice.finish_reason:
                         if content_started:
                             yield {"chunk_type": "content_stop", "data_type": "text"}
 
-                        for _ in current_tool_calls:
+                        for tool_deltas in tool_calls.values():
+                            yield {"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]}
+
+                            for tool_delta in tool_deltas:
+                                if hasattr(tool_delta.function, "arguments"):
+                                    yield {
+                                        "chunk_type": "content_delta",
+                                        "data_type": "tool",
+                                        "data": tool_delta.function.arguments,
+                                    }
+
                             yield {"chunk_type": "content_stop", "data_type": "tool"}
 
                         yield {"chunk_type": "message_stop", "data": choice.finish_reason}

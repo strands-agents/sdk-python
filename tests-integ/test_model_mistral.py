@@ -78,41 +78,32 @@ def weather():
 
 @pytest.mark.skipif("MISTRAL_API_KEY" not in os.environ, reason="MISTRAL_API_KEY environment variable missing")
 def test_agent_invoke(agent):
-    # TODO: https://github.com/strands-agents/sdk-python/issues/374
-    # result = streaming_agent("What is the time and weather in New York?")
-    result = agent("What is the time in New York?")
+    result = agent("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
 
-    # assert all(string in text for string in ["12:00", "sunny"])
-    assert all(string in text for string in ["12:00"])
+    assert all(string in text for string in ["12:00", "sunny"])
 
 
 @pytest.mark.skipif("MISTRAL_API_KEY" not in os.environ, reason="MISTRAL_API_KEY environment variable missing")
 @pytest.mark.asyncio
 async def test_agent_invoke_async(agent):
-    # TODO: https://github.com/strands-agents/sdk-python/issues/374
-    # result = await streaming_agent.invoke_async("What is the time and weather in New York?")
-    result = await agent.invoke_async("What is the time in New York?")
+    result = await agent.invoke_async("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
 
-    # assert all(string in text for string in ["12:00", "sunny"])
-    assert all(string in text for string in ["12:00"])
+    assert all(string in text for string in ["12:00", "sunny"])
 
 
 @pytest.mark.skipif("MISTRAL_API_KEY" not in os.environ, reason="MISTRAL_API_KEY environment variable missing")
 @pytest.mark.asyncio
 async def test_agent_stream_async(agent):
-    # TODO: https://github.com/strands-agents/sdk-python/issues/374
-    # stream = streaming_agent.stream_async("What is the time and weather in New York?")
-    stream = agent.stream_async("What is the time in New York?")
+    stream = agent.stream_async("What is the time and weather in New York?")
     async for event in stream:
         _ = event
 
     result = event["result"]
     text = result.message["content"][0]["text"].lower()
 
-    # assert all(string in text for string in ["12:00", "sunny"])
-    assert all(string in text for string in ["12:00"])
+    assert all(string in text for string in ["12:00", "sunny"])
 
 
 @pytest.mark.skipif("MISTRAL_API_KEY" not in os.environ, reason="MISTRAL_API_KEY environment variable missing")
