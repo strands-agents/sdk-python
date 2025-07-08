@@ -34,12 +34,10 @@ class A2AServer:
         version: str = "0.0.1",
         skills: list[AgentSkill] | None = None,
     ):
-        """Initialize an A2A-compatible agent from a Strands agent.
+        """Initialize an A2A-compatible server from a Strands agent.
 
         Args:
             agent: The Strands Agent to wrap with A2A compatibility.
-            name: The name of the agent, used in the AgentCard.
-            description: A description of the agent's capabilities, used in the AgentCard.
             host: The hostname or IP address to bind the A2A server to. Defaults to "0.0.0.0".
             port: The port to bind the A2A server to. Defaults to 9000.
             version: The version of the agent. Defaults to "0.0.1".
