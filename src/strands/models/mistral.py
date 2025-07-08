@@ -8,7 +8,7 @@ import json
 import logging
 from typing import Any, AsyncGenerator, Iterable, Optional, Type, TypeVar, Union
 
-from mistralai import Mistral
+import mistralai
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
@@ -94,7 +94,7 @@ class MistralModel(Model):
         if api_key:
             client_args["api_key"] = api_key
 
-        self.client = Mistral(**client_args)
+        self.client = mistralai.Mistral(**client_args)
 
     @override
     def update_config(self, **model_config: Unpack[MistralConfig]) -> None:  # type: ignore
@@ -408,13 +408,13 @@ class MistralModel(Model):
         try:
             if not self.config.get("stream", True):
                 # Use non-streaming API
-                response = self.client.chat.complete(**request)
+                response = await self.client.chat.complete_async(**request)
                 for event in self._handle_non_streaming_response(response):
                     yield event
                 return
 
             # Use the streaming API
-            stream_response = self.client.chat.stream(**request)
+            stream_response = await self.client.chat.stream_async(**request)
 
             yield {"chunk_type": "message_start"}
 
@@ -422,7 +422,7 @@ class MistralModel(Model):
             current_tool_calls: dict[str, dict[str, str]] = {}
             accumulated_text = ""
 
-            for chunk in stream_response:
+            async for chunk in stream_response:
                 if hasattr(chunk, "data") and hasattr(chunk.data, "choices") and chunk.data.choices:
                     choice = chunk.data.choices[0]
 
@@ -499,7 +499,7 @@ class MistralModel(Model):
         formatted_request["tool_choice"] = "any"
         formatted_request["parallel_tool_calls"] = False
 
-        response = self.client.chat.complete(**formatted_request)
+        response = await self.client.chat.complete_async(**formatted_request)
 
         if response.choices and response.choices[0].message.tool_calls:
             tool_call = response.choices[0].message.tool_calls[0]
