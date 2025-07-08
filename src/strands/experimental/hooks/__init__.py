@@ -30,8 +30,10 @@ type-safe system that supports multiple subscribers per event type.
 """
 
 from .events import (
+    AfterModelInvocationEvent,
     AfterToolInvocationEvent,
     AgentInitializedEvent,
+    BeforeModelInvocationEvent,
     BeforeToolInvocationEvent,
     EndRequestEvent,
     StartRequestEvent,
@@ -42,6 +44,8 @@ __all__ = [
     "AgentInitializedEvent",
     "StartRequestEvent",
     "EndRequestEvent",
+    "BeforeModelInvocationEvent",
+    "AfterModelInvocationEvent",
     "BeforeToolInvocationEvent",
     "AfterToolInvocationEvent",
     "HookEvent",

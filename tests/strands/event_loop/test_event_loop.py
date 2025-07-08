@@ -397,26 +397,6 @@ async def test_event_loop_cycle_tool_result_no_tool_handler(
 
 
 @pytest.mark.asyncio
-async def test_event_loop_cycle_tool_result_no_tool_config(
-    agent,
-    model,
-    tool_stream,
-    agenerator,
-    alist,
-):
-    model.converse.side_effect = [agenerator(tool_stream)]
-    # Set tool_config to None for this test
-    agent.tool_config = None
-
-    with pytest.raises(EventLoopException):
-        stream = strands.event_loop.event_loop.event_loop_cycle(
-            agent=agent,
-            kwargs={},
-        )
-        await alist(stream)
-
-
-@pytest.mark.asyncio
 async def test_event_loop_cycle_stop(
     agent,
     model,

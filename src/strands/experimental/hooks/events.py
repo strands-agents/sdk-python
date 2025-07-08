@@ -6,7 +6,9 @@ This module defines the events that are emitted as Agents run through the lifecy
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from ...types.tools import AgentTool, ToolResult, ToolUse
+from ...types.content import Message, Messages
+from ...types.streaming import Metrics, StopReason
+from ...types.tools import AgentTool, ToolConfig, ToolResult, ToolUse, Tool
 from .registry import HookEvent
 
 
@@ -113,6 +115,67 @@ class AfterToolInvocationEvent(HookEvent):
 
     def _can_write(self, name: str) -> bool:
         return name == "result"
+
+    @property
+    def should_reverse_callbacks(self) -> bool:
+        """True to invoke callbacks in reverse order."""
+        return True
+
+
+@dataclass
+class BeforeModelInvocationEvent(HookEvent):
+    """Event triggered before the model is invoked.
+
+    This event is fired just before the agent calls the model for inference,
+    allowing hook providers to inspect or modify the messages and configuration
+    that will be sent to the model.
+
+    Note: This event is not fired for invocations to structured_output.
+
+    Attributes:
+        tool_configs: The list of tool configurations to be passed into the model.
+    """
+
+    tool_configs: list[Tool]
+
+    def _can_write(self, name: str) -> bool:
+        return name in ["tool_config"]
+
+
+@dataclass
+class AfterModelInvocationEvent(HookEvent):
+    """Event triggered after the model invocation completes.
+
+    This event is fired after the agent has finished calling the model,
+    regardless of whether the invocation was successful or resulted in an error.
+    Hook providers can use this event for cleanup, logging, or post-processing.
+
+    Note: This event uses reverse callback ordering, meaning callbacks registered
+    later will be invoked first during cleanup.
+
+    Note: This event is not fired for invocations to structured_output.
+
+    Attributes:
+        tool_configs: The list of tool configurations that was passed into the model.
+        stop_data: The model response data if invocation was successful, None if failed.
+        exception: Exception if the model invocation failed, None if successful.
+    """
+
+    @dataclass
+    class ModelStopResponse:
+        """Model response data from successful invocation.
+
+        Attributes:
+            stop_reason: The reason the model stopped generating.
+            message: The generated message from the model.
+        """
+
+        message: Message
+        stop_reason: StopReason
+
+    tool_configs: list[Tool]
+    stop_data: Optional[ModelStopResponse] = None
+    exception: Optional[Exception] = None
 
     @property
     def should_reverse_callbacks(self) -> bool:
