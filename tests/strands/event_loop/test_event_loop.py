@@ -1,24 +1,28 @@
 import concurrent
 import unittest.mock
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import ANY, MagicMock, call, patch
 
 import pytest
 
 import strands
 import strands.telemetry
-from strands.handlers.tool_handler import AgentToolHandler
+from strands.event_loop.event_loop import run_tool
+from strands.experimental.hooks import AfterToolInvocationEvent, BeforeToolInvocationEvent, HookProvider, HookRegistry
+from strands.telemetry.metrics import EventLoopMetrics
 from strands.tools.registry import ToolRegistry
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException, ModelThrottledException
+from tests.fixtures.mock_hook_provider import MockHookProvider
+
+
+@pytest.fixture
+def mock_time():
+    with unittest.mock.patch.object(strands.event_loop.event_loop, "time") as mock:
+        yield mock
 
 
 @pytest.fixture
 def model():
     return unittest.mock.Mock()
-
-
-@pytest.fixture
-def model_id():
-    return "m1"
 
 
 @pytest.fixture
@@ -37,36 +41,47 @@ def tool_config():
 
 
 @pytest.fixture
-def callback_handler():
-    return unittest.mock.Mock()
-
-
-@pytest.fixture
 def tool_registry():
     return ToolRegistry()
 
 
 @pytest.fixture
-def tool_handler(tool_registry):
-    return AgentToolHandler(tool_registry)
-
-
-@pytest.fixture
-def tool_execution_handler():
-    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-    return strands.tools.ThreadPoolExecutorWrapper(pool)
+def thread_pool():
+    return concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
 
 @pytest.fixture
 def tool(tool_registry):
-    @strands.tools.tool
-    def tool_for_testing(random_string: str) -> str:
+    @strands.tool
+    def tool_for_testing(random_string: str):
+        yield {"event": "abc"}
         return random_string
 
-    function_tool = strands.tools.tools.FunctionTool(tool_for_testing)
-    tool_registry.register_tool(function_tool)
+    tool_registry.register_tool(tool_for_testing)
 
-    return function_tool
+    return tool_for_testing
+
+
+@pytest.fixture
+def tool_times_2(tool_registry):
+    @strands.tools.tool
+    def multiply_by_2(x: int) -> int:
+        return x * 2
+
+    tool_registry.register_tool(multiply_by_2)
+
+    return multiply_by_2
+
+
+@pytest.fixture
+def tool_times_5(tool_registry):
+    @strands.tools.tool
+    def multiply_by_5(x: int) -> int:
+        return x * 5
+
+    tool_registry.register_tool(multiply_by_5)
+
+    return multiply_by_5
 
 
 @pytest.fixture
@@ -89,9 +104,29 @@ def tool_stream(tool):
 
 
 @pytest.fixture
-def agent():
-    mock = unittest.mock.Mock()
+def hook_registry():
+    return HookRegistry()
+
+
+@pytest.fixture
+def hook_provider(hook_registry):
+    provider = MockHookProvider(event_types=[BeforeToolInvocationEvent, AfterToolInvocationEvent])
+    hook_registry.add_hook(provider)
+    return provider
+
+
+@pytest.fixture
+def agent(model, system_prompt, messages, tool_config, tool_registry, thread_pool, hook_registry):
+    mock = unittest.mock.Mock(name="agent")
     mock.config.cache_points = []
+    mock.model = model
+    mock.system_prompt = system_prompt
+    mock.messages = messages
+    mock.tool_config = tool_config
+    mock.tool_registry = tool_registry
+    mock.thread_pool = thread_pool
+    mock.event_loop_metrics = EventLoopMetrics()
+    mock._hooks = hook_registry
 
     return mock
 
@@ -104,88 +139,27 @@ def mock_tracer():
     return tracer
 
 
-@pytest.mark.parametrize(
-    ("kwargs", "exp_state"),
-    [
-        (
-            {"request_state": {"key1": "value1"}},
-            {"key1": "value1"},
-        ),
-        (
-            {},
-            {},
-        ),
-    ],
-)
-def test_initialize_state(kwargs, exp_state):
-    kwargs = strands.event_loop.event_loop.initialize_state(**kwargs)
-
-    tru_state = kwargs["request_state"]
-
-    assert tru_state == exp_state
-
-
-def test_event_loop_cycle_text_response(
+@pytest.mark.asyncio
+async def test_event_loop_cycle_text_response(
+    agent,
     model,
-    model_id,
-    system_prompt,
-    messages,
-    tool_config,
-    callback_handler,
-    tool_handler,
-    tool_execution_handler,
+    agenerator,
+    alist,
 ):
-    model.converse.return_value = [
-        {"contentBlockDelta": {"delta": {"text": "test text"}}},
-        {"contentBlockStop": {}},
-    ]
-
-    tru_stop_reason, tru_message, _, tru_request_state = strands.event_loop.event_loop.event_loop_cycle(
-        model=model,
-        model_id=model_id,
-        system_prompt=system_prompt,
-        messages=messages,
-        tool_config=tool_config,
-        callback_handler=callback_handler,
-        tool_handler=tool_handler,
-        tool_execution_handler=tool_execution_handler,
-    )
-    exp_stop_reason = "end_turn"
-    exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
-    exp_request_state = {}
-
-    assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
-
-
-@unittest.mock.patch.object(strands.event_loop.error_handler, "time")
-def test_event_loop_cycle_text_response_throttling(
-    model,
-    model_id,
-    system_prompt,
-    messages,
-    tool_config,
-    callback_handler,
-    tool_handler,
-    tool_execution_handler,
-):
-    model.converse.side_effect = [
-        ModelThrottledException("ThrottlingException | ConverseStream"),
+    model.converse.return_value = agenerator(
         [
             {"contentBlockDelta": {"delta": {"text": "test text"}}},
             {"contentBlockStop": {}},
-        ],
-    ]
-
-    tru_stop_reason, tru_message, _, tru_request_state = strands.event_loop.event_loop.event_loop_cycle(
-        model=model,
-        model_id=model_id,
-        system_prompt=system_prompt,
-        messages=messages,
-        tool_config=tool_config,
-        callback_handler=callback_handler,
-        tool_handler=tool_handler,
-        tool_execution_handler=tool_execution_handler,
+        ]
     )
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        kwargs={},
+    )
+    events = await alist(stream)
+    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
+
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
     exp_request_state = {}
@@ -193,59 +167,157 @@ def test_event_loop_cycle_text_response_throttling(
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
 
 
-def test_event_loop_cycle_text_response_error(
+@pytest.mark.asyncio
+async def test_event_loop_cycle_text_response_throttling(
+    mock_time,
+    agent,
     model,
-    model_id,
-    system_prompt,
-    messages,
-    tool_config,
-    callback_handler,
-    tool_handler,
-    tool_execution_handler,
+    agenerator,
+    alist,
+):
+    model.converse.side_effect = [
+        ModelThrottledException("ThrottlingException | ConverseStream"),
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "test text"}}},
+                {"contentBlockStop": {}},
+            ]
+        ),
+    ]
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        kwargs={},
+    )
+    events = await alist(stream)
+    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
+
+    exp_stop_reason = "end_turn"
+    exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
+    exp_request_state = {}
+
+    assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
+    # Verify that sleep was called once with the initial delay
+    mock_time.sleep.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_exponential_backoff(
+    mock_time,
+    agent,
+    model,
+    agenerator,
+    alist,
+):
+    """Test that the exponential backoff works correctly with multiple retries."""
+    # Set up the model to raise throttling exceptions multiple times before succeeding
+    model.converse.side_effect = [
+        ModelThrottledException("ThrottlingException | ConverseStream"),
+        ModelThrottledException("ThrottlingException | ConverseStream"),
+        ModelThrottledException("ThrottlingException | ConverseStream"),
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "test text"}}},
+                {"contentBlockStop": {}},
+            ]
+        ),
+    ]
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        kwargs={},
+    )
+    events = await alist(stream)
+    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
+
+    # Verify the final response
+    assert tru_stop_reason == "end_turn"
+    assert tru_message == {"role": "assistant", "content": [{"text": "test text"}]}
+    assert tru_request_state == {}
+
+    # Verify that sleep was called with increasing delays
+    # Initial delay is 4, then 8, then 16
+    assert mock_time.sleep.call_count == 3
+    assert mock_time.sleep.call_args_list == [call(4), call(8), call(16)]
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_text_response_throttling_exceeded(
+    mock_time,
+    agent,
+    model,
+    alist,
+):
+    model.converse.side_effect = [
+        ModelThrottledException("ThrottlingException | ConverseStream"),
+        ModelThrottledException("ThrottlingException | ConverseStream"),
+        ModelThrottledException("ThrottlingException | ConverseStream"),
+        ModelThrottledException("ThrottlingException | ConverseStream"),
+        ModelThrottledException("ThrottlingException | ConverseStream"),
+        ModelThrottledException("ThrottlingException | ConverseStream"),
+    ]
+
+    with pytest.raises(ModelThrottledException):
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            kwargs={},
+        )
+        await alist(stream)
+
+    mock_time.sleep.assert_has_calls(
+        [
+            call(4),
+            call(8),
+            call(16),
+            call(32),
+            call(64),
+        ]
+    )
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_text_response_error(
+    agent,
+    model,
+    alist,
 ):
     model.converse.side_effect = RuntimeError("Unhandled error")
 
     with pytest.raises(RuntimeError):
-        strands.event_loop.event_loop.event_loop_cycle(
-            model=model,
-            model_id=model_id,
-            system_prompt=system_prompt,
-            messages=messages,
-            tool_config=tool_config,
-            callback_handler=callback_handler,
-            tool_handler=tool_handler,
-            tool_execution_handler=tool_execution_handler,
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            kwargs={},
         )
+        await alist(stream)
 
 
-def test_event_loop_cycle_tool_result(
+@pytest.mark.asyncio
+async def test_event_loop_cycle_tool_result(
+    agent,
     model,
     system_prompt,
     messages,
-    tool_config,
-    callback_handler,
-    tool_handler,
-    tool_execution_handler,
     tool_stream,
+    agenerator,
+    alist,
 ):
     model.converse.side_effect = [
-        tool_stream,
-        [
-            {"contentBlockDelta": {"delta": {"text": "test text"}}},
-            {"contentBlockStop": {}},
-        ],
+        agenerator(tool_stream),
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "test text"}}},
+                {"contentBlockStop": {}},
+            ]
+        ),
     ]
 
-    tru_stop_reason, tru_message, _, tru_request_state = strands.event_loop.event_loop.event_loop_cycle(
-        model=model,
-        model_id=model_id,
-        system_prompt=system_prompt,
-        messages=messages,
-        tool_config=tool_config,
-        callback_handler=callback_handler,
-        tool_handler=tool_handler,
-        tool_execution_handler=tool_execution_handler,
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        kwargs={},
     )
+    events = await alist(stream)
+    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
+
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
     exp_request_state = {}
@@ -286,113 +358,98 @@ def test_event_loop_cycle_tool_result(
     )
 
 
-def test_event_loop_cycle_tool_result_error(
+@pytest.mark.asyncio
+async def test_event_loop_cycle_tool_result_error(
+    agent,
     model,
-    system_prompt,
-    messages,
-    tool_config,
-    callback_handler,
-    tool_handler,
-    tool_execution_handler,
     tool_stream,
+    agenerator,
+    alist,
 ):
-    model.converse.side_effect = [tool_stream]
+    model.converse.side_effect = [agenerator(tool_stream)]
 
     with pytest.raises(EventLoopException):
-        strands.event_loop.event_loop.event_loop_cycle(
-            model=model,
-            system_prompt=system_prompt,
-            messages=messages,
-            tool_config=tool_config,
-            callback_handler=callback_handler,
-            tool_handler=tool_handler,
-            tool_execution_handler=tool_execution_handler,
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            kwargs={},
         )
+        await alist(stream)
 
 
-def test_event_loop_cycle_tool_result_no_tool_handler(
+@pytest.mark.asyncio
+async def test_event_loop_cycle_tool_result_no_tool_handler(
+    agent,
     model,
-    system_prompt,
-    messages,
-    tool_config,
-    callback_handler,
-    tool_execution_handler,
     tool_stream,
+    agenerator,
+    alist,
 ):
-    model.converse.side_effect = [tool_stream]
+    model.converse.side_effect = [agenerator(tool_stream)]
+    # Set tool_handler to None for this test
+    agent.tool_handler = None
 
     with pytest.raises(EventLoopException):
-        strands.event_loop.event_loop.event_loop_cycle(
-            model=model,
-            system_prompt=system_prompt,
-            messages=messages,
-            tool_config=tool_config,
-            callback_handler=callback_handler,
-            tool_handler=None,
-            tool_execution_handler=tool_execution_handler,
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            kwargs={},
         )
+        await alist(stream)
 
 
-def test_event_loop_cycle_tool_result_no_tool_config(
+@pytest.mark.asyncio
+async def test_event_loop_cycle_tool_result_no_tool_config(
+    agent,
     model,
-    system_prompt,
-    messages,
-    callback_handler,
-    tool_handler,
-    tool_execution_handler,
     tool_stream,
+    agenerator,
+    alist,
 ):
-    model.converse.side_effect = [tool_stream]
+    model.converse.side_effect = [agenerator(tool_stream)]
+    # Set tool_config to None for this test
+    agent.tool_config = None
 
     with pytest.raises(EventLoopException):
-        strands.event_loop.event_loop.event_loop_cycle(
-            model=model,
-            system_prompt=system_prompt,
-            messages=messages,
-            tool_config=None,
-            callback_handler=callback_handler,
-            tool_handler=tool_handler,
-            tool_execution_handler=tool_execution_handler,
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            kwargs={},
         )
+        await alist(stream)
 
 
-def test_event_loop_cycle_stop(
+@pytest.mark.asyncio
+async def test_event_loop_cycle_stop(
+    agent,
     model,
-    system_prompt,
-    messages,
-    tool_config,
-    callback_handler,
-    tool_handler,
-    tool_execution_handler,
     tool,
+    agenerator,
+    alist,
 ):
     model.converse.side_effect = [
-        [
-            {
-                "contentBlockStart": {
-                    "start": {
-                        "toolUse": {
-                            "toolUseId": "t1",
-                            "name": tool.tool_spec["name"],
+        agenerator(
+            [
+                {
+                    "contentBlockStart": {
+                        "start": {
+                            "toolUse": {
+                                "toolUseId": "t1",
+                                "name": tool.tool_spec["name"],
+                            },
                         },
                     },
                 },
-            },
-            {"contentBlockStop": {}},
-            {"messageStop": {"stopReason": "tool_use"}},
-        ],
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "tool_use"}},
+            ]
+        ),
     ]
 
-    tru_stop_reason, tru_message, _, tru_request_state = strands.event_loop.event_loop.event_loop_cycle(
-        model=model,
-        system_prompt=system_prompt,
-        messages=messages,
-        tool_config=tool_config,
-        callback_handler=callback_handler,
-        tool_handler=tool_handler,
-        tool_execution_handler=tool_execution_handler,
-        request_state={"stop_event_loop": True},
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        kwargs={"request_state": {"stop_event_loop": True}},
     )
+    events = await alist(stream)
+    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
+
     exp_stop_reason = "tool_use"
     exp_message = {
         "role": "assistant",
@@ -411,64 +468,43 @@ def test_event_loop_cycle_stop(
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
 
 
-def test_prepare_next_cycle():
-    kwargs = {"event_loop_cycle_id": "c1"}
-    event_loop_metrics = strands.telemetry.metrics.EventLoopMetrics()
-    tru_result = strands.event_loop.event_loop.prepare_next_cycle(kwargs, event_loop_metrics)
-    exp_result = {
-        "event_loop_cycle_id": "c1",
-        "event_loop_parent_cycle_id": "c1",
-        "event_loop_metrics": event_loop_metrics,
-    }
-
-    assert tru_result == exp_result
-
-
-def test_cycle_exception(
+@pytest.mark.asyncio
+async def test_cycle_exception(
+    agent,
     model,
-    system_prompt,
-    messages,
-    tool_config,
-    callback_handler,
-    tool_handler,
-    tool_execution_handler,
     tool_stream,
+    agenerator,
 ):
-    model.converse.side_effect = [tool_stream, tool_stream, tool_stream, ValueError("Invalid error presented")]
-
-    with pytest.raises(EventLoopException):
-        strands.event_loop.event_loop.event_loop_cycle(
-            model=model,
-            model_id=model_id,
-            system_prompt=system_prompt,
-            messages=messages,
-            tool_config=tool_config,
-            callback_handler=callback_handler,
-            tool_handler=tool_handler,
-            tool_execution_handler=tool_execution_handler,
-        )
-
-    exception_calls = [
-        it
-        for it in callback_handler.call_args_list
-        if it == call(force_stop=True, force_stop_reason="Invalid error presented")
+    model.converse.side_effect = [
+        agenerator(tool_stream),
+        agenerator(tool_stream),
+        agenerator(tool_stream),
+        ValueError("Invalid error presented"),
     ]
 
-    assert len(exception_calls) == 1
+    tru_stop_event = None
+    exp_stop_event = {"callback": {"force_stop": True, "force_stop_reason": "Invalid error presented"}}
+
+    with pytest.raises(EventLoopException):
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            kwargs={},
+        )
+        async for event in stream:
+            tru_stop_event = event
+
+    assert tru_stop_event == exp_stop_event
 
 
 @patch("strands.event_loop.event_loop.get_tracer")
-def test_event_loop_cycle_creates_spans(
+@pytest.mark.asyncio
+async def test_event_loop_cycle_creates_spans(
     mock_get_tracer,
+    agent,
     model,
-    model_id,
-    system_prompt,
-    messages,
-    tool_config,
-    callback_handler,
-    tool_handler,
-    tool_execution_handler,
     mock_tracer,
+    agenerator,
+    alist,
 ):
     # Setup
     mock_get_tracer.return_value = mock_tracer
@@ -477,22 +513,19 @@ def test_event_loop_cycle_creates_spans(
     model_span = MagicMock()
     mock_tracer.start_model_invoke_span.return_value = model_span
 
-    model.converse.return_value = [
-        {"contentBlockDelta": {"delta": {"text": "test text"}}},
-        {"contentBlockStop": {}},
-    ]
+    model.converse.return_value = agenerator(
+        [
+            {"contentBlockDelta": {"delta": {"text": "test text"}}},
+            {"contentBlockStop": {}},
+        ]
+    )
 
     # Call event_loop_cycle
-    strands.event_loop.event_loop.event_loop_cycle(
-        model=model,
-        model_id=model_id,
-        system_prompt=system_prompt,
-        messages=messages,
-        tool_config=tool_config,
-        callback_handler=callback_handler,
-        tool_handler=tool_handler,
-        tool_execution_handler=tool_execution_handler,
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        kwargs={},
     )
+    await alist(stream)
 
     # Verify tracer methods were called correctly
     mock_get_tracer.assert_called_once()
@@ -503,17 +536,13 @@ def test_event_loop_cycle_creates_spans(
 
 
 @patch("strands.event_loop.event_loop.get_tracer")
-def test_event_loop_tracing_with_model_error(
+@pytest.mark.asyncio
+async def test_event_loop_tracing_with_model_error(
     mock_get_tracer,
+    agent,
     model,
-    model_id,
-    system_prompt,
-    messages,
-    tool_config,
-    callback_handler,
-    tool_handler,
-    tool_execution_handler,
     mock_tracer,
+    alist,
 ):
     # Setup
     mock_get_tracer.return_value = mock_tracer
@@ -527,33 +556,26 @@ def test_event_loop_tracing_with_model_error(
 
     # Call event_loop_cycle, expecting it to handle the exception
     with pytest.raises(ContextWindowOverflowException):
-        strands.event_loop.event_loop.event_loop_cycle(
-            model=model,
-            model_id=model_id,
-            system_prompt=system_prompt,
-            messages=messages,
-            tool_config=tool_config,
-            callback_handler=callback_handler,
-            tool_handler=tool_handler,
-            tool_execution_handler=tool_execution_handler,
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            kwargs={},
         )
+        await alist(stream)
 
     # Verify error handling span methods were called
     mock_tracer.end_span_with_error.assert_called_once_with(model_span, "Input too long", model.converse.side_effect)
 
 
 @patch("strands.event_loop.event_loop.get_tracer")
-def test_event_loop_tracing_with_tool_execution(
+@pytest.mark.asyncio
+async def test_event_loop_tracing_with_tool_execution(
     mock_get_tracer,
+    agent,
     model,
-    system_prompt,
-    messages,
-    tool_config,
-    callback_handler,
-    tool_handler,
-    tool_execution_handler,
     tool_stream,
     mock_tracer,
+    agenerator,
+    alist,
 ):
     # Setup
     mock_get_tracer.return_value = mock_tracer
@@ -564,24 +586,21 @@ def test_event_loop_tracing_with_tool_execution(
 
     # Set up model to return tool use and then text response
     model.converse.side_effect = [
-        tool_stream,
-        [
-            {"contentBlockDelta": {"delta": {"text": "test text"}}},
-            {"contentBlockStop": {}},
-        ],
+        agenerator(tool_stream),
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "test text"}}},
+                {"contentBlockStop": {}},
+            ]
+        ),
     ]
 
     # Call event_loop_cycle which should execute a tool
-    strands.event_loop.event_loop.event_loop_cycle(
-        model=model,
-        model_id=model_id,
-        system_prompt=system_prompt,
-        messages=messages,
-        tool_config=tool_config,
-        callback_handler=callback_handler,
-        tool_handler=tool_handler,
-        tool_execution_handler=tool_execution_handler,
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        kwargs={},
     )
+    await alist(stream)
 
     # Verify the parent_span parameter is passed to run_tools
     # At a minimum, verify both model spans were created (one for each model invocation)
@@ -590,17 +609,14 @@ def test_event_loop_tracing_with_tool_execution(
 
 
 @patch("strands.event_loop.event_loop.get_tracer")
-def test_event_loop_tracing_with_throttling_exception(
+@pytest.mark.asyncio
+async def test_event_loop_tracing_with_throttling_exception(
     mock_get_tracer,
+    agent,
     model,
-    model_id,
-    system_prompt,
-    messages,
-    tool_config,
-    callback_handler,
-    tool_handler,
-    tool_execution_handler,
     mock_tracer,
+    agenerator,
+    alist,
 ):
     # Setup
     mock_get_tracer.return_value = mock_tracer
@@ -612,24 +628,21 @@ def test_event_loop_tracing_with_throttling_exception(
     # Set up model to raise a throttling exception and then succeed
     model.converse.side_effect = [
         ModelThrottledException("Throttling Error"),
-        [
-            {"contentBlockDelta": {"delta": {"text": "test text"}}},
-            {"contentBlockStop": {}},
-        ],
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "test text"}}},
+                {"contentBlockStop": {}},
+            ]
+        ),
     ]
 
     # Mock the time.sleep function to speed up the test
-    with patch("strands.event_loop.error_handler.time.sleep"):
-        strands.event_loop.event_loop.event_loop_cycle(
-            model=model,
-            model_id=model_id,
-            system_prompt=system_prompt,
-            messages=messages,
-            tool_config=tool_config,
-            callback_handler=callback_handler,
-            tool_handler=tool_handler,
-            tool_execution_handler=tool_execution_handler,
+    with patch("strands.event_loop.event_loop.time.sleep"):
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            kwargs={},
         )
+        await alist(stream)
 
     # Verify error span was created for the throttling exception
     assert mock_tracer.end_span_with_error.call_count == 1
@@ -639,17 +652,15 @@ def test_event_loop_tracing_with_throttling_exception(
 
 
 @patch("strands.event_loop.event_loop.get_tracer")
-def test_event_loop_cycle_with_parent_span(
+@pytest.mark.asyncio
+async def test_event_loop_cycle_with_parent_span(
     mock_get_tracer,
+    agent,
     model,
-    model_id,
-    system_prompt,
     messages,
-    tool_config,
-    callback_handler,
-    tool_handler,
-    tool_execution_handler,
     mock_tracer,
+    agenerator,
+    alist,
 ):
     # Setup
     mock_get_tracer.return_value = mock_tracer
@@ -657,25 +668,346 @@ def test_event_loop_cycle_with_parent_span(
     cycle_span = MagicMock()
     mock_tracer.start_event_loop_cycle_span.return_value = cycle_span
 
-    model.converse.return_value = [
-        {"contentBlockDelta": {"delta": {"text": "test text"}}},
-        {"contentBlockStop": {}},
-    ]
+    model.converse.return_value = agenerator(
+        [
+            {"contentBlockDelta": {"delta": {"text": "test text"}}},
+            {"contentBlockStop": {}},
+        ]
+    )
+
+    # Set the parent span for this test
+    agent.trace_span = parent_span
 
     # Call event_loop_cycle with a parent span
-    strands.event_loop.event_loop.event_loop_cycle(
-        model=model,
-        model_id=model_id,
-        system_prompt=system_prompt,
-        messages=messages,
-        tool_config=tool_config,
-        callback_handler=callback_handler,
-        tool_handler=tool_handler,
-        tool_execution_handler=tool_execution_handler,
-        event_loop_parent_span=parent_span,
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        kwargs={},
     )
+    await alist(stream)
 
     # Verify parent_span was used when creating cycle span
     mock_tracer.start_event_loop_cycle_span.assert_called_once_with(
         event_loop_kwargs=unittest.mock.ANY, parent_span=parent_span, messages=messages
     )
+
+
+@pytest.mark.asyncio
+async def test_request_state_initialization(alist):
+    # Create a mock agent
+    mock_agent = MagicMock()
+    mock_agent.event_loop_metrics.start_cycle.return_value = (0, MagicMock())
+
+    # Call without providing request_state
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=mock_agent,
+        kwargs={},
+    )
+    events = await alist(stream)
+    _, _, _, tru_request_state = events[-1]["stop"]
+
+    # Verify request_state was initialized to empty dict
+    assert tru_request_state == {}
+
+    # Call with pre-existing request_state
+    initial_request_state = {"key": "value"}
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=mock_agent,
+        kwargs={"request_state": initial_request_state},
+    )
+    events = await alist(stream)
+    _, _, _, tru_request_state = events[-1]["stop"]
+
+    # Verify existing request_state was preserved
+    assert tru_request_state == initial_request_state
+
+
+@pytest.mark.asyncio
+async def test_prepare_next_cycle_in_tool_execution(agent, model, tool_stream, agenerator, alist):
+    """Test that cycle ID and metrics are properly updated during tool execution."""
+    model.converse.side_effect = [
+        agenerator(tool_stream),
+        agenerator(
+            [
+                {"contentBlockStop": {}},
+            ]
+        ),
+    ]
+
+    # Create a mock for recurse_event_loop to capture the kwargs passed to it
+    with unittest.mock.patch.object(strands.event_loop.event_loop, "recurse_event_loop") as mock_recurse:
+        # Set up mock to return a valid response
+        mock_recurse.return_value = agenerator(
+            [
+                (
+                    "end_turn",
+                    {"role": "assistant", "content": [{"text": "test text"}]},
+                    strands.telemetry.metrics.EventLoopMetrics(),
+                    {},
+                ),
+            ]
+        )
+
+        # Call event_loop_cycle which should execute a tool and then call recurse_event_loop
+        stream = strands.event_loop.event_loop.event_loop_cycle(
+            agent=agent,
+            kwargs={},
+        )
+        await alist(stream)
+
+        assert mock_recurse.called
+
+        # Verify required properties are present
+        recursive_args = mock_recurse.call_args[1]
+        assert "event_loop_parent_cycle_id" in recursive_args["kwargs"]
+        assert recursive_args["kwargs"]["event_loop_parent_cycle_id"] == recursive_args["kwargs"]["event_loop_cycle_id"]
+
+
+def test_run_tool(agent, tool, generate):
+    process = run_tool(
+        agent,
+        tool_use={"toolUseId": "tool_use_id", "name": tool.tool_name, "input": {"random_string": "a_string"}},
+        kwargs={},
+    )
+
+    tru_events, tru_result = generate(process)
+    exp_events = [{"event": "abc"}]
+    exp_result = {"toolUseId": "tool_use_id", "status": "success", "content": [{"text": "a_string"}]}
+
+    assert tru_events == exp_events and tru_result == exp_result
+
+
+def test_run_tool_missing_tool(agent, generate):
+    process = run_tool(
+        agent,
+        tool_use={"toolUseId": "missing", "name": "missing", "input": {}},
+        kwargs={},
+    )
+
+    tru_events, tru_result = generate(process)
+    exp_events = []
+    exp_result = {
+        "toolUseId": "missing",
+        "status": "error",
+        "content": [{"text": "Unknown tool: missing"}],
+    }
+
+    assert tru_events == exp_events and tru_result == exp_result
+
+
+def test_run_tool_hooks(agent, generate, hook_provider, tool_times_2):
+    """Test that the correct hooks are emitted."""
+
+    process = run_tool(
+        agent=agent,
+        tool_use={"toolUseId": "test", "name": tool_times_2.tool_name, "input": {"x": 5}},
+        kwargs={},
+    )
+
+    _, result = generate(process)
+
+    assert len(hook_provider.events_received) == 2
+
+    assert hook_provider.events_received[0] == BeforeToolInvocationEvent(
+        agent=agent,
+        selected_tool=tool_times_2,
+        tool_use={"input": {"x": 5}, "name": "multiply_by_2", "toolUseId": "test"},
+        kwargs=ANY,
+    )
+
+    assert hook_provider.events_received[1] == AfterToolInvocationEvent(
+        agent=agent,
+        selected_tool=tool_times_2,
+        exception=None,
+        tool_use={"toolUseId": "test", "name": tool_times_2.tool_name, "input": {"x": 5}},
+        result={"toolUseId": "test", "status": "success", "content": [{"text": "10"}]},
+        kwargs=ANY,
+    )
+
+
+def test_run_tool_hooks_on_missing_tool(agent, tool_registry, generate, hook_provider):
+    """Test that AfterToolInvocation hook is invoked even when tool throws exception."""
+    process = run_tool(
+        agent=agent,
+        tool_use={"toolUseId": "test", "name": "missing_tool", "input": {"x": 5}},
+        kwargs={},
+    )
+
+    _, result = generate(process)
+
+    assert len(hook_provider.events_received) == 2
+
+    assert hook_provider.events_received[0] == BeforeToolInvocationEvent(
+        agent=agent,
+        selected_tool=None,
+        tool_use={"input": {"x": 5}, "name": "missing_tool", "toolUseId": "test"},
+        kwargs=ANY,
+    )
+
+    assert hook_provider.events_received[1] == AfterToolInvocationEvent(
+        agent=agent,
+        selected_tool=None,
+        tool_use={"input": {"x": 5}, "name": "missing_tool", "toolUseId": "test"},
+        kwargs=ANY,
+        result={"content": [{"text": "Unknown tool: missing_tool"}], "status": "error", "toolUseId": "test"},
+        exception=None,
+    )
+
+
+def test_run_tool_hook_after_tool_invocation_on_exception(agent, tool_registry, generate, hook_provider):
+    """Test that AfterToolInvocation hook is invoked even when tool throws exception."""
+    error = ValueError("Tool failed")
+
+    failing_tool = MagicMock()
+    failing_tool.tool_name = "failing_tool"
+
+    failing_tool.stream.side_effect = error
+
+    tool_registry.register_tool(failing_tool)
+
+    process = run_tool(
+        agent=agent,
+        tool_use={"toolUseId": "test", "name": "failing_tool", "input": {"x": 5}},
+        kwargs={},
+    )
+
+    _, result = generate(process)
+
+    assert hook_provider.events_received[1] == AfterToolInvocationEvent(
+        agent=agent,
+        selected_tool=failing_tool,
+        tool_use={"input": {"x": 5}, "name": "failing_tool", "toolUseId": "test"},
+        kwargs=ANY,
+        result={"content": [{"text": "Error: Tool failed"}], "status": "error", "toolUseId": "test"},
+        exception=error,
+    )
+
+
+def test_run_tool_hook_before_tool_invocation_updates(agent, tool_times_5, generate, hook_registry, hook_provider):
+    """Test that modifying properties on BeforeToolInvocation takes effect."""
+
+    updated_tool_use = {"toolUseId": "modified", "name": "replacement_tool", "input": {"x": 3}}
+
+    def modify_hook(event: BeforeToolInvocationEvent):
+        # Modify selected_tool to use replacement_tool
+        event.selected_tool = tool_times_5
+        # Modify tool_use to change toolUseId
+        event.tool_use = updated_tool_use
+
+    hook_registry.add_callback(BeforeToolInvocationEvent, modify_hook)
+
+    process = run_tool(
+        agent=agent,
+        tool_use={"toolUseId": "original", "name": "original_tool", "input": {"x": 1}},
+        kwargs={},
+    )
+
+    _, result = generate(process)
+
+    # Should use replacement_tool (5 * 3 = 15) instead of original_tool (1 * 2 = 2)
+    assert result == {"toolUseId": "modified", "status": "success", "content": [{"text": "15"}]}
+
+    assert hook_provider.events_received[1] == AfterToolInvocationEvent(
+        agent=agent,
+        selected_tool=tool_times_5,
+        tool_use=updated_tool_use,
+        kwargs=ANY,
+        result={"content": [{"text": "15"}], "status": "success", "toolUseId": "modified"},
+        exception=None,
+    )
+
+
+def test_run_tool_hook_after_tool_invocation_updates(agent, tool_times_2, generate, hook_registry):
+    """Test that modifying properties on AfterToolInvocation takes effect."""
+
+    updated_result = {"toolUseId": "modified", "status": "success", "content": [{"text": "modified_result"}]}
+
+    def modify_hook(event: AfterToolInvocationEvent):
+        # Modify result to change the output
+        event.result = updated_result
+
+    hook_registry.add_callback(AfterToolInvocationEvent, modify_hook)
+
+    process = run_tool(
+        agent=agent,
+        tool_use={"toolUseId": "test", "name": tool_times_2.tool_name, "input": {"x": 5}},
+        kwargs={},
+    )
+
+    _, result = generate(process)
+
+    assert result == updated_result
+
+
+def test_run_tool_hook_after_tool_invocation_updates_with_missing_tool(agent, tool_times_2, generate, hook_registry):
+    """Test that modifying properties on AfterToolInvocation takes effect."""
+
+    updated_result = {"toolUseId": "modified", "status": "success", "content": [{"text": "modified_result"}]}
+
+    def modify_hook(event: AfterToolInvocationEvent):
+        # Modify result to change the output
+        event.result = updated_result
+
+    hook_registry.add_callback(AfterToolInvocationEvent, modify_hook)
+
+    process = run_tool(
+        agent=agent,
+        tool_use={"toolUseId": "test", "name": "missing_tool", "input": {"x": 5}},
+        kwargs={},
+    )
+
+    _, result = generate(process)
+
+    assert result == updated_result
+
+
+def test_run_tool_hook_update_result_with_missing_tool(agent, generate, tool_registry, hook_registry):
+    """Test that modifying properties on AfterToolInvocation takes effect."""
+
+    @strands.tool
+    def test_quota():
+        return "9"
+
+    tool_registry.register_tool(test_quota)
+
+    class ExampleProvider(HookProvider):
+        def register_hooks(self, registry: "HookRegistry") -> None:
+            registry.add_callback(BeforeToolInvocationEvent, self.before_tool_call)
+            registry.add_callback(AfterToolInvocationEvent, self.after_tool_call)
+
+        def before_tool_call(self, event: BeforeToolInvocationEvent):
+            if event.tool_use.get("name") == "test_quota":
+                event.selected_tool = None
+
+        def after_tool_call(self, event: AfterToolInvocationEvent):
+            if event.tool_use.get("name") == "test_quota":
+                event.result = {
+                    "status": "error",
+                    "toolUseId": "test",
+                    "content": [{"text": "This tool has been used too many times!"}],
+                }
+
+    hook_registry.add_hook(ExampleProvider())
+
+    with patch.object(strands.event_loop.event_loop, "logger") as mock_logger:
+        process = run_tool(
+            agent=agent,
+            tool_use={"toolUseId": "test", "name": "test_quota", "input": {"x": 5}},
+            kwargs={},
+        )
+
+        _, result = generate(process)
+
+    assert result == {
+        "status": "error",
+        "toolUseId": "test",
+        "content": [{"text": "This tool has been used too many times!"}],
+    }
+
+    assert mock_logger.debug.call_args_list == [
+        call("tool_use=<%s> | streaming", {"toolUseId": "test", "name": "test_quota", "input": {"x": 5}}),
+        call(
+            "tool_name=<%s>, tool_use_id=<%s> | a hook resulted in a non-existing tool call",
+            "test_quota",
+            "test",
+        ),
+    ]

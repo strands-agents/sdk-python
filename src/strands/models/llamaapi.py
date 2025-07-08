@@ -8,10 +8,11 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Iterable, Optional, cast
+from typing import Any, AsyncGenerator, Optional, Type, TypeVar, Union, cast
 
 import llama_api_client
 from llama_api_client import LlamaAPIClient
+from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
 from ..types.content import ContentBlock, Messages
@@ -21,6 +22,8 @@ from ..types.streaming import StreamEvent, Usage
 from ..types.tools import ToolResult, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class LlamaAPIModel(Model):
@@ -321,7 +324,7 @@ class LlamaAPIModel(Model):
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Send the request to the model and get a streaming response.
 
         Args:
@@ -384,3 +387,33 @@ class LlamaAPIModel(Model):
         # we may have a metrics event here
         if metrics_event:
             yield {"chunk_type": "metadata", "data": metrics_event}
+
+    @override
+    def structured_output(
+        self, output_model: Type[T], prompt: Messages
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        """Get structured output from the model.
+
+        Args:
+            output_model: The output model to use for the agent.
+            prompt: The prompt messages to use for the agent.
+
+        Yields:
+            Model events with the last being the structured output.
+
+        Raises:
+            NotImplementedError: Structured output is not currently supported for LlamaAPI models.
+        """
+        # response_format: ResponseFormat = {
+        #     "type": "json_schema",
+        #     "json_schema": {
+        #         "name": output_model.__name__,
+        #         "schema": output_model.model_json_schema(),
+        #     },
+        # }
+        # response = self.client.chat.completions.create(
+        #     model=self.config["model_id"],
+        #     messages=self.format_request(prompt)["messages"],
+        #     response_format=response_format,
+        # )
+        raise NotImplementedError("Strands sdk-python does not implement this in the Llama API Preview.")

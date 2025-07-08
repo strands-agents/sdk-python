@@ -7,11 +7,14 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Iterable, Optional, TypedDict, cast
+from typing import Any, AsyncGenerator, Optional, Type, TypedDict, TypeVar, Union, cast
 
 import anthropic
+from pydantic import BaseModel
 from typing_extensions import Required, Unpack, override
 
+from ..event_loop.streaming import process_stream
+from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.models import Model
@@ -19,6 +22,8 @@ from ..types.streaming import StreamEvent
 from ..types.tools import ToolSpec
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class AnthropicModel(Model):
@@ -67,7 +72,7 @@ class AnthropicModel(Model):
         logger.debug("config=<%s> | initializing", self.config)
 
         client_args = client_args or {}
-        self.client = anthropic.Anthropic(**client_args)
+        self.client = anthropic.AsyncAnthropic(**client_args)
 
     @override
     def update_config(self, **model_config: Unpack[AnthropicConfig]) -> None:  # type: ignore[override]
@@ -339,7 +344,7 @@ class AnthropicModel(Model):
                 raise RuntimeError(f"event_type=<{event['type']} | unknown type")
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Send the request to the Anthropic model and get the streaming response.
 
         Args:
@@ -353,13 +358,13 @@ class AnthropicModel(Model):
             ModelThrottledException: If the request is throttled by Anthropic.
         """
         try:
-            with self.client.messages.stream(**request) as stream:
-                for event in stream:
+            async with self.client.messages.stream(**request) as stream:
+                async for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
-                        yield event.dict()
+                        yield event.model_dump()
 
                 usage = event.message.usage  # type: ignore
-                yield {"type": "metadata", "usage": usage.dict()}
+                yield {"type": "metadata", "usage": usage.model_dump()}
 
         except anthropic.RateLimitError as error:
             raise ModelThrottledException(str(error)) from error
@@ -369,3 +374,42 @@ class AnthropicModel(Model):
                 raise ContextWindowOverflowException(str(error)) from error
 
             raise error
+
+    @override
+    async def structured_output(
+        self, output_model: Type[T], prompt: Messages
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        """Get structured output from the model.
+
+        Args:
+            output_model: The output model to use for the agent.
+            prompt: The prompt messages to use for the agent.
+
+        Yields:
+            Model events with the last being the structured output.
+        """
+        tool_spec = convert_pydantic_to_tool_spec(output_model)
+
+        response = self.converse(messages=prompt, tool_specs=[tool_spec])
+        async for event in process_stream(response, prompt):
+            yield event
+
+        stop_reason, messages, _, _ = event["stop"]
+
+        if stop_reason != "tool_use":
+            raise ValueError("No valid tool use or tool use input was found in the Anthropic response.")
+
+        content = messages["content"]
+        output_response: dict[str, Any] | None = None
+        for block in content:
+            # if the tool use name doesn't match the tool spec name, skip, and if the block is not a tool use, skip.
+            # if the tool use name never matches, raise an error.
+            if block.get("toolUse") and block["toolUse"]["name"] == tool_spec["name"]:
+                output_response = block["toolUse"]["input"]
+            else:
+                continue
+
+        if output_response is None:
+            raise ValueError("No valid tool use or tool use input was found in the Anthropic response.")
+
+        yield {"output": output_model(**output_response)}

@@ -15,7 +15,7 @@ class TestOpenAIModel(SAOpenAIModel):
     def get_config(self):
         return
 
-    def stream(self, request):
+    async def stream(self, request):
         yield {"request": request}
 
 
@@ -90,7 +90,7 @@ def system_prompt():
                 "image_url": {
                     "detail": "auto",
                     "format": "image/jpeg",
-                    "url": "data:image/jpeg;base64,image",
+                    "url": "data:image/jpeg;base64,aW1hZ2U=",
                 },
                 "type": "image_url",
             },
@@ -287,6 +287,11 @@ def test_format_request(model, messages, tool_specs, system_prompt):
                 "data": unittest.mock.Mock(function=unittest.mock.Mock(arguments=None)),
             },
             {"contentBlockDelta": {"delta": {"toolUse": {"input": ""}}}},
+        ),
+        # Content Delta - Reasoning Text
+        (
+            {"chunk_type": "content_delta", "data_type": "reasoning_content", "data": "I'm thinking"},
+            {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "I'm thinking"}}}},
         ),
         # Content Delta - Text
         (

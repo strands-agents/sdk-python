@@ -2,13 +2,17 @@
 
 import abc
 import logging
-from typing import Any, Iterable, Optional
+from typing import Any, AsyncGenerator, AsyncIterable, Optional, Type, TypeVar, Union
+
+from pydantic import BaseModel
 
 from ..content import Messages
 from ..streaming import StreamEvent
 from ..tools import ToolSpec
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class Model(abc.ABC):
@@ -35,6 +39,25 @@ class Model(abc.ABC):
 
         Returns:
             The model's configuration.
+        """
+        pass
+
+    @abc.abstractmethod
+    # pragma: no cover
+    def structured_output(
+        self, output_model: Type[T], prompt: Messages
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        """Get structured output from the model.
+
+        Args:
+            output_model: The output model to use for the agent.
+            prompt: The prompt messages to use for the agent.
+
+        Yields:
+            Model events with the last being the structured output.
+
+        Raises:
+            ValidationException: The response format from the model does not match the output_model
         """
         pass
 
@@ -70,7 +93,7 @@ class Model(abc.ABC):
 
     @abc.abstractmethod
     # pragma: no cover
-    def stream(self, request: Any) -> Iterable[Any]:
+    def stream(self, request: Any) -> AsyncGenerator[Any, None]:
         """Send the request to the model and get a streaming response.
 
         Args:
@@ -84,9 +107,9 @@ class Model(abc.ABC):
         """
         pass
 
-    def converse(
+    async def converse(
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
-    ) -> Iterable[StreamEvent]:
+    ) -> AsyncIterable[StreamEvent]:
         """Converse with the model.
 
         This method handles the full lifecycle of conversing with the model:
@@ -107,12 +130,13 @@ class Model(abc.ABC):
         """
         logger.debug("formatting request")
         request = self.format_request(messages, tool_specs, system_prompt)
+        logger.debug("formatted request=<%s>", request)
 
         logger.debug("invoking model")
         response = self.stream(request)
 
         logger.debug("got response from model")
-        for event in response:
+        async for event in response:
             yield self.format_chunk(event)
 
         logger.debug("finished streaming response from model")

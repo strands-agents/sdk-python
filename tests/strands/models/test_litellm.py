@@ -1,5 +1,6 @@
 import unittest.mock
 
+import pydantic
 import pytest
 
 import strands
@@ -37,6 +38,15 @@ def messages():
 @pytest.fixture
 def system_prompt():
     return "s1"
+
+
+@pytest.fixture
+def test_output_model_cls():
+    class TestOutputModel(pydantic.BaseModel):
+        name: str
+        age: int
+
+    return TestOutputModel
 
 
 def test__init__(litellm_client_cls, model_id):
@@ -102,4 +112,88 @@ def test_update_config(model, model_id):
 )
 def test_format_request_message_content(content, exp_result):
     tru_result = LiteLLMModel.format_request_message_content(content)
+    assert tru_result == exp_result
+
+
+@pytest.mark.asyncio
+async def test_stream(litellm_client, model, alist):
+    mock_tool_call_1_part_1 = unittest.mock.Mock(index=0)
+    mock_tool_call_2_part_1 = unittest.mock.Mock(index=1)
+    mock_delta_1 = unittest.mock.Mock(
+        reasoning_content="",
+        content=None,
+        tool_calls=None,
+    )
+    mock_delta_2 = unittest.mock.Mock(
+        reasoning_content="\nI'm thinking",
+        content=None,
+        tool_calls=None,
+    )
+    mock_delta_3 = unittest.mock.Mock(
+        content="I'll calculate", tool_calls=[mock_tool_call_1_part_1, mock_tool_call_2_part_1], reasoning_content=None
+    )
+
+    mock_tool_call_1_part_2 = unittest.mock.Mock(index=0)
+    mock_tool_call_2_part_2 = unittest.mock.Mock(index=1)
+    mock_delta_4 = unittest.mock.Mock(
+        content="that for you", tool_calls=[mock_tool_call_1_part_2, mock_tool_call_2_part_2], reasoning_content=None
+    )
+
+    mock_delta_5 = unittest.mock.Mock(content="", tool_calls=None, reasoning_content=None)
+
+    mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_1)])
+    mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_2)])
+    mock_event_3 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_3)])
+    mock_event_4 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_4)])
+    mock_event_5 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="tool_calls", delta=mock_delta_5)])
+    mock_event_6 = unittest.mock.Mock()
+
+    litellm_client.chat.completions.create.return_value = iter(
+        [mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5, mock_event_6]
+    )
+
+    request = {"model": "m1", "messages": [{"role": "user", "content": [{"type": "text", "text": "calculate 2+2"}]}]}
+    response = model.stream(request)
+    tru_events = await alist(response)
+    exp_events = [
+        {"chunk_type": "message_start"},
+        {"chunk_type": "content_start", "data_type": "text"},
+        {"chunk_type": "content_delta", "data_type": "reasoning_content", "data": "\nI'm thinking"},
+        {"chunk_type": "content_delta", "data_type": "text", "data": "I'll calculate"},
+        {"chunk_type": "content_delta", "data_type": "text", "data": "that for you"},
+        {"chunk_type": "content_stop", "data_type": "text"},
+        {"chunk_type": "content_start", "data_type": "tool", "data": mock_tool_call_1_part_1},
+        {"chunk_type": "content_delta", "data_type": "tool", "data": mock_tool_call_1_part_1},
+        {"chunk_type": "content_delta", "data_type": "tool", "data": mock_tool_call_1_part_2},
+        {"chunk_type": "content_stop", "data_type": "tool"},
+        {"chunk_type": "content_start", "data_type": "tool", "data": mock_tool_call_2_part_1},
+        {"chunk_type": "content_delta", "data_type": "tool", "data": mock_tool_call_2_part_1},
+        {"chunk_type": "content_delta", "data_type": "tool", "data": mock_tool_call_2_part_2},
+        {"chunk_type": "content_stop", "data_type": "tool"},
+        {"chunk_type": "message_stop", "data": "tool_calls"},
+        {"chunk_type": "metadata", "data": mock_event_6.usage},
+    ]
+
+    assert tru_events == exp_events
+    litellm_client.chat.completions.create.assert_called_once_with(**request)
+
+
+@pytest.mark.asyncio
+async def test_structured_output(litellm_client, model, test_output_model_cls, alist):
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+
+    mock_choice = unittest.mock.Mock()
+    mock_choice.finish_reason = "tool_calls"
+    mock_choice.message.content = '{"name": "John", "age": 30}'
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+
+    litellm_client.chat.completions.create.return_value = mock_response
+
+    with unittest.mock.patch.object(strands.models.litellm, "supports_response_schema", return_value=True):
+        stream = model.structured_output(test_output_model_cls, messages)
+        events = await alist(stream)
+        tru_result = events[-1]
+
+    exp_result = {"output": test_output_model_cls(name="John", age=30)}
     assert tru_result == exp_result

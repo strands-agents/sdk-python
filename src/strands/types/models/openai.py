@@ -11,8 +11,9 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Optional, cast
+from typing import Any, AsyncGenerator, Optional, Type, TypeVar, Union, cast
 
+from pydantic import BaseModel
 from typing_extensions import override
 
 from ..content import ContentBlock, Messages
@@ -21,6 +22,8 @@ from ..tools import ToolResult, ToolSpec, ToolUse
 from .model import Model
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class OpenAIModel(Model, abc.ABC):
@@ -57,7 +60,8 @@ class OpenAIModel(Model, abc.ABC):
 
         if "image" in content:
             mime_type = mimetypes.types_map.get(f".{content['image']['format']}", "application/octet-stream")
-            image_data = content["image"]["source"]["bytes"].decode("utf-8")
+            image_data = base64.b64encode(content["image"]["source"]["bytes"]).decode("utf-8")
+
             return {
                 "image_url": {
                     "detail": "auto",
@@ -232,6 +236,9 @@ class OpenAIModel(Model, abc.ABC):
                         "contentBlockDelta": {"delta": {"toolUse": {"input": event["data"].function.arguments or ""}}}
                     }
 
+                if event["data_type"] == "reasoning_content":
+                    return {"contentBlockDelta": {"delta": {"reasoningContent": {"text": event["data"]}}}}
+
                 return {"contentBlockDelta": {"delta": {"text": event["data"]}}}
 
             case "content_stop":
@@ -262,3 +269,18 @@ class OpenAIModel(Model, abc.ABC):
 
             case _:
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
+
+    @override
+    async def structured_output(
+        self, output_model: Type[T], prompt: Messages
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        """Get structured output from the model.
+
+        Args:
+            output_model: The output model to use for the agent.
+            prompt: The prompt to use for the agent.
+
+        Yields:
+            Model events with the last being the structured output.
+        """
+        yield {"output": output_model()}

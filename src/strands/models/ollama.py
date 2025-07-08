@@ -5,9 +5,10 @@
 
 import json
 import logging
-from typing import Any, Iterable, Optional, cast
+from typing import Any, AsyncGenerator, Optional, Type, TypeVar, Union, cast
 
-from ollama import Client as OllamaClient
+import ollama
+from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
 from ..types.content import ContentBlock, Messages
@@ -16,6 +17,8 @@ from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolSpec
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class OllamaModel(Model):
@@ -71,7 +74,7 @@ class OllamaModel(Model):
 
         ollama_client_args = ollama_client_args if ollama_client_args is not None else {}
 
-        self.client = OllamaClient(host, **ollama_client_args)
+        self.client = ollama.AsyncClient(host, **ollama_client_args)
 
     @override
     def update_config(self, **model_config: Unpack[OllamaConfig]) -> None:  # type: ignore
@@ -280,7 +283,7 @@ class OllamaModel(Model):
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Send the request to the Ollama model and get the streaming response.
 
         This method calls the Ollama chat API and returns the stream of response events.
@@ -293,12 +296,12 @@ class OllamaModel(Model):
         """
         tool_requested = False
 
-        response = self.client.chat(**request)
+        response = await self.client.chat(**request)
 
         yield {"chunk_type": "message_start"}
         yield {"chunk_type": "content_start", "data_type": "text"}
 
-        for event in response:
+        async for event in response:
             for tool_call in event.message.tool_calls or []:
                 yield {"chunk_type": "content_start", "data_type": "tool", "data": tool_call}
                 yield {"chunk_type": "content_delta", "data_type": "tool", "data": tool_call}
@@ -310,3 +313,27 @@ class OllamaModel(Model):
         yield {"chunk_type": "content_stop", "data_type": "text"}
         yield {"chunk_type": "message_stop", "data": "tool_use" if tool_requested else event.done_reason}
         yield {"chunk_type": "metadata", "data": event}
+
+    @override
+    async def structured_output(
+        self, output_model: Type[T], prompt: Messages
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        """Get structured output from the model.
+
+        Args:
+            output_model: The output model to use for the agent.
+            prompt: The prompt messages to use for the agent.
+
+        Yields:
+            Model events with the last being the structured output.
+        """
+        formatted_request = self.format_request(messages=prompt)
+        formatted_request["format"] = output_model.model_json_schema()
+        formatted_request["stream"] = False
+        response = await self.client.chat(**formatted_request)
+
+        try:
+            content = response.message.content.strip()
+            yield {"output": output_model.model_validate_json(content)}
+        except Exception as e:
+            raise ValueError(f"Failed to parse or load content into model: {e}") from e

@@ -6,41 +6,19 @@ enabling trace data to be sent to OTLP endpoints.
 
 import json
 import logging
-import os
 from datetime import date, datetime, timezone
-from importlib.metadata import version
 from typing import Any, Dict, Mapping, Optional
 
 import opentelemetry.trace as trace_api
-from opentelemetry import propagate
-from opentelemetry.baggage.propagation import W3CBaggagePropagator
-from opentelemetry.propagators.composite import CompositePropagator
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider as SDKTracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter, SimpleSpanProcessor
 from opentelemetry.trace import Span, StatusCode
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from ..agent.agent_result import AgentResult
 from ..types.content import Message, Messages
-from ..types.streaming import Usage
+from ..types.streaming import StopReason, Usage
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
 
 logger = logging.getLogger(__name__)
-
-HAS_OTEL_EXPORTER_MODULE = False
-OTEL_EXPORTER_MODULE_ERROR = (
-    "opentelemetry-exporter-otlp-proto-http not detected;"
-    "please install strands-agents with the optional 'otel' target"
-    "otel http exporting is currently DISABLED"
-)
-try:
-    from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-
-    HAS_OTEL_EXPORTER_MODULE = True
-except ImportError:
-    pass
 
 
 class JSONEncoder(json.JSONEncoder):
@@ -99,141 +77,25 @@ class Tracer:
 
     When the OTEL_EXPORTER_OTLP_ENDPOINT environment variable is set, traces
     are sent to the OTLP endpoint.
-
-    When the STRANDS_OTEL_ENABLE_CONSOLE_EXPORT environment variable is set,
-    traces are printed to the console.
     """
 
     def __init__(
         self,
-        service_name: str = "strands-agents",
-        otlp_endpoint: Optional[str] = None,
-        otlp_headers: Optional[Dict[str, str]] = None,
-        enable_console_export: Optional[bool] = None,
-    ):
-        """Initialize the tracer.
-
-        Args:
-            service_name: Name of the service for OpenTelemetry.
-            otlp_endpoint: OTLP endpoint URL for sending traces.
-            otlp_headers: Headers to include with OTLP requests.
-            enable_console_export: Whether to also export traces to console.
-        """
-        # Check environment variables first
-        env_endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT")
-        env_console_export_str = os.environ.get("STRANDS_OTEL_ENABLE_CONSOLE_EXPORT")
-
-        # Constructor parameters take precedence over environment variables
-        self.otlp_endpoint = otlp_endpoint or env_endpoint
-
-        if enable_console_export is not None:
-            self.enable_console_export = enable_console_export
-        elif env_console_export_str:
-            self.enable_console_export = env_console_export_str.lower() in ("true", "1", "yes")
-        else:
-            self.enable_console_export = False
-
-        # Parse headers from environment if available
-        env_headers = os.environ.get("OTEL_EXPORTER_OTLP_HEADERS")
-        if env_headers:
-            try:
-                headers_dict = {}
-                # Parse comma-separated key-value pairs (format: "key1=value1,key2=value2")
-                for pair in env_headers.split(","):
-                    if "=" in pair:
-                        key, value = pair.split("=", 1)
-                        headers_dict[key.strip()] = value.strip()
-                otlp_headers = headers_dict
-            except Exception as e:
-                logger.warning("error=<%s> | failed to parse OTEL_EXPORTER_OTLP_HEADERS", e)
-
-        self.service_name = service_name
-        self.otlp_headers = otlp_headers or {}
+    ) -> None:
+        """Initialize the tracer."""
+        self.service_name = __name__
         self.tracer_provider: Optional[trace_api.TracerProvider] = None
         self.tracer: Optional[trace_api.Tracer] = None
 
-        propagate.set_global_textmap(
-            CompositePropagator(
-                [
-                    W3CBaggagePropagator(),
-                    TraceContextTextMapPropagator(),
-                ]
-            )
-        )
-        if self.otlp_endpoint or self.enable_console_export:
-            # Create our own tracer provider
-            self._initialize_tracer()
-
-    def _initialize_tracer(self) -> None:
-        """Initialize the OpenTelemetry tracer."""
-        logger.info("initializing tracer")
-
-        if self._is_initialized():
-            self.tracer_provider = trace_api.get_tracer_provider()
-            self.tracer = self.tracer_provider.get_tracer(self.service_name)
-            return
-
-        # Create resource with service information
-        resource = Resource.create(
-            {
-                "service.name": self.service_name,
-                "service.version": version("strands-agents"),
-                "telemetry.sdk.name": "opentelemetry",
-                "telemetry.sdk.language": "python",
-            }
-        )
-
-        # Create tracer provider
-        self.tracer_provider = SDKTracerProvider(resource=resource)
-
-        # Add console exporter if enabled
-        if self.enable_console_export and self.tracer_provider:
-            logger.info("enabling console export")
-            console_processor = SimpleSpanProcessor(ConsoleSpanExporter())
-            self.tracer_provider.add_span_processor(console_processor)
-
-        # Add OTLP exporter if endpoint is provided
-        if HAS_OTEL_EXPORTER_MODULE and self.otlp_endpoint and self.tracer_provider:
-            try:
-                # Ensure endpoint has the right format
-                endpoint = self.otlp_endpoint
-                if not endpoint.endswith("/v1/traces") and not endpoint.endswith("/traces"):
-                    if not endpoint.endswith("/"):
-                        endpoint += "/"
-                    endpoint += "v1/traces"
-
-                # Set default content type header if not provided
-                headers = self.otlp_headers.copy()
-                if "Content-Type" not in headers:
-                    headers["Content-Type"] = "application/x-protobuf"
-
-                # Create OTLP exporter and processor
-                otlp_exporter = OTLPSpanExporter(
-                    endpoint=endpoint,
-                    headers=headers,
-                )
-
-                batch_processor = BatchSpanProcessor(otlp_exporter)
-                self.tracer_provider.add_span_processor(batch_processor)
-                logger.info("endpoint=<%s> | OTLP exporter configured with endpoint", endpoint)
-            except Exception as e:
-                logger.exception("error=<%s> | Failed to configure OTLP exporter", e)
-        elif self.otlp_endpoint and self.tracer_provider:
-            raise ModuleNotFoundError(OTEL_EXPORTER_MODULE_ERROR)
-
-        # Set as global tracer provider
-        trace_api.set_tracer_provider(self.tracer_provider)
-        self.tracer = trace_api.get_tracer(self.service_name)
-
-    def _is_initialized(self) -> bool:
-        tracer_provider = trace_api.get_tracer_provider()
-        return isinstance(tracer_provider, SDKTracerProvider)
+        self.tracer_provider = trace_api.get_tracer_provider()
+        self.tracer = self.tracer_provider.get_tracer(self.service_name)
 
     def _start_span(
         self,
         span_name: str,
         parent_span: Optional[Span] = None,
         attributes: Optional[Dict[str, AttributeValue]] = None,
+        span_kind: trace_api.SpanKind = trace_api.SpanKind.INTERNAL,
     ) -> Optional[Span]:
         """Generic helper method to start a span with common attributes.
 
@@ -241,6 +103,7 @@ class Tracer:
             span_name: Name of the span to create
             parent_span: Optional parent span to link this span to
             attributes: Dictionary of attributes to set on the span
+            span_kind: enum of OptenTelemetry SpanKind
 
         Returns:
             The created span, or None if tracing is not enabled
@@ -249,7 +112,7 @@ class Tracer:
             return None
 
         context = trace_api.set_span_in_context(parent_span) if parent_span else None
-        span = self.tracer.start_span(name=span_name, context=context)
+        span = self.tracer.start_span(name=span_name, context=context, kind=span_kind)
 
         # Set start time as a common attribute
         span.set_attribute("gen_ai.event.start_time", datetime.now(timezone.utc).isoformat())
@@ -328,20 +191,31 @@ class Tracer:
         error = exception or Exception(error_message)
         self._end_span(span, error=error)
 
+    def _add_event(self, span: Optional[Span], event_name: str, event_attributes: Dict[str, AttributeValue]) -> None:
+        """Add an event with attributes to a span.
+
+        Args:
+            span: The span to add the event to
+            event_name: Name of the event
+            event_attributes: Dictionary of attributes to set on the event
+        """
+        if not span:
+            return
+
+        span.add_event(event_name, attributes=event_attributes)
+
     def start_model_invoke_span(
         self,
+        messages: Messages,
         parent_span: Optional[Span] = None,
-        agent_name: str = "Strands Agent",
-        messages: Optional[Messages] = None,
         model_id: Optional[str] = None,
         **kwargs: Any,
     ) -> Optional[Span]:
         """Start a new span for a model invocation.
 
         Args:
+            messages: Messages being sent to the model.
             parent_span: Optional parent span to link this span to.
-            agent_name: Name of the agent making the model call.
-            messages: Optional messages being sent to the model.
             model_id: Optional identifier for the model being invoked.
             **kwargs: Additional attributes to add to the span.
 
@@ -350,9 +224,7 @@ class Tracer:
         """
         attributes: Dict[str, AttributeValue] = {
             "gen_ai.system": "strands-agents",
-            "agent.name": agent_name,
-            "gen_ai.agent.name": agent_name,
-            "gen_ai.prompt": serialize(messages),
+            "gen_ai.operation.name": "chat",
         }
 
         if model_id:
@@ -361,10 +233,17 @@ class Tracer:
         # Add additional kwargs as attributes
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
 
-        return self._start_span("Model invoke", parent_span, attributes)
+        span = self._start_span("Model invoke", parent_span, attributes, span_kind=trace_api.SpanKind.CLIENT)
+        for message in messages:
+            self._add_event(
+                span,
+                f"gen_ai.{message['role']}.message",
+                {"content": serialize(message["content"])},
+            )
+        return span
 
     def end_model_invoke_span(
-        self, span: Span, message: Message, usage: Usage, error: Optional[Exception] = None
+        self, span: Span, message: Message, usage: Usage, stop_reason: StopReason, error: Optional[Exception] = None
     ) -> None:
         """End a model invocation span with results and metrics.
 
@@ -372,14 +251,22 @@ class Tracer:
             span: The span to end.
             message: The message response from the model.
             usage: Token usage information from the model call.
+            stop_reason (StopReason): The reason the model stopped generating.
             error: Optional exception if the model call failed.
         """
         attributes: Dict[str, AttributeValue] = {
-            "gen_ai.completion": serialize(message["content"]),
             "gen_ai.usage.prompt_tokens": usage["inputTokens"],
+            "gen_ai.usage.input_tokens": usage["inputTokens"],
             "gen_ai.usage.completion_tokens": usage["outputTokens"],
+            "gen_ai.usage.output_tokens": usage["outputTokens"],
             "gen_ai.usage.total_tokens": usage["totalTokens"],
         }
+
+        self._add_event(
+            span,
+            "gen_ai.choice",
+            event_attributes={"finish_reason": str(stop_reason), "message": serialize(message["content"])},
+        )
 
         self._end_span(span, attributes, error)
 
@@ -395,17 +282,29 @@ class Tracer:
             The created span, or None if tracing is not enabled.
         """
         attributes: Dict[str, AttributeValue] = {
-            "gen_ai.prompt": serialize(tool),
-            "tool.name": tool["name"],
-            "tool.id": tool["toolUseId"],
-            "tool.parameters": serialize(tool["input"]),
+            "gen_ai.operation.name": "execute_tool",
+            "gen_ai.system": "strands-agents",
+            "gen_ai.tool.name": tool["name"],
+            "gen_ai.tool.call.id": tool["toolUseId"],
         }
 
         # Add additional kwargs as attributes
         attributes.update(kwargs)
 
         span_name = f"Tool: {tool['name']}"
-        return self._start_span(span_name, parent_span, attributes)
+        span = self._start_span(span_name, parent_span, attributes, span_kind=trace_api.SpanKind.INTERNAL)
+
+        self._add_event(
+            span,
+            "gen_ai.tool.message",
+            event_attributes={
+                "role": "tool",
+                "content": serialize(tool["input"]),
+                "id": tool["toolUseId"],
+            },
+        )
+
+        return span
 
     def end_tool_call_span(
         self, span: Span, tool_result: Optional[ToolResult], error: Optional[Exception] = None
@@ -422,13 +321,19 @@ class Tracer:
             status = tool_result.get("status")
             status_str = str(status) if status is not None else ""
 
-            tool_result_content_json = serialize(tool_result.get("content"))
             attributes.update(
                 {
-                    "tool.result": tool_result_content_json,
-                    "gen_ai.completion": tool_result_content_json,
                     "tool.status": status_str,
                 }
+            )
+
+            self._add_event(
+                span,
+                "gen_ai.choice",
+                event_attributes={
+                    "message": serialize(tool_result.get("content")),
+                    "id": tool_result.get("toolUseId", ""),
+                },
             )
 
         self._end_span(span, attributes, error)
@@ -436,8 +341,8 @@ class Tracer:
     def start_event_loop_cycle_span(
         self,
         event_loop_kwargs: Any,
+        messages: Messages,
         parent_span: Optional[Span] = None,
-        messages: Optional[Messages] = None,
         **kwargs: Any,
     ) -> Optional[Span]:
         """Start a new span for an event loop cycle.
@@ -445,7 +350,7 @@ class Tracer:
         Args:
             event_loop_kwargs: Arguments for the event loop cycle.
             parent_span: Optional parent span to link this span to.
-            messages: Optional messages being processed in this cycle.
+            messages:  Messages being processed in this cycle.
             **kwargs: Additional attributes to add to the span.
 
         Returns:
@@ -455,7 +360,6 @@ class Tracer:
         parent_span = parent_span if parent_span else event_loop_kwargs.get("event_loop_parent_span")
 
         attributes: Dict[str, AttributeValue] = {
-            "gen_ai.prompt": serialize(messages),
             "event_loop.cycle_id": event_loop_cycle_id,
         }
 
@@ -466,7 +370,15 @@ class Tracer:
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
 
         span_name = f"Cycle {event_loop_cycle_id}"
-        return self._start_span(span_name, parent_span, attributes)
+        span = self._start_span(span_name, parent_span, attributes)
+        for message in messages or []:
+            self._add_event(
+                span,
+                f"gen_ai.{message['role']}.message",
+                {"content": serialize(message["content"])},
+            )
+
+        return span
 
     def end_event_loop_cycle_span(
         self,
@@ -483,19 +395,18 @@ class Tracer:
             tool_result_message: Optional tool result message if a tool was called.
             error: Optional exception if the cycle failed.
         """
-        attributes: Dict[str, AttributeValue] = {
-            "gen_ai.completion": serialize(message["content"]),
-        }
+        attributes: Dict[str, AttributeValue] = {}
+        event_attributes: Dict[str, AttributeValue] = {"message": serialize(message["content"])}
 
         if tool_result_message:
-            attributes["tool.result"] = serialize(tool_result_message["content"])
-
+            event_attributes["tool.result"] = serialize(tool_result_message["content"])
+        self._add_event(span, "gen_ai.choice", event_attributes=event_attributes)
         self._end_span(span, attributes, error)
 
     def start_agent_span(
         self,
         prompt: str,
-        agent_name: str = "Strands Agent",
+        agent_name: str,
         model_id: Optional[str] = None,
         tools: Optional[list] = None,
         custom_trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
@@ -516,9 +427,8 @@ class Tracer:
         """
         attributes: Dict[str, AttributeValue] = {
             "gen_ai.system": "strands-agents",
-            "agent.name": agent_name,
             "gen_ai.agent.name": agent_name,
-            "gen_ai.prompt": prompt,
+            "gen_ai.operation.name": "invoke_agent",
         }
 
         if model_id:
@@ -526,7 +436,6 @@ class Tracer:
 
         if tools:
             tools_json = serialize(tools)
-            attributes["agent.tools"] = tools_json
             attributes["gen_ai.agent.tools"] = tools_json
 
         # Add custom trace attributes if provided
@@ -536,7 +445,18 @@ class Tracer:
         # Add additional kwargs as attributes
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
 
-        return self._start_span(agent_name, attributes=attributes)
+        span = self._start_span(
+            f"invoke_agent {agent_name}", attributes=attributes, span_kind=trace_api.SpanKind.CLIENT
+        )
+        self._add_event(
+            span,
+            "gen_ai.user.message",
+            event_attributes={
+                "content": prompt,
+            },
+        )
+
+        return span
 
     def end_agent_span(
         self,
@@ -555,10 +475,10 @@ class Tracer:
         attributes: Dict[str, AttributeValue] = {}
 
         if response:
-            attributes.update(
-                {
-                    "gen_ai.completion": str(response),
-                }
+            self._add_event(
+                span,
+                "gen_ai.choice",
+                event_attributes={"message": str(response), "finish_reason": str(response.stop_reason)},
             )
 
             if hasattr(response, "metrics") and hasattr(response.metrics, "accumulated_usage"):
@@ -567,6 +487,8 @@ class Tracer:
                     {
                         "gen_ai.usage.prompt_tokens": accumulated_usage["inputTokens"],
                         "gen_ai.usage.completion_tokens": accumulated_usage["outputTokens"],
+                        "gen_ai.usage.input_tokens": accumulated_usage["inputTokens"],
+                        "gen_ai.usage.output_tokens": accumulated_usage["outputTokens"],
                         "gen_ai.usage.total_tokens": accumulated_usage["totalTokens"],
                     }
                 )
@@ -578,35 +500,19 @@ class Tracer:
 _tracer_instance = None
 
 
-def get_tracer(
-    service_name: str = "strands-agents",
-    otlp_endpoint: Optional[str] = None,
-    otlp_headers: Optional[Dict[str, str]] = None,
-    enable_console_export: Optional[bool] = None,
-) -> Tracer:
+def get_tracer() -> Tracer:
     """Get or create the global tracer.
 
     Args:
         service_name: Name of the service for OpenTelemetry.
-        otlp_endpoint: OTLP endpoint URL for sending traces.
-        otlp_headers: Headers to include with OTLP requests.
-        enable_console_export: Whether to also export traces to console.
-        tracer_provider: Optional existing TracerProvider to use instead of creating a new one.
 
     Returns:
         The global tracer instance.
     """
     global _tracer_instance
 
-    if (
-        _tracer_instance is None or (otlp_endpoint and _tracer_instance.otlp_endpoint != otlp_endpoint)  # type: ignore[unreachable]
-    ):
-        _tracer_instance = Tracer(
-            service_name=service_name,
-            otlp_endpoint=otlp_endpoint,
-            otlp_headers=otlp_headers,
-            enable_console_export=enable_console_export,
-        )
+    if not _tracer_instance:
+        _tracer_instance = Tracer()
 
     return _tracer_instance
 
