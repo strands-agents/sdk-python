@@ -11,9 +11,9 @@ from botocore.config import Config as BotocoreConfig
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
-from strands.types.content import Messages, ContentBlock
-from strands.types.models import OpenAIModel
-from strands.types.tools import ToolSpec
+from ..types.content import ContentBlock, Messages
+from ..types.models import OpenAIModel
+from ..types.tools import ToolSpec
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -333,7 +333,7 @@ class SageMakerAIModel(OpenAIModel):
                 # Close reasoning content if it was started
                 if reasoning_content_started:
                     yield {"chunk_type": "content_stop", "data_type": "reasoning_content"}
-                
+
                 # Close text content if it was started
                 if text_content_started:
                     yield {"chunk_type": "content_stop", "data_type": "text"}
@@ -406,7 +406,6 @@ class SageMakerAIModel(OpenAIModel):
             logger.error("SageMaker error: %s", str(e))
             yield {"chunk_type": "error", "data": f"SageMaker error: {str(e)}"}
 
-    
     @override
     @classmethod
     def format_request_message_content(cls, content: ContentBlock) -> dict[str, Any]:
