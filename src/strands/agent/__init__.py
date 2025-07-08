@@ -7,6 +7,7 @@ It includes:
 """
 
 from .agent import Agent
+from .agent_registry import AgentRegistry
 from .agent_result import AgentResult
 from .conversation_manager import (
     ConversationManager,
@@ -22,4 +23,5 @@ __all__ = [
     "NullConversationManager",
     "SlidingWindowConversationManager",
     "SummarizingConversationManager",
+    "AgentRegistry",
 ]

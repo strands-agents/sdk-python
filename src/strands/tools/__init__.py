@@ -4,6 +4,7 @@ This module provides the core functionality for creating, managing, and executin
 """
 
 from .decorator import tool
+from .global_registry import GlobalToolRegistry
 from .structured_output import convert_pydantic_to_tool_spec
 from .tools import InvalidToolUseNameException, PythonAgentTool, normalize_schema, normalize_tool_spec
 
@@ -14,4 +15,5 @@ __all__ = [
     "normalize_schema",
     "normalize_tool_spec",
     "convert_pydantic_to_tool_spec",
+    "GlobalToolRegistry",
 ]

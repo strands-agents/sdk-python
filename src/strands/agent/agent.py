@@ -194,6 +194,7 @@ class Agent:
         name: Optional[str] = None,
         description: Optional[str] = None,
         state: Optional[Union[AgentState, dict]] = None,
+        tool_registry: Optional[Any] = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -232,6 +233,8 @@ class Agent:
                 Defaults to None.
             state: stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
                 Defaults to an empty AgentState object.
+            tool_registry: Optional custom ToolRegistry or GlobalToolRegistry instance to use for this agent.
+                If not provided, a new ToolRegistry is created (default behavior).
 
         Raises:
             ValueError: If max_parallel_tools is less than 1.
@@ -274,7 +277,11 @@ class Agent:
         self.record_direct_tool_call = record_direct_tool_call
         self.load_tools_from_directory = load_tools_from_directory
 
-        self.tool_registry = ToolRegistry()
+        # Use provided tool_registry or default to ToolRegistry
+        if tool_registry is not None:
+            self.tool_registry = tool_registry
+        else:
+            self.tool_registry = ToolRegistry()
 
         # Process tool list if provided
         if tools is not None:
