@@ -275,7 +275,7 @@ async def process_stream(
     }
     state["content"] = state["message"]["content"]
 
-    usage: Usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
+    usage: Usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0, cacheReadInputTokens=0, cacheWriteInputTokens=0)
     metrics: Metrics = Metrics(latencyMs=0)
 
     async for chunk in chunks:
