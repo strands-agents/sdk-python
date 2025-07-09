@@ -47,7 +47,7 @@ class FunctionCall:
     """
 
     name: str
-    arguments: str
+    arguments: Union[str, dict]
 
     def __init__(self, **kwargs: dict):
         """Initialize function call.
@@ -79,7 +79,7 @@ class ToolCall:
         Args:
             **kwargs: Keyword arguments for the tool call.
         """
-        self.id = kwargs.get("id", "")
+        self.id = str(kwargs.get("id", ""))
         self.type = "function"
         self.function = FunctionCall(**kwargs.get("function", {}))
 
@@ -97,6 +97,7 @@ class SageMakerAIModel(OpenAIModel):
             top_p: Nucleus sampling parameter (optional)
             top_k: Top-k sampling parameter (optional)
             stop: List of stop sequences to use for the model (optional)
+            tool_results_as_user_messages: Convert tool result to user messages (optional)
             additional_args: Additional request parameters, as supported by https://bit.ly/djl-lmi-request-schema
         """
 
@@ -106,6 +107,7 @@ class SageMakerAIModel(OpenAIModel):
         top_p: Optional[float]
         top_k: Optional[int]
         stop: Optional[list[str]]
+        tool_results_as_user_messages: Optional[bool]
         additional_args: Optional[dict[str, Any]]
 
     class SageMakerAIEndpointConfig(TypedDict, total=False):
@@ -141,6 +143,7 @@ class SageMakerAIModel(OpenAIModel):
             boto_client_config: Configuration to use when creating the SageMaker-Runtime Boto Client.
         """
         payload_config.setdefault("stream", True)
+        payload_config.setdefault("tool_results_as_user_messages", False)
         self.endpoint_config = dict(endpoint_config)
         self.payload_config = dict(payload_config)
         logger.debug(
@@ -199,8 +202,14 @@ class SageMakerAIModel(OpenAIModel):
         Returns:
             An Amazon SageMaker chat streaming request.
         """
+        formatted_messages = self.format_request_messages(messages, system_prompt)
+
+        # Transform tool messages to user messages if flag is enabled
+        if self.payload_config.get("tool_results_as_user_messages", False):
+            formatted_messages = self._transform_tool_messages(formatted_messages)
+
         payload = {
-            "messages": self.format_request_messages(messages, system_prompt),
+            "messages": formatted_messages,
             "tools": [
                 {
                     "type": "function",
@@ -213,7 +222,11 @@ class SageMakerAIModel(OpenAIModel):
                 for tool_spec in tool_specs or []
             ],
             # Add payload configuration parameters
-            **{k: v for k, v in self.payload_config.items() if k != "additional_args"},
+            **{
+                k: v
+                for k, v in self.payload_config.items()
+                if k not in ["additional_args", "tool_results_as_user_messages"]
+            },
         }
 
         # Remove tools and tool_choice if tools = []
@@ -224,7 +237,7 @@ class SageMakerAIModel(OpenAIModel):
             # Ensure the model can use tools when available
             payload["tool_choice"] = "auto"
 
-        # TODO: this should be a @override of format_request_message
+        # TODO: this should be a @override of @classmethod format_request_message
         for message in payload["messages"]:
             # Assistant message must have either content or tool_calls, but not both
             if message.get("role", "") == "assistant" and message.get("tool_calls", []) != []:
@@ -236,8 +249,11 @@ class SageMakerAIModel(OpenAIModel):
                 if isinstance(message["content"], str):
                     message["content"] = json.loads(message["content"])["content"]
                 message["content"] = message["content"][0]["text"]
+            # If reasoning_content is None, pop it
+            if message.get("reasoning_content", None) is None:
+                message.pop("reasoning_content", None)
 
-        logger.debug("payload=<%s>", payload)
+        logger.debug("payload=<%s>", json.dumps(payload, indent=2))
         # Format the request according to the SageMaker Runtime API requirements
         request = {
             "EndpointName": self.endpoint_config["endpoint_name"],
@@ -289,6 +305,7 @@ class SageMakerAIModel(OpenAIModel):
 
                 for event in response["Body"]:
                     chunk = event["PayloadPart"]["Bytes"].decode("utf-8")
+                    chunk = chunk[6:] if chunk.startswith("data: ") else chunk
                     partial_content += chunk  # Some messages are randomly split and not JSON decodable- not sure why
                     try:
                         content = json.loads(partial_content)
@@ -354,13 +371,17 @@ class SageMakerAIModel(OpenAIModel):
                 yield {"chunk_type": "message_stop", "data": finish_reason}
 
                 # Return metadata
-                if choice.get("usage", None):
-                    yield {"chunk_type": "metadata", "data": UsageMetadata(**choice["usage"])}
+                try:
+                    if choice.get("usage", None):
+                        yield {"chunk_type": "metadata", "data": UsageMetadata(**choice["usage"])}
+                except Exception:
+                    pass
 
             else:
                 # Not all SageMaker AI models support streaming!
                 response = self.client.invoke_endpoint(**request)
                 final_response_json = json.loads(response["Body"].read().decode("utf-8"))
+                logger.debug("response=<%s>", json.dumps(final_response_json, indent=2))
 
                 # Obtain the key elements from the response
                 message = final_response_json["choices"][0]["message"]
@@ -370,9 +391,10 @@ class SageMakerAIModel(OpenAIModel):
                 yield {"chunk_type": "message_start"}
 
                 # Handle text
-                yield {"chunk_type": "content_start", "data_type": "text"}
-                yield {"chunk_type": "content_delta", "data_type": "text", "data": message["content"] or ""}
-                yield {"chunk_type": "content_stop", "data_type": "text"}
+                if message.get("content", ""):
+                    yield {"chunk_type": "content_start", "data_type": "text"}
+                    yield {"chunk_type": "content_delta", "data_type": "text", "data": message["content"]}
+                    yield {"chunk_type": "content_stop", "data_type": "text"}
 
                 # Handle reasoning content
                 if message.get("reasoning_content", None):
@@ -385,11 +407,15 @@ class SageMakerAIModel(OpenAIModel):
                     yield {"chunk_type": "content_stop", "data_type": "reasoning_content"}
 
                 # Handle the tool calling, if any
-                if message_stop_reason == "tool_calls":
-                    for tool_call in message["tool_calls"] or []:
+                if message.get("tool_calls", None) or message_stop_reason == "tool_calls":
+                    for tool_call in message["tool_calls"]:
+                        # if arguments of tool_call is not str, cast it
+                        if not isinstance(tool_call["function"]["arguments"], str):
+                            tool_call["function"]["arguments"] = json.dumps(tool_call["function"]["arguments"])
                         yield {"chunk_type": "content_start", "data_type": "tool", "data": ToolCall(**tool_call)}
                         yield {"chunk_type": "content_delta", "data_type": "tool", "data": ToolCall(**tool_call)}
-                        yield {"chunk_type": "content_stop", "data_type": "tool", "data": ToolCall(**tool_call)}
+                        yield {"chunk_type": "content_stop", "data_type": "tool"}
+                    message_stop_reason = "tool_calls"
 
                 # Message close
                 yield {"chunk_type": "message_stop", "data": message_stop_reason}
@@ -405,6 +431,26 @@ class SageMakerAIModel(OpenAIModel):
         ) as e:
             logger.error("SageMaker error: %s", str(e))
             raise e
+
+    def _transform_tool_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Transform tool messages to user messages for Mistral-like models.
+
+        Args:
+            messages: List of formatted messages
+
+        Returns:
+            Transformed messages with tool results as user messages
+        """
+        transformed = []
+        for message in messages:
+            if message.get("role") == "tool":
+                # Convert tool message to user message
+                tool_name = message.get("name", "unknown_tool")
+                content = message.get("content", "")
+                transformed.append({"role": "user", "content": f"Tool '{tool_name}' returned: {content}"})
+            else:
+                transformed.append(message)
+        return transformed
 
     @override
     @classmethod
@@ -422,8 +468,8 @@ class SageMakerAIModel(OpenAIModel):
         """
         if "reasoningContent" in content:
             return {
-                "signature": content["reasoningContent"]["reasoningText"]["signature"],
-                "thinking": content["reasoningContent"]["reasoningText"]["text"],
+                "signature": content["reasoningContent"].get("reasoningText", {}).get("signature", ""),
+                "thinking": content["reasoningContent"].get("reasoningText", {}).get("text", ""),
                 "type": "thinking",
             }
 

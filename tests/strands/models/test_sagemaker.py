@@ -479,7 +479,7 @@ class TestSageMakerAIModel:
         response = [chunk async for chunk in model.stream(request)]
 
         # Verify basic structure
-        assert len(response) >= 7
+        assert len(response) >= 6
         assert response[0] == {"chunk_type": "message_start"}
 
         # Find tool call events
