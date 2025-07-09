@@ -83,7 +83,7 @@ otel = [
     "opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0",
 ]
 a2a = [
-    "a2a-sdk>=0.2.6",
+    "a2a-sdk[sql]>=0.2.11",
     "uvicorn>=0.34.2",
     "httpx>=0.28.1",
     "fastapi>=0.115.12",
