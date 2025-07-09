@@ -322,7 +322,15 @@ def test_format_request(model, messages, tool_specs, system_prompt):
         (
             {
                 "chunk_type": "metadata",
-                "data": unittest.mock.Mock(prompt_tokens=100, completion_tokens=50, total_tokens=150),
+                "data": unittest.mock.Mock(
+                    spec_set=["prompt_tokens", "completion_tokens", "total_tokens", "prompt_tokens_details"],
+                    prompt_tokens=100,
+                    completion_tokens=50,
+                    total_tokens=150,
+                    prompt_tokens_details=unittest.mock.Mock(
+                        spec_set=["cached_tokens", "audio_tokens"], cached_tokens=42, audio_tokens=None
+                    ),
+                ),
             },
             {
                 "metadata": {
@@ -330,6 +338,8 @@ def test_format_request(model, messages, tool_specs, system_prompt):
                         "inputTokens": 100,
                         "outputTokens": 50,
                         "totalTokens": 150,
+                        "cacheReadInputTokens": 42,
+                        "cacheWriteInputTokens": 0,
                     },
                     "metrics": {
                         "latencyMs": 0,

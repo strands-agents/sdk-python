@@ -250,7 +250,13 @@ def test_handle_message_stop():
 
 def test_extract_usage_metrics():
     event = {
-        "usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+        "usage": {
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "totalTokens": 0,
+            "cacheReadInputTokens": 0,
+            "cacheWriteInputTokens": 0,
+        },
         "metrics": {"latencyMs": 0},
     }
 
@@ -279,7 +285,13 @@ def test_extract_usage_metrics():
                 },
                 {
                     "metadata": {
-                        "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        "usage": {
+                            "inputTokens": 1,
+                            "outputTokens": 1,
+                            "totalTokens": 1,
+                            "cacheReadInputTokens": 1,
+                            "cacheWriteInputTokens": 1,
+                        },
                         "metrics": {"latencyMs": 1},
                     }
                 },
@@ -364,6 +376,8 @@ def test_extract_usage_metrics():
                                     "inputTokens": 1,
                                     "outputTokens": 1,
                                     "totalTokens": 1,
+                                    "cacheReadInputTokens": 1,
+                                    "cacheWriteInputTokens": 1,
                                 },
                             },
                         },
@@ -376,7 +390,13 @@ def test_extract_usage_metrics():
                             "role": "assistant",
                             "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {"key": "value"}}}],
                         },
-                        {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        {
+                            "inputTokens": 1,
+                            "outputTokens": 1,
+                            "totalTokens": 1,
+                            "cacheReadInputTokens": 1,
+                            "cacheWriteInputTokens": 1,
+                        },
                         {"latencyMs": 1},
                     )
                 },
@@ -398,7 +418,13 @@ def test_extract_usage_metrics():
                             "role": "assistant",
                             "content": [],
                         },
-                        {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+                        {
+                            "inputTokens": 0,
+                            "outputTokens": 0,
+                            "totalTokens": 0,
+                            "cacheReadInputTokens": 0,
+                            "cacheWriteInputTokens": 0,
+                        },
                         {"latencyMs": 0},
                     ),
                 },
@@ -426,7 +452,13 @@ def test_extract_usage_metrics():
                 },
                 {
                     "metadata": {
-                        "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        "usage": {
+                            "inputTokens": 1,
+                            "outputTokens": 1,
+                            "totalTokens": 1,
+                            "cacheReadInputTokens": 1,
+                            "cacheWriteInputTokens": 1,
+                        },
                         "metrics": {"latencyMs": 1},
                     }
                 },
@@ -506,6 +538,8 @@ def test_extract_usage_metrics():
                                     "inputTokens": 1,
                                     "outputTokens": 1,
                                     "totalTokens": 1,
+                                    "cacheReadInputTokens": 1,
+                                    "cacheWriteInputTokens": 1,
                                 },
                             },
                         },
@@ -518,7 +552,13 @@ def test_extract_usage_metrics():
                             "role": "assistant",
                             "content": [{"text": "REDACTED."}],
                         },
-                        {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        {
+                            "inputTokens": 1,
+                            "outputTokens": 1,
+                            "totalTokens": 1,
+                            "cacheReadInputTokens": 1,
+                            "cacheWriteInputTokens": 1,
+                        },
                         {"latencyMs": 1},
                     ),
                 },
@@ -584,7 +624,13 @@ async def test_stream_messages(agenerator, alist):
             "stop": (
                 "end_turn",
                 {"role": "assistant", "content": [{"text": "test"}]},
-                {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+                {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "totalTokens": 0,
+                    "cacheReadInputTokens": 0,
+                    "cacheWriteInputTokens": 0,
+                },
                 {"latencyMs": 0},
             )
         },

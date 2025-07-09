@@ -146,7 +146,15 @@ async def test_stream(litellm_client, model, alist):
     mock_event_3 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_3)])
     mock_event_4 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_4)])
     mock_event_5 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="tool_calls", delta=mock_delta_5)])
-    mock_event_6 = unittest.mock.Mock()
+    mock_event_6 = unittest.mock.Mock(
+        usage=unittest.mock.Mock(
+            prompt_tokens_details=unittest.mock.Mock(
+                audio_tokens=None, cached_tokens=0, text_tokens=None, image_tokens=None
+            ),
+            cache_creation_input_tokens=0,
+            cache_read_input_tokens=0,
+        )
+    )
 
     litellm_client.chat.completions.create.return_value = iter(
         [mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5, mock_event_6]
