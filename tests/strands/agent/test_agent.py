@@ -180,7 +180,7 @@ def test_agent__init__tool_loader_format(tool_decorated, tool_module, tool_impor
 
     agent = Agent(tools=[tool_decorated, tool_module, tool_imported])
 
-    tru_tool_names = sorted(tool_spec["toolSpec"]["name"] for tool_spec in agent.tool_config["tools"])
+    tru_tool_names = sorted(tool_spec["name"] for tool_spec in agent.tool_registry.get_all_tool_specs())
     exp_tool_names = ["tool_decorated", "tool_imported", "tool_module"]
 
     assert tru_tool_names == exp_tool_names
@@ -191,7 +191,7 @@ def test_agent__init__tool_loader_dict(tool_module, tool_registry):
 
     agent = Agent(tools=[{"name": "tool_module", "path": tool_module}])
 
-    tru_tool_names = sorted(tool_spec["toolSpec"]["name"] for tool_spec in agent.tool_config["tools"])
+    tru_tool_names = sorted(tool_spec["name"] for tool_spec in agent.tool_registry.get_all_tool_specs())
     exp_tool_names = ["tool_module"]
 
     assert tru_tool_names == exp_tool_names
@@ -852,13 +852,13 @@ def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint, mo
     agent.tool.system_prompter(system_prompt="tool prompt")
 
     mock_run_tool.assert_called_with(
-        agent=agent,
-        tool={
+        agent,
+        {
             "toolUseId": "tooluse_system_prompter_1",
             "name": "system_prompter",
             "input": {"system_prompt": "tool prompt"},
         },
-        kwargs={"system_prompt": "tool prompt"},
+        {"system_prompt": "tool prompt"},
     )
 
 
@@ -879,15 +879,15 @@ def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint, 
 
     # Verify the correct tool was invoked
     assert mock_run_tool.call_count == 1
-    tool_call = mock_run_tool.call_args.kwargs.get("tool")
-
-    assert tool_call == {
+    tru_tool_use = mock_run_tool.call_args.args[1]
+    exp_tool_use = {
         # Note that the tool-use uses the "python safe" name
         "toolUseId": "tooluse_system_prompter_1",
         # But the name of the tool is the one in the registry
         "name": tool_name,
         "input": {"system_prompt": "tool prompt"},
     }
+    assert tru_tool_use == exp_tool_use
 
 
 def test_agent_tool_with_no_normalized_match(agent, tool_registry, mock_randint):

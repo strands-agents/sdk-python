@@ -31,7 +31,7 @@ from ..tools.watcher import ToolWatcher
 from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.models import Model
-from ..types.tools import ToolConfig, ToolResult, ToolUse
+from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
 from .conversation_manager import (
@@ -129,7 +129,7 @@ class Agent:
                 }
 
                 # Execute the tool
-                events = run_tool(agent=self._agent, tool=tool_use, kwargs=kwargs)
+                events = run_tool(self._agent, tool_use, kwargs)
 
                 try:
                     while True:
@@ -334,15 +334,6 @@ class Agent:
         """
         all_tools = self.tool_registry.get_all_tools_config()
         return list(all_tools.keys())
-
-    @property
-    def tool_config(self) -> ToolConfig:
-        """Get the tool configuration for this agent.
-
-        Returns:
-            The complete tool configuration.
-        """
-        return self.tool_registry.initialize_tool_config()
 
     def __del__(self) -> None:
         """Clean up resources when Agent is garbage collected.

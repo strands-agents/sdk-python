@@ -549,7 +549,7 @@ async def test_stream_messages(agenerator, alist):
         mock_model,
         system_prompt="test prompt",
         messages=[{"role": "assistant", "content": [{"text": "a"}, {"text": " \n"}]}],
-        tool_config=None,
+        tool_specs=None,
     )
 
     tru_events = await alist(stream)

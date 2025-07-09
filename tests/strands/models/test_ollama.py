@@ -11,7 +11,7 @@ from strands.types.content import Messages
 
 @pytest.fixture
 def ollama_client():
-    with unittest.mock.patch.object(strands.models.ollama, "OllamaClient") as mock_client_cls:
+    with unittest.mock.patch.object(strands.models.ollama.ollama, "AsyncClient") as mock_client_cls:
         yield mock_client_cls.return_value
 
 
@@ -416,13 +416,13 @@ def test_format_chunk_other(model):
 
 
 @pytest.mark.asyncio
-async def test_stream(ollama_client, model, alist):
+async def test_stream(ollama_client, model, agenerator, alist):
     mock_event = unittest.mock.Mock()
     mock_event.message.tool_calls = None
     mock_event.message.content = "Hello"
     mock_event.done_reason = "stop"
 
-    ollama_client.chat.return_value = [mock_event]
+    ollama_client.chat = unittest.mock.AsyncMock(return_value=agenerator([mock_event]))
 
     request = {"model": "m1", "messages": [{"role": "user", "content": "Hello"}]}
     response = model.stream(request)
@@ -442,14 +442,14 @@ async def test_stream(ollama_client, model, alist):
 
 
 @pytest.mark.asyncio
-async def test_stream_with_tool_calls(ollama_client, model, alist):
+async def test_stream_with_tool_calls(ollama_client, model, agenerator, alist):
     mock_event = unittest.mock.Mock()
     mock_tool_call = unittest.mock.Mock()
     mock_event.message.tool_calls = [mock_tool_call]
     mock_event.message.content = "I'll calculate that for you"
     mock_event.done_reason = "stop"
 
-    ollama_client.chat.return_value = [mock_event]
+    ollama_client.chat = unittest.mock.AsyncMock(return_value=agenerator([mock_event]))
 
     request = {"model": "m1", "messages": [{"role": "user", "content": "Calculate 2+2"}]}
     response = model.stream(request)
@@ -478,7 +478,7 @@ async def test_structured_output(ollama_client, model, test_output_model_cls, al
     mock_response = unittest.mock.Mock()
     mock_response.message.content = '{"name": "John", "age": 30}'
 
-    ollama_client.chat.return_value = mock_response
+    ollama_client.chat = unittest.mock.AsyncMock(return_value=mock_response)
 
     stream = model.structured_output(test_output_model_cls, messages)
     events = await alist(stream)

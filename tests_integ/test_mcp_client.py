@@ -65,7 +65,7 @@ def test_mcp_client():
 
     sse_mcp_client = MCPClient(lambda: sse_client("http://127.0.0.1:8000/sse"))
     stdio_mcp_client = MCPClient(
-        lambda: stdio_client(StdioServerParameters(command="python", args=["tests-integ/echo_server.py"]))
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/echo_server.py"]))
     )
     with sse_mcp_client, stdio_mcp_client:
         agent = Agent(tools=sse_mcp_client.list_tools_sync() + stdio_mcp_client.list_tools_sync())
@@ -90,7 +90,7 @@ def test_mcp_client():
 
 def test_can_reuse_mcp_client():
     stdio_mcp_client = MCPClient(
-        lambda: stdio_client(StdioServerParameters(command="python", args=["tests-integ/echo_server.py"]))
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/echo_server.py"]))
     )
     with stdio_mcp_client:
         stdio_mcp_client.list_tools_sync()

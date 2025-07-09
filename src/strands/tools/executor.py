@@ -41,23 +41,23 @@ def run_tools(
         thread_pool: Optional thread pool for parallel processing.
 
     Yields:
-        Events of the tool invocations. Tool results are appended to `tool_results`.
+        Events of the tool stream. Tool results are appended to `tool_results`.
     """
 
-    def handle(tool: ToolUse) -> ToolGenerator:
+    def handle(tool_use: ToolUse) -> ToolGenerator:
         tracer = get_tracer()
-        tool_call_span = tracer.start_tool_call_span(tool, parent_span)
+        tool_call_span = tracer.start_tool_call_span(tool_use, parent_span)
 
-        tool_name = tool["name"]
+        tool_name = tool_use["name"]
         tool_trace = Trace(f"Tool: {tool_name}", parent_id=cycle_trace.id, raw_name=tool_name)
         tool_start_time = time.time()
 
-        result = yield from handler(tool)
+        result = yield from handler(tool_use)
 
         tool_success = result.get("status") == "success"
         tool_duration = time.time() - tool_start_time
         message = Message(role="user", content=[{"toolResult": result}])
-        event_loop_metrics.add_tool_usage(tool, tool_duration, tool_trace, tool_success, message)
+        event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, tool_success, message)
         cycle_trace.add_child(tool_trace)
 
         if tool_call_span:
@@ -66,12 +66,12 @@ def run_tools(
         return result
 
     def work(
-        tool: ToolUse,
+        tool_use: ToolUse,
         worker_id: int,
         worker_queue: queue.Queue,
         worker_event: threading.Event,
     ) -> ToolResult:
-        events = handle(tool)
+        events = handle(tool_use)
 
         try:
             while True:
