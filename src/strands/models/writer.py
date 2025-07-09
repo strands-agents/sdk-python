@@ -58,7 +58,7 @@ class WriterModel(Model):
         logger.debug("config=<%s> | initializing", self.config)
 
         client_args = client_args or {}
-        self.client = writerai.Client(**client_args)
+        self.client = writerai.AsyncClient(**client_args)
 
     @override
     def update_config(self, **model_config: Unpack[WriterConfig]) -> None:  # type: ignore[override]
@@ -145,7 +145,7 @@ class WriterModel(Model):
 
         if len(content_blocks) > 1:
             raise ValueError(
-                f"Model with name {self.get_config().get('model', 'N/A')} doesn't support multiple contents"
+                f"Model with name {self.get_config().get('model_id', 'N/A')} doesn't support multiple contents"
             )
         elif len(content_blocks) == 1:
             return _format_content(content_blocks[0])
@@ -362,7 +362,7 @@ class WriterModel(Model):
             ModelThrottledException: When the model service is throttling requests from the client.
         """
         try:
-            response = self.client.chat.chat(**request)
+            response = await self.client.chat.chat(**request)
         except writerai.RateLimitError as e:
             raise ModelThrottledException(str(e)) from e
 
@@ -371,7 +371,7 @@ class WriterModel(Model):
 
         tool_calls: dict[int, list[Any]] = {}
 
-        for chunk in response:
+        async for chunk in response:
             if not getattr(chunk, "choices", None):
                 continue
             choice = chunk.choices[0]
@@ -399,7 +399,7 @@ class WriterModel(Model):
         yield {"chunk_type": "message_stop", "data": choice.finish_reason}
 
         # Iterating until the end to fetch metadata chunk
-        for chunk in response:
+        async for chunk in response:
             _ = chunk
 
         yield {"chunk_type": "metadata", "data": chunk.usage}
@@ -422,7 +422,7 @@ class WriterModel(Model):
         formatted_request["stream"] = False
         formatted_request.pop("stream_options", None)
 
-        response = self.client.chat.chat(**formatted_request)
+        response = await self.client.chat.chat(**formatted_request)
 
         try:
             content = response.choices[0].message.content.strip()

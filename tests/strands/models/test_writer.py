@@ -1,4 +1,5 @@
 import unittest.mock
+from typing import Any, List
 
 import pytest
 
@@ -8,7 +9,7 @@ from strands.models.writer import WriterModel
 
 @pytest.fixture
 def writer_client_cls():
-    with unittest.mock.patch.object(strands.models.writer.writerai, "Client") as mock_client_cls:
+    with unittest.mock.patch.object(strands.models.writer.writerai, "AsyncClient") as mock_client_cls:
         yield mock_client_cls
 
 
@@ -264,6 +265,22 @@ def test_format_request_with_unsupported_type(model, content, content_type):
         model.format_request(messages)
 
 
+class AsyncStreamWrapper:
+    def __init__(self, items: List[Any]):
+        self.items = items
+
+    def __aiter__(self):
+        return self._generator()
+
+    async def _generator(self):
+        for item in self.items:
+            yield item
+
+
+async def mock_streaming_response(items: List[Any]):
+    return AsyncStreamWrapper(items)
+
+
 @pytest.mark.asyncio
 async def test_stream(writer_client, model, model_id):
     mock_tool_call_1_part_1 = unittest.mock.Mock(index=0)
@@ -285,7 +302,9 @@ async def test_stream(writer_client, model, model_id):
     mock_event_3 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="tool_calls", delta=mock_delta_3)])
     mock_event_4 = unittest.mock.Mock()
 
-    writer_client.chat.chat.return_value = iter([mock_event_1, mock_event_2, mock_event_3, mock_event_4])
+    writer_client.chat.chat.return_value = mock_streaming_response(
+        [mock_event_1, mock_event_2, mock_event_3, mock_event_4]
+    )
 
     request = {
         "model": model_id,
@@ -324,7 +343,9 @@ async def test_stream_empty(writer_client, model, model_id):
     mock_event_3 = unittest.mock.Mock()
     mock_event_4 = unittest.mock.Mock(usage=mock_usage)
 
-    writer_client.chat.chat.return_value = iter([mock_event_1, mock_event_2, mock_event_3, mock_event_4])
+    writer_client.chat.chat.return_value = mock_streaming_response(
+        [mock_event_1, mock_event_2, mock_event_3, mock_event_4]
+    )
 
     request = {"model": model_id, "messages": [{"role": "user", "content": []}]}
     response = model.stream(request)
@@ -353,7 +374,9 @@ async def test_stream_with_empty_choices(writer_client, model, model_id):
     mock_event_4 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
     mock_event_5 = unittest.mock.Mock(usage=mock_usage)
 
-    writer_client.chat.chat.return_value = iter([mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5])
+    writer_client.chat.chat.return_value = mock_streaming_response(
+        [mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5]
+    )
 
     request = {"model": model_id, "messages": [{"role": "user", "content": ["test"]}]}
     response = model.stream(request)
