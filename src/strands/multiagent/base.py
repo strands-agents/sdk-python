@@ -5,22 +5,36 @@ Provides minimal foundation for multi-agent patterns (Swarm, Graph).
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Union
+from enum import Enum
+from typing import Union
 
 from ..agent import AgentResult
 from ..types.event_loop import Metrics, Usage
 
 
+class Status(Enum):
+    """Execution status for both graphs and nodes."""
+
+    PENDING = "pending"
+    EXECUTING = "executing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 @dataclass
 class NodeResult:
-    """Unified result from node execution - handles both Agent and nested MultiAgentBase results."""
+    """Unified result from node execution - handles both Agent and nested MultiAgentBase results.
 
-    # Core result data - single AgentResult or nested MultiAgentResult
-    result: Union[AgentResult, "MultiAgentResult"]
+    The status field uses the Status enum, representing the execution outcome of this node
+    (COMPLETED or FAILED).
+    """
+
+    # Core result data - single AgentResult, nested MultiAgentResult, or Exception
+    result: Union[AgentResult, "MultiAgentResult", Exception]
 
     # Execution metadata
     execution_time: int = 0
-    status: Any = None
+    status: Status = Status.PENDING
 
     # Accumulated metrics from this node and all children
     accumulated_usage: Usage = field(default_factory=lambda: Usage(inputTokens=0, outputTokens=0, totalTokens=0))
@@ -29,7 +43,9 @@ class NodeResult:
 
     def get_agent_results(self) -> list[AgentResult]:
         """Get all AgentResult objects from this node, flattened if nested."""
-        if isinstance(self.result, AgentResult):
+        if isinstance(self.result, Exception):
+            return []  # No agent results for exceptions
+        elif isinstance(self.result, AgentResult):
             return [self.result]
         else:
             # Flatten nested results from MultiAgentResult

@@ -17,23 +17,13 @@ Key Features:
 import logging
 import time
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, Callable, Tuple
 
 from ..agent import Agent, AgentResult
 from ..types.event_loop import Metrics, Usage
-from .base import MultiAgentBase, MultiAgentResult, NodeResult
+from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
 logger = logging.getLogger(__name__)
-
-
-class Status(Enum):
-    """Execution status for both graphs and nodes."""
-
-    PENDING = "pending"
-    EXECUTING = "executing"
-    COMPLETED = "completed"
-    FAILED = "failed"
 
 
 @dataclass
@@ -118,8 +108,7 @@ class GraphNode:
     executor: Agent | MultiAgentBase
     dependencies: set["GraphNode"] = field(default_factory=set)
     status: Status = Status.PENDING
-    result: NodeResult | Exception | None = None
-    error: Exception | None = None
+    result: NodeResult | None = None
     execution_time: int = 0
 
     def __hash__(self) -> int:
@@ -382,9 +371,24 @@ class Graph(MultiAgentBase):
 
         except Exception as e:
             logger.error("node_id=<%s>, error=<%s> | node failed", node.node_id, e)
+            execution_time = round((time.time() - start_time) * 1000)
+
+            # Create a NodeResult for the failed node
+            node_result = NodeResult(
+                result=e,  # Store exception as result
+                execution_time=execution_time,
+                status=Status.FAILED,
+                accumulated_usage=Usage(inputTokens=0, outputTokens=0, totalTokens=0),
+                accumulated_metrics=Metrics(latencyMs=execution_time),
+                execution_count=1,
+            )
+
             node.status = Status.FAILED
-            node.result = e
+            node.result = node_result
+            node.execution_time = execution_time
             self.state.failed_nodes.add(node)
+            self.state.results[node.node_id] = node_result  # Store in results for consistency
+
             raise
 
     def _accumulate_metrics(self, node_result: NodeResult) -> None:

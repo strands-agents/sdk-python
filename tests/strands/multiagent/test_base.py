@@ -1,7 +1,7 @@
 import pytest
 
 from strands.agent import AgentResult
-from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult
+from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
 
 @pytest.fixture
@@ -58,6 +58,11 @@ def test_node_result_get_agent_results(agent_result):
     agent_results = node_result.get_agent_results()
     assert len(agent_results) == 1
     assert agent_results[0] == agent_result
+
+    # Test with Exception as result (should return empty list)
+    exception_result = NodeResult(result=Exception("Test exception"), status=Status.FAILED)
+    agent_results = exception_result.get_agent_results()
+    assert len(agent_results) == 0
 
     # Complex nested case
     inner_agent_result1 = AgentResult(
