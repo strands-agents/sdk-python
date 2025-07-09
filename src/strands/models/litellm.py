@@ -158,7 +158,15 @@ class LiteLLMModel(OpenAIModel):
         for event in response:
             _ = event
 
-        yield {"chunk_type": "metadata", "data": event.usage}
+        usage = event.usage
+        cache_read = max(
+            getattr(usage, "cache_read_input_tokens", 0),
+            getattr(getattr(usage, "prompt_tokens_details", {}), "cached_tokens", 0),
+        )
+
+        usage.prompt_tokens_details.cached_tokens = cache_read
+
+        yield {"chunk_type": "metadata", "data": usage}
 
     @override
     async def structured_output(
