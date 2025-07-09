@@ -75,6 +75,12 @@ class MultiAgentBase(ABC):
 
     @abstractmethod
     # TODO: for task - multi-modal input (Message), list of messages
-    async def execute(self, task: str) -> MultiAgentResult:
-        """Execute task."""
+    async def execute_async(self, task: str) -> MultiAgentResult:
+        """Execute task asynchronously."""
+        raise NotImplementedError("execute_async not implemented")
+
+    @abstractmethod
+    # TODO: for task - multi-modal input (Message), list of messages
+    def execute(self, task: str) -> MultiAgentResult:
+        """Execute task synchronously."""
         raise NotImplementedError("execute not implemented")

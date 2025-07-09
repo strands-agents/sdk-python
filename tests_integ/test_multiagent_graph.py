@@ -108,7 +108,7 @@ async def test_graph_execution(math_agent, summary_agent, validation_agent, nest
         "Calculate 15 + 27 and 8 * 6, analyze both results, perform additional calculations, validate everything, "
         "and provide a comprehensive summary"
     )
-    result = await graph.execute(task)
+    result = await graph.execute_async(task)
 
     # Verify results
     assert result.status.value == "completed"

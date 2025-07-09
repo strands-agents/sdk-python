@@ -14,8 +14,10 @@ Key Features:
 - Supports nested graphs (Graph as a node in another Graph)
 """
 
+import asyncio
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Tuple
 
@@ -229,8 +231,18 @@ class Graph(MultiAgentBase):
         self.entry_points = entry_points
         self.state = GraphState()
 
-    async def execute(self, task: str) -> GraphResult:
-        """Execute the graph."""
+    def execute(self, task: str) -> GraphResult:
+        """Execute task synchronously."""
+
+        def execute() -> GraphResult:
+            return asyncio.run(self.execute_async(task))
+
+        with ThreadPoolExecutor() as executor:
+            future = executor.submit(execute)
+            return future.result()
+
+    async def execute_async(self, task: str) -> GraphResult:
+        """Execute the graph asynchronously."""
         logger.debug("task=<%s> | starting graph execution", task)
 
         # Initialize state
@@ -319,7 +331,7 @@ class Graph(MultiAgentBase):
 
             # Execute based on node type and create unified NodeResult
             if isinstance(node.executor, MultiAgentBase):
-                multi_agent_result = await node.executor.execute(node_input)
+                multi_agent_result = await node.executor.execute_async(node_input)
 
                 # Create NodeResult with MultiAgentResult directly
                 node_result = NodeResult(
@@ -332,7 +344,13 @@ class Graph(MultiAgentBase):
                 )
 
             elif isinstance(node.executor, Agent):
-                agent_response = node.executor(node_input)
+                agent_response = None  # Initialize with None to handle case where no result is yielded
+                async for event in node.executor.stream_async(node_input):
+                    if "result" in event:
+                        agent_response = event["result"]
+
+                if not agent_response:
+                    raise ValueError(f"Node '{node.node_id}' did not return a result")
 
                 # Extract metrics from agent response
                 usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
