@@ -333,6 +333,8 @@ class AnthropicModel(Model):
                             "inputTokens": usage["input_tokens"],
                             "outputTokens": usage["output_tokens"],
                             "totalTokens": usage["input_tokens"] + usage["output_tokens"],
+                            "cacheReadInputTokens": usage.get("cache_read_input_tokens", 0),
+                            "cacheWriteInputTokens": usage.get("cache_creation_input_tokens", 0),
                         },
                         "metrics": {
                             "latencyMs": 0,  # TODO
