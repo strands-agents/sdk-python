@@ -5,7 +5,7 @@ import pytest
 
 @pytest.fixture
 def yellow_img(pytestconfig):
-    path = pytestconfig.rootdir / "tests-integ/yellow.png"
+    path = pytestconfig.rootdir / "tests_integ/yellow.png"
     with open(path, "rb") as fp:
         return fp.read()
 

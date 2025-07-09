@@ -115,7 +115,7 @@ def test_multi_modal_input(agent, yellow_img):
 
 
 @pytest.mark.skip("https://github.com/strands-agents/sdk-python/issues/320")
-def test_tool_returning_images(model, test_image_path):
+def test_tool_returning_images(model, yellow_img):
     @tool
     def tool_with_image_return():
         return {
