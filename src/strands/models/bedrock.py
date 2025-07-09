@@ -162,7 +162,6 @@ class BedrockModel(Model):
         """
         return self.config
 
-    @override
     def format_request(
         self,
         messages: Messages,
@@ -246,7 +245,6 @@ class BedrockModel(Model):
             ),
         }
 
-    @override
     def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
         """Format the Bedrock response events into standardized message chunks.
 
@@ -315,25 +313,35 @@ class BedrockModel(Model):
         return events
 
     @override
-    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[StreamEvent, None]:
-        """Send the request to the Bedrock model and get the response.
+    async def stream(
+        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream conversation with the Bedrock model.
 
         This method calls either the Bedrock converse_stream API or the converse API
         based on the streaming parameter in the configuration.
 
         Args:
-            request: The formatted request to send to the Bedrock model
+            messages: List of message objects to be processed by the model.
+            tool_specs: List of tool specifications to make available to the model.
+            system_prompt: System prompt to provide context to the model.
 
-        Returns:
-            An iterable of response events from the Bedrock model
+        Yields:
+            Formatted message chunks from the model.
 
         Raises:
             ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: If the model service is throttling requests.
         """
+        logger.debug("formatting request")
+        request = self.format_request(messages, tool_specs, system_prompt)
+        logger.debug("formatted request=<%s>", request)
+
+        logger.debug("invoking model")
         streaming = self.config.get("streaming", True)
 
         try:
+            logger.debug("got response from model")
             if streaming:
                 # Streaming implementation
                 response = self.client.converse_stream(**request)
@@ -347,14 +355,14 @@ class BedrockModel(Model):
                         if self._has_blocked_guardrail(guardrail_data):
                             for event in self._generate_redaction_events():
                                 yield event
-                    yield chunk
+                    yield self.format_chunk(chunk)
             else:
                 # Non-streaming implementation
                 response = self.client.converse(**request)
 
                 # Convert and yield from the response
                 for event in self._convert_non_streaming_to_streaming(response):
-                    yield event
+                    yield self.format_chunk(event)
 
                 # Check for guardrail triggers after yielding any events (same as streaming path)
                 if (
@@ -405,6 +413,8 @@ class BedrockModel(Model):
 
             # Otherwise raise the error
             raise e
+
+        logger.debug("finished streaming response from model")
 
     def _convert_non_streaming_to_streaming(self, response: dict[str, Any]) -> Iterable[StreamEvent]:
         """Convert a non-streaming response to the streaming format.
@@ -531,7 +541,7 @@ class BedrockModel(Model):
         """
         tool_spec = convert_pydantic_to_tool_spec(output_model)
 
-        response = self.converse(messages=prompt, tool_specs=[tool_spec])
+        response = self.stream(messages=prompt, tool_specs=[tool_spec])
         async for event in process_stream(response, prompt):
             yield event
 

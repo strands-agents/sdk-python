@@ -56,8 +56,8 @@ async def test_streaming_model_events(streaming_model, alist):
     """Test streaming model events."""
     messages = [{"role": "user", "content": [{"text": "Hello"}]}]
 
-    # Call converse and collect events
-    events = await alist(streaming_model.converse(messages))
+    # Call stream and collect events
+    events = await alist(streaming_model.stream(messages))
 
     # Verify basic structure of events
     assert any("messageStart" in event for event in events)
@@ -70,8 +70,8 @@ async def test_non_streaming_model_events(non_streaming_model, alist):
     """Test non-streaming model events."""
     messages = [{"role": "user", "content": [{"text": "Hello"}]}]
 
-    # Call converse and collect events
-    events = await alist(non_streaming_model.converse(messages))
+    # Call stream and collect events
+    events = await alist(non_streaming_model.stream(messages))
 
     # Verify basic structure of events
     assert any("messageStart" in event for event in events)

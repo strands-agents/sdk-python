@@ -30,9 +30,21 @@ def mock_model(request):
     def converse(*args, **kwargs):
         return mock.mock_converse(*copy.deepcopy(args), **copy.deepcopy(kwargs))
 
+    async def stream(*args, **kwargs):
+        result = mock.mock_converse(*copy.deepcopy(args), **copy.deepcopy(kwargs))
+        # If result is already an async generator, yield from it
+        if hasattr(result, "__aiter__"):
+            async for item in result:
+                yield item
+        else:
+            # If result is a regular generator or iterable, convert to async
+            for item in result:
+                yield item
+
     mock = unittest.mock.Mock(spec=getattr(request, "param", None))
     mock.configure_mock(mock_converse=unittest.mock.MagicMock())
     mock.converse.side_effect = converse
+    mock.stream.side_effect = stream
 
     return mock
 

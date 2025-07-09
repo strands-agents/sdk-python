@@ -109,7 +109,7 @@ async def test_event_loop_cycle_text_response(
     agenerator,
     alist,
 ):
-    model.converse.return_value = agenerator(
+    model.stream.return_value = agenerator(
         [
             {"contentBlockDelta": {"delta": {"text": "test text"}}},
             {"contentBlockStop": {}},
@@ -138,7 +138,7 @@ async def test_event_loop_cycle_text_response_throttling(
     agenerator,
     alist,
 ):
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         ModelThrottledException("ThrottlingException | ConverseStream"),
         agenerator(
             [
@@ -174,7 +174,7 @@ async def test_event_loop_cycle_exponential_backoff(
 ):
     """Test that the exponential backoff works correctly with multiple retries."""
     # Set up the model to raise throttling exceptions multiple times before succeeding
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         ModelThrottledException("ThrottlingException | ConverseStream"),
         ModelThrottledException("ThrottlingException | ConverseStream"),
         ModelThrottledException("ThrottlingException | ConverseStream"),
@@ -211,7 +211,7 @@ async def test_event_loop_cycle_text_response_throttling_exceeded(
     model,
     alist,
 ):
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         ModelThrottledException("ThrottlingException | ConverseStream"),
         ModelThrottledException("ThrottlingException | ConverseStream"),
         ModelThrottledException("ThrottlingException | ConverseStream"),
@@ -244,7 +244,7 @@ async def test_event_loop_cycle_text_response_error(
     model,
     alist,
 ):
-    model.converse.side_effect = RuntimeError("Unhandled error")
+    model.stream.side_effect = RuntimeError("Unhandled error")
 
     with pytest.raises(RuntimeError):
         stream = strands.event_loop.event_loop.event_loop_cycle(
@@ -264,7 +264,7 @@ async def test_event_loop_cycle_tool_result(
     agenerator,
     alist,
 ):
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         agenerator(tool_stream),
         agenerator(
             [
@@ -287,7 +287,7 @@ async def test_event_loop_cycle_tool_result(
 
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
 
-    model.converse.assert_called_with(
+    model.stream.assert_called_with(
         [
             {"role": "user", "content": [{"text": "Hello"}]},
             {
@@ -329,7 +329,7 @@ async def test_event_loop_cycle_tool_result_error(
     agenerator,
     alist,
 ):
-    model.converse.side_effect = [agenerator(tool_stream)]
+    model.stream.side_effect = [agenerator(tool_stream)]
 
     with pytest.raises(EventLoopException):
         stream = strands.event_loop.event_loop.event_loop_cycle(
@@ -347,7 +347,7 @@ async def test_event_loop_cycle_tool_result_no_tool_handler(
     agenerator,
     alist,
 ):
-    model.converse.side_effect = [agenerator(tool_stream)]
+    model.stream.side_effect = [agenerator(tool_stream)]
     # Set tool_handler to None for this test
     agent.tool_handler = None
 
@@ -367,7 +367,7 @@ async def test_event_loop_cycle_tool_result_no_tool_config(
     agenerator,
     alist,
 ):
-    model.converse.side_effect = [agenerator(tool_stream)]
+    model.stream.side_effect = [agenerator(tool_stream)]
     # Set tool_config to None for this test
     agent.tool_config = None
 
@@ -387,7 +387,7 @@ async def test_event_loop_cycle_stop(
     agenerator,
     alist,
 ):
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         agenerator(
             [
                 {
@@ -438,7 +438,7 @@ async def test_cycle_exception(
     tool_stream,
     agenerator,
 ):
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         agenerator(tool_stream),
         agenerator(tool_stream),
         agenerator(tool_stream),
@@ -476,7 +476,7 @@ async def test_event_loop_cycle_creates_spans(
     model_span = MagicMock()
     mock_tracer.start_model_invoke_span.return_value = model_span
 
-    model.converse.return_value = agenerator(
+    model.stream.return_value = agenerator(
         [
             {"contentBlockDelta": {"delta": {"text": "test text"}}},
             {"contentBlockStop": {}},
@@ -515,7 +515,7 @@ async def test_event_loop_tracing_with_model_error(
     mock_tracer.start_model_invoke_span.return_value = model_span
 
     # Set up model to raise an exception
-    model.converse.side_effect = ContextWindowOverflowException("Input too long")
+    model.stream.side_effect = ContextWindowOverflowException("Input too long")
 
     # Call event_loop_cycle, expecting it to handle the exception
     with pytest.raises(ContextWindowOverflowException):
@@ -526,7 +526,7 @@ async def test_event_loop_tracing_with_model_error(
         await alist(stream)
 
     # Verify error handling span methods were called
-    mock_tracer.end_span_with_error.assert_called_once_with(model_span, "Input too long", model.converse.side_effect)
+    mock_tracer.end_span_with_error.assert_called_once_with(model_span, "Input too long", model.stream.side_effect)
 
 
 @patch("strands.event_loop.event_loop.get_tracer")
@@ -548,7 +548,7 @@ async def test_event_loop_tracing_with_tool_execution(
     mock_tracer.start_model_invoke_span.return_value = model_span
 
     # Set up model to return tool use and then text response
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         agenerator(tool_stream),
         agenerator(
             [
@@ -589,7 +589,7 @@ async def test_event_loop_tracing_with_throttling_exception(
     mock_tracer.start_model_invoke_span.return_value = model_span
 
     # Set up model to raise a throttling exception and then succeed
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         ModelThrottledException("Throttling Error"),
         agenerator(
             [
@@ -631,7 +631,7 @@ async def test_event_loop_cycle_with_parent_span(
     cycle_span = MagicMock()
     mock_tracer.start_event_loop_cycle_span.return_value = cycle_span
 
-    model.converse.return_value = agenerator(
+    model.stream.return_value = agenerator(
         [
             {"contentBlockDelta": {"delta": {"text": "test text"}}},
             {"contentBlockStop": {}},
@@ -687,7 +687,7 @@ async def test_request_state_initialization(alist):
 @pytest.mark.asyncio
 async def test_prepare_next_cycle_in_tool_execution(agent, model, tool_stream, agenerator, alist):
     """Test that cycle ID and metrics are properly updated during tool execution."""
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         agenerator(tool_stream),
         agenerator(
             [

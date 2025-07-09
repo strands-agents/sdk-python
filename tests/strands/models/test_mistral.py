@@ -440,16 +440,18 @@ def test_format_chunk_unknown(model):
 async def test_stream_rate_limit_error(mistral_client, model, alist):
     mistral_client.chat.stream.side_effect = Exception("rate limit exceeded (429)")
 
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
     with pytest.raises(ModelThrottledException, match="rate limit exceeded"):
-        await alist(model.stream({}))
+        await alist(model.stream(messages))
 
 
 @pytest.mark.asyncio
 async def test_stream_other_error(mistral_client, model, alist):
     mistral_client.chat.stream.side_effect = Exception("some other error")
 
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
     with pytest.raises(Exception, match="some other error"):
-        await alist(model.stream({}))
+        await alist(model.stream(messages))
 
 
 @pytest.mark.asyncio

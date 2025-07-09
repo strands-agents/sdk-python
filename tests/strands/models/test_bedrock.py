@@ -406,63 +406,64 @@ def test_format_chunk(model):
 
 
 @pytest.mark.asyncio
-async def test_stream(bedrock_client, model, alist):
+async def test_stream(bedrock_client, model, messages, alist):
     bedrock_client.converse_stream.return_value = {"stream": ["e1", "e2"]}
 
-    request = {"a": 1}
-    response = model.stream(request)
+    response = model.stream(messages)
 
     tru_events = await alist(response)
     exp_events = ["e1", "e2"]
 
     assert tru_events == exp_events
-    bedrock_client.converse_stream.assert_called_once_with(a=1)
+    bedrock_client.converse_stream.assert_called_once_with(
+        modelId="m1", messages=messages, system=[], inferenceConfig={}
+    )
 
 
 @pytest.mark.asyncio
-async def test_stream_throttling_exception_from_event_stream_error(bedrock_client, model, alist):
+async def test_stream_throttling_exception_from_event_stream_error(bedrock_client, model, messages, alist):
     error_message = "Rate exceeded"
     bedrock_client.converse_stream.side_effect = EventStreamError(
         {"Error": {"Message": error_message, "Code": "ThrottlingException"}}, "ConverseStream"
     )
 
-    request = {"a": 1}
-
     with pytest.raises(ModelThrottledException) as excinfo:
-        await alist(model.stream(request))
+        await alist(model.stream(messages))
 
     assert error_message in str(excinfo.value)
-    bedrock_client.converse_stream.assert_called_once_with(a=1)
+    bedrock_client.converse_stream.assert_called_once_with(
+        modelId="m1", messages=messages, system=[], inferenceConfig={}
+    )
 
 
 @pytest.mark.asyncio
-async def test_stream_throttling_exception_from_general_exception(bedrock_client, model, alist):
+async def test_stream_throttling_exception_from_general_exception(bedrock_client, model, messages, alist):
     error_message = "ThrottlingException: Rate exceeded for ConverseStream"
     bedrock_client.converse_stream.side_effect = ClientError(
         {"Error": {"Message": error_message, "Code": "ThrottlingException"}}, "Any"
     )
 
-    request = {"a": 1}
-
     with pytest.raises(ModelThrottledException) as excinfo:
-        await alist(model.stream(request))
+        await alist(model.stream(messages))
 
     assert error_message in str(excinfo.value)
-    bedrock_client.converse_stream.assert_called_once_with(a=1)
+    bedrock_client.converse_stream.assert_called_once_with(
+        modelId="m1", messages=messages, system=[], inferenceConfig={}
+    )
 
 
 @pytest.mark.asyncio
-async def test_general_exception_is_raised(bedrock_client, model, alist):
+async def test_general_exception_is_raised(bedrock_client, model, messages, alist):
     error_message = "Should be raised up"
     bedrock_client.converse_stream.side_effect = ValueError(error_message)
 
-    request = {"a": 1}
-
     with pytest.raises(ValueError) as excinfo:
-        await alist(model.stream(request))
+        await alist(model.stream(messages))
 
     assert error_message in str(excinfo.value)
-    bedrock_client.converse_stream.assert_called_once_with(a=1)
+    bedrock_client.converse_stream.assert_called_once_with(
+        modelId="m1", messages=messages, system=[], inferenceConfig={}
+    )
 
 
 @pytest.mark.asyncio
@@ -482,7 +483,7 @@ async def test_converse(bedrock_client, model, messages, tool_spec, model_id, ad
     }
 
     model.update_config(additional_request_fields=additional_request_fields)
-    response = model.converse(messages, [tool_spec])
+    response = model.stream(messages, [tool_spec])
 
     tru_chunks = await alist(response)
     exp_chunks = ["e1", "e2"]
@@ -533,7 +534,7 @@ async def test_converse_stream_input_guardrails(
     }
 
     model.update_config(additional_request_fields=additional_request_fields)
-    response = model.converse(messages, [tool_spec])
+    response = model.stream(messages, [tool_spec])
 
     tru_chunks = await alist(response)
     exp_chunks = [
@@ -590,7 +591,7 @@ async def test_converse_stream_output_guardrails(
     }
 
     model.update_config(additional_request_fields=additional_request_fields)
-    response = model.converse(messages, [tool_spec])
+    response = model.stream(messages, [tool_spec])
 
     tru_chunks = await alist(response)
     exp_chunks = [
@@ -647,7 +648,7 @@ async def test_converse_output_guardrails_redacts_input_and_output(
     }
 
     model.update_config(additional_request_fields=additional_request_fields)
-    response = model.converse(messages, [tool_spec])
+    response = model.stream(messages, [tool_spec])
 
     tru_chunks = await alist(response)
     exp_chunks = [
@@ -704,7 +705,7 @@ async def test_converse_output_no_blocked_guardrails_doesnt_redact(
     }
 
     model.update_config(additional_request_fields=additional_request_fields)
-    response = model.converse(messages, [tool_spec])
+    response = model.stream(messages, [tool_spec])
 
     tru_chunks = await alist(response)
     exp_chunks = [metadata_event]
@@ -761,7 +762,7 @@ async def test_converse_output_no_guardrail_redact(
         guardrail_redact_output=False,
         guardrail_redact_input=False,
     )
-    response = model.converse(messages, [tool_spec])
+    response = model.stream(messages, [tool_spec])
 
     tru_chunks = await alist(response)
     exp_chunks = [metadata_event]
@@ -1199,3 +1200,27 @@ async def test_add_note_on_validation_exception_throughput(bedrock_client, model
         "└ For more information see "
         "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
     ]
+
+
+@pytest.mark.asyncio
+async def test_stream_logging(bedrock_client, model, messages, caplog, alist):
+    """Test that stream method logs debug messages at the expected stages."""
+    import logging
+
+    # Set the logger to debug level to capture debug messages
+    caplog.set_level(logging.DEBUG, logger="strands.models.bedrock")
+
+    # Mock the response
+    bedrock_client.converse_stream.return_value = {"stream": ["e1", "e2"]}
+
+    # Execute the stream method
+    response = model.stream(messages)
+    await alist(response)
+
+    # Check that the expected log messages are present
+    log_text = caplog.text
+    assert "formatting request" in log_text
+    assert "formatted request=<" in log_text
+    assert "invoking model" in log_text
+    assert "got response from model" in log_text
+    assert "finished streaming response from model" in log_text
