@@ -280,20 +280,6 @@ async def test_graph_edge_cases():
     assert result.status == Status.COMPLETED
 
 
-def test_graph_string_representation():
-    """Test string representation with nested structures."""
-    mock_multi_with_agents = Mock(spec=MultiAgentBase)
-    mock_multi_with_agents.agents = [Mock(name="agent1"), Mock(name="agent2")]
-
-    builder = GraphBuilder()
-    builder.add_node(mock_multi_with_agents, "multi_with_agents")
-    graph = builder.build()
-
-    graph_str = str(graph)
-    assert "multi_with_agents (Mock)" in graph_str
-    assert "└─" in graph_str  # Tests nested agent display
-
-
 def test_graph_builder_validation():
     """Test GraphBuilder validation and error handling."""
     # Test empty graph validation
@@ -458,34 +444,3 @@ def test_graph_synchronous_execution(mock_agents):
     # Verify return type is GraphResult
     assert isinstance(result, GraphResult)
     assert isinstance(result, MultiAgentResult)
-
-
-def test_graph_result_str_representation():
-    """Test GraphResult string representation."""
-    mock_agent = create_mock_agent("test_agent")
-    node1 = GraphNode("node1", mock_agent)
-    node2 = GraphNode("node2", mock_agent)
-
-    # Create a mock NodeResult
-    mock_node_result = NodeResult(result=mock_agent.return_value, execution_time=100, status=Status.COMPLETED)
-
-    result = GraphResult(
-        results={"node1": mock_node_result},
-        accumulated_usage={"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
-        accumulated_metrics={"latencyMs": 100},
-        execution_count=1,
-        execution_time=100,
-        status=Status.COMPLETED,
-        total_nodes=2,
-        completed_nodes=2,
-        failed_nodes=0,
-        execution_order=[node1, node2],
-        edges=[(node1, node2)],
-        entry_points=[node1],
-    )
-
-    result_str = str(result)
-    assert "node1" in result_str
-    assert "node2" in result_str
-    assert "completed" in result_str
-    assert "total_nodes=2" in result_str

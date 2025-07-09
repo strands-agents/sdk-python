@@ -66,22 +66,6 @@ class GraphResult(MultiAgentResult):
     edges: list[Tuple["GraphNode", "GraphNode"]] = field(default_factory=list)
     entry_points: list["GraphNode"] = field(default_factory=list)
 
-    def __str__(self) -> str:
-        """String representation using node_id strings instead of GraphNode objects."""
-        execution_order_str = [node.node_id for node in self.execution_order]
-        edges_str = [(edge[0].node_id, edge[1].node_id) for edge in self.edges]
-        entry_points_str = [node.node_id for node in self.entry_points]
-
-        return (
-            f"GraphResult(status={self.status.value}, "
-            f"total_nodes={self.total_nodes}, "
-            f"completed_nodes={self.completed_nodes}, "
-            f"failed_nodes={self.failed_nodes}, "
-            f"execution_order={execution_order_str}, "
-            f"edges={edges_str}, "
-            f"entry_points={entry_points_str})"
-        )
-
 
 @dataclass
 class GraphEdge:
@@ -478,33 +462,3 @@ class Graph(MultiAgentBase):
             edges=self.state.edges,
             entry_points=self.state.entry_points,
         )
-
-    def __str__(self) -> str:
-        """Create a simple text visualization of the graph."""
-        lines = [f"Nodes ({len(self.nodes)}):"]
-
-        for node_id, node in self.nodes.items():
-            node_type = type(node.executor).__name__
-            status_info = f" [{node.status.value}]" if node.status != Status.PENDING else ""
-            lines.append(f"  {node_id} ({node_type}){status_info}")
-
-            if isinstance(node.executor, Graph):
-                # Show nested structure for Graph nodes
-                sub_graph_viz = str(node.executor)
-                for line in sub_graph_viz.split("\n"):
-                    if line.strip():
-                        lines.append(f"    └─ {line}")
-            elif isinstance(node.executor, MultiAgentBase):
-                # Show nested structure for MultiAgentBase sub agents
-                if hasattr(node.executor, "agents"):
-                    for agent in node.executor.agents:
-                        agent_name = getattr(agent, "name", "unknown")
-                        lines.append(f"    └─ {agent_name} (Agent)")
-
-        lines.append(f"Entry Points: {[node.node_id for node in self.entry_points]}")
-        lines.append("Edges:")
-        for edge in sorted(self.edges, key=lambda e: (e.from_node.node_id, e.to_node.node_id)):
-            condition_info = " [conditional]" if edge.condition is not None else ""
-            lines.append(f"  {edge.from_node.node_id} -> {edge.to_node.node_id}{condition_info}")
-
-        return "\n".join(lines)
