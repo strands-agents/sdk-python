@@ -90,13 +90,17 @@ a2a = [
     "fastapi>=0.115.12",
     "starlette>=0.46.2",
 ]
+sagemaker = [
+    "boto3>=1.26.0,<2.0.0",
+    "botocore>=1.29.0,<2.0.0",
+]
 
 [tool.hatch.version]
 # Tells Hatch to use your version control system (git) to determine the version.
 source = "vcs"
 
 [tool.hatch.envs.hatch-static-analysis]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel","mistral"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "sagemaker"]
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
   "ruff>=0.11.6,<0.12.0",
@@ -120,7 +124,7 @@ lint-fix = [
 ]
 
 [tool.hatch.envs.hatch-test]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel","mistral"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "sagemaker"]
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
