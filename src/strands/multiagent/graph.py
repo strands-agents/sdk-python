@@ -281,7 +281,7 @@ class Graph(MultiAgentBase):
                 newly_ready.append(node)
         return newly_ready
 
-    def _is_node_ready_with_conditions(self, node: "GraphNode") -> bool:
+    def _is_node_ready_with_conditions(self, node: GraphNode) -> bool:
         """Check if a node is ready considering conditional edges."""
         # Get incoming edges to this node
         incoming_edges = [edge for edge in self.edges if edge.to_node == node]
@@ -303,7 +303,7 @@ class Graph(MultiAgentBase):
                     )
         return False
 
-    async def _execute_node(self, node: "GraphNode") -> None:
+    async def _execute_node(self, node: GraphNode) -> None:
         """Execute a single node with error handling."""
         node.status = Status.EXECUTING
         logger.debug("node_id=<%s> | executing node", node.node_id)
@@ -401,7 +401,7 @@ class Graph(MultiAgentBase):
         self.state.accumulated_metrics["latencyMs"] += node_result.accumulated_metrics.get("latencyMs", 0)
         self.state.execution_count += node_result.execution_count
 
-    def _build_node_input(self, node: "GraphNode") -> str:
+    def _build_node_input(self, node: GraphNode) -> str:
         """Build input text for a node based on dependency outputs."""
         # Get satisfied dependencies
         dependency_results = {}
