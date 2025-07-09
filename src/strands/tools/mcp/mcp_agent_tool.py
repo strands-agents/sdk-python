@@ -5,7 +5,6 @@ MCP (Model Context Protocol) tools and the agent framework's tool interface.
 It allows MCP tools to be seamlessly integrated and used within the agent ecosystem.
 """
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -87,8 +86,7 @@ class MCPAgentTool(AgentTool):
         """
         logger.debug("tool_name=<%s>, tool_use_id=<%s> | streaming", self.tool_name, tool_use["toolUseId"])
 
-        result = await asyncio.to_thread(
-            self.mcp_client.call_tool_sync,
+        result = await self.mcp_client.call_tool_async(
             tool_use_id=tool_use["toolUseId"],
             name=self.tool_name,
             arguments=tool_use["input"],
