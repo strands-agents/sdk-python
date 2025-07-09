@@ -1023,6 +1023,39 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle, alist):
 
 
 @pytest.mark.asyncio
+async def test_stream_async_multi_modal_input(mock_model, agent, agenerator, alist):
+    mock_model.mock_converse.return_value = agenerator(
+        [
+            {"contentBlockDelta": {"delta": {"text": "I see text and an image"}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    )
+
+    prompt = [
+        {"text": "This is a description of the image:"},
+        {
+            "image": {
+                "format": "png",
+                "source": {
+                    "bytes": b"\x89PNG\r\n\x1a\n",
+                },
+            }
+        },
+    ]
+
+    stream = agent.stream_async(prompt)
+    await alist(stream)
+
+    tru_message = agent.messages
+    exp_message = [
+        {"content": prompt, "role": "user"},
+        {"content": [{"text": "I see text and an image"}], "role": "assistant"},
+    ]
+    assert tru_message == exp_message
+
+
+@pytest.mark.asyncio
 async def test_stream_async_passes_kwargs(agent, mock_model, mock_event_loop_cycle, agenerator, alist):
     mock_model.mock_converse.side_effect = [
         agenerator(
@@ -1155,12 +1188,12 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
-        prompt="test prompt",
         agent_name="Strands Agents",
-        model_id=unittest.mock.ANY,
-        tools=agent.tool_names,
-        system_prompt=agent.system_prompt,
         custom_trace_attributes=agent.trace_attributes,
+        message={"content": [{"text": "test prompt"}], "role": "user"},
+        model_id=unittest.mock.ANY,
+        system_prompt=agent.system_prompt,
+        tools=agent.tool_names,
     )
 
     # Verify span was ended with the result
@@ -1189,12 +1222,12 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
-        prompt="test prompt",
-        agent_name="Strands Agents",
-        model_id=unittest.mock.ANY,
-        tools=agent.tool_names,
-        system_prompt=agent.system_prompt,
         custom_trace_attributes=agent.trace_attributes,
+        agent_name="Strands Agents",
+        message={"content": [{"text": "test prompt"}], "role": "user"},
+        model_id=unittest.mock.ANY,
+        system_prompt=agent.system_prompt,
+        tools=agent.tool_names,
     )
 
     expected_response = AgentResult(
@@ -1227,12 +1260,12 @@ def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_mod
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
-        prompt="test prompt",
-        agent_name="Strands Agents",
-        model_id=unittest.mock.ANY,
-        tools=agent.tool_names,
-        system_prompt=agent.system_prompt,
         custom_trace_attributes=agent.trace_attributes,
+        agent_name="Strands Agents",
+        message={"content": [{"text": "test prompt"}], "role": "user"},
+        model_id=unittest.mock.ANY,
+        system_prompt=agent.system_prompt,
+        tools=agent.tool_names,
     )
 
     # Verify span was ended with the exception
@@ -1263,12 +1296,12 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
-        prompt="test prompt",
         agent_name="Strands Agents",
-        model_id=unittest.mock.ANY,
-        tools=agent.tool_names,
-        system_prompt=agent.system_prompt,
         custom_trace_attributes=agent.trace_attributes,
+        message={"content": [{"text": "test prompt"}], "role": "user"},
+        model_id=unittest.mock.ANY,
+        system_prompt=agent.system_prompt,
+        tools=agent.tool_names,
     )
 
     # Verify span was ended with the exception

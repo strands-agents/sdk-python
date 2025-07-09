@@ -96,20 +96,35 @@ async def test_agent_structured_output_async(agent, weather):
     assert tru_weather == exp_weather
 
 
+def test_multi_modal_input(agent, yellow_img):
+    content = [
+        {"text": "what is in this image"},
+        {
+            "image": {
+                "format": "png",
+                "source": {
+                    "bytes": yellow_img,
+                },
+            },
+        },
+    ]
+    result = agent(content)
+    text = result.message["content"][0]["text"].lower()
+
+    assert "yellow" in text
+
+
 @pytest.mark.skip("https://github.com/strands-agents/sdk-python/issues/320")
-def test_tool_returning_images(model, test_image_path):
+def test_tool_returning_images(model, yellow_img):
     @tool
     def tool_with_image_return():
-        with open(test_image_path, "rb") as image_file:
-            encoded_image = image_file.read()
-
         return {
             "status": "success",
             "content": [
                 {
                     "image": {
                         "format": "png",
-                        "source": {"bytes": encoded_image},
+                        "source": {"bytes": yellow_img},
                     }
                 },
             ],

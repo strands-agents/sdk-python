@@ -95,3 +95,21 @@ async def test_agent_structured_output_async(agent, weather):
     tru_weather = await agent.structured_output_async(type(weather), "The time is 12:00 and the weather is sunny")
     exp_weather = weather
     assert tru_weather == exp_weather
+
+
+def test_multi_modal_input(agent, yellow_img):
+    content = [
+        {"text": "what is in this image"},
+        {
+            "image": {
+                "format": "png",
+                "source": {
+                    "bytes": yellow_img,
+                },
+            },
+        },
+    ]
+    result = agent(content)
+    text = result.message["content"][0]["text"].lower()
+
+    assert "yellow" in text

@@ -12,7 +12,7 @@ from tests_integ.models import providers
 pytestmark = providers.mistral.mark
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture()
 def streaming_model():
     return MistralModel(
         model_id="mistral-medium-latest",
@@ -24,7 +24,7 @@ def streaming_model():
     )
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture()
 def non_streaming_model():
     return MistralModel(
         model_id="mistral-medium-latest",
@@ -36,12 +36,12 @@ def non_streaming_model():
     )
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture()
 def system_prompt():
     return "You are an AI assistant that provides helpful and accurate information."
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture()
 def tools():
     @strands.tool
     def tool_time() -> str:
@@ -54,12 +54,12 @@ def tools():
     return [tool_time, tool_weather]
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture()
 def streaming_agent(streaming_model, tools):
     return Agent(model=streaming_model, tools=tools)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture()
 def non_streaming_agent(non_streaming_model, tools):
     return Agent(model=non_streaming_model, tools=tools)
 
@@ -69,7 +69,7 @@ def agent(request):
     return request.getfixturevalue(request.param)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture()
 def weather():
     class Weather(BaseModel):
         """Extracts the time and weather from the user's message with the exact strings."""
