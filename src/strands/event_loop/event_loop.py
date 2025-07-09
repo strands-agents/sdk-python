@@ -11,7 +11,7 @@ The event loop allows agents to:
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, AsyncGenerator
+from typing import TYPE_CHECKING, Any, AsyncGenerator, cast
 
 from ..experimental.hooks import AfterToolInvocationEvent, BeforeToolInvocationEvent
 from ..experimental.hooks.registry import get_registry
@@ -21,7 +21,7 @@ from ..tools.executor import run_tools, validate_and_prepare_tools
 from ..types.content import Message
 from ..types.exceptions import ContextWindowOverflowException, EventLoopException, ModelThrottledException
 from ..types.streaming import Metrics, StopReason
-from ..types.tools import ToolGenerator, ToolResult, ToolUse
+from ..types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolGenerator, ToolResult, ToolUse
 from .message_processor import clean_orphaned_empty_tool_uses
 from .streaming import stream_messages
 
@@ -112,10 +112,12 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
             model_id=model_id,
         )
 
+        tool_specs = agent.tool_registry.get_all_tool_specs()
+
         try:
             # TODO: To maintain backwards compatibility, we need to combine the stream event with kwargs before yielding
             #       to the callback handler. This will be revisited when migrating to strongly typed events.
-            async for event in stream_messages(agent.model, agent.system_prompt, agent.messages, agent.tool_config):
+            async for event in stream_messages(agent.model, agent.system_prompt, agent.messages, tool_specs):
                 if "callback" in event:
                     yield {"callback": {**event["callback"], **(kwargs if "delta" in event["callback"] else {})}}
 
@@ -172,12 +174,6 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
 
         # If the model is requesting to use tools
         if stop_reason == "tool_use":
-            if agent.tool_config is None:
-                raise EventLoopException(
-                    Exception("Model requested tool use but no tool config provided"),
-                    kwargs["request_state"],
-                )
-
             # Handle tool execution
             events = _handle_tool_execution(
                 stop_reason,
@@ -282,7 +278,10 @@ async def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) ->
             "model": agent.model,
             "system_prompt": agent.system_prompt,
             "messages": agent.messages,
-            "tool_config": agent.tool_config,
+            "tool_config": ToolConfig(  # for backwards compatability
+                tools=[{"toolSpec": tool_spec} for tool_spec in agent.tool_registry.get_all_tool_specs()],
+                toolChoice=cast(ToolChoice, {"auto": ToolChoiceAuto()}),
+            ),
         }
     )
 

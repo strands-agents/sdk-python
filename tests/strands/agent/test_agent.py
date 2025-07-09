@@ -180,7 +180,7 @@ def test_agent__init__tool_loader_format(tool_decorated, tool_module, tool_impor
 
     agent = Agent(tools=[tool_decorated, tool_module, tool_imported])
 
-    tru_tool_names = sorted(tool_spec["toolSpec"]["name"] for tool_spec in agent.tool_config["tools"])
+    tru_tool_names = sorted(tool_spec["name"] for tool_spec in agent.tool_registry.get_all_tool_specs())
     exp_tool_names = ["tool_decorated", "tool_imported", "tool_module"]
 
     assert tru_tool_names == exp_tool_names
@@ -191,7 +191,7 @@ def test_agent__init__tool_loader_dict(tool_module, tool_registry):
 
     agent = Agent(tools=[{"name": "tool_module", "path": tool_module}])
 
-    tru_tool_names = sorted(tool_spec["toolSpec"]["name"] for tool_spec in agent.tool_config["tools"])
+    tru_tool_names = sorted(tool_spec["name"] for tool_spec in agent.tool_registry.get_all_tool_specs())
     exp_tool_names = ["tool_module"]
 
     assert tru_tool_names == exp_tool_names

@@ -30,7 +30,7 @@ from ..tools.watcher import ToolWatcher
 from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.models import Model
-from ..types.tools import ToolConfig, ToolResult, ToolUse
+from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
 from .conversation_manager import (
@@ -323,15 +323,6 @@ class Agent:
         """
         all_tools = self.tool_registry.get_all_tools_config()
         return list(all_tools.keys())
-
-    @property
-    def tool_config(self) -> ToolConfig:
-        """Get the tool configuration for this agent.
-
-        Returns:
-            The complete tool configuration.
-        """
-        return self.tool_registry.initialize_tool_config()
 
     def __call__(self, prompt: str, **kwargs: Any) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.

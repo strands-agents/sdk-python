@@ -17,7 +17,7 @@ from typing_extensions import TypedDict, cast
 
 from strands.tools.decorator import DecoratedFunctionTool
 
-from ..types.tools import AgentTool, Tool, ToolChoice, ToolChoiceAuto, ToolConfig, ToolSpec
+from ..types.tools import AgentTool, ToolSpec
 from .tools import PythonAgentTool, normalize_schema, normalize_tool_spec
 
 logger = logging.getLogger(__name__)
@@ -472,20 +472,15 @@ class ToolRegistry:
             for tool_name, error in tool_import_errors.items():
                 logger.debug("tool_name=<%s> | import error | %s", tool_name, error)
 
-    def initialize_tool_config(self) -> ToolConfig:
-        """Initialize tool configuration from tool handler with optional filtering.
+    def get_all_tool_specs(self) -> list[ToolSpec]:
+        """Get all the tool specs for all tools in this registry..
 
         Returns:
-            Tool config.
+            A list of ToolSpecs.
         """
         all_tools = self.get_all_tools_config()
-
-        tools: List[Tool] = [{"toolSpec": tool_spec} for tool_spec in all_tools.values()]
-
-        return ToolConfig(
-            tools=tools,
-            toolChoice=cast(ToolChoice, {"auto": ToolChoiceAuto()}),
-        )
+        tools: List[ToolSpec] = [tool_spec for tool_spec in all_tools.values()]
+        return tools
 
     def validate_tool_spec(self, tool_spec: ToolSpec) -> None:
         """Validate tool specification against required schema.

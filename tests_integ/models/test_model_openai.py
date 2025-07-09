@@ -1,22 +1,25 @@
+import os
+
 import pytest
-import requests
 from pydantic import BaseModel
 
 import strands
-from strands import Agent
-from strands.models.ollama import OllamaModel
+from strands import Agent, tool
+from strands.models.openai import OpenAIModel
+from tests_integ.models import providers
 
-
-def is_server_available() -> bool:
-    try:
-        return requests.get("http://localhost:11434").ok
-    except requests.exceptions.ConnectionError:
-        return False
+# these tests only run if we have the openai api key
+pytestmark = providers.openai.mark
 
 
 @pytest.fixture(scope="module")
 def model():
-    return OllamaModel(host="http://localhost:11434", model_id="llama3.3:70b")
+    return OpenAIModel(
+        model_id="gpt-4o",
+        client_args={
+            "api_key": os.getenv("OPENAI_API_KEY"),
+        },
+    )
 
 
 @pytest.fixture(scope="module")
@@ -48,7 +51,11 @@ def weather():
     return Weather(time="12:00", weather="sunny")
 
 
-@pytest.mark.skipif(not is_server_available(), reason="Local Ollama endpoint not available at localhost:11434")
+@pytest.fixture(scope="module")
+def test_image_path(request):
+    return request.config.rootpath / "tests_integ" / "test_image.png"
+
+
 def test_agent_invoke(agent):
     result = agent("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
@@ -56,7 +63,6 @@ def test_agent_invoke(agent):
     assert all(string in text for string in ["12:00", "sunny"])
 
 
-@pytest.mark.skipif(not is_server_available(), reason="Local Ollama endpoint not available at localhost:11434")
 @pytest.mark.asyncio
 async def test_agent_invoke_async(agent):
     result = await agent.invoke_async("What is the time and weather in New York?")
@@ -65,7 +71,6 @@ async def test_agent_invoke_async(agent):
     assert all(string in text for string in ["12:00", "sunny"])
 
 
-@pytest.mark.skipif(not is_server_available(), reason="Local Ollama endpoint not available at localhost:11434")
 @pytest.mark.asyncio
 async def test_agent_stream_async(agent):
     stream = agent.stream_async("What is the time and weather in New York?")
@@ -78,16 +83,40 @@ async def test_agent_stream_async(agent):
     assert all(string in text for string in ["12:00", "sunny"])
 
 
-@pytest.mark.skipif(not is_server_available(), reason="Local Ollama endpoint not available at localhost:11434")
 def test_agent_structured_output(agent, weather):
     tru_weather = agent.structured_output(type(weather), "The time is 12:00 and the weather is sunny")
     exp_weather = weather
     assert tru_weather == exp_weather
 
 
-@pytest.mark.skipif(not is_server_available(), reason="Local Ollama endpoint not available at localhost:11434")
 @pytest.mark.asyncio
 async def test_agent_structured_output_async(agent, weather):
     tru_weather = await agent.structured_output_async(type(weather), "The time is 12:00 and the weather is sunny")
     exp_weather = weather
     assert tru_weather == exp_weather
+
+
+@pytest.mark.skip("https://github.com/strands-agents/sdk-python/issues/320")
+def test_tool_returning_images(model, test_image_path):
+    @tool
+    def tool_with_image_return():
+        with open(test_image_path, "rb") as image_file:
+            encoded_image = image_file.read()
+
+        return {
+            "status": "success",
+            "content": [
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"bytes": encoded_image},
+                    }
+                },
+            ],
+        }
+
+    agent = Agent(model, tools=[tool_with_image_return])
+    # NOTE - this currently fails with: "Invalid 'messages[3]'. Image URLs are only allowed for messages with role
+    # 'user', but this message with role 'tool' contains an image URL."
+    # See https://github.com/strands-agents/sdk-python/issues/320 for additional details
+    agent("Run the the tool and analyze the image")

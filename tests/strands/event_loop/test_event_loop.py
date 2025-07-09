@@ -36,11 +36,6 @@ def messages():
 
 
 @pytest.fixture
-def tool_config():
-    return {"tools": [{"toolSpec": {"name": "tool_for_testing"}}], "toolChoice": {"auto": {}}}
-
-
-@pytest.fixture
 def tool_registry():
     return ToolRegistry()
 
@@ -115,13 +110,12 @@ def hook_provider(hook_registry):
 
 
 @pytest.fixture
-def agent(model, system_prompt, messages, tool_config, tool_registry, thread_pool, hook_registry):
+def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_registry):
     mock = unittest.mock.Mock(name="agent")
     mock.config.cache_points = []
     mock.model = model
     mock.system_prompt = system_prompt
     mock.messages = messages
-    mock.tool_config = tool_config
     mock.tool_registry = tool_registry
     mock.thread_pool = thread_pool
     mock.event_loop_metrics = EventLoopMetrics()
@@ -297,6 +291,7 @@ async def test_event_loop_cycle_tool_result(
     system_prompt,
     messages,
     tool_stream,
+    tool_registry,
     agenerator,
     alist,
 ):
@@ -352,7 +347,7 @@ async def test_event_loop_cycle_tool_result(
             },
             {"role": "assistant", "content": [{"text": "test text"}]},
         ],
-        [{"name": "tool_for_testing"}],
+        tool_registry.get_all_tool_specs(),
         "p1",
     )
 

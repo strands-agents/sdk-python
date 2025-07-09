@@ -10,6 +10,7 @@ from datetime import date, datetime, timezone
 from typing import Any, Dict, Mapping, Optional
 
 import opentelemetry.trace as trace_api
+from opentelemetry.instrumentation.threading import ThreadingInstrumentor
 from opentelemetry.trace import Span, StatusCode
 
 from ..agent.agent_result import AgentResult
@@ -89,6 +90,7 @@ class Tracer:
 
         self.tracer_provider = trace_api.get_tracer_provider()
         self.tracer = self.tracer_provider.get_tracer(self.service_name)
+        ThreadingInstrumentor().instrument()
 
     def _start_span(
         self,
