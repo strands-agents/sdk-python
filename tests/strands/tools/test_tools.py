@@ -488,14 +488,6 @@ def test_get_display_properties(identity_tool):
     assert tru_properties == exp_properties
 
 
-@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_stream"], indirect=True)
-def test_invoke(identity_tool):
-    tru_result = identity_tool.invoke({"tool_use": 1}, a=2)
-    exp_result = ({"tool_use": 1}, 2)
-
-    assert tru_result == exp_result
-
-
 @pytest.mark.parametrize(
     ("identity_tool", "exp_events"),
     [

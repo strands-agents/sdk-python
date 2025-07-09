@@ -110,14 +110,6 @@ def test_get_display_properties(identity_tool):
     assert tru_properties == exp_properties
 
 
-@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_stream"], indirect=True)
-def test_invoke(identity_tool):
-    tru_result = identity_tool.invoke({"toolUseId": "t1", "input": {"a": 2}})
-    exp_result = {"toolUseId": "t1", "status": "success", "content": [{"text": "2"}]}
-
-    assert tru_result == exp_result
-
-
 @pytest.mark.parametrize(
     ("identity_tool", "exp_events"),
     [
@@ -133,19 +125,19 @@ def test_stream(identity_tool, exp_events, generate):
     assert tru_events == exp_events and tru_result == exp_result
 
 
-def test_invoke_with_agent():
+def test_stream_with_agent(generate):
     @strands.tool
     def identity(a: int, agent: dict = None):
         return a, agent
 
     exp_output = {"toolUseId": "unknown", "status": "success", "content": [{"text": "(2, {'state': 1})"}]}
 
-    tru_output = identity.invoke({"input": {"a": 2}}, agent={"state": 1})
+    _, tru_output = generate(identity.stream({"input": {"a": 2}}, agent={"state": 1}))
 
     assert tru_output == exp_output
 
 
-def test_basic_tool_creation():
+def test_basic_tool_creation(generate):
     """Test basic tool decorator functionality."""
 
     @strands.tool
@@ -186,7 +178,7 @@ Args:
 
     # Test actual usage
     tool_use = {"toolUseId": "test-id", "input": {"param1": "hello", "param2": 42}}
-    result = test_tool.invoke(tool_use)
+    _, result = generate(test_tool.stream(tool_use))
     assert result["toolUseId"] == "test-id"
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "Result: hello 42"
@@ -209,7 +201,7 @@ def test_tool_with_custom_name_description():
     assert spec["description"] == "Custom description"
 
 
-def test_tool_with_optional_params():
+def test_tool_with_optional_params(generate):
     """Test tool decorator with optional parameters."""
 
     @strands.tool
@@ -234,19 +226,19 @@ def test_tool_with_optional_params():
     # Test with only required param
     tool_use = {"toolUseId": "test-id", "input": {"required": "hello"}}
 
-    result = test_tool.invoke(tool_use)
+    _, result = generate(test_tool.stream(tool_use))
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "Result: hello"
 
     # Test with both params
     tool_use = {"toolUseId": "test-id", "input": {"required": "hello", "optional": 42}}
 
-    result = test_tool.invoke(tool_use)
+    _, result = generate(test_tool.stream(tool_use))
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "Result: hello 42"
 
 
-def test_tool_error_handling():
+def test_tool_error_handling(generate):
     """Test error handling in tool decorator."""
 
     @strands.tool
@@ -259,7 +251,7 @@ def test_tool_error_handling():
     # Test with missing required param
     tool_use = {"toolUseId": "test-id", "input": {}}
 
-    result = test_tool.invoke(tool_use)
+    _, result = generate(test_tool.stream(tool_use))
     assert result["status"] == "error"
     assert "validation error for test_tooltool\nrequired\n" in result["content"][0]["text"].lower(), (
         "Validation error should indicate which argument is missing"
@@ -268,7 +260,7 @@ def test_tool_error_handling():
     # Test with exception in tool function
     tool_use = {"toolUseId": "test-id", "input": {"required": "error"}}
 
-    result = test_tool.invoke(tool_use)
+    _, result = generate(test_tool.stream(tool_use))
     assert result["status"] == "error"
     assert "test error" in result["content"][0]["text"].lower(), (
         "Runtime error should contain the original error message"
@@ -298,7 +290,7 @@ def test_type_handling():
     assert props["bool_param"]["type"] == "boolean"
 
 
-def test_agent_parameter_passing():
+def test_agent_parameter_passing(generate):
     """Test passing agent parameter to tool function."""
     mock_agent = MagicMock()
 
@@ -312,39 +304,16 @@ def test_agent_parameter_passing():
     tool_use = {"toolUseId": "test-id", "input": {"param": "test"}}
 
     # Test without agent
-    result = test_tool.invoke(tool_use)
+    _, result = generate(test_tool.stream(tool_use))
     assert result["content"][0]["text"] == "Param: test"
 
     # Test with agent
-    result = test_tool.invoke(tool_use, agent=mock_agent)
+    _, result = generate(test_tool.stream(tool_use, agent=mock_agent))
     assert "Agent:" in result["content"][0]["text"]
     assert "test" in result["content"][0]["text"]
 
 
-def test_agent_backwards_compatability_parameter_passing():
-    """Test passing agent parameter to tool function."""
-    mock_agent = MagicMock()
-
-    @strands.tool
-    def test_tool(param: str, agent=None) -> str:
-        """Test tool with agent parameter."""
-        if agent:
-            return f"Agent: {agent}, Param: {param}"
-        return f"Param: {param}"
-
-    tool_use = {"toolUseId": "test-id", "input": {"param": "test"}}
-
-    # Test without agent
-    result = test_tool(tool_use)
-    assert result["content"][0]["text"] == "Param: test"
-
-    # Test with agent
-    result = test_tool(tool_use, agent=mock_agent)
-    assert "Agent:" in result["content"][0]["text"]
-    assert "test" in result["content"][0]["text"]
-
-
-def test_tool_decorator_with_different_return_values():
+def test_tool_decorator_with_different_return_values(generate):
     """Test tool decorator with different return value types."""
 
     # Test with dict return that follows ToolResult format
@@ -367,23 +336,23 @@ def test_tool_decorator_with_different_return_values():
 
     # Test the dict return - should preserve dict format but add toolUseId
     tool_use: ToolUse = {"toolUseId": "test-id", "input": {"param": "test"}}
-    result = dict_return_tool.invoke(tool_use)
+    _, result = generate(dict_return_tool.stream(tool_use))
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "Result: test"
     assert result["toolUseId"] == "test-id"
 
     # Test the string return - should wrap in standard format
-    result = string_return_tool.invoke(tool_use)
+    _, result = generate(string_return_tool.stream(tool_use))
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "Result: test"
 
     # Test None return - should still create valid ToolResult with "None" text
-    result = none_return_tool.invoke(tool_use)
+    _, result = generate(none_return_tool.stream(tool_use))
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "None"
 
 
-def test_class_method_handling():
+def test_class_method_handling(generate):
     """Test handling of class methods with tool decorator."""
 
     class TestClass:
@@ -413,11 +382,11 @@ def test_class_method_handling():
 
     # Test tool-style call
     tool_use = {"toolUseId": "test-id", "input": {"param": "tool-value"}}
-    result = instance.test_method.invoke(tool_use)
+    _, result = generate(instance.test_method.stream(tool_use))
     assert "Test: tool-value" in result["content"][0]["text"]
 
 
-def test_tool_as_adhoc_field():
+def test_tool_as_adhoc_field(generate):
     @strands.tool
     def test_method(param: str) -> str:
         return f"param: {param}"
@@ -430,11 +399,11 @@ def test_tool_as_adhoc_field():
     result = instance.field("example")
     assert result == "param: example"
 
-    result2 = instance.field.invoke({"toolUseId": "test-id", "input": {"param": "example"}})
+    _, result2 = generate(instance.field.stream({"toolUseId": "test-id", "input": {"param": "example"}}))
     assert result2 == {"content": [{"text": "param: example"}], "status": "success", "toolUseId": "test-id"}
 
 
-def test_tool_as_instance_field():
+def test_tool_as_instance_field(generate):
     """Make sure that class instance properties operate correctly."""
 
     class MyThing:
@@ -450,11 +419,11 @@ def test_tool_as_instance_field():
     result = instance.field("example")
     assert result == "param: example"
 
-    result2 = instance.field.invoke({"toolUseId": "test-id", "input": {"param": "example"}})
+    _, result2 = generate(instance.field.stream({"toolUseId": "test-id", "input": {"param": "example"}}))
     assert result2 == {"content": [{"text": "param: example"}], "status": "success", "toolUseId": "test-id"}
 
 
-def test_default_parameter_handling():
+def test_default_parameter_handling(generate):
     """Test handling of parameters with default values."""
 
     @strands.tool
@@ -477,16 +446,16 @@ def test_default_parameter_handling():
 
     # Call with just required parameter
     tool_use = {"toolUseId": "test-id", "input": {"required": "hello"}}
-    result = tool_with_defaults.invoke(tool_use)
+    _, result = generate(tool_with_defaults.stream(tool_use))
     assert result["content"][0]["text"] == "hello default 42"
 
     # Call with some but not all optional parameters
     tool_use = {"toolUseId": "test-id", "input": {"required": "hello", "number": 100}}
-    result = tool_with_defaults.invoke(tool_use)
+    _, result = generate(tool_with_defaults.stream(tool_use))
     assert result["content"][0]["text"] == "hello default 100"
 
 
-def test_empty_tool_use_handling():
+def test_empty_tool_use_handling(generate):
     """Test handling of empty tool use dictionaries."""
 
     @strands.tool
@@ -495,17 +464,17 @@ def test_empty_tool_use_handling():
         return f"Got: {required}"
 
     # Test with completely empty tool use
-    result = test_tool.invoke({})
+    _, result = generate(test_tool.stream({}))
     assert result["status"] == "error"
     assert "unknown" in result["toolUseId"]
 
     # Test with missing input
-    result = test_tool.invoke({"toolUseId": "test-id"})
+    _, result = generate(test_tool.stream({"toolUseId": "test-id"}))
     assert result["status"] == "error"
     assert "test-id" in result["toolUseId"]
 
 
-def test_traditional_function_call():
+def test_traditional_function_call(generate):
     """Test that decorated functions can still be called normally."""
 
     @strands.tool
@@ -524,12 +493,12 @@ def test_traditional_function_call():
 
     # Call through tool interface
     tool_use = {"toolUseId": "test-id", "input": {"a": 2, "b": 3}}
-    result = add_numbers.invoke(tool_use)
+    _, result = generate(add_numbers.stream(tool_use))
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "5"
 
 
-def test_multiple_default_parameters():
+def test_multiple_default_parameters(generate):
     """Test handling of multiple parameters with default values."""
 
     @strands.tool
@@ -557,7 +526,7 @@ def test_multiple_default_parameters():
 
     # Test calling with only required parameter
     tool_use = {"toolUseId": "test-id", "input": {"required_param": "hello"}}
-    result = multi_default_tool.invoke(tool_use)
+    _, result = generate(multi_default_tool.stream(tool_use))
     assert result["status"] == "success"
     assert "hello, default_str, 42, True, 3.14" in result["content"][0]["text"]
 
@@ -566,11 +535,11 @@ def test_multiple_default_parameters():
         "toolUseId": "test-id",
         "input": {"required_param": "hello", "optional_int": 100, "optional_float": 2.718},
     }
-    result = multi_default_tool.invoke(tool_use)
+    _, result = generate(multi_default_tool.stream(tool_use))
     assert "hello, default_str, 100, True, 2.718" in result["content"][0]["text"]
 
 
-def test_return_type_validation():
+def test_return_type_validation(generate):
     """Test that return types are properly handled and validated."""
 
     # Define tool with explicitly typed return
@@ -590,7 +559,7 @@ def test_return_type_validation():
 
     # Test with return that matches declared type
     tool_use = {"toolUseId": "test-id", "input": {"param": "valid"}}
-    result = int_return_tool.invoke(tool_use)
+    _, result = generate(int_return_tool.stream(tool_use))
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "42"
 
@@ -598,13 +567,13 @@ def test_return_type_validation():
     # Note: This should still work because Python doesn't enforce return types at runtime
     # but the function will return a string instead of an int
     tool_use = {"toolUseId": "test-id", "input": {"param": "invalid_type"}}
-    result = int_return_tool.invoke(tool_use)
+    _, result = generate(int_return_tool.stream(tool_use))
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "not an int"
 
     # Test with None return from a non-None return type
     tool_use = {"toolUseId": "test-id", "input": {"param": "none"}}
-    result = int_return_tool.invoke(tool_use)
+    _, result = generate(int_return_tool.stream(tool_use))
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "None"
 
@@ -625,22 +594,22 @@ def test_return_type_validation():
 
     # Test with each possible return type in the Union
     tool_use = {"toolUseId": "test-id", "input": {"param": "dict"}}
-    result = union_return_tool.invoke(tool_use)
+    _, result = generate(union_return_tool.stream(tool_use))
     assert result["status"] == "success"
     assert "{'key': 'value'}" in result["content"][0]["text"] or '{"key": "value"}' in result["content"][0]["text"]
 
     tool_use = {"toolUseId": "test-id", "input": {"param": "str"}}
-    result = union_return_tool.invoke(tool_use)
+    _, result = generate(union_return_tool.stream(tool_use))
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "string result"
 
     tool_use = {"toolUseId": "test-id", "input": {"param": "none"}}
-    result = union_return_tool.invoke(tool_use)
+    _, result = generate(union_return_tool.stream(tool_use))
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "None"
 
 
-def test_tool_with_no_parameters():
+def test_tool_with_no_parameters(generate):
     """Test a tool that doesn't require any parameters."""
 
     @strands.tool
@@ -656,7 +625,7 @@ def test_tool_with_no_parameters():
 
     # Test tool use call
     tool_use = {"toolUseId": "test-id", "input": {}}
-    result = no_params_tool.invoke(tool_use)
+    _, result = generate(no_params_tool.stream(tool_use))
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "Success - no parameters needed"
 
@@ -665,7 +634,7 @@ def test_tool_with_no_parameters():
     assert direct_result == "Success - no parameters needed"
 
 
-def test_complex_parameter_types():
+def test_complex_parameter_types(generate):
     """Test handling of complex parameter types like nested dictionaries."""
 
     @strands.tool
@@ -682,7 +651,7 @@ def test_complex_parameter_types():
 
     # Call via tool use
     tool_use = {"toolUseId": "test-id", "input": {"config": nested_dict}}
-    result = complex_type_tool.invoke(tool_use)
+    _, result = generate(complex_type_tool.stream(tool_use))
     assert result["status"] == "success"
     assert "Got config with 3 keys" in result["content"][0]["text"]
 
@@ -691,7 +660,7 @@ def test_complex_parameter_types():
     assert direct_result == "Got config with 3 keys"
 
 
-def test_custom_tool_result_handling():
+def test_custom_tool_result_handling(generate):
     """Test that a function returning a properly formatted tool result dictionary is handled correctly."""
 
     @strands.tool
@@ -709,7 +678,7 @@ def test_custom_tool_result_handling():
 
     # Test via tool use
     tool_use = {"toolUseId": "custom-id", "input": {"param": "test"}}
-    result = custom_result_tool.invoke(tool_use)
+    _, result = generate(custom_result_tool.stream(tool_use))
 
     # The wrapper should preserve our format and just add the toolUseId
     assert result["status"] == "success"
@@ -759,7 +728,7 @@ def test_docstring_parsing():
     assert "param2" not in schema["required"]
 
 
-def test_detailed_validation_errors():
+def test_detailed_validation_errors(generate):
     """Test detailed error messages for various validation failures."""
 
     @strands.tool
@@ -782,7 +751,7 @@ def test_detailed_validation_errors():
             "bool_param": True,
         },
     }
-    result = validation_tool.invoke(tool_use)
+    _, result = generate(validation_tool.stream(tool_use))
     assert result["status"] == "error"
     assert "int_param" in result["content"][0]["text"]
 
@@ -795,12 +764,12 @@ def test_detailed_validation_errors():
             "bool_param": True,
         },
     }
-    result = validation_tool.invoke(tool_use)
+    _, result = generate(validation_tool.stream(tool_use))
     assert result["status"] == "error"
     assert "int_param" in result["content"][0]["text"]
 
 
-def test_tool_complex_validation_edge_cases():
+def test_tool_complex_validation_edge_cases(generate):
     """Test validation of complex schema edge cases."""
     from typing import Any, Dict, Union
 
@@ -816,26 +785,26 @@ def test_tool_complex_validation_edge_cases():
 
     # Test with None value
     tool_use = {"toolUseId": "test-id", "input": {"param": None}}
-    result = edge_case_tool.invoke(tool_use)
+    _, result = generate(edge_case_tool.stream(tool_use))
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "None"
 
     # Test with empty dict
     tool_use = {"toolUseId": "test-id", "input": {"param": {}}}
-    result = edge_case_tool.invoke(tool_use)
+    _, result = generate(edge_case_tool.stream(tool_use))
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "{}"
 
     # Test with a complex nested dictionary
     nested_dict = {"key1": {"nested": [1, 2, 3]}, "key2": None}
     tool_use = {"toolUseId": "test-id", "input": {"param": nested_dict}}
-    result = edge_case_tool.invoke(tool_use)
+    _, result = generate(edge_case_tool.stream(tool_use))
     assert result["status"] == "success"
     assert "key1" in result["content"][0]["text"]
     assert "nested" in result["content"][0]["text"]
 
 
-def test_tool_method_detection_errors():
+def test_tool_method_detection_errors(generate):
     """Test edge cases in method detection logic."""
 
     # Define a class with a decorated method to test exception handling in method detection
@@ -876,7 +845,7 @@ def test_tool_method_detection_errors():
     assert instance.test_method("test") == "Method Got: test"
 
     # Test direct function call
-    direct_result = instance.test_method.invoke({"toolUseId": "test-id", "input": {"param": "direct"}})
+    _, direct_result = generate(instance.test_method.stream({"toolUseId": "test-id", "input": {"param": "direct"}}))
     assert direct_result["status"] == "success"
     assert direct_result["content"][0]["text"] == "Method Got: direct"
 
@@ -896,12 +865,12 @@ def test_tool_method_detection_errors():
     assert result == "Standalone: param1, param2"
 
     # And that it works with tool use call too
-    tool_use_result = standalone_tool.invoke({"toolUseId": "test-id", "input": {"p1": "value1"}})
+    _, tool_use_result = generate(standalone_tool.stream({"toolUseId": "test-id", "input": {"p1": "value1"}}))
     assert tool_use_result["status"] == "success"
     assert tool_use_result["content"][0]["text"] == "Standalone: value1, default"
 
 
-def test_tool_general_exception_handling():
+def test_tool_general_exception_handling(generate):
     """Test handling of arbitrary exceptions in tool execution."""
 
     @strands.tool
@@ -925,7 +894,7 @@ def test_tool_general_exception_handling():
     error_types = ["value_error", "type_error", "attribute_error", "key_error"]
     for error_type in error_types:
         tool_use = {"toolUseId": "test-id", "input": {"param": error_type}}
-        result = failing_tool.invoke(tool_use)
+        _, result = generate(failing_tool.stream(tool_use))
         assert result["status"] == "error"
 
         error_message = result["content"][0]["text"]
@@ -942,7 +911,7 @@ def test_tool_general_exception_handling():
             assert "key_name" in error_message
 
 
-def test_tool_with_complex_anyof_schema():
+def test_tool_with_complex_anyof_schema(generate):
     """Test handling of complex anyOf structures in the schema."""
     from typing import Any, Dict, List, Union
 
@@ -957,25 +926,25 @@ def test_tool_with_complex_anyof_schema():
 
     # Test with a list
     tool_use = {"toolUseId": "test-id", "input": {"union_param": [1, 2, 3]}}
-    result = complex_schema_tool.invoke(tool_use)
+    _, result = generate(complex_schema_tool.stream(tool_use))
     assert result["status"] == "success"
     assert "list: [1, 2, 3]" in result["content"][0]["text"]
 
     # Test with a dict
     tool_use = {"toolUseId": "test-id", "input": {"union_param": {"key": "value"}}}
-    result = complex_schema_tool.invoke(tool_use)
+    _, result = generate(complex_schema_tool.stream(tool_use))
     assert result["status"] == "success"
     assert "dict:" in result["content"][0]["text"]
     assert "key" in result["content"][0]["text"]
 
     # Test with a string
     tool_use = {"toolUseId": "test-id", "input": {"union_param": "test_string"}}
-    result = complex_schema_tool.invoke(tool_use)
+    _, result = generate(complex_schema_tool.stream(tool_use))
     assert result["status"] == "success"
     assert "str: test_string" in result["content"][0]["text"]
 
     # Test with None
     tool_use = {"toolUseId": "test-id", "input": {"union_param": None}}
-    result = complex_schema_tool.invoke(tool_use)
+    _, result = generate(complex_schema_tool.stream(tool_use))
     assert result["status"] == "success"
     assert "NoneType: None" in result["content"][0]["text"]

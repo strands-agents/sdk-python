@@ -6,7 +6,7 @@ These types are modeled after the Bedrock API.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Generator, Literal, Protocol, Union, cast
+from typing import Any, Callable, Generator, Literal, Protocol, Union
 
 from typing_extensions import TypedDict
 
@@ -172,7 +172,7 @@ class AgentTool(ABC):
     """Abstract base class for all SDK tools.
 
     This class defines the interface that all tool implementations must follow. Each tool must provide its name,
-    specification, and implement an invoke method that executes the tool's functionality.
+    specification, and implement a stream method that executes the tool's functionality.
     """
 
     _is_dynamic: bool
@@ -213,25 +213,6 @@ class AgentTool(ABC):
             False by default.
         """
         return False
-
-    def invoke(self, tool_use: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolResult:
-        """Execute the tool's functionality with the given tool use request.
-
-        Args:
-            tool_use: The tool use request containing tool ID and parameters.
-            *args: Positional arguments to pass to the tool.
-            **kwargs: Keyword arguments to pass to the tool.
-
-        Returns:
-            The result of the tool execution.
-        """
-        events = self.stream(tool_use, *args, **kwargs)
-
-        try:
-            while True:
-                next(events)
-        except StopIteration as stop:
-            return cast(ToolResult, stop.value)
 
     @abstractmethod
     # pragma: no cover

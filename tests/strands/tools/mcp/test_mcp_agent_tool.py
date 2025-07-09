@@ -57,18 +57,6 @@ def test_tool_spec_without_description(mock_mcp_tool, mock_mcp_client):
     assert tool_spec["description"] == "Tool which performs test_tool"
 
 
-def test_invoke(mcp_agent_tool, mock_mcp_client):
-    tool_use = {"toolUseId": "test-123", "name": "test_tool", "input": {"param": "value"}}
-
-    tru_result = mcp_agent_tool.invoke(tool_use)
-    exp_result = mock_mcp_client.call_tool_sync.return_value
-    assert tru_result == exp_result
-
-    mock_mcp_client.call_tool_sync.assert_called_once_with(
-        tool_use_id="test-123", name="test_tool", arguments={"param": "value"}
-    )
-
-
 def test_stream(mcp_agent_tool, mock_mcp_client, generate):
     tool_use = {"toolUseId": "test-123", "name": "test_tool", "input": {"param": "value"}}
 

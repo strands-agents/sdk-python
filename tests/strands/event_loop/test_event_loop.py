@@ -1,16 +1,18 @@
 import concurrent
 import unittest.mock
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import ANY, MagicMock, call, patch
 
 import pytest
 
 import strands
 import strands.telemetry
 from strands.event_loop.event_loop import run_tool
+from strands.experimental.hooks import AfterToolInvocationEvent, BeforeToolInvocationEvent, HookProvider, HookRegistry
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.tools.registry import ToolRegistry
 from strands.types.event_loop import EventLoopConfig
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException, ModelThrottledException
+from tests.fixtures.mock_hook_provider import MockHookProvider
 
 
 @pytest.fixture
@@ -62,6 +64,28 @@ def tool(tool_registry):
 
 
 @pytest.fixture
+def tool_times_2(tool_registry):
+    @strands.tools.tool
+    def multiply_by_2(x: int) -> int:
+        return x * 2
+
+    tool_registry.register_tool(multiply_by_2)
+
+    return multiply_by_2
+
+
+@pytest.fixture
+def tool_times_5(tool_registry):
+    @strands.tools.tool
+    def multiply_by_5(x: int) -> int:
+        return x * 5
+
+    tool_registry.register_tool(multiply_by_5)
+
+    return multiply_by_5
+
+
+@pytest.fixture
 def tool_stream(tool):
     return [
         {
@@ -81,7 +105,19 @@ def tool_stream(tool):
 
 
 @pytest.fixture
-def agent(model, system_prompt, messages, tool_config, tool_registry, thread_pool):
+def hook_registry():
+    return HookRegistry()
+
+
+@pytest.fixture
+def hook_provider(hook_registry):
+    provider = MockHookProvider(event_types=[BeforeToolInvocationEvent, AfterToolInvocationEvent])
+    hook_registry.add_hook(provider)
+    return provider
+
+
+@pytest.fixture
+def agent(model, system_prompt, messages, tool_config, tool_registry, thread_pool, hook_registry):
     mock = unittest.mock.Mock(name="agent")
     mock.config.cache_points = []
     mock.model = model
@@ -92,6 +128,7 @@ def agent(model, system_prompt, messages, tool_config, tool_registry, thread_poo
     mock.thread_pool = thread_pool
     mock.event_loop_metrics = EventLoopMetrics()
     mock.event_loop_config = EventLoopConfig()
+    mock._hooks = hook_registry
 
     return mock
 
@@ -798,3 +835,222 @@ def test_run_tool_missing_tool(agent, generate):
     }
 
     assert tru_events == exp_events and tru_result == exp_result
+
+
+def test_run_tool_hooks(agent, generate, hook_provider, tool_times_2):
+    """Test that the correct hooks are emitted."""
+
+    process = run_tool(
+        agent=agent,
+        tool_use={"toolUseId": "test", "name": tool_times_2.tool_name, "input": {"x": 5}},
+        kwargs={},
+    )
+
+    _, result = generate(process)
+
+    assert len(hook_provider.events_received) == 2
+
+    assert hook_provider.events_received[0] == BeforeToolInvocationEvent(
+        agent=agent,
+        selected_tool=tool_times_2,
+        tool_use={"input": {"x": 5}, "name": "multiply_by_2", "toolUseId": "test"},
+        kwargs=ANY,
+    )
+
+    assert hook_provider.events_received[1] == AfterToolInvocationEvent(
+        agent=agent,
+        selected_tool=tool_times_2,
+        exception=None,
+        tool_use={"toolUseId": "test", "name": tool_times_2.tool_name, "input": {"x": 5}},
+        result={"toolUseId": "test", "status": "success", "content": [{"text": "10"}]},
+        kwargs=ANY,
+    )
+
+
+def test_run_tool_hooks_on_missing_tool(agent, tool_registry, generate, hook_provider):
+    """Test that AfterToolInvocation hook is invoked even when tool throws exception."""
+    process = run_tool(
+        agent=agent,
+        tool_use={"toolUseId": "test", "name": "missing_tool", "input": {"x": 5}},
+        kwargs={},
+    )
+
+    _, result = generate(process)
+
+    assert len(hook_provider.events_received) == 2
+
+    assert hook_provider.events_received[0] == BeforeToolInvocationEvent(
+        agent=agent,
+        selected_tool=None,
+        tool_use={"input": {"x": 5}, "name": "missing_tool", "toolUseId": "test"},
+        kwargs=ANY,
+    )
+
+    assert hook_provider.events_received[1] == AfterToolInvocationEvent(
+        agent=agent,
+        selected_tool=None,
+        tool_use={"input": {"x": 5}, "name": "missing_tool", "toolUseId": "test"},
+        kwargs=ANY,
+        result={"content": [{"text": "Unknown tool: missing_tool"}], "status": "error", "toolUseId": "test"},
+        exception=None,
+    )
+
+
+def test_run_tool_hook_after_tool_invocation_on_exception(agent, tool_registry, generate, hook_provider):
+    """Test that AfterToolInvocation hook is invoked even when tool throws exception."""
+    error = ValueError("Tool failed")
+
+    failing_tool = MagicMock()
+    failing_tool.tool_name = "failing_tool"
+
+    failing_tool.stream.side_effect = error
+
+    tool_registry.register_tool(failing_tool)
+
+    process = run_tool(
+        agent=agent,
+        tool_use={"toolUseId": "test", "name": "failing_tool", "input": {"x": 5}},
+        kwargs={},
+    )
+
+    _, result = generate(process)
+
+    assert hook_provider.events_received[1] == AfterToolInvocationEvent(
+        agent=agent,
+        selected_tool=failing_tool,
+        tool_use={"input": {"x": 5}, "name": "failing_tool", "toolUseId": "test"},
+        kwargs=ANY,
+        result={"content": [{"text": "Error: Tool failed"}], "status": "error", "toolUseId": "test"},
+        exception=error,
+    )
+
+
+def test_run_tool_hook_before_tool_invocation_updates(agent, tool_times_5, generate, hook_registry, hook_provider):
+    """Test that modifying properties on BeforeToolInvocation takes effect."""
+
+    updated_tool_use = {"toolUseId": "modified", "name": "replacement_tool", "input": {"x": 3}}
+
+    def modify_hook(event: BeforeToolInvocationEvent):
+        # Modify selected_tool to use replacement_tool
+        event.selected_tool = tool_times_5
+        # Modify tool_use to change toolUseId
+        event.tool_use = updated_tool_use
+
+    hook_registry.add_callback(BeforeToolInvocationEvent, modify_hook)
+
+    process = run_tool(
+        agent=agent,
+        tool_use={"toolUseId": "original", "name": "original_tool", "input": {"x": 1}},
+        kwargs={},
+    )
+
+    _, result = generate(process)
+
+    # Should use replacement_tool (5 * 3 = 15) instead of original_tool (1 * 2 = 2)
+    assert result == {"toolUseId": "modified", "status": "success", "content": [{"text": "15"}]}
+
+    assert hook_provider.events_received[1] == AfterToolInvocationEvent(
+        agent=agent,
+        selected_tool=tool_times_5,
+        tool_use=updated_tool_use,
+        kwargs=ANY,
+        result={"content": [{"text": "15"}], "status": "success", "toolUseId": "modified"},
+        exception=None,
+    )
+
+
+def test_run_tool_hook_after_tool_invocation_updates(agent, tool_times_2, generate, hook_registry):
+    """Test that modifying properties on AfterToolInvocation takes effect."""
+
+    updated_result = {"toolUseId": "modified", "status": "success", "content": [{"text": "modified_result"}]}
+
+    def modify_hook(event: AfterToolInvocationEvent):
+        # Modify result to change the output
+        event.result = updated_result
+
+    hook_registry.add_callback(AfterToolInvocationEvent, modify_hook)
+
+    process = run_tool(
+        agent=agent,
+        tool_use={"toolUseId": "test", "name": tool_times_2.tool_name, "input": {"x": 5}},
+        kwargs={},
+    )
+
+    _, result = generate(process)
+
+    assert result == updated_result
+
+
+def test_run_tool_hook_after_tool_invocation_updates_with_missing_tool(agent, tool_times_2, generate, hook_registry):
+    """Test that modifying properties on AfterToolInvocation takes effect."""
+
+    updated_result = {"toolUseId": "modified", "status": "success", "content": [{"text": "modified_result"}]}
+
+    def modify_hook(event: AfterToolInvocationEvent):
+        # Modify result to change the output
+        event.result = updated_result
+
+    hook_registry.add_callback(AfterToolInvocationEvent, modify_hook)
+
+    process = run_tool(
+        agent=agent,
+        tool_use={"toolUseId": "test", "name": "missing_tool", "input": {"x": 5}},
+        kwargs={},
+    )
+
+    _, result = generate(process)
+
+    assert result == updated_result
+
+
+def test_run_tool_hook_update_result_with_missing_tool(agent, generate, tool_registry, hook_registry):
+    """Test that modifying properties on AfterToolInvocation takes effect."""
+
+    @strands.tool
+    def test_quota():
+        return "9"
+
+    tool_registry.register_tool(test_quota)
+
+    class ExampleProvider(HookProvider):
+        def register_hooks(self, registry: "HookRegistry") -> None:
+            registry.add_callback(BeforeToolInvocationEvent, self.before_tool_call)
+            registry.add_callback(AfterToolInvocationEvent, self.after_tool_call)
+
+        def before_tool_call(self, event: BeforeToolInvocationEvent):
+            if event.tool_use.get("name") == "test_quota":
+                event.selected_tool = None
+
+        def after_tool_call(self, event: AfterToolInvocationEvent):
+            if event.tool_use.get("name") == "test_quota":
+                event.result = {
+                    "status": "error",
+                    "toolUseId": "test",
+                    "content": [{"text": "This tool has been used too many times!"}],
+                }
+
+    hook_registry.add_hook(ExampleProvider())
+
+    with patch.object(strands.event_loop.event_loop, "logger") as mock_logger:
+        process = run_tool(
+            agent=agent,
+            tool_use={"toolUseId": "test", "name": "test_quota", "input": {"x": 5}},
+            kwargs={},
+        )
+
+        _, result = generate(process)
+
+    assert result == {
+        "status": "error",
+        "toolUseId": "test",
+        "content": [{"text": "This tool has been used too many times!"}],
+    }
+
+    assert mock_logger.debug.call_args_list == [
+        call("tool_use=<%s> | streaming", {"toolUseId": "test", "name": "test_quota", "input": {"x": 5}}),
+        call(
+            "tool_name=<%s>, tool_use_id=<%s> | a hook resulted in a non-existing tool call",
+            "test_quota",
+            "test",
+        ),
+    ]
