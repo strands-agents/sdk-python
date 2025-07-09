@@ -3,7 +3,7 @@
 This module provides metrics and tracing functionality.
 """
 
-from .config import StrandsTelemetry, get_otel_resource
+from .config import StrandsTelemetry
 from .metrics import EventLoopMetrics, MetricsClient, Trace, metrics_to_string
 from .tracer import Tracer, get_tracer
 
@@ -16,8 +16,6 @@ __all__ = [
     # Tracer
     "Tracer",
     "get_tracer",
-    # Resource
-    "get_otel_resource",
     # Telemetry Setup
     "StrandsTelemetry",
 ]

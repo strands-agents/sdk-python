@@ -11,7 +11,7 @@ from strands.types.exceptions import ContextWindowOverflowException, ModelThrott
 
 @pytest.fixture
 def anthropic_client():
-    with unittest.mock.patch.object(strands.models.anthropic.anthropic, "Anthropic") as mock_client_cls:
+    with unittest.mock.patch.object(strands.models.anthropic.anthropic, "AsyncAnthropic") as mock_client_cls:
         yield mock_client_cls.return_value
 
 
@@ -624,7 +624,8 @@ def test_format_chunk_unknown(model):
         model.format_chunk(event)
 
 
-def test_stream(anthropic_client, model):
+@pytest.mark.asyncio
+async def test_stream(anthropic_client, model, agenerator, alist):
     mock_event_1 = unittest.mock.Mock(
         type="message_start",
         dict=lambda: {"type": "message_start"},
@@ -645,14 +646,14 @@ def test_stream(anthropic_client, model):
         ),
     )
 
-    mock_stream = unittest.mock.MagicMock()
-    mock_stream.__iter__.return_value = iter([mock_event_1, mock_event_2, mock_event_3])
-    anthropic_client.messages.stream.return_value.__enter__.return_value = mock_stream
+    mock_context = unittest.mock.AsyncMock()
+    mock_context.__aenter__.return_value = agenerator([mock_event_1, mock_event_2, mock_event_3])
+    anthropic_client.messages.stream.return_value = mock_context
 
     request = {"model": "m1"}
     response = model.stream(request)
 
-    tru_events = list(response)
+    tru_events = await alist(response)
     exp_events = [
         {"type": "message_start"},
         {
@@ -665,13 +666,14 @@ def test_stream(anthropic_client, model):
     anthropic_client.messages.stream.assert_called_once_with(**request)
 
 
-def test_stream_rate_limit_error(anthropic_client, model):
+@pytest.mark.asyncio
+async def test_stream_rate_limit_error(anthropic_client, model, alist):
     anthropic_client.messages.stream.side_effect = anthropic.RateLimitError(
         "rate limit", response=unittest.mock.Mock(), body=None
     )
 
     with pytest.raises(ModelThrottledException, match="rate limit"):
-        next(model.stream({}))
+        await alist(model.stream({}))
 
 
 @pytest.mark.parametrize(
@@ -682,25 +684,28 @@ def test_stream_rate_limit_error(anthropic_client, model):
         "...input and output tokens exceed your context limit...",
     ],
 )
-def test_stream_bad_request_overflow_error(overflow_message, anthropic_client, model):
+@pytest.mark.asyncio
+async def test_stream_bad_request_overflow_error(overflow_message, anthropic_client, model):
     anthropic_client.messages.stream.side_effect = anthropic.BadRequestError(
         overflow_message, response=unittest.mock.Mock(), body=None
     )
 
     with pytest.raises(ContextWindowOverflowException):
-        next(model.stream({}))
+        await anext(model.stream({}))
 
 
-def test_stream_bad_request_error(anthropic_client, model):
+@pytest.mark.asyncio
+async def test_stream_bad_request_error(anthropic_client, model):
     anthropic_client.messages.stream.side_effect = anthropic.BadRequestError(
         "bad", response=unittest.mock.Mock(), body=None
     )
 
     with pytest.raises(anthropic.BadRequestError, match="bad"):
-        next(model.stream({}))
+        await anext(model.stream({}))
 
 
-def test_structured_output(anthropic_client, model, test_output_model_cls):
+@pytest.mark.asyncio
+async def test_structured_output(anthropic_client, model, test_output_model_cls, agenerator, alist):
     messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
 
     events = [
@@ -744,12 +749,13 @@ def test_structured_output(anthropic_client, model, test_output_model_cls):
         ),
     ]
 
-    mock_stream = unittest.mock.MagicMock()
-    mock_stream.__iter__.return_value = iter(events)
-    anthropic_client.messages.stream.return_value.__enter__.return_value = mock_stream
+    mock_context = unittest.mock.AsyncMock()
+    mock_context.__aenter__.return_value = agenerator(events)
+    anthropic_client.messages.stream.return_value = mock_context
 
     stream = model.structured_output(test_output_model_cls, messages)
+    events = await alist(stream)
 
-    tru_result = list(stream)[-1]
+    tru_result = events[-1]
     exp_result = {"output": test_output_model_cls(name="John", age=30)}
     assert tru_result == exp_result

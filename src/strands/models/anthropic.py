@@ -7,7 +7,7 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Generator, Iterable, Optional, Type, TypedDict, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, Optional, Type, TypedDict, TypeVar, Union, cast
 
 import anthropic
 from pydantic import BaseModel
@@ -72,7 +72,7 @@ class AnthropicModel(Model):
         logger.debug("config=<%s> | initializing", self.config)
 
         client_args = client_args or {}
-        self.client = anthropic.Anthropic(**client_args)
+        self.client = anthropic.AsyncAnthropic(**client_args)
 
     @override
     def update_config(self, **model_config: Unpack[AnthropicConfig]) -> None:  # type: ignore[override]
@@ -344,7 +344,7 @@ class AnthropicModel(Model):
                 raise RuntimeError(f"event_type=<{event['type']} | unknown type")
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
+    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Send the request to the Anthropic model and get the streaming response.
 
         Args:
@@ -358,8 +358,8 @@ class AnthropicModel(Model):
             ModelThrottledException: If the request is throttled by Anthropic.
         """
         try:
-            with self.client.messages.stream(**request) as stream:
-                for event in stream:
+            async with self.client.messages.stream(**request) as stream:
+                async for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
                         yield event.model_dump()
 
@@ -376,9 +376,9 @@ class AnthropicModel(Model):
             raise error
 
     @override
-    def structured_output(
+    async def structured_output(
         self, output_model: Type[T], prompt: Messages
-    ) -> Generator[dict[str, Union[T, Any]], None, None]:
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:
@@ -391,7 +391,7 @@ class AnthropicModel(Model):
         tool_spec = convert_pydantic_to_tool_spec(output_model)
 
         response = self.converse(messages=prompt, tool_specs=[tool_spec])
-        for event in process_stream(response, prompt):
+        async for event in process_stream(response, prompt):
             yield event
 
         stop_reason, messages, _, _ = event["stop"]

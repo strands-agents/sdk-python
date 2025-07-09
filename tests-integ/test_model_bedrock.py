@@ -51,12 +51,13 @@ def test_non_streaming_agent(non_streaming_agent):
     assert len(str(result)) > 0
 
 
-def test_streaming_model_events(streaming_model):
+@pytest.mark.asyncio
+async def test_streaming_model_events(streaming_model, alist):
     """Test streaming model events."""
     messages = [{"role": "user", "content": [{"text": "Hello"}]}]
 
     # Call converse and collect events
-    events = list(streaming_model.converse(messages))
+    events = await alist(streaming_model.converse(messages))
 
     # Verify basic structure of events
     assert any("messageStart" in event for event in events)
@@ -64,12 +65,13 @@ def test_streaming_model_events(streaming_model):
     assert any("messageStop" in event for event in events)
 
 
-def test_non_streaming_model_events(non_streaming_model):
+@pytest.mark.asyncio
+async def test_non_streaming_model_events(non_streaming_model, alist):
     """Test non-streaming model events."""
     messages = [{"role": "user", "content": [{"text": "Hello"}]}]
 
     # Call converse and collect events
-    events = list(non_streaming_model.converse(messages))
+    events = await alist(non_streaming_model.converse(messages))
 
     # Verify basic structure of events
     assert any("messageStart" in event for event in events)

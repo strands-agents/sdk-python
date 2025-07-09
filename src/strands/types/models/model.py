@@ -2,7 +2,7 @@
 
 import abc
 import logging
-from typing import Any, Generator, Iterable, Optional, Type, TypeVar, Union
+from typing import Any, AsyncGenerator, AsyncIterable, Optional, Type, TypeVar, Union
 
 from pydantic import BaseModel
 
@@ -46,7 +46,7 @@ class Model(abc.ABC):
     # pragma: no cover
     def structured_output(
         self, output_model: Type[T], prompt: Messages
-    ) -> Generator[dict[str, Union[T, Any]], None, None]:
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:
@@ -93,7 +93,7 @@ class Model(abc.ABC):
 
     @abc.abstractmethod
     # pragma: no cover
-    def stream(self, request: Any) -> Iterable[Any]:
+    def stream(self, request: Any) -> AsyncGenerator[Any, None]:
         """Send the request to the model and get a streaming response.
 
         Args:
@@ -107,9 +107,9 @@ class Model(abc.ABC):
         """
         pass
 
-    def converse(
+    async def converse(
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
-    ) -> Iterable[StreamEvent]:
+    ) -> AsyncIterable[StreamEvent]:
         """Converse with the model.
 
         This method handles the full lifecycle of conversing with the model:
@@ -136,7 +136,7 @@ class Model(abc.ABC):
         response = self.stream(request)
 
         logger.debug("got response from model")
-        for event in response:
+        async for event in response:
             yield self.format_chunk(event)
 
         logger.debug("finished streaming response from model")

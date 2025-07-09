@@ -149,10 +149,10 @@ features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "a2a"]
 
 [tool.hatch.envs.a2a.scripts]
 run = [
-    "pytest{env:HATCH_TEST_ARGS:} tests/multiagent/a2a {args}"
+    "pytest{env:HATCH_TEST_ARGS:} tests/strands/multiagent/a2a {args}"
 ]
 run-cov = [
-    "pytest{env:HATCH_TEST_ARGS:} tests/multiagent/a2a --cov --cov-config=pyproject.toml {args}"
+    "pytest{env:HATCH_TEST_ARGS:} tests/strands/multiagent/a2a --cov --cov-config=pyproject.toml {args}"
 ]
 lint-check = [
     "ruff check",
@@ -165,11 +165,11 @@ python = ["3.13", "3.12", "3.11", "3.10"]
 [tool.hatch.envs.hatch-test.scripts]
 run = [
     # excluding due to A2A and OTEL http exporter dependency conflict
-    "pytest{env:HATCH_TEST_ARGS:} {args} --ignore=tests/multiagent/a2a"
+    "pytest{env:HATCH_TEST_ARGS:} {args} --ignore=tests/strands/multiagent/a2a"
 ]
 run-cov = [
     # excluding due to A2A and OTEL http exporter dependency conflict
-    "pytest{env:HATCH_TEST_ARGS:} --cov --cov-config=pyproject.toml {args} --ignore=tests/multiagent/a2a"
+    "pytest{env:HATCH_TEST_ARGS:} --cov --cov-config=pyproject.toml {args} --ignore=tests/strands/multiagent/a2a"
 ]
 
 cov-combine = []

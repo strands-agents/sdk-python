@@ -1,100 +1,17 @@
 """Tool loading utilities."""
 
 import importlib
-import inspect
 import logging
 import os
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, cast
+from typing import cast
 
 from ..types.tools import AgentTool
 from .decorator import DecoratedFunctionTool
 from .tools import PythonAgentTool
 
 logger = logging.getLogger(__name__)
-
-
-def load_function_tool(func: Any) -> Optional[DecoratedFunctionTool]:
-    """Load a function as a tool if it's decorated with @tool.
-
-    Args:
-        func: The function to load.
-
-    Returns:
-        FunctionTool if successful, None otherwise.
-    """
-    logger.warning(
-        "issue=<%s> | load_function_tool will be removed in a future version",
-        "https://github.com/strands-agents/sdk-python/pull/258",
-    )
-
-    if isinstance(func, DecoratedFunctionTool):
-        return func
-    else:
-        return None
-
-
-def scan_module_for_tools(module: Any) -> List[DecoratedFunctionTool]:
-    """Scan a module for function-based tools.
-
-    Args:
-        module: The module to scan.
-
-    Returns:
-        List of FunctionTool instances found in the module.
-    """
-    tools = []
-
-    for name, obj in inspect.getmembers(module):
-        if isinstance(obj, DecoratedFunctionTool):
-            # Create a function tool with correct name
-            try:
-                tools.append(obj)
-            except Exception as e:
-                logger.warning("tool_name=<%s> | failed to create function tool | %s", name, e)
-
-    return tools
-
-
-def scan_directory_for_tools(directory: Path) -> Dict[str, DecoratedFunctionTool]:
-    """Scan a directory for Python modules containing function-based tools.
-
-    Args:
-        directory: The directory to scan.
-
-    Returns:
-        Dictionary mapping tool names to FunctionTool instances.
-    """
-    tools: Dict[str, DecoratedFunctionTool] = {}
-
-    if not directory.exists() or not directory.is_dir():
-        return tools
-
-    for file_path in directory.glob("*.py"):
-        if file_path.name.startswith("_"):
-            continue
-
-        try:
-            # Dynamically import the module
-            module_name = file_path.stem
-            spec = importlib.util.spec_from_file_location(module_name, file_path)
-            if not spec or not spec.loader:
-                continue
-
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-
-            # Find tools in the module
-            for attr_name in dir(module):
-                attr = getattr(module, attr_name)
-                if isinstance(attr, DecoratedFunctionTool):
-                    tools[attr.tool_name] = attr
-
-        except Exception as e:
-            logger.warning("tool_path=<%s> | failed to load tools under path | %s", file_path, e)
-
-    return tools
 
 
 class ToolLoader:
@@ -191,7 +108,7 @@ class ToolLoader:
             if not callable(tool_func):
                 raise TypeError(f"Tool {tool_name} function is not callable")
 
-            return PythonAgentTool(tool_name, tool_spec, callback=tool_func)
+            return PythonAgentTool(tool_name, tool_spec, tool_func)
 
         except Exception:
             logger.exception("tool_name=<%s>, sys_path=<%s> | failed to load python tool", tool_name, sys.path)

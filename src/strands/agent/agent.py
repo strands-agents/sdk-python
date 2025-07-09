@@ -9,24 +9,24 @@ The Agent interface supports two complementary interaction patterns:
 2. Method-style for direct tool access: `agent.tool.tool_name(param1="value")`
 """
 
+import asyncio
 import json
 import logging
 import os
 import random
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, AsyncIterator, Callable, Generator, List, Mapping, Optional, Type, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Optional, Type, TypeVar, Union, cast
 
 from opentelemetry import trace
 from pydantic import BaseModel
 
-from ..event_loop.event_loop import event_loop_cycle
+from ..event_loop.event_loop import event_loop_cycle, run_tool
+from ..experimental.hooks import AgentInitializedEvent, EndRequestEvent, HookRegistry, StartRequestEvent
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
-from ..handlers.tool_handler import AgentToolHandler
 from ..models.bedrock import BedrockModel
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer
 from ..tools.registry import ToolRegistry
-from ..tools.thread_pool_executor import ThreadPoolExecutorWrapper
 from ..tools.watcher import ToolWatcher
 from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
@@ -38,6 +38,7 @@ from .conversation_manager import (
     ConversationManager,
     SlidingWindowConversationManager,
 )
+from .state import AgentState
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,7 @@ class _DefaultCallbackHandlerSentinel:
 
 
 _DEFAULT_CALLBACK_HANDLER = _DefaultCallbackHandlerSentinel()
+_DEFAULT_AGENT_NAME = "Strands Agents"
 
 
 class Agent:
@@ -127,15 +129,13 @@ class Agent:
                 }
 
                 # Execute the tool
-                tool_result = self._agent.tool_handler.process(
-                    tool=tool_use,
-                    model=self._agent.model,
-                    system_prompt=self._agent.system_prompt,
-                    messages=self._agent.messages,
-                    tool_config=self._agent.tool_config,
-                    callback_handler=self._agent.callback_handler,
-                    kwargs=kwargs,
-                )
+                events = run_tool(self._agent, tool_use, kwargs)
+
+                try:
+                    while True:
+                        next(events)
+                except StopIteration as stop:
+                    tool_result = cast(ToolResult, stop.value)
 
                 if record_direct_tool_call is not None:
                     should_record_direct_tool_call = record_direct_tool_call
@@ -193,6 +193,7 @@ class Agent:
         *,
         name: Optional[str] = None,
         description: Optional[str] = None,
+        state: Optional[Union[AgentState, dict]] = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -229,6 +230,8 @@ class Agent:
                 Defaults to None.
             description: description of what the Agent does
                 Defaults to None.
+            state: stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
+                Defaults to an empty AgentState object.
 
         Raises:
             ValueError: If max_parallel_tools is less than 1.
@@ -265,7 +268,6 @@ class Agent:
         self.thread_pool_wrapper = None
         if max_parallel_tools > 1:
             self.thread_pool = ThreadPoolExecutor(max_workers=max_parallel_tools)
-            self.thread_pool_wrapper = ThreadPoolExecutorWrapper(self.thread_pool)
         elif max_parallel_tools < 1:
             raise ValueError("max_parallel_tools must be greater than 0")
 
@@ -273,7 +275,6 @@ class Agent:
         self.load_tools_from_directory = load_tools_from_directory
 
         self.tool_registry = ToolRegistry()
-        self.tool_handler = AgentToolHandler(tool_registry=self.tool_registry)
 
         # Process tool list if provided
         if tools is not None:
@@ -289,9 +290,25 @@ class Agent:
         # Initialize tracer instance (no-op if not configured)
         self.tracer = get_tracer()
         self.trace_span: Optional[trace.Span] = None
+
+        # Initialize agent state management
+        if state is not None:
+            if isinstance(state, dict):
+                self.state = AgentState(state)
+            elif isinstance(state, AgentState):
+                self.state = state
+            else:
+                raise ValueError("state must be an AgentState object or a dict")
+        else:
+            self.state = AgentState()
+
         self.tool_caller = Agent.ToolCaller(self)
-        self.name = name
+        self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
+
+        self._hooks = HookRegistry()
+        # Register built-in hook providers (like ConversationManager) here
+        self._hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
 
     @property
     def tool(self) -> ToolCaller:
@@ -332,8 +349,8 @@ class Agent:
 
         Ensures proper shutdown of the thread pool executor if one exists.
         """
-        if self.thread_pool_wrapper and hasattr(self.thread_pool_wrapper, "shutdown"):
-            self.thread_pool_wrapper.shutdown(wait=False)
+        if self.thread_pool:
+            self.thread_pool.shutdown(wait=False)
             logger.debug("thread pool executor shutdown complete")
 
     def __call__(self, prompt: str, **kwargs: Any) -> AgentResult:
@@ -354,33 +371,43 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
-        callback_handler = kwargs.get("callback_handler", self.callback_handler)
 
-        self._start_agent_trace_span(prompt)
+        def execute() -> AgentResult:
+            return asyncio.run(self.invoke_async(prompt, **kwargs))
 
-        try:
-            events = self._run_loop(callback_handler, prompt, kwargs)
-            for event in events:
-                if "callback" in event:
-                    callback_handler(**event["callback"])
+        with ThreadPoolExecutor() as executor:
+            future = executor.submit(execute)
+            return future.result()
 
-            stop_reason, message, metrics, state = event["stop"]
-            result = AgentResult(stop_reason, message, metrics, state)
+    async def invoke_async(self, prompt: str, **kwargs: Any) -> AgentResult:
+        """Process a natural language prompt through the agent's event loop.
 
-            self._end_agent_trace_span(response=result)
+        This method implements the conversational interface (e.g., `agent("hello!")`). It adds the user's prompt to
+        the conversation history, processes it through the model, executes any tool calls, and returns the final result.
 
-            return result
+        Args:
+            prompt: The natural language prompt from the user.
+            **kwargs: Additional parameters to pass through the event loop.
 
-        except Exception as e:
-            self._end_agent_trace_span(error=e)
-            raise
+        Returns:
+            Result object containing:
+
+                - stop_reason: Why the event loop stopped (e.g., "end_turn", "max_tokens")
+                - message: The final message from the model
+                - metrics: Performance metrics from the event loop
+                - state: The final state of the event loop
+        """
+        events = self.stream_async(prompt, **kwargs)
+        async for event in events:
+            _ = event
+
+        return cast(AgentResult, event["result"])
 
     def structured_output(self, output_model: Type[T], prompt: Optional[str] = None) -> T:
         """This method allows you to get structured output from the agent.
 
         If you pass in a prompt, it will be added to the conversation history and the agent will respond to it.
         If you don't pass in a prompt, it will use only the conversation history to respond.
-        If no conversation history exists and no prompt is provided, an error will be raised.
 
         For smaller models, you may want to use the optional prompt string to add additional instructions to explicitly
         instruct the model to output the structured data.
@@ -389,22 +416,54 @@ class Agent:
             output_model: The output model (a JSON schema written as a Pydantic BaseModel)
                 that the agent will use when responding.
             prompt: The prompt to use for the agent.
+
+        Raises:
+            ValueError: If no conversation history or prompt is provided.
         """
-        messages = self.messages
-        if not messages and not prompt:
-            raise ValueError("No conversation history or prompt provided")
 
-        # add the prompt as the last message
-        if prompt:
-            messages.append({"role": "user", "content": [{"text": prompt}]})
+        def execute() -> T:
+            return asyncio.run(self.structured_output_async(output_model, prompt))
 
-        # get the structured output from the model
-        events = self.model.structured_output(output_model, messages)
-        for event in events:
-            if "callback" in event:
-                self.callback_handler(**cast(dict, event["callback"]))
+        with ThreadPoolExecutor() as executor:
+            future = executor.submit(execute)
+            return future.result()
 
-        return event["output"]
+    async def structured_output_async(self, output_model: Type[T], prompt: Optional[str] = None) -> T:
+        """This method allows you to get structured output from the agent.
+
+        If you pass in a prompt, it will be added to the conversation history and the agent will respond to it.
+        If you don't pass in a prompt, it will use only the conversation history to respond.
+
+        For smaller models, you may want to use the optional prompt string to add additional instructions to explicitly
+        instruct the model to output the structured data.
+
+        Args:
+            output_model: The output model (a JSON schema written as a Pydantic BaseModel)
+                that the agent will use when responding.
+            prompt: The prompt to use for the agent.
+
+        Raises:
+            ValueError: If no conversation history or prompt is provided.
+        """
+        self._hooks.invoke_callbacks(StartRequestEvent(agent=self))
+
+        try:
+            if not self.messages and not prompt:
+                raise ValueError("No conversation history or prompt provided")
+
+            # add the prompt as the last message
+            if prompt:
+                self.messages.append({"role": "user", "content": [{"text": prompt}]})
+
+            events = self.model.structured_output(output_model, self.messages)
+            async for event in events:
+                if "callback" in event:
+                    self.callback_handler(**cast(dict, event["callback"]))
+
+            return event["output"]
+
+        finally:
+            self._hooks.invoke_callbacks(EndRequestEvent(agent=self))
 
     async def stream_async(self, prompt: str, **kwargs: Any) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
@@ -441,14 +500,15 @@ class Agent:
         self._start_agent_trace_span(prompt)
 
         try:
-            events = self._run_loop(callback_handler, prompt, kwargs)
-            for event in events:
+            events = self._run_loop(prompt, kwargs)
+            async for event in events:
                 if "callback" in event:
                     callback_handler(**event["callback"])
                     yield event["callback"]
 
-            stop_reason, message, metrics, state = event["stop"]
-            result = AgentResult(stop_reason, message, metrics, state)
+            result = AgentResult(*event["stop"])
+            callback_handler(result=result)
+            yield {"result": result}
 
             self._end_agent_trace_span(response=result)
 
@@ -456,10 +516,10 @@ class Agent:
             self._end_agent_trace_span(error=e)
             raise
 
-    def _run_loop(
-        self, callback_handler: Callable[..., Any], prompt: str, kwargs: dict[str, Any]
-    ) -> Generator[dict[str, Any], None, None]:
+    async def _run_loop(self, prompt: str, kwargs: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the agent's event loop with the given prompt and parameters."""
+        self._hooks.invoke_callbacks(StartRequestEvent(agent=self))
+
         try:
             # Extract key parameters
             yield {"callback": {"init_event_loop": True, **kwargs}}
@@ -470,14 +530,15 @@ class Agent:
             self.messages.append(new_message)
 
             # Execute the event loop cycle with retry logic for context limits
-            yield from self._execute_event_loop_cycle(callback_handler, kwargs)
+            events = self._execute_event_loop_cycle(kwargs)
+            async for event in events:
+                yield event
 
         finally:
             self.conversation_manager.apply_management(self)
+            self._hooks.invoke_callbacks(EndRequestEvent(agent=self))
 
-    def _execute_event_loop_cycle(
-        self, callback_handler: Callable[..., Any], kwargs: dict[str, Any]
-    ) -> Generator[dict[str, Any], None, None]:
+    async def _execute_event_loop_cycle(self, kwargs: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the event loop cycle with retry logic for context window limits.
 
         This internal method handles the execution of the event loop cycle and implements
@@ -492,23 +553,19 @@ class Agent:
 
         try:
             # Execute the main event loop cycle
-            yield from event_loop_cycle(
-                model=self.model,
-                system_prompt=self.system_prompt,
-                messages=self.messages,  # will be modified by event_loop_cycle
-                tool_config=self.tool_config,
-                callback_handler=callback_handler,
-                tool_handler=self.tool_handler,
-                tool_execution_handler=self.thread_pool_wrapper,
-                event_loop_metrics=self.event_loop_metrics,
-                event_loop_parent_span=self.trace_span,
+            events = event_loop_cycle(
+                agent=self,
                 kwargs=kwargs,
             )
+            async for event in events:
+                yield event
 
         except ContextWindowOverflowException as e:
             # Try reducing the context size and retrying
             self.conversation_manager.reduce_context(self, e=e)
-            yield from self._execute_event_loop_cycle(callback_handler, kwargs)
+            events = self._execute_event_loop_cycle(kwargs)
+            async for event in events:
+                yield event
 
     def _record_tool_execution(
         self,
@@ -533,7 +590,7 @@ class Agent:
             messages: The message history to append to.
         """
         # Create user message describing the tool call
-        user_msg_content: List[ContentBlock] = [
+        user_msg_content: list[ContentBlock] = [
             {"text": (f"agent.tool.{tool['name']} direct tool call.\nInput parameters: {json.dumps(tool['input'])}\n")}
         ]
 
@@ -575,6 +632,7 @@ class Agent:
 
         self.trace_span = self.tracer.start_agent_span(
             prompt=prompt,
+            agent_name=self.name,
             model_id=model_id,
             tools=self.tool_names,
             system_prompt=self.system_prompt,

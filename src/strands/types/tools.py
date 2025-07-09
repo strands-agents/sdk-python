@@ -6,15 +6,11 @@ These types are modeled after the Bedrock API.
 """
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
+from typing import Any, Callable, Generator, Literal, Protocol, Union
 
 from typing_extensions import TypedDict
 
 from .media import DocumentContent, ImageContent
-
-if TYPE_CHECKING:
-    from .content import Messages
-    from .models import Model
 
 JSONSchema = dict
 """Type alias for JSON Schema dictionaries."""
@@ -90,7 +86,7 @@ class ToolResult(TypedDict):
         toolUseId: The unique identifier of the tool use request that produced this result.
     """
 
-    content: List[ToolResultContent]
+    content: list[ToolResultContent]
     status: ToolResultStatus
     toolUseId: str
 
@@ -122,9 +118,9 @@ class ToolChoiceTool(TypedDict):
 
 
 ToolChoice = Union[
-    Dict[Literal["auto"], ToolChoiceAuto],
-    Dict[Literal["any"], ToolChoiceAny],
-    Dict[Literal["tool"], ToolChoiceTool],
+    dict[Literal["auto"], ToolChoiceAuto],
+    dict[Literal["any"], ToolChoiceAny],
+    dict[Literal["tool"], ToolChoiceTool],
 ]
 """
 Configuration for how the model should choose tools.
@@ -133,6 +129,12 @@ Configuration for how the model should choose tools.
 - "any": The model must use at least one tool (any tool)
 - "tool": The model must use the specified tool
 """
+
+RunToolHandler = Callable[[ToolUse], Generator[dict[str, Any], None, ToolResult]]
+"""Callback that runs a single tool and streams back results."""
+
+ToolGenerator = Generator[dict[str, Any], None, ToolResult]
+"""Generator of tool events and a returned tool result."""
 
 
 class ToolConfig(TypedDict):
@@ -143,15 +145,34 @@ class ToolConfig(TypedDict):
         toolChoice: Configuration for how the model should choose tools.
     """
 
-    tools: List[Tool]
+    tools: list[Tool]
     toolChoice: ToolChoice
+
+
+class ToolFunc(Protocol):
+    """Function signature for Python decorated and module based tools."""
+
+    __name__: str
+
+    def __call__(
+        self, *args: Any, **kwargs: Any
+    ) -> Union[
+        ToolResult,
+        Generator[Union[ToolResult, Any], None, None],
+    ]:
+        """Function signature for Python decorated and module based tools.
+
+        Returns:
+            Tool result directly or a generator that yields events and returns a tool result.
+        """
+        ...
 
 
 class AgentTool(ABC):
     """Abstract base class for all SDK tools.
 
     This class defines the interface that all tool implementations must follow. Each tool must provide its name,
-    specification, and implement an invoke method that executes the tool's functionality.
+    specification, and implement a stream method that executes the tool's functionality.
     """
 
     _is_dynamic: bool
@@ -195,18 +216,21 @@ class AgentTool(ABC):
 
     @abstractmethod
     # pragma: no cover
-    def invoke(self, tool: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolResult:
-        """Execute the tool's functionality with the given tool use request.
+    def stream(self, tool_use: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolGenerator:
+        """Stream tool events and return the final result.
 
         Args:
-            tool: The tool use request containing tool ID and parameters.
+            tool_use: The tool use request containing tool ID and parameters.
             *args: Positional arguments to pass to the tool.
             **kwargs: Keyword arguments to pass to the tool.
+
+        Yield:
+            Tool events.
 
         Returns:
             The result of the tool execution.
         """
-        pass
+        ...
 
     @property
     def is_dynamic(self) -> bool:
@@ -235,35 +259,3 @@ class AgentTool(ABC):
             "Name": self.tool_name,
             "Type": self.tool_type,
         }
-
-
-class ToolHandler(ABC):
-    """Abstract base class for handling tool execution within the agent framework."""
-
-    @abstractmethod
-    def process(
-        self,
-        tool: ToolUse,
-        *,
-        model: "Model",
-        system_prompt: Optional[str],
-        messages: "Messages",
-        tool_config: ToolConfig,
-        callback_handler: Any,
-        kwargs: dict[str, Any],
-    ) -> ToolResult:
-        """Process a tool use request and execute the tool.
-
-        Args:
-            tool: The tool use request to process.
-            messages: The current conversation history.
-            model: The model being used for the conversation.
-            system_prompt: The system prompt for the conversation.
-            tool_config: The tool configuration for the current session.
-            callback_handler: Callback for processing events as they happen.
-            kwargs: Additional context-specific arguments.
-
-        Returns:
-            The result of the tool execution.
-        """
-        ...
