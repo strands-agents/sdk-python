@@ -264,7 +264,8 @@ def test_format_request_with_unsupported_type(model, content, content_type):
         model.format_request(messages)
 
 
-def test_stream(writer_client, model, model_id):
+@pytest.mark.asyncio
+async def test_stream(writer_client, model, model_id):
     mock_tool_call_1_part_1 = unittest.mock.Mock(index=0)
     mock_tool_call_2_part_1 = unittest.mock.Mock(index=1)
     mock_delta_1 = unittest.mock.Mock(
@@ -292,7 +293,7 @@ def test_stream(writer_client, model, model_id):
     }
     response = model.stream(request)
 
-    events = list(response)
+    events = [event async for event in response]
     exp_events = [
         {"chunk_type": "message_start"},
         {"chunk_type": "content_block_start", "data_type": "text"},
@@ -313,7 +314,8 @@ def test_stream(writer_client, model, model_id):
     writer_client.chat.chat(**request)
 
 
-def test_stream_empty(writer_client, model, model_id):
+@pytest.mark.asyncio
+async def test_stream_empty(writer_client, model, model_id):
     mock_delta = unittest.mock.Mock(content=None, tool_calls=None)
     mock_usage = unittest.mock.Mock(prompt_tokens=0, completion_tokens=0, total_tokens=0)
 
@@ -327,7 +329,7 @@ def test_stream_empty(writer_client, model, model_id):
     request = {"model": model_id, "messages": [{"role": "user", "content": []}]}
     response = model.stream(request)
 
-    events = list(response)
+    events = [event async for event in response]
     exp_events = [
         {"chunk_type": "message_start"},
         {"chunk_type": "content_block_start", "data_type": "text"},
@@ -340,7 +342,8 @@ def test_stream_empty(writer_client, model, model_id):
     writer_client.chat.chat.assert_called_once_with(**request)
 
 
-def test_stream_with_empty_choices(writer_client, model, model_id):
+@pytest.mark.asyncio
+async def test_stream_with_empty_choices(writer_client, model, model_id):
     mock_delta = unittest.mock.Mock(content="content", tool_calls=None)
     mock_usage = unittest.mock.Mock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
 
@@ -355,7 +358,7 @@ def test_stream_with_empty_choices(writer_client, model, model_id):
     request = {"model": model_id, "messages": [{"role": "user", "content": ["test"]}]}
     response = model.stream(request)
 
-    events = list(response)
+    events = [event async for event in response]
     exp_events = [
         {"chunk_type": "message_start"},
         {"chunk_type": "content_block_start", "data_type": "text"},

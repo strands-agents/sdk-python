@@ -7,7 +7,7 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Dict, Generator, Iterable, List, Optional, Type, TypedDict, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, Dict, List, Optional, Type, TypedDict, TypeVar, Union, cast
 
 import writerai
 from pydantic import BaseModel
@@ -349,7 +349,7 @@ class WriterModel(Model):
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
     @override
-    def stream(self, request: Any) -> Iterable[Any]:
+    async def stream(self, request: Any) -> AsyncGenerator[Any, None]:
         """Send the request to the model and get a streaming response.
 
         Args:
@@ -405,9 +405,9 @@ class WriterModel(Model):
         yield {"chunk_type": "metadata", "data": chunk.usage}
 
     @override
-    def structured_output(
+    async def structured_output(
         self, output_model: Type[T], prompt: Messages
-    ) -> Generator[dict[str, Union[T, Any]], None, None]:
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:
