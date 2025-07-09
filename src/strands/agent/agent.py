@@ -505,6 +505,7 @@ class Agent:
                 if "callback" in event:
                     callback_handler(**event["callback"])
                     yield event["callback"]
+                    await asyncio.sleep(0)  # Yield control
 
             result = AgentResult(*event["stop"])
             callback_handler(result=result)
