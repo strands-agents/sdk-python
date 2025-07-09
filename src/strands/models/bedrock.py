@@ -362,7 +362,7 @@ class BedrockModel(Model):
 
                 # Convert and yield from the response
                 for event in self._convert_non_streaming_to_streaming(response):
-                    yield self.format_chunk(event)
+                    yield event
 
                 # Check for guardrail triggers after yielding any events (same as streaming path)
                 if (
