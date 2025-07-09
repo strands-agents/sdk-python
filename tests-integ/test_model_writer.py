@@ -48,6 +48,28 @@ def test_agent(agent):
     assert all(string in text for string in ["12:00", "sunny"])
 
 
+@pytest.mark.asyncio
+@pytest.mark.skipif("WRITER_API_KEY" not in os.environ, reason="WRITER_API_KEY environment variable missing")
+async def test_agent_async(agent):
+    result = await agent.invoke_async("What is the time and weather in New York?")
+    text = result.message["content"][0]["text"].lower()
+
+    assert all(string in text for string in ["12:00", "sunny"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif("WRITER_API_KEY" not in os.environ, reason="WRITER_API_KEY environment variable missing")
+async def test_agent_stream_async(agent):
+    stream = agent.stream_async("What is the time and weather in New York?")
+    async for event in stream:
+        _ = event
+
+    result = event["result"]
+    text = result.message["content"][0]["text"].lower()
+
+    assert all(string in text for string in ["12:00", "sunny"])
+
+
 @pytest.mark.skipif("WRITER_API_KEY" not in os.environ, reason="WRITER_API_KEY environment variable missing")
 def test_structured_output(agent):
     class Weather(BaseModel):
@@ -55,6 +77,20 @@ def test_structured_output(agent):
         weather: str
 
     result = agent.structured_output(Weather, "The time is 12:00 and the weather is sunny")
+
+    assert isinstance(result, Weather)
+    assert result.time == "12:00"
+    assert result.weather == "sunny"
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif("WRITER_API_KEY" not in os.environ, reason="WRITER_API_KEY environment variable missing")
+async def test_structured_output_async(agent):
+    class Weather(BaseModel):
+        time: str
+        weather: str
+
+    result = await agent.structured_output_async(Weather, "The time is 12:00 and the weather is sunny")
 
     assert isinstance(result, Weather)
     assert result.time == "12:00"
