@@ -26,7 +26,7 @@ from ..tools.executor import run_tools, validate_and_prepare_tools
 from ..types.content import Message
 from ..types.exceptions import ContextWindowOverflowException, EventLoopException, ModelThrottledException
 from ..types.streaming import Metrics, StopReason
-from ..types.tools import ToolGenerator, ToolResult, ToolUse, ToolConfig
+from ..types.tools import ToolConfig, ToolGenerator, ToolResult, ToolUse
 from .message_processor import clean_orphaned_empty_tool_uses
 from .streaming import stream_messages
 

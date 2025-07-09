@@ -6,9 +6,9 @@ This module defines the events that are emitted as Agents run through the lifecy
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from ...types.content import Message, Messages
-from ...types.streaming import Metrics, StopReason
-from ...types.tools import AgentTool, ToolConfig, ToolResult, ToolUse, Tool
+from ...types.content import Message
+from ...types.streaming import StopReason
+from ...types.tools import AgentTool, Tool, ToolResult, ToolUse
 from .registry import HookEvent
 
 
@@ -139,7 +139,7 @@ class BeforeModelInvocationEvent(HookEvent):
     tool_configs: list[Tool]
 
     def _can_write(self, name: str) -> bool:
-        return name in ["tool_config"]
+        return name in ["tool_configs"]
 
 
 @dataclass

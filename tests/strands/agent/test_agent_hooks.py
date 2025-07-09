@@ -6,13 +6,13 @@ from pydantic import BaseModel
 import strands
 from strands import Agent
 from strands.experimental.hooks import (
+    AfterModelInvocationEvent,
     AfterToolInvocationEvent,
     AgentInitializedEvent,
+    BeforeModelInvocationEvent,
     BeforeToolInvocationEvent,
     EndRequestEvent,
     StartRequestEvent,
-    BeforeModelInvocationEvent,
-    AfterModelInvocationEvent,
 )
 from strands.types.content import Messages
 from tests.fixtures.mock_hook_provider import MockHookProvider

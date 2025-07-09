@@ -7,10 +7,18 @@ import pytest
 import strands
 import strands.telemetry
 from strands.event_loop.event_loop import run_tool
-from strands.experimental.hooks import AfterToolInvocationEvent, BeforeToolInvocationEvent, HookProvider, HookRegistry
+from strands.experimental.hooks import (
+    AfterModelInvocationEvent,
+    AfterToolInvocationEvent,
+    BeforeModelInvocationEvent,
+    BeforeToolInvocationEvent,
+    HookProvider,
+    HookRegistry,
+)
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.tools.registry import ToolRegistry
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException, ModelThrottledException
+from strands.types.tools import Tool
 from tests.fixtures.mock_hook_provider import MockHookProvider
 
 
@@ -110,7 +118,14 @@ def hook_registry():
 
 @pytest.fixture
 def hook_provider(hook_registry):
-    provider = MockHookProvider(event_types=[BeforeToolInvocationEvent, AfterToolInvocationEvent])
+    provider = MockHookProvider(
+        event_types=[
+            BeforeToolInvocationEvent,
+            AfterToolInvocationEvent,
+            BeforeModelInvocationEvent,
+            AfterModelInvocationEvent,
+        ]
+    )
     hook_registry.add_hook(provider)
     return provider
 
@@ -991,3 +1006,117 @@ def test_run_tool_hook_update_result_with_missing_tool(agent, generate, tool_reg
             "test",
         ),
     ]
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_before_model_hook_updates_tool_configs(
+    mock_time, agent, model, agenerator, alist, tool_config, hook_registry, hook_provider
+):
+    model.converse.side_effect = [
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "test text"}}},
+                {"contentBlockStop": {}},
+            ]
+        ),
+    ]
+
+    fake_tool: Tool = {"toolSpec": {"description": "testing tool"}}
+
+    def modify_hook(event: BeforeModelInvocationEvent):
+        # Modify result to change the output
+        event.tool_configs = [fake_tool]
+
+    hook_registry.add_callback(BeforeModelInvocationEvent, modify_hook)
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        kwargs={},
+    )
+    await alist(stream)
+
+    # Make sure converse had the updated tool_specs
+    assert model.converse.call_args_list == [
+        call(
+            [
+                {"role": "user", "content": [{"text": "Hello"}]},
+                {"role": "assistant", "content": [{"text": "test text"}]},
+            ],
+            [fake_tool["toolSpec"]],
+            "p1",
+        )
+    ]
+
+    count, events = hook_provider.get_events()
+
+    assert count == 2
+
+    assert next(events) == BeforeModelInvocationEvent(agent=agent, tool_configs=[fake_tool])
+    assert next(events) == AfterModelInvocationEvent(
+        agent=agent,
+        tool_configs=[fake_tool],
+        stop_data=AfterModelInvocationEvent.ModelStopResponse(
+            message={"content": [{"text": "test text"}], "role": "assistant"}, stop_reason="end_turn"
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_exception_model_hooks(
+    mock_time, agent, model, agenerator, alist, tool_config, hook_provider
+):
+    """Test that model hooks are correctly emitted even when throttled."""
+    # Set up the model to raise throttling exceptions multiple times before succeeding
+    exception = ModelThrottledException("ThrottlingException | ConverseStream")
+    model.converse.side_effect = [
+        exception,
+        exception,
+        exception,
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "test text"}}},
+                {"contentBlockStop": {}},
+            ]
+        ),
+    ]
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        kwargs={},
+    )
+    await alist(stream)
+
+    count, events = hook_provider.get_events()
+
+    assert count == 8
+
+    tool_configs = tool_config["tools"]
+
+    # 1st call - throttled
+    assert next(events) == BeforeModelInvocationEvent(agent=agent, tool_configs=tool_configs)
+    assert next(events) == AfterModelInvocationEvent(
+        agent=agent, tool_configs=tool_configs, stop_data=None, exception=exception
+    )
+
+    # 2nd call - throttled
+    assert next(events) == BeforeModelInvocationEvent(agent=agent, tool_configs=tool_configs)
+    assert next(events) == AfterModelInvocationEvent(
+        agent=agent, tool_configs=tool_configs, stop_data=None, exception=exception
+    )
+
+    # 3rd call - throttled
+    assert next(events) == BeforeModelInvocationEvent(agent=agent, tool_configs=tool_configs)
+    assert next(events) == AfterModelInvocationEvent(
+        agent=agent, tool_configs=tool_configs, stop_data=None, exception=exception
+    )
+
+    # 4th call - successful
+    assert next(events) == BeforeModelInvocationEvent(agent=agent, tool_configs=tool_configs)
+    assert next(events) == AfterModelInvocationEvent(
+        agent=agent,
+        tool_configs=tool_configs,
+        stop_data=AfterModelInvocationEvent.ModelStopResponse(
+            message={"content": [{"text": "test text"}], "role": "assistant"}, stop_reason="end_turn"
+        ),
+        exception=None,
+    )
