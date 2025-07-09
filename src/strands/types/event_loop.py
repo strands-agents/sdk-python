@@ -1,6 +1,6 @@
 """Event loop-related type definitions for the SDK."""
 
-from typing import Literal
+from typing import Literal, Optional
 
 from typing_extensions import TypedDict
 
@@ -19,8 +19,8 @@ class Usage(TypedDict, total=False):
     inputTokens: int
     outputTokens: int
     totalTokens: int
-    cacheReadInputTokens: int
-    cacheWriteInputTokens: int
+    cacheReadInputTokens: Optional[int]
+    cacheWriteInputTokens: Optional[int]
 
 
 class Metrics(TypedDict):
