@@ -342,6 +342,9 @@ class MistralModel(Model):
                             "inputTokens": usage.prompt_tokens,
                             "outputTokens": usage.completion_tokens,
                             "totalTokens": usage.total_tokens,
+                            # TODO does not seem to support caching as of July 2025
+                            "cacheWriteInputTokens": 0,
+                            "cacheReadInputTokens": 0,
                         },
                         "metrics": {
                             "latencyMs": event.get("latency_ms", 0),

@@ -272,6 +272,9 @@ class OllamaModel(Model):
                             "inputTokens": event["data"].eval_count,
                             "outputTokens": event["data"].prompt_eval_count,
                             "totalTokens": event["data"].eval_count + event["data"].prompt_eval_count,
+                            # TODO add cache metrics
+                            "cacheWriteInputTokens": 0,
+                            "cacheReadInputTokens": 0,
                         },
                         "metrics": {
                             "latencyMs": event["data"].total_duration / 1e6,

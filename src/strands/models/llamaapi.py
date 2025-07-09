@@ -310,6 +310,9 @@ class LlamaAPIModel(Model):
                     inputTokens=usage["inputTokens"],
                     outputTokens=usage["outputTokens"],
                     totalTokens=usage["totalTokens"],
+                    # TODO does not seem to support caching as of July 2025
+                    cacheWriteInputTokens=0,
+                    cacheReadInputTokens=0,
                 )
                 return {
                     "metadata": {
