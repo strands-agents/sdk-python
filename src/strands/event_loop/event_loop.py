@@ -256,7 +256,7 @@ async def recurse_event_loop(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGen
     recursive_trace.end()
 
 
-def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolGenerator:
+async def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolGenerator:
     """Process a tool invocation.
 
     Looks up the tool in the registry and streams it with the provided parameters.
@@ -267,10 +267,7 @@ def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolG
         kwargs: Additional keyword arguments passed to the tool.
 
     Yields:
-        Events of the tool stream.
-
-    Returns:
-        The final tool result or an error response if the tool fails or is not found.
+        Tool events with the last being the tool result.
     """
     logger.debug("tool_use=<%s> | streaming", tool_use)
     tool_name = tool_use["name"]
@@ -332,9 +329,14 @@ def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolG
                     result=result,
                 )
             )
-            return after_event.result
+            yield after_event.result
+            return
 
-        result = yield from selected_tool.stream(tool_use, **kwargs)
+        async for event in selected_tool.stream(tool_use, kwargs):
+            yield event
+
+        result = event
+
         after_event = get_registry(agent).invoke_callbacks(
             AfterToolInvocationEvent(
                 agent=agent,
@@ -344,7 +346,7 @@ def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolG
                 result=result,
             )
         )
-        return after_event.result
+        yield after_event.result
 
     except Exception as e:
         logger.exception("tool_name=<%s> | failed to process tool", tool_name)
@@ -363,7 +365,7 @@ def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolG
                 exception=e,
             )
         )
-        return after_event.result
+        yield after_event.result
 
 
 async def _handle_tool_execution(
@@ -417,9 +419,8 @@ async def _handle_tool_execution(
         tool_results=tool_results,
         cycle_trace=cycle_trace,
         parent_span=cycle_span,
-        thread_pool=agent.thread_pool,
     )
-    for tool_event in tool_events:
+    async for tool_event in tool_events:
         yield tool_event
 
     # Store parent cycle ID for the next cycle

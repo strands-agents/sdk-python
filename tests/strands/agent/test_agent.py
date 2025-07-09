@@ -197,19 +197,6 @@ def test_agent__init__tool_loader_dict(tool_module, tool_registry):
     assert tru_tool_names == exp_tool_names
 
 
-def test_agent__init__invalid_max_parallel_tools(tool_registry):
-    _ = tool_registry
-
-    with pytest.raises(ValueError):
-        Agent(max_parallel_tools=0)
-
-
-def test_agent__init__one_max_parallel_tools_succeeds(tool_registry):
-    _ = tool_registry
-
-    Agent(max_parallel_tools=1)
-
-
 def test_agent__init__with_default_model():
     agent = Agent()
 
@@ -772,6 +759,24 @@ def test_agent_tool(mock_randint, agent):
     conversation_manager_spy.apply_management.assert_called_with(agent)
 
 
+@pytest.mark.asyncio
+async def test_agent_tool_in_async_context(mock_randint, agent):
+    mock_randint.return_value = 123
+
+    tru_result = agent.tool.tool_decorated(random_string="abcdEfghI123")
+    exp_result = {
+        "content": [
+            {
+                "text": "abcdEfghI123",
+            },
+        ],
+        "status": "success",
+        "toolUseId": "tooluse_tool_decorated_123",
+    }
+
+    assert tru_result == exp_result
+
+
 def test_agent_tool_user_message_override(agent):
     agent.tool.tool_decorated(random_string="abcdEfghI123", user_message_override="test override")
 
@@ -838,8 +843,8 @@ def test_agent_init_with_no_model_or_model_id():
     assert agent.model.get_config().get("model_id") == DEFAULT_BEDROCK_MODEL_ID
 
 
-def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint, mock_run_tool):
-    mock_run_tool.return_value = iter([])
+def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint, mock_run_tool, agenerator):
+    mock_run_tool.return_value = agenerator([{}])
 
     @strands.tools.tool(name="system_prompter")
     def function(system_prompt: str) -> str:
@@ -862,8 +867,8 @@ def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint, mo
     )
 
 
-def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint, mock_run_tool):
-    mock_run_tool.return_value = iter([])
+def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint, mock_run_tool, agenerator):
+    mock_run_tool.return_value = agenerator([{}])
 
     tool_name = "system-prompter"
 

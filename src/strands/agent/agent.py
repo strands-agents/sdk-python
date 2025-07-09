@@ -12,7 +12,6 @@ The Agent interface supports two complementary interaction patterns:
 import asyncio
 import json
 import logging
-import os
 import random
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Optional, Type, TypeVar, Union, cast
@@ -128,14 +127,18 @@ class Agent:
                     "input": kwargs.copy(),
                 }
 
-                # Execute the tool
-                events = run_tool(self._agent, tool_use, kwargs)
+                async def acall() -> ToolResult:
+                    async for event in run_tool(self._agent, tool_use, kwargs):
+                        _ = event
 
-                try:
-                    while True:
-                        next(events)
-                except StopIteration as stop:
-                    tool_result = cast(ToolResult, stop.value)
+                    return cast(ToolResult, event)
+
+                def tcall() -> ToolResult:
+                    return asyncio.run(acall())
+
+                with ThreadPoolExecutor() as executor:
+                    future = executor.submit(tcall)
+                    tool_result = future.result()
 
                 if record_direct_tool_call is not None:
                     should_record_direct_tool_call = record_direct_tool_call
@@ -186,7 +189,6 @@ class Agent:
             Union[Callable[..., Any], _DefaultCallbackHandlerSentinel]
         ] = _DEFAULT_CALLBACK_HANDLER,
         conversation_manager: Optional[ConversationManager] = None,
-        max_parallel_tools: int = os.cpu_count() or 1,
         record_direct_tool_call: bool = True,
         load_tools_from_directory: bool = True,
         trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
@@ -219,8 +221,6 @@ class Agent:
                 If explicitly set to None, null_callback_handler is used.
             conversation_manager: Manager for conversation history and context window.
                 Defaults to strands.agent.conversation_manager.SlidingWindowConversationManager if None.
-            max_parallel_tools: Maximum number of tools to run in parallel when the model returns multiple tool calls.
-                Defaults to os.cpu_count() or 1.
             record_direct_tool_call: Whether to record direct tool calls in message history.
                 Defaults to True.
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.
@@ -232,9 +232,6 @@ class Agent:
                 Defaults to None.
             state: stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
                 Defaults to an empty AgentState object.
-
-        Raises:
-            ValueError: If max_parallel_tools is less than 1.
         """
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
@@ -262,14 +259,6 @@ class Agent:
                     isinstance(v, list) and all(isinstance(x, (str, int, float, bool)) for x in v)
                 ):
                     self.trace_attributes[k] = v
-
-        # If max_parallel_tools is 1, we execute tools sequentially
-        self.thread_pool = None
-        self.thread_pool_wrapper = None
-        if max_parallel_tools > 1:
-            self.thread_pool = ThreadPoolExecutor(max_workers=max_parallel_tools)
-        elif max_parallel_tools < 1:
-            raise ValueError("max_parallel_tools must be greater than 0")
 
         self.record_direct_tool_call = record_direct_tool_call
         self.load_tools_from_directory = load_tools_from_directory
@@ -343,15 +332,6 @@ class Agent:
             The complete tool configuration.
         """
         return self.tool_registry.initialize_tool_config()
-
-    def __del__(self) -> None:
-        """Clean up resources when Agent is garbage collected.
-
-        Ensures proper shutdown of the thread pool executor if one exists.
-        """
-        if self.thread_pool:
-            self.thread_pool.shutdown(wait=False)
-            logger.debug("thread pool executor shutdown complete")
 
     def __call__(self, prompt: str, **kwargs: Any) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.

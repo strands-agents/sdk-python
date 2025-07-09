@@ -4,14 +4,15 @@ This module provides the base classes for all tool implementations in the SDK, i
 Python module-based tools, as well as utilities for validating tool uses and normalizing tool schemas.
 """
 
+import asyncio
 import inspect
 import logging
 import re
-from typing import Any, cast
+from typing import Any
 
 from typing_extensions import override
 
-from ..types.tools import AgentTool, ToolFunc, ToolGenerator, ToolResult, ToolSpec, ToolUse
+from ..types.tools import AgentTool, ToolFunc, ToolGenerator, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -197,22 +198,19 @@ class PythonAgentTool(AgentTool):
         return "python"
 
     @override
-    def stream(self, tool_use: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolGenerator:
+    async def stream(self, tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolGenerator:
         """Stream the Python function with the given tool use request.
 
         Args:
             tool_use: The tool use request.
-            *args: Additional positional arguments to pass to the underlying tool function.
-            **kwargs: Additional keyword arguments to pass to the underlying tool function.
+            kwargs: Additional keyword arguments to pass to the underlying tool function.
 
         Yields:
-            Events of the tool stream.
-
-        Returns:
-            A standardized tool result dictionary with status and content.
+        Tool events with the last being the tool result.
         """
-        result = self._tool_func(tool_use, *args, **kwargs)
-        if inspect.isgenerator(result):
-            result = yield from result
+        if inspect.iscoroutinefunction(self._tool_func):
+            result = await self._tool_func(tool_use, **kwargs)
+        else:
+            result = await asyncio.to_thread(self._tool_func, tool_use, **kwargs)
 
-        return cast(ToolResult, result)
+        yield result
