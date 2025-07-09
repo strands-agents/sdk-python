@@ -46,10 +46,10 @@ class FunctionCall:
         arguments: Arguments to pass to the function
     """
 
-    name: str
-    arguments: Union[str, dict]
+    name: Union[str, dict[Any, Any]]
+    arguments: Union[str, dict[Any, Any]]
 
-    def __init__(self, **kwargs: dict):
+    def __init__(self, **kwargs: dict[str, str]):
         """Initialize function call.
 
         Args:
@@ -81,7 +81,7 @@ class ToolCall:
         """
         self.id = str(kwargs.get("id", ""))
         self.type = "function"
-        self.function = FunctionCall(**kwargs.get("function", {}))
+        self.function = FunctionCall(**kwargs.get("function", {"name": "", "arguments": ""}))
 
 
 class SageMakerAIModel(OpenAIModel):
@@ -238,7 +238,7 @@ class SageMakerAIModel(OpenAIModel):
             payload["tool_choice"] = "auto"
 
         # TODO: this should be a @override of @classmethod format_request_message
-        for message in payload["messages"]:
+        for message in payload["messages"]:  # type: ignore
             # Assistant message must have either content or tool_calls, but not both
             if message.get("role", "") == "assistant" and message.get("tool_calls", []) != []:
                 _ = message.pop("content")
@@ -272,7 +272,7 @@ class SageMakerAIModel(OpenAIModel):
 
         # Add additional args if provided
         if self.endpoint_config.get("additional_args"):
-            request.update(self.endpoint_config["additional_args"])
+            request.update(self.endpoint_config["additional_args"].__dict__)
 
         return request
 
@@ -343,6 +343,9 @@ class SageMakerAIModel(OpenAIModel):
                             finish_reason = choice["finish_reason"]
                             break
 
+                        if choice.get("usage", None):
+                            yield {"chunk_type": "metadata", "data": UsageMetadata(**choice["usage"])}
+
                     except json.JSONDecodeError:
                         # Continue accumulating content until we have valid JSON
                         continue
@@ -369,13 +372,6 @@ class SageMakerAIModel(OpenAIModel):
 
                 # Message close
                 yield {"chunk_type": "message_stop", "data": finish_reason}
-
-                # Return metadata
-                try:
-                    if choice.get("usage", None):
-                        yield {"chunk_type": "metadata", "data": UsageMetadata(**choice["usage"])}
-                except Exception:
-                    pass
 
             else:
                 # Not all SageMaker AI models support streaming!
@@ -420,7 +416,8 @@ class SageMakerAIModel(OpenAIModel):
                 # Message close
                 yield {"chunk_type": "message_stop", "data": message_stop_reason}
                 # Handle usage metadata
-                yield {"chunk_type": "metadata", "data": UsageMetadata(**final_response_json["usage"])}
+                if final_response_json.get("usage", None):
+                    yield {"chunk_type": "metadata", "data": UsageMetadata(**final_response_json.get("usage", None))}
         except (
             self.client.exceptions.InternalFailure,
             self.client.exceptions.ServiceUnavailable,
