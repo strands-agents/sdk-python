@@ -378,17 +378,23 @@ async def test_stream(llamaapi_client, model, agenerator, alist):
         return_value=agenerator([mock_event_1, mock_event_2])
     )
 
-    request = {"model": "m1"}
-    response = model.stream(request)
+    messages = [{"role": "user", "content": [{"text": "calculate 2+2"}]}]
+    response = model.stream(messages)
 
     tru_events = await alist(response)
     exp_events = [
-        {"chunk_type": "message_start"},
-        {"chunk_type": "content_start", "data_type": "text"},
-        {"chunk_type": "content_delta", "data_type": "text", "data": "test stream"},
-        {"chunk_type": "content_stop", "data_type": "text"},
-        {"chunk_type": "message_stop", "data": "end_turn"},
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "test stream"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
     ]
     assert tru_events == exp_events
 
-    llamaapi_client.chat.completions.create.assert_called_once_with(**request)
+    expected_request = {
+        "model": "Llama-4-Maverick-17B-128E-Instruct-FP8",
+        "messages": [{"role": "user", "content": [{"text": "calculate 2+2", "type": "text"}]}],
+        "stream": True,
+        "tools": [],
+    }
+    llamaapi_client.chat.completions.create.assert_called_once_with(**expected_request)
