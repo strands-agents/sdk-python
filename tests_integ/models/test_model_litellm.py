@@ -1,5 +1,5 @@
+import pydantic
 import pytest
-from pydantic import BaseModel
 
 import strands
 from strands import Agent
@@ -31,10 +31,15 @@ def agent(model, tools):
 
 @pytest.fixture
 def yellow_color():
-    class Color(BaseModel):
+    class Color(pydantic.BaseModel):
         """Describes a color."""
 
         name: str
+
+        @pydantic.field_validator("name", mode="after")
+        @classmethod
+        def lower(_, value):
+            return value.lower()
 
     return Color(name="yellow")
 
@@ -47,7 +52,7 @@ def test_agent(agent):
 
 
 def test_structured_output(model):
-    class Weather(BaseModel):
+    class Weather(pydantic.BaseModel):
         time: str
         weather: str
 

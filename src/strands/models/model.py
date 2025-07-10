@@ -1,4 +1,4 @@
-"""Model-related type definitions for the SDK."""
+"""Abstract base class for Agent model providers."""
 
 import abc
 import logging
@@ -6,9 +6,9 @@ from typing import Any, AsyncGenerator, AsyncIterable, Optional, Type, TypeVar, 
 
 from pydantic import BaseModel
 
-from ..content import Messages
-from ..streaming import StreamEvent
-from ..tools import ToolSpec
+from ..types.content import Messages
+from ..types.streaming import StreamEvent
+from ..types.tools import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class Model(abc.ABC):
-    """Abstract base class for AI model implementations.
+    """Abstract base class for Agent model providers.
 
     This class defines the interface for all model implementations in the Strands Agents SDK. It provides a
     standardized way to configure and process requests for different AI model providers.

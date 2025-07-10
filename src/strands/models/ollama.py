@@ -12,9 +12,9 @@ from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
 from ..types.content import ContentBlock, Messages
-from ..types.models import Model
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolSpec
+from .model import Model
 
 logger = logging.getLogger(__name__)
 
@@ -296,7 +296,7 @@ class OllamaModel(Model):
         """
         logger.debug("formatting request")
         request = self.format_request(messages, tool_specs, system_prompt)
-        logger.debug("formatted request=<%s>", request)
+        logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")
         tool_requested = False

@@ -1205,7 +1205,7 @@ async def test_stream_logging(bedrock_client, model, messages, caplog, alist):
     # Check that the expected log messages are present
     log_text = caplog.text
     assert "formatting request" in log_text
-    assert "formatted request=<" in log_text
+    assert "request=<" in log_text
     assert "invoking model" in log_text
     assert "got response from model" in log_text
     assert "finished streaming response from model" in log_text

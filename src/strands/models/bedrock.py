@@ -14,13 +14,13 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
-from ..event_loop.streaming import process_stream
+from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
-from ..types.models import Model
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolSpec
+from .model import Model
 
 logger = logging.getLogger(__name__)
 
@@ -335,7 +335,7 @@ class BedrockModel(Model):
         """
         logger.debug("formatting request")
         request = self.format_request(messages, tool_specs, system_prompt)
-        logger.debug("formatted request=<%s>", request)
+        logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")
         streaming = self.config.get("streaming", True)
@@ -542,7 +542,7 @@ class BedrockModel(Model):
         tool_spec = convert_pydantic_to_tool_spec(output_model)
 
         response = self.stream(messages=prompt, tool_specs=[tool_spec])
-        async for event in process_stream(response, prompt):
+        async for event in streaming.process_stream(response, prompt):
             yield event
 
         stop_reason, messages, _, _ = event["stop"]
