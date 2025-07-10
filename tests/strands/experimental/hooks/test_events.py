@@ -2,11 +2,12 @@ from unittest.mock import Mock
 
 import pytest
 
-from strands.experimental.hooks.events import (
+from strands.experimental.hooks import (
     AfterToolInvocationEvent,
     AgentInitializedEvent,
     BeforeToolInvocationEvent,
     EndRequestEvent,
+    MessageAddedEvent,
     StartRequestEvent,
 )
 from strands.types.tools import ToolResult, ToolUse
@@ -50,6 +51,11 @@ def start_request_event(agent):
 
 
 @pytest.fixture
+def messaged_added_event(agent):
+    return MessageAddedEvent(agent=agent, message=Mock())
+
+
+@pytest.fixture
 def end_request_event(agent):
     return EndRequestEvent(agent=agent)
 
@@ -78,6 +84,7 @@ def after_tool_event(agent, tool, tool_use, tool_kwargs, tool_result):
 def test_event_should_reverse_callbacks(
     initialized_event,
     start_request_event,
+    messaged_added_event,
     end_request_event,
     before_tool_event,
     after_tool_event,
@@ -86,11 +93,20 @@ def test_event_should_reverse_callbacks(
 
     assert initialized_event.should_reverse_callbacks == False  # noqa: E712
 
+    assert messaged_added_event.should_reverse_callbacks == False  # noqa: E712
+
     assert start_request_event.should_reverse_callbacks == False  # noqa: E712
     assert end_request_event.should_reverse_callbacks == True  # noqa: E712
 
     assert before_tool_event.should_reverse_callbacks == False  # noqa: E712
     assert after_tool_event.should_reverse_callbacks == True  # noqa: E712
+
+
+def test_message_added_event_cannot_write_properties(messaged_added_event):
+    with pytest.raises(AttributeError, match="Property agent is not writable"):
+        messaged_added_event.agent = Mock()
+    with pytest.raises(AttributeError, match="Property message is not writable"):
+        messaged_added_event.message = {}
 
 
 def test_before_tool_invocation_event_can_write_properties(before_tool_event):

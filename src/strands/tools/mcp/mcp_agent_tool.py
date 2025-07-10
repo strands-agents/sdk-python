@@ -5,6 +5,7 @@ MCP (Model Context Protocol) tools and the agent framework's tool interface.
 It allows MCP tools to be seamlessly integrated and used within the agent ecosystem.
 """
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -75,21 +76,21 @@ class MCPAgentTool(AgentTool):
         return "python"
 
     @override
-    def stream(self, tool_use: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolGenerator:
+    async def stream(self, tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolGenerator:
         """Stream the MCP tool.
 
         This method delegates the tool stream to the MCP server connection, passing the tool use ID, tool name, and
         input arguments.
 
         Yields:
-            No events.
-
-        Returns:
-            A standardized tool result dictionary with status and content.
+            Tool events with the last being the tool result.
         """
         logger.debug("tool_name=<%s>, tool_use_id=<%s> | streaming", self.tool_name, tool_use["toolUseId"])
 
-        return self.mcp_client.call_tool_sync(
-            tool_use_id=tool_use["toolUseId"], name=self.tool_name, arguments=tool_use["input"]
+        result = await asyncio.to_thread(
+            self.mcp_client.call_tool_sync,
+            tool_use_id=tool_use["toolUseId"],
+            name=self.tool_name,
+            arguments=tool_use["input"],
         )
-        yield  # type: ignore  # Need yield to create generator, but left unreachable as we have no events
+        yield result

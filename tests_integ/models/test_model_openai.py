@@ -12,7 +12,7 @@ from tests_integ.models import providers
 pytestmark = providers.openai.mark
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def model():
     return OpenAIModel(
         model_id="gpt-4o",
@@ -22,7 +22,7 @@ def model():
     )
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def tools():
     @strands.tool
     def tool_time() -> str:
@@ -35,12 +35,12 @@ def tools():
     return [tool_time, tool_weather]
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def agent(model, tools):
     return Agent(model=model, tools=tools)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def weather():
     class Weather(BaseModel):
         """Extracts the time and weather from the user's message with the exact strings."""
@@ -49,6 +49,16 @@ def weather():
         weather: str
 
     return Weather(time="12:00", weather="sunny")
+
+
+@pytest.fixture
+def yellow_color():
+    class Color(BaseModel):
+        """Describes a color."""
+
+        name: str
+
+    return Color(name="yellow")
 
 
 @pytest.fixture(scope="module")
@@ -96,7 +106,7 @@ async def test_agent_structured_output_async(agent, weather):
     assert tru_weather == exp_weather
 
 
-def test_multi_modal_input(agent, yellow_img):
+def test_invoke_multi_modal_input(agent, yellow_img):
     content = [
         {"text": "what is in this image"},
         {
@@ -112,6 +122,23 @@ def test_multi_modal_input(agent, yellow_img):
     text = result.message["content"][0]["text"].lower()
 
     assert "yellow" in text
+
+
+def test_structured_output_multi_modal_input(agent, yellow_img, yellow_color):
+    content = [
+        {"text": "Is this image red, blue, or yellow?"},
+        {
+            "image": {
+                "format": "png",
+                "source": {
+                    "bytes": yellow_img,
+                },
+            },
+        },
+    ]
+    tru_color = agent.structured_output(type(yellow_color), content)
+    exp_color = yellow_color
+    assert tru_color == exp_color
 
 
 @pytest.mark.skip("https://github.com/strands-agents/sdk-python/issues/320")

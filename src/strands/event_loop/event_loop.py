@@ -13,8 +13,14 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any, AsyncGenerator, cast
 
-from ..experimental.hooks import AfterToolInvocationEvent, BeforeToolInvocationEvent
-from ..experimental.hooks.registry import get_registry
+from ..experimental.hooks import (
+    AfterModelInvocationEvent,
+    AfterToolInvocationEvent,
+    BeforeModelInvocationEvent,
+    BeforeToolInvocationEvent,
+    MessageAddedEvent,
+    get_registry,
+)
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import get_tracer
 from ..tools.executor import run_tools, validate_and_prepare_tools
@@ -114,6 +120,12 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
 
         tool_specs = agent.tool_registry.get_all_tool_specs()
 
+        get_registry(agent).invoke_callbacks(
+            BeforeModelInvocationEvent(
+                agent=agent,
+            )
+        )
+
         try:
             # TODO: To maintain backwards compatibility, we need to combine the stream event with kwargs before yielding
             #       to the callback handler. This will be revisited when migrating to strongly typed events.
@@ -124,40 +136,50 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
             stop_reason, message, usage, metrics = event["stop"]
             kwargs.setdefault("request_state", {})
 
+            get_registry(agent).invoke_callbacks(
+                AfterModelInvocationEvent(
+                    agent=agent,
+                    stop_response=AfterModelInvocationEvent.ModelStopResponse(
+                        stop_reason=stop_reason,
+                        message=message,
+                    ),
+                )
+            )
+
             if model_invoke_span:
                 tracer.end_model_invoke_span(model_invoke_span, message, usage, stop_reason)
             break  # Success! Break out of retry loop
 
-        except ContextWindowOverflowException as e:
-            if model_invoke_span:
-                tracer.end_span_with_error(model_invoke_span, str(e), e)
-            raise e
-
-        except ModelThrottledException as e:
-            if model_invoke_span:
-                tracer.end_span_with_error(model_invoke_span, str(e), e)
-
-            if attempt + 1 == MAX_ATTEMPTS:
-                yield {"callback": {"force_stop": True, "force_stop_reason": str(e)}}
-                raise e
-
-            logger.debug(
-                "retry_delay_seconds=<%s>, max_attempts=<%s>, current_attempt=<%s> "
-                "| throttling exception encountered "
-                "| delaying before next retry",
-                current_delay,
-                MAX_ATTEMPTS,
-                attempt + 1,
-            )
-            time.sleep(current_delay)
-            current_delay = min(current_delay * 2, MAX_DELAY)
-
-            yield {"callback": {"event_loop_throttled_delay": current_delay, **kwargs}}
-
         except Exception as e:
             if model_invoke_span:
                 tracer.end_span_with_error(model_invoke_span, str(e), e)
-            raise e
+
+            get_registry(agent).invoke_callbacks(
+                AfterModelInvocationEvent(
+                    agent=agent,
+                    exception=e,
+                )
+            )
+
+            if isinstance(e, ModelThrottledException):
+                if attempt + 1 == MAX_ATTEMPTS:
+                    yield {"callback": {"force_stop": True, "force_stop_reason": str(e)}}
+                    raise e
+
+                logger.debug(
+                    "retry_delay_seconds=<%s>, max_attempts=<%s>, current_attempt=<%s> "
+                    "| throttling exception encountered "
+                    "| delaying before next retry",
+                    current_delay,
+                    MAX_ATTEMPTS,
+                    attempt + 1,
+                )
+                time.sleep(current_delay)
+                current_delay = min(current_delay * 2, MAX_DELAY)
+
+                yield {"callback": {"event_loop_throttled_delay": current_delay, **kwargs}}
+            else:
+                raise e
 
     try:
         # Add message in trace and mark the end of the stream messages trace
@@ -166,6 +188,7 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
 
         # Add the response message to the conversation
         agent.messages.append(message)
+        get_registry(agent).invoke_callbacks(MessageAddedEvent(agent=agent, message=message))
         yield {"callback": {"message": message}}
 
         # Update metrics
@@ -252,7 +275,7 @@ async def recurse_event_loop(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGen
     recursive_trace.end()
 
 
-def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolGenerator:
+async def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolGenerator:
     """Process a tool invocation.
 
     Looks up the tool in the registry and streams it with the provided parameters.
@@ -263,10 +286,7 @@ def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolG
         kwargs: Additional keyword arguments passed to the tool.
 
     Yields:
-        Events of the tool stream.
-
-    Returns:
-        The final tool result or an error response if the tool fails or is not found.
+        Tool events with the last being the tool result.
     """
     logger.debug("tool_use=<%s> | streaming", tool_use)
     tool_name = tool_use["name"]
@@ -331,9 +351,14 @@ def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolG
                     result=result,
                 )
             )
-            return after_event.result
+            yield after_event.result
+            return
 
-        result = yield from selected_tool.stream(tool_use, **kwargs)
+        async for event in selected_tool.stream(tool_use, kwargs):
+            yield event
+
+        result = event
+
         after_event = get_registry(agent).invoke_callbacks(
             AfterToolInvocationEvent(
                 agent=agent,
@@ -343,7 +368,7 @@ def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolG
                 result=result,
             )
         )
-        return after_event.result
+        yield after_event.result
 
     except Exception as e:
         logger.exception("tool_name=<%s> | failed to process tool", tool_name)
@@ -362,7 +387,7 @@ def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolG
                 exception=e,
             )
         )
-        return after_event.result
+        yield after_event.result
 
 
 async def _handle_tool_execution(
@@ -416,9 +441,8 @@ async def _handle_tool_execution(
         tool_results=tool_results,
         cycle_trace=cycle_trace,
         parent_span=cycle_span,
-        thread_pool=agent.thread_pool,
     )
-    for tool_event in tool_events:
+    async for tool_event in tool_events:
         yield tool_event
 
     # Store parent cycle ID for the next cycle
@@ -430,6 +454,7 @@ async def _handle_tool_execution(
     }
 
     agent.messages.append(tool_result_message)
+    get_registry(agent).invoke_callbacks(MessageAddedEvent(agent=agent, message=tool_result_message))
     yield {"callback": {"message": tool_result_message}}
 
     if cycle_span:
