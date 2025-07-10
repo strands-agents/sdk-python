@@ -10,7 +10,7 @@ from strands.types.exceptions import ModelThrottledException
 
 @pytest.fixture
 def mistral_client():
-    with unittest.mock.patch.object(strands.models.mistral, "Mistral") as mock_client_cls:
+    with unittest.mock.patch.object(strands.models.mistral.mistralai, "Mistral") as mock_client_cls:
         yield mock_client_cls.return_value
 
 
@@ -437,8 +437,45 @@ def test_format_chunk_unknown(model):
 
 
 @pytest.mark.asyncio
+async def test_stream(mistral_client, model, agenerator, alist):
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_event = unittest.mock.Mock(
+        data=unittest.mock.Mock(
+            choices=[
+                unittest.mock.Mock(
+                    delta=unittest.mock.Mock(content="test stream", tool_calls=None),
+                    finish_reason="end_turn",
+                )
+            ]
+        ),
+        usage=mock_usage,
+    )
+
+    mistral_client.chat.stream_async = unittest.mock.AsyncMock(return_value=agenerator([mock_event]))
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    response = model.stream(messages, None, None)
+
+    # Consume the response
+    await alist(response)
+
+    expected_request = {
+        "model": "mistral-large-latest",
+        "messages": [{"role": "user", "content": "test"}],
+        "max_tokens": 100,
+        "stream": True,
+    }
+
+    mistral_client.chat.stream_async.assert_called_once_with(**expected_request)
+
+
+@pytest.mark.asyncio
 async def test_stream_rate_limit_error(mistral_client, model, alist):
-    mistral_client.chat.stream.side_effect = Exception("rate limit exceeded (429)")
+    mistral_client.chat.stream_async.side_effect = Exception("rate limit exceeded (429)")
 
     messages = [{"role": "user", "content": [{"text": "test"}]}]
     with pytest.raises(ModelThrottledException, match="rate limit exceeded"):
@@ -447,7 +484,7 @@ async def test_stream_rate_limit_error(mistral_client, model, alist):
 
 @pytest.mark.asyncio
 async def test_stream_other_error(mistral_client, model, alist):
-    mistral_client.chat.stream.side_effect = Exception("some other error")
+    mistral_client.chat.stream_async.side_effect = Exception("some other error")
 
     messages = [{"role": "user", "content": [{"text": "test"}]}]
     with pytest.raises(Exception, match="some other error"):
@@ -463,7 +500,7 @@ async def test_structured_output_success(mistral_client, model, test_output_mode
     mock_response.choices[0].message.tool_calls = [unittest.mock.Mock()]
     mock_response.choices[0].message.tool_calls[0].function.arguments = '{"name": "John", "age": 30}'
 
-    mistral_client.chat.complete.return_value = mock_response
+    mistral_client.chat.complete_async = unittest.mock.AsyncMock(return_value=mock_response)
 
     stream = model.structured_output(test_output_model_cls, messages)
     events = await alist(stream)
@@ -479,7 +516,7 @@ async def test_structured_output_no_tool_calls(mistral_client, model, test_outpu
     mock_response.choices = [unittest.mock.Mock()]
     mock_response.choices[0].message.tool_calls = None
 
-    mistral_client.chat.complete.return_value = mock_response
+    mistral_client.chat.complete_async = unittest.mock.AsyncMock(return_value=mock_response)
 
     prompt = [{"role": "user", "content": [{"text": "Extract data"}]}]
 
@@ -495,7 +532,7 @@ async def test_structured_output_invalid_json(mistral_client, model, test_output
     mock_response.choices[0].message.tool_calls = [unittest.mock.Mock()]
     mock_response.choices[0].message.tool_calls[0].function.arguments = "invalid json"
 
-    mistral_client.chat.complete.return_value = mock_response
+    mistral_client.chat.complete_async = unittest.mock.AsyncMock(return_value=mock_response)
 
     prompt = [{"role": "user", "content": [{"text": "Extract data"}]}]
 

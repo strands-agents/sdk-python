@@ -19,7 +19,7 @@ from ..types.streaming import (
     StreamEvent,
     Usage,
 )
-from ..types.tools import ToolConfig, ToolUse
+from ..types.tools import ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -304,7 +304,7 @@ async def stream_messages(
     model: Model,
     system_prompt: Optional[str],
     messages: Messages,
-    tool_config: Optional[ToolConfig],
+    tool_specs: list[ToolSpec],
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Streams messages to the model and processes the response.
 
@@ -312,7 +312,7 @@ async def stream_messages(
         model: Model provider.
         system_prompt: The system prompt to send.
         messages: List of messages to send.
-        tool_config: Configuration for the tools to use.
+        tool_specs: The list of tool specs.
 
     Returns:
         The reason for stopping, the final message, and the usage metrics
@@ -320,8 +320,8 @@ async def stream_messages(
     logger.debug("model=<%s> | streaming messages", model)
 
     messages = remove_blank_messages_content_text(messages)
-    tool_specs = [tool["toolSpec"] for tool in tool_config.get("tools", [])] or None if tool_config else None
 
-    chunks = model.stream(messages, tool_specs, system_prompt)
+    chunks = model.stream(messages, tool_specs if tool_specs else None, system_prompt)
+
     async for event in process_stream(chunks, messages):
         yield event

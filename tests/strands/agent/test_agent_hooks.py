@@ -1,12 +1,17 @@
-import unittest.mock
-from unittest.mock import call
+from unittest.mock import ANY, Mock, call, patch
 
 import pytest
 from pydantic import BaseModel
 
 import strands
 from strands import Agent
-from strands.experimental.hooks import AgentInitializedEvent, EndRequestEvent, StartRequestEvent
+from strands.experimental.hooks import (
+    AfterToolInvocationEvent,
+    AgentInitializedEvent,
+    BeforeToolInvocationEvent,
+    EndRequestEvent,
+    StartRequestEvent,
+)
 from strands.types.content import Messages
 from tests.fixtures.mock_hook_provider import MockHookProvider
 from tests.fixtures.mocked_model_provider import MockedModelProvider
@@ -14,7 +19,9 @@ from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 @pytest.fixture
 def hook_provider():
-    return MockHookProvider([AgentInitializedEvent, StartRequestEvent, EndRequestEvent])
+    return MockHookProvider(
+        [AgentInitializedEvent, StartRequestEvent, EndRequestEvent, AfterToolInvocationEvent, BeforeToolInvocationEvent]
+    )
 
 
 @pytest.fixture
@@ -71,7 +78,7 @@ def user():
     return User(name="Jane Doe", age=30)
 
 
-@unittest.mock.patch("strands.experimental.hooks.registry.HookRegistry.invoke_callbacks")
+@patch("strands.experimental.hooks.registry.HookRegistry.invoke_callbacks")
 def test_agent__init__hooks(mock_invoke_callbacks):
     """Verify that the AgentInitializedEvent is emitted on Agent construction."""
     agent = Agent()
@@ -86,11 +93,21 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, tool_use):
 
     agent("test message")
 
-    events = hook_provider.get_events()
-    assert len(events) == 2
+    length, events = hook_provider.get_events()
 
-    assert events.popleft() == StartRequestEvent(agent=agent)
-    assert events.popleft() == EndRequestEvent(agent=agent)
+    assert length == 4
+    assert next(events) == StartRequestEvent(agent=agent)
+    assert next(events) == BeforeToolInvocationEvent(
+        agent=agent, selected_tool=agent_tool, tool_use=tool_use, kwargs=ANY
+    )
+    assert next(events) == AfterToolInvocationEvent(
+        agent=agent,
+        selected_tool=agent_tool,
+        tool_use=tool_use,
+        kwargs=ANY,
+        result={"content": [{"text": "!loot a dekovni I"}], "status": "success", "toolUseId": "123"},
+    )
+    assert next(events) == EndRequestEvent(agent=agent)
 
 
 @pytest.mark.asyncio
@@ -104,17 +121,28 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, tool_u
     async for _ in iterator:
         pass
 
-    events = hook_provider.get_events()
-    assert len(events) == 2
+    length, events = hook_provider.get_events()
 
-    assert events.popleft() == StartRequestEvent(agent=agent)
-    assert events.popleft() == EndRequestEvent(agent=agent)
+    assert length == 4
+
+    assert next(events) == StartRequestEvent(agent=agent)
+    assert next(events) == BeforeToolInvocationEvent(
+        agent=agent, selected_tool=agent_tool, tool_use=tool_use, kwargs=ANY
+    )
+    assert next(events) == AfterToolInvocationEvent(
+        agent=agent,
+        selected_tool=agent_tool,
+        tool_use=tool_use,
+        kwargs=ANY,
+        result={"content": [{"text": "!loot a dekovni I"}], "status": "success", "toolUseId": "123"},
+    )
+    assert next(events) == EndRequestEvent(agent=agent)
 
 
 def test_agent_structured_output_hooks(agent, hook_provider, user, agenerator):
     """Verify that the correct hook events are emitted as part of structured_output."""
 
-    agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": user}]))
+    agent.model.structured_output = Mock(return_value=agenerator([{"output": user}]))
     agent.structured_output(type(user), "example prompt")
 
     assert hook_provider.events_received == [StartRequestEvent(agent=agent), EndRequestEvent(agent=agent)]
@@ -124,7 +152,7 @@ def test_agent_structured_output_hooks(agent, hook_provider, user, agenerator):
 async def test_agent_structured_async_output_hooks(agent, hook_provider, user, agenerator):
     """Verify that the correct hook events are emitted as part of structured_output_async."""
 
-    agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": user}]))
+    agent.model.structured_output = Mock(return_value=agenerator([{"output": user}]))
     await agent.structured_output_async(type(user), "example prompt")
 
     assert hook_provider.events_received == [StartRequestEvent(agent=agent), EndRequestEvent(agent=agent)]

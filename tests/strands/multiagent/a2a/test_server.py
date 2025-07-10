@@ -44,6 +44,14 @@ def test_a2a_agent_initialization_with_custom_values(mock_strands_agent):
     assert a2a_agent.port == 8080
     assert a2a_agent.http_url == "http://127.0.0.1:8080/"
     assert a2a_agent.version == "1.0.0"
+    assert a2a_agent.capabilities.streaming is True
+
+
+def test_a2a_agent_initialization_with_streaming_always_enabled(mock_strands_agent):
+    """Test that A2AAgent always initializes with streaming enabled."""
+    a2a_agent = A2AServer(mock_strands_agent)
+
+    assert a2a_agent.capabilities.streaming is True
 
 
 def test_a2a_agent_initialization_with_custom_skills(mock_strands_agent):
@@ -469,6 +477,16 @@ def test_serve_with_custom_kwargs(mock_run, mock_strands_agent):
     _, kwargs = mock_run.call_args
     assert kwargs["log_level"] == "debug"
     assert kwargs["reload"] is True
+
+
+def test_executor_created_correctly(mock_strands_agent):
+    """Test that the executor is created correctly."""
+    from strands.multiagent.a2a.executor import StrandsA2AExecutor
+
+    a2a_agent = A2AServer(mock_strands_agent)
+
+    assert isinstance(a2a_agent.request_handler.agent_executor, StrandsA2AExecutor)
+    assert a2a_agent.request_handler.agent_executor.agent == mock_strands_agent
 
 
 @patch("uvicorn.run", side_effect=KeyboardInterrupt)
