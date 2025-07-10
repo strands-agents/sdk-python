@@ -10,12 +10,12 @@ from tests_integ.models import providers
 pytestmark = providers.ollama.mark
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def model():
     return OllamaModel(host="http://localhost:11434", model_id="llama3.3:70b")
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def tools():
     @strands.tool
     def tool_time() -> str:
@@ -28,12 +28,12 @@ def tools():
     return [tool_time, tool_weather]
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def agent(model, tools):
     return Agent(model=model, tools=tools)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def weather():
     class Weather(BaseModel):
         """Extracts the time and weather from the user's message with the exact strings."""

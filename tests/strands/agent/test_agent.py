@@ -959,6 +959,28 @@ def test_agent_structured_output(agent, user, agenerator):
     agent.model.structured_output.assert_called_once_with(type(user), [{"role": "user", "content": [{"text": prompt}]}])
 
 
+def test_agent_structured_output_multi_modal_input(agent, user, agenerator):
+    agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": user}]))
+
+    prompt = [
+        {"text": "Please describe the user in this image"},
+        {
+            "image": {
+                "format": "png",
+                "source": {
+                    "bytes": b"\x89PNG\r\n\x1a\n",
+                },
+            }
+        },
+    ]
+
+    tru_result = agent.structured_output(type(user), prompt)
+    exp_result = user
+    assert tru_result == exp_result
+
+    agent.model.structured_output.assert_called_once_with(type(user), [{"role": "user", "content": prompt}])
+
+
 @pytest.mark.asyncio
 async def test_agent_structured_output_in_async_context(agent, user, agenerator):
     agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": user}]))

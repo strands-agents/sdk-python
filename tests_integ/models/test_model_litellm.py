@@ -29,6 +29,16 @@ def agent(model, tools):
     return Agent(model=model, tools=tools)
 
 
+@pytest.fixture
+def yellow_color():
+    class Color(BaseModel):
+        """Describes a color."""
+
+        name: str
+
+    return Color(name="yellow")
+
+
 def test_agent(agent):
     result = agent("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
@@ -49,9 +59,9 @@ def test_structured_output(model):
     assert result.weather == "sunny"
 
 
-def test_multi_modal_input(agent, yellow_img):
+def test_invoke_multi_modal_input(agent, yellow_img):
     content = [
-        {"text": "what is in this image"},
+        {"text": "Is this image red, blue, or yellow?"},
         {
             "image": {
                 "format": "png",
@@ -65,3 +75,20 @@ def test_multi_modal_input(agent, yellow_img):
     text = result.message["content"][0]["text"].lower()
 
     assert "yellow" in text
+
+
+def test_structured_output_multi_modal_input(agent, yellow_img, yellow_color):
+    content = [
+        {"text": "what is in this image"},
+        {
+            "image": {
+                "format": "png",
+                "source": {
+                    "bytes": yellow_img,
+                },
+            },
+        },
+    ]
+    tru_color = agent.structured_output(type(yellow_color), content)
+    exp_color = yellow_color
+    assert tru_color == exp_color

@@ -37,6 +37,16 @@ def non_streaming_agent(non_streaming_model, system_prompt):
     return Agent(model=non_streaming_model, system_prompt=system_prompt, load_tools_from_directory=False)
 
 
+@pytest.fixture
+def yellow_color():
+    class Color(BaseModel):
+        """Describes a color."""
+
+        name: str
+
+    return Color(name="yellow")
+
+
 def test_streaming_agent(streaming_agent):
     """Test agent with streaming model."""
     result = streaming_agent("Hello!")
@@ -153,7 +163,7 @@ def test_structured_output_non_streaming(non_streaming_model):
     assert result.weather == "sunny"
 
 
-def test_multi_modal_input(streaming_agent, yellow_img):
+def test_invoke_multi_modal_input(streaming_agent, yellow_img):
     content = [
         {"text": "what is in this image"},
         {
@@ -169,3 +179,20 @@ def test_multi_modal_input(streaming_agent, yellow_img):
     text = result.message["content"][0]["text"].lower()
 
     assert "yellow" in text
+
+
+def test_structured_output_multi_modal_input(streaming_agent, yellow_img, yellow_color):
+    content = [
+        {"text": "Is this image red, blue, or yellow?"},
+        {
+            "image": {
+                "format": "png",
+                "source": {
+                    "bytes": yellow_img,
+                },
+            },
+        },
+    ]
+    tru_color = streaming_agent.structured_output(type(yellow_color), content)
+    exp_color = yellow_color
+    assert tru_color == exp_color

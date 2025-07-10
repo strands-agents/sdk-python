@@ -374,13 +374,13 @@ class Agent:
 
         return cast(AgentResult, event["result"])
 
-    def structured_output(self, output_model: Type[T], prompt: Optional[str] = None) -> T:
+    def structured_output(self, output_model: Type[T], prompt: Optional[Union[str, list[ContentBlock]]] = None) -> T:
         """This method allows you to get structured output from the agent.
 
         If you pass in a prompt, it will be added to the conversation history and the agent will respond to it.
         If you don't pass in a prompt, it will use only the conversation history to respond.
 
-        For smaller models, you may want to use the optional prompt string to add additional instructions to explicitly
+        For smaller models, you may want to use the optional prompt to add additional instructions to explicitly
         instruct the model to output the structured data.
 
         Args:
@@ -399,13 +399,15 @@ class Agent:
             future = executor.submit(execute)
             return future.result()
 
-    async def structured_output_async(self, output_model: Type[T], prompt: Optional[str] = None) -> T:
+    async def structured_output_async(
+        self, output_model: Type[T], prompt: Optional[Union[str, list[ContentBlock]]] = None
+    ) -> T:
         """This method allows you to get structured output from the agent.
 
         If you pass in a prompt, it will be added to the conversation history and the agent will respond to it.
         If you don't pass in a prompt, it will use only the conversation history to respond.
 
-        For smaller models, you may want to use the optional prompt string to add additional instructions to explicitly
+        For smaller models, you may want to use the optional prompt to add additional instructions to explicitly
         instruct the model to output the structured data.
 
         Args:
@@ -424,7 +426,8 @@ class Agent:
 
             # add the prompt as the last message
             if prompt:
-                self.messages.append({"role": "user", "content": [{"text": prompt}]})
+                content: list[ContentBlock] = [{"text": prompt}] if isinstance(prompt, str) else prompt
+                self.messages.append({"role": "user", "content": content})
 
             events = self.model.structured_output(output_model, self.messages)
             async for event in events:
