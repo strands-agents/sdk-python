@@ -14,6 +14,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, AsyncGenerator, cast
 
 from ..experimental.hooks import AfterToolInvocationEvent, BeforeToolInvocationEvent
+from ..experimental.hooks.events import MessageAddedEvent
 from ..experimental.hooks.registry import get_registry
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import get_tracer
@@ -166,6 +167,7 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
 
         # Add the response message to the conversation
         agent.messages.append(message)
+        get_registry(agent).invoke_callbacks(MessageAddedEvent(agent=agent, message=message))
         yield {"callback": {"message": message}}
 
         # Update metrics
@@ -431,6 +433,7 @@ async def _handle_tool_execution(
     }
 
     agent.messages.append(tool_result_message)
+    get_registry(agent).invoke_callbacks(MessageAddedEvent(agent=agent, message=tool_result_message))
     yield {"callback": {"message": tool_result_message}}
 
     if cycle_span:

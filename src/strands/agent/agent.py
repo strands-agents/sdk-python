@@ -20,7 +20,13 @@ from opentelemetry import trace
 from pydantic import BaseModel
 
 from ..event_loop.event_loop import event_loop_cycle, run_tool
-from ..experimental.hooks import AgentInitializedEvent, EndRequestEvent, HookRegistry, StartRequestEvent
+from ..experimental.hooks import (
+    AgentInitializedEvent,
+    EndRequestEvent,
+    HookRegistry,
+    MessageAddedEvent,
+    StartRequestEvent,
+)
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..models.bedrock import BedrockModel
 from ..telemetry.metrics import EventLoopMetrics
@@ -427,7 +433,7 @@ class Agent:
             # add the prompt as the last message
             if prompt:
                 content: list[ContentBlock] = [{"text": prompt}] if isinstance(prompt, str) else prompt
-                self.messages.append({"role": "user", "content": content})
+                self._append_message({"role": "user", "content": content})
 
             events = self.model.structured_output(output_model, self.messages)
             async for event in events:
@@ -508,7 +514,7 @@ class Agent:
         try:
             yield {"callback": {"init_event_loop": True, **kwargs}}
 
-            self.messages.append(message)
+            self._append_message(message)
 
             # Execute the event loop cycle with retry logic for context limits
             events = self._execute_event_loop_cycle(kwargs)
@@ -598,10 +604,10 @@ class Agent:
         }
 
         # Add to message history
-        messages.append(user_msg)
-        messages.append(tool_use_msg)
-        messages.append(tool_result_msg)
-        messages.append(assistant_msg)
+        self._append_message(user_msg)
+        self._append_message(tool_use_msg)
+        self._append_message(tool_result_msg)
+        self._append_message(assistant_msg)
 
     def _start_agent_trace_span(self, message: Message) -> None:
         """Starts a trace span for the agent.
@@ -643,3 +649,8 @@ class Agent:
                 trace_attributes["error"] = error
 
             self.tracer.end_agent_span(**trace_attributes)
+
+    def _append_message(self, message: Message) -> None:
+        """Appends a message to the agent's list of messages and invokes the callbacks for the MessageCreatedEvent."""
+        self.messages.append(message)
+        self._hooks.invoke_callbacks(MessageAddedEvent(agent=self, message=message))

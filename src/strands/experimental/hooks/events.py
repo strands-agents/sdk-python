@@ -6,6 +6,7 @@ This module defines the events that are emitted as Agents run through the lifecy
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from ...types.content import Message
 from ...types.tools import AgentTool, ToolResult, ToolUse
 from .registry import HookEvent
 
@@ -118,3 +119,22 @@ class AfterToolInvocationEvent(HookEvent):
     def should_reverse_callbacks(self) -> bool:
         """True to invoke callbacks in reverse order."""
         return True
+
+
+@dataclass
+class MessageAddedEvent(HookEvent):
+    """Event triggered when a message is added to the agent's conversation.
+
+    This event is fired whenever the agent adds a new message to its internal
+    message history, including user messages, assistant responses, and tool
+    results. Hook providers can use this event for logging, monitoring, or
+    implementing custom message processing logic.
+
+    Note: This event is only triggered for messages added by the framework
+    itself, not for messages manually added by tools or external code.
+
+    Attributes:
+        message: The message that was added to the conversation history.
+    """
+
+    message: Message

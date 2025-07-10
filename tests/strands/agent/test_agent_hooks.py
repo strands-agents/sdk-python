@@ -10,9 +10,12 @@ from strands.experimental.hooks import (
     AgentInitializedEvent,
     BeforeToolInvocationEvent,
     EndRequestEvent,
+    MessageAddedEvent,
     StartRequestEvent,
+    get_registry,
 )
 from strands.types.content import Messages
+from strands.types.tools import ToolResult, ToolUse
 from tests.fixtures.mock_hook_provider import MockHookProvider
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
@@ -20,7 +23,14 @@ from tests.fixtures.mocked_model_provider import MockedModelProvider
 @pytest.fixture
 def hook_provider():
     return MockHookProvider(
-        [AgentInitializedEvent, StartRequestEvent, EndRequestEvent, AfterToolInvocationEvent, BeforeToolInvocationEvent]
+        [
+            AgentInitializedEvent,
+            StartRequestEvent,
+            EndRequestEvent,
+            AfterToolInvocationEvent,
+            BeforeToolInvocationEvent,
+            MessageAddedEvent,
+        ]
     )
 
 
@@ -63,8 +73,13 @@ def agent(
         tools=[agent_tool],
     )
 
-    # for now, hooks are private
-    agent._hooks.add_hook(hook_provider)
+    hooks = get_registry(agent)
+    hooks.add_hook(hook_provider)
+
+    def assert_message_is_last_message_added(event: MessageAddedEvent):
+        assert event.agent.messages[-1] == event.message
+
+    hooks.add_callback(MessageAddedEvent, assert_message_is_last_message_added)
 
     return agent
 
@@ -88,6 +103,34 @@ def test_agent__init__hooks(mock_invoke_callbacks):
     assert mock_invoke_callbacks.call_args == call(AgentInitializedEvent(agent=agent))
 
 
+def test_agent_tool_call(agent, hook_provider, agent_tool):
+    agent.tool.tool_decorated(random_string="a string")
+
+    length, events = hook_provider.get_events()
+
+    tool_use: ToolUse = {"input": {"random_string": "a string"}, "name": "tool_decorated", "toolUseId": ANY}
+    result: ToolResult = {"content": [{"text": "gnirts a"}], "status": "success", "toolUseId": ANY}
+
+    assert length == 6
+
+    assert next(events) == BeforeToolInvocationEvent(
+        agent=agent, selected_tool=agent_tool, tool_use=tool_use, kwargs=ANY
+    )
+    assert next(events) == AfterToolInvocationEvent(
+        agent=agent,
+        selected_tool=agent_tool,
+        tool_use=tool_use,
+        kwargs=ANY,
+        result=result,
+    )
+    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[0])
+    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[1])
+    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[2])
+    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[3])
+
+    assert len(agent.messages) == 4
+
+
 def test_agent__call__hooks(agent, hook_provider, agent_tool, tool_use):
     """Verify that the correct hook events are emitted as part of __call__."""
 
@@ -95,8 +138,14 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, tool_use):
 
     length, events = hook_provider.get_events()
 
-    assert length == 4
+    assert length == 8
+
     assert next(events) == StartRequestEvent(agent=agent)
+    assert next(events) == MessageAddedEvent(
+        agent=agent,
+        message=agent.messages[0],
+    )
+    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[1])
     assert next(events) == BeforeToolInvocationEvent(
         agent=agent, selected_tool=agent_tool, tool_use=tool_use, kwargs=ANY
     )
@@ -107,7 +156,11 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, tool_use):
         kwargs=ANY,
         result={"content": [{"text": "!loot a dekovni I"}], "status": "success", "toolUseId": "123"},
     )
+    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[2])
+    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[3])
     assert next(events) == EndRequestEvent(agent=agent)
+
+    assert len(agent.messages) == 4
 
 
 @pytest.mark.asyncio
@@ -123,9 +176,14 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, tool_u
 
     length, events = hook_provider.get_events()
 
-    assert length == 4
+    assert length == 8
 
     assert next(events) == StartRequestEvent(agent=agent)
+    assert next(events) == MessageAddedEvent(
+        agent=agent,
+        message=agent.messages[0],
+    )
+    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[1])
     assert next(events) == BeforeToolInvocationEvent(
         agent=agent, selected_tool=agent_tool, tool_use=tool_use, kwargs=ANY
     )
@@ -136,7 +194,11 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, tool_u
         kwargs=ANY,
         result={"content": [{"text": "!loot a dekovni I"}], "status": "success", "toolUseId": "123"},
     )
+    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[2])
+    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[3])
     assert next(events) == EndRequestEvent(agent=agent)
+
+    assert len(agent.messages) == 4
 
 
 def test_agent_structured_output_hooks(agent, hook_provider, user, agenerator):
@@ -145,7 +207,15 @@ def test_agent_structured_output_hooks(agent, hook_provider, user, agenerator):
     agent.model.structured_output = Mock(return_value=agenerator([{"output": user}]))
     agent.structured_output(type(user), "example prompt")
 
-    assert hook_provider.events_received == [StartRequestEvent(agent=agent), EndRequestEvent(agent=agent)]
+    length, events = hook_provider.get_events()
+
+    assert length == 3
+
+    assert next(events) == StartRequestEvent(agent=agent)
+    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[0])
+    assert next(events) == EndRequestEvent(agent=agent)
+
+    assert len(agent.messages) == 1
 
 
 @pytest.mark.asyncio
@@ -155,4 +225,12 @@ async def test_agent_structured_async_output_hooks(agent, hook_provider, user, a
     agent.model.structured_output = Mock(return_value=agenerator([{"output": user}]))
     await agent.structured_output_async(type(user), "example prompt")
 
-    assert hook_provider.events_received == [StartRequestEvent(agent=agent), EndRequestEvent(agent=agent)]
+    length, events = hook_provider.get_events()
+
+    assert length == 3
+
+    assert next(events) == StartRequestEvent(agent=agent)
+    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[0])
+    assert next(events) == EndRequestEvent(agent=agent)
+
+    assert len(agent.messages) == 1

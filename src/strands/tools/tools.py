@@ -48,7 +48,7 @@ def validate_tool_use_name(tool: ToolUse) -> None:
         raise InvalidToolUseNameException(message)
 
     tool_name = tool["name"]
-    tool_name_pattern = r"^[a-zA-Z][a-zA-Z0-9_\-]*$"
+    tool_name_pattern = r"^[a-zA-Z0-9_\-]{1,}$"
     tool_name_max_length = 64
     valid_name_pattern = bool(re.match(tool_name_pattern, tool_name))
     tool_name_len = len(tool_name)

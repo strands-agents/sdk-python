@@ -59,6 +59,10 @@ def test_validate_tool_use_name_valid():
     # Should not raise an exception
     validate_tool_use_name(tool2)
 
+    tool3 = {"name": "34234_numbers", "toolUseId": "123"}
+    # Should not raise an exception
+    validate_tool_use_name(tool3)
+
 
 def test_validate_tool_use_name_missing():
     tool = {"toolUseId": "123"}
@@ -67,7 +71,7 @@ def test_validate_tool_use_name_missing():
 
 
 def test_validate_tool_use_name_invalid_pattern():
-    tool = {"name": "123_invalid", "toolUseId": "123"}
+    tool = {"name": "+123_invalid", "toolUseId": "123"}
     with pytest.raises(InvalidToolUseNameException, match="invalid tool name pattern"):
         validate_tool_use_name(tool)
 
@@ -414,7 +418,7 @@ def test_validate_tool_use_with_valid_input():
         # Name - Invalid characters
         (
             {
-                "name": "1-invalid",
+                "name": "+1-invalid",
                 "toolUseId": "123",
                 "input": {},
             },
@@ -424,6 +428,15 @@ def test_validate_tool_use_with_valid_input():
         (
             {
                 "name": "a" * 65,
+                "toolUseId": "123",
+                "input": {},
+            },
+            strands.tools.InvalidToolUseNameException,
+        ),
+        # Name - Empty
+        (
+            {
+                "name": "",
                 "toolUseId": "123",
                 "input": {},
             },
