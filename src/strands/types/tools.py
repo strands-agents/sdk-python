@@ -6,7 +6,7 @@ These types are modeled after the Bedrock API.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
+from typing import Any, Callable, Generator, Literal, Union
 
 from typing_extensions import TypedDict
 
@@ -130,11 +130,11 @@ Configuration for how the model should choose tools.
 - "tool": The model must use the specified tool
 """
 
-RunToolHandler = Callable[[ToolUse], AsyncGenerator[dict[str, Any], None]]
+RunToolHandler = Callable[[ToolUse], Generator[dict[str, Any], None, ToolResult]]
 """Callback that runs a single tool and streams back results."""
 
-ToolGenerator = AsyncGenerator[Any, None]
-"""Generator of tool events with the last being the tool result."""
+ToolGenerator = Generator[dict[str, Any], None, ToolResult]
+"""Generator of tool events and a returned tool result."""
 
 
 class ToolConfig(TypedDict):
@@ -149,30 +149,11 @@ class ToolConfig(TypedDict):
     toolChoice: ToolChoice
 
 
-class ToolFunc(Protocol):
-    """Function signature for Python decorated and module based tools."""
-
-    __name__: str
-
-    def __call__(
-        self, *args: Any, **kwargs: Any
-    ) -> Union[
-        ToolResult,
-        Awaitable[ToolResult],
-    ]:
-        """Function signature for Python decorated and module based tools.
-
-        Returns:
-            Tool result or awaitable tool result.
-        """
-        ...
-
-
 class AgentTool(ABC):
     """Abstract base class for all SDK tools.
 
     This class defines the interface that all tool implementations must follow. Each tool must provide its name,
-    specification, and implement a stream method that executes the tool's functionality.
+    specification, and implement an invoke method that executes the tool's functionality.
     """
 
     _is_dynamic: bool
@@ -216,17 +197,18 @@ class AgentTool(ABC):
 
     @abstractmethod
     # pragma: no cover
-    def stream(self, tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolGenerator:
-        """Stream tool events and return the final result.
+    def invoke(self, tool: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolResult:
+        """Execute the tool's functionality with the given tool use request.
 
         Args:
-            tool_use: The tool use request containing tool ID and parameters.
-            kwargs: Keyword arguments to pass to the tool.
+            tool: The tool use request containing tool ID and parameters.
+            *args: Positional arguments to pass to the tool.
+            **kwargs: Keyword arguments to pass to the tool.
 
-        Yield:
-            Tool events with the last being the tool result.
+        Returns:
+            The result of the tool execution.
         """
-        ...
+        pass
 
     @property
     def is_dynamic(self) -> bool:

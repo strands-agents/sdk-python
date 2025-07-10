@@ -1,3 +1,4 @@
+import concurrent
 import unittest.mock
 import uuid
 
@@ -15,9 +16,9 @@ def moto_autouse(moto_env):
 
 @pytest.fixture
 def tool_handler(request):
-    async def handler(tool_use):
+    def handler(tool_use):
         yield {"event": "abc"}
-        yield {
+        return {
             **params,
             "toolUseId": tool_use["toolUseId"],
         }
@@ -64,14 +65,18 @@ def cycle_trace():
         return strands.telemetry.metrics.Trace(name="test trace", raw_name="raw_name")
 
 
-@pytest.mark.asyncio
-async def test_run_tools(
+@pytest.fixture
+def thread_pool(request):
+    return concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+
+def test_run_tools(
     tool_handler,
     tool_uses,
     event_loop_metrics,
     invalid_tool_use_ids,
     cycle_trace,
-    alist,
+    thread_pool,
 ):
     tool_results = []
 
@@ -82,11 +87,14 @@ async def test_run_tools(
         invalid_tool_use_ids,
         tool_results,
         cycle_trace,
+        thread_pool,
     )
 
-    tru_events = await alist(stream)
-    exp_events = [
-        {"event": "abc"},
+    tru_events = list(stream)
+    exp_events = [{"event": "abc"}]
+
+    tru_results = tool_results
+    exp_results = [
         {
             "content": [
                 {
@@ -98,21 +106,17 @@ async def test_run_tools(
         },
     ]
 
-    tru_results = tool_results
-    exp_results = [exp_events[-1]]
-
     assert tru_events == exp_events and tru_results == exp_results
 
 
 @pytest.mark.parametrize("invalid_tool_use_ids", [["t1"]], indirect=True)
-@pytest.mark.asyncio
-async def test_run_tools_invalid_tool(
+def test_run_tools_invalid_tool(
     tool_handler,
     tool_uses,
     event_loop_metrics,
     invalid_tool_use_ids,
     cycle_trace,
-    alist,
+    thread_pool,
 ):
     tool_results = []
 
@@ -123,8 +127,9 @@ async def test_run_tools_invalid_tool(
         invalid_tool_use_ids,
         tool_results,
         cycle_trace,
+        thread_pool,
     )
-    await alist(stream)
+    list(stream)
 
     tru_results = tool_results
     exp_results = []
@@ -133,14 +138,13 @@ async def test_run_tools_invalid_tool(
 
 
 @pytest.mark.parametrize("tool_handler", [{"status": "failed"}], indirect=True)
-@pytest.mark.asyncio
-async def test_run_tools_failed_tool(
+def test_run_tools_failed_tool(
     tool_handler,
     tool_uses,
     event_loop_metrics,
     invalid_tool_use_ids,
     cycle_trace,
-    alist,
+    thread_pool,
 ):
     tool_results = []
 
@@ -151,8 +155,9 @@ async def test_run_tools_failed_tool(
         invalid_tool_use_ids,
         tool_results,
         cycle_trace,
+        thread_pool,
     )
-    await alist(stream)
+    list(stream)
 
     tru_results = tool_results
     exp_results = [
@@ -191,14 +196,12 @@ async def test_run_tools_failed_tool(
     ],
     indirect=True,
 )
-@pytest.mark.asyncio
-async def test_run_tools_sequential(
+def test_run_tools_sequential(
     tool_handler,
     tool_uses,
     event_loop_metrics,
     invalid_tool_use_ids,
     cycle_trace,
-    alist,
 ):
     tool_results = []
 
@@ -211,7 +214,7 @@ async def test_run_tools_sequential(
         cycle_trace,
         None,  # tool_pool
     )
-    await alist(stream)
+    list(stream)
 
     tru_results = tool_results
     exp_results = [
@@ -278,8 +281,7 @@ def test_validate_and_prepare_tools():
 
 
 @unittest.mock.patch("strands.tools.executor.get_tracer")
-@pytest.mark.asyncio
-async def test_run_tools_creates_and_ends_span_on_success(
+def test_run_tools_creates_and_ends_span_on_success(
     mock_get_tracer,
     tool_handler,
     tool_uses,
@@ -287,7 +289,7 @@ async def test_run_tools_creates_and_ends_span_on_success(
     event_loop_metrics,
     invalid_tool_use_ids,
     cycle_trace,
-    alist,
+    thread_pool,
 ):
     """Test that run_tools creates and ends a span on successful execution."""
     # Setup mock tracer and span
@@ -310,8 +312,9 @@ async def test_run_tools_creates_and_ends_span_on_success(
         tool_results,
         cycle_trace,
         parent_span,
+        thread_pool,
     )
-    await alist(stream)
+    list(stream)
 
     # Verify span was created with the parent span
     mock_tracer.start_tool_call_span.assert_called_once_with(tool_uses[0], parent_span)
@@ -326,15 +329,14 @@ async def test_run_tools_creates_and_ends_span_on_success(
 
 @unittest.mock.patch("strands.tools.executor.get_tracer")
 @pytest.mark.parametrize("tool_handler", [{"status": "failed"}], indirect=True)
-@pytest.mark.asyncio
-async def test_run_tools_creates_and_ends_span_on_failure(
+def test_run_tools_creates_and_ends_span_on_failure(
     mock_get_tracer,
     tool_handler,
     tool_uses,
     event_loop_metrics,
     invalid_tool_use_ids,
     cycle_trace,
-    alist,
+    thread_pool,
 ):
     """Test that run_tools creates and ends a span on tool failure."""
     # Setup mock tracer and span
@@ -357,8 +359,9 @@ async def test_run_tools_creates_and_ends_span_on_failure(
         tool_results,
         cycle_trace,
         parent_span,
+        thread_pool,
     )
-    await alist(stream)
+    list(stream)
 
     # Verify span was created with the parent span
     mock_tracer.start_tool_call_span.assert_called_once_with(tool_uses[0], parent_span)
@@ -392,16 +395,16 @@ async def test_run_tools_creates_and_ends_span_on_failure(
     ],
     indirect=True,
 )
-@pytest.mark.asyncio
-async def test_run_tools_concurrent_execution_with_spans(
+def test_run_tools_parallel_execution_with_spans(
     mock_get_tracer,
     tool_handler,
     tool_uses,
     event_loop_metrics,
     invalid_tool_use_ids,
     cycle_trace,
-    alist,
+    thread_pool,
 ):
+    """Test that spans are created and ended for each tool in parallel execution."""
     # Setup mock tracer and spans
     mock_tracer = unittest.mock.MagicMock()
     mock_span1 = unittest.mock.MagicMock()
@@ -423,8 +426,9 @@ async def test_run_tools_concurrent_execution_with_spans(
         tool_results,
         cycle_trace,
         parent_span,
+        thread_pool,
     )
-    await alist(stream)
+    list(stream)
 
     # Verify spans were created for both tools
     assert mock_tracer.start_tool_call_span.call_count == 2

@@ -8,7 +8,7 @@ via hook provider objects.
 """
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Generator, Generic, Protocol, Type, TypeVar
+from typing import TYPE_CHECKING, Callable, Generator, Generic, Protocol, Type, TypeVar
 
 if TYPE_CHECKING:
     from ...agent import Agent
@@ -34,43 +34,9 @@ class HookEvent:
         """
         return False
 
-    def _can_write(self, name: str) -> bool:
-        """Check if the given property can be written to.
 
-        Args:
-            name: The name of the property to check.
-
-        Returns:
-            True if the property can be written to, False otherwise.
-        """
-        return False
-
-    def __post_init__(self) -> None:
-        """Disallow writes to non-approved properties."""
-        # This is needed as otherwise the class can't be initialized at all, so we trigger
-        # this after class initialization
-        super().__setattr__("_disallow_writes", True)
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        """Prevent setting attributes on hook events.
-
-        Raises:
-            AttributeError: Always raised to prevent setting attributes on hook events.
-        """
-        #  Allow setting attributes:
-        #    - during init (when __dict__) doesn't exist
-        #    - if the subclass specifically said the property is writable
-        if not hasattr(self, "_disallow_writes") or self._can_write(name):
-            return super().__setattr__(name, value)
-
-        raise AttributeError(f"Property {name} is not writable")
-
-
+T = TypeVar("T", bound=Callable)
 TEvent = TypeVar("TEvent", bound=HookEvent, contravariant=True)
-"""Generic for adding callback handlers - contravariant to allow adding handlers which take in base classes."""
-
-TInvokeEvent = TypeVar("TInvokeEvent", bound=HookEvent)
-"""Generic for invoking events - non-contravariant to enable returning events."""
 
 
 class HookProvider(Protocol):
@@ -178,7 +144,7 @@ class HookRegistry:
         """
         hook.register_hooks(self)
 
-    def invoke_callbacks(self, event: TInvokeEvent) -> TInvokeEvent:
+    def invoke_callbacks(self, event: TEvent) -> None:
         """Invoke all registered callbacks for the given event.
 
         This method finds all callbacks registered for the event's type and
@@ -191,9 +157,6 @@ class HookRegistry:
         Raises:
             Any exceptions raised by callback functions will propagate to the caller.
 
-        Returns:
-            The event dispatched to registered callbacks.
-
         Example:
             ```python
             event = StartRequestEvent(agent=my_agent)
@@ -202,8 +165,6 @@ class HookRegistry:
         """
         for callback in self.get_callbacks_for(event):
             callback(event)
-
-        return event
 
     def get_callbacks_for(self, event: TEvent) -> Generator[HookCallback[TEvent], None, None]:
         """Get callbacks registered for the given event in the appropriate order.
@@ -232,18 +193,3 @@ class HookRegistry:
             yield from reversed(callbacks)
         else:
             yield from callbacks
-
-
-def get_registry(agent: "Agent") -> HookRegistry:
-    """*Experimental*: Get the hooks registry for the provided agent.
-
-    This function is available while hooks are in experimental preview.
-
-    Args:
-        agent: The agent whose hook registry should be returned.
-
-    Returns:
-        The HookRegistry for the given agent.
-
-    """
-    return agent._hooks

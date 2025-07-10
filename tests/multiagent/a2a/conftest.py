@@ -22,10 +22,6 @@ def mock_strands_agent():
     mock_result.message = {"content": [{"text": "Test response"}]}
     agent.return_value = mock_result
 
-    # Setup async methods
-    agent.invoke_async = AsyncMock(return_value=mock_result)
-    agent.stream_async = AsyncMock(return_value=iter([]))
-
     # Setup mock tool registry
     mock_tool_registry = MagicMock()
     mock_tool_registry.get_all_tools_config.return_value = {}

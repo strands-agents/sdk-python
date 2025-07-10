@@ -12,6 +12,7 @@ The Agent interface supports two complementary interaction patterns:
 import asyncio
 import json
 import logging
+import os
 import random
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Optional, Type, TypeVar, Union, cast
@@ -30,7 +31,7 @@ from ..tools.watcher import ToolWatcher
 from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.models import Model
-from ..types.tools import ToolResult, ToolUse
+from ..types.tools import ToolConfig, ToolResult, ToolUse
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
 from .conversation_manager import (
@@ -127,18 +128,14 @@ class Agent:
                     "input": kwargs.copy(),
                 }
 
-                async def acall() -> ToolResult:
-                    async for event in run_tool(self._agent, tool_use, kwargs):
-                        _ = event
+                # Execute the tool
+                events = run_tool(agent=self._agent, tool=tool_use, kwargs=kwargs)
 
-                    return cast(ToolResult, event)
-
-                def tcall() -> ToolResult:
-                    return asyncio.run(acall())
-
-                with ThreadPoolExecutor() as executor:
-                    future = executor.submit(tcall)
-                    tool_result = future.result()
+                try:
+                    while True:
+                        next(events)
+                except StopIteration as stop:
+                    tool_result = cast(ToolResult, stop.value)
 
                 if record_direct_tool_call is not None:
                     should_record_direct_tool_call = record_direct_tool_call
@@ -189,6 +186,7 @@ class Agent:
             Union[Callable[..., Any], _DefaultCallbackHandlerSentinel]
         ] = _DEFAULT_CALLBACK_HANDLER,
         conversation_manager: Optional[ConversationManager] = None,
+        max_parallel_tools: int = os.cpu_count() or 1,
         record_direct_tool_call: bool = True,
         load_tools_from_directory: bool = True,
         trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
@@ -221,6 +219,8 @@ class Agent:
                 If explicitly set to None, null_callback_handler is used.
             conversation_manager: Manager for conversation history and context window.
                 Defaults to strands.agent.conversation_manager.SlidingWindowConversationManager if None.
+            max_parallel_tools: Maximum number of tools to run in parallel when the model returns multiple tool calls.
+                Defaults to os.cpu_count() or 1.
             record_direct_tool_call: Whether to record direct tool calls in message history.
                 Defaults to True.
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.
@@ -232,6 +232,9 @@ class Agent:
                 Defaults to None.
             state: stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
                 Defaults to an empty AgentState object.
+
+        Raises:
+            ValueError: If max_parallel_tools is less than 1.
         """
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
@@ -259,6 +262,14 @@ class Agent:
                     isinstance(v, list) and all(isinstance(x, (str, int, float, bool)) for x in v)
                 ):
                     self.trace_attributes[k] = v
+
+        # If max_parallel_tools is 1, we execute tools sequentially
+        self.thread_pool = None
+        self.thread_pool_wrapper = None
+        if max_parallel_tools > 1:
+            self.thread_pool = ThreadPoolExecutor(max_workers=max_parallel_tools)
+        elif max_parallel_tools < 1:
+            raise ValueError("max_parallel_tools must be greater than 0")
 
         self.record_direct_tool_call = record_direct_tool_call
         self.load_tools_from_directory = load_tools_from_directory
@@ -324,14 +335,32 @@ class Agent:
         all_tools = self.tool_registry.get_all_tools_config()
         return list(all_tools.keys())
 
-    def __call__(self, prompt: Union[str, list[ContentBlock]], **kwargs: Any) -> AgentResult:
+    @property
+    def tool_config(self) -> ToolConfig:
+        """Get the tool configuration for this agent.
+
+        Returns:
+            The complete tool configuration.
+        """
+        return self.tool_registry.initialize_tool_config()
+
+    def __del__(self) -> None:
+        """Clean up resources when Agent is garbage collected.
+
+        Ensures proper shutdown of the thread pool executor if one exists.
+        """
+        if self.thread_pool:
+            self.thread_pool.shutdown(wait=False)
+            logger.debug("thread pool executor shutdown complete")
+
+    def __call__(self, prompt: str, **kwargs: Any) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
         This method implements the conversational interface (e.g., `agent("hello!")`). It adds the user's prompt to
         the conversation history, processes it through the model, executes any tool calls, and returns the final result.
 
         Args:
-            prompt: User input as text or list of ContentBlock objects for multi-modal content.
+            prompt: The natural language prompt from the user.
             **kwargs: Additional parameters to pass through the event loop.
 
         Returns:
@@ -350,14 +379,14 @@ class Agent:
             future = executor.submit(execute)
             return future.result()
 
-    async def invoke_async(self, prompt: Union[str, list[ContentBlock]], **kwargs: Any) -> AgentResult:
+    async def invoke_async(self, prompt: str, **kwargs: Any) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
         This method implements the conversational interface (e.g., `agent("hello!")`). It adds the user's prompt to
         the conversation history, processes it through the model, executes any tool calls, and returns the final result.
 
         Args:
-            prompt: User input as text or list of ContentBlock objects for multi-modal content.
+            prompt: The natural language prompt from the user.
             **kwargs: Additional parameters to pass through the event loop.
 
         Returns:
@@ -436,7 +465,7 @@ class Agent:
         finally:
             self._hooks.invoke_callbacks(EndRequestEvent(agent=self))
 
-    async def stream_async(self, prompt: Union[str, list[ContentBlock]], **kwargs: Any) -> AsyncIterator[Any]:
+    async def stream_async(self, prompt: str, **kwargs: Any) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
 
         This method provides an asynchronous interface for streaming agent events, allowing
@@ -445,7 +474,7 @@ class Agent:
         async environments.
 
         Args:
-            prompt: User input as text or list of ContentBlock objects for multi-modal content.
+            prompt: The natural language prompt from the user.
             **kwargs: Additional parameters to pass to the event loop.
 
         Returns:
@@ -468,13 +497,10 @@ class Agent:
         """
         callback_handler = kwargs.get("callback_handler", self.callback_handler)
 
-        content: list[ContentBlock] = [{"text": prompt}] if isinstance(prompt, str) else prompt
-        message: Message = {"role": "user", "content": content}
-
-        self._start_agent_trace_span(message)
+        self._start_agent_trace_span(prompt)
 
         try:
-            events = self._run_loop(message, kwargs)
+            events = self._run_loop(prompt, kwargs)
             async for event in events:
                 if "callback" in event:
                     callback_handler(**event["callback"])
@@ -490,22 +516,18 @@ class Agent:
             self._end_agent_trace_span(error=e)
             raise
 
-    async def _run_loop(self, message: Message, kwargs: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
-        """Execute the agent's event loop with the given message and parameters.
-
-        Args:
-            message: The user message to add to the conversation.
-            kwargs: Additional parameters to pass to the event loop.
-
-        Yields:
-            Events from the event loop cycle.
-        """
+    async def _run_loop(self, prompt: str, kwargs: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
+        """Execute the agent's event loop with the given prompt and parameters."""
         self._hooks.invoke_callbacks(StartRequestEvent(agent=self))
 
         try:
+            # Extract key parameters
             yield {"callback": {"init_event_loop": True, **kwargs}}
 
-            self.messages.append(message)
+            # Set up the user message with optional knowledge base retrieval
+            message_content: list[ContentBlock] = [{"text": prompt}]
+            new_message: Message = {"role": "user", "content": message_content}
+            self.messages.append(new_message)
 
             # Execute the event loop cycle with retry logic for context limits
             events = self._execute_event_loop_cycle(kwargs)
@@ -600,16 +622,16 @@ class Agent:
         messages.append(tool_result_msg)
         messages.append(assistant_msg)
 
-    def _start_agent_trace_span(self, message: Message) -> None:
+    def _start_agent_trace_span(self, prompt: str) -> None:
         """Starts a trace span for the agent.
 
         Args:
-            message: The user message.
+            prompt: The natural language prompt from the user.
         """
         model_id = self.model.config.get("model_id") if hasattr(self.model, "config") else None
 
         self.trace_span = self.tracer.start_agent_span(
-            message=message,
+            prompt=prompt,
             agent_name=self.name,
             model_id=model_id,
             tools=self.tool_names,

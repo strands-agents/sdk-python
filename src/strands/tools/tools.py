@@ -4,15 +4,11 @@ This module provides the base classes for all tool implementations in the SDK, i
 Python module-based tools, as well as utilities for validating tool uses and normalizing tool schemas.
 """
 
-import asyncio
-import inspect
 import logging
 import re
-from typing import Any
+from typing import Any, Callable, Dict
 
-from typing_extensions import override
-
-from ..types.tools import AgentTool, ToolFunc, ToolGenerator, ToolSpec, ToolUse
+from ..types.tools import AgentTool, ToolResult, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +60,7 @@ def validate_tool_use_name(tool: ToolUse) -> None:
         raise InvalidToolUseNameException(message)
 
 
-def _normalize_property(prop_name: str, prop_def: Any) -> dict[str, Any]:
+def _normalize_property(prop_name: str, prop_def: Any) -> Dict[str, Any]:
     """Normalize a single property definition.
 
     Args:
@@ -92,7 +88,7 @@ def _normalize_property(prop_name: str, prop_def: Any) -> dict[str, Any]:
     return normalized_prop
 
 
-def normalize_schema(schema: dict[str, Any]) -> dict[str, Any]:
+def normalize_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize a JSON schema to match expectations.
 
     This function recursively processes nested objects to preserve the complete schema structure.
@@ -152,23 +148,25 @@ class PythonAgentTool(AgentTool):
     as SDK tools.
     """
 
+    _callback: Callable[[ToolUse, Any, dict[str, Any]], ToolResult]
     _tool_name: str
     _tool_spec: ToolSpec
-    _tool_func: ToolFunc
 
-    def __init__(self, tool_name: str, tool_spec: ToolSpec, tool_func: ToolFunc) -> None:
+    def __init__(
+        self, tool_name: str, tool_spec: ToolSpec, callback: Callable[[ToolUse, Any, dict[str, Any]], ToolResult]
+    ) -> None:
         """Initialize a Python-based tool.
 
         Args:
             tool_name: Unique identifier for the tool.
             tool_spec: Tool specification defining parameters and behavior.
-            tool_func: Python function to execute when the tool is invoked.
+            callback: Python function to execute when the tool is invoked.
         """
         super().__init__()
 
         self._tool_name = tool_name
         self._tool_spec = tool_spec
-        self._tool_func = tool_func
+        self._callback = callback
 
     @property
     def tool_name(self) -> str:
@@ -197,20 +195,15 @@ class PythonAgentTool(AgentTool):
         """
         return "python"
 
-    @override
-    async def stream(self, tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolGenerator:
-        """Stream the Python function with the given tool use request.
+    def invoke(self, tool: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolResult:
+        """Execute the Python function with the given tool use request.
 
         Args:
-            tool_use: The tool use request.
-            kwargs: Additional keyword arguments to pass to the underlying tool function.
+            tool: The tool use request.
+            *args: Additional positional arguments to pass to the underlying callback function.
+            **kwargs: Additional keyword arguments to pass to the underlying callback function.
 
-        Yields:
-        Tool events with the last being the tool result.
+        Returns:
+            A ToolResult containing the status and content from the callback execution.
         """
-        if inspect.iscoroutinefunction(self._tool_func):
-            result = await self._tool_func(tool_use, **kwargs)
-        else:
-            result = await asyncio.to_thread(self._tool_func, tool_use, **kwargs)
-
-        yield result
+        return self._callback(tool, *args, **kwargs)

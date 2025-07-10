@@ -11,17 +11,15 @@ The event loop allows agents to:
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, AsyncGenerator, cast
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 
-from ..experimental.hooks import AfterToolInvocationEvent, BeforeToolInvocationEvent
-from ..experimental.hooks.registry import get_registry
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import get_tracer
 from ..tools.executor import run_tools, validate_and_prepare_tools
 from ..types.content import Message
 from ..types.exceptions import ContextWindowOverflowException, EventLoopException, ModelThrottledException
 from ..types.streaming import Metrics, StopReason
-from ..types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolGenerator, ToolResult, ToolUse
+from ..types.tools import ToolGenerator, ToolResult, ToolUse
 from .message_processor import clean_orphaned_empty_tool_uses
 from .streaming import stream_messages
 
@@ -58,7 +56,7 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
             - event_loop_cycle_span: Current tracing Span for this cycle
 
     Yields:
-        Model and tool stream events. The last event is a tuple containing:
+        Model and tool invocation events. The last event is a tuple containing:
 
             - StopReason: Reason the model stopped generating (e.g., "tool_use")
             - Message: The generated message from the model
@@ -112,12 +110,10 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
             model_id=model_id,
         )
 
-        tool_specs = agent.tool_registry.get_all_tool_specs()
-
         try:
             # TODO: To maintain backwards compatibility, we need to combine the stream event with kwargs before yielding
             #       to the callback handler. This will be revisited when migrating to strongly typed events.
-            async for event in stream_messages(agent.model, agent.system_prompt, agent.messages, tool_specs):
+            async for event in stream_messages(agent.model, agent.system_prompt, agent.messages, agent.tool_config):
                 if "callback" in event:
                     yield {"callback": {**event["callback"], **(kwargs if "delta" in event["callback"] else {})}}
 
@@ -174,6 +170,12 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
 
         # If the model is requesting to use tools
         if stop_reason == "tool_use":
+            if agent.tool_config is None:
+                raise EventLoopException(
+                    Exception("Model requested tool use but no tool config provided"),
+                    kwargs["request_state"],
+                )
+
             # Handle tool execution
             events = _handle_tool_execution(
                 stop_reason,
@@ -252,119 +254,64 @@ async def recurse_event_loop(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGen
     recursive_trace.end()
 
 
-async def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolGenerator:
+def run_tool(agent: "Agent", kwargs: dict[str, Any], tool: ToolUse) -> ToolGenerator:
     """Process a tool invocation.
 
-    Looks up the tool in the registry and streams it with the provided parameters.
+    Looks up the tool in the registry and invokes it with the provided parameters.
 
     Args:
         agent: The agent for which the tool is being executed.
-        tool_use: The tool object to process, containing name and parameters.
+        tool: The tool object to process, containing name and parameters.
         kwargs: Additional keyword arguments passed to the tool.
 
     Yields:
-        Tool events with the last being the tool result.
+        Events of the tool invocation.
+
+    Returns:
+        The final tool result or an error response if the tool fails or is not found.
     """
-    logger.debug("tool_use=<%s> | streaming", tool_use)
-    tool_name = tool_use["name"]
+    logger.debug("tool=<%s> | invoking", tool)
+    tool_use_id = tool["toolUseId"]
+    tool_name = tool["name"]
 
     # Get the tool info
     tool_info = agent.tool_registry.dynamic_tools.get(tool_name)
     tool_func = tool_info if tool_info is not None else agent.tool_registry.registry.get(tool_name)
 
-    # Add standard arguments to kwargs for Python tools
-    kwargs.update(
-        {
-            "model": agent.model,
-            "system_prompt": agent.system_prompt,
-            "messages": agent.messages,
-            "tool_config": ToolConfig(  # for backwards compatability
-                tools=[{"toolSpec": tool_spec} for tool_spec in agent.tool_registry.get_all_tool_specs()],
-                toolChoice=cast(ToolChoice, {"auto": ToolChoiceAuto()}),
-            ),
-        }
-    )
-
-    before_event = get_registry(agent).invoke_callbacks(
-        BeforeToolInvocationEvent(
-            agent=agent,
-            selected_tool=tool_func,
-            tool_use=tool_use,
-            kwargs=kwargs,
-        )
-    )
-
     try:
-        selected_tool = before_event.selected_tool
-        tool_use = before_event.tool_use
-
         # Check if tool exists
-        if not selected_tool:
-            if tool_func == selected_tool:
-                logger.error(
-                    "tool_name=<%s>, available_tools=<%s> | tool not found in registry",
-                    tool_name,
-                    list(agent.tool_registry.registry.keys()),
-                )
-            else:
-                logger.debug(
-                    "tool_name=<%s>, tool_use_id=<%s> | a hook resulted in a non-existing tool call",
-                    tool_name,
-                    str(tool_use.get("toolUseId")),
-                )
-
-            result: ToolResult = {
-                "toolUseId": str(tool_use.get("toolUseId")),
+        if not tool_func:
+            logger.error(
+                "tool_name=<%s>, available_tools=<%s> | tool not found in registry",
+                tool_name,
+                list(agent.tool_registry.registry.keys()),
+            )
+            return {
+                "toolUseId": tool_use_id,
                 "status": "error",
                 "content": [{"text": f"Unknown tool: {tool_name}"}],
             }
-            # for every Before event call, we need to have an AfterEvent call
-            after_event = get_registry(agent).invoke_callbacks(
-                AfterToolInvocationEvent(
-                    agent=agent,
-                    selected_tool=selected_tool,
-                    tool_use=tool_use,
-                    kwargs=kwargs,
-                    result=result,
-                )
-            )
-            yield after_event.result
-            return
-
-        async for event in selected_tool.stream(tool_use, kwargs):
-            yield event
-
-        result = event
-
-        after_event = get_registry(agent).invoke_callbacks(
-            AfterToolInvocationEvent(
-                agent=agent,
-                selected_tool=selected_tool,
-                tool_use=tool_use,
-                kwargs=kwargs,
-                result=result,
-            )
+        # Add standard arguments to kwargs for Python tools
+        kwargs.update(
+            {
+                "model": agent.model,
+                "system_prompt": agent.system_prompt,
+                "messages": agent.messages,
+                "tool_config": agent.tool_config,
+            }
         )
-        yield after_event.result
+
+        result = tool_func.invoke(tool, **kwargs)
+        yield {"result": result}  # Placeholder until tool_func becomes a generator from which we can yield from
+        return result
 
     except Exception as e:
         logger.exception("tool_name=<%s> | failed to process tool", tool_name)
-        error_result: ToolResult = {
-            "toolUseId": str(tool_use.get("toolUseId")),
+        return {
+            "toolUseId": tool_use_id,
             "status": "error",
             "content": [{"text": f"Error: {str(e)}"}],
         }
-        after_event = get_registry(agent).invoke_callbacks(
-            AfterToolInvocationEvent(
-                agent=agent,
-                selected_tool=selected_tool,
-                tool_use=tool_use,
-                kwargs=kwargs,
-                result=error_result,
-                exception=e,
-            )
-        )
-        yield after_event.result
 
 
 async def _handle_tool_execution(
@@ -394,8 +341,8 @@ async def _handle_tool_execution(
         kwargs: Additional keyword arguments, including request state.
 
     Yields:
-        Tool stream events along with events yielded from a recursive call to the event loop. The last event is a tuple
-        containing:
+        Tool invocation events along with events yielded from a recursive call to the event loop. The last event is a
+        tuple containing:
             - The stop reason,
             - The updated message,
             - The updated event loop metrics,
@@ -408,7 +355,7 @@ async def _handle_tool_execution(
         return
 
     def tool_handler(tool_use: ToolUse) -> ToolGenerator:
-        return run_tool(agent, tool_use, kwargs)
+        return run_tool(agent=agent, kwargs=kwargs, tool=tool_use)
 
     tool_events = run_tools(
         handler=tool_handler,
@@ -418,8 +365,9 @@ async def _handle_tool_execution(
         tool_results=tool_results,
         cycle_trace=cycle_trace,
         parent_span=cycle_span,
+        thread_pool=agent.thread_pool,
     )
-    async for tool_event in tool_events:
+    for tool_event in tool_events:
         yield tool_event
 
     # Store parent cycle ID for the next cycle

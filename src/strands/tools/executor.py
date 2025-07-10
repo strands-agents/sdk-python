@@ -1,9 +1,11 @@
 """Tool execution functionality for the event loop."""
 
-import asyncio
 import logging
+import queue
+import threading
 import time
-from typing import Any, Optional, cast
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Generator, Optional, cast
 
 from opentelemetry import trace
 
@@ -16,7 +18,7 @@ from ..types.tools import RunToolHandler, ToolGenerator, ToolResult, ToolUse
 logger = logging.getLogger(__name__)
 
 
-async def run_tools(
+def run_tools(
     handler: RunToolHandler,
     tool_uses: list[ToolUse],
     event_loop_metrics: EventLoopMetrics,
@@ -24,8 +26,9 @@ async def run_tools(
     tool_results: list[ToolResult],
     cycle_trace: Trace,
     parent_span: Optional[trace.Span] = None,
-) -> ToolGenerator:
-    """Execute tools concurrently.
+    thread_pool: Optional[ThreadPoolExecutor] = None,
+) -> Generator[dict[str, Any], None, None]:
+    """Execute tools either in parallel or sequentially.
 
     Args:
         handler: Tool handler processing function.
@@ -35,38 +38,26 @@ async def run_tools(
         tool_results: List to populate with tool results.
         cycle_trace: Parent trace for the current cycle.
         parent_span: Parent span for the current cycle.
+        thread_pool: Optional thread pool for parallel processing.
 
     Yields:
-        Events of the tool stream. Tool results are appended to `tool_results`.
+        Events of the tool invocations. Tool results are appended to `tool_results`.
     """
 
-    async def work(
-        tool_use: ToolUse,
-        worker_id: int,
-        worker_queue: asyncio.Queue,
-        worker_event: asyncio.Event,
-        stop_event: object,
-    ) -> ToolResult:
+    def handle(tool: ToolUse) -> ToolGenerator:
         tracer = get_tracer()
-        tool_call_span = tracer.start_tool_call_span(tool_use, parent_span)
+        tool_call_span = tracer.start_tool_call_span(tool, parent_span)
 
-        tool_name = tool_use["name"]
+        tool_name = tool["name"]
         tool_trace = Trace(f"Tool: {tool_name}", parent_id=cycle_trace.id, raw_name=tool_name)
         tool_start_time = time.time()
 
-        try:
-            async for event in handler(tool_use):
-                worker_queue.put_nowait((worker_id, event))
-                await worker_event.wait()
-
-            result = cast(ToolResult, event)
-        finally:
-            worker_queue.put_nowait((worker_id, stop_event))
+        result = yield from handler(tool)
 
         tool_success = result.get("status") == "success"
         tool_duration = time.time() - tool_start_time
         message = Message(role="user", content=[{"toolResult": result}])
-        event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, tool_success, message)
+        event_loop_metrics.add_tool_usage(tool, tool_duration, tool_trace, tool_success, message)
         cycle_trace.add_child(tool_trace)
 
         if tool_call_span:
@@ -74,27 +65,52 @@ async def run_tools(
 
         return result
 
+    def work(
+        tool: ToolUse,
+        worker_id: int,
+        worker_queue: queue.Queue,
+        worker_event: threading.Event,
+    ) -> ToolResult:
+        events = handle(tool)
+
+        try:
+            while True:
+                event = next(events)
+                worker_queue.put((worker_id, event))
+                worker_event.wait()
+
+        except StopIteration as stop:
+            return cast(ToolResult, stop.value)
+
     tool_uses = [tool_use for tool_use in tool_uses if tool_use.get("toolUseId") not in invalid_tool_use_ids]
-    worker_queue: asyncio.Queue[tuple[int, Any]] = asyncio.Queue()
-    worker_events = [asyncio.Event() for _ in tool_uses]
-    stop_event = object()
 
-    workers = [
-        asyncio.create_task(work(tool_use, worker_id, worker_queue, worker_events[worker_id], stop_event))
-        for worker_id, tool_use in enumerate(tool_uses)
-    ]
+    if thread_pool:
+        logger.debug("tool_count=<%s> | executing tools in parallel", len(tool_uses))
 
-    worker_count = len(workers)
-    while worker_count:
-        worker_id, event = await worker_queue.get()
-        if event is stop_event:
-            worker_count -= 1
-            continue
+        worker_queue: queue.Queue[tuple[int, dict[str, Any]]] = queue.Queue()
+        worker_events = [threading.Event() for _ in range(len(tool_uses))]
 
-        yield event
-        worker_events[worker_id].set()
+        workers = [
+            thread_pool.submit(work, tool_use, worker_id, worker_queue, worker_events[worker_id])
+            for worker_id, tool_use in enumerate(tool_uses)
+        ]
+        logger.debug("tool_count=<%s> | submitted tasks to parallel executor", len(tool_uses))
 
-    tool_results.extend([worker.result() for worker in workers])
+        while not all(worker.done() for worker in workers):
+            if not worker_queue.empty():
+                worker_id, event = worker_queue.get()
+                yield event
+                worker_events[worker_id].set()
+
+            time.sleep(0.001)
+
+        tool_results.extend([worker.result() for worker in workers])
+
+    else:
+        # Sequential execution fallback
+        for tool_use in tool_uses:
+            result = yield from handle(tool_use)
+            tool_results.append(result)
 
 
 def validate_and_prepare_tools(

@@ -7,7 +7,7 @@ import json
 import logging
 from typing import Any, AsyncGenerator, Optional, Type, TypeVar, Union, cast
 
-import ollama
+from ollama import Client as OllamaClient
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
@@ -74,7 +74,7 @@ class OllamaModel(Model):
 
         ollama_client_args = ollama_client_args if ollama_client_args is not None else {}
 
-        self.client = ollama.AsyncClient(host, **ollama_client_args)
+        self.client = OllamaClient(host, **ollama_client_args)
 
     @override
     def update_config(self, **model_config: Unpack[OllamaConfig]) -> None:  # type: ignore
@@ -296,12 +296,12 @@ class OllamaModel(Model):
         """
         tool_requested = False
 
-        response = await self.client.chat(**request)
+        response = self.client.chat(**request)
 
         yield {"chunk_type": "message_start"}
         yield {"chunk_type": "content_start", "data_type": "text"}
 
-        async for event in response:
+        for event in response:
             for tool_call in event.message.tool_calls or []:
                 yield {"chunk_type": "content_start", "data_type": "tool", "data": tool_call}
                 yield {"chunk_type": "content_delta", "data_type": "tool", "data": tool_call}
@@ -330,7 +330,7 @@ class OllamaModel(Model):
         formatted_request = self.format_request(messages=prompt)
         formatted_request["format"] = output_model.model_json_schema()
         formatted_request["stream"] = False
-        response = await self.client.chat(**formatted_request)
+        response = self.client.chat(**formatted_request)
 
         try:
             content = response.message.content.strip()

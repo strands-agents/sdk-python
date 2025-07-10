@@ -5,139 +5,14 @@ Tests for the function-based tool decorator pattern.
 from typing import Any, Dict, Optional, Union
 from unittest.mock import MagicMock
 
-import pytest
-
-import strands
+from strands.tools.decorator import tool
 from strands.types.tools import ToolUse
 
 
-@pytest.fixture(scope="module")
-def identity_invoke():
-    @strands.tool
-    def identity(a: int):
-        return a
-
-    return identity
-
-
-@pytest.fixture(scope="module")
-def identity_invoke_async():
-    @strands.tool
-    async def identity(a: int):
-        return a
-
-    return identity
-
-
-@pytest.fixture
-def identity_tool(request):
-    return request.getfixturevalue(request.param)
-
-
-def test__init__invalid_name():
-    with pytest.raises(ValueError, match="Tool name must be a string"):
-
-        @strands.tool(name=0)
-        def identity(a):
-            return a
-
-
-def test_tool_func_not_decorated():
-    def identity(a: int):
-        return a
-
-    tool = strands.tool(func=identity, name="identity")
-
-    tru_name = tool._tool_func.__name__
-    exp_name = "identity"
-
-    assert tru_name == exp_name
-
-
-@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
-def test_tool_name(identity_tool):
-    tru_name = identity_tool.tool_name
-    exp_name = "identity"
-
-    assert tru_name == exp_name
-
-
-@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
-def test_tool_spec(identity_tool):
-    tru_spec = identity_tool.tool_spec
-    exp_spec = {
-        "name": "identity",
-        "description": "identity",
-        "inputSchema": {
-            "json": {
-                "type": "object",
-                "properties": {
-                    "a": {
-                        "description": "Parameter a",
-                        "type": "integer",
-                    },
-                },
-                "required": ["a"],
-            }
-        },
-    }
-    assert tru_spec == exp_spec
-
-
-@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
-def test_tool_type(identity_tool):
-    tru_type = identity_tool.tool_type
-    exp_type = "function"
-
-    assert tru_type == exp_type
-
-
-@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
-def test_supports_hot_reload(identity_tool):
-    assert identity_tool.supports_hot_reload
-
-
-@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
-def test_get_display_properties(identity_tool):
-    tru_properties = identity_tool.get_display_properties()
-    exp_properties = {
-        "Function": "identity",
-        "Name": "identity",
-        "Type": "function",
-    }
-
-    assert tru_properties == exp_properties
-
-
-@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
-@pytest.mark.asyncio
-async def test_stream(identity_tool, alist):
-    stream = identity_tool.stream({"toolUseId": "t1", "input": {"a": 2}}, {})
-
-    tru_events = await alist(stream)
-    exp_events = [{"toolUseId": "t1", "status": "success", "content": [{"text": "2"}]}]
-
-    assert tru_events == exp_events
-
-
-@pytest.mark.asyncio
-async def test_stream_with_agent(alist):
-    @strands.tool
-    def identity(a: int, agent: dict = None):
-        return a, agent
-
-    stream = identity.stream({"input": {"a": 2}}, {"agent": {"state": 1}})
-
-    tru_events = await alist(stream)
-    exp_events = [{"toolUseId": "unknown", "status": "success", "content": [{"text": "(2, {'state': 1})"}]}]
-    assert tru_events == exp_events
-
-
-@pytest.mark.asyncio
-async def test_basic_tool_creation(alist):
+def test_basic_tool_creation():
     """Test basic tool decorator functionality."""
 
-    @strands.tool
+    @tool
     def test_tool(param1: str, param2: int) -> str:
         """Test tool function.
 
@@ -175,21 +50,20 @@ Args:
 
     # Test actual usage
     tool_use = {"toolUseId": "test-id", "input": {"param1": "hello", "param2": 42}}
-    stream = test_tool.stream(tool_use, {})
-
-    tru_events = await alist(stream)
-    exp_events = [{"toolUseId": "test-id", "status": "success", "content": [{"text": "Result: hello 42"}]}]
-    assert tru_events == exp_events
+    result = test_tool.invoke(tool_use)
+    assert result["toolUseId"] == "test-id"
+    assert result["status"] == "success"
+    assert result["content"][0]["text"] == "Result: hello 42"
 
     # Make sure these are set properly
     assert test_tool.__wrapped__ is not None
-    assert test_tool.__doc__ == test_tool._tool_func.__doc__
+    assert test_tool.__doc__ == test_tool.original_function.__doc__
 
 
 def test_tool_with_custom_name_description():
     """Test tool decorator with custom name and description."""
 
-    @strands.tool(name="custom_name", description="Custom description")
+    @tool(name="custom_name", description="Custom description")
     def test_tool(param: str) -> str:
         return f"Result: {param}"
 
@@ -199,11 +73,10 @@ def test_tool_with_custom_name_description():
     assert spec["description"] == "Custom description"
 
 
-@pytest.mark.asyncio
-async def test_tool_with_optional_params(alist):
+def test_tool_with_optional_params():
     """Test tool decorator with optional parameters."""
 
-    @strands.tool
+    @tool
     def test_tool(required: str, optional: Optional[int] = None) -> str:
         """Test with optional param.
 
@@ -224,25 +97,23 @@ async def test_tool_with_optional_params(alist):
 
     # Test with only required param
     tool_use = {"toolUseId": "test-id", "input": {"required": "hello"}}
-    stream = test_tool.stream(tool_use, {})
 
-    tru_events = await alist(stream)
-    exp_events = [{"toolUseId": "test-id", "status": "success", "content": [{"text": "Result: hello"}]}]
-    assert tru_events == exp_events
+    result = test_tool.invoke(tool_use)
+    assert result["status"] == "success"
+    assert result["content"][0]["text"] == "Result: hello"
 
     # Test with both params
     tool_use = {"toolUseId": "test-id", "input": {"required": "hello", "optional": 42}}
-    stream = test_tool.stream(tool_use, {})
 
-    tru_events = await alist(stream)
-    exp_events = [{"toolUseId": "test-id", "status": "success", "content": [{"text": "Result: hello 42"}]}]
+    result = test_tool.invoke(tool_use)
+    assert result["status"] == "success"
+    assert result["content"][0]["text"] == "Result: hello 42"
 
 
-@pytest.mark.asyncio
-async def test_tool_error_handling(alist):
+def test_tool_error_handling():
     """Test error handling in tool decorator."""
 
-    @strands.tool
+    @tool
     def test_tool(required: str) -> str:
         """Test tool function."""
         if required == "error":
@@ -251,9 +122,8 @@ async def test_tool_error_handling(alist):
 
     # Test with missing required param
     tool_use = {"toolUseId": "test-id", "input": {}}
-    stream = test_tool.stream(tool_use, {})
 
-    result = (await alist(stream))[-1]
+    result = test_tool.invoke(tool_use)
     assert result["status"] == "error"
     assert "validation error for test_tooltool\nrequired\n" in result["content"][0]["text"].lower(), (
         "Validation error should indicate which argument is missing"
@@ -261,9 +131,8 @@ async def test_tool_error_handling(alist):
 
     # Test with exception in tool function
     tool_use = {"toolUseId": "test-id", "input": {"required": "error"}}
-    stream = test_tool.stream(tool_use, {})
 
-    result = (await alist(stream))[-1]
+    result = test_tool.invoke(tool_use)
     assert result["status"] == "error"
     assert "test error" in result["content"][0]["text"].lower(), (
         "Runtime error should contain the original error message"
@@ -273,7 +142,7 @@ async def test_tool_error_handling(alist):
 def test_type_handling():
     """Test handling of basic parameter types."""
 
-    @strands.tool
+    @tool
     def test_tool(
         str_param: str,
         int_param: int,
@@ -293,12 +162,11 @@ def test_type_handling():
     assert props["bool_param"]["type"] == "boolean"
 
 
-@pytest.mark.asyncio
-async def test_agent_parameter_passing(alist):
+def test_agent_parameter_passing():
     """Test passing agent parameter to tool function."""
     mock_agent = MagicMock()
 
-    @strands.tool
+    @tool
     def test_tool(param: str, agent=None) -> str:
         """Test tool with agent parameter."""
         if agent:
@@ -308,74 +176,85 @@ async def test_agent_parameter_passing(alist):
     tool_use = {"toolUseId": "test-id", "input": {"param": "test"}}
 
     # Test without agent
-    stream = test_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = test_tool.invoke(tool_use)
     assert result["content"][0]["text"] == "Param: test"
 
     # Test with agent
-    stream = test_tool.stream(tool_use, {"agent": mock_agent})
-
-    result = (await alist(stream))[-1]
+    result = test_tool.invoke(tool_use, agent=mock_agent)
     assert "Agent:" in result["content"][0]["text"]
     assert "test" in result["content"][0]["text"]
 
 
-@pytest.mark.asyncio
-async def test_tool_decorator_with_different_return_values(alist):
+def test_agent_backwards_compatability_parameter_passing():
+    """Test passing agent parameter to tool function."""
+    mock_agent = MagicMock()
+
+    @tool
+    def test_tool(param: str, agent=None) -> str:
+        """Test tool with agent parameter."""
+        if agent:
+            return f"Agent: {agent}, Param: {param}"
+        return f"Param: {param}"
+
+    tool_use = {"toolUseId": "test-id", "input": {"param": "test"}}
+
+    # Test without agent
+    result = test_tool(tool_use)
+    assert result["content"][0]["text"] == "Param: test"
+
+    # Test with agent
+    result = test_tool(tool_use, agent=mock_agent)
+    assert "Agent:" in result["content"][0]["text"]
+    assert "test" in result["content"][0]["text"]
+
+
+def test_tool_decorator_with_different_return_values():
     """Test tool decorator with different return value types."""
 
     # Test with dict return that follows ToolResult format
-    @strands.tool
+    @tool
     def dict_return_tool(param: str) -> dict:
         """Test tool that returns a dict in ToolResult format."""
         return {"status": "success", "content": [{"text": f"Result: {param}"}]}
 
     # Test with non-dict return
-    @strands.tool
+    @tool
     def string_return_tool(param: str) -> str:
         """Test tool that returns a string."""
         return f"Result: {param}"
 
     # Test with None return
-    @strands.tool
+    @tool
     def none_return_tool(param: str) -> None:
         """Test tool that returns None."""
         pass
 
     # Test the dict return - should preserve dict format but add toolUseId
     tool_use: ToolUse = {"toolUseId": "test-id", "input": {"param": "test"}}
-    stream = dict_return_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = dict_return_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "Result: test"
     assert result["toolUseId"] == "test-id"
 
     # Test the string return - should wrap in standard format
-    stream = string_return_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = string_return_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "Result: test"
 
     # Test None return - should still create valid ToolResult with "None" text
-    stream = none_return_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = none_return_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "None"
 
 
-@pytest.mark.asyncio
-async def test_class_method_handling(alist):
+def test_class_method_handling():
     """Test handling of class methods with tool decorator."""
 
     class TestClass:
         def __init__(self, prefix):
             self.prefix = prefix
 
-        @strands.tool
+        @tool
         def test_method(self, param: str) -> str:
             """Test method.
 
@@ -398,15 +277,12 @@ async def test_class_method_handling(alist):
 
     # Test tool-style call
     tool_use = {"toolUseId": "test-id", "input": {"param": "tool-value"}}
-    stream = instance.test_method.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = instance.test_method.invoke(tool_use)
     assert "Test: tool-value" in result["content"][0]["text"]
 
 
-@pytest.mark.asyncio
-async def test_tool_as_adhoc_field(alist):
-    @strands.tool
+def test_tool_as_adhoc_field():
+    @tool
     def test_method(param: str) -> str:
         return f"param: {param}"
 
@@ -418,18 +294,16 @@ async def test_tool_as_adhoc_field(alist):
     result = instance.field("example")
     assert result == "param: example"
 
-    stream = instance.field.stream({"toolUseId": "test-id", "input": {"param": "example"}}, {})
-    result2 = (await alist(stream))[-1]
+    result2 = instance.field.invoke({"toolUseId": "test-id", "input": {"param": "example"}})
     assert result2 == {"content": [{"text": "param: example"}], "status": "success", "toolUseId": "test-id"}
 
 
-@pytest.mark.asyncio
-async def test_tool_as_instance_field(alist):
+def test_tool_as_instance_field():
     """Make sure that class instance properties operate correctly."""
 
     class MyThing:
         def __init__(self):
-            @strands.tool
+            @tool
             def test_method(param: str) -> str:
                 return f"param: {param}"
 
@@ -440,16 +314,14 @@ async def test_tool_as_instance_field(alist):
     result = instance.field("example")
     assert result == "param: example"
 
-    stream = instance.field.stream({"toolUseId": "test-id", "input": {"param": "example"}}, {})
-    result2 = (await alist(stream))[-1]
+    result2 = instance.field.invoke({"toolUseId": "test-id", "input": {"param": "example"}})
     assert result2 == {"content": [{"text": "param: example"}], "status": "success", "toolUseId": "test-id"}
 
 
-@pytest.mark.asyncio
-async def test_default_parameter_handling(alist):
+def test_default_parameter_handling():
     """Test handling of parameters with default values."""
 
-    @strands.tool
+    @tool
     def tool_with_defaults(required: str, optional: str = "default", number: int = 42) -> str:
         """Test tool with multiple default parameters.
 
@@ -469,46 +341,38 @@ async def test_default_parameter_handling(alist):
 
     # Call with just required parameter
     tool_use = {"toolUseId": "test-id", "input": {"required": "hello"}}
-    stream = tool_with_defaults.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = tool_with_defaults.invoke(tool_use)
     assert result["content"][0]["text"] == "hello default 42"
 
     # Call with some but not all optional parameters
     tool_use = {"toolUseId": "test-id", "input": {"required": "hello", "number": 100}}
-    stream = tool_with_defaults.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = tool_with_defaults.invoke(tool_use)
     assert result["content"][0]["text"] == "hello default 100"
 
 
-@pytest.mark.asyncio
-async def test_empty_tool_use_handling(alist):
+def test_empty_tool_use_handling():
     """Test handling of empty tool use dictionaries."""
 
-    @strands.tool
+    @tool
     def test_tool(required: str) -> str:
         """Test with a required parameter."""
         return f"Got: {required}"
 
     # Test with completely empty tool use
-    stream = test_tool.stream({}, {})
-    result = (await alist(stream))[-1]
+    result = test_tool.invoke({})
     assert result["status"] == "error"
     assert "unknown" in result["toolUseId"]
 
     # Test with missing input
-    stream = test_tool.stream({"toolUseId": "test-id"}, {})
-    result = (await alist(stream))[-1]
+    result = test_tool.invoke({"toolUseId": "test-id"})
     assert result["status"] == "error"
     assert "test-id" in result["toolUseId"]
 
 
-@pytest.mark.asyncio
-async def test_traditional_function_call(alist):
+def test_traditional_function_call():
     """Test that decorated functions can still be called normally."""
 
-    @strands.tool
+    @tool
     def add_numbers(a: int, b: int) -> int:
         """Add two numbers.
 
@@ -524,18 +388,15 @@ async def test_traditional_function_call(alist):
 
     # Call through tool interface
     tool_use = {"toolUseId": "test-id", "input": {"a": 2, "b": 3}}
-    stream = add_numbers.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = add_numbers.invoke(tool_use)
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "5"
 
 
-@pytest.mark.asyncio
-async def test_multiple_default_parameters(alist):
+def test_multiple_default_parameters():
     """Test handling of multiple parameters with default values."""
 
-    @strands.tool
+    @tool
     def multi_default_tool(
         required_param: str,
         optional_str: str = "default_str",
@@ -560,9 +421,7 @@ async def test_multiple_default_parameters(alist):
 
     # Test calling with only required parameter
     tool_use = {"toolUseId": "test-id", "input": {"required_param": "hello"}}
-    stream = multi_default_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = multi_default_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert "hello, default_str, 42, True, 3.14" in result["content"][0]["text"]
 
@@ -571,18 +430,15 @@ async def test_multiple_default_parameters(alist):
         "toolUseId": "test-id",
         "input": {"required_param": "hello", "optional_int": 100, "optional_float": 2.718},
     }
-    stream = multi_default_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = multi_default_tool.invoke(tool_use)
     assert "hello, default_str, 100, True, 2.718" in result["content"][0]["text"]
 
 
-@pytest.mark.asyncio
-async def test_return_type_validation(alist):
+def test_return_type_validation():
     """Test that return types are properly handled and validated."""
 
     # Define tool with explicitly typed return
-    @strands.tool
+    @tool
     def int_return_tool(param: str) -> int:
         """Tool that returns an integer.
 
@@ -598,9 +454,7 @@ async def test_return_type_validation(alist):
 
     # Test with return that matches declared type
     tool_use = {"toolUseId": "test-id", "input": {"param": "valid"}}
-    stream = int_return_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = int_return_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "42"
 
@@ -608,22 +462,18 @@ async def test_return_type_validation(alist):
     # Note: This should still work because Python doesn't enforce return types at runtime
     # but the function will return a string instead of an int
     tool_use = {"toolUseId": "test-id", "input": {"param": "invalid_type"}}
-    stream = int_return_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = int_return_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "not an int"
 
     # Test with None return from a non-None return type
     tool_use = {"toolUseId": "test-id", "input": {"param": "none"}}
-    stream = int_return_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = int_return_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "None"
 
     # Define tool with Union return type
-    @strands.tool
+    @tool
     def union_return_tool(param: str) -> Union[Dict[str, Any], str, None]:
         """Tool with Union return type.
 
@@ -639,32 +489,25 @@ async def test_return_type_validation(alist):
 
     # Test with each possible return type in the Union
     tool_use = {"toolUseId": "test-id", "input": {"param": "dict"}}
-    stream = union_return_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = union_return_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert "{'key': 'value'}" in result["content"][0]["text"] or '{"key": "value"}' in result["content"][0]["text"]
 
     tool_use = {"toolUseId": "test-id", "input": {"param": "str"}}
-    stream = union_return_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = union_return_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "string result"
 
     tool_use = {"toolUseId": "test-id", "input": {"param": "none"}}
-    stream = union_return_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = union_return_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "None"
 
 
-@pytest.mark.asyncio
-async def test_tool_with_no_parameters(alist):
+def test_tool_with_no_parameters():
     """Test a tool that doesn't require any parameters."""
 
-    @strands.tool
+    @tool
     def no_params_tool() -> str:
         """A tool that doesn't need any parameters."""
         return "Success - no parameters needed"
@@ -677,9 +520,7 @@ async def test_tool_with_no_parameters(alist):
 
     # Test tool use call
     tool_use = {"toolUseId": "test-id", "input": {}}
-    stream = no_params_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = no_params_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "Success - no parameters needed"
 
@@ -688,11 +529,10 @@ async def test_tool_with_no_parameters(alist):
     assert direct_result == "Success - no parameters needed"
 
 
-@pytest.mark.asyncio
-async def test_complex_parameter_types(alist):
+def test_complex_parameter_types():
     """Test handling of complex parameter types like nested dictionaries."""
 
-    @strands.tool
+    @tool
     def complex_type_tool(config: Dict[str, Any]) -> str:
         """Tool with complex parameter type.
 
@@ -706,9 +546,7 @@ async def test_complex_parameter_types(alist):
 
     # Call via tool use
     tool_use = {"toolUseId": "test-id", "input": {"config": nested_dict}}
-    stream = complex_type_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = complex_type_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert "Got config with 3 keys" in result["content"][0]["text"]
 
@@ -717,11 +555,10 @@ async def test_complex_parameter_types(alist):
     assert direct_result == "Got config with 3 keys"
 
 
-@pytest.mark.asyncio
-async def test_custom_tool_result_handling(alist):
+def test_custom_tool_result_handling():
     """Test that a function returning a properly formatted tool result dictionary is handled correctly."""
 
-    @strands.tool
+    @tool
     def custom_result_tool(param: str) -> Dict[str, Any]:
         """Tool that returns a custom tool result dictionary.
 
@@ -736,10 +573,9 @@ async def test_custom_tool_result_handling(alist):
 
     # Test via tool use
     tool_use = {"toolUseId": "custom-id", "input": {"param": "test"}}
-    stream = custom_result_tool.stream(tool_use, {})
+    result = custom_result_tool.invoke(tool_use)
 
     # The wrapper should preserve our format and just add the toolUseId
-    result = (await alist(stream))[-1]
     assert result["status"] == "success"
     assert result["toolUseId"] == "custom-id"
     assert len(result["content"]) == 2
@@ -751,7 +587,7 @@ async def test_custom_tool_result_handling(alist):
 def test_docstring_parsing():
     """Test that function docstring is correctly parsed into tool spec."""
 
-    @strands.tool
+    @tool
     def documented_tool(param1: str, param2: int = 10) -> str:
         """This is the summary line.
 
@@ -787,11 +623,10 @@ def test_docstring_parsing():
     assert "param2" not in schema["required"]
 
 
-@pytest.mark.asyncio
-async def test_detailed_validation_errors(alist):
+def test_detailed_validation_errors():
     """Test detailed error messages for various validation failures."""
 
-    @strands.tool
+    @tool
     def validation_tool(str_param: str, int_param: int, bool_param: bool) -> str:
         """Tool with various parameter types for validation testing.
 
@@ -811,9 +646,7 @@ async def test_detailed_validation_errors(alist):
             "bool_param": True,
         },
     }
-    stream = validation_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = validation_tool.invoke(tool_use)
     assert result["status"] == "error"
     assert "int_param" in result["content"][0]["text"]
 
@@ -826,20 +659,17 @@ async def test_detailed_validation_errors(alist):
             "bool_param": True,
         },
     }
-    stream = validation_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = validation_tool.invoke(tool_use)
     assert result["status"] == "error"
     assert "int_param" in result["content"][0]["text"]
 
 
-@pytest.mark.asyncio
-async def test_tool_complex_validation_edge_cases(alist):
+def test_tool_complex_validation_edge_cases():
     """Test validation of complex schema edge cases."""
     from typing import Any, Dict, Union
 
     # Define a tool with a complex anyOf type that could trigger edge case handling
-    @strands.tool
+    @tool
     def edge_case_tool(param: Union[Dict[str, Any], None]) -> str:
         """Tool with complex anyOf structure.
 
@@ -850,38 +680,31 @@ async def test_tool_complex_validation_edge_cases(alist):
 
     # Test with None value
     tool_use = {"toolUseId": "test-id", "input": {"param": None}}
-    stream = edge_case_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = edge_case_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "None"
 
     # Test with empty dict
     tool_use = {"toolUseId": "test-id", "input": {"param": {}}}
-    stream = edge_case_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = edge_case_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert result["content"][0]["text"] == "{}"
 
     # Test with a complex nested dictionary
     nested_dict = {"key1": {"nested": [1, 2, 3]}, "key2": None}
     tool_use = {"toolUseId": "test-id", "input": {"param": nested_dict}}
-    stream = edge_case_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = edge_case_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert "key1" in result["content"][0]["text"]
     assert "nested" in result["content"][0]["text"]
 
 
-@pytest.mark.asyncio
-async def test_tool_method_detection_errors(alist):
+def test_tool_method_detection_errors():
     """Test edge cases in method detection logic."""
 
     # Define a class with a decorated method to test exception handling in method detection
     class TestClass:
-        @strands.tool
+        @tool
         def test_method(self, param: str) -> str:
             """Test method that should be called properly despite errors.
 
@@ -917,14 +740,12 @@ async def test_tool_method_detection_errors(alist):
     assert instance.test_method("test") == "Method Got: test"
 
     # Test direct function call
-    stream = instance.test_method.stream({"toolUseId": "test-id", "input": {"param": "direct"}}, {})
-
-    direct_result = (await alist(stream))[-1]
+    direct_result = instance.test_method.invoke({"toolUseId": "test-id", "input": {"param": "direct"}})
     assert direct_result["status"] == "success"
     assert direct_result["content"][0]["text"] == "Method Got: direct"
 
     # Create a standalone function to test regular function calls
-    @strands.tool
+    @tool
     def standalone_tool(p1: str, p2: str = "default") -> str:
         """Standalone tool for testing.
 
@@ -939,18 +760,15 @@ async def test_tool_method_detection_errors(alist):
     assert result == "Standalone: param1, param2"
 
     # And that it works with tool use call too
-    stream = standalone_tool.stream({"toolUseId": "test-id", "input": {"p1": "value1"}}, {})
-
-    tool_use_result = (await alist(stream))[-1]
+    tool_use_result = standalone_tool.invoke({"toolUseId": "test-id", "input": {"p1": "value1"}})
     assert tool_use_result["status"] == "success"
     assert tool_use_result["content"][0]["text"] == "Standalone: value1, default"
 
 
-@pytest.mark.asyncio
-async def test_tool_general_exception_handling(alist):
+def test_tool_general_exception_handling():
     """Test handling of arbitrary exceptions in tool execution."""
 
-    @strands.tool
+    @tool
     def failing_tool(param: str) -> str:
         """Tool that raises different exception types.
 
@@ -971,9 +789,7 @@ async def test_tool_general_exception_handling(alist):
     error_types = ["value_error", "type_error", "attribute_error", "key_error"]
     for error_type in error_types:
         tool_use = {"toolUseId": "test-id", "input": {"param": error_type}}
-        stream = failing_tool.stream(tool_use, {})
-
-        result = (await alist(stream))[-1]
+        result = failing_tool.invoke(tool_use)
         assert result["status"] == "error"
 
         error_message = result["content"][0]["text"]
@@ -990,12 +806,11 @@ async def test_tool_general_exception_handling(alist):
             assert "key_name" in error_message
 
 
-@pytest.mark.asyncio
-async def test_tool_with_complex_anyof_schema(alist):
+def test_tool_with_complex_anyof_schema():
     """Test handling of complex anyOf structures in the schema."""
     from typing import Any, Dict, List, Union
 
-    @strands.tool
+    @tool
     def complex_schema_tool(union_param: Union[List[int], Dict[str, Any], str, None]) -> str:
         """Tool with a complex Union type that creates anyOf in schema.
 
@@ -1006,33 +821,25 @@ async def test_tool_with_complex_anyof_schema(alist):
 
     # Test with a list
     tool_use = {"toolUseId": "test-id", "input": {"union_param": [1, 2, 3]}}
-    stream = complex_schema_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = complex_schema_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert "list: [1, 2, 3]" in result["content"][0]["text"]
 
     # Test with a dict
     tool_use = {"toolUseId": "test-id", "input": {"union_param": {"key": "value"}}}
-    stream = complex_schema_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = complex_schema_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert "dict:" in result["content"][0]["text"]
     assert "key" in result["content"][0]["text"]
 
     # Test with a string
     tool_use = {"toolUseId": "test-id", "input": {"union_param": "test_string"}}
-    stream = complex_schema_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = complex_schema_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert "str: test_string" in result["content"][0]["text"]
 
     # Test with None
     tool_use = {"toolUseId": "test-id", "input": {"union_param": None}}
-    stream = complex_schema_tool.stream(tool_use, {})
-
-    result = (await alist(stream))[-1]
+    result = complex_schema_tool.invoke(tool_use)
     assert result["status"] == "success"
     assert "NoneType: None" in result["content"][0]["text"]

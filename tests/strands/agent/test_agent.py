@@ -180,7 +180,7 @@ def test_agent__init__tool_loader_format(tool_decorated, tool_module, tool_impor
 
     agent = Agent(tools=[tool_decorated, tool_module, tool_imported])
 
-    tru_tool_names = sorted(tool_spec["name"] for tool_spec in agent.tool_registry.get_all_tool_specs())
+    tru_tool_names = sorted(tool_spec["toolSpec"]["name"] for tool_spec in agent.tool_config["tools"])
     exp_tool_names = ["tool_decorated", "tool_imported", "tool_module"]
 
     assert tru_tool_names == exp_tool_names
@@ -191,10 +191,23 @@ def test_agent__init__tool_loader_dict(tool_module, tool_registry):
 
     agent = Agent(tools=[{"name": "tool_module", "path": tool_module}])
 
-    tru_tool_names = sorted(tool_spec["name"] for tool_spec in agent.tool_registry.get_all_tool_specs())
+    tru_tool_names = sorted(tool_spec["toolSpec"]["name"] for tool_spec in agent.tool_config["tools"])
     exp_tool_names = ["tool_module"]
 
     assert tru_tool_names == exp_tool_names
+
+
+def test_agent__init__invalid_max_parallel_tools(tool_registry):
+    _ = tool_registry
+
+    with pytest.raises(ValueError):
+        Agent(max_parallel_tools=0)
+
+
+def test_agent__init__one_max_parallel_tools_succeeds(tool_registry):
+    _ = tool_registry
+
+    Agent(max_parallel_tools=1)
 
 
 def test_agent__init__with_default_model():
@@ -759,24 +772,6 @@ def test_agent_tool(mock_randint, agent):
     conversation_manager_spy.apply_management.assert_called_with(agent)
 
 
-@pytest.mark.asyncio
-async def test_agent_tool_in_async_context(mock_randint, agent):
-    mock_randint.return_value = 123
-
-    tru_result = agent.tool.tool_decorated(random_string="abcdEfghI123")
-    exp_result = {
-        "content": [
-            {
-                "text": "abcdEfghI123",
-            },
-        ],
-        "status": "success",
-        "toolUseId": "tooluse_tool_decorated_123",
-    }
-
-    assert tru_result == exp_result
-
-
 def test_agent_tool_user_message_override(agent):
     agent.tool.tool_decorated(random_string="abcdEfghI123", user_message_override="test override")
 
@@ -843,8 +838,8 @@ def test_agent_init_with_no_model_or_model_id():
     assert agent.model.get_config().get("model_id") == DEFAULT_BEDROCK_MODEL_ID
 
 
-def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint, mock_run_tool, agenerator):
-    mock_run_tool.return_value = agenerator([{}])
+def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint, mock_run_tool):
+    mock_run_tool.return_value = iter([])
 
     @strands.tools.tool(name="system_prompter")
     def function(system_prompt: str) -> str:
@@ -857,18 +852,18 @@ def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint, mo
     agent.tool.system_prompter(system_prompt="tool prompt")
 
     mock_run_tool.assert_called_with(
-        agent,
-        {
+        agent=agent,
+        tool={
             "toolUseId": "tooluse_system_prompter_1",
             "name": "system_prompter",
             "input": {"system_prompt": "tool prompt"},
         },
-        {"system_prompt": "tool prompt"},
+        kwargs={"system_prompt": "tool prompt"},
     )
 
 
-def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint, mock_run_tool, agenerator):
-    mock_run_tool.return_value = agenerator([{}])
+def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint, mock_run_tool):
+    mock_run_tool.return_value = iter([])
 
     tool_name = "system-prompter"
 
@@ -884,15 +879,15 @@ def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint, 
 
     # Verify the correct tool was invoked
     assert mock_run_tool.call_count == 1
-    tru_tool_use = mock_run_tool.call_args.args[1]
-    exp_tool_use = {
+    tool_call = mock_run_tool.call_args.kwargs.get("tool")
+
+    assert tool_call == {
         # Note that the tool-use uses the "python safe" name
         "toolUseId": "tooluse_system_prompter_1",
         # But the name of the tool is the one in the registry
         "name": tool_name,
         "input": {"system_prompt": "tool prompt"},
     }
-    assert tru_tool_use == exp_tool_use
 
 
 def test_agent_tool_with_no_normalized_match(agent, tool_registry, mock_randint):
@@ -1020,39 +1015,6 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle, alist):
 
     exp_calls = [unittest.mock.call(**event) for event in exp_events]
     mock_callback.assert_has_calls(exp_calls)
-
-
-@pytest.mark.asyncio
-async def test_stream_async_multi_modal_input(mock_model, agent, agenerator, alist):
-    mock_model.mock_converse.return_value = agenerator(
-        [
-            {"contentBlockDelta": {"delta": {"text": "I see text and an image"}}},
-            {"contentBlockStop": {}},
-            {"messageStop": {"stopReason": "end_turn"}},
-        ]
-    )
-
-    prompt = [
-        {"text": "This is a description of the image:"},
-        {
-            "image": {
-                "format": "png",
-                "source": {
-                    "bytes": b"\x89PNG\r\n\x1a\n",
-                },
-            }
-        },
-    ]
-
-    stream = agent.stream_async(prompt)
-    await alist(stream)
-
-    tru_message = agent.messages
-    exp_message = [
-        {"content": prompt, "role": "user"},
-        {"content": [{"text": "I see text and an image"}], "role": "assistant"},
-    ]
-    assert tru_message == exp_message
 
 
 @pytest.mark.asyncio
@@ -1188,12 +1150,12 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
+        prompt="test prompt",
         agent_name="Strands Agents",
-        custom_trace_attributes=agent.trace_attributes,
-        message={"content": [{"text": "test prompt"}], "role": "user"},
         model_id=unittest.mock.ANY,
-        system_prompt=agent.system_prompt,
         tools=agent.tool_names,
+        system_prompt=agent.system_prompt,
+        custom_trace_attributes=agent.trace_attributes,
     )
 
     # Verify span was ended with the result
@@ -1222,12 +1184,12 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
-        custom_trace_attributes=agent.trace_attributes,
+        prompt="test prompt",
         agent_name="Strands Agents",
-        message={"content": [{"text": "test prompt"}], "role": "user"},
         model_id=unittest.mock.ANY,
-        system_prompt=agent.system_prompt,
         tools=agent.tool_names,
+        system_prompt=agent.system_prompt,
+        custom_trace_attributes=agent.trace_attributes,
     )
 
     expected_response = AgentResult(
@@ -1260,12 +1222,12 @@ def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_mod
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
-        custom_trace_attributes=agent.trace_attributes,
+        prompt="test prompt",
         agent_name="Strands Agents",
-        message={"content": [{"text": "test prompt"}], "role": "user"},
         model_id=unittest.mock.ANY,
-        system_prompt=agent.system_prompt,
         tools=agent.tool_names,
+        system_prompt=agent.system_prompt,
+        custom_trace_attributes=agent.trace_attributes,
     )
 
     # Verify span was ended with the exception
@@ -1296,12 +1258,12 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
+        prompt="test prompt",
         agent_name="Strands Agents",
-        custom_trace_attributes=agent.trace_attributes,
-        message={"content": [{"text": "test prompt"}], "role": "user"},
         model_id=unittest.mock.ANY,
-        system_prompt=agent.system_prompt,
         tools=agent.tool_names,
+        system_prompt=agent.system_prompt,
+        custom_trace_attributes=agent.trace_attributes,
     )
 
     # Verify span was ended with the exception

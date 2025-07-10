@@ -5,14 +5,12 @@ MCP (Model Context Protocol) tools and the agent framework's tool interface.
 It allows MCP tools to be seamlessly integrated and used within the agent ecosystem.
 """
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
 from mcp.types import Tool as MCPTool
-from typing_extensions import override
 
-from ...types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
+from ...types.tools import AgentTool, ToolResult, ToolSpec, ToolUse
 
 if TYPE_CHECKING:
     from .mcp_client import MCPClient
@@ -75,22 +73,13 @@ class MCPAgentTool(AgentTool):
         """
         return "python"
 
-    @override
-    async def stream(self, tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolGenerator:
-        """Stream the MCP tool.
+    def invoke(self, tool: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolResult:
+        """Invoke the MCP tool.
 
-        This method delegates the tool stream to the MCP server connection, passing the tool use ID, tool name, and
-        input arguments.
-
-        Yields:
-            Tool events with the last being the tool result.
+        This method delegates the tool invocation to the MCP server connection,
+        passing the tool use ID, tool name, and input arguments.
         """
-        logger.debug("tool_name=<%s>, tool_use_id=<%s> | streaming", self.tool_name, tool_use["toolUseId"])
-
-        result = await asyncio.to_thread(
-            self.mcp_client.call_tool_sync,
-            tool_use_id=tool_use["toolUseId"],
-            name=self.tool_name,
-            arguments=tool_use["input"],
+        logger.debug("invoking MCP tool '%s' with tool_use_id=%s", self.tool_name, tool["toolUseId"])
+        return self.mcp_client.call_tool_sync(
+            tool_use_id=tool["toolUseId"], name=self.tool_name, arguments=tool["input"]
         )
-        yield result

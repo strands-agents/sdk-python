@@ -8,7 +8,7 @@ import json
 import logging
 from typing import Any, AsyncGenerator, Iterable, Optional, Type, TypeVar, Union
 
-import mistralai
+from mistralai import Mistral
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
@@ -94,7 +94,7 @@ class MistralModel(Model):
         if api_key:
             client_args["api_key"] = api_key
 
-        self.client = mistralai.Mistral(**client_args)
+        self.client = Mistral(**client_args)
 
     @override
     def update_config(self, **model_config: Unpack[MistralConfig]) -> None:  # type: ignore
@@ -408,21 +408,21 @@ class MistralModel(Model):
         try:
             if not self.config.get("stream", True):
                 # Use non-streaming API
-                response = await self.client.chat.complete_async(**request)
+                response = self.client.chat.complete(**request)
                 for event in self._handle_non_streaming_response(response):
                     yield event
                 return
 
             # Use the streaming API
-            stream_response = await self.client.chat.stream_async(**request)
+            stream_response = self.client.chat.stream(**request)
 
             yield {"chunk_type": "message_start"}
 
             content_started = False
-            tool_calls: dict[str, list[Any]] = {}
+            current_tool_calls: dict[str, dict[str, str]] = {}
             accumulated_text = ""
 
-            async for chunk in stream_response:
+            for chunk in stream_response:
                 if hasattr(chunk, "data") and hasattr(chunk.data, "choices") and chunk.data.choices:
                     choice = chunk.data.choices[0]
 
@@ -440,23 +440,24 @@ class MistralModel(Model):
                         if hasattr(delta, "tool_calls") and delta.tool_calls:
                             for tool_call in delta.tool_calls:
                                 tool_id = tool_call.id
-                                tool_calls.setdefault(tool_id, []).append(tool_call)
+
+                                if tool_id not in current_tool_calls:
+                                    yield {"chunk_type": "content_start", "data_type": "tool", "data": tool_call}
+                                    current_tool_calls[tool_id] = {"name": tool_call.function.name, "arguments": ""}
+
+                                if hasattr(tool_call.function, "arguments"):
+                                    current_tool_calls[tool_id]["arguments"] += tool_call.function.arguments
+                                    yield {
+                                        "chunk_type": "content_delta",
+                                        "data_type": "tool",
+                                        "data": tool_call.function.arguments,
+                                    }
 
                     if hasattr(choice, "finish_reason") and choice.finish_reason:
                         if content_started:
                             yield {"chunk_type": "content_stop", "data_type": "text"}
 
-                        for tool_deltas in tool_calls.values():
-                            yield {"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]}
-
-                            for tool_delta in tool_deltas:
-                                if hasattr(tool_delta.function, "arguments"):
-                                    yield {
-                                        "chunk_type": "content_delta",
-                                        "data_type": "tool",
-                                        "data": tool_delta.function.arguments,
-                                    }
-
+                        for _ in current_tool_calls:
                             yield {"chunk_type": "content_stop", "data_type": "tool"}
 
                         yield {"chunk_type": "message_stop", "data": choice.finish_reason}
@@ -498,7 +499,7 @@ class MistralModel(Model):
         formatted_request["tool_choice"] = "any"
         formatted_request["parallel_tool_calls"] = False
 
-        response = await self.client.chat.complete_async(**formatted_request)
+        response = self.client.chat.complete(**formatted_request)
 
         if response.choices and response.choices[0].message.tool_calls:
             tool_call = response.choices[0].message.tool_calls[0]
