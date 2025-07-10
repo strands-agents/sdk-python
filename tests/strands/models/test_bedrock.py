@@ -406,21 +406,6 @@ def test_format_chunk(model):
 
 
 @pytest.mark.asyncio
-async def test_stream(bedrock_client, model, messages, alist):
-    bedrock_client.converse_stream.return_value = {"stream": ["e1", "e2"]}
-
-    response = model.stream(messages)
-
-    tru_events = await alist(response)
-    exp_events = ["e1", "e2"]
-
-    assert tru_events == exp_events
-    bedrock_client.converse_stream.assert_called_once_with(
-        modelId="m1", messages=messages, system=[], inferenceConfig={}
-    )
-
-
-@pytest.mark.asyncio
 async def test_stream_throttling_exception_from_event_stream_error(bedrock_client, model, messages, alist):
     error_message = "Rate exceeded"
     bedrock_client.converse_stream.side_effect = EventStreamError(
@@ -467,7 +452,7 @@ async def test_general_exception_is_raised(bedrock_client, model, messages, alis
 
 
 @pytest.mark.asyncio
-async def test_converse(bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist):
+async def test_stream(bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist):
     bedrock_client.converse_stream.return_value = {"stream": ["e1", "e2"]}
 
     request = {
@@ -493,7 +478,7 @@ async def test_converse(bedrock_client, model, messages, tool_spec, model_id, ad
 
 
 @pytest.mark.asyncio
-async def test_converse_stream_input_guardrails(
+async def test_stream_stream_input_guardrails(
     bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
 ):
     metadata_event = {
@@ -547,7 +532,7 @@ async def test_converse_stream_input_guardrails(
 
 
 @pytest.mark.asyncio
-async def test_converse_stream_output_guardrails(
+async def test_stream_stream_output_guardrails(
     bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
 ):
     model.update_config(guardrail_redact_input=False, guardrail_redact_output=True)
@@ -604,7 +589,7 @@ async def test_converse_stream_output_guardrails(
 
 
 @pytest.mark.asyncio
-async def test_converse_output_guardrails_redacts_input_and_output(
+async def test_stream_output_guardrails_redacts_input_and_output(
     bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
 ):
     model.update_config(guardrail_redact_output=True)
@@ -662,7 +647,7 @@ async def test_converse_output_guardrails_redacts_input_and_output(
 
 
 @pytest.mark.asyncio
-async def test_converse_output_no_blocked_guardrails_doesnt_redact(
+async def test_stream_output_no_blocked_guardrails_doesnt_redact(
     bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
 ):
     metadata_event = {
@@ -715,7 +700,7 @@ async def test_converse_output_no_blocked_guardrails_doesnt_redact(
 
 
 @pytest.mark.asyncio
-async def test_converse_output_no_guardrail_redact(
+async def test_stream_output_no_guardrail_redact(
     bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
 ):
     metadata_event = {
@@ -869,7 +854,7 @@ async def test_stream_with_streaming_false_and_reasoning(bedrock_client, alist):
 
 
 @pytest.mark.asyncio
-async def test_converse_and_reasoning_no_signature(bedrock_client, alist):
+async def test_stream_and_reasoning_no_signature(bedrock_client, alist):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {
@@ -941,7 +926,7 @@ async def test_stream_with_streaming_false_with_metrics_and_usage(bedrock_client
 
 
 @pytest.mark.asyncio
-async def test_converse_input_guardrails(bedrock_client, alist):
+async def test_stream_input_guardrails(bedrock_client, alist):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
@@ -992,7 +977,7 @@ async def test_converse_input_guardrails(bedrock_client, alist):
 
 
 @pytest.mark.asyncio
-async def test_converse_output_guardrails(bedrock_client, alist):
+async def test_stream_output_guardrails(bedrock_client, alist):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
@@ -1046,7 +1031,7 @@ async def test_converse_output_guardrails(bedrock_client, alist):
 
 
 @pytest.mark.asyncio
-async def test_converse_output_guardrails_redacts_output(bedrock_client, alist):
+async def test_stream_output_guardrails_redacts_output(bedrock_client, alist):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},

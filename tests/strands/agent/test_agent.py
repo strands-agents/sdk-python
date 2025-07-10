@@ -27,11 +27,8 @@ def mock_randint():
 
 @pytest.fixture
 def mock_model(request):
-    def converse(*args, **kwargs):
-        return mock.mock_converse(*copy.deepcopy(args), **copy.deepcopy(kwargs))
-
     async def stream(*args, **kwargs):
-        result = mock.mock_converse(*copy.deepcopy(args), **copy.deepcopy(kwargs))
+        result = mock.mock_stream(*copy.deepcopy(args), **copy.deepcopy(kwargs))
         # If result is already an async generator, yield from it
         if hasattr(result, "__aiter__"):
             async for item in result:
@@ -42,8 +39,7 @@ def mock_model(request):
                 yield item
 
     mock = unittest.mock.Mock(spec=getattr(request, "param", None))
-    mock.configure_mock(mock_converse=unittest.mock.MagicMock())
-    mock.converse.side_effect = converse
+    mock.configure_mock(mock_stream=unittest.mock.MagicMock())
     mock.stream.side_effect = stream
 
     return mock
@@ -253,7 +249,7 @@ def test_agent__call__(
     conversation_manager_spy = unittest.mock.Mock(wraps=agent.conversation_manager)
     agent.conversation_manager = conversation_manager_spy
 
-    mock_model.mock_converse.side_effect = [
+    mock_model.mock_stream.side_effect = [
         agenerator(
             [
                 {
@@ -294,7 +290,7 @@ def test_agent__call__(
 
     assert tru_result == exp_result
 
-    mock_model.mock_converse.assert_has_calls(
+    mock_model.mock_stream.assert_has_calls(
         [
             unittest.mock.call(
                 [
@@ -352,7 +348,7 @@ def test_agent__call__(
 
 
 def test_agent__call__passes_kwargs(mock_model, agent, tool, mock_event_loop_cycle, agenerator):
-    mock_model.mock_converse.side_effect = [
+    mock_model.mock_stream.side_effect = [
         agenerator(
             [
                 {
@@ -428,7 +424,7 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
     ]
     agent.messages = messages
 
-    mock_model.mock_converse.side_effect = [
+    mock_model.mock_stream.side_effect = [
         ContextWindowOverflowException(RuntimeError("Input is too long for requested model")),
         agenerator(
             [
@@ -458,7 +454,7 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
         },
     ]
 
-    mock_model.mock_converse.assert_called_with(
+    mock_model.mock_stream.assert_called_with(
         expected_messages,
         unittest.mock.ANY,
         unittest.mock.ANY,
@@ -483,7 +479,7 @@ def test_agent__call__always_sliding_window_conversation_manager_doesnt_infinite
     ] * 1000
     agent.messages = messages
 
-    mock_model.mock_converse.side_effect = ContextWindowOverflowException(
+    mock_model.mock_stream.side_effect = ContextWindowOverflowException(
         RuntimeError("Input is too long for requested model")
     )
 
@@ -507,7 +503,7 @@ def test_agent__call__null_conversation_window_manager__doesnt_infinite_loop(moc
     ] * 1000
     agent.messages = messages
 
-    mock_model.mock_converse.side_effect = ContextWindowOverflowException(
+    mock_model.mock_stream.side_effect = ContextWindowOverflowException(
         RuntimeError("Input is too long for requested model")
     )
 
@@ -531,7 +527,7 @@ def test_agent__call__tool_truncation_doesnt_infinite_loop(mock_model, agent):
     ]
     agent.messages = messages
 
-    mock_model.mock_converse.side_effect = ContextWindowOverflowException(
+    mock_model.mock_stream.side_effect = ContextWindowOverflowException(
         RuntimeError("Input is too long for requested model")
     )
 
@@ -552,7 +548,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
     ]
     agent.messages = messages
 
-    mock_model.mock_converse.side_effect = [
+    mock_model.mock_stream.side_effect = [
         agenerator(
             [
                 {
@@ -601,7 +597,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
         },
     ]
 
-    mock_model.mock_converse.assert_called_with(
+    mock_model.mock_stream.assert_called_with(
         expected_messages,
         unittest.mock.ANY,
         unittest.mock.ANY,
@@ -612,7 +608,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
 
 
 def test_agent__call__invalid_tool_use_event_loop_exception(mock_model, agent, tool, agenerator):
-    mock_model.mock_converse.side_effect = [
+    mock_model.mock_stream.side_effect = [
         agenerator(
             [
                 {
@@ -637,7 +633,7 @@ def test_agent__call__invalid_tool_use_event_loop_exception(mock_model, agent, t
 
 
 def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
-    mock_model.mock_converse.return_value = agenerator(
+    mock_model.mock_stream.return_value = agenerator(
         [
             {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "test"}}}},
             {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"value"}'}}}},
@@ -725,7 +721,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
 
 @pytest.mark.asyncio
 async def test_agent__call__in_async_context(mock_model, agent, agenerator):
-    mock_model.mock_converse.return_value = agenerator(
+    mock_model.mock_stream.return_value = agenerator(
         [
             {
                 "contentBlockStart": {"start": {}},
@@ -745,7 +741,7 @@ async def test_agent__call__in_async_context(mock_model, agent, agenerator):
 
 @pytest.mark.asyncio
 async def test_agent_invoke_async(mock_model, agent, agenerator):
-    mock_model.mock_converse.return_value = agenerator(
+    mock_model.mock_stream.return_value = agenerator(
         [
             {
                 "contentBlockStart": {"start": {}},
@@ -1031,7 +1027,7 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle, alist):
 
 @pytest.mark.asyncio
 async def test_stream_async_multi_modal_input(mock_model, agent, agenerator, alist):
-    mock_model.mock_converse.return_value = agenerator(
+    mock_model.mock_stream.return_value = agenerator(
         [
             {"contentBlockDelta": {"delta": {"text": "I see text and an image"}}},
             {"contentBlockStop": {}},
@@ -1064,7 +1060,7 @@ async def test_stream_async_multi_modal_input(mock_model, agent, agenerator, ali
 
 @pytest.mark.asyncio
 async def test_stream_async_passes_kwargs(agent, mock_model, mock_event_loop_cycle, agenerator, alist):
-    mock_model.mock_converse.side_effect = [
+    mock_model.mock_stream.side_effect = [
         agenerator(
             [
                 {
@@ -1180,7 +1176,7 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
     mock_get_tracer.return_value = mock_tracer
 
     # Setup mock model response
-    mock_model.mock_converse.side_effect = [
+    mock_model.mock_stream.side_effect = [
         agenerator(
             [
                 {"contentBlockDelta": {"delta": {"text": "test response"}}},
@@ -1256,7 +1252,7 @@ def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_mod
 
     # Setup mock model to raise an exception
     test_exception = ValueError("Test exception")
-    mock_model.mock_converse.side_effect = test_exception
+    mock_model.mock_stream.side_effect = test_exception
 
     # Create agent and make a call that will raise an exception
     agent = Agent(model=mock_model)
@@ -1291,7 +1287,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
 
     # Define the side effect to simulate callback handler raising an Exception
     test_exception = ValueError("Test exception")
-    mock_model.mock_converse.side_effect = test_exception
+    mock_model.mock_stream.side_effect = test_exception
 
     # Create agent and make a call
     agent = Agent(model=mock_model)
