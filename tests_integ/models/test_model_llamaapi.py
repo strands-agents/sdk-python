@@ -6,6 +6,10 @@ import pytest
 import strands
 from strands import Agent
 from strands.models.llamaapi import LlamaAPIModel
+from tests_integ.models import providers
+
+# these tests only run if we have the llama api key
+pytestmark = providers.llama.mark
 
 
 @pytest.fixture
@@ -36,7 +40,6 @@ def agent(model, tools):
     return Agent(model=model, tools=tools)
 
 
-@pytest.mark.skipif("LLAMA_API_KEY" not in os.environ, reason="LLAMA_API_KEY environment variable missing")
 def test_agent_invoke(agent):
     result = agent("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
@@ -44,7 +47,6 @@ def test_agent_invoke(agent):
     assert all(string in text for string in ["12:00", "sunny"])
 
 
-@pytest.mark.skipif("LLAMA_API_KEY" not in os.environ, reason="LLAMA_API_KEY environment variable missing")
 @pytest.mark.asyncio
 async def test_agent_invoke_async(agent):
     result = await agent.invoke_async("What is the time and weather in New York?")
@@ -53,7 +55,6 @@ async def test_agent_invoke_async(agent):
     assert all(string in text for string in ["12:00", "sunny"])
 
 
-@pytest.mark.skipif("LLAMA_API_KEY" not in os.environ, reason="LLAMA_API_KEY environment variable missing")
 @pytest.mark.asyncio
 async def test_agent_stream_async(agent):
     stream = agent.stream_async("What is the time and weather in New York?")

@@ -29,15 +29,30 @@ This replaces the older callback_handler approach with a more composable,
 type-safe system that supports multiple subscribers per event type.
 """
 
-from .events import AgentInitializedEvent, EndRequestEvent, StartRequestEvent
-from .registry import HookCallback, HookEvent, HookProvider, HookRegistry
+from .events import (
+    AfterInvocationEvent,
+    AfterModelInvocationEvent,
+    AfterToolInvocationEvent,
+    AgentInitializedEvent,
+    BeforeInvocationEvent,
+    BeforeModelInvocationEvent,
+    BeforeToolInvocationEvent,
+    MessageAddedEvent,
+)
+from .registry import HookCallback, HookEvent, HookProvider, HookRegistry, get_registry
 
 __all__ = [
     "AgentInitializedEvent",
-    "StartRequestEvent",
-    "EndRequestEvent",
+    "BeforeInvocationEvent",
+    "AfterInvocationEvent",
+    "BeforeModelInvocationEvent",
+    "AfterModelInvocationEvent",
+    "BeforeToolInvocationEvent",
+    "AfterToolInvocationEvent",
+    "MessageAddedEvent",
     "HookEvent",
     "HookProvider",
     "HookCallback",
     "HookRegistry",
+    "get_registry",
 ]

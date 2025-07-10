@@ -538,7 +538,7 @@ async def test_process_stream(response, exp_events, agenerator, alist):
 @pytest.mark.asyncio
 async def test_stream_messages(agenerator, alist):
     mock_model = unittest.mock.MagicMock()
-    mock_model.converse.return_value = agenerator(
+    mock_model.stream.return_value = agenerator(
         [
             {"contentBlockDelta": {"delta": {"text": "test"}}},
             {"contentBlockStop": {}},
@@ -549,7 +549,7 @@ async def test_stream_messages(agenerator, alist):
         mock_model,
         system_prompt="test prompt",
         messages=[{"role": "assistant", "content": [{"text": "a"}, {"text": " \n"}]}],
-        tool_config=None,
+        tool_specs=None,
     )
 
     tru_events = await alist(stream)
@@ -591,7 +591,7 @@ async def test_stream_messages(agenerator, alist):
     ]
     assert tru_events == exp_events
 
-    mock_model.converse.assert_called_with(
+    mock_model.stream.assert_called_with(
         [{"role": "assistant", "content": [{"text": "a"}, {"text": "[blank text]"}]}],
         None,
         "test prompt",

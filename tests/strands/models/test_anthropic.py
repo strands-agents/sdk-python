@@ -11,7 +11,7 @@ from strands.types.exceptions import ContextWindowOverflowException, ModelThrott
 
 @pytest.fixture
 def anthropic_client():
-    with unittest.mock.patch.object(strands.models.anthropic.anthropic, "Anthropic") as mock_client_cls:
+    with unittest.mock.patch.object(strands.models.anthropic.anthropic, "AsyncAnthropic") as mock_client_cls:
         yield mock_client_cls.return_value
 
 
@@ -625,7 +625,7 @@ def test_format_chunk_unknown(model):
 
 
 @pytest.mark.asyncio
-async def test_stream(anthropic_client, model, alist):
+async def test_stream(anthropic_client, model, agenerator, alist):
     mock_event_1 = unittest.mock.Mock(
         type="message_start",
         dict=lambda: {"type": "message_start"},
@@ -646,24 +646,29 @@ async def test_stream(anthropic_client, model, alist):
         ),
     )
 
-    mock_stream = unittest.mock.MagicMock()
-    mock_stream.__iter__.return_value = iter([mock_event_1, mock_event_2, mock_event_3])
-    anthropic_client.messages.stream.return_value.__enter__.return_value = mock_stream
+    mock_context = unittest.mock.AsyncMock()
+    mock_context.__aenter__.return_value = agenerator([mock_event_1, mock_event_2, mock_event_3])
+    anthropic_client.messages.stream.return_value = mock_context
 
-    request = {"model": "m1"}
-    response = model.stream(request)
+    messages = [{"role": "user", "content": [{"text": "hello"}]}]
+    response = model.stream(messages, None, None)
 
     tru_events = await alist(response)
     exp_events = [
-        {"type": "message_start"},
-        {
-            "type": "metadata",
-            "usage": {"input_tokens": 1, "output_tokens": 2},
-        },
+        {"messageStart": {"role": "assistant"}},
+        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
     ]
 
     assert tru_events == exp_events
-    anthropic_client.messages.stream.assert_called_once_with(**request)
+
+    # Check that the formatted request was passed to the client
+    expected_request = {
+        "max_tokens": 1,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
+        "model": "m1",
+        "tools": [],
+    }
+    anthropic_client.messages.stream.assert_called_once_with(**expected_request)
 
 
 @pytest.mark.asyncio
@@ -672,8 +677,9 @@ async def test_stream_rate_limit_error(anthropic_client, model, alist):
         "rate limit", response=unittest.mock.Mock(), body=None
     )
 
+    messages = [{"role": "user", "content": [{"text": "hello"}]}]
     with pytest.raises(ModelThrottledException, match="rate limit"):
-        await alist(model.stream({}))
+        await alist(model.stream(messages))
 
 
 @pytest.mark.parametrize(
@@ -690,8 +696,9 @@ async def test_stream_bad_request_overflow_error(overflow_message, anthropic_cli
         overflow_message, response=unittest.mock.Mock(), body=None
     )
 
+    messages = [{"role": "user", "content": [{"text": "hello"}]}]
     with pytest.raises(ContextWindowOverflowException):
-        await anext(model.stream({}))
+        await anext(model.stream(messages))
 
 
 @pytest.mark.asyncio
@@ -700,12 +707,13 @@ async def test_stream_bad_request_error(anthropic_client, model):
         "bad", response=unittest.mock.Mock(), body=None
     )
 
+    messages = [{"role": "user", "content": [{"text": "hello"}]}]
     with pytest.raises(anthropic.BadRequestError, match="bad"):
-        await anext(model.stream({}))
+        await anext(model.stream(messages))
 
 
 @pytest.mark.asyncio
-async def test_structured_output(anthropic_client, model, test_output_model_cls, alist):
+async def test_structured_output(anthropic_client, model, test_output_model_cls, agenerator, alist):
     messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
 
     events = [
@@ -749,9 +757,9 @@ async def test_structured_output(anthropic_client, model, test_output_model_cls,
         ),
     ]
 
-    mock_stream = unittest.mock.MagicMock()
-    mock_stream.__iter__.return_value = iter(events)
-    anthropic_client.messages.stream.return_value.__enter__.return_value = mock_stream
+    mock_context = unittest.mock.AsyncMock()
+    mock_context.__aenter__.return_value = agenerator(events)
+    anthropic_client.messages.stream.return_value = mock_context
 
     stream = model.structured_output(test_output_model_cls, messages)
     events = await alist(stream)

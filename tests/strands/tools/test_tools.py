@@ -21,9 +21,8 @@ def identity_invoke():
 
 
 @pytest.fixture(scope="module")
-def identity_stream():
-    def identity(tool_use, a):
-        yield {"event": "abc"}
+def identity_invoke_async():
+    async def identity(tool_use, a):
         return tool_use, a
 
     return identity
@@ -60,6 +59,10 @@ def test_validate_tool_use_name_valid():
     # Should not raise an exception
     validate_tool_use_name(tool2)
 
+    tool3 = {"name": "34234_numbers", "toolUseId": "123"}
+    # Should not raise an exception
+    validate_tool_use_name(tool3)
+
 
 def test_validate_tool_use_name_missing():
     tool = {"toolUseId": "123"}
@@ -68,7 +71,7 @@ def test_validate_tool_use_name_missing():
 
 
 def test_validate_tool_use_name_invalid_pattern():
-    tool = {"name": "123_invalid", "toolUseId": "123"}
+    tool = {"name": "+123_invalid", "toolUseId": "123"}
     with pytest.raises(InvalidToolUseNameException, match="invalid tool name pattern"):
         validate_tool_use_name(tool)
 
@@ -415,7 +418,7 @@ def test_validate_tool_use_with_valid_input():
         # Name - Invalid characters
         (
             {
-                "name": "1-invalid",
+                "name": "+1-invalid",
                 "toolUseId": "123",
                 "input": {},
             },
@@ -430,6 +433,15 @@ def test_validate_tool_use_with_valid_input():
             },
             strands.tools.InvalidToolUseNameException,
         ),
+        # Name - Empty
+        (
+            {
+                "name": "",
+                "toolUseId": "123",
+                "input": {},
+            },
+            strands.tools.InvalidToolUseNameException,
+        ),
     ],
 )
 def test_validate_tool_use_invalid(tool_use, expected_error):
@@ -437,7 +449,7 @@ def test_validate_tool_use_invalid(tool_use, expected_error):
         strands.tools.tools.validate_tool_use(tool_use)
 
 
-@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_stream"], indirect=True)
+@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
 def test_tool_name(identity_tool):
     tru_name = identity_tool.tool_name
     exp_name = "identity"
@@ -445,7 +457,7 @@ def test_tool_name(identity_tool):
     assert tru_name == exp_name
 
 
-@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_stream"], indirect=True)
+@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
 def test_tool_spec(identity_tool):
     tru_spec = identity_tool.tool_spec
     exp_spec = {
@@ -464,7 +476,7 @@ def test_tool_spec(identity_tool):
     assert tru_spec == exp_spec
 
 
-@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_stream"], indirect=True)
+@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
 def test_tool_type(identity_tool):
     tru_type = identity_tool.tool_type
     exp_type = "python"
@@ -472,12 +484,12 @@ def test_tool_type(identity_tool):
     assert tru_type == exp_type
 
 
-@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_stream"], indirect=True)
+@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
 def test_supports_hot_reload(identity_tool):
     assert not identity_tool.supports_hot_reload
 
 
-@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_stream"], indirect=True)
+@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
 def test_get_display_properties(identity_tool):
     tru_properties = identity_tool.get_display_properties()
     exp_properties = {
@@ -488,24 +500,11 @@ def test_get_display_properties(identity_tool):
     assert tru_properties == exp_properties
 
 
-@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_stream"], indirect=True)
-def test_invoke(identity_tool):
-    tru_result = identity_tool.invoke({"tool_use": 1}, a=2)
-    exp_result = ({"tool_use": 1}, 2)
+@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
+@pytest.mark.asyncio
+async def test_stream(identity_tool, alist):
+    stream = identity_tool.stream({"tool_use": 1}, {"a": 2})
 
-    assert tru_result == exp_result
-
-
-@pytest.mark.parametrize(
-    ("identity_tool", "exp_events"),
-    [
-        ("identity_invoke", []),
-        ("identity_stream", [{"event": "abc"}]),
-    ],
-    indirect=["identity_tool"],
-)
-def test_stream(identity_tool, exp_events, generate):
-    tru_events, tru_result = generate(identity_tool.stream({"tool_use": 1}, a=2))
-    exp_result = ({"tool_use": 1}, 2)
-
-    assert tru_events == exp_events and tru_result == exp_result
+    tru_events = await alist(stream)
+    exp_events = [({"tool_use": 1}, 2)]
+    assert tru_events == exp_events

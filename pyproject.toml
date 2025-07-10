@@ -35,6 +35,7 @@ dependencies = [
     "watchdog>=6.0.0,<7.0.0",
     "opentelemetry-api>=1.30.0,<2.0.0",
     "opentelemetry-sdk>=1.30.0,<2.0.0",
+    "opentelemetry-instrumentation-threading>=0.51b0,<1.00b0",
 ]
 
 [project.urls]
@@ -82,8 +83,12 @@ openai = [
 otel = [
     "opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0",
 ]
+writer = [
+    "writer-sdk>=2.2.0,<3.0.0"
+]
+
 a2a = [
-    "a2a-sdk>=0.2.6",
+    "a2a-sdk[sql]>=0.2.11",
     "uvicorn>=0.34.2",
     "httpx>=0.28.1",
     "fastapi>=0.115.12",
@@ -95,7 +100,7 @@ a2a = [
 source = "vcs"
 
 [tool.hatch.envs.hatch-static-analysis]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel","mistral"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "writer"]
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
   "ruff>=0.11.6,<0.12.0",
@@ -119,7 +124,7 @@ lint-fix = [
 ]
 
 [tool.hatch.envs.hatch-test]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel","mistral"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "writer"]
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
@@ -135,7 +140,7 @@ extra-args = [
 
 [tool.hatch.envs.dev]
 dev-mode = true
-features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel","mistral"]
+features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel", "mistral", "writer"]
 
 [tool.hatch.envs.a2a]
 dev-mode = true
@@ -143,10 +148,10 @@ features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "a2a"]
 
 [tool.hatch.envs.a2a.scripts]
 run = [
-    "pytest{env:HATCH_TEST_ARGS:} tests/multiagent/a2a {args}"
+    "pytest{env:HATCH_TEST_ARGS:} tests/strands/multiagent/a2a {args}"
 ]
 run-cov = [
-    "pytest{env:HATCH_TEST_ARGS:} tests/multiagent/a2a --cov --cov-config=pyproject.toml {args}"
+    "pytest{env:HATCH_TEST_ARGS:} tests/strands/multiagent/a2a --cov --cov-config=pyproject.toml {args}"
 ]
 lint-check = [
     "ruff check",
@@ -159,11 +164,11 @@ python = ["3.13", "3.12", "3.11", "3.10"]
 [tool.hatch.envs.hatch-test.scripts]
 run = [
     # excluding due to A2A and OTEL http exporter dependency conflict
-    "pytest{env:HATCH_TEST_ARGS:} {args} --ignore=tests/multiagent/a2a"
+    "pytest{env:HATCH_TEST_ARGS:} {args} --ignore=tests/strands/multiagent/a2a"
 ]
 run-cov = [
     # excluding due to A2A and OTEL http exporter dependency conflict
-    "pytest{env:HATCH_TEST_ARGS:} --cov --cov-config=pyproject.toml {args} --ignore=tests/multiagent/a2a"
+    "pytest{env:HATCH_TEST_ARGS:} --cov --cov-config=pyproject.toml {args} --ignore=tests/strands/multiagent/a2a"
 ]
 
 cov-combine = []
@@ -190,7 +195,7 @@ test = [
     "hatch test --cover --cov-report html --cov-report xml {args}"
 ]
 test-integ = [
-    "hatch test tests-integ {args}"
+    "hatch test tests_integ {args}"
 ]
 prepare = [
     "hatch fmt --linter",
@@ -225,7 +230,7 @@ ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 120
-include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests-integ/**/*.py"]
+include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests_integ/**/*.py"]
 
 [tool.ruff.lint]
 select = [

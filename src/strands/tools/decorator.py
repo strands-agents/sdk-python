@@ -40,6 +40,7 @@ Example:
     ```
 """
 
+import asyncio
 import functools
 import inspect
 import logging
@@ -52,7 +53,6 @@ from typing import (
     Type,
     TypeVar,
     Union,
-    cast,
     get_type_hints,
     overload,
 )
@@ -61,7 +61,7 @@ import docstring_parser
 from pydantic import BaseModel, Field, create_model
 from typing_extensions import override
 
-from ..types.tools import AgentTool, JSONSchema, ToolGenerator, ToolResult, ToolSpec, ToolUse
+from ..types.tools import AgentTool, JSONSchema, ToolGenerator, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -342,21 +342,6 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         Returns:
             The result of the original function call.
         """
-        if (
-            len(args) > 0
-            and isinstance(args[0], dict)
-            and (not args[0] or "toolUseId" in args[0] or "input" in args[0])
-        ):
-            # This block is only for backwards compatability so we cast as any for now
-            logger.warning(
-                "issue=<%s> | "
-                "passing tool use into a function instead of using .invoke will be removed in a future release",
-                "https://github.com/strands-agents/sdk-python/pull/258",
-            )
-            tool_use = cast(Any, args[0])
-
-            return cast(R, self.invoke(tool_use, **kwargs))
-
         return self._tool_func(*args, **kwargs)
 
     @property
@@ -387,7 +372,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         return "function"
 
     @override
-    def stream(self, tool_use: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolGenerator:
+    async def stream(self, tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolGenerator:
         """Stream the tool with a tool use specification.
 
         This method handles tool use streams from a Strands Agent. It validates the input,
@@ -403,14 +388,10 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
 
         Args:
             tool_use: The tool use specification from the Agent.
-            *args: Additional positional arguments (not typically used).
-            **kwargs: Additional keyword arguments, may include 'agent' reference.
+            kwargs: Additional keyword arguments, may include 'agent' reference.
 
         Yields:
-            Events of the tool stream.
-
-        Returns:
-            A standardized tool result dictionary with status and content.
+            Tool events with the last being the tool result.
         """
         # This is a tool use call - process accordingly
         tool_use_id = tool_use.get("toolUseId", "unknown")
@@ -424,19 +405,21 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             if "agent" in kwargs and "agent" in self._metadata.signature.parameters:
                 validated_input["agent"] = kwargs.get("agent")
 
-            result = self._tool_func(**validated_input)  # type: ignore  # "Too few arguments" expected
-            if inspect.isgenerator(result):
-                result = yield from result
+            # "Too few arguments" expected, hence the type ignore
+            if inspect.iscoroutinefunction(self._tool_func):
+                result = await self._tool_func(**validated_input)  # type: ignore
+            else:
+                result = await asyncio.to_thread(self._tool_func, **validated_input)  # type: ignore
 
             # FORMAT THE RESULT for Strands Agent
             if isinstance(result, dict) and "status" in result and "content" in result:
                 # Result is already in the expected format, just add toolUseId
                 result["toolUseId"] = tool_use_id
-                return cast(ToolResult, result)
+                yield result
             else:
                 # Wrap any other return value in the standard format
                 # Always include at least one content item for consistency
-                return {
+                yield {
                     "toolUseId": tool_use_id,
                     "status": "success",
                     "content": [{"text": str(result)}],
@@ -445,7 +428,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         except ValueError as e:
             # Special handling for validation errors
             error_msg = str(e)
-            return {
+            yield {
                 "toolUseId": tool_use_id,
                 "status": "error",
                 "content": [{"text": f"Error: {error_msg}"}],
@@ -454,7 +437,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             # Return error result with exception details for any other error
             error_type = type(e).__name__
             error_msg = str(e)
-            return {
+            yield {
                 "toolUseId": tool_use_id,
                 "status": "error",
                 "content": [{"text": f"Error: {error_type} - {error_msg}"}],

@@ -8,7 +8,7 @@ import json
 import logging
 from typing import Any, AsyncGenerator, Iterable, Optional, Type, TypeVar, Union
 
-from mistralai import Mistral
+import mistralai
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
@@ -94,7 +94,7 @@ class MistralModel(Model):
         if api_key:
             client_args["api_key"] = api_key
 
-        self.client = Mistral(**client_args)
+        self.client = mistralai.Mistral(**client_args)
 
     @override
     def update_config(self, **model_config: Unpack[MistralConfig]) -> None:  # type: ignore
@@ -234,7 +234,6 @@ class MistralModel(Model):
 
         return formatted_messages
 
-    @override
     def format_request(
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
     ) -> dict[str, Any]:
@@ -281,7 +280,6 @@ class MistralModel(Model):
 
         return request
 
-    @override
     def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
         """Format the Mistral response events into standardized message chunks.
 
@@ -393,36 +391,46 @@ class MistralModel(Model):
             yield {"chunk_type": "metadata", "data": response.usage}
 
     @override
-    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
-        """Send the request to the Mistral model and get the streaming response.
+    async def stream(
+        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream conversation with the Mistral model.
 
         Args:
-            request: The formatted request to send to the Mistral model.
+            messages: List of message objects to be processed by the model.
+            tool_specs: List of tool specifications to make available to the model.
+            system_prompt: System prompt to provide context to the model.
 
-        Returns:
-            An iterable of response events from the Mistral model.
+        Yields:
+            Formatted message chunks from the model.
 
         Raises:
             ModelThrottledException: When the model service is throttling requests.
         """
+        logger.debug("formatting request")
+        request = self.format_request(messages, tool_specs, system_prompt)
+        logger.debug("formatted request=<%s>", request)
+
+        logger.debug("invoking model")
         try:
+            logger.debug("got response from model")
             if not self.config.get("stream", True):
                 # Use non-streaming API
-                response = self.client.chat.complete(**request)
+                response = await self.client.chat.complete_async(**request)
                 for event in self._handle_non_streaming_response(response):
-                    yield event
+                    yield self.format_chunk(event)
                 return
 
             # Use the streaming API
-            stream_response = self.client.chat.stream(**request)
+            stream_response = await self.client.chat.stream_async(**request)
 
-            yield {"chunk_type": "message_start"}
+            yield self.format_chunk({"chunk_type": "message_start"})
 
             content_started = False
-            current_tool_calls: dict[str, dict[str, str]] = {}
+            tool_calls: dict[str, list[Any]] = {}
             accumulated_text = ""
 
-            for chunk in stream_response:
+            async for chunk in stream_response:
                 if hasattr(chunk, "data") and hasattr(chunk.data, "choices") and chunk.data.choices:
                     choice = chunk.data.choices[0]
 
@@ -431,44 +439,51 @@ class MistralModel(Model):
 
                         if hasattr(delta, "content") and delta.content:
                             if not content_started:
-                                yield {"chunk_type": "content_start", "data_type": "text"}
+                                yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
                                 content_started = True
 
-                            yield {"chunk_type": "content_delta", "data_type": "text", "data": delta.content}
+                            yield self.format_chunk(
+                                {"chunk_type": "content_delta", "data_type": "text", "data": delta.content}
+                            )
                             accumulated_text += delta.content
 
                         if hasattr(delta, "tool_calls") and delta.tool_calls:
                             for tool_call in delta.tool_calls:
                                 tool_id = tool_call.id
-
-                                if tool_id not in current_tool_calls:
-                                    yield {"chunk_type": "content_start", "data_type": "tool", "data": tool_call}
-                                    current_tool_calls[tool_id] = {"name": tool_call.function.name, "arguments": ""}
-
-                                if hasattr(tool_call.function, "arguments"):
-                                    current_tool_calls[tool_id]["arguments"] += tool_call.function.arguments
-                                    yield {
-                                        "chunk_type": "content_delta",
-                                        "data_type": "tool",
-                                        "data": tool_call.function.arguments,
-                                    }
+                                tool_calls.setdefault(tool_id, []).append(tool_call)
 
                     if hasattr(choice, "finish_reason") and choice.finish_reason:
                         if content_started:
-                            yield {"chunk_type": "content_stop", "data_type": "text"}
+                            yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
 
-                        for _ in current_tool_calls:
-                            yield {"chunk_type": "content_stop", "data_type": "tool"}
+                        for tool_deltas in tool_calls.values():
+                            yield self.format_chunk(
+                                {"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]}
+                            )
 
-                        yield {"chunk_type": "message_stop", "data": choice.finish_reason}
+                            for tool_delta in tool_deltas:
+                                if hasattr(tool_delta.function, "arguments"):
+                                    yield self.format_chunk(
+                                        {
+                                            "chunk_type": "content_delta",
+                                            "data_type": "tool",
+                                            "data": tool_delta.function.arguments,
+                                        }
+                                    )
+
+                            yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
+
+                        yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
 
                         if hasattr(chunk, "usage"):
-                            yield {"chunk_type": "metadata", "data": chunk.usage}
+                            yield self.format_chunk({"chunk_type": "metadata", "data": chunk.usage})
 
         except Exception as e:
             if "rate" in str(e).lower() or "429" in str(e):
                 raise ModelThrottledException(str(e)) from e
             raise
+
+        logger.debug("finished streaming response from model")
 
     @override
     async def structured_output(
@@ -499,7 +514,7 @@ class MistralModel(Model):
         formatted_request["tool_choice"] = "any"
         formatted_request["parallel_tool_calls"] = False
 
-        response = self.client.chat.complete(**formatted_request)
+        response = await self.client.chat.complete_async(**formatted_request)
 
         if response.choices and response.choices[0].message.tool_calls:
             tool_call = response.choices[0].message.tool_calls[0]

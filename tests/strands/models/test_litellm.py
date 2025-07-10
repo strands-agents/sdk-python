@@ -152,30 +152,58 @@ async def test_stream(litellm_client, model, alist):
         [mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5, mock_event_6]
     )
 
-    request = {"model": "m1", "messages": [{"role": "user", "content": [{"type": "text", "text": "calculate 2+2"}]}]}
-    response = model.stream(request)
+    messages = [{"role": "user", "content": [{"type": "text", "text": "calculate 2+2"}]}]
+    response = model.stream(messages)
     tru_events = await alist(response)
     exp_events = [
-        {"chunk_type": "message_start"},
-        {"chunk_type": "content_start", "data_type": "text"},
-        {"chunk_type": "content_delta", "data_type": "reasoning_content", "data": "\nI'm thinking"},
-        {"chunk_type": "content_delta", "data_type": "text", "data": "I'll calculate"},
-        {"chunk_type": "content_delta", "data_type": "text", "data": "that for you"},
-        {"chunk_type": "content_stop", "data_type": "text"},
-        {"chunk_type": "content_start", "data_type": "tool", "data": mock_tool_call_1_part_1},
-        {"chunk_type": "content_delta", "data_type": "tool", "data": mock_tool_call_1_part_1},
-        {"chunk_type": "content_delta", "data_type": "tool", "data": mock_tool_call_1_part_2},
-        {"chunk_type": "content_stop", "data_type": "tool"},
-        {"chunk_type": "content_start", "data_type": "tool", "data": mock_tool_call_2_part_1},
-        {"chunk_type": "content_delta", "data_type": "tool", "data": mock_tool_call_2_part_1},
-        {"chunk_type": "content_delta", "data_type": "tool", "data": mock_tool_call_2_part_2},
-        {"chunk_type": "content_stop", "data_type": "tool"},
-        {"chunk_type": "message_stop", "data": "tool_calls"},
-        {"chunk_type": "metadata", "data": mock_event_6.usage},
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "\nI'm thinking"}}}},
+        {"contentBlockDelta": {"delta": {"text": "I'll calculate"}}},
+        {"contentBlockDelta": {"delta": {"text": "that for you"}}},
+        {"contentBlockStop": {}},
+        {
+            "contentBlockStart": {
+                "start": {
+                    "toolUse": {"name": mock_tool_call_1_part_1.function.name, "toolUseId": mock_tool_call_1_part_1.id}
+                }
+            }
+        },
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": mock_tool_call_1_part_1.function.arguments}}}},
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": mock_tool_call_1_part_2.function.arguments}}}},
+        {"contentBlockStop": {}},
+        {
+            "contentBlockStart": {
+                "start": {
+                    "toolUse": {"name": mock_tool_call_2_part_1.function.name, "toolUseId": mock_tool_call_2_part_1.id}
+                }
+            }
+        },
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": mock_tool_call_2_part_1.function.arguments}}}},
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": mock_tool_call_2_part_2.function.arguments}}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "tool_use"}},
+        {
+            "metadata": {
+                "usage": {
+                    "inputTokens": mock_event_6.usage.prompt_tokens,
+                    "outputTokens": mock_event_6.usage.completion_tokens,
+                    "totalTokens": mock_event_6.usage.total_tokens,
+                },
+                "metrics": {"latencyMs": 0},
+            }
+        },
     ]
 
     assert tru_events == exp_events
-    litellm_client.chat.completions.create.assert_called_once_with(**request)
+    expected_request = {
+        "model": "m1",
+        "messages": [{"role": "user", "content": [{"text": "calculate 2+2", "type": "text"}]}],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+        "tools": [],
+    }
+    litellm_client.chat.completions.create.assert_called_once_with(**expected_request)
 
 
 @pytest.mark.asyncio
