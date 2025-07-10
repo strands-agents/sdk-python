@@ -151,3 +151,21 @@ def test_structured_output_non_streaming(non_streaming_model):
     assert isinstance(result, Weather)
     assert result.time == "12:00"
     assert result.weather == "sunny"
+
+
+def test_multi_modal_input(streaming_agent, yellow_img):
+    content = [
+        {"text": "what is in this image"},
+        {
+            "image": {
+                "format": "png",
+                "source": {
+                    "bytes": yellow_img,
+                },
+            },
+        },
+    ]
+    result = streaming_agent(content)
+    text = result.message["content"][0]["text"].lower()
+
+    assert "yellow" in text

@@ -10,6 +10,7 @@ from datetime import date, datetime, timezone
 from typing import Any, Dict, Mapping, Optional
 
 import opentelemetry.trace as trace_api
+from opentelemetry.instrumentation.threading import ThreadingInstrumentor
 from opentelemetry.trace import Span, StatusCode
 
 from ..agent.agent_result import AgentResult
@@ -89,6 +90,7 @@ class Tracer:
 
         self.tracer_provider = trace_api.get_tracer_provider()
         self.tracer = self.tracer_provider.get_tracer(self.service_name)
+        ThreadingInstrumentor().instrument()
 
     def _start_span(
         self,
@@ -407,7 +409,7 @@ class Tracer:
 
     def start_agent_span(
         self,
-        prompt: str,
+        message: Message,
         agent_name: str,
         model_id: Optional[str] = None,
         tools: Optional[list] = None,
@@ -417,7 +419,7 @@ class Tracer:
         """Start a new span for an agent invocation.
 
         Args:
-            prompt: The user prompt being sent to the agent.
+            message: The user message being sent to the agent.
             agent_name: Name of the agent.
             model_id: Optional model identifier.
             tools: Optional list of tools being used.
@@ -454,7 +456,7 @@ class Tracer:
             span,
             "gen_ai.user.message",
             event_attributes={
-                "content": prompt,
+                "content": serialize(message["content"]),
             },
         )
 

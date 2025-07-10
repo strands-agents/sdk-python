@@ -342,21 +342,6 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         Returns:
             The result of the original function call.
         """
-        if (
-            len(args) > 0
-            and isinstance(args[0], dict)
-            and (not args[0] or "toolUseId" in args[0] or "input" in args[0])
-        ):
-            # This block is only for backwards compatability so we cast as any for now
-            logger.warning(
-                "issue=<%s> | "
-                "passing tool use into a function instead of using .invoke will be removed in a future release",
-                "https://github.com/strands-agents/sdk-python/pull/258",
-            )
-            tool_use = cast(Any, args[0])
-
-            return cast(R, self.invoke(tool_use, **kwargs))
-
         return self._tool_func(*args, **kwargs)
 
     @property
