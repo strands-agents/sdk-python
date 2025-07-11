@@ -327,6 +327,9 @@ class Agent:
                 self.hooks.add_hook(hook)
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
 
+        # When True, force stops the agent's event loop
+        self.stop_event_loop = False
+
     @property
     def tool(self) -> ToolCaller:
         """Call tool as a function.

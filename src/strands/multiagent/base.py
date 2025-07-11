@@ -59,9 +59,15 @@ class NodeResult:
 
 @dataclass
 class MultiAgentResult:
-    """Result from multi-agent execution with accumulated metrics."""
+    """Result from multi-agent execution with accumulated metrics.
 
-    results: dict[str, NodeResult]
+    The status field represents the outcome of the MultiAgentBase execution:
+    - COMPLETED: The execution was successfully accomplished
+    - FAILED: The execution failed or produced an error
+    """
+
+    status: Status = Status.PENDING
+    results: dict[str, NodeResult] = field(default_factory=lambda: {})
     accumulated_usage: Usage = field(default_factory=lambda: Usage(inputTokens=0, outputTokens=0, totalTokens=0))
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
     execution_count: int = 0

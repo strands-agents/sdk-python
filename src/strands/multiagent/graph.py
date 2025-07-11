@@ -72,14 +72,8 @@ class GraphState:
 
 @dataclass
 class GraphResult(MultiAgentResult):
-    """Result from graph execution - extends MultiAgentResult with graph-specific details.
+    """Result from graph execution - extends MultiAgentResult with graph-specific details."""
 
-    The status field represents the outcome of the graph execution:
-    - COMPLETED: The graph execution was successfully accomplished
-    - FAILED: The graph execution failed or produced an error
-    """
-
-    status: Status = Status.PENDING
     total_nodes: int = 0
     completed_nodes: int = 0
     failed_nodes: int = 0
@@ -491,12 +485,12 @@ class Graph(MultiAgentBase):
     def _build_result(self) -> GraphResult:
         """Build graph result from current state."""
         return GraphResult(
+            status=self.state.status,
             results=self.state.results,
             accumulated_usage=self.state.accumulated_usage,
             accumulated_metrics=self.state.accumulated_metrics,
             execution_count=self.state.execution_count,
             execution_time=self.state.execution_time,
-            status=self.state.status,
             total_nodes=self.state.total_nodes,
             completed_nodes=len(self.state.completed_nodes),
             failed_nodes=len(self.state.failed_nodes),

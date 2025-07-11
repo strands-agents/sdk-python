@@ -136,6 +136,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.thread_pool = thread_pool
     mock.event_loop_metrics = EventLoopMetrics()
     mock.hooks = hook_registry
+    mock.stop_event_loop = False
 
     return mock
 
