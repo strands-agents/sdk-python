@@ -334,7 +334,7 @@ def test_agent__call__(
     conversation_manager_spy.apply_management.assert_called_with(agent)
 
 
-def test_agent__call__passes_kwargs(mock_model, agent, tool, mock_event_loop_cycle, agenerator):
+def test_agent__call__passes_invocation_state(mock_model, agent, tool, mock_event_loop_cycle, agenerator):
     mock_model.mock_stream.side_effect = [
         agenerator(
             [
@@ -361,22 +361,22 @@ def test_agent__call__passes_kwargs(mock_model, agent, tool, mock_event_loop_cyc
     override_messages = [{"role": "user", "content": [{"text": "override msg"}]}]
     override_tool_config = {"test": "config"}
 
-    async def check_kwargs(**kwargs):
-        kwargs_kwargs = kwargs["kwargs"]
-        assert kwargs_kwargs["some_value"] == "a_value"
-        assert kwargs_kwargs["system_prompt"] == override_system_prompt
-        assert kwargs_kwargs["model"] == override_model
-        assert kwargs_kwargs["event_loop_metrics"] == override_event_loop_metrics
-        assert kwargs_kwargs["callback_handler"] == override_callback_handler
-        assert kwargs_kwargs["tool_handler"] == override_tool_handler
-        assert kwargs_kwargs["messages"] == override_messages
-        assert kwargs_kwargs["tool_config"] == override_tool_config
-        assert kwargs_kwargs["agent"] == agent
+    async def check_invocation_state(**kwargs):
+        invocation_state = kwargs["invocation_state"]
+        assert invocation_state["some_value"] == "a_value"
+        assert invocation_state["system_prompt"] == override_system_prompt
+        assert invocation_state["model"] == override_model
+        assert invocation_state["event_loop_metrics"] == override_event_loop_metrics
+        assert invocation_state["callback_handler"] == override_callback_handler
+        assert invocation_state["tool_handler"] == override_tool_handler
+        assert invocation_state["messages"] == override_messages
+        assert invocation_state["tool_config"] == override_tool_config
+        assert invocation_state["agent"] == agent
 
         # Return expected values from event_loop_cycle
         yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
 
-    mock_event_loop_cycle.side_effect = check_kwargs
+    mock_event_loop_cycle.side_effect = check_invocation_state
 
     agent(
         "test message",
@@ -1086,7 +1086,7 @@ async def test_stream_async_multi_modal_input(mock_model, agent, agenerator, ali
 
 
 @pytest.mark.asyncio
-async def test_stream_async_passes_kwargs(agent, mock_model, mock_event_loop_cycle, agenerator, alist):
+async def test_stream_async_passes_invocation_state(agent, mock_model, mock_event_loop_cycle, agenerator, alist):
     mock_model.mock_stream.side_effect = [
         agenerator(
             [
@@ -1105,13 +1105,13 @@ async def test_stream_async_passes_kwargs(agent, mock_model, mock_event_loop_cyc
         ),
     ]
 
-    async def check_kwargs(**kwargs):
-        kwargs_kwargs = kwargs["kwargs"]
-        assert kwargs_kwargs["some_value"] == "a_value"
+    async def check_invocation_state(**kwargs):
+        invocation_state = kwargs["invocation_state"]
+        assert invocation_state["some_value"] == "a_value"
         # Return expected values from event_loop_cycle
         yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
 
-    mock_event_loop_cycle.side_effect = check_kwargs
+    mock_event_loop_cycle.side_effect = check_invocation_state
 
     stream = agent.stream_async("test message", some_value="a_value")
 

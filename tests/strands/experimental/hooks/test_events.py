@@ -31,7 +31,7 @@ def tool_use():
 
 
 @pytest.fixture
-def tool_kwargs():
+def tool_invocation_state():
     return {"param": "value"}
 
 
@@ -61,22 +61,22 @@ def end_request_event(agent):
 
 
 @pytest.fixture
-def before_tool_event(agent, tool, tool_use, tool_kwargs):
+def before_tool_event(agent, tool, tool_use, tool_invocation_state):
     return BeforeToolInvocationEvent(
         agent=agent,
         selected_tool=tool,
         tool_use=tool_use,
-        kwargs=tool_kwargs,
+        invocation_state=tool_invocation_state,
     )
 
 
 @pytest.fixture
-def after_tool_event(agent, tool, tool_use, tool_kwargs, tool_result):
+def after_tool_event(agent, tool, tool_use, tool_invocation_state, tool_result):
     return AfterToolInvocationEvent(
         agent=agent,
         selected_tool=tool,
         tool_use=tool_use,
-        kwargs=tool_kwargs,
+        invocation_state=tool_invocation_state,
         result=tool_result,
     )
 
@@ -118,8 +118,8 @@ def test_before_tool_invocation_event_can_write_properties(before_tool_event):
 def test_before_tool_invocation_event_cannot_write_properties(before_tool_event):
     with pytest.raises(AttributeError, match="Property agent is not writable"):
         before_tool_event.agent = Mock()
-    with pytest.raises(AttributeError, match="Property kwargs is not writable"):
-        before_tool_event.kwargs = {}
+    with pytest.raises(AttributeError, match="Property invocation_state is not writable"):
+        before_tool_event.invocation_state = {}
 
 
 def test_after_tool_invocation_event_can_write_properties(after_tool_event):
@@ -134,7 +134,7 @@ def test_after_tool_invocation_event_cannot_write_properties(after_tool_event):
         after_tool_event.selected_tool = None
     with pytest.raises(AttributeError, match="Property tool_use is not writable"):
         after_tool_event.tool_use = ToolUse(name="new", toolUseId="456", input={})
-    with pytest.raises(AttributeError, match="Property kwargs is not writable"):
-        after_tool_event.kwargs = {}
+    with pytest.raises(AttributeError, match="Property invocation_state is not writable"):
+        after_tool_event.invocation_state = {}
     with pytest.raises(AttributeError, match="Property exception is not writable"):
         after_tool_event.exception = Exception("test")

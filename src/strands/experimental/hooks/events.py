@@ -77,12 +77,12 @@ class BeforeToolInvocationEvent(HookEvent):
         selected_tool: The tool that will be invoked. Can be modified by hooks
             to change which tool gets executed. This may be None if tool lookup failed.
         tool_use: The tool parameters that will be passed to selected_tool.
-        kwargs: Keyword arguments that will be passed to the tool.
+        invocation_state: Keyword arguments that will be passed to the tool.
     """
 
     selected_tool: Optional[AgentTool]
     tool_use: ToolUse
-    kwargs: dict[str, Any]
+    invocation_state: dict[str, Any]
 
     def _can_write(self, name: str) -> bool:
         return name in ["selected_tool", "tool_use"]
@@ -102,14 +102,14 @@ class AfterToolInvocationEvent(HookEvent):
     Attributes:
         selected_tool: The tool that was invoked. It may be None if tool lookup failed.
         tool_use: The tool parameters that were passed to the tool invoked.
-        kwargs: Keyword arguments that were passed to the tool
+        invocation_state: Keyword arguments that were passed to the tool
         result: The result of the tool invocation. Either a ToolResult on success
             or an Exception if the tool execution failed.
     """
 
     selected_tool: Optional[AgentTool]
     tool_use: ToolUse
-    kwargs: dict[str, Any]
+    invocation_state: dict[str, Any]
     result: ToolResult
     exception: Optional[Exception] = None
 

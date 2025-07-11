@@ -134,6 +134,7 @@ class Agent:
                 }
 
                 async def acall() -> ToolResult:
+                    # Pass kwargs as invocation_state
                     async for event in run_tool(self._agent, tool_use, kwargs):
                         _ = event
 
@@ -483,7 +484,7 @@ class Agent:
         self._start_agent_trace_span(message)
 
         try:
-            events = self._run_loop(message, kwargs)
+            events = self._run_loop(message, invocation_state=kwargs)
             async for event in events:
                 if "callback" in event:
                     callback_handler(**event["callback"])
@@ -499,12 +500,14 @@ class Agent:
             self._end_agent_trace_span(error=e)
             raise
 
-    async def _run_loop(self, message: Message, kwargs: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
+    async def _run_loop(
+        self, message: Message, invocation_state: dict[str, Any]
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the agent's event loop with the given message and parameters.
 
         Args:
             message: The user message to add to the conversation.
-            kwargs: Additional parameters to pass to the event loop.
+            invocation_state: Additional parameters to pass to the event loop.
 
         Yields:
             Events from the event loop cycle.
@@ -512,12 +515,12 @@ class Agent:
         self._hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
 
         try:
-            yield {"callback": {"init_event_loop": True, **kwargs}}
+            yield {"callback": {"init_event_loop": True, **invocation_state}}
 
             self._append_message(message)
 
             # Execute the event loop cycle with retry logic for context limits
-            events = self._execute_event_loop_cycle(kwargs)
+            events = self._execute_event_loop_cycle(invocation_state)
             async for event in events:
                 yield event
 
@@ -525,7 +528,7 @@ class Agent:
             self.conversation_manager.apply_management(self)
             self._hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
-    async def _execute_event_loop_cycle(self, kwargs: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
+    async def _execute_event_loop_cycle(self, invocation_state: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the event loop cycle with retry logic for context window limits.
 
         This internal method handles the execution of the event loop cycle and implements
@@ -535,14 +538,14 @@ class Agent:
         Yields:
             Events of the loop cycle.
         """
-        # Add `Agent` to kwargs to keep backwards-compatibility
-        kwargs["agent"] = self
+        # Add `Agent` to invocation_state to keep backwards-compatibility
+        invocation_state["agent"] = self
 
         try:
             # Execute the main event loop cycle
             events = event_loop_cycle(
                 agent=self,
-                kwargs=kwargs,
+                invocation_state=invocation_state,
             )
             async for event in events:
                 yield event
@@ -550,7 +553,7 @@ class Agent:
         except ContextWindowOverflowException as e:
             # Try reducing the context size and retrying
             self.conversation_manager.reduce_context(self, e=e)
-            events = self._execute_event_loop_cycle(kwargs)
+            events = self._execute_event_loop_cycle(invocation_state)
             async for event in events:
                 yield event
 

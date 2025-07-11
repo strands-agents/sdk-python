@@ -7,11 +7,12 @@ through strongly-typed event callbacks.
 
 Example Usage:
     ```python
+    from typing import Any
     from strands.hooks import HookProvider, HookRegistry
     from strands.hooks.events import StartRequestEvent, EndRequestEvent
 
     class LoggingHooks(HookProvider):
-        def register_hooks(self, registry: HookRegistry) -> None:
+        def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
             registry.add_callback(StartRequestEvent, self.log_start)
             registry.add_callback(EndRequestEvent, self.log_end)
 

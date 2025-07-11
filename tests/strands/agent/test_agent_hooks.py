@@ -123,13 +123,13 @@ def test_agent_tool_call(agent, hook_provider, agent_tool):
     assert length == 6
 
     assert next(events) == BeforeToolInvocationEvent(
-        agent=agent, selected_tool=agent_tool, tool_use=tool_use, kwargs=ANY
+        agent=agent, selected_tool=agent_tool, tool_use=tool_use, invocation_state=ANY
     )
     assert next(events) == AfterToolInvocationEvent(
         agent=agent,
         selected_tool=agent_tool,
         tool_use=tool_use,
-        kwargs=ANY,
+        invocation_state=ANY,
         result=result,
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[0])
@@ -169,13 +169,13 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
 
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[1])
     assert next(events) == BeforeToolInvocationEvent(
-        agent=agent, selected_tool=agent_tool, tool_use=tool_use, kwargs=ANY
+        agent=agent, selected_tool=agent_tool, tool_use=tool_use, invocation_state=ANY
     )
     assert next(events) == AfterToolInvocationEvent(
         agent=agent,
         selected_tool=agent_tool,
         tool_use=tool_use,
-        kwargs=ANY,
+        invocation_state=ANY,
         result={"content": [{"text": "!loot a dekovni I"}], "status": "success", "toolUseId": "123"},
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[2])
@@ -230,13 +230,13 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
 
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[1])
     assert next(events) == BeforeToolInvocationEvent(
-        agent=agent, selected_tool=agent_tool, tool_use=tool_use, kwargs=ANY
+        agent=agent, selected_tool=agent_tool, tool_use=tool_use, invocation_state=ANY
     )
     assert next(events) == AfterToolInvocationEvent(
         agent=agent,
         selected_tool=agent_tool,
         tool_use=tool_use,
-        kwargs=ANY,
+        invocation_state=ANY,
         result={"content": [{"text": "!loot a dekovni I"}], "status": "success", "toolUseId": "123"},
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[2])

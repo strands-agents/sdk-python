@@ -91,11 +91,12 @@ class HookProvider(Protocol):
         ```
     """
 
-    def register_hooks(self, registry: "HookRegistry") -> None:
+    def register_hooks(self, registry: "HookRegistry", **kwargs: Any) -> None:
         """Register callback functions for specific event types.
 
         Args:
             registry: The hook registry to register callbacks with.
+            **kwargs: Additional keyword arguments for future extensibility.
         """
         ...
 
