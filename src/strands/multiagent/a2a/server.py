@@ -138,7 +138,14 @@ class A2AServer:
         """
         return A2AFastAPIApplication(agent_card=self.public_agent_card, http_handler=self.request_handler).build()
 
-    def serve(self, app_type: Literal["fastapi", "starlette"] = "starlette", **kwargs: Any) -> None:
+    def serve(
+        self,
+        app_type: Literal["fastapi", "starlette"] = "starlette",
+        *,
+        host: str | None = None,
+        port: int | None = None,
+        **kwargs: Any,
+    ) -> None:
         """Start the A2A server with the specified application type.
 
         This method starts an HTTP server that exposes the agent via the A2A protocol.
@@ -148,14 +155,16 @@ class A2AServer:
         Args:
             app_type: The type of application to serve, either "fastapi" or "starlette".
                 Defaults to "starlette".
+            host: The host address to bind the server to. Defaults to "0.0.0.0".
+            port: The port number to bind the server to. Defaults to 9000.
             **kwargs: Additional keyword arguments to pass to uvicorn.run.
         """
         try:
             logger.info("Starting Strands A2A server...")
             if app_type == "fastapi":
-                uvicorn.run(self.to_fastapi_app(), host=self.host, port=self.port, **kwargs)
+                uvicorn.run(self.to_fastapi_app(), host=host or self.host, port=port or self.port, **kwargs)
             else:
-                uvicorn.run(self.to_starlette_app(), host=self.host, port=self.port, **kwargs)
+                uvicorn.run(self.to_starlette_app(), host=host or self.host, port=port or self.port, **kwargs)
         except KeyboardInterrupt:
             logger.warning("Strands A2A server shutdown requested (KeyboardInterrupt).")
         except Exception:

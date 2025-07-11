@@ -111,8 +111,6 @@ class StrandsA2AExecutor(AgentExecutor):
                 )
         elif "result" in event:
             await self._handle_agent_result(event["result"], updater)
-        else:
-            logger.warning("Unexpected streaming event: %s", event)
 
     async def _handle_agent_result(self, result: SAAgentResult | None, updater: TaskUpdater) -> None:
         """Handle the final result from the Strands Agent.
