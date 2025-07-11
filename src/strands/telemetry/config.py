@@ -6,6 +6,7 @@ for OpenTelemetry components and other telemetry infrastructure shared across St
 
 import logging
 from importlib.metadata import version
+from typing import Any
 
 import opentelemetry.metrics as metrics_api
 import opentelemetry.sdk.metrics as metrics_sdk
@@ -118,22 +119,46 @@ class StrandsTelemetry:
             )
         )
 
-    def setup_console_exporter(self) -> "StrandsTelemetry":
-        """Set up console exporter for the tracer provider."""
+    def setup_console_exporter(self, **kwargs: Any) -> "StrandsTelemetry":
+        """Set up console exporter for the tracer provider.
+
+        Args:
+            **kwargs: Optional keyword arguments passed directly to
+                OpenTelemetry's ConsoleSpanExporter initializer.
+
+        Returns:
+            self: Enables method chaining.
+
+        This method configures a SimpleSpanProcessor with a ConsoleSpanExporter,
+        allowing trace data to be output to the console. Any additional keyword
+        arguments provided will be forwarded to the ConsoleSpanExporter.
+        """
         try:
             logger.info("Enabling console export")
-            console_processor = SimpleSpanProcessor(ConsoleSpanExporter())
+            console_processor = SimpleSpanProcessor(ConsoleSpanExporter(**kwargs))
             self.tracer_provider.add_span_processor(console_processor)
         except Exception as e:
             logger.exception("error=<%s> | Failed to configure console exporter", e)
         return self
 
-    def setup_otlp_exporter(self) -> "StrandsTelemetry":
-        """Set up OTLP exporter for the tracer provider."""
+    def setup_otlp_exporter(self, **kwargs: Any) -> "StrandsTelemetry":
+        """Set up OTLP exporter for the tracer provider.
+
+        Args:
+            **kwargs: Optional keyword arguments passed directly to
+                OpenTelemetry's OTLPSpanExporter initializer.
+
+        Returns:
+            self: Enables method chaining.
+
+        This method configures a BatchSpanProcessor with an OTLPSpanExporter,
+        allowing trace data to be exported to an OTLP endpoint. Any additional
+        keyword arguments provided will be forwarded to the OTLPSpanExporter.
+        """
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
         try:
-            otlp_exporter = OTLPSpanExporter()
+            otlp_exporter = OTLPSpanExporter(**kwargs)
             batch_processor = BatchSpanProcessor(otlp_exporter)
             self.tracer_provider.add_span_processor(batch_processor)
             logger.info("OTLP exporter configured")
