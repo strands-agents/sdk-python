@@ -1,9 +1,10 @@
 """Session manager interface for agent session management."""
 
 from abc import ABC, abstractmethod
+from typing import Any
 
-from ..experimental.hooks.events import AgentInitializedEvent, MessageAddedEvent
-from ..experimental.hooks.registry import HookProvider, HookRegistry
+from ..hooks.events import AgentInitializedEvent, MessageAddedEvent
+from ..hooks.registry import HookProvider, HookRegistry
 
 
 class SessionManager(HookProvider, ABC):
@@ -14,7 +15,7 @@ class SessionManager(HookProvider, ABC):
     methods to manage sessions and their associated data.
     """
 
-    def register_hooks(self, registry: HookRegistry) -> None:
+    def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register initialize and append_message as hooks for the Agent."""
         registry.add_callback(AgentInitializedEvent, self.initialize)
         registry.add_callback(MessageAddedEvent, self.append_message)

@@ -1,5 +1,10 @@
+"""Integration tests for session management."""
+
+import tempfile
+
 import boto3
 import pytest
+from botocore.client import ClientError
 
 from strands import Agent
 from strands.session.file_session_manager import FileSessionManager
@@ -7,35 +12,36 @@ from strands.session.s3_session_manager import S3SessionManager
 
 
 @pytest.fixture
-def file_session_manager():
-    session_manager = FileSessionManager(session_id="test")
-    try:
-        yield session_manager
-    finally:
-        session_manager.delete_session("test")
+def temp_dir():
+    """Create a temporary directory for testing."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        yield temp_dir
 
 
 @pytest.fixture
-def bucket_name():
-    s3 = boto3.resource("s3")
-    bucket_name = f"strands-session-test-bucket-{boto3.client('sts').get_caller_identity()['Account']}"
-
-    # Check if bucket exists, create if it doesn't
-    try:
-        s3.meta.client.head_bucket(Bucket=bucket_name)
-    finally:
-        s3.create_bucket(Bucket=bucket_name)
-
-    yield bucket_name
+def file_session_manager(temp_dir):
+    """Create a file session manager for testing."""
+    session_manager = FileSessionManager(session_id="test", storage_dir=temp_dir)
+    yield session_manager
+    session_manager.delete_session("test")
 
 
 @pytest.fixture
-def s3_session_manager(bucket_name):
-    session_manager = S3SessionManager(session_id="test", bucket=bucket_name)
+def s3_session_manager():
+    """Create an S3 session manager for testing."""
+    # Create the bucket
+    bucket_name = f"test-strands-session-bucket-{boto3.client('sts').get_caller_identity()['Account']}"
+    s3_client = boto3.resource("s3", region_name="us-west-2")
     try:
-        yield session_manager
-    finally:
-        session_manager.delete_session("test")
+        s3_client.create_bucket(Bucket=bucket_name, CreateBucketConfiguration={"LocationConstraint": "us-west-2"})
+    except ClientError as e:
+        if "BucketAlreadyOwnedByYou" not in str(e):
+            raise e
+
+    session_manager = S3SessionManager(session_id="test", bucket=bucket_name, region_name="us-west-2")
+    yield session_manager
+
+    session_manager.delete_session("test")
 
 
 def test_agent_with_file_session(file_session_manager):

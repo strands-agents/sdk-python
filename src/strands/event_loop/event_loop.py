@@ -454,6 +454,7 @@ async def _handle_tool_execution(
         "content": [{"toolResult": result} for result in tool_results],
     }
 
+    agent.messages.append(tool_result_message)
     agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=tool_result_message))
     yield {"callback": {"message": tool_result_message}}
 

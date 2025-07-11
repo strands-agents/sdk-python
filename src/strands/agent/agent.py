@@ -15,7 +15,6 @@ import logging
 import random
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Optional, Type, TypeVar, Union, cast
-from uuid import uuid4
 
 from opentelemetry import trace
 from pydantic import BaseModel
@@ -259,7 +258,7 @@ class Agent:
         self.messages = messages if messages is not None else []
 
         self.system_prompt = system_prompt
-        self.agent_id = agent_id or str(uuid4())
+        self.agent_id = agent_id
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
 
@@ -329,7 +328,6 @@ class Agent:
             for hook in hooks:
                 self.hooks.add_hook(hook)
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
-
 
     @property
     def tool(self) -> ToolCaller:

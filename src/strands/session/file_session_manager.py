@@ -50,19 +50,14 @@ class FileSessionManager(AgentSessionManager, SessionRepository):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 return cast(dict[str, Any], json.load(f))
-        except FileNotFoundError as e:
-            raise SessionException(f"File not found: {path}") from e
         except json.JSONDecodeError as e:
             raise SessionException(f"Invalid JSON in file {path}: {e}") from e
 
     def _write_file(self, path: str, data: dict[str, Any]) -> None:
         """Write JSON file."""
-        try:
-            os.makedirs(os.path.dirname(path), exist_ok=True)
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            raise SessionException(f"Failed to write file {path}: {e}") from e
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
 
     def create_session(self, session: Session) -> Session:
         """Create a new session."""
@@ -132,12 +127,11 @@ class FileSessionManager(AgentSessionManager, SessionRepository):
         session_dict = cast(dict, session_message)
         self._write_file(message_file, session_dict)
 
-    def read_message(self, session_id: str, agent_id: str, message_id: str) -> SessionMessage:
+    def read_message(self, session_id: str, agent_id: str, message_id: str) -> Optional[SessionMessage]:
         """Read message data."""
         message_file = self._get_message_path(session_id, agent_id, message_id)
         if not os.path.exists(message_file):
-            raise SessionException(f"Message {message_id} does not exist for agent {agent_id} in session {session_id}")
-
+            return None
         message_data = self._read_file(message_file)
         return SessionMessage(**message_data)  # type: ignore
 
@@ -154,7 +148,7 @@ class FileSessionManager(AgentSessionManager, SessionRepository):
         """List messages for an agent with pagination."""
         messages_dir = os.path.join(self._get_agent_path(session_id, agent_id), "messages")
         if not os.path.exists(messages_dir):
-            return []
+            raise SessionException("messages directory missing from agent: %s in session %s", agent_id, session_id)
 
         # Get all message files and sort by creation time (newest first)
         message_files = []
@@ -175,6 +169,8 @@ class FileSessionManager(AgentSessionManager, SessionRepository):
         # Read message data
         messages: list[SessionMessage] = []
         for file_path, _ in message_files:
+            if not os.path.exists(file_path):
+                continue
             message_data = self._read_file(file_path)
             messages.append(SessionMessage(**message_data))  # type: ignore
 

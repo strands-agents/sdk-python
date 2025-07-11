@@ -1,4 +1,4 @@
-"""S3-based session DAO for cloud storage."""
+"""S3-based session manager for cloud storage."""
 
 import json
 from typing import Any, Dict, List, Optional, cast
@@ -18,7 +18,7 @@ MESSAGE_PREFIX = "message_"
 
 
 class S3SessionManager(AgentSessionManager, SessionRepository):
-    """S3-based session DAO for cloud storage."""
+    """S3-based session manager for cloud storage."""
 
     def __init__(
         self,
@@ -29,7 +29,7 @@ class S3SessionManager(AgentSessionManager, SessionRepository):
         boto_client_config: Optional[BotocoreConfig] = None,
         region_name: Optional[str] = None,
     ):
-        """Initialize S3SessionDAO with S3 storage.
+        """Initialize S3SessionManager with S3 storage.
 
         Args:
             session_id: ID for the session
@@ -163,6 +163,10 @@ class S3SessionManager(AgentSessionManager, SessionRepository):
     def update_agent(self, session_id: str, session_agent: SessionAgent) -> None:
         """Update agent data in S3."""
         agent_id = session_agent["agent_id"]
+        previous_agent = self.read_agent(session_id=session_id, agent_id=agent_id)
+        if previous_agent is None:
+            raise SessionException(f"Agent {agent_id} in session {session_id} does not exist")
+        session_agent["created_at"] = previous_agent["created_at"]
         agent_dict = cast(dict, session_agent)
         agent_key = f"{self._get_agent_path(session_id, agent_id)}agent.json"
         self._write_s3_object(agent_key, agent_dict)
@@ -185,6 +189,12 @@ class S3SessionManager(AgentSessionManager, SessionRepository):
     def update_message(self, session_id: str, agent_id: str, session_message: SessionMessage) -> None:
         """Update message data in S3."""
         message_id = session_message["message_id"]
+        previous_message = self.read_message(
+            session_id=session_id, agent_id=agent_id, message_id=session_message["message_id"]
+        )
+        if previous_message is None:
+            raise SessionException(f"Message {message_id} does not exist")
+        session_message["created_at"] = previous_message["created_at"]
         message_dict = cast(dict, session_message)
         message_key = self._get_message_path(session_id, agent_id, message_id)
         self._write_s3_object(message_key, message_dict)

@@ -1,10 +1,9 @@
 """Agent session manager implementation."""
 
 import logging
-from typing import TYPE_CHECKING
 
 from ..agent.state import AgentState
-from ..experimental.hooks.events import AgentInitializedEvent, MessageAddedEvent
+from ..hooks.events import AgentInitializedEvent, MessageAddedEvent
 from ..telemetry.metrics import EventLoopMetrics
 from ..types.session import (
     SessionType,
@@ -17,9 +16,6 @@ from .session_manager import SessionManager
 from .session_repository import SessionRepository
 
 logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    pass
 
 DEFAULT_SESSION_AGENT_ID = "default"
 
@@ -41,9 +37,6 @@ class AgentSessionManager(SessionManager):
             logger.debug("session_id=<%s> | Session not found, creating new session.", self.session_id)
             session = create_session(session_id=session_id, session_type=SessionType.AGENT)
             session_repository.create_session(session)
-        else:
-            if session["session_type"] != SessionType.AGENT:
-                raise ValueError(f"Invalid session type: {session.session_type}")
 
         self.session = session
         self._default_agent_initialized = False
