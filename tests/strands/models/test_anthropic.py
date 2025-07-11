@@ -597,7 +597,12 @@ def test_format_chunk_message_stop(model):
 def test_format_chunk_metadata(model):
     event = {
         "type": "metadata",
-        "usage": {"input_tokens": 1, "output_tokens": 2},
+        "usage": {
+            "input_tokens": 1,
+            "output_tokens": 2,
+            "cache_read_input_tokens": 4,
+            "cache_creation_input_tokens": 5,
+        },
     }
 
     tru_chunk = model.format_chunk(event)
@@ -607,6 +612,8 @@ def test_format_chunk_metadata(model):
                 "inputTokens": 1,
                 "outputTokens": 2,
                 "totalTokens": 3,
+                "cacheReadInputTokens": 4,
+                "cacheWriteInputTokens": 5,
             },
             "metrics": {
                 "latencyMs": 0,
@@ -656,7 +663,18 @@ async def test_stream(anthropic_client, model, agenerator, alist):
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
-        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+        {
+            "metadata": {
+                "usage": {
+                    "inputTokens": 1,
+                    "outputTokens": 2,
+                    "totalTokens": 3,
+                    "cacheReadInputTokens": 0,
+                    "cacheWriteInputTokens": 0,
+                },
+                "metrics": {"latencyMs": 0},
+            }
+        },
     ]
 
     assert tru_events == exp_events

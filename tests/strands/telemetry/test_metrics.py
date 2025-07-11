@@ -90,6 +90,8 @@ def usage(request):
         "inputTokens": 1,
         "outputTokens": 2,
         "totalTokens": 3,
+        "cacheReadInputTokens": 4,
+        "cacheWriteInputTokens": 5,
     }
     if hasattr(request, "param"):
         params.update(request.param)
@@ -315,17 +317,15 @@ def test_event_loop_metrics_update_usage(usage, event_loop_metrics, mock_get_met
         event_loop_metrics.update_usage(usage)
 
     tru_usage = event_loop_metrics.accumulated_usage
-    exp_usage = Usage(
-        inputTokens=3,
-        outputTokens=6,
-        totalTokens=9,
-    )
+    exp_usage = Usage(inputTokens=3, outputTokens=6, totalTokens=9, cacheReadInputTokens=12, cacheWriteInputTokens=15)
 
     assert tru_usage == exp_usage
     mock_get_meter_provider.return_value.get_meter.assert_called()
     metrics_client = event_loop_metrics._metrics_client
     metrics_client.event_loop_input_tokens.record.assert_called()
     metrics_client.event_loop_output_tokens.record.assert_called()
+    metrics_client.event_loop_input_tokens_cache_read.record.assert_called()
+    metrics_client.event_loop_input_tokens_cache_write.record.assert_called()
 
 
 def test_event_loop_metrics_update_metrics(metrics, event_loop_metrics, mock_get_meter_provider):
@@ -358,6 +358,8 @@ def test_event_loop_metrics_get_summary(trace, tool, event_loop_metrics, mock_ge
             "inputTokens": 0,
             "outputTokens": 0,
             "totalTokens": 0,
+            "cacheReadInputTokens": 0,
+            "cacheWriteInputTokens": 0,
         },
         "average_cycle_time": 0,
         "tool_usage": {
@@ -394,7 +396,7 @@ def test_event_loop_metrics_get_summary(trace, tool, event_loop_metrics, mock_ge
             {},
             "Event Loop Metrics Summary:\n"
             "├─ Cycles: total=0, avg_time=0.000s, total_time=0.000s\n"
-            "├─ Tokens: in=0, out=0, total=0\n"
+            "├─ Tokens: in=0 (cache_write=0), out=0, total=0 (cache_read=0)\n"
             "├─ Bedrock Latency: 0ms\n"
             "├─ Tool Usage:\n"
             "   └─ tool1:\n"
@@ -412,7 +414,7 @@ def test_event_loop_metrics_get_summary(trace, tool, event_loop_metrics, mock_ge
             {},
             "Event Loop Metrics Summary:\n"
             "├─ Cycles: total=0, avg_time=0.000s, total_time=0.000s\n"
-            "├─ Tokens: in=0, out=0, total=0\n"
+            "├─ Tokens: in=0 (cache_write=0), out=0, total=0 (cache_read=0)\n"
             "├─ Bedrock Latency: 0ms\n"
             "├─ Tool Usage:\n"
             "   └─ tool1:\n"

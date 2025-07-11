@@ -391,6 +391,8 @@ def test_format_chunk_metadata(model):
                 "inputTokens": 100,
                 "outputTokens": 50,
                 "totalTokens": 150,
+                "cacheReadInputTokens": 0,
+                "cacheWriteInputTokens": 0,
             },
             "metrics": {
                 "latencyMs": 250,
@@ -419,6 +421,8 @@ def test_format_chunk_metadata_no_latency(model):
                 "inputTokens": 100,
                 "outputTokens": 50,
                 "totalTokens": 150,
+                "cacheReadInputTokens": 0,
+                "cacheWriteInputTokens": 0,
             },
             "metrics": {
                 "latencyMs": 0,
