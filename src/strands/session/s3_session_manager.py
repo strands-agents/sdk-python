@@ -7,20 +7,22 @@ import boto3
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
 
-from .exceptions import SessionException
-from .session_dao import SessionDAO
-from .session_models import Session, SessionAgent, SessionMessage
+from ..types.exceptions import SessionException
+from ..types.session import Session, SessionAgent, SessionMessage
+from .agent_session_manager import AgentSessionManager
+from .session_repository import SessionRepository
 
 SESSION_PREFIX = "session_"
 AGENT_PREFIX = "agent_"
 MESSAGE_PREFIX = "message_"
 
 
-class S3SessionDAO(SessionDAO):
+class S3SessionManager(AgentSessionManager, SessionRepository):
     """S3-based session DAO for cloud storage."""
 
     def __init__(
         self,
+        session_id: str,
         bucket: str,
         prefix: str = "",
         boto_session: Optional[boto3.Session] = None,
@@ -30,6 +32,7 @@ class S3SessionDAO(SessionDAO):
         """Initialize S3SessionDAO with S3 storage.
 
         Args:
+            session_id: ID for the session
             bucket: S3 bucket name (required)
             prefix: S3 key prefix for storage organization
             boto_session: Optional boto3 session
@@ -54,6 +57,7 @@ class S3SessionDAO(SessionDAO):
             client_config = BotocoreConfig(user_agent_extra="strands-agents")
 
         self.client = session.client(service_name="s3", config=client_config)
+        super().__init__(session_id=session_id, session_repository=self)
 
     def _get_session_path(self, session_id: str) -> str:
         """Get session S3 prefix."""
@@ -69,7 +73,7 @@ class S3SessionDAO(SessionDAO):
         agent_path = self._get_agent_path(session_id, agent_id)
         return f"{agent_path}messages/{MESSAGE_PREFIX}{message_id}.json"
 
-    def _read_s3_object(self, key: str) -> Dict[str, Any]:
+    def _read_s3_object(self, key: str) -> Optional[Dict[str, Any]]:
         """Read JSON object from S3."""
         try:
             response = self.client.get_object(Bucket=self.bucket, Key=key)
@@ -77,7 +81,7 @@ class S3SessionDAO(SessionDAO):
             return cast(dict[str, Any], json.loads(content))
         except ClientError as e:
             if e.response["Error"]["Code"] == "NoSuchKey":
-                raise SessionException(f"Object not found: {key}") from e
+                return None
             else:
                 raise SessionException(f"S3 error reading {key}: {e}") from e
         except json.JSONDecodeError as e:
@@ -95,57 +99,28 @@ class S3SessionDAO(SessionDAO):
 
     def create_session(self, session: Session) -> Session:
         """Create a new session in S3."""
-        session_key = f"{self._get_session_path(session.session_id)}session.json"
+        session_key = f"{self._get_session_path(session['session_id'])}session.json"
 
         # Check if session already exists
         try:
             self.client.head_object(Bucket=self.bucket, Key=session_key)
-            raise SessionException(f"Session {session.session_id} already exists")
+            raise SessionException(f"Session {session['session_id']} already exists")
         except ClientError as e:
             if e.response["Error"]["Code"] != "404":
                 raise SessionException(f"S3 error checking session existence: {e}") from e
 
         # Write session object
-        session_data = session.to_dict()
-        self._write_s3_object(session_key, session_data)
+        session_dict = cast(dict, session)
+        self._write_s3_object(session_key, session_dict)
         return session
 
-    def read_session(self, session_id: str) -> Session:
+    def read_session(self, session_id: str) -> Optional[Session]:
         """Read session data from S3."""
         session_key = f"{self._get_session_path(session_id)}session.json"
         session_data = self._read_s3_object(session_key)
-        return Session.from_dict(session_data)
-
-    def update_session(self, session: Session) -> None:
-        """Update session data in S3."""
-        from datetime import datetime, timezone
-
-        session.updated_at = datetime.now(timezone.utc).isoformat()
-        session_data = session.to_dict()
-        session_key = f"{self._get_session_path(session.session_id)}session.json"
-        self._write_s3_object(session_key, session_data)
-
-    def list_sessions(self) -> List[Session]:
-        """List all sessions in S3."""
-        try:
-            paginator = self.client.get_paginator("list_objects_v2")
-            pages = paginator.paginate(Bucket=self.bucket, Prefix=self.prefix, Delimiter="/")
-
-            sessions = []
-            for page in pages:
-                if "CommonPrefixes" in page:
-                    for prefix_info in page["CommonPrefixes"]:
-                        prefix = prefix_info["Prefix"]
-                        # Extract session ID from prefix like "session_123/"
-                        session_part = prefix.rstrip("/").split("/")[-1]
-                        if session_part.startswith(SESSION_PREFIX):
-                            session_id = session_part[len(SESSION_PREFIX) :]  # Remove "session_" prefix
-                            sessions.append(self.read_session(session_id))
-
-            return sessions
-
-        except ClientError as e:
-            raise SessionException(f"S3 error listing sessions: {e}") from e
+        if session_data is None:
+            return None
+        return Session(**session_data)  # type: ignore
 
     def delete_session(self, session_id: str) -> None:
         """Delete session and all associated data from S3."""
@@ -172,105 +147,47 @@ class S3SessionDAO(SessionDAO):
 
     def create_agent(self, session_id: str, session_agent: SessionAgent) -> None:
         """Create a new agent in S3."""
-        agent_id = session_agent.agent_id
-        agent_data = session_agent.to_dict()
+        agent_id = session_agent["agent_id"]
+        agent_dict = cast(dict, session_agent)
         agent_key = f"{self._get_agent_path(session_id, agent_id)}agent.json"
-        self._write_s3_object(agent_key, agent_data)
+        self._write_s3_object(agent_key, agent_dict)
 
-    def read_agent(self, session_id: str, agent_id: str) -> SessionAgent:
+    def read_agent(self, session_id: str, agent_id: str) -> Optional[SessionAgent]:
         """Read agent data from S3."""
         agent_key = f"{self._get_agent_path(session_id, agent_id)}agent.json"
         agent_data = self._read_s3_object(agent_key)
-        return SessionAgent.from_dict(agent_data)
+        if agent_data is None:
+            return None
+        return SessionAgent(**agent_data)  # type: ignore
 
-    def update_agent(self, session_id: str, SessionAgent: SessionAgent) -> None:
+    def update_agent(self, session_id: str, session_agent: SessionAgent) -> None:
         """Update agent data in S3."""
-        agent_id = SessionAgent.agent_id
-        agent_data = SessionAgent.to_dict()
+        agent_id = session_agent["agent_id"]
+        agent_dict = cast(dict, session_agent)
         agent_key = f"{self._get_agent_path(session_id, agent_id)}agent.json"
-        self._write_s3_object(agent_key, agent_data)
-
-    def delete_agent(self, session_id: str, agent_id: str) -> None:
-        """Delete an agent from S3."""
-        agent_prefix = self._get_agent_path(session_id, agent_id)
-        try:
-            paginator = self.client.get_paginator("list_objects_v2")
-            pages = paginator.paginate(Bucket=self.bucket, Prefix=agent_prefix)
-
-            objects_to_delete = []
-            for page in pages:
-                if "Contents" in page:
-                    objects_to_delete.extend([{"Key": obj["Key"]} for obj in page["Contents"]])
-
-            if not objects_to_delete:
-                raise SessionException(f"Agent {agent_id} does not exist in session {session_id}")
-
-            # Delete objects in batches
-            for i in range(0, len(objects_to_delete), 1000):
-                batch = objects_to_delete[i : i + 1000]
-                self.client.delete_objects(Bucket=self.bucket, Delete={"Objects": batch})
-
-        except ClientError as e:
-            raise SessionException(f"S3 error deleting agent {agent_id}: {e}") from e
-
-    def list_agents(self, session_id: str) -> List[SessionAgent]:
-        """List all agents in S3."""
-        agents_prefix = f"{self._get_session_path(session_id)}agents/"
-        try:
-            paginator = self.client.get_paginator("list_objects_v2")
-            pages = paginator.paginate(Bucket=self.bucket, Prefix=agents_prefix, Delimiter="/")
-
-            agents = []
-            for page in pages:
-                if "CommonPrefixes" in page:
-                    for prefix_info in page["CommonPrefixes"]:
-                        prefix = prefix_info["Prefix"]
-                        # Extract agent ID from prefix like "agents/agent_123/"
-                        agent_part = prefix.split("/")[-2]  # Get "agent_123"
-                        if agent_part.startswith(AGENT_PREFIX):
-                            agent_id = agent_part[len(AGENT_PREFIX) :]  # Remove "agent_" prefix
-                            agents.append(self.read_agent(session_id, agent_id))
-
-            return agents
-
-        except ClientError as e:
-            raise SessionException(f"S3 error listing agents: {e}") from e
+        self._write_s3_object(agent_key, agent_dict)
 
     def create_message(self, session_id: str, agent_id: str, session_message: SessionMessage) -> None:
         """Create a new message in S3."""
-        message_id = session_message.message_id
-        message_data = session_message.to_dict()
+        message_id = session_message["message_id"]
+        message_dict = cast(dict, session_message)
         message_key = self._get_message_path(session_id, agent_id, message_id)
-        self._write_s3_object(message_key, message_data)
+        self._write_s3_object(message_key, message_dict)
 
-    def read_message(self, session_id: str, agent_id: str, message_id: str) -> SessionMessage:
+    def read_message(self, session_id: str, agent_id: str, message_id: str) -> Optional[SessionMessage]:
         """Read message data from S3."""
         message_key = self._get_message_path(session_id, agent_id, message_id)
         message_data = self._read_s3_object(message_key)
-        return SessionMessage.from_dict(message_data)
+        if message_data is None:
+            return None
+        return SessionMessage(**message_data)  # type: ignore
 
     def update_message(self, session_id: str, agent_id: str, session_message: SessionMessage) -> None:
         """Update message data in S3."""
-        message_id = session_message.message_id
-        message_data = session_message.to_dict()
+        message_id = session_message["message_id"]
+        message_dict = cast(dict, session_message)
         message_key = self._get_message_path(session_id, agent_id, message_id)
-        self._write_s3_object(message_key, message_data)
-
-    def delete_message(self, session_id: str, agent_id: str, message_id: str) -> None:
-        """Delete a message from S3."""
-        message_key = self._get_message_path(session_id, agent_id, message_id)
-        try:
-            # Check if message exists
-            self.client.head_object(Bucket=self.bucket, Key=message_key)
-            # Delete the message
-            self.client.delete_object(Bucket=self.bucket, Key=message_key)
-        except ClientError as e:
-            if e.response["Error"]["Code"] == "404":
-                raise SessionException(
-                    f"Message {message_id} does not exist for agent {agent_id} in session {session_id}"
-                ) from e
-            else:
-                raise SessionException(f"S3 error deleting message {message_id}: {e}") from e
+        self._write_s3_object(message_key, message_dict)
 
     def list_messages(
         self, session_id: str, agent_id: str, limit: Optional[int] = None, offset: int = 0
@@ -302,7 +219,7 @@ class S3SessionDAO(SessionDAO):
             messages: List[SessionMessage] = []
             for key, _ in message_objects:
                 message_data = self._read_s3_object(key)
-                messages.append(SessionMessage.from_dict(message_data))
+                messages.append(SessionMessage(**message_data))  # type: ignore
 
             return messages
 

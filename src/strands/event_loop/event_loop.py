@@ -454,16 +454,8 @@ async def _handle_tool_execution(
         "content": [{"toolResult": result} for result in tool_results],
     }
 
-    agent.messages.append(tool_result_message)
-<<<<<<< HEAD
     agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=tool_result_message))
     yield {"callback": {"message": tool_result_message}}
-=======
-    callback_data = {"message": tool_result_message}
-    if "agent" in kwargs:
-        callback_data["agent"] = kwargs["agent"]
-    yield {"callback": callback_data}
->>>>>>> f4c5139 (feat: Session persistence)
 
     if cycle_span:
         tracer = get_tracer()

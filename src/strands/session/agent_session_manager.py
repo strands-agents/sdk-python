@@ -1,117 +1,117 @@
-"""File-based implementation of session manager."""
+"""Agent session manager implementation."""
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING
 
 from ..agent.state import AgentState
-from ..handlers.callback_handler import CompositeCallbackHandler
-from ..types.content import Message
-from .exceptions import SessionException
-from .file_session_dao import FileSessionDAO
-from .session_dao import SessionDAO
+from ..experimental.hooks.events import AgentInitializedEvent, MessageAddedEvent
+from ..telemetry.metrics import EventLoopMetrics
+from ..types.session import (
+    SessionType,
+    create_session,
+    session_agent_from_agent,
+    session_message_from_message,
+    session_message_to_message,
+)
 from .session_manager import SessionManager
-from .session_models import Session, SessionAgent, SessionMessage, SessionType
+from .session_repository import SessionRepository
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from ..agent.agent import Agent
+    pass
+
+DEFAULT_SESSION_AGENT_ID = "default"
 
 
 class AgentSessionManager(SessionManager):
-    """Session manager for a single Agent.
-
-    This implementation stores sessions as JSON files in a specified directory.
-    Each session is stored in a separate file named by its session_id.
-    """
+    """Session manager for persisting agent's in a Session."""
 
     def __init__(
         self,
         session_id: str,
-        session_dao: Optional[SessionDAO] = None,
+        session_repository: SessionRepository,
     ):
-        """Initialize the FileSessionManager."""
-        self.session_dao = session_dao or FileSessionDAO()
+        """Initialize the AgentSessionManager."""
+        self.session_repository = session_repository
         self.session_id = session_id
+        session = session_repository.read_session(session_id)
+        # Create a session if it does not exist yet
+        if session is None:
+            logger.debug("session_id=<%s> | Session not found, creating new session.", self.session_id)
+            session = create_session(session_id=session_id, session_type=SessionType.AGENT)
+            session_repository.create_session(session)
+        else:
+            if session["session_type"] != SessionType.AGENT:
+                raise ValueError(f"Invalid session type: {session.session_type}")
 
-    def append_message_to_agent_session(self, agent: "Agent", message: Message) -> None:
+        self.session = session
+        self._default_agent_initialized = False
+
+    def append_message(self, event: MessageAddedEvent) -> None:
         """Append a message to the agent's session.
 
         Args:
-            agent: The agent whose session to update
-            message: The message to append
+            event: Event for a newly added Message
         """
-        if agent.id is None:
-            raise ValueError("`agent.id` must be set before appending message to session.")
+        agent = event.agent
+        message = event.message
 
-        session_message = SessionMessage.from_dict(dict(message))
-        self.session_dao.create_message(self.session_id, agent.id, session_message)
-        self.session_dao.update_agent(
+        if agent.agent_id is None:
+            raise ValueError("`agent.agent_id` must be set before appending message to session.")
+
+        session_message = session_message_from_message(message)
+        self.session_repository.create_message(self.session_id, agent.agent_id, session_message)
+        self.session_repository.update_agent(
             self.session_id,
-            SessionAgent(
-                agent_id=agent.id,
-                session_id=self.session_id,
-                event_loop_metrics=agent.event_loop_metrics.to_dict(),
-                state=agent.state.get(),
-            ),
+            session_agent_from_agent(agent=agent),
         )
 
-    def initialize_agent(self, agent: "Agent") -> None:
-        """Restore agent data from the current session.
+    def initialize(self, event: AgentInitializedEvent) -> None:
+        """Initialize an agent with a session.
 
         Args:
-            agent: Agent instance to restore session data to
-
-        Raises:
-            SessionException: If restore operation fails
+            event: Event when an agent is initialized
         """
-        if agent.id is None:
-            raise ValueError("`agent.id` must be set before initializing session.")
+        agent = event.agent
 
-        try:
-            # Try to read existing session
-            session = self.session_dao.read_session(self.session_id)
-
-            if session.session_type != SessionType.AGENT:
-                raise ValueError(f"Invalid session type: {session.session_type}")
-
-            if agent.id not in [agent.agent_id for agent in self.session_dao.list_agents(self.session_id)]:
-                raise ValueError(f"Agent {agent.id} not found in session {self.session_id}")
-
-            # Initialize agent
-            agent.messages = [
-                session_message.to_message()
-                for session_message in self.session_dao.list_messages(self.session_id, agent.id)
-            ]
-            agent.state = AgentState(self.session_dao.read_agent(self.session_id, agent.id).state)
-
-        except SessionException:
-            # Session doesn't exist, create new one
-            logger.debug("Session not found, creating new session")
-            # Session doesn't exist, create new one
-            session = Session(session_id=self.session_id, session_type=SessionType.AGENT)
-            session_agent = SessionAgent(
-                agent_id=agent.id,
-                session_id=self.session_id,
-                event_loop_metrics=agent.event_loop_metrics.to_dict(),
-                state=agent.state.get(),
+        if agent.agent_id is None:
+            if self._default_agent_initialized:
+                raise ValueError(
+                    "By default, only one agent with no `agent_id` can be initialized within session_manager."
+                    "Set `agent_id` to support more than one agent in a session."
+                )
+            logger.debug(
+                "agent_id=<%s> | session_id=<%s> | Using default agent_id.",
+                agent.agent_id,
+                self.session_id,
             )
-            self.session_dao.create_session(session)
-            self.session_dao.create_agent(self.session_id, session_agent)
+            agent.agent_id = DEFAULT_SESSION_AGENT_ID
+            self._default_agent_initialized = True
+
+        session_agent = self.session_repository.read_agent(self.session_id, agent.agent_id)
+
+        if session_agent is None:
+            logger.debug(
+                "agent_id=<%s> | session_id=<%s> | Creating agent.",
+                agent.agent_id,
+                self.session_id,
+            )
+
+            session_agent = session_agent_from_agent(agent)
+            self.session_repository.create_agent(self.session_id, session_agent)
             for message in agent.messages:
-                session_message = SessionMessage.from_dict(dict(message))
-                self.session_dao.create_message(self.session_id, agent.id, session_message)
-
-        self.session = session
-
-        # Attach a callback handler for persisting messages
-        def session_callback(**kwargs: Any) -> None:
-            try:
-                # Handle message persistence
-                if "message" in kwargs:
-                    message = kwargs["message"]
-                    self.append_message_to_agent_session(kwargs["agent"], message)
-            except Exception as e:
-                logger.error("Persistence operation failed", e)
-
-        agent.callback_handler = CompositeCallbackHandler(agent.callback_handler, session_callback)
+                session_message = session_message_from_message(message)
+                self.session_repository.create_message(self.session_id, agent.agent_id, session_message)
+        else:
+            logger.debug(
+                "agent_id=<%s> | session_id=<%s> | Restoring agent.",
+                agent.agent_id,
+                self.session_id,
+            )
+            agent.messages = [
+                session_message_to_message(session_message)
+                for session_message in self.session_repository.list_messages(self.session_id, agent.agent_id)
+            ]
+            agent.state = AgentState(session_agent["state"])
+            agent.event_loop_metrics = EventLoopMetrics.from_dict(session_agent["event_loop_metrics"])

@@ -308,7 +308,7 @@ class EventLoopMetrics:
         }
         return summary
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert the EventLoopMetrics to a dictionary representation.
 
         Returns:
@@ -333,7 +333,7 @@ class EventLoopMetrics:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "EventLoopMetrics":
+    def from_dict(cls, data: dict[str, Any]) -> "EventLoopMetrics":
         """Create an EventLoopMetrics instance from a dictionary representation.
 
         Args:

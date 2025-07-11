@@ -205,11 +205,10 @@ class Agent:
         *,
         agent_id: Optional[str] = None,
         name: Optional[str] = None,
-        id: Optional[str] = None,
         description: Optional[str] = None,
         state: Optional[Union[AgentState, dict]] = None,
         hooks: Optional[list[HookProvider]] = None,
-        session_manager: Optional["SessionManager"] = None,
+        session_manager: Optional[SessionManager] = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -244,7 +243,7 @@ class Agent:
                 If None, a UUID is generated.
             name: name of the Agent
                 Defaults to None.
-            id: identifier for the agent, used by session manager.
+            agent_id: identifier for the agent, used by session manager.
                 Defaults to uuid4().
             description: description of what the Agent does
                 Defaults to None.
@@ -317,21 +316,20 @@ class Agent:
         else:
             self.state = AgentState()
 
-        # Initialize session management functionality
-        self.session_manager = session_manager
-
         self.tool_caller = Agent.ToolCaller(self)
 
         self.hooks = HookRegistry()
+
+        # Initialize session management functionality
+        self.session_manager = session_manager
+        if self.session_manager:
+            self.hooks.add_hook(self.session_manager)
+
         if hooks:
             for hook in hooks:
                 self.hooks.add_hook(hook)
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
 
-
-        # Setup session callback handler if session is enabled
-        if self.session_manager:
-            self.session_manager.initialize_agent(self)
 
     @property
     def tool(self) -> ToolCaller:
@@ -546,10 +544,6 @@ class Agent:
 
             self._append_message(message)
 
-            # Save message if session manager is available
-            if self.session_manager:
-                self.session_manager.append_message_to_agent_session(self, message)
-
             # Execute the event loop cycle with retry logic for context limits
             events = self._execute_event_loop_cycle(invocation_state)
             async for event in events:
@@ -642,13 +636,6 @@ class Agent:
         self._append_message(tool_use_msg)
         self._append_message(tool_result_msg)
         self._append_message(assistant_msg)
-
-        if self.session_manager:
-            self.session_manager.append_message_to_agent_session(self, user_msg)
-            self.session_manager.append_message_to_agent_session(self, tool_use_msg)
-            self.session_manager.append_message_to_agent_session(self, tool_result_msg)
-            self.session_manager.append_message_to_agent_session(self, assistant_msg)
-
 
     def _start_agent_trace_span(self, message: Message) -> None:
         """Starts a trace span for the agent.
