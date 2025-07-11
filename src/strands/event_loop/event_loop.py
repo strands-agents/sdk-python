@@ -28,7 +28,6 @@ from ..types.content import Message
 from ..types.exceptions import ContextWindowOverflowException, EventLoopException, ModelThrottledException
 from ..types.streaming import Metrics, StopReason
 from ..types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolGenerator, ToolResult, ToolUse
-from .message_processor import clean_orphaned_empty_tool_uses
 from .streaming import stream_messages
 
 if TYPE_CHECKING:
@@ -98,9 +97,6 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
     # Create a trace for the stream_messages call
     stream_trace = Trace("stream_messages", parent_id=cycle_trace.id)
     cycle_trace.add_child(stream_trace)
-
-    # Clean up orphaned empty tool uses
-    clean_orphaned_empty_tool_uses(agent.messages)
 
     # Process messages with exponential backoff for throttling
     message: Message
