@@ -68,8 +68,8 @@ class SlidingWindowConversationManager(ConversationManager):
 
         Args:
             agent: The agent whose messages will be managed.
-            **kwargs: Additional keyword arguments for future extensibility.
                 This list is modified in-place.
+            **kwargs: Additional keyword arguments for future extensibility.
         """
         messages = agent.messages
         self._remove_dangling_messages(messages)
