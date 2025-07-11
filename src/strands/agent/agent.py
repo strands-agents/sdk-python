@@ -199,7 +199,7 @@ class Agent:
         ] = _DEFAULT_CALLBACK_HANDLER,
         conversation_manager: Optional[ConversationManager] = None,
         record_direct_tool_call: bool = True,
-        load_tools_from_directory: bool = True,
+        load_tools_from_directory: bool = False,
         trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
         *,
         agent_id: Optional[str] = None,
@@ -235,7 +235,7 @@ class Agent:
             record_direct_tool_call: Whether to record direct tool calls in message history.
                 Defaults to True.
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.
-                Defaults to True.
+                Defaults to False.
             trace_attributes: Custom trace attributes to apply to the agent's trace span.
             agent_id: Optional ID for the agent, useful for multi-agent scenarios.
                 If None, a UUID is generated.
