@@ -4,20 +4,25 @@ This module provides the central registry for all tools available to the agent, 
 invocation capabilities.
 """
 
+import importlib.util
 import inspect
 import logging
 import os
 import sys
-from importlib import import_module, util
+from importlib import import_module
 from os.path import expanduser
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from typing_extensions import TypedDict, cast
 
 from strands.tools.decorator import DecoratedFunctionTool
 
+if TYPE_CHECKING:
+    pass
+
 from ..types.tools import AgentTool, ToolSpec
+from .agent_tool_wrapper import AgentToolWrapper
 from .tools import PythonAgentTool, normalize_schema, normalize_tool_spec
 
 logger = logging.getLogger(__name__)
@@ -97,6 +102,12 @@ class ToolRegistry:
             elif isinstance(tool, AgentTool):
                 self.register_tool(tool)
                 tool_names.append(tool.tool_name)
+
+            # Case 6: Agent as tools
+            elif self._is_agent_instance(tool):
+                agent_tool = AgentToolWrapper(tool)
+                self.register_tool(agent_tool)
+                tool_names.append(agent_tool.tool_name)
             else:
                 logger.warning("tool=<%s> | unrecognized tool specification", tool)
 
@@ -296,11 +307,11 @@ class ToolRegistry:
             sys.path.insert(0, tool_dir)
             try:
                 # Load the module directly using spec
-                spec = util.spec_from_file_location(tool_name, str(tool_path))
+                spec = importlib.util.spec_from_file_location(tool_name, str(tool_path))
                 if spec is None:
                     raise ImportError(f"Could not load spec for {tool_name}")
 
-                module = util.module_from_spec(spec)
+                module = importlib.util.module_from_spec(spec)
                 sys.modules[tool_name] = module
 
                 if spec.loader is None:
@@ -598,3 +609,7 @@ class ToolRegistry:
                     logger.warning("tool_name=<%s> | failed to create function tool | %s", name, e)
 
         return tools
+
+    def _is_agent_instance(self, obj: Any) -> bool:
+        """Check if an object is an Agent instance without importing Agent."""
+        return hasattr(obj, "name") and hasattr(obj, "description") and hasattr(obj, "invoke_async")
