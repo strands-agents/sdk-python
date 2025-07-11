@@ -342,7 +342,7 @@ class Tracer:
 
     def start_event_loop_cycle_span(
         self,
-        event_loop_kwargs: Any,
+        invocation_state: Any,
         messages: Messages,
         parent_span: Optional[Span] = None,
         **kwargs: Any,
@@ -350,7 +350,7 @@ class Tracer:
         """Start a new span for an event loop cycle.
 
         Args:
-            event_loop_kwargs: Arguments for the event loop cycle.
+            invocation_state: Arguments for the event loop cycle.
             parent_span: Optional parent span to link this span to.
             messages:  Messages being processed in this cycle.
             **kwargs: Additional attributes to add to the span.
@@ -358,15 +358,15 @@ class Tracer:
         Returns:
             The created span, or None if tracing is not enabled.
         """
-        event_loop_cycle_id = str(event_loop_kwargs.get("event_loop_cycle_id"))
-        parent_span = parent_span if parent_span else event_loop_kwargs.get("event_loop_parent_span")
+        event_loop_cycle_id = str(invocation_state.get("event_loop_cycle_id"))
+        parent_span = parent_span if parent_span else invocation_state.get("event_loop_parent_span")
 
         attributes: Dict[str, AttributeValue] = {
             "event_loop.cycle_id": event_loop_cycle_id,
         }
 
-        if "event_loop_parent_cycle_id" in event_loop_kwargs:
-            attributes["event_loop.parent_cycle_id"] = str(event_loop_kwargs["event_loop_parent_cycle_id"])
+        if "event_loop_parent_cycle_id" in invocation_state:
+            attributes["event_loop.parent_cycle_id"] = str(invocation_state["event_loop_parent_cycle_id"])
 
         # Add additional kwargs as attributes
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})

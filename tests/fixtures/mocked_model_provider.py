@@ -3,9 +3,9 @@ from typing import Any, AsyncGenerator, Iterable, Optional, Type, TypeVar
 
 from pydantic import BaseModel
 
+from strands.models import Model
 from strands.types.content import Message, Messages
 from strands.types.event_loop import StopReason
-from strands.types.models.model import Model
 from strands.types.streaming import StreamEvent
 from strands.types.tools import ToolSpec
 

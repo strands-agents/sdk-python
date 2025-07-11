@@ -1,7 +1,7 @@
 """Sliding window conversation history management."""
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
@@ -55,7 +55,7 @@ class SlidingWindowConversationManager(ConversationManager):
         self.window_size = window_size
         self.should_truncate_results = should_truncate_results
 
-    def apply_management(self, agent: "Agent") -> None:
+    def apply_management(self, agent: "Agent", **kwargs: Any) -> None:
         """Apply the sliding window to the agent's messages array to maintain a manageable history size.
 
         This method is called after every event loop cycle, as the messages array may have been modified with tool
@@ -69,13 +69,14 @@ class SlidingWindowConversationManager(ConversationManager):
         Args:
             agent: The agent whose messages will be managed.
                 This list is modified in-place.
+            **kwargs: Additional keyword arguments for future extensibility.
         """
         messages = agent.messages
         self._remove_dangling_messages(messages)
 
         if len(messages) <= self.window_size:
             logger.debug(
-                "window_size=<%s>, message_count=<%s> | skipping context reduction", len(messages), self.window_size
+                "message_count=<%s>, window_size=<%s> | skipping context reduction", len(messages), self.window_size
             )
             return
         self.reduce_context(agent)
@@ -111,7 +112,7 @@ class SlidingWindowConversationManager(ConversationManager):
                     if not any("toolResult" in content for content in messages[-1]["content"]):
                         messages.pop()
 
-    def reduce_context(self, agent: "Agent", e: Optional[Exception] = None) -> None:
+    def reduce_context(self, agent: "Agent", e: Optional[Exception] = None, **kwargs: Any) -> None:
         """Trim the oldest messages to reduce the conversation context size.
 
         The method handles special cases where trimming the messages leads to:
@@ -122,6 +123,7 @@ class SlidingWindowConversationManager(ConversationManager):
             agent: The agent whose messages will be reduce.
                 This list is modified in-place.
             e: The exception that triggered the context reduction, if any.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Raises:
             ContextWindowOverflowException: If the context cannot be reduced further.

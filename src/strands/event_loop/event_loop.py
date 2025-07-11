@@ -18,8 +18,9 @@ from ..experimental.hooks import (
     AfterToolInvocationEvent,
     BeforeModelInvocationEvent,
     BeforeToolInvocationEvent,
+)
+from ..hooks import (
     MessageAddedEvent,
-    get_registry,
 )
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import get_tracer
@@ -28,7 +29,6 @@ from ..types.content import Message
 from ..types.exceptions import ContextWindowOverflowException, EventLoopException, ModelThrottledException
 from ..types.streaming import Metrics, StopReason
 from ..types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolGenerator, ToolResult, ToolUse
-from .message_processor import clean_orphaned_empty_tool_uses
 from .streaming import stream_messages
 
 if TYPE_CHECKING:
@@ -41,7 +41,7 @@ INITIAL_DELAY = 4
 MAX_DELAY = 240  # 4 minutes
 
 
-async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
+async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
     """Execute a single cycle of the event loop.
 
     This core function processes a single conversation turn, handling model inference, tool execution, and error
@@ -57,7 +57,7 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
 
     Args:
         agent: The agent for which the cycle is being executed.
-        kwargs: Additional arguments including:
+        invocation_state: Additional arguments including:
 
             - request_state: State maintained across cycles
             - event_loop_cycle_id: Unique ID for this cycle
@@ -76,14 +76,14 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
         ContextWindowOverflowException: If the input is too large for the model
     """
     # Initialize cycle state
-    kwargs["event_loop_cycle_id"] = uuid.uuid4()
+    invocation_state["event_loop_cycle_id"] = uuid.uuid4()
 
     # Initialize state and get cycle trace
-    if "request_state" not in kwargs:
-        kwargs["request_state"] = {}
-    attributes = {"event_loop_cycle_id": str(kwargs.get("event_loop_cycle_id"))}
+    if "request_state" not in invocation_state:
+        invocation_state["request_state"] = {}
+    attributes = {"event_loop_cycle_id": str(invocation_state.get("event_loop_cycle_id"))}
     cycle_start_time, cycle_trace = agent.event_loop_metrics.start_cycle(attributes=attributes)
-    kwargs["event_loop_cycle_trace"] = cycle_trace
+    invocation_state["event_loop_cycle_trace"] = cycle_trace
 
     yield {"callback": {"start": True}}
     yield {"callback": {"start_event_loop": True}}
@@ -91,16 +91,13 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
     # Create tracer span for this event loop cycle
     tracer = get_tracer()
     cycle_span = tracer.start_event_loop_cycle_span(
-        event_loop_kwargs=kwargs, messages=agent.messages, parent_span=agent.trace_span
+        invocation_state=invocation_state, messages=agent.messages, parent_span=agent.trace_span
     )
-    kwargs["event_loop_cycle_span"] = cycle_span
+    invocation_state["event_loop_cycle_span"] = cycle_span
 
     # Create a trace for the stream_messages call
     stream_trace = Trace("stream_messages", parent_id=cycle_trace.id)
     cycle_trace.add_child(stream_trace)
-
-    # Clean up orphaned empty tool uses
-    clean_orphaned_empty_tool_uses(agent.messages)
 
     # Process messages with exponential backoff for throttling
     message: Message
@@ -120,23 +117,26 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
 
         tool_specs = agent.tool_registry.get_all_tool_specs()
 
-        get_registry(agent).invoke_callbacks(
+        agent.hooks.invoke_callbacks(
             BeforeModelInvocationEvent(
                 agent=agent,
             )
         )
 
         try:
-            # TODO: To maintain backwards compatibility, we need to combine the stream event with kwargs before yielding
-            #       to the callback handler. This will be revisited when migrating to strongly typed events.
+            # TODO: To maintain backwards compatibility, we need to combine the stream event with invocation_state
+            #       before yielding to the callback handler. This will be revisited when migrating to strongly
+            #       typed events.
             async for event in stream_messages(agent.model, agent.system_prompt, agent.messages, tool_specs):
                 if "callback" in event:
-                    yield {"callback": {**event["callback"], **(kwargs if "delta" in event["callback"] else {})}}
+                    yield {
+                        "callback": {**event["callback"], **(invocation_state if "delta" in event["callback"] else {})}
+                    }
 
             stop_reason, message, usage, metrics = event["stop"]
-            kwargs.setdefault("request_state", {})
+            invocation_state.setdefault("request_state", {})
 
-            get_registry(agent).invoke_callbacks(
+            agent.hooks.invoke_callbacks(
                 AfterModelInvocationEvent(
                     agent=agent,
                     stop_response=AfterModelInvocationEvent.ModelStopResponse(
@@ -154,7 +154,7 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
             if model_invoke_span:
                 tracer.end_span_with_error(model_invoke_span, str(e), e)
 
-            get_registry(agent).invoke_callbacks(
+            agent.hooks.invoke_callbacks(
                 AfterModelInvocationEvent(
                     agent=agent,
                     exception=e,
@@ -177,7 +177,7 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
                 time.sleep(current_delay)
                 current_delay = min(current_delay * 2, MAX_DELAY)
 
-                yield {"callback": {"event_loop_throttled_delay": current_delay, **kwargs}}
+                yield {"callback": {"event_loop_throttled_delay": current_delay, **invocation_state}}
             else:
                 raise e
 
@@ -188,7 +188,7 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
 
         # Add the response message to the conversation
         agent.messages.append(message)
-        get_registry(agent).invoke_callbacks(MessageAddedEvent(agent=agent, message=message))
+        agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=message))
         yield {"callback": {"message": message}}
 
         # Update metrics
@@ -205,7 +205,7 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
                 cycle_trace=cycle_trace,
                 cycle_span=cycle_span,
                 cycle_start_time=cycle_start_time,
-                kwargs=kwargs,
+                invocation_state=invocation_state,
             )
             async for event in events:
                 yield event
@@ -237,19 +237,19 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
         # Handle any other exceptions
         yield {"callback": {"force_stop": True, "force_stop_reason": str(e)}}
         logger.exception("cycle failed")
-        raise EventLoopException(e, kwargs["request_state"]) from e
+        raise EventLoopException(e, invocation_state["request_state"]) from e
 
-    yield {"stop": (stop_reason, message, agent.event_loop_metrics, kwargs["request_state"])}
+    yield {"stop": (stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])}
 
 
-async def recurse_event_loop(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
+async def recurse_event_loop(agent: "Agent", invocation_state: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
     """Make a recursive call to event_loop_cycle with the current state.
 
     This function is used when the event loop needs to continue processing after tool execution.
 
     Args:
         agent: Agent for which the recursive call is being made.
-        kwargs: Arguments to pass through event_loop_cycle
+        invocation_state: Arguments to pass through event_loop_cycle
 
 
     Yields:
@@ -260,7 +260,7 @@ async def recurse_event_loop(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGen
             - EventLoopMetrics: Updated metrics for the event loop
             - Any: Updated request state
     """
-    cycle_trace = kwargs["event_loop_cycle_trace"]
+    cycle_trace = invocation_state["event_loop_cycle_trace"]
 
     # Recursive call trace
     recursive_trace = Trace("Recursive call", parent_id=cycle_trace.id)
@@ -268,14 +268,14 @@ async def recurse_event_loop(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGen
 
     yield {"callback": {"start": True}}
 
-    events = event_loop_cycle(agent=agent, kwargs=kwargs)
+    events = event_loop_cycle(agent=agent, invocation_state=invocation_state)
     async for event in events:
         yield event
 
     recursive_trace.end()
 
 
-async def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolGenerator:
+async def run_tool(agent: "Agent", tool_use: ToolUse, invocation_state: dict[str, Any]) -> ToolGenerator:
     """Process a tool invocation.
 
     Looks up the tool in the registry and streams it with the provided parameters.
@@ -283,7 +283,7 @@ async def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) ->
     Args:
         agent: The agent for which the tool is being executed.
         tool_use: The tool object to process, containing name and parameters.
-        kwargs: Additional keyword arguments passed to the tool.
+        invocation_state: Context for the tool invocation, including agent state.
 
     Yields:
         Tool events with the last being the tool result.
@@ -295,8 +295,8 @@ async def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) ->
     tool_info = agent.tool_registry.dynamic_tools.get(tool_name)
     tool_func = tool_info if tool_info is not None else agent.tool_registry.registry.get(tool_name)
 
-    # Add standard arguments to kwargs for Python tools
-    kwargs.update(
+    # Add standard arguments to invocation_state for Python tools
+    invocation_state.update(
         {
             "model": agent.model,
             "system_prompt": agent.system_prompt,
@@ -308,18 +308,19 @@ async def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) ->
         }
     )
 
-    before_event = get_registry(agent).invoke_callbacks(
+    before_event = agent.hooks.invoke_callbacks(
         BeforeToolInvocationEvent(
             agent=agent,
             selected_tool=tool_func,
             tool_use=tool_use,
-            kwargs=kwargs,
+            invocation_state=invocation_state,
         )
     )
 
     try:
         selected_tool = before_event.selected_tool
         tool_use = before_event.tool_use
+        invocation_state = before_event.invocation_state  # Get potentially modified invocation_state from hook
 
         # Check if tool exists
         if not selected_tool:
@@ -342,29 +343,29 @@ async def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) ->
                 "content": [{"text": f"Unknown tool: {tool_name}"}],
             }
             # for every Before event call, we need to have an AfterEvent call
-            after_event = get_registry(agent).invoke_callbacks(
+            after_event = agent.hooks.invoke_callbacks(
                 AfterToolInvocationEvent(
                     agent=agent,
                     selected_tool=selected_tool,
                     tool_use=tool_use,
-                    kwargs=kwargs,
+                    invocation_state=invocation_state,  # Keep as invocation_state for backward compatibility with hooks
                     result=result,
                 )
             )
             yield after_event.result
             return
 
-        async for event in selected_tool.stream(tool_use, kwargs):
+        async for event in selected_tool.stream(tool_use, invocation_state):
             yield event
 
         result = event
 
-        after_event = get_registry(agent).invoke_callbacks(
+        after_event = agent.hooks.invoke_callbacks(
             AfterToolInvocationEvent(
                 agent=agent,
                 selected_tool=selected_tool,
                 tool_use=tool_use,
-                kwargs=kwargs,
+                invocation_state=invocation_state,  # Keep as invocation_state for backward compatibility with hooks
                 result=result,
             )
         )
@@ -377,12 +378,12 @@ async def run_tool(agent: "Agent", tool_use: ToolUse, kwargs: dict[str, Any]) ->
             "status": "error",
             "content": [{"text": f"Error: {str(e)}"}],
         }
-        after_event = get_registry(agent).invoke_callbacks(
+        after_event = agent.hooks.invoke_callbacks(
             AfterToolInvocationEvent(
                 agent=agent,
                 selected_tool=selected_tool,
                 tool_use=tool_use,
-                kwargs=kwargs,
+                invocation_state=invocation_state,  # Keep as invocation_state for backward compatibility with hooks
                 result=error_result,
                 exception=e,
             )
@@ -397,7 +398,7 @@ async def _handle_tool_execution(
     cycle_trace: Trace,
     cycle_span: Any,
     cycle_start_time: float,
-    kwargs: dict[str, Any],
+    invocation_state: dict[str, Any],
 ) -> AsyncGenerator[dict[str, Any], None]:
     tool_uses: list[ToolUse] = []
     tool_results: list[ToolResult] = []
@@ -414,7 +415,7 @@ async def _handle_tool_execution(
         cycle_trace: Trace object for the current event loop cycle.
         cycle_span: Span object for tracing the cycle (type may vary).
         cycle_start_time: Start time of the current cycle.
-        kwargs: Additional keyword arguments, including request state.
+        invocation_state: Additional keyword arguments, including request state.
 
     Yields:
         Tool stream events along with events yielded from a recursive call to the event loop. The last event is a tuple
@@ -427,11 +428,11 @@ async def _handle_tool_execution(
     validate_and_prepare_tools(message, tool_uses, tool_results, invalid_tool_use_ids)
 
     if not tool_uses:
-        yield {"stop": (stop_reason, message, agent.event_loop_metrics, kwargs["request_state"])}
+        yield {"stop": (stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])}
         return
 
     def tool_handler(tool_use: ToolUse) -> ToolGenerator:
-        return run_tool(agent, tool_use, kwargs)
+        return run_tool(agent, tool_use, invocation_state)
 
     tool_events = run_tools(
         handler=tool_handler,
@@ -446,7 +447,7 @@ async def _handle_tool_execution(
         yield tool_event
 
     # Store parent cycle ID for the next cycle
-    kwargs["event_loop_parent_cycle_id"] = kwargs["event_loop_cycle_id"]
+    invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
 
     tool_result_message: Message = {
         "role": "user",
@@ -454,18 +455,18 @@ async def _handle_tool_execution(
     }
 
     agent.messages.append(tool_result_message)
-    get_registry(agent).invoke_callbacks(MessageAddedEvent(agent=agent, message=tool_result_message))
+    agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=tool_result_message))
     yield {"callback": {"message": tool_result_message}}
 
     if cycle_span:
         tracer = get_tracer()
         tracer.end_event_loop_cycle_span(span=cycle_span, message=message, tool_result_message=tool_result_message)
 
-    if kwargs["request_state"].get("stop_event_loop", False):
+    if invocation_state["request_state"].get("stop_event_loop", False):
         agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
-        yield {"stop": (stop_reason, message, agent.event_loop_metrics, kwargs["request_state"])}
+        yield {"stop": (stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])}
         return
 
-    events = recurse_event_loop(agent=agent, kwargs=kwargs)
+    events = recurse_event_loop(agent=agent, invocation_state=invocation_state)
     async for event in events:
         yield event

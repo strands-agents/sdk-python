@@ -58,6 +58,8 @@ dev = [
     "pre-commit>=3.2.0,<4.2.0",
     "pytest>=8.0.0,<9.0.0",
     "pytest-asyncio>=0.26.0,<0.27.0",
+    "pytest-cov>=4.1.0,<5.0.0",
+    "pytest-xdist>=3.0.0,<4.0.0",
     "ruff>=0.4.4,<0.5.0",
 ]
 docs = [
@@ -94,13 +96,59 @@ a2a = [
     "fastapi>=0.115.12",
     "starlette>=0.46.2",
 ]
+all = [
+    # anthropic
+    "anthropic>=0.21.0,<1.0.0",
+
+    # dev
+    "commitizen>=4.4.0,<5.0.0",
+    "hatch>=1.0.0,<2.0.0",
+    "moto>=5.1.0,<6.0.0",
+    "mypy>=1.15.0,<2.0.0",
+    "pre-commit>=3.2.0,<4.2.0",
+    "pytest>=8.0.0,<9.0.0",
+    "pytest-asyncio>=0.26.0,<0.27.0",
+    "pytest-cov>=4.1.0,<5.0.0",
+    "pytest-xdist>=3.0.0,<4.0.0",
+    "ruff>=0.4.4,<0.5.0",
+
+    # docs
+    "sphinx>=5.0.0,<6.0.0",
+    "sphinx-rtd-theme>=1.0.0,<2.0.0",
+    "sphinx-autodoc-typehints>=1.12.0,<2.0.0",
+
+    # litellm
+    "litellm>=1.72.6,<1.73.0",
+
+    # llama
+    "llama-api-client>=0.1.0,<1.0.0",
+
+    # mistral
+    "mistralai>=1.8.2",
+
+    # ollama
+    "ollama>=0.4.8,<1.0.0",
+
+    # openai
+    "openai>=1.68.0,<2.0.0",
+
+    # otel
+    "opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0",
+
+    # a2a
+    "a2a-sdk[sql]>=0.2.11",
+    "uvicorn>=0.34.2",
+    "httpx>=0.28.1",
+    "fastapi>=0.115.12",
+    "starlette>=0.46.2",
+]
 
 [tool.hatch.version]
 # Tells Hatch to use your version control system (git) to determine the version.
 source = "vcs"
 
 [tool.hatch.envs.hatch-static-analysis]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "writer"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "writer", "a2a"]
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
   "ruff>=0.11.6,<0.12.0",
@@ -116,15 +164,14 @@ format-fix = [
 ]
 lint-check = [
     "ruff check",
-    # excluding due to A2A and OTEL http exporter dependency conflict
-    "mypy -p src --exclude src/strands/multiagent"
+    "mypy -p src"
 ]
 lint-fix = [
     "ruff check --fix"
 ]
 
 [tool.hatch.envs.hatch-test]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "writer"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "writer", "a2a"]
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
@@ -140,35 +187,17 @@ extra-args = [
 
 [tool.hatch.envs.dev]
 dev-mode = true
-features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel", "mistral", "writer"]
-
-[tool.hatch.envs.a2a]
-dev-mode = true
-features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "a2a"]
-
-[tool.hatch.envs.a2a.scripts]
-run = [
-    "pytest{env:HATCH_TEST_ARGS:} tests/strands/multiagent/a2a {args}"
-]
-run-cov = [
-    "pytest{env:HATCH_TEST_ARGS:} tests/strands/multiagent/a2a --cov --cov-config=pyproject.toml {args}"
-]
-lint-check = [
-    "ruff check",
-    "mypy -p src/strands/multiagent/a2a"
-]
+features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel", "mistral", "writer", "a2a"]
 
 [[tool.hatch.envs.hatch-test.matrix]]
 python = ["3.13", "3.12", "3.11", "3.10"]
 
 [tool.hatch.envs.hatch-test.scripts]
 run = [
-    # excluding due to A2A and OTEL http exporter dependency conflict
-    "pytest{env:HATCH_TEST_ARGS:} {args} --ignore=tests/strands/multiagent/a2a"
+    "pytest{env:HATCH_TEST_ARGS:} {args}"
 ]
 run-cov = [
-    # excluding due to A2A and OTEL http exporter dependency conflict
-    "pytest{env:HATCH_TEST_ARGS:} --cov --cov-config=pyproject.toml {args} --ignore=tests/strands/multiagent/a2a"
+    "pytest{env:HATCH_TEST_ARGS:} --cov --cov-config=pyproject.toml {args}"
 ]
 
 cov-combine = []
@@ -202,10 +231,6 @@ prepare = [
     "hatch fmt --formatter",
     "hatch run test-lint",
     "hatch test --all"
-]
-test-a2a = [
-    # required to run manually due to A2A and OTEL http exporter dependency conflict
-    "hatch -e a2a run run {args}"
 ]
 
 [tool.mypy]

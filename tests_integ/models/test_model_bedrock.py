@@ -1,5 +1,5 @@
+import pydantic
 import pytest
-from pydantic import BaseModel
 
 import strands
 from strands import Agent
@@ -14,7 +14,6 @@ def system_prompt():
 @pytest.fixture
 def streaming_model():
     return BedrockModel(
-        model_id="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
         streaming=True,
     )
 
@@ -22,7 +21,6 @@ def streaming_model():
 @pytest.fixture
 def non_streaming_model():
     return BedrockModel(
-        model_id="us.meta.llama3-2-90b-instruct-v1:0",
         streaming=False,
     )
 
@@ -39,10 +37,15 @@ def non_streaming_agent(non_streaming_model, system_prompt):
 
 @pytest.fixture
 def yellow_color():
-    class Color(BaseModel):
+    class Color(pydantic.BaseModel):
         """Describes a color."""
 
         name: str
+
+        @pydantic.field_validator("name", mode="after")
+        @classmethod
+        def lower(_, value):
+            return value.lower()
 
     return Color(name="yellow")
 
@@ -136,7 +139,7 @@ def test_tool_use_non_streaming(non_streaming_model):
 def test_structured_output_streaming(streaming_model):
     """Test structured output with streaming model."""
 
-    class Weather(BaseModel):
+    class Weather(pydantic.BaseModel):
         time: str
         weather: str
 
@@ -151,7 +154,7 @@ def test_structured_output_streaming(streaming_model):
 def test_structured_output_non_streaming(non_streaming_model):
     """Test structured output with non-streaming model."""
 
-    class Weather(BaseModel):
+    class Weather(pydantic.BaseModel):
         time: str
         weather: str
 

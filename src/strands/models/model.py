@@ -1,4 +1,4 @@
-"""Model-related type definitions for the SDK."""
+"""Abstract base class for Agent model providers."""
 
 import abc
 import logging
@@ -6,9 +6,9 @@ from typing import Any, AsyncGenerator, AsyncIterable, Optional, Type, TypeVar, 
 
 from pydantic import BaseModel
 
-from ..content import Messages
-from ..streaming import StreamEvent
-from ..tools import ToolSpec
+from ..types.content import Messages
+from ..types.streaming import StreamEvent
+from ..types.tools import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class Model(abc.ABC):
-    """Abstract base class for AI model implementations.
+    """Abstract base class for Agent model providers.
 
     This class defines the interface for all model implementations in the Strands Agents SDK. It provides a
     standardized way to configure and process requests for different AI model providers.
@@ -45,13 +45,14 @@ class Model(abc.ABC):
     @abc.abstractmethod
     # pragma: no cover
     def structured_output(
-        self, output_model: Type[T], prompt: Messages
+        self, output_model: Type[T], prompt: Messages, **kwargs: Any
     ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:
             output_model: The output model to use for the agent.
             prompt: The prompt messages to use for the agent.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Model events with the last being the structured output.
@@ -64,7 +65,11 @@ class Model(abc.ABC):
     @abc.abstractmethod
     # pragma: no cover
     def stream(
-        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+        self,
+        messages: Messages,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        system_prompt: Optional[str] = None,
+        **kwargs: Any,
     ) -> AsyncIterable[StreamEvent]:
         """Stream conversation with the model.
 
@@ -77,6 +82,7 @@ class Model(abc.ABC):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Formatted message chunks from the model.

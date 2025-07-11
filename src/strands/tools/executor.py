@@ -58,6 +58,7 @@ async def run_tools(
             async for event in handler(tool_use):
                 worker_queue.put_nowait((worker_id, event))
                 await worker_event.wait()
+                worker_event.clear()
 
             result = cast(ToolResult, event)
         finally:

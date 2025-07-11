@@ -12,6 +12,8 @@ from strands.experimental.hooks import (
     AfterToolInvocationEvent,
     BeforeModelInvocationEvent,
     BeforeToolInvocationEvent,
+)
+from strands.hooks import (
     HookProvider,
     HookRegistry,
 )
@@ -133,7 +135,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.tool_registry = tool_registry
     mock.thread_pool = thread_pool
     mock.event_loop_metrics = EventLoopMetrics()
-    mock._hooks = hook_registry
+    mock.hooks = hook_registry
 
     return mock
 
@@ -162,7 +164,7 @@ async def test_event_loop_cycle_text_response(
 
     stream = strands.event_loop.event_loop.event_loop_cycle(
         agent=agent,
-        kwargs={},
+        invocation_state={},
     )
     events = await alist(stream)
     tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
@@ -194,7 +196,7 @@ async def test_event_loop_cycle_text_response_throttling(
 
     stream = strands.event_loop.event_loop.event_loop_cycle(
         agent=agent,
-        kwargs={},
+        invocation_state={},
     )
     events = await alist(stream)
     tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
@@ -232,7 +234,7 @@ async def test_event_loop_cycle_exponential_backoff(
 
     stream = strands.event_loop.event_loop.event_loop_cycle(
         agent=agent,
-        kwargs={},
+        invocation_state={},
     )
     events = await alist(stream)
     tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
@@ -267,7 +269,7 @@ async def test_event_loop_cycle_text_response_throttling_exceeded(
     with pytest.raises(ModelThrottledException):
         stream = strands.event_loop.event_loop.event_loop_cycle(
             agent=agent,
-            kwargs={},
+            invocation_state={},
         )
         await alist(stream)
 
@@ -293,7 +295,7 @@ async def test_event_loop_cycle_text_response_error(
     with pytest.raises(RuntimeError):
         stream = strands.event_loop.event_loop.event_loop_cycle(
             agent=agent,
-            kwargs={},
+            invocation_state={},
         )
         await alist(stream)
 
@@ -321,7 +323,7 @@ async def test_event_loop_cycle_tool_result(
 
     stream = strands.event_loop.event_loop.event_loop_cycle(
         agent=agent,
-        kwargs={},
+        invocation_state={},
     )
     events = await alist(stream)
     tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
@@ -379,7 +381,7 @@ async def test_event_loop_cycle_tool_result_error(
     with pytest.raises(EventLoopException):
         stream = strands.event_loop.event_loop.event_loop_cycle(
             agent=agent,
-            kwargs={},
+            invocation_state={},
         )
         await alist(stream)
 
@@ -399,7 +401,7 @@ async def test_event_loop_cycle_tool_result_no_tool_handler(
     with pytest.raises(EventLoopException):
         stream = strands.event_loop.event_loop.event_loop_cycle(
             agent=agent,
-            kwargs={},
+            invocation_state={},
         )
         await alist(stream)
 
@@ -433,7 +435,7 @@ async def test_event_loop_cycle_stop(
 
     stream = strands.event_loop.event_loop.event_loop_cycle(
         agent=agent,
-        kwargs={"request_state": {"stop_event_loop": True}},
+        invocation_state={"request_state": {"stop_event_loop": True}},
     )
     events = await alist(stream)
     tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
@@ -476,7 +478,7 @@ async def test_cycle_exception(
     with pytest.raises(EventLoopException):
         stream = strands.event_loop.event_loop.event_loop_cycle(
             agent=agent,
-            kwargs={},
+            invocation_state={},
         )
         async for event in stream:
             tru_stop_event = event
@@ -511,7 +513,7 @@ async def test_event_loop_cycle_creates_spans(
     # Call event_loop_cycle
     stream = strands.event_loop.event_loop.event_loop_cycle(
         agent=agent,
-        kwargs={},
+        invocation_state={},
     )
     await alist(stream)
 
@@ -546,7 +548,7 @@ async def test_event_loop_tracing_with_model_error(
     with pytest.raises(ContextWindowOverflowException):
         stream = strands.event_loop.event_loop.event_loop_cycle(
             agent=agent,
-            kwargs={},
+            invocation_state={},
         )
         await alist(stream)
 
@@ -586,7 +588,7 @@ async def test_event_loop_tracing_with_tool_execution(
     # Call event_loop_cycle which should execute a tool
     stream = strands.event_loop.event_loop.event_loop_cycle(
         agent=agent,
-        kwargs={},
+        invocation_state={},
     )
     await alist(stream)
 
@@ -628,7 +630,7 @@ async def test_event_loop_tracing_with_throttling_exception(
     with patch("strands.event_loop.event_loop.time.sleep"):
         stream = strands.event_loop.event_loop.event_loop_cycle(
             agent=agent,
-            kwargs={},
+            invocation_state={},
         )
         await alist(stream)
 
@@ -669,13 +671,13 @@ async def test_event_loop_cycle_with_parent_span(
     # Call event_loop_cycle with a parent span
     stream = strands.event_loop.event_loop.event_loop_cycle(
         agent=agent,
-        kwargs={},
+        invocation_state={},
     )
     await alist(stream)
 
     # Verify parent_span was used when creating cycle span
     mock_tracer.start_event_loop_cycle_span.assert_called_once_with(
-        event_loop_kwargs=unittest.mock.ANY, parent_span=parent_span, messages=messages
+        invocation_state=unittest.mock.ANY, parent_span=parent_span, messages=messages
     )
 
 
@@ -688,7 +690,7 @@ async def test_request_state_initialization(alist):
     # Call without providing request_state
     stream = strands.event_loop.event_loop.event_loop_cycle(
         agent=mock_agent,
-        kwargs={},
+        invocation_state={},
     )
     events = await alist(stream)
     _, _, _, tru_request_state = events[-1]["stop"]
@@ -700,7 +702,7 @@ async def test_request_state_initialization(alist):
     initial_request_state = {"key": "value"}
     stream = strands.event_loop.event_loop.event_loop_cycle(
         agent=mock_agent,
-        kwargs={"request_state": initial_request_state},
+        invocation_state={"request_state": initial_request_state},
     )
     events = await alist(stream)
     _, _, _, tru_request_state = events[-1]["stop"]
@@ -721,7 +723,7 @@ async def test_prepare_next_cycle_in_tool_execution(agent, model, tool_stream, a
         ),
     ]
 
-    # Create a mock for recurse_event_loop to capture the kwargs passed to it
+    # Create a mock for recurse_event_loop to capture the invocation_state passed to it
     with unittest.mock.patch.object(strands.event_loop.event_loop, "recurse_event_loop") as mock_recurse:
         # Set up mock to return a valid response
         mock_recurse.return_value = agenerator(
@@ -738,7 +740,7 @@ async def test_prepare_next_cycle_in_tool_execution(agent, model, tool_stream, a
         # Call event_loop_cycle which should execute a tool and then call recurse_event_loop
         stream = strands.event_loop.event_loop.event_loop_cycle(
             agent=agent,
-            kwargs={},
+            invocation_state={},
         )
         await alist(stream)
 
@@ -746,8 +748,11 @@ async def test_prepare_next_cycle_in_tool_execution(agent, model, tool_stream, a
 
         # Verify required properties are present
         recursive_args = mock_recurse.call_args[1]
-        assert "event_loop_parent_cycle_id" in recursive_args["kwargs"]
-        assert recursive_args["kwargs"]["event_loop_parent_cycle_id"] == recursive_args["kwargs"]["event_loop_cycle_id"]
+        assert "event_loop_parent_cycle_id" in recursive_args["invocation_state"]
+        assert (
+            recursive_args["invocation_state"]["event_loop_parent_cycle_id"]
+            == recursive_args["invocation_state"]["event_loop_cycle_id"]
+        )
 
 
 @pytest.mark.asyncio
@@ -755,7 +760,7 @@ async def test_run_tool(agent, tool, alist):
     process = run_tool(
         agent,
         tool_use={"toolUseId": "tool_use_id", "name": tool.tool_name, "input": {"random_string": "a_string"}},
-        kwargs={},
+        invocation_state={},
     )
 
     tru_result = (await alist(process))[-1]
@@ -769,7 +774,7 @@ async def test_run_tool_missing_tool(agent, alist):
     process = run_tool(
         agent,
         tool_use={"toolUseId": "missing", "name": "missing", "input": {}},
-        kwargs={},
+        invocation_state={},
     )
 
     tru_events = await alist(process)
@@ -791,7 +796,7 @@ async def test_run_tool_hooks(agent, hook_provider, tool_times_2, alist):
     process = run_tool(
         agent=agent,
         tool_use={"toolUseId": "test", "name": tool_times_2.tool_name, "input": {"x": 5}},
-        kwargs={},
+        invocation_state={},
     )
     await alist(process)
 
@@ -801,7 +806,7 @@ async def test_run_tool_hooks(agent, hook_provider, tool_times_2, alist):
         agent=agent,
         selected_tool=tool_times_2,
         tool_use={"input": {"x": 5}, "name": "multiply_by_2", "toolUseId": "test"},
-        kwargs=ANY,
+        invocation_state=ANY,
     )
 
     assert hook_provider.events_received[1] == AfterToolInvocationEvent(
@@ -810,7 +815,7 @@ async def test_run_tool_hooks(agent, hook_provider, tool_times_2, alist):
         exception=None,
         tool_use={"toolUseId": "test", "name": tool_times_2.tool_name, "input": {"x": 5}},
         result={"toolUseId": "test", "status": "success", "content": [{"text": "10"}]},
-        kwargs=ANY,
+        invocation_state=ANY,
     )
 
 
@@ -820,7 +825,7 @@ async def test_run_tool_hooks_on_missing_tool(agent, hook_provider, alist):
     process = run_tool(
         agent=agent,
         tool_use={"toolUseId": "test", "name": "missing_tool", "input": {"x": 5}},
-        kwargs={},
+        invocation_state={},
     )
     await alist(process)
 
@@ -830,14 +835,14 @@ async def test_run_tool_hooks_on_missing_tool(agent, hook_provider, alist):
         agent=agent,
         selected_tool=None,
         tool_use={"input": {"x": 5}, "name": "missing_tool", "toolUseId": "test"},
-        kwargs=ANY,
+        invocation_state=ANY,
     )
 
     assert hook_provider.events_received[1] == AfterToolInvocationEvent(
         agent=agent,
         selected_tool=None,
         tool_use={"input": {"x": 5}, "name": "missing_tool", "toolUseId": "test"},
-        kwargs=ANY,
+        invocation_state=ANY,
         result={"content": [{"text": "Unknown tool: missing_tool"}], "status": "error", "toolUseId": "test"},
         exception=None,
     )
@@ -858,7 +863,7 @@ async def test_run_tool_hook_after_tool_invocation_on_exception(agent, tool_regi
     process = run_tool(
         agent=agent,
         tool_use={"toolUseId": "test", "name": "failing_tool", "input": {"x": 5}},
-        kwargs={},
+        invocation_state={},
     )
     await alist(process)
 
@@ -866,7 +871,7 @@ async def test_run_tool_hook_after_tool_invocation_on_exception(agent, tool_regi
         agent=agent,
         selected_tool=failing_tool,
         tool_use={"input": {"x": 5}, "name": "failing_tool", "toolUseId": "test"},
-        kwargs=ANY,
+        invocation_state=ANY,
         result={"content": [{"text": "Error: Tool failed"}], "status": "error", "toolUseId": "test"},
         exception=error,
     )
@@ -889,7 +894,7 @@ async def test_run_tool_hook_before_tool_invocation_updates(agent, tool_times_5,
     process = run_tool(
         agent=agent,
         tool_use={"toolUseId": "original", "name": "original_tool", "input": {"x": 1}},
-        kwargs={},
+        invocation_state={},
     )
     result = (await alist(process))[-1]
 
@@ -900,7 +905,7 @@ async def test_run_tool_hook_before_tool_invocation_updates(agent, tool_times_5,
         agent=agent,
         selected_tool=tool_times_5,
         tool_use=updated_tool_use,
-        kwargs=ANY,
+        invocation_state=ANY,
         result={"content": [{"text": "15"}], "status": "success", "toolUseId": "modified"},
         exception=None,
     )
@@ -921,7 +926,7 @@ async def test_run_tool_hook_after_tool_invocation_updates(agent, tool_times_2, 
     process = run_tool(
         agent=agent,
         tool_use={"toolUseId": "test", "name": tool_times_2.tool_name, "input": {"x": 5}},
-        kwargs={},
+        invocation_state={},
     )
 
     result = (await alist(process))[-1]
@@ -943,7 +948,7 @@ async def test_run_tool_hook_after_tool_invocation_updates_with_missing_tool(age
     process = run_tool(
         agent=agent,
         tool_use={"toolUseId": "test", "name": "missing_tool", "input": {"x": 5}},
-        kwargs={},
+        invocation_state={},
     )
 
     result = (await alist(process))[-1]
@@ -983,7 +988,7 @@ async def test_run_tool_hook_update_result_with_missing_tool(agent, tool_registr
         process = run_tool(
             agent=agent,
             tool_use={"toolUseId": "test", "name": "test_quota", "input": {"x": 5}},
-            kwargs={},
+            invocation_state={},
         )
 
         result = (await alist(process))[-1]
@@ -1023,7 +1028,7 @@ async def test_event_loop_cycle_exception_model_hooks(mock_time, agent, model, a
 
     stream = strands.event_loop.event_loop.event_loop_cycle(
         agent=agent,
-        kwargs={},
+        invocation_state={},
     )
     await alist(stream)
 

@@ -372,7 +372,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         return "function"
 
     @override
-    async def stream(self, tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolGenerator:
+    async def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:
         """Stream the tool with a tool use specification.
 
         This method handles tool use streams from a Strands Agent. It validates the input,
@@ -388,7 +388,8 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
 
         Args:
             tool_use: The tool use specification from the Agent.
-            kwargs: Additional keyword arguments, may include 'agent' reference.
+            invocation_state: Context for the tool invocation, including agent state.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Tool events with the last being the tool result.
@@ -402,8 +403,8 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             validated_input = self._metadata.validate_input(tool_input)
 
             # Pass along the agent if provided and expected by the function
-            if "agent" in kwargs and "agent" in self._metadata.signature.parameters:
-                validated_input["agent"] = kwargs.get("agent")
+            if "agent" in invocation_state and "agent" in self._metadata.signature.parameters:
+                validated_input["agent"] = invocation_state.get("agent")
 
             # "Too few arguments" expected, hence the type ignore
             if inspect.iscoroutinefunction(self._tool_func):
