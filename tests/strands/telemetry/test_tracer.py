@@ -276,17 +276,17 @@ def test_start_agent_span(mock_tracer):
         mock_span = mock.MagicMock()
         mock_tracer.start_span.return_value = mock_span
 
-        prompt = "What's the weather today?"
+        content = [{"text": "test prompt"}]
         model_id = "test-model"
         tools = [{"name": "weather_tool"}]
         custom_attrs = {"custom_attr": "value"}
 
         span = tracer.start_agent_span(
-            prompt=prompt,
+            custom_trace_attributes=custom_attrs,
             agent_name="WeatherAgent",
+            message={"content": content, "role": "user"},
             model_id=model_id,
             tools=tools,
-            custom_trace_attributes=custom_attrs,
         )
 
         mock_tracer.start_span.assert_called_once()
@@ -295,7 +295,7 @@ def test_start_agent_span(mock_tracer):
         mock_span.set_attribute.assert_any_call("gen_ai.agent.name", "WeatherAgent")
         mock_span.set_attribute.assert_any_call("gen_ai.request.model", model_id)
         mock_span.set_attribute.assert_any_call("custom_attr", "value")
-        mock_span.add_event.assert_any_call("gen_ai.user.message", attributes={"content": prompt})
+        mock_span.add_event.assert_any_call("gen_ai.user.message", attributes={"content": json.dumps(content)})
         assert span is not None
 
 

@@ -1,18 +1,18 @@
 import os
 
+import pydantic
 import pytest
-from pydantic import BaseModel
 
 import strands
 from strands import Agent, tool
-
-if "OPENAI_API_KEY" not in os.environ:
-    pytest.skip(allow_module_level=True, reason="OPENAI_API_KEY environment variable missing")
-
 from strands.models.openai import OpenAIModel
+from tests_integ.models import providers
+
+# these tests only run if we have the openai api key
+pytestmark = providers.openai.mark
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def model():
     return OpenAIModel(
         model_id="gpt-4o",
@@ -22,7 +22,7 @@ def model():
     )
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def tools():
     @strands.tool
     def tool_time() -> str:
@@ -35,14 +35,14 @@ def tools():
     return [tool_time, tool_weather]
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def agent(model, tools):
     return Agent(model=model, tools=tools)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def weather():
-    class Weather(BaseModel):
+    class Weather(pydantic.BaseModel):
         """Extracts the time and weather from the user's message with the exact strings."""
 
         time: str
@@ -51,9 +51,24 @@ def weather():
     return Weather(time="12:00", weather="sunny")
 
 
+@pytest.fixture
+def yellow_color():
+    class Color(pydantic.BaseModel):
+        """Describes a color."""
+
+        name: str
+
+        @pydantic.field_validator("name", mode="after")
+        @classmethod
+        def lower(_, value):
+            return value.lower()
+
+    return Color(name="yellow")
+
+
 @pytest.fixture(scope="module")
 def test_image_path(request):
-    return request.config.rootpath / "tests-integ" / "test_image.png"
+    return request.config.rootpath / "tests_integ" / "test_image.png"
 
 
 def test_agent_invoke(agent):
@@ -96,19 +111,52 @@ async def test_agent_structured_output_async(agent, weather):
     assert tru_weather == exp_weather
 
 
-def test_tool_returning_images(model, test_image_path):
+def test_invoke_multi_modal_input(agent, yellow_img):
+    content = [
+        {"text": "what is in this image"},
+        {
+            "image": {
+                "format": "png",
+                "source": {
+                    "bytes": yellow_img,
+                },
+            },
+        },
+    ]
+    result = agent(content)
+    text = result.message["content"][0]["text"].lower()
+
+    assert "yellow" in text
+
+
+def test_structured_output_multi_modal_input(agent, yellow_img, yellow_color):
+    content = [
+        {"text": "Is this image red, blue, or yellow?"},
+        {
+            "image": {
+                "format": "png",
+                "source": {
+                    "bytes": yellow_img,
+                },
+            },
+        },
+    ]
+    tru_color = agent.structured_output(type(yellow_color), content)
+    exp_color = yellow_color
+    assert tru_color == exp_color
+
+
+@pytest.mark.skip("https://github.com/strands-agents/sdk-python/issues/320")
+def test_tool_returning_images(model, yellow_img):
     @tool
     def tool_with_image_return():
-        with open(test_image_path, "rb") as image_file:
-            encoded_image = image_file.read()
-
         return {
             "status": "success",
             "content": [
                 {
                     "image": {
                         "format": "png",
-                        "source": {"bytes": encoded_image},
+                        "source": {"bytes": yellow_img},
                     }
                 },
             ],

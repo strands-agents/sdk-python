@@ -17,20 +17,20 @@ class TestModel(SAModel):
         return
 
     async def structured_output(self, output_model):
-        yield output_model(name="test", age=20)
+        yield {"output": output_model(name="test", age=20)}
 
-    def format_request(self, messages, tool_specs, system_prompt):
-        return {
-            "messages": messages,
-            "tool_specs": tool_specs,
-            "system_prompt": system_prompt,
+    async def stream(self, messages, tool_specs=None, system_prompt=None):
+        yield {"messageStart": {"role": "assistant"}}
+        yield {"contentBlockStart": {"start": {}}}
+        yield {"contentBlockDelta": {"delta": {"text": f"Processed {len(messages)} messages"}}}
+        yield {"contentBlockStop": {}}
+        yield {"messageStop": {"stopReason": "end_turn"}}
+        yield {
+            "metadata": {
+                "usage": {"inputTokens": 10, "outputTokens": 15, "totalTokens": 25},
+                "metrics": {"latencyMs": 100},
+            }
         }
-
-    def format_chunk(self, event):
-        return {"event": event}
-
-    async def stream(self, request):
-        yield {"request": request}
 
 
 @pytest.fixture
@@ -73,19 +73,21 @@ def system_prompt():
 
 
 @pytest.mark.asyncio
-async def test_converse(model, messages, tool_specs, system_prompt, alist):
-    response = model.converse(messages, tool_specs, system_prompt)
+async def test_stream(model, messages, tool_specs, system_prompt, alist):
+    response = model.stream(messages, tool_specs, system_prompt)
 
     tru_events = await alist(response)
     exp_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "Processed 1 messages"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
         {
-            "event": {
-                "request": {
-                    "messages": messages,
-                    "tool_specs": tool_specs,
-                    "system_prompt": system_prompt,
-                },
-            },
+            "metadata": {
+                "usage": {"inputTokens": 10, "outputTokens": 15, "totalTokens": 25},
+                "metrics": {"latencyMs": 100},
+            }
         },
     ]
     assert tru_events == exp_events
@@ -96,36 +98,6 @@ async def test_structured_output(model, alist):
     response = model.structured_output(Person)
     events = await alist(response)
 
-    tru_output = events[-1]
+    tru_output = events[-1]["output"]
     exp_output = Person(name="test", age=20)
     assert tru_output == exp_output
-
-
-@pytest.mark.asyncio
-async def test_converse_logging(model, messages, tool_specs, system_prompt, caplog, alist):
-    """Test that converse method logs the formatted request at debug level."""
-    import logging
-
-    # Set the logger to debug level to capture debug messages
-    caplog.set_level(logging.DEBUG, logger="strands.types.models.model")
-
-    # Execute the converse method
-    response = model.converse(messages, tool_specs, system_prompt)
-    await alist(response)
-
-    # Check that the expected log messages are present
-    assert "formatting request" in caplog.text
-    assert "formatted request=" in caplog.text
-    assert "invoking model" in caplog.text
-    assert "got response from model" in caplog.text
-    assert "finished streaming response from model" in caplog.text
-
-    # Check that the formatted request is logged with the expected content
-    expected_request_str = str(
-        {
-            "messages": messages,
-            "tool_specs": tool_specs,
-            "system_prompt": system_prompt,
-        }
-    )
-    assert expected_request_str in caplog.text

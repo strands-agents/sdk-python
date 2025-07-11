@@ -191,7 +191,6 @@ class AnthropicModel(Model):
 
         return formatted_messages
 
-    @override
     def format_request(
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
     ) -> dict[str, Any]:
@@ -225,7 +224,6 @@ class AnthropicModel(Model):
             **(self.config.get("params") or {}),
         }
 
-    @override
     def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
         """Format the Anthropic response events into standardized message chunks.
 
@@ -344,27 +342,37 @@ class AnthropicModel(Model):
                 raise RuntimeError(f"event_type=<{event['type']} | unknown type")
 
     @override
-    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
-        """Send the request to the Anthropic model and get the streaming response.
+    async def stream(
+        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream conversation with the Anthropic model.
 
         Args:
-            request: The formatted request to send to the Anthropic model.
+            messages: List of message objects to be processed by the model.
+            tool_specs: List of tool specifications to make available to the model.
+            system_prompt: System prompt to provide context to the model.
 
-        Returns:
-            An iterable of response events from the Anthropic model.
+        Yields:
+            Formatted message chunks from the model.
 
         Raises:
             ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: If the request is throttled by Anthropic.
         """
+        logger.debug("formatting request")
+        request = self.format_request(messages, tool_specs, system_prompt)
+        logger.debug("formatted request=<%s>", request)
+
+        logger.debug("invoking model")
         try:
             async with self.client.messages.stream(**request) as stream:
+                logger.debug("got response from model")
                 async for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
-                        yield event.model_dump()
+                        yield self.format_chunk(event.model_dump())
 
                 usage = event.message.usage  # type: ignore
-                yield {"type": "metadata", "usage": usage.model_dump()}
+                yield self.format_chunk({"type": "metadata", "usage": usage.model_dump()})
 
         except anthropic.RateLimitError as error:
             raise ModelThrottledException(str(error)) from error
@@ -374,6 +382,8 @@ class AnthropicModel(Model):
                 raise ContextWindowOverflowException(str(error)) from error
 
             raise error
+
+        logger.debug("finished streaming response from model")
 
     @override
     async def structured_output(
@@ -390,7 +400,7 @@ class AnthropicModel(Model):
         """
         tool_spec = convert_pydantic_to_tool_spec(output_model)
 
-        response = self.converse(messages=prompt, tool_specs=[tool_spec])
+        response = self.stream(messages=prompt, tool_specs=[tool_spec])
         async for event in process_stream(response, prompt):
             yield event
 

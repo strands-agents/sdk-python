@@ -19,7 +19,7 @@ class Model(abc.ABC):
     """Abstract base class for AI model implementations.
 
     This class defines the interface for all model implementations in the Strands Agents SDK. It provides a
-    standardized way to configure, format, and process requests for different AI model providers.
+    standardized way to configure and process requests for different AI model providers.
     """
 
     @abc.abstractmethod
@@ -63,54 +63,10 @@ class Model(abc.ABC):
 
     @abc.abstractmethod
     # pragma: no cover
-    def format_request(
-        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
-    ) -> Any:
-        """Format a streaming request to the underlying model.
-
-        Args:
-            messages: List of message objects to be processed by the model.
-            tool_specs: List of tool specifications to make available to the model.
-            system_prompt: System prompt to provide context to the model.
-
-        Returns:
-            The formatted request.
-        """
-        pass
-
-    @abc.abstractmethod
-    # pragma: no cover
-    def format_chunk(self, event: Any) -> StreamEvent:
-        """Format the model response events into standardized message chunks.
-
-        Args:
-            event: A response event from the model.
-
-        Returns:
-            The formatted chunk.
-        """
-        pass
-
-    @abc.abstractmethod
-    # pragma: no cover
-    def stream(self, request: Any) -> AsyncGenerator[Any, None]:
-        """Send the request to the model and get a streaming response.
-
-        Args:
-            request: The formatted request to send to the model.
-
-        Returns:
-            The model's response.
-
-        Raises:
-            ModelThrottledException: When the model service is throttling requests from the client.
-        """
-        pass
-
-    async def converse(
+    def stream(
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
     ) -> AsyncIterable[StreamEvent]:
-        """Converse with the model.
+        """Stream conversation with the model.
 
         This method handles the full lifecycle of conversing with the model:
         1. Format the messages, tool specs, and configuration into a streaming request
@@ -128,15 +84,4 @@ class Model(abc.ABC):
         Raises:
             ModelThrottledException: When the model service is throttling requests from the client.
         """
-        logger.debug("formatting request")
-        request = self.format_request(messages, tool_specs, system_prompt)
-        logger.debug("formatted request=<%s>", request)
-
-        logger.debug("invoking model")
-        response = self.stream(request)
-
-        logger.debug("got response from model")
-        async for event in response:
-            yield self.format_chunk(event)
-
-        logger.debug("finished streaming response from model")
+        pass

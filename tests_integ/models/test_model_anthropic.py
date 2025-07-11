@@ -1,14 +1,18 @@
 import os
 
+import pydantic
 import pytest
-from pydantic import BaseModel
 
 import strands
 from strands import Agent
 from strands.models.anthropic import AnthropicModel
+from tests_integ.models import providers
+
+# these tests only run if we have the anthropic api key
+pytestmark = providers.anthropic.mark
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def model():
     return AnthropicModel(
         client_args={
@@ -19,7 +23,7 @@ def model():
     )
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def tools():
     @strands.tool
     def tool_time() -> str:
@@ -32,19 +36,19 @@ def tools():
     return [tool_time, tool_weather]
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def system_prompt():
     return "You are an AI assistant."
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def agent(model, tools, system_prompt):
     return Agent(model=model, tools=tools, system_prompt=system_prompt)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def weather():
-    class Weather(BaseModel):
+    class Weather(pydantic.BaseModel):
         """Extracts the time and weather from the user's message with the exact strings."""
 
         time: str
@@ -53,7 +57,21 @@ def weather():
     return Weather(time="12:00", weather="sunny")
 
 
-@pytest.mark.skipif("ANTHROPIC_API_KEY" not in os.environ, reason="ANTHROPIC_API_KEY environment variable missing")
+@pytest.fixture
+def yellow_color():
+    class Color(pydantic.BaseModel):
+        """Describes a color."""
+
+        name: str
+
+        @pydantic.field_validator("name", mode="after")
+        @classmethod
+        def lower(_, value):
+            return value.lower()
+
+    return Color(name="yellow")
+
+
 def test_agent_invoke(agent):
     result = agent("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
@@ -61,7 +79,6 @@ def test_agent_invoke(agent):
     assert all(string in text for string in ["12:00", "sunny"])
 
 
-@pytest.mark.skipif("ANTHROPIC_API_KEY" not in os.environ, reason="ANTHROPIC_API_KEY environment variable missing")
 @pytest.mark.asyncio
 async def test_agent_invoke_async(agent):
     result = await agent.invoke_async("What is the time and weather in New York?")
@@ -70,7 +87,6 @@ async def test_agent_invoke_async(agent):
     assert all(string in text for string in ["12:00", "sunny"])
 
 
-@pytest.mark.skipif("ANTHROPIC_API_KEY" not in os.environ, reason="ANTHROPIC_API_KEY environment variable missing")
 @pytest.mark.asyncio
 async def test_agent_stream_async(agent):
     stream = agent.stream_async("What is the time and weather in New York?")
@@ -83,16 +99,49 @@ async def test_agent_stream_async(agent):
     assert all(string in text for string in ["12:00", "sunny"])
 
 
-@pytest.mark.skipif("ANTHROPIC_API_KEY" not in os.environ, reason="ANTHROPIC_API_KEY environment variable missing")
 def test_structured_output(agent, weather):
     tru_weather = agent.structured_output(type(weather), "The time is 12:00 and the weather is sunny")
     exp_weather = weather
     assert tru_weather == exp_weather
 
 
-@pytest.mark.skipif("ANTHROPIC_API_KEY" not in os.environ, reason="ANTHROPIC_API_KEY environment variable missing")
 @pytest.mark.asyncio
 async def test_agent_structured_output_async(agent, weather):
     tru_weather = await agent.structured_output_async(type(weather), "The time is 12:00 and the weather is sunny")
     exp_weather = weather
     assert tru_weather == exp_weather
+
+
+def test_invoke_multi_modal_input(agent, yellow_img):
+    content = [
+        {"text": "what is in this image"},
+        {
+            "image": {
+                "format": "png",
+                "source": {
+                    "bytes": yellow_img,
+                },
+            },
+        },
+    ]
+    result = agent(content)
+    text = result.message["content"][0]["text"].lower()
+
+    assert "yellow" in text
+
+
+def test_structured_output_multi_modal_input(agent, yellow_img, yellow_color):
+    content = [
+        {"text": "Is this image red, blue, or yellow?"},
+        {
+            "image": {
+                "format": "png",
+                "source": {
+                    "bytes": yellow_img,
+                },
+            },
+        },
+    ]
+    tru_color = agent.structured_output(type(yellow_color), content)
+    exp_color = yellow_color
+    assert tru_color == exp_color

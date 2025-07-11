@@ -1,0 +1,99 @@
+import pydantic
+import pytest
+
+import strands
+from strands import Agent
+from strands.models.litellm import LiteLLMModel
+
+
+@pytest.fixture
+def model():
+    return LiteLLMModel(model_id="bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0")
+
+
+@pytest.fixture
+def tools():
+    @strands.tool
+    def tool_time() -> str:
+        return "12:00"
+
+    @strands.tool
+    def tool_weather() -> str:
+        return "sunny"
+
+    return [tool_time, tool_weather]
+
+
+@pytest.fixture
+def agent(model, tools):
+    return Agent(model=model, tools=tools)
+
+
+@pytest.fixture
+def yellow_color():
+    class Color(pydantic.BaseModel):
+        """Describes a color."""
+
+        name: str
+
+        @pydantic.field_validator("name", mode="after")
+        @classmethod
+        def lower(_, value):
+            return value.lower()
+
+    return Color(name="yellow")
+
+
+def test_agent(agent):
+    result = agent("What is the time and weather in New York?")
+    text = result.message["content"][0]["text"].lower()
+
+    assert all(string in text for string in ["12:00", "sunny"])
+
+
+def test_structured_output(model):
+    class Weather(pydantic.BaseModel):
+        time: str
+        weather: str
+
+    agent_no_tools = Agent(model=model)
+
+    result = agent_no_tools.structured_output(Weather, "The time is 12:00 and the weather is sunny")
+    assert isinstance(result, Weather)
+    assert result.time == "12:00"
+    assert result.weather == "sunny"
+
+
+def test_invoke_multi_modal_input(agent, yellow_img):
+    content = [
+        {"text": "Is this image red, blue, or yellow?"},
+        {
+            "image": {
+                "format": "png",
+                "source": {
+                    "bytes": yellow_img,
+                },
+            },
+        },
+    ]
+    result = agent(content)
+    text = result.message["content"][0]["text"].lower()
+
+    assert "yellow" in text
+
+
+def test_structured_output_multi_modal_input(agent, yellow_img, yellow_color):
+    content = [
+        {"text": "what is in this image"},
+        {
+            "image": {
+                "format": "png",
+                "source": {
+                    "bytes": yellow_img,
+                },
+            },
+        },
+    ]
+    tru_color = agent.structured_output(type(yellow_color), content)
+    exp_color = yellow_color
+    assert tru_color == exp_color

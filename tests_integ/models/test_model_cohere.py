@@ -1,14 +1,26 @@
+import os
+
 import pytest
-from pydantic import BaseModel
 
 import strands
 from strands import Agent
-from strands.models.litellm import LiteLLMModel
+from strands.models.openai import OpenAIModel
+from tests_integ.models import providers
+
+# these tests only run if we have the cohere api key
+pytestmark = providers.cohere.mark
 
 
 @pytest.fixture
 def model():
-    return LiteLLMModel(model_id="bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0")
+    return OpenAIModel(
+        client_args={
+            "base_url": "https://api.cohere.com/compatibility/v1",
+            "api_key": os.getenv("CO_API_KEY"),
+        },
+        model_id="command-a-03-2025",
+        params={"stream_options": None},
+    )
 
 
 @pytest.fixture
@@ -32,18 +44,4 @@ def agent(model, tools):
 def test_agent(agent):
     result = agent("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
-
     assert all(string in text for string in ["12:00", "sunny"])
-
-
-def test_structured_output(model):
-    class Weather(BaseModel):
-        time: str
-        weather: str
-
-    agent_no_tools = Agent(model=model)
-
-    result = agent_no_tools.structured_output(Weather, "The time is 12:00 and the weather is sunny")
-    assert isinstance(result, Weather)
-    assert result.time == "12:00"
-    assert result.weather == "sunny"

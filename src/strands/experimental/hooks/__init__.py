@@ -30,22 +30,29 @@ type-safe system that supports multiple subscribers per event type.
 """
 
 from .events import (
+    AfterInvocationEvent,
+    AfterModelInvocationEvent,
     AfterToolInvocationEvent,
     AgentInitializedEvent,
+    BeforeInvocationEvent,
+    BeforeModelInvocationEvent,
     BeforeToolInvocationEvent,
-    EndRequestEvent,
-    StartRequestEvent,
+    MessageAddedEvent,
 )
-from .registry import HookCallback, HookEvent, HookProvider, HookRegistry
+from .registry import HookCallback, HookEvent, HookProvider, HookRegistry, get_registry
 
 __all__ = [
     "AgentInitializedEvent",
-    "StartRequestEvent",
-    "EndRequestEvent",
+    "BeforeInvocationEvent",
+    "AfterInvocationEvent",
+    "BeforeModelInvocationEvent",
+    "AfterModelInvocationEvent",
     "BeforeToolInvocationEvent",
     "AfterToolInvocationEvent",
+    "MessageAddedEvent",
     "HookEvent",
     "HookProvider",
     "HookCallback",
     "HookRegistry",
+    "get_registry",
 ]

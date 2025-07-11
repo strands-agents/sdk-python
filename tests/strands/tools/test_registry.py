@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+import strands
 from strands.tools import PythonAgentTool
 from strands.tools.decorator import DecoratedFunctionTool, tool
 from strands.tools.registry import ToolRegistry
@@ -44,6 +45,23 @@ def test_register_tool_with_similar_name_raises():
         str(err.value) == "Tool name 'tool_like_this' already exists as 'tool-like-this'. "
         "Cannot add a duplicate tool which differs by a '-' or '_'"
     )
+
+
+def test_get_all_tool_specs_returns_right_tool_specs():
+    tool_1 = strands.tool(lambda a: a, name="tool_1")
+    tool_2 = strands.tool(lambda b: b, name="tool_2")
+
+    tool_registry = ToolRegistry()
+
+    tool_registry.register_tool(tool_1)
+    tool_registry.register_tool(tool_2)
+
+    tool_specs = tool_registry.get_all_tool_specs()
+
+    assert tool_specs == [
+        tool_1.tool_spec,
+        tool_2.tool_spec,
+    ]
 
 
 def test_scan_module_for_tools():

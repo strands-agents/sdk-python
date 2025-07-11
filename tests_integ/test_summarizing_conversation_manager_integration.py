@@ -21,6 +21,9 @@ import strands
 from strands import Agent
 from strands.agent.conversation_manager import SummarizingConversationManager
 from strands.models.anthropic import AnthropicModel
+from tests_integ.models import providers
+
+pytestmark = providers.anthropic.mark
 
 
 @pytest.fixture
@@ -69,7 +72,6 @@ def tools():
     return [get_current_time, get_weather, calculate_sum]
 
 
-@pytest.mark.skipif("ANTHROPIC_API_KEY" not in os.environ, reason="ANTHROPIC_API_KEY environment variable missing")
 def test_summarization_with_context_overflow(model):
     """Test that summarization works when context overflow occurs."""
     # Mock conversation data to avoid API calls
@@ -181,7 +183,6 @@ def test_summarization_with_context_overflow(model):
     assert post_summary_result.message["role"] == "assistant"
 
 
-@pytest.mark.skipif("ANTHROPIC_API_KEY" not in os.environ, reason="ANTHROPIC_API_KEY environment variable missing")
 def test_tool_preservation_during_summarization(model, tools):
     """Test that ToolUse/ToolResult pairs are preserved during summarization."""
     agent = Agent(
@@ -295,7 +296,6 @@ def test_tool_preservation_during_summarization(model, tools):
     assert found_calculation, "Tool should still work after summarization"
 
 
-@pytest.mark.skipif("ANTHROPIC_API_KEY" not in os.environ, reason="ANTHROPIC_API_KEY environment variable missing")
 def test_dedicated_summarization_agent(model, summarization_model):
     """Test that a dedicated summarization agent works correctly."""
     # Create a dedicated summarization agent

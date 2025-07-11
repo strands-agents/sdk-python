@@ -7,7 +7,14 @@ import pytest
 import strands
 import strands.telemetry
 from strands.event_loop.event_loop import run_tool
-from strands.experimental.hooks import AfterToolInvocationEvent, BeforeToolInvocationEvent, HookProvider, HookRegistry
+from strands.experimental.hooks import (
+    AfterModelInvocationEvent,
+    AfterToolInvocationEvent,
+    BeforeModelInvocationEvent,
+    BeforeToolInvocationEvent,
+    HookProvider,
+    HookRegistry,
+)
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.tools.registry import ToolRegistry
 from strands.types.event_loop import EventLoopConfig
@@ -37,11 +44,6 @@ def messages():
 
 
 @pytest.fixture
-def tool_config():
-    return {"tools": [{"toolSpec": {"name": "tool_for_testing"}}], "toolChoice": {"auto": {}}}
-
-
-@pytest.fixture
 def tool_registry():
     return ToolRegistry()
 
@@ -55,7 +57,6 @@ def thread_pool():
 def tool(tool_registry):
     @strands.tool
     def tool_for_testing(random_string: str):
-        yield {"event": "abc"}
         return random_string
 
     tool_registry.register_tool(tool_for_testing)
@@ -111,19 +112,25 @@ def hook_registry():
 
 @pytest.fixture
 def hook_provider(hook_registry):
-    provider = MockHookProvider(event_types=[BeforeToolInvocationEvent, AfterToolInvocationEvent])
+    provider = MockHookProvider(
+        event_types=[
+            BeforeToolInvocationEvent,
+            AfterToolInvocationEvent,
+            BeforeModelInvocationEvent,
+            AfterModelInvocationEvent,
+        ]
+    )
     hook_registry.add_hook(provider)
     return provider
 
 
 @pytest.fixture
-def agent(model, system_prompt, messages, tool_config, tool_registry, thread_pool, hook_registry):
+def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_registry):
     mock = unittest.mock.Mock(name="agent")
     mock.config.cache_points = []
     mock.model = model
     mock.system_prompt = system_prompt
     mock.messages = messages
-    mock.tool_config = tool_config
     mock.tool_registry = tool_registry
     mock.thread_pool = thread_pool
     mock.event_loop_metrics = EventLoopMetrics()
@@ -148,7 +155,7 @@ async def test_event_loop_cycle_text_response(
     agenerator,
     alist,
 ):
-    model.converse.return_value = agenerator(
+    model.stream.return_value = agenerator(
         [
             {"contentBlockDelta": {"delta": {"text": "test text"}}},
             {"contentBlockStop": {}},
@@ -177,7 +184,7 @@ async def test_event_loop_cycle_text_response_throttling(
     agenerator,
     alist,
 ):
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         ModelThrottledException("ThrottlingException | ConverseStream"),
         agenerator(
             [
@@ -213,7 +220,7 @@ async def test_event_loop_cycle_exponential_backoff(
 ):
     """Test that the exponential backoff works correctly with multiple retries."""
     # Set up the model to raise throttling exceptions multiple times before succeeding
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         ModelThrottledException("ThrottlingException | ConverseStream"),
         ModelThrottledException("ThrottlingException | ConverseStream"),
         ModelThrottledException("ThrottlingException | ConverseStream"),
@@ -250,7 +257,7 @@ async def test_event_loop_cycle_text_response_throttling_exceeded(
     model,
     alist,
 ):
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         ModelThrottledException("ThrottlingException | ConverseStream"),
         ModelThrottledException("ThrottlingException | ConverseStream"),
         ModelThrottledException("ThrottlingException | ConverseStream"),
@@ -283,7 +290,7 @@ async def test_event_loop_cycle_text_response_error(
     model,
     alist,
 ):
-    model.converse.side_effect = RuntimeError("Unhandled error")
+    model.stream.side_effect = RuntimeError("Unhandled error")
 
     with pytest.raises(RuntimeError):
         stream = strands.event_loop.event_loop.event_loop_cycle(
@@ -300,10 +307,11 @@ async def test_event_loop_cycle_tool_result(
     system_prompt,
     messages,
     tool_stream,
+    tool_registry,
     agenerator,
     alist,
 ):
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         agenerator(tool_stream),
         agenerator(
             [
@@ -326,7 +334,7 @@ async def test_event_loop_cycle_tool_result(
 
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
 
-    model.converse.assert_called_with(
+    model.stream.assert_called_with(
         [
             {"role": "user", "content": [{"text": "Hello"}]},
             {
@@ -355,7 +363,7 @@ async def test_event_loop_cycle_tool_result(
             },
             {"role": "assistant", "content": [{"text": "test text"}]},
         ],
-        [{"name": "tool_for_testing"}],
+        tool_registry.get_all_tool_specs(),
         "p1",
     )
 
@@ -368,7 +376,7 @@ async def test_event_loop_cycle_tool_result_error(
     agenerator,
     alist,
 ):
-    model.converse.side_effect = [agenerator(tool_stream)]
+    model.stream.side_effect = [agenerator(tool_stream)]
 
     with pytest.raises(EventLoopException):
         stream = strands.event_loop.event_loop.event_loop_cycle(
@@ -386,29 +394,9 @@ async def test_event_loop_cycle_tool_result_no_tool_handler(
     agenerator,
     alist,
 ):
-    model.converse.side_effect = [agenerator(tool_stream)]
+    model.stream.side_effect = [agenerator(tool_stream)]
     # Set tool_handler to None for this test
     agent.tool_handler = None
-
-    with pytest.raises(EventLoopException):
-        stream = strands.event_loop.event_loop.event_loop_cycle(
-            agent=agent,
-            kwargs={},
-        )
-        await alist(stream)
-
-
-@pytest.mark.asyncio
-async def test_event_loop_cycle_tool_result_no_tool_config(
-    agent,
-    model,
-    tool_stream,
-    agenerator,
-    alist,
-):
-    model.converse.side_effect = [agenerator(tool_stream)]
-    # Set tool_config to None for this test
-    agent.tool_config = None
 
     with pytest.raises(EventLoopException):
         stream = strands.event_loop.event_loop.event_loop_cycle(
@@ -426,7 +414,7 @@ async def test_event_loop_cycle_stop(
     agenerator,
     alist,
 ):
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         agenerator(
             [
                 {
@@ -477,7 +465,7 @@ async def test_cycle_exception(
     tool_stream,
     agenerator,
 ):
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         agenerator(tool_stream),
         agenerator(tool_stream),
         agenerator(tool_stream),
@@ -515,7 +503,7 @@ async def test_event_loop_cycle_creates_spans(
     model_span = MagicMock()
     mock_tracer.start_model_invoke_span.return_value = model_span
 
-    model.converse.return_value = agenerator(
+    model.stream.return_value = agenerator(
         [
             {"contentBlockDelta": {"delta": {"text": "test text"}}},
             {"contentBlockStop": {}},
@@ -554,7 +542,7 @@ async def test_event_loop_tracing_with_model_error(
     mock_tracer.start_model_invoke_span.return_value = model_span
 
     # Set up model to raise an exception
-    model.converse.side_effect = ContextWindowOverflowException("Input too long")
+    model.stream.side_effect = ContextWindowOverflowException("Input too long")
 
     # Call event_loop_cycle, expecting it to handle the exception
     with pytest.raises(ContextWindowOverflowException):
@@ -565,7 +553,7 @@ async def test_event_loop_tracing_with_model_error(
         await alist(stream)
 
     # Verify error handling span methods were called
-    mock_tracer.end_span_with_error.assert_called_once_with(model_span, "Input too long", model.converse.side_effect)
+    mock_tracer.end_span_with_error.assert_called_once_with(model_span, "Input too long", model.stream.side_effect)
 
 
 @patch("strands.event_loop.event_loop.get_tracer")
@@ -587,7 +575,7 @@ async def test_event_loop_tracing_with_tool_execution(
     mock_tracer.start_model_invoke_span.return_value = model_span
 
     # Set up model to return tool use and then text response
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         agenerator(tool_stream),
         agenerator(
             [
@@ -628,7 +616,7 @@ async def test_event_loop_tracing_with_throttling_exception(
     mock_tracer.start_model_invoke_span.return_value = model_span
 
     # Set up model to raise a throttling exception and then succeed
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         ModelThrottledException("Throttling Error"),
         agenerator(
             [
@@ -670,7 +658,7 @@ async def test_event_loop_cycle_with_parent_span(
     cycle_span = MagicMock()
     mock_tracer.start_event_loop_cycle_span.return_value = cycle_span
 
-    model.converse.return_value = agenerator(
+    model.stream.return_value = agenerator(
         [
             {"contentBlockDelta": {"delta": {"text": "test text"}}},
             {"contentBlockStop": {}},
@@ -727,7 +715,7 @@ async def test_request_state_initialization(alist):
 async def test_event_loop_with_custom_config(mock_time, agent, model, agenerator, alist):
     """Test that the event loop uses custom configuration values when provided."""
     # Set up the model to raise throttling exceptions multiple times before succeeding
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         ModelThrottledException("ThrottlingException"),
         ModelThrottledException("ThrottlingException"),
         agenerator(
@@ -767,7 +755,7 @@ async def test_event_loop_with_custom_config(mock_time, agent, model, agenerator
 @pytest.mark.asyncio
 async def test_prepare_next_cycle_in_tool_execution(agent, model, tool_stream, agenerator, alist):
     """Test that cycle ID and metrics are properly updated during tool execution."""
-    model.converse.side_effect = [
+    model.stream.side_effect = [
         agenerator(tool_stream),
         agenerator(
             [
@@ -805,39 +793,42 @@ async def test_prepare_next_cycle_in_tool_execution(agent, model, tool_stream, a
         assert recursive_args["kwargs"]["event_loop_parent_cycle_id"] == recursive_args["kwargs"]["event_loop_cycle_id"]
 
 
-def test_run_tool(agent, tool, generate):
+@pytest.mark.asyncio
+async def test_run_tool(agent, tool, alist):
     process = run_tool(
         agent,
         tool_use={"toolUseId": "tool_use_id", "name": tool.tool_name, "input": {"random_string": "a_string"}},
         kwargs={},
     )
 
-    tru_events, tru_result = generate(process)
-    exp_events = [{"event": "abc"}]
+    tru_result = (await alist(process))[-1]
     exp_result = {"toolUseId": "tool_use_id", "status": "success", "content": [{"text": "a_string"}]}
 
-    assert tru_events == exp_events and tru_result == exp_result
+    assert tru_result == exp_result
 
 
-def test_run_tool_missing_tool(agent, generate):
+@pytest.mark.asyncio
+async def test_run_tool_missing_tool(agent, alist):
     process = run_tool(
         agent,
         tool_use={"toolUseId": "missing", "name": "missing", "input": {}},
         kwargs={},
     )
 
-    tru_events, tru_result = generate(process)
-    exp_events = []
-    exp_result = {
-        "toolUseId": "missing",
-        "status": "error",
-        "content": [{"text": "Unknown tool: missing"}],
-    }
+    tru_events = await alist(process)
+    exp_events = [
+        {
+            "toolUseId": "missing",
+            "status": "error",
+            "content": [{"text": "Unknown tool: missing"}],
+        },
+    ]
 
-    assert tru_events == exp_events and tru_result == exp_result
+    assert tru_events == exp_events
 
 
-def test_run_tool_hooks(agent, generate, hook_provider, tool_times_2):
+@pytest.mark.asyncio
+async def test_run_tool_hooks(agent, hook_provider, tool_times_2, alist):
     """Test that the correct hooks are emitted."""
 
     process = run_tool(
@@ -845,8 +836,7 @@ def test_run_tool_hooks(agent, generate, hook_provider, tool_times_2):
         tool_use={"toolUseId": "test", "name": tool_times_2.tool_name, "input": {"x": 5}},
         kwargs={},
     )
-
-    _, result = generate(process)
+    await alist(process)
 
     assert len(hook_provider.events_received) == 2
 
@@ -867,15 +857,15 @@ def test_run_tool_hooks(agent, generate, hook_provider, tool_times_2):
     )
 
 
-def test_run_tool_hooks_on_missing_tool(agent, tool_registry, generate, hook_provider):
+@pytest.mark.asyncio
+async def test_run_tool_hooks_on_missing_tool(agent, hook_provider, alist):
     """Test that AfterToolInvocation hook is invoked even when tool throws exception."""
     process = run_tool(
         agent=agent,
         tool_use={"toolUseId": "test", "name": "missing_tool", "input": {"x": 5}},
         kwargs={},
     )
-
-    _, result = generate(process)
+    await alist(process)
 
     assert len(hook_provider.events_received) == 2
 
@@ -896,7 +886,8 @@ def test_run_tool_hooks_on_missing_tool(agent, tool_registry, generate, hook_pro
     )
 
 
-def test_run_tool_hook_after_tool_invocation_on_exception(agent, tool_registry, generate, hook_provider):
+@pytest.mark.asyncio
+async def test_run_tool_hook_after_tool_invocation_on_exception(agent, tool_registry, hook_provider, alist):
     """Test that AfterToolInvocation hook is invoked even when tool throws exception."""
     error = ValueError("Tool failed")
 
@@ -912,8 +903,7 @@ def test_run_tool_hook_after_tool_invocation_on_exception(agent, tool_registry, 
         tool_use={"toolUseId": "test", "name": "failing_tool", "input": {"x": 5}},
         kwargs={},
     )
-
-    _, result = generate(process)
+    await alist(process)
 
     assert hook_provider.events_received[1] == AfterToolInvocationEvent(
         agent=agent,
@@ -925,7 +915,8 @@ def test_run_tool_hook_after_tool_invocation_on_exception(agent, tool_registry, 
     )
 
 
-def test_run_tool_hook_before_tool_invocation_updates(agent, tool_times_5, generate, hook_registry, hook_provider):
+@pytest.mark.asyncio
+async def test_run_tool_hook_before_tool_invocation_updates(agent, tool_times_5, hook_registry, hook_provider, alist):
     """Test that modifying properties on BeforeToolInvocation takes effect."""
 
     updated_tool_use = {"toolUseId": "modified", "name": "replacement_tool", "input": {"x": 3}}
@@ -943,8 +934,7 @@ def test_run_tool_hook_before_tool_invocation_updates(agent, tool_times_5, gener
         tool_use={"toolUseId": "original", "name": "original_tool", "input": {"x": 1}},
         kwargs={},
     )
-
-    _, result = generate(process)
+    result = (await alist(process))[-1]
 
     # Should use replacement_tool (5 * 3 = 15) instead of original_tool (1 * 2 = 2)
     assert result == {"toolUseId": "modified", "status": "success", "content": [{"text": "15"}]}
@@ -959,7 +949,8 @@ def test_run_tool_hook_before_tool_invocation_updates(agent, tool_times_5, gener
     )
 
 
-def test_run_tool_hook_after_tool_invocation_updates(agent, tool_times_2, generate, hook_registry):
+@pytest.mark.asyncio
+async def test_run_tool_hook_after_tool_invocation_updates(agent, tool_times_2, hook_registry, alist):
     """Test that modifying properties on AfterToolInvocation takes effect."""
 
     updated_result = {"toolUseId": "modified", "status": "success", "content": [{"text": "modified_result"}]}
@@ -976,12 +967,12 @@ def test_run_tool_hook_after_tool_invocation_updates(agent, tool_times_2, genera
         kwargs={},
     )
 
-    _, result = generate(process)
-
+    result = (await alist(process))[-1]
     assert result == updated_result
 
 
-def test_run_tool_hook_after_tool_invocation_updates_with_missing_tool(agent, tool_times_2, generate, hook_registry):
+@pytest.mark.asyncio
+async def test_run_tool_hook_after_tool_invocation_updates_with_missing_tool(agent, hook_registry, alist):
     """Test that modifying properties on AfterToolInvocation takes effect."""
 
     updated_result = {"toolUseId": "modified", "status": "success", "content": [{"text": "modified_result"}]}
@@ -998,12 +989,12 @@ def test_run_tool_hook_after_tool_invocation_updates_with_missing_tool(agent, to
         kwargs={},
     )
 
-    _, result = generate(process)
-
+    result = (await alist(process))[-1]
     assert result == updated_result
 
 
-def test_run_tool_hook_update_result_with_missing_tool(agent, generate, tool_registry, hook_registry):
+@pytest.mark.asyncio
+async def test_run_tool_hook_update_result_with_missing_tool(agent, tool_registry, hook_registry, alist):
     """Test that modifying properties on AfterToolInvocation takes effect."""
 
     @strands.tool
@@ -1038,7 +1029,7 @@ def test_run_tool_hook_update_result_with_missing_tool(agent, generate, tool_reg
             kwargs={},
         )
 
-        _, result = generate(process)
+        result = (await alist(process))[-1]
 
     assert result == {
         "status": "error",
@@ -1054,3 +1045,53 @@ def test_run_tool_hook_update_result_with_missing_tool(agent, generate, tool_reg
             "test",
         ),
     ]
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_exception_model_hooks(mock_time, agent, model, agenerator, alist, hook_provider):
+    """Test that model hooks are correctly emitted even when throttled."""
+    # Set up the model to raise throttling exceptions multiple times before succeeding
+    exception = ModelThrottledException("ThrottlingException | ConverseStream")
+    model.stream.side_effect = [
+        exception,
+        exception,
+        exception,
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "test text"}}},
+                {"contentBlockStop": {}},
+            ]
+        ),
+    ]
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        kwargs={},
+    )
+    await alist(stream)
+
+    count, events = hook_provider.get_events()
+
+    assert count == 8
+
+    # 1st call - throttled
+    assert next(events) == BeforeModelInvocationEvent(agent=agent)
+    assert next(events) == AfterModelInvocationEvent(agent=agent, stop_response=None, exception=exception)
+
+    # 2nd call - throttled
+    assert next(events) == BeforeModelInvocationEvent(agent=agent)
+    assert next(events) == AfterModelInvocationEvent(agent=agent, stop_response=None, exception=exception)
+
+    # 3rd call - throttled
+    assert next(events) == BeforeModelInvocationEvent(agent=agent)
+    assert next(events) == AfterModelInvocationEvent(agent=agent, stop_response=None, exception=exception)
+
+    # 4th call - successful
+    assert next(events) == BeforeModelInvocationEvent(agent=agent)
+    assert next(events) == AfterModelInvocationEvent(
+        agent=agent,
+        stop_response=AfterModelInvocationEvent.ModelStopResponse(
+            message={"content": [{"text": "test text"}], "role": "assistant"}, stop_reason="end_turn"
+        ),
+        exception=None,
+    )

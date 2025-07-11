@@ -6,6 +6,10 @@ import pytest
 import strands
 from strands import Agent
 from strands.models.llamaapi import LlamaAPIModel
+from tests_integ.models import providers
+
+# these tests only run if we have the llama api key
+pytestmark = providers.llama.mark
 
 
 @pytest.fixture
@@ -36,10 +40,6 @@ def agent(model, tools):
     return Agent(model=model, tools=tools)
 
 
-@pytest.mark.skipif(
-    "LLAMA_API_KEY" not in os.environ,
-    reason="LLAMA_API_KEY environment variable missing",
-)
 def test_agent(agent):
     result = agent("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
