@@ -25,8 +25,9 @@ class Status(Enum):
 class NodeResult:
     """Unified result from node execution - handles both Agent and nested MultiAgentBase results.
 
-    The status field uses the Status enum, representing the execution outcome of this node
-    (COMPLETED or FAILED).
+    The status field represents the semantic outcome of the node's work:
+    - COMPLETED: The node's task was successfully accomplished
+    - FAILED: The node's task failed or produced an error
     """
 
     # Core result data - single AgentResult, nested MultiAgentResult, or Exception

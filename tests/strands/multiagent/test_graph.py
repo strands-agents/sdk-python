@@ -117,7 +117,7 @@ def mock_graph(mock_agents, string_content_agent):
     builder.add_node(mock_agents["start_agent"], "start_agent")
     builder.add_node(mock_agents["multi_agent"], "multi_node")
     builder.add_node(mock_agents["conditional_agent"], "conditional_agent")
-    builder.add_node(mock_agents["final_agent"], "final_node")
+    final_agent_graph_node = builder.add_node(mock_agents["final_agent"], "final_node")
     builder.add_node(mock_agents["no_metrics_agent"], "no_metrics_node")
     builder.add_node(mock_agents["partial_metrics_agent"], "partial_metrics_node")
     builder.add_node(string_content_agent, "string_content_node")
@@ -127,7 +127,7 @@ def mock_graph(mock_agents, string_content_agent):
     builder.add_edge("start_agent", "multi_node")
     builder.add_edge("start_agent", "conditional_agent", condition=condition_check_completion)
     builder.add_edge("multi_node", "final_node")
-    builder.add_edge("conditional_agent", "final_node")
+    builder.add_edge("conditional_agent", final_agent_graph_node)
     builder.add_edge("start_agent", "no_metrics_node")
     builder.add_edge("start_agent", "partial_metrics_node")
     builder.add_edge("start_agent", "string_content_node")
@@ -150,7 +150,7 @@ async def test_graph_execution(mock_graph, mock_agents, string_content_agent):
     start_node = mock_graph.nodes["start_agent"]
     assert start_node.node_id == "start_agent"
     assert start_node.executor == mock_agents["start_agent"]
-    assert start_node.status == Status.PENDING
+    assert start_node.execution_status == Status.PENDING
     assert len(start_node.dependencies) == 0
 
     # Test conditional edge evaluation
@@ -411,7 +411,7 @@ def test_graph_dataclasses_and_enums():
     node = GraphNode("test_node", mock_agent)
     assert node.node_id == "test_node"
     assert node.executor == mock_agent
-    assert node.status == Status.PENDING
+    assert node.execution_status == Status.PENDING
     assert len(node.dependencies) == 0
 
 
