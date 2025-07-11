@@ -84,8 +84,8 @@ class HookProvider(Protocol):
         ```python
         class MyHookProvider(HookProvider):
             def register_hooks(self, registry: HookRegistry) -> None:
-                hooks.add_callback(StartRequestEvent, self.on_request_start)
-                hooks.add_callback(EndRequestEvent, self.on_request_end)
+                registry.add_callback(StartRequestEvent, self.on_request_start)
+                registry.add_callback(EndRequestEvent, self.on_request_end)
 
         agent = Agent(hooks=[MyHookProvider()])
         ```
@@ -183,7 +183,7 @@ class HookRegistry:
         """Invoke all registered callbacks for the given event.
 
         This method finds all callbacks registered for the event's type and
-        invokes them in the appropriate order. For events with is_after_callback=True,
+        invokes them in the appropriate order. For events with should_reverse_callbacks=True,
         callbacks are invoked in reverse registration order.
 
         Args:
@@ -210,7 +210,7 @@ class HookRegistry:
         """Get callbacks registered for the given event in the appropriate order.
 
         This method returns callbacks in registration order for normal events,
-        or reverse registration order for events that have is_after_callback=True.
+        or reverse registration order for events that have should_reverse_callbacks=True.
         This enables proper cleanup ordering for teardown events.
 
         Args:
