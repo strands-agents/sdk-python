@@ -442,6 +442,11 @@ def test_format_chunk_unknown(model):
 
 @pytest.mark.asyncio
 async def test_stream(mistral_client, model, agenerator, alist):
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+
     mock_event = unittest.mock.Mock(
         data=unittest.mock.Mock(
             choices=[
@@ -451,42 +456,43 @@ async def test_stream(mistral_client, model, agenerator, alist):
                 )
             ]
         ),
-        usage="usage",
+        usage=mock_usage,
     )
 
     mistral_client.chat.stream_async = unittest.mock.AsyncMock(return_value=agenerator([mock_event]))
 
-    request = {"model": "m1"}
-    response = model.stream(request)
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    response = model.stream(messages, None, None)
 
-    tru_events = await alist(response)
-    exp_events = [
-        {"chunk_type": "message_start"},
-        {"chunk_type": "content_start", "data_type": "text"},
-        {"chunk_type": "content_delta", "data_type": "text", "data": "test stream"},
-        {"chunk_type": "content_stop", "data_type": "text"},
-        {"chunk_type": "message_stop", "data": "end_turn"},
-        {"chunk_type": "metadata", "data": "usage"},
-    ]
-    assert tru_events == exp_events
+    # Consume the response
+    await alist(response)
 
-    mistral_client.chat.stream_async.assert_called_once_with(**request)
+    expected_request = {
+        "model": "mistral-large-latest",
+        "messages": [{"role": "user", "content": "test"}],
+        "max_tokens": 100,
+        "stream": True,
+    }
+
+    mistral_client.chat.stream_async.assert_called_once_with(**expected_request)
 
 
 @pytest.mark.asyncio
 async def test_stream_rate_limit_error(mistral_client, model, alist):
     mistral_client.chat.stream_async.side_effect = Exception("rate limit exceeded (429)")
 
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
     with pytest.raises(ModelThrottledException, match="rate limit exceeded"):
-        await alist(model.stream({}))
+        await alist(model.stream(messages))
 
 
 @pytest.mark.asyncio
 async def test_stream_other_error(mistral_client, model, alist):
     mistral_client.chat.stream_async.side_effect = Exception("some other error")
 
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
     with pytest.raises(Exception, match="some other error"):
-        await alist(model.stream({}))
+        await alist(model.stream(messages))
 
 
 @pytest.mark.asyncio

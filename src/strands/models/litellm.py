@@ -14,6 +14,8 @@ from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
 from ..types.models.openai import OpenAIModel
+from ..types.streaming import StreamEvent
+from ..types.tools import ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -104,19 +106,29 @@ class LiteLLMModel(OpenAIModel):
         return super().format_request_message_content(content)
 
     @override
-    async def stream(self, request: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
-        """Send the request to the LiteLLM model and get the streaming response.
+    async def stream(
+        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream conversation with the LiteLLM model.
 
         Args:
-            request: The formatted request to send to the LiteLLM model.
+            messages: List of message objects to be processed by the model.
+            tool_specs: List of tool specifications to make available to the model.
+            system_prompt: System prompt to provide context to the model.
 
-        Returns:
-            An iterable of response events from the LiteLLM model.
+        Yields:
+            Formatted message chunks from the model.
         """
+        logger.debug("formatting request")
+        request = self.format_request(messages, tool_specs, system_prompt)
+        logger.debug("formatted request=<%s>", request)
+
+        logger.debug("invoking model")
         response = self.client.chat.completions.create(**request)
 
-        yield {"chunk_type": "message_start"}
-        yield {"chunk_type": "content_start", "data_type": "text"}
+        logger.debug("got response from model")
+        yield self.format_chunk({"chunk_type": "message_start"})
+        yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
         tool_calls: dict[int, list[Any]] = {}
 
@@ -127,14 +139,18 @@ class LiteLLMModel(OpenAIModel):
             choice = event.choices[0]
 
             if choice.delta.content:
-                yield {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
+                yield self.format_chunk(
+                    {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
+                )
 
             if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
-                yield {
-                    "chunk_type": "content_delta",
-                    "data_type": "reasoning_content",
-                    "data": choice.delta.reasoning_content,
-                }
+                yield self.format_chunk(
+                    {
+                        "chunk_type": "content_delta",
+                        "data_type": "reasoning_content",
+                        "data": choice.delta.reasoning_content,
+                    }
+                )
 
             for tool_call in choice.delta.tool_calls or []:
                 tool_calls.setdefault(tool_call.index, []).append(tool_call)
@@ -142,17 +158,17 @@ class LiteLLMModel(OpenAIModel):
             if choice.finish_reason:
                 break
 
-        yield {"chunk_type": "content_stop", "data_type": "text"}
+        yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
 
         for tool_deltas in tool_calls.values():
-            yield {"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]}
+            yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]})
 
             for tool_delta in tool_deltas:
-                yield {"chunk_type": "content_delta", "data_type": "tool", "data": tool_delta}
+                yield self.format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_delta})
 
-            yield {"chunk_type": "content_stop", "data_type": "tool"}
+            yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
 
-        yield {"chunk_type": "message_stop", "data": choice.finish_reason}
+        yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
 
         # Skip remaining events as we don't have use for anything except the final usage payload
         for event in response:
@@ -166,7 +182,9 @@ class LiteLLMModel(OpenAIModel):
 
         usage.prompt_tokens_details.cached_tokens = cache_read
 
-        yield {"chunk_type": "metadata", "data": usage}
+        yield self.format_chunk({"chunk_type": "metadata", "data": usage})
+
+        logger.debug("finished streaming response from model")
 
     @override
     async def structured_output(
@@ -186,7 +204,7 @@ class LiteLLMModel(OpenAIModel):
         # completions() has a method `create()` which wraps the real completion API of Litellm
         response = self.client.chat.completions.create(
             model=self.get_config()["model_id"],
-            messages=super().format_request(prompt)["messages"],
+            messages=self.format_request(prompt)["messages"],
             response_format=output_model,
         )
 

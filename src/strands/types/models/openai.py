@@ -160,7 +160,6 @@ class OpenAIModel(Model, abc.ABC):
 
         return [message for message in formatted_messages if message["content"] or "tool_calls" in message]
 
-    @override
     def format_request(
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
     ) -> dict[str, Any]:
@@ -197,7 +196,6 @@ class OpenAIModel(Model, abc.ABC):
             **(self.config.get("params") or {}),
         }
 
-    @override
     def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
         """Format an OpenAI response event into a standardized message chunk.
 

@@ -241,7 +241,6 @@ class WriterModel(Model):
 
         return [message for message in formatted_messages if message["content"] or "tool_calls" in message]
 
-    @override
     def format_request(
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
     ) -> Any:
@@ -283,7 +282,6 @@ class WriterModel(Model):
 
         return request
 
-    @override
     def format_chunk(self, event: Any) -> StreamEvent:
         """Format the model response events into standardized message chunks.
 
@@ -349,25 +347,34 @@ class WriterModel(Model):
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
     @override
-    async def stream(self, request: Any) -> AsyncGenerator[Any, None]:
-        """Send the request to the model and get a streaming response.
+    async def stream(
+        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream conversation with the Writer model.
 
         Args:
-            request: The formatted request to send to the model.
+            messages: List of message objects to be processed by the model.
+            tool_specs: List of tool specifications to make available to the model.
+            system_prompt: System prompt to provide context to the model.
 
-        Returns:
-            The model's response.
+        Yields:
+            Formatted message chunks from the model.
 
         Raises:
             ModelThrottledException: When the model service is throttling requests from the client.
         """
+        logger.debug("formatting request")
+        request = self.format_request(messages, tool_specs, system_prompt)
+        logger.debug("formatted request=<%s>", request)
+
+        logger.debug("invoking model")
         try:
             response = await self.client.chat.chat(**request)
         except writerai.RateLimitError as e:
             raise ModelThrottledException(str(e)) from e
 
-        yield {"chunk_type": "message_start"}
-        yield {"chunk_type": "content_block_start", "data_type": "text"}
+        yield self.format_chunk({"chunk_type": "message_start"})
+        yield self.format_chunk({"chunk_type": "content_block_start", "data_type": "text"})
 
         tool_calls: dict[int, list[Any]] = {}
 
@@ -377,7 +384,9 @@ class WriterModel(Model):
             choice = chunk.choices[0]
 
             if choice.delta.content:
-                yield {"chunk_type": "content_block_delta", "data_type": "text", "data": choice.delta.content}
+                yield self.format_chunk(
+                    {"chunk_type": "content_block_delta", "data_type": "text", "data": choice.delta.content}
+                )
 
             for tool_call in choice.delta.tool_calls or []:
                 tool_calls.setdefault(tool_call.index, []).append(tool_call)
@@ -385,24 +394,26 @@ class WriterModel(Model):
             if choice.finish_reason:
                 break
 
-        yield {"chunk_type": "content_block_stop", "data_type": "text"}
+        yield self.format_chunk({"chunk_type": "content_block_stop", "data_type": "text"})
 
         for tool_deltas in tool_calls.values():
             tool_start, tool_deltas = tool_deltas[0], tool_deltas[1:]
-            yield {"chunk_type": "content_block_start", "data_type": "tool", "data": tool_start}
+            yield self.format_chunk({"chunk_type": "content_block_start", "data_type": "tool", "data": tool_start})
 
             for tool_delta in tool_deltas:
-                yield {"chunk_type": "content_block_delta", "data_type": "tool", "data": tool_delta}
+                yield self.format_chunk({"chunk_type": "content_block_delta", "data_type": "tool", "data": tool_delta})
 
-            yield {"chunk_type": "content_block_stop", "data_type": "tool"}
+            yield self.format_chunk({"chunk_type": "content_block_stop", "data_type": "tool"})
 
-        yield {"chunk_type": "message_stop", "data": choice.finish_reason}
+        yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
 
         # Iterating until the end to fetch metadata chunk
         async for chunk in response:
             _ = chunk
 
-        yield {"chunk_type": "metadata", "data": chunk.usage}
+        yield self.format_chunk({"chunk_type": "metadata", "data": chunk.usage})
+
+        logger.debug("finished streaming response from model")
 
     @override
     async def structured_output(
@@ -414,7 +425,7 @@ class WriterModel(Model):
             output_model(Type[BaseModel]): The output model to use for the agent.
             prompt(Messages): The prompt messages to use for the agent.
         """
-        formatted_request = self.format_request(messages=prompt)
+        formatted_request = self.format_request(messages=prompt, tool_specs=None, system_prompt=None)
         formatted_request["response_format"] = {
             "type": "json_schema",
             "json_schema": {"schema": output_model.model_json_schema()},

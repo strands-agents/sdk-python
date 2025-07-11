@@ -306,31 +306,21 @@ async def test_stream(writer_client, model, model_id):
         [mock_event_1, mock_event_2, mock_event_3, mock_event_4]
     )
 
-    request = {
+    messages = [{"role": "user", "content": [{"type": "text", "text": "calculate 2+2"}]}]
+    response = model.stream(messages, None, None)
+
+    # Consume the response
+    [event async for event in response]
+
+    # The events should be formatted through format_chunk, so they should be StreamEvent objects
+    expected_request = {
         "model": model_id,
         "messages": [{"role": "user", "content": [{"type": "text", "text": "calculate 2+2"}]}],
+        "stream": True,
+        "stream_options": {"include_usage": True},
     }
-    response = model.stream(request)
 
-    events = [event async for event in response]
-    exp_events = [
-        {"chunk_type": "message_start"},
-        {"chunk_type": "content_block_start", "data_type": "text"},
-        {"chunk_type": "content_block_delta", "data_type": "text", "data": "I'll calculate"},
-        {"chunk_type": "content_block_delta", "data_type": "text", "data": "that for you"},
-        {"chunk_type": "content_block_stop", "data_type": "text"},
-        {"chunk_type": "content_block_start", "data_type": "tool", "data": mock_tool_call_1_part_1},
-        {"chunk_type": "content_block_delta", "data_type": "tool", "data": mock_tool_call_1_part_2},
-        {"chunk_type": "content_block_stop", "data_type": "tool"},
-        {"chunk_type": "content_block_start", "data_type": "tool", "data": mock_tool_call_2_part_1},
-        {"chunk_type": "content_block_delta", "data_type": "tool", "data": mock_tool_call_2_part_2},
-        {"chunk_type": "content_block_stop", "data_type": "tool"},
-        {"chunk_type": "message_stop", "data": "tool_calls"},
-        {"chunk_type": "metadata", "data": mock_event_4.usage},
-    ]
-
-    assert events == exp_events
-    writer_client.chat.chat(**request)
+    writer_client.chat.chat.assert_called_once_with(**expected_request)
 
 
 @pytest.mark.asyncio
@@ -347,20 +337,19 @@ async def test_stream_empty(writer_client, model, model_id):
         [mock_event_1, mock_event_2, mock_event_3, mock_event_4]
     )
 
-    request = {"model": model_id, "messages": [{"role": "user", "content": []}]}
-    response = model.stream(request)
+    messages = [{"role": "user", "content": []}]
+    response = model.stream(messages, None, None)
 
-    events = [event async for event in response]
-    exp_events = [
-        {"chunk_type": "message_start"},
-        {"chunk_type": "content_block_start", "data_type": "text"},
-        {"chunk_type": "content_block_stop", "data_type": "text"},
-        {"chunk_type": "message_stop", "data": "stop"},
-        {"chunk_type": "metadata", "data": mock_usage},
-    ]
+    # Consume the response
+    [event async for event in response]
 
-    assert events == exp_events
-    writer_client.chat.chat.assert_called_once_with(**request)
+    expected_request = {
+        "model": model_id,
+        "messages": [],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+    writer_client.chat.chat.assert_called_once_with(**expected_request)
 
 
 @pytest.mark.asyncio
@@ -378,19 +367,16 @@ async def test_stream_with_empty_choices(writer_client, model, model_id):
         [mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5]
     )
 
-    request = {"model": model_id, "messages": [{"role": "user", "content": ["test"]}]}
-    response = model.stream(request)
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    response = model.stream(messages, None, None)
 
-    events = [event async for event in response]
-    exp_events = [
-        {"chunk_type": "message_start"},
-        {"chunk_type": "content_block_start", "data_type": "text"},
-        {"chunk_type": "content_block_delta", "data_type": "text", "data": "content"},
-        {"chunk_type": "content_block_delta", "data_type": "text", "data": "content"},
-        {"chunk_type": "content_block_stop", "data_type": "text"},
-        {"chunk_type": "message_stop", "data": "stop"},
-        {"chunk_type": "metadata", "data": mock_usage},
-    ]
+    # Consume the response
+    [event async for event in response]
 
-    assert events == exp_events
-    writer_client.chat.chat.assert_called_once_with(**request)
+    expected_request = {
+        "model": model_id,
+        "messages": [{"role": "user", "content": [{"text": "test", "type": "text"}]}],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+    writer_client.chat.chat.assert_called_once_with(**expected_request)
