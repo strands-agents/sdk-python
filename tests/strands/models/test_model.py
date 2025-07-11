@@ -1,7 +1,7 @@
 import pytest
 from pydantic import BaseModel
 
-from strands.types.models import Model as SAModel
+from strands.models import Model as SAModel
 
 
 class Person(BaseModel):

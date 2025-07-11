@@ -2,12 +2,11 @@ from unittest.mock import Mock
 
 import pytest
 
-from strands.experimental.hooks import (
+from strands.experimental.hooks import AfterToolInvocationEvent, BeforeToolInvocationEvent
+from strands.hooks import (
     AfterInvocationEvent,
-    AfterToolInvocationEvent,
     AgentInitializedEvent,
     BeforeInvocationEvent,
-    BeforeToolInvocationEvent,
     MessageAddedEvent,
 )
 from strands.types.tools import ToolResult, ToolUse

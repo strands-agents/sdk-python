@@ -76,7 +76,7 @@ class SlidingWindowConversationManager(ConversationManager):
 
         if len(messages) <= self.window_size:
             logger.debug(
-                "window_size=<%s>, message_count=<%s> | skipping context reduction", len(messages), self.window_size
+                "message_count=<%s>, window_size=<%s> | skipping context reduction", len(messages), self.window_size
             )
             return
         self.reduce_context(agent)

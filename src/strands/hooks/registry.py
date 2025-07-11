@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generator, Generic, Protocol, Type, TypeVar
 
 if TYPE_CHECKING:
-    from ...agent import Agent
+    from ..agent import Agent
 
 
 @dataclass
@@ -233,18 +233,3 @@ class HookRegistry:
             yield from reversed(callbacks)
         else:
             yield from callbacks
-
-
-def get_registry(agent: "Agent") -> HookRegistry:
-    """*Experimental*: Get the hooks registry for the provided agent.
-
-    This function is available while hooks are in experimental preview.
-
-    Args:
-        agent: The agent whose hook registry should be returned.
-
-    Returns:
-        The HookRegistry for the given agent.
-
-    """
-    return agent._hooks

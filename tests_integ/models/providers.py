@@ -8,7 +8,7 @@ from typing import Callable, Optional
 import requests
 from pytest import mark
 
-from strands.models import BedrockModel
+from strands.models import BedrockModel, Model
 from strands.models.anthropic import AnthropicModel
 from strands.models.litellm import LiteLLMModel
 from strands.models.llamaapi import LlamaAPIModel
@@ -16,7 +16,6 @@ from strands.models.mistral import MistralModel
 from strands.models.ollama import OllamaModel
 from strands.models.openai import OpenAIModel
 from strands.models.writer import WriterModel
-from strands.types.models import Model
 
 
 class ProviderInfo:

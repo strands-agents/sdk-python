@@ -17,9 +17,9 @@ from ..event_loop.streaming import process_stream
 from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
-from ..types.models import Model
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolSpec
+from .model import Model
 
 logger = logging.getLogger(__name__)
 
@@ -366,7 +366,7 @@ class AnthropicModel(Model):
         """
         logger.debug("formatting request")
         request = self.format_request(messages, tool_specs, system_prompt)
-        logger.debug("formatted request=<%s>", request)
+        logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")
         try:

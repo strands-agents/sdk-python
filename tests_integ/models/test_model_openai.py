@@ -1,7 +1,7 @@
 import os
 
+import pydantic
 import pytest
-from pydantic import BaseModel
 
 import strands
 from strands import Agent, tool
@@ -42,7 +42,7 @@ def agent(model, tools):
 
 @pytest.fixture
 def weather():
-    class Weather(BaseModel):
+    class Weather(pydantic.BaseModel):
         """Extracts the time and weather from the user's message with the exact strings."""
 
         time: str
@@ -53,10 +53,15 @@ def weather():
 
 @pytest.fixture
 def yellow_color():
-    class Color(BaseModel):
+    class Color(pydantic.BaseModel):
         """Describes a color."""
 
         name: str
+
+        @pydantic.field_validator("name", mode="after")
+        @classmethod
+        def lower(_, value):
+            return value.lower()
 
     return Color(name="yellow")
 

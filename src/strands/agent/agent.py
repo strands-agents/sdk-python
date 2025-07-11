@@ -15,27 +15,29 @@ import logging
 import random
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Optional, Type, TypeVar, Union, cast
+from uuid import uuid4
 
 from opentelemetry import trace
 from pydantic import BaseModel
 
 from ..event_loop.event_loop import event_loop_cycle, run_tool
-from ..experimental.hooks import (
+from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
+from ..hooks import (
     AfterInvocationEvent,
     AgentInitializedEvent,
     BeforeInvocationEvent,
+    HookProvider,
     HookRegistry,
     MessageAddedEvent,
 )
-from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..models.bedrock import BedrockModel
+from ..models.model import Model
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer
 from ..tools.registry import ToolRegistry
 from ..tools.watcher import ToolWatcher
 from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
-from ..types.models import Model
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
@@ -200,9 +202,11 @@ class Agent:
         load_tools_from_directory: bool = True,
         trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
         *,
+        agent_id: Optional[str] = None,
         name: Optional[str] = None,
         description: Optional[str] = None,
         state: Optional[Union[AgentState, dict]] = None,
+        hooks: Optional[list[HookProvider]] = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -233,17 +237,24 @@ class Agent:
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.
                 Defaults to True.
             trace_attributes: Custom trace attributes to apply to the agent's trace span.
+            agent_id: Optional ID for the agent, useful for multi-agent scenarios.
+                If None, a UUID is generated.
             name: name of the Agent
                 Defaults to None.
             description: description of what the Agent does
                 Defaults to None.
             state: stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
                 Defaults to an empty AgentState object.
+            hooks: hooks to be added to the agent hook registry
+                Defaults to None.
         """
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
 
         self.system_prompt = system_prompt
+        self.agent_id = agent_id or str(uuid4())
+        self.name = name or _DEFAULT_AGENT_NAME
+        self.description = description
 
         # If not provided, create a new PrintingCallbackHandler instance
         # If explicitly set to None, use null_callback_handler
@@ -299,12 +310,12 @@ class Agent:
             self.state = AgentState()
 
         self.tool_caller = Agent.ToolCaller(self)
-        self.name = name or _DEFAULT_AGENT_NAME
-        self.description = description
 
-        self._hooks = HookRegistry()
-        # Register built-in hook providers (like ConversationManager) here
-        self._hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
+        self.hooks = HookRegistry()
+        if hooks:
+            for hook in hooks:
+                self.hooks.add_hook(hook)
+        self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
 
     @property
     def tool(self) -> ToolCaller:
@@ -425,7 +436,7 @@ class Agent:
         Raises:
             ValueError: If no conversation history or prompt is provided.
         """
-        self._hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
+        self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
 
         try:
             if not self.messages and not prompt:
@@ -444,7 +455,7 @@ class Agent:
             return event["output"]
 
         finally:
-            self._hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
+            self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
     async def stream_async(self, prompt: Union[str, list[ContentBlock]], **kwargs: Any) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
@@ -512,7 +523,7 @@ class Agent:
         Yields:
             Events from the event loop cycle.
         """
-        self._hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
+        self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
 
         try:
             yield {"callback": {"init_event_loop": True, **invocation_state}}
@@ -526,7 +537,7 @@ class Agent:
 
         finally:
             self.conversation_manager.apply_management(self)
-            self._hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
+            self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
     async def _execute_event_loop_cycle(self, invocation_state: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the event loop cycle with retry logic for context window limits.
@@ -656,4 +667,4 @@ class Agent:
     def _append_message(self, message: Message) -> None:
         """Appends a message to the agent's list of messages and invokes the callbacks for the MessageCreatedEvent."""
         self.messages.append(message)
-        self._hooks.invoke_callbacks(MessageAddedEvent(agent=self, message=message))
+        self.hooks.invoke_callbacks(MessageAddedEvent(agent=self, message=message))

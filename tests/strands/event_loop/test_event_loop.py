@@ -12,6 +12,8 @@ from strands.experimental.hooks import (
     AfterToolInvocationEvent,
     BeforeModelInvocationEvent,
     BeforeToolInvocationEvent,
+)
+from strands.hooks import (
     HookProvider,
     HookRegistry,
 )
@@ -133,7 +135,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.tool_registry = tool_registry
     mock.thread_pool = thread_pool
     mock.event_loop_metrics = EventLoopMetrics()
-    mock._hooks = hook_registry
+    mock.hooks = hook_registry
 
     return mock
 

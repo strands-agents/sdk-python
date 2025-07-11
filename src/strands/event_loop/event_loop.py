@@ -18,8 +18,9 @@ from ..experimental.hooks import (
     AfterToolInvocationEvent,
     BeforeModelInvocationEvent,
     BeforeToolInvocationEvent,
+)
+from ..hooks import (
     MessageAddedEvent,
-    get_registry,
 )
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import get_tracer
@@ -120,7 +121,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
 
         tool_specs = agent.tool_registry.get_all_tool_specs()
 
-        get_registry(agent).invoke_callbacks(
+        agent.hooks.invoke_callbacks(
             BeforeModelInvocationEvent(
                 agent=agent,
             )
@@ -139,7 +140,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
             stop_reason, message, usage, metrics = event["stop"]
             invocation_state.setdefault("request_state", {})
 
-            get_registry(agent).invoke_callbacks(
+            agent.hooks.invoke_callbacks(
                 AfterModelInvocationEvent(
                     agent=agent,
                     stop_response=AfterModelInvocationEvent.ModelStopResponse(
@@ -157,7 +158,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
             if model_invoke_span:
                 tracer.end_span_with_error(model_invoke_span, str(e), e)
 
-            get_registry(agent).invoke_callbacks(
+            agent.hooks.invoke_callbacks(
                 AfterModelInvocationEvent(
                     agent=agent,
                     exception=e,
@@ -191,7 +192,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
 
         # Add the response message to the conversation
         agent.messages.append(message)
-        get_registry(agent).invoke_callbacks(MessageAddedEvent(agent=agent, message=message))
+        agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=message))
         yield {"callback": {"message": message}}
 
         # Update metrics
@@ -311,7 +312,7 @@ async def run_tool(agent: "Agent", tool_use: ToolUse, invocation_state: dict[str
         }
     )
 
-    before_event = get_registry(agent).invoke_callbacks(
+    before_event = agent.hooks.invoke_callbacks(
         BeforeToolInvocationEvent(
             agent=agent,
             selected_tool=tool_func,
@@ -346,7 +347,7 @@ async def run_tool(agent: "Agent", tool_use: ToolUse, invocation_state: dict[str
                 "content": [{"text": f"Unknown tool: {tool_name}"}],
             }
             # for every Before event call, we need to have an AfterEvent call
-            after_event = get_registry(agent).invoke_callbacks(
+            after_event = agent.hooks.invoke_callbacks(
                 AfterToolInvocationEvent(
                     agent=agent,
                     selected_tool=selected_tool,
@@ -363,7 +364,7 @@ async def run_tool(agent: "Agent", tool_use: ToolUse, invocation_state: dict[str
 
         result = event
 
-        after_event = get_registry(agent).invoke_callbacks(
+        after_event = agent.hooks.invoke_callbacks(
             AfterToolInvocationEvent(
                 agent=agent,
                 selected_tool=selected_tool,
@@ -381,7 +382,7 @@ async def run_tool(agent: "Agent", tool_use: ToolUse, invocation_state: dict[str
             "status": "error",
             "content": [{"text": f"Error: {str(e)}"}],
         }
-        after_event = get_registry(agent).invoke_callbacks(
+        after_event = agent.hooks.invoke_callbacks(
             AfterToolInvocationEvent(
                 agent=agent,
                 selected_tool=selected_tool,
@@ -458,7 +459,7 @@ async def _handle_tool_execution(
     }
 
     agent.messages.append(tool_result_message)
-    get_registry(agent).invoke_callbacks(MessageAddedEvent(agent=agent, message=tool_result_message))
+    agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=tool_result_message))
     yield {"callback": {"message": tool_result_message}}
 
     if cycle_span:
