@@ -20,14 +20,15 @@ from opentelemetry import trace
 from pydantic import BaseModel
 
 from ..event_loop.event_loop import event_loop_cycle, run_tool
-from ..experimental.hooks import (
+from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
+from ..hooks import (
     AfterInvocationEvent,
     AgentInitializedEvent,
     BeforeInvocationEvent,
+    HookProvider,
     HookRegistry,
     MessageAddedEvent,
 )
-from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..models.bedrock import BedrockModel
 from ..models.model import Model
 from ..telemetry.metrics import EventLoopMetrics
@@ -202,6 +203,7 @@ class Agent:
         name: Optional[str] = None,
         description: Optional[str] = None,
         state: Optional[Union[AgentState, dict]] = None,
+        hooks: Optional[list[HookProvider]] = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -238,6 +240,8 @@ class Agent:
                 Defaults to None.
             state: stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
                 Defaults to an empty AgentState object.
+            hooks: hooks to be added to the agent hook registry
+                Defaults to None.
         """
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
@@ -301,9 +305,11 @@ class Agent:
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
 
-        self._hooks = HookRegistry()
-        # Register built-in hook providers (like ConversationManager) here
-        self._hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
+        self.hooks = HookRegistry()
+        if hooks:
+            for hook in hooks:
+                self.hooks.add_hook(hook)
+        self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
 
     @property
     def tool(self) -> ToolCaller:
@@ -424,7 +430,7 @@ class Agent:
         Raises:
             ValueError: If no conversation history or prompt is provided.
         """
-        self._hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
+        self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
 
         try:
             if not self.messages and not prompt:
@@ -443,7 +449,7 @@ class Agent:
             return event["output"]
 
         finally:
-            self._hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
+            self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
     async def stream_async(self, prompt: Union[str, list[ContentBlock]], **kwargs: Any) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
@@ -509,7 +515,7 @@ class Agent:
         Yields:
             Events from the event loop cycle.
         """
-        self._hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
+        self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
 
         try:
             yield {"callback": {"init_event_loop": True, **kwargs}}
@@ -523,7 +529,7 @@ class Agent:
 
         finally:
             self.conversation_manager.apply_management(self)
-            self._hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
+            self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
     async def _execute_event_loop_cycle(self, kwargs: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the event loop cycle with retry logic for context window limits.
@@ -653,4 +659,4 @@ class Agent:
     def _append_message(self, message: Message) -> None:
         """Appends a message to the agent's list of messages and invokes the callbacks for the MessageCreatedEvent."""
         self.messages.append(message)
-        self._hooks.invoke_callbacks(MessageAddedEvent(agent=self, message=message))
+        self.hooks.invoke_callbacks(MessageAddedEvent(agent=self, message=message))
