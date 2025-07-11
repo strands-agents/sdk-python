@@ -34,6 +34,7 @@ from ..telemetry.tracer import get_tracer
 from ..tools.registry import ToolRegistry
 from ..tools.watcher import ToolWatcher
 from ..types.content import ContentBlock, Message, Messages
+from ..types.event_loop import EventLoopConfig
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.models import Model
 from ..types.tools import ToolResult, ToolUse
@@ -198,6 +199,7 @@ class Agent:
         record_direct_tool_call: bool = True,
         load_tools_from_directory: bool = True,
         trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
+        event_loop_config: Optional[EventLoopConfig] = None,
         *,
         name: Optional[str] = None,
         description: Optional[str] = None,
@@ -232,6 +234,8 @@ class Agent:
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.
                 Defaults to True.
             trace_attributes: Custom trace attributes to apply to the agent's trace span.
+            event_loop_config: Configuration for the event loop behavior.
+                If None, default values will be used.
             name: name of the Agent
                 Defaults to None.
             description: description of what the Agent does
@@ -281,6 +285,7 @@ class Agent:
             self.tool_watcher = ToolWatcher(tool_registry=self.tool_registry)
 
         self.event_loop_metrics = EventLoopMetrics()
+        self.event_loop_config = event_loop_config
 
         # Initialize tracer instance (no-op if not configured)
         self.tracer = get_tracer()

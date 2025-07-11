@@ -17,6 +17,7 @@ from strands.experimental.hooks import (
 )
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.tools.registry import ToolRegistry
+from strands.types.event_loop import EventLoopConfig
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException, ModelThrottledException
 from tests.fixtures.mock_hook_provider import MockHookProvider
 
@@ -133,6 +134,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.tool_registry = tool_registry
     mock.thread_pool = thread_pool
     mock.event_loop_metrics = EventLoopMetrics()
+    mock.event_loop_config = EventLoopConfig()
     mock._hooks = hook_registry
 
     return mock
@@ -707,6 +709,47 @@ async def test_request_state_initialization(alist):
 
     # Verify existing request_state was preserved
     assert tru_request_state == initial_request_state
+
+
+@pytest.mark.asyncio
+async def test_event_loop_with_custom_config(mock_time, agent, model, agenerator, alist):
+    """Test that the event loop uses custom configuration values when provided."""
+    # Set up the model to raise throttling exceptions multiple times before succeeding
+    model.stream.side_effect = [
+        ModelThrottledException("ThrottlingException"),
+        ModelThrottledException("ThrottlingException"),
+        agenerator(
+            [
+                {"contentBlockDelta": {"delta": {"text": "test text"}}},
+                {"contentBlockStop": {}},
+            ]
+        ),
+    ]
+
+    # Create a custom config with different values
+    custom_config = EventLoopConfig(
+        max_attempts=3,
+        initial_delay=2,
+        max_delay=10,
+    )
+    agent.event_loop_config = custom_config
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(
+        agent=agent,
+        kwargs={},
+    )
+    events = await alist(stream)
+    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
+
+    # Verify the final response
+    assert tru_stop_reason == "end_turn"
+    assert tru_message == {"role": "assistant", "content": [{"text": "test text"}]}
+    assert tru_request_state == {}
+
+    # Verify that sleep was called with the custom delay values
+    # Initial delay is 2, then 4 (doubled but less than max_delay)
+    assert mock_time.sleep.call_count == 2
+    assert mock_time.sleep.call_args_list == [call(2), call(4)]
 
 
 @pytest.mark.asyncio

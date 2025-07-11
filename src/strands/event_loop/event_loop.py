@@ -25,6 +25,7 @@ from ..telemetry.metrics import Trace
 from ..telemetry.tracer import get_tracer
 from ..tools.executor import run_tools, validate_and_prepare_tools
 from ..types.content import Message
+from ..types.event_loop import EventLoopConfig
 from ..types.exceptions import ContextWindowOverflowException, EventLoopException, ModelThrottledException
 from ..types.streaming import Metrics, StopReason
 from ..types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolGenerator, ToolResult, ToolUse
@@ -35,10 +36,6 @@ if TYPE_CHECKING:
     from ..agent import Agent
 
 logger = logging.getLogger(__name__)
-
-MAX_ATTEMPTS = 6
-INITIAL_DELAY = 4
-MAX_DELAY = 240  # 4 minutes
 
 
 async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
@@ -108,9 +105,12 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
     usage: Any
     metrics: Metrics
 
+    # Get event loop configuration or use defaults
+    event_loop_config = agent.event_loop_config or EventLoopConfig()
+
     # Retry loop for handling throttling exceptions
-    current_delay = INITIAL_DELAY
-    for attempt in range(MAX_ATTEMPTS):
+    current_delay = event_loop_config.initial_delay
+    for attempt in range(event_loop_config.max_attempts):
         model_id = agent.model.config.get("model_id") if hasattr(agent.model, "config") else None
         model_invoke_span = tracer.start_model_invoke_span(
             messages=agent.messages,
@@ -162,7 +162,7 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
             )
 
             if isinstance(e, ModelThrottledException):
-                if attempt + 1 == MAX_ATTEMPTS:
+                if attempt + 1 == event_loop_config.max_attempts:
                     yield {"callback": {"force_stop": True, "force_stop_reason": str(e)}}
                     raise e
 
@@ -171,11 +171,11 @@ async def event_loop_cycle(agent: "Agent", kwargs: dict[str, Any]) -> AsyncGener
                     "| throttling exception encountered "
                     "| delaying before next retry",
                     current_delay,
-                    MAX_ATTEMPTS,
+                    event_loop_config.max_attempts,
                     attempt + 1,
                 )
                 time.sleep(current_delay)
-                current_delay = min(current_delay * 2, MAX_DELAY)
+                current_delay = min(current_delay * 2, event_loop_config.max_delay)
 
                 yield {"callback": {"event_loop_throttled_delay": current_delay, **kwargs}}
             else:
