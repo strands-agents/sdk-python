@@ -398,13 +398,6 @@ def test_format_request_cache(model, messages, model_id, tool_spec, cache_type):
     assert tru_request == exp_request
 
 
-def test_format_chunk(model):
-    tru_chunk = model.format_chunk("event")
-    exp_chunk = "event"
-
-    assert tru_chunk == exp_chunk
-
-
 @pytest.mark.asyncio
 async def test_stream_throttling_exception_from_event_stream_error(bedrock_client, model, messages, alist):
     error_message = "Rate exceeded"
