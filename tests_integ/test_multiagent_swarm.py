@@ -4,8 +4,10 @@ import pytest
 
 from strands import Agent, tool
 from strands.multiagent.swarm import Swarm
+from strands.types.content import ContentBlock
 
 logging.getLogger("strands.multiagent").setLevel(logging.DEBUG)
+logging.getLogger("strands.models").setLevel(logging.DEBUG)
 logging.basicConfig(format="%(levelname)s | %(name)s | %(message)s", handlers=[logging.StreamHandler()])
 
 
@@ -13,7 +15,7 @@ logging.basicConfig(format="%(levelname)s | %(name)s | %(message)s", handlers=[l
 def web_search(query: str) -> str:
     """Search the web for information."""
     # Mock implementation
-    return f"Results for '{query}': Found information about {query}..."
+    return f"Results for '{query}': 25% yearly growth assumption, reaching $1.81 trillion by 2030"
 
 
 @tool
@@ -35,7 +37,6 @@ def researcher_agent():
             " format documents, hand off to the appropriate specialist."
         ),
         tools=[web_search],
-        load_tools_from_directory=False,
     )
 
 
@@ -49,7 +50,6 @@ def analyst_agent():
             " research or document formatting, hand off to the appropriate specialist."
         ),
         tools=[calculate],
-        load_tools_from_directory=False,
     )
 
 
@@ -62,13 +62,12 @@ def writer_agent():
             "You are a professional writer who excels at formatting and presenting information. When you need research"
             " or calculations, hand off to the appropriate specialist."
         ),
-        load_tools_from_directory=False,
     )
 
 
 @pytest.mark.asyncio
-async def test_swarm_execution(researcher_agent, analyst_agent, writer_agent):
-    """Test basic swarm execution with multiple agents."""
+async def test_swarm_execution_with_string(researcher_agent, analyst_agent, writer_agent):
+    """Test swarm execution with string input."""
     # Create the swarm
     swarm = Swarm([researcher_agent, analyst_agent, writer_agent])
 
@@ -81,7 +80,30 @@ async def test_swarm_execution(researcher_agent, analyst_agent, writer_agent):
     # Execute the swarm
     result = await swarm.execute_async(task)
 
-    print(result)
+    # Verify results
+    assert result.status.value == "completed"
+    assert len(result.results) > 0
+    assert result.execution_time > 0
+    assert result.execution_count > 0
+
+    # Verify agent history - at least one agent should have been used
+    assert len(result.node_history) > 0
+
+
+@pytest.mark.asyncio
+async def test_swarm_execution_with_image(researcher_agent, analyst_agent, writer_agent, yellow_img):
+    """Test swarm execution with image input."""
+    # Create the swarm
+    swarm = Swarm([researcher_agent, analyst_agent, writer_agent])
+
+    # Create content blocks with text and image
+    content_blocks: list[ContentBlock] = [
+        {"text": "Analyze this image and create a report about what you see:"},
+        {"image": {"format": "png", "source": {"bytes": yellow_img}}},
+    ]
+
+    # Execute the swarm with multi-modal input
+    result = await swarm.execute_async(content_blocks)
 
     # Verify results
     assert result.status.value == "completed"

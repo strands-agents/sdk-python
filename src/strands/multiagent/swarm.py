@@ -21,6 +21,7 @@ from typing import Any, Callable, Tuple, cast
 
 from ..agent import Agent, AgentResult
 from ..tools.decorator import tool
+from ..types.content import ContentBlock
 from ..types.event_loop import Metrics, Usage
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
@@ -68,12 +69,12 @@ class SwarmMessage:
 class SwarmConfig:
     """Configuration for swarm execution safety."""
 
-    max_handoffs: int = 10
-    max_iterations: int = 20
+    max_handoffs: int = 20  # Maximum handoffs to agents and users
+    max_iterations: int = 20  # Maximum node executions within the swarm
     execution_timeout: float = 900.0  # Total execution timeout (seconds)
     node_timeout: float = 300.0  # Individual node timeout (seconds)
-    ping_pong_check_nodes: int = 8  # Number of recent nodes to check for ping-pong
-    ping_pong_min_unique_nodes: int = 3  # Minimum unique nodes required in recent sequence
+    ping_pong_check_nodes: int = 0  # Number of recent nodes to check for ping-pong, disabled by default
+    ping_pong_min_unique_nodes: int = 0  # Minimum unique nodes required in recent sequence, disabled by default
 
 
 @dataclass
@@ -82,10 +83,10 @@ class SharedContext:
 
     context: dict[str, dict[str, Any]] = field(default_factory=dict)
     node_history: list[SwarmNode] = field(default_factory=list)
-    current_task: str | None = None
+    current_task: str | list[ContentBlock] | None = None
     available_nodes: list[SwarmNode] = field(default_factory=list)
 
-    def set_task(self, task: str) -> None:
+    def set_task(self, task: str | list[ContentBlock]) -> None:
         """Set the current task."""
         self.current_task = task
 
@@ -114,7 +115,7 @@ class SwarmState:
     """Current state of swarm execution."""
 
     current_node: SwarmNode
-    task: str
+    task: str | list[ContentBlock]
     completion_status: Status = Status.PENDING
     shared_context: SharedContext = field(default_factory=SharedContext)
     node_history: list[SwarmNode] = field(default_factory=list)
@@ -217,8 +218,16 @@ class Swarm(MultiAgentBase):
         self._setup_swarm(nodes)
         self._inject_swarm_tools()
 
-    def execute(self, task: str) -> SwarmResult:
-        """Execute task synchronously."""
+    def execute(self, task: str | list[ContentBlock]) -> SwarmResult:
+        """Execute task synchronously.
+
+        Args:
+            task: The task to execute, either as a string or a list of ContentBlock objects
+                  for multi-modal content.
+
+        Returns:
+            SwarmResult containing execution results and metrics.
+        """
 
         def execute() -> SwarmResult:
             return asyncio.run(self.execute_async(task))
@@ -227,8 +236,16 @@ class Swarm(MultiAgentBase):
             future = executor.submit(execute)
             return future.result()
 
-    async def execute_async(self, task: str) -> SwarmResult:
-        """Execute the swarm asynchronously."""
+    async def execute_async(self, task: str | list[ContentBlock]) -> SwarmResult:
+        """Execute the swarm asynchronously.
+
+        Args:
+            task: The task to execute, either as a string or a list of ContentBlock objects
+                  for multi-modal content.
+
+        Returns:
+            SwarmResult containing execution results and metrics.
+        """
         logger.info("starting swarm execution")
 
         # Initialize swarm state with configuration
@@ -455,6 +472,14 @@ class Swarm(MultiAgentBase):
         """Format task message with relevant context."""
         context_text = ""
 
+        # Include task information if available
+        if "task" in context_info:
+            task = context_info.get("task")
+            if isinstance(task, str):
+                context_text += f"Task: {task}\n\n"
+            elif isinstance(task, list):
+                context_text += "Task: Multi-modal task\n\n"
+
         # Include detailed node history
         if context_info.get("node_history"):
             context_text += f"Previous agents who worked on this: {' → '.join(context_info['node_history'])}\n\n"
@@ -552,7 +577,7 @@ class Swarm(MultiAgentBase):
             f"{elapsed_time:.2f}",
         )
 
-    async def _execute_node(self, node: SwarmNode, task: str) -> AgentResult:
+    async def _execute_node(self, node: SwarmNode, task: str | list[ContentBlock]) -> AgentResult:
         """Execute swarm node."""
         start_time = time.time()
         node_name = node.node_id
@@ -560,15 +585,17 @@ class Swarm(MultiAgentBase):
         try:
             # Prepare context for node
             context_info = self.shared_context.get_relevant_context(node)
+            context_text = self._format_context(context_info)
+            node_input: list[ContentBlock] = [ContentBlock(text=f"Context:\n{context_text}\n\n")]
 
-            # Create task message with context
-            task_with_context = f"Task: {task}\n\n"
-            task_with_context += self._format_context(context_info)
+            if not isinstance(task, str):
+                # Include additional ContentBlocks in node input
+                node_input = node_input + task
 
             # Execute node
             result = None
             node.executor.messages = []  # Reset agent's messages to avoid polluting context
-            async for event in node.executor.stream_async(task_with_context):
+            async for event in node.executor.stream_async(node_input):
                 if "result" in event:
                     result = cast(AgentResult, event["result"])
 
