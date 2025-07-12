@@ -104,6 +104,58 @@ class DeepSeekModel(Model):
         """
         return self.config
 
+    @classmethod
+    def format_request_messages(cls, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+        """Format DeepSeek compatible messages array (exactly like OpenAI)."""
+        formatted_messages: list[dict[str, Any]]
+        formatted_messages = [{"role": "system", "content": system_prompt}] if system_prompt else []
+
+        for message in messages:
+            contents = message["content"]
+
+            formatted_contents = [
+                {"text": content["text"], "type": "text"} for content in contents if "text" in content
+            ]
+            formatted_tool_calls = [
+                {
+                    "function": {
+                        "arguments": json.dumps(content["toolUse"]["input"]),
+                        "name": content["toolUse"]["name"],
+                    },
+                    "id": content["toolUse"]["toolUseId"],
+                    "type": "function",
+                }
+                for content in contents
+                if "toolUse" in content
+            ]
+            formatted_tool_messages = [
+                {
+                    "role": "tool",
+                    "tool_call_id": content["toolResult"]["toolUseId"],
+                    "content": "".join(
+                        [
+                            json.dumps(tool_content["json"]) if "json" in tool_content else tool_content["text"]
+                            for tool_content in content["toolResult"]["content"]
+                        ]
+                    ),
+                }
+                for content in contents
+                if "toolResult" in content
+            ]
+
+            # Flatten content for DeepSeek
+            text_content = "".join([c["text"] for c in formatted_contents])
+
+            formatted_message = {
+                "role": message["role"],
+                "content": text_content,
+                **({"tool_calls": formatted_tool_calls} if formatted_tool_calls else {}),
+            }
+            formatted_messages.append(formatted_message)
+            formatted_messages.extend(formatted_tool_messages)
+
+        return [message for message in formatted_messages if message["content"] or "tool_calls" in message]
+
     def format_request(
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
     ) -> dict[str, Any]:
@@ -117,25 +169,11 @@ class DeepSeekModel(Model):
         Returns:
             A DeepSeek chat request.
         """
-        formatted_messages = []
-
-        if system_prompt:
-            formatted_messages.append({"role": "system", "content": system_prompt})
-
-        # Convert Strands messages to OpenAI format
-        for message in messages:
-            if message["role"] in ["user", "assistant"]:
-                content = ""
-                for block in message["content"]:
-                    if "text" in block:
-                        content += block["text"]
-                formatted_messages.append({"role": message["role"], "content": content})
-
         request = {
             "model": self.config["model_id"],
-            "messages": formatted_messages,
+            "messages": self.format_request_messages(messages, system_prompt),
             "stream": True,
-            **self.config.get("params", {}),
+            **(self.config.get("params") or {}),
         }
 
         if tool_specs:
@@ -167,9 +205,24 @@ class DeepSeekModel(Model):
                 return {"messageStart": {"role": "assistant"}}
 
             case "content_start":
+                if event["data_type"] == "tool":
+                    return {
+                        "contentBlockStart": {
+                            "start": {
+                                "toolUse": {
+                                    "name": event["data"].function.name,
+                                    "toolUseId": event["data"].id,
+                                }
+                            }
+                        }
+                    }
                 return {"contentBlockStart": {"start": {}}}
 
             case "content_delta":
+                if event["data_type"] == "tool":
+                    return {
+                        "contentBlockDelta": {"delta": {"toolUse": {"input": event["data"].function.arguments or ""}}}
+                    }
                 if event["data_type"] == "reasoning_content":
                     return {"contentBlockDelta": {"delta": {"reasoningContent": {"text": event["data"]}}}}
                 return {"contentBlockDelta": {"delta": {"text": event["data"]}}}
@@ -178,10 +231,30 @@ class DeepSeekModel(Model):
                 return {"contentBlockStop": {}}
 
             case "message_stop":
-                return {"messageStop": {"stopReason": "end_turn"}}
+                match event["data"]:
+                    case "tool_calls":
+                        return {"messageStop": {"stopReason": "tool_use"}}
+                    case "length":
+                        return {"messageStop": {"stopReason": "max_tokens"}}
+                    case _:
+                        return {"messageStop": {"stopReason": "end_turn"}}
+
+            case "metadata":
+                return {
+                    "metadata": {
+                        "usage": {
+                            "inputTokens": event["data"].prompt_tokens,
+                            "outputTokens": event["data"].completion_tokens,
+                            "totalTokens": event["data"].total_tokens,
+                        },
+                        "metrics": {
+                            "latencyMs": 0,
+                        },
+                    },
+                }
 
             case _:
-                return {"contentBlockDelta": {"delta": {"text": ""}}}
+                raise RuntimeError(f"chunk_type=<{event['chunk_type']}> | unknown type")
 
     @override
     async def stream(
@@ -204,47 +277,68 @@ class DeepSeekModel(Model):
         """
         logger.debug("formatting request")
         request = self.format_request(messages, tool_specs, system_prompt)
-        logger.debug("request=<%s>", request)
+        logger.debug("request messages=<%s>", request.get("messages", []))
+        logger.debug("request tools=<%s>", len(request.get("tools", [])))
+
+        # Debug logging removed for production
+
+        # Debug logging disabled for production
+        # import logging
+        # logging.basicConfig(level=logging.DEBUG)
+        # logging.getLogger(__name__).setLevel(logging.DEBUG)
 
         logger.debug("invoking model")
         response = await self.client.chat.completions.create(**request)
 
         logger.debug("got response from model")
         yield self.format_chunk({"chunk_type": "message_start"})
-        yield self.format_chunk({"chunk_type": "content_start"})
+        yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
-        async for chunk in response:
-            if hasattr(chunk, "choices") and chunk.choices:
-                choice = chunk.choices[0]
+        tool_calls: dict[int, list[Any]] = {}
 
-                if hasattr(choice, "delta") and choice.delta:
-                    delta = choice.delta
+        async for event in response:
+            # Defensive: skip events with empty or missing choices
+            if not getattr(event, "choices", None):
+                continue
+            choice = event.choices[0]
 
-                    # Handle reasoning content
-                    if hasattr(delta, "reasoning_content") and delta.reasoning_content:
-                        yield self.format_chunk(
-                            {
-                                "chunk_type": "content_delta",
-                                "data_type": "reasoning_content",
-                                "data": delta.reasoning_content,
-                            }
-                        )
+            if choice.delta.content:
+                yield self.format_chunk(
+                    {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
+                )
 
-                    # Handle regular content
-                    if hasattr(delta, "content") and delta.content:
-                        yield self.format_chunk(
-                            {
-                                "chunk_type": "content_delta",
-                                "data_type": "text",
-                                "data": delta.content,
-                            }
-                        )
+            if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
+                yield self.format_chunk(
+                    {
+                        "chunk_type": "content_delta",
+                        "data_type": "reasoning_content",
+                        "data": choice.delta.reasoning_content,
+                    }
+                )
 
-                if hasattr(choice, "finish_reason") and choice.finish_reason:
-                    break
+            for tool_call in choice.delta.tool_calls or []:
+                tool_calls.setdefault(tool_call.index, []).append(tool_call)
 
-        yield self.format_chunk({"chunk_type": "content_stop"})
-        yield self.format_chunk({"chunk_type": "message_stop"})
+            if choice.finish_reason:
+                break
+
+        yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
+
+        for tool_deltas in tool_calls.values():
+            yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]})
+
+            for tool_delta in tool_deltas:
+                yield self.format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_delta})
+
+            yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
+
+        yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
+
+        # Skip remaining events as we don't have use for anything except the final usage payload
+        async for event in response:
+            _ = event
+
+        yield self.format_chunk({"chunk_type": "metadata", "data": event.usage})
 
         logger.debug("finished streaming response from model")
 
@@ -285,7 +379,7 @@ Extract the information and return it as JSON with these fields:
 
 Return only the JSON object with the extracted data, no additional text."""
 
-        request_params = {
+        request_params: dict[str, Any] = {
             "model": self.config["model_id"],
             "messages": [{"role": "user", "content": json_prompt}],
             "response_format": {"type": "json_object"},
