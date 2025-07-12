@@ -493,11 +493,16 @@ class Swarm(MultiAgentBase):
                     context_text += f"• {node_name}: {context}\n"
             context_text += "\n"
 
-        # Include available nodes
+        # Include available nodes with descriptions if available
         if context_info.get("available_nodes"):
-            context_text += (
-                f"Other agents available for collaboration: {', '.join(context_info['available_nodes'])}\n\n"
-            )
+            context_text += "Other agents available for collaboration:\n"
+            for node_id in context_info["available_nodes"]:
+                node = self.nodes.get(node_id)
+                context_text += f"Agent name: {node_id}."
+                if node and hasattr(node.executor, "description") and node.executor.description:
+                    context_text += f" Agent description: {node.executor.description}"
+                context_text += "\n"
+            context_text += "\n"
 
         context_text += (
             "You have access to swarm coordination tools if you need help from other agents "
@@ -586,7 +591,7 @@ class Swarm(MultiAgentBase):
             # Prepare context for node
             context_info = self.shared_context.get_relevant_context(node)
             context_text = self._format_context(context_info)
-            node_input: list[ContentBlock] = [ContentBlock(text=f"Context:\n{context_text}\n\n")]
+            node_input = [ContentBlock(text=f"Context:\n{context_text}\n\n")]
 
             if not isinstance(task, str):
                 # Include additional ContentBlocks in node input
