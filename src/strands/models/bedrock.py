@@ -7,7 +7,6 @@ import asyncio
 import json
 import logging
 import os
-import threading
 from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union
 
 import boto3
@@ -335,12 +334,8 @@ class BedrockModel(Model):
             if event is None:
                 return
 
-            signal.wait()
-            signal.clear()
-
         loop = asyncio.get_event_loop()
         queue: asyncio.Queue[Optional[StreamEvent]] = asyncio.Queue()
-        signal = threading.Event()
 
         thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt)
         task = asyncio.create_task(thread)
@@ -351,7 +346,6 @@ class BedrockModel(Model):
                 break
 
             yield event
-            signal.set()
 
         await task
 
