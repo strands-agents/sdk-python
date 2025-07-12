@@ -71,10 +71,11 @@ def test_list_tools_sync(mock_transport, mock_session):
     with MCPClient(mock_transport["transport_callable"]) as client:
         tools = client.list_tools_sync()
 
-        mock_session.list_tools.assert_called_once()
+        mock_session.list_tools.assert_called_once_with(cursor=None)
 
         assert len(tools) == 1
         assert tools[0].tool_name == "test_tool"
+        assert tools.pagination_token is None
 
 
 def test_list_tools_sync_session_not_active():
@@ -83,6 +84,34 @@ def test_list_tools_sync_session_not_active():
 
     with pytest.raises(MCPClientInitializationError, match="client.session is not running"):
         client.list_tools_sync()
+
+
+def test_list_tools_sync_with_pagination_token(mock_transport, mock_session):
+    """Test that list_tools_sync correctly passes pagination token and returns next cursor."""
+    mock_tool = MCPTool(name="test_tool", description="A test tool", inputSchema={"type": "object", "properties": {}})
+    mock_session.list_tools.return_value = ListToolsResult(tools=[mock_tool], nextCursor="next_page_token")
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        tools = client.list_tools_sync(pagination_token="current_page_token")
+
+        mock_session.list_tools.assert_called_once_with(cursor="current_page_token")
+        assert len(tools) == 1
+        assert tools[0].tool_name == "test_tool"
+        assert tools.pagination_token == "next_page_token"
+
+
+def test_list_tools_sync_without_pagination_token(mock_transport, mock_session):
+    """Test that list_tools_sync works without pagination token and handles missing next cursor."""
+    mock_tool = MCPTool(name="test_tool", description="A test tool", inputSchema={"type": "object", "properties": {}})
+    mock_session.list_tools.return_value = ListToolsResult(tools=[mock_tool])  # No nextCursor
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        tools = client.list_tools_sync()
+
+        mock_session.list_tools.assert_called_once_with(cursor=None)
+        assert len(tools) == 1
+        assert tools[0].tool_name == "test_tool"
+        assert tools.pagination_token is None
 
 
 @pytest.mark.parametrize("is_error,expected_status", [(False, "success"), (True, "error")])

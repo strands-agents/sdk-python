@@ -16,13 +16,14 @@ from asyncio import AbstractEventLoop
 from concurrent import futures
 from datetime import timedelta
 from types import TracebackType
-from typing import Any, Callable, Coroutine, Dict, List, Optional, TypeVar, Union
+from typing import Any, Callable, Coroutine, Dict, Optional, TypeVar, Union
 
 from mcp import ClientSession, ListToolsResult
 from mcp.types import CallToolResult as MCPCallToolResult
 from mcp.types import ImageContent as MCPImageContent
 from mcp.types import TextContent as MCPTextContent
 
+from ...types import PaginatedList
 from ...types.exceptions import MCPClientInitializationError
 from ...types.media import ImageFormat
 from ...types.tools import ToolResult, ToolResultContent, ToolResultStatus
@@ -140,7 +141,7 @@ class MCPClient:
         self._background_thread = None
         self._session_id = uuid.uuid4()
 
-    def list_tools_sync(self) -> List[MCPAgentTool]:
+    def list_tools_sync(self, pagination_token: Optional[str] = None) -> PaginatedList[MCPAgentTool]:
         """Synchronously retrieves the list of available tools from the MCP server.
 
         This method calls the asynchronous list_tools method on the MCP session
@@ -154,14 +155,14 @@ class MCPClient:
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _list_tools_async() -> ListToolsResult:
-            return await self._background_thread_session.list_tools()
+            return await self._background_thread_session.list_tools(cursor=pagination_token)
 
         list_tools_response: ListToolsResult = self._invoke_on_background_thread(_list_tools_async()).result()
         self._log_debug_with_thread("received %d tools from MCP server", len(list_tools_response.tools))
 
         mcp_tools = [MCPAgentTool(tool, self) for tool in list_tools_response.tools]
         self._log_debug_with_thread("successfully adapted %d MCP tools", len(mcp_tools))
-        return mcp_tools
+        return PaginatedList[MCPAgentTool](mcp_tools, token=list_tools_response.nextCursor)
 
     def call_tool_sync(
         self,
