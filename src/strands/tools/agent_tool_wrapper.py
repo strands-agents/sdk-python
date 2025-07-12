@@ -99,7 +99,7 @@ class AgentToolWrapper(AgentTool):
             tool_result = ToolResult(
                 toolUseId=tool_use["toolUseId"],
                 status="error",
-                content=[ToolResultContent(text=f"Error executing sub-agent '{self._name}': {str(e)}")],
+                content=[ToolResultContent(text=f"Error executing '{self._name}': {str(e)}")],
             )
             yield tool_result
 
