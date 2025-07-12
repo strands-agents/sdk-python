@@ -11,7 +11,9 @@ from strands.types.exceptions import ModelThrottledException
 @pytest.fixture
 def mistral_client():
     with unittest.mock.patch.object(strands.models.mistral.mistralai, "Mistral") as mock_client_cls:
-        yield mock_client_cls.return_value
+        mock_client = unittest.mock.AsyncMock()
+        mock_client_cls.return_value.__aenter__.return_value = mock_client
+        yield mock_client
 
 
 @pytest.fixture
@@ -25,9 +27,7 @@ def max_tokens():
 
 
 @pytest.fixture
-def model(mistral_client, model_id, max_tokens):
-    _ = mistral_client
-
+def model(model_id, max_tokens):
     return MistralModel(model_id=model_id, max_tokens=max_tokens)
 
 
