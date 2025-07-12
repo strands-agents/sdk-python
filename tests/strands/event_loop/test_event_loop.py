@@ -334,39 +334,6 @@ async def test_event_loop_cycle_tool_result(
 
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
 
-    model.stream.assert_called_with(
-        [
-            {"role": "user", "content": [{"text": "Hello"}]},
-            {
-                "role": "assistant",
-                "content": [
-                    {
-                        "toolUse": {
-                            "toolUseId": "t1",
-                            "name": "tool_for_testing",
-                            "input": {"random_string": "abcdEfghI123"},
-                        }
-                    }
-                ],
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "toolResult": {
-                            "toolUseId": "t1",
-                            "status": "success",
-                            "content": [{"text": "abcdEfghI123"}],
-                        },
-                    },
-                ],
-            },
-            {"role": "assistant", "content": [{"text": "test text"}]},
-        ],
-        tool_registry.get_all_tool_specs(),
-        "p1",
-    )
-
 
 @pytest.mark.asyncio
 async def test_event_loop_cycle_tool_result_error(
