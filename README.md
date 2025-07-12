@@ -116,6 +116,7 @@ Support for various model providers:
 ```python
 from strands import Agent
 from strands.models import BedrockModel
+from strands.models.deepseek import DeepSeekModel
 from strands.models.ollama import OllamaModel
 from strands.models.llamaapi import LlamaAPIModel
 
@@ -126,6 +127,14 @@ bedrock_model = BedrockModel(
   streaming=True, # Enable/disable streaming
 )
 agent = Agent(model=bedrock_model)
+agent("Tell me about Agentic AI")
+
+# DeepSeek
+deepseek_model = DeepSeekModel(
+  api_key="your-deepseek-api-key",
+  model_id="deepseek-chat"
+)
+agent = Agent(model=deepseek_model)
 agent("Tell me about Agentic AI")
 
 # Ollama
@@ -147,6 +156,7 @@ response = agent("Tell me about Agentic AI")
 Built-in providers:
  - [Amazon Bedrock](https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/)
  - [Anthropic](https://strandsagents.com/latest/user-guide/concepts/model-providers/anthropic/)
+ - [DeepSeek](https://platform.deepseek.com/api-docs/)
  - [LiteLLM](https://strandsagents.com/latest/user-guide/concepts/model-providers/litellm/)
  - [LlamaAPI](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamaapi/)
  - [Ollama](https://strandsagents.com/latest/user-guide/concepts/model-providers/ollama/)
