@@ -12,14 +12,11 @@ import sys
 from importlib import import_module
 from os.path import expanduser
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from typing_extensions import TypedDict, cast
 
 from strands.tools.decorator import DecoratedFunctionTool
-
-if TYPE_CHECKING:
-    pass
 
 from ..types.tools import AgentTool, ToolSpec
 from .agent_tool_wrapper import AgentToolWrapper
@@ -611,5 +608,8 @@ class ToolRegistry:
         return tools
 
     def _is_agent_instance(self, obj: Any) -> bool:
-        """Check if an object is an Agent instance without importing Agent."""
-        return hasattr(obj, "name") and hasattr(obj, "description") and hasattr(obj, "invoke_async")
+        """Check if an object is an Agent instance."""
+        # Use local import to avoid circular dependencies
+        from ..agent.agent import Agent
+
+        return isinstance(obj, Agent)

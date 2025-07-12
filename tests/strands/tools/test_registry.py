@@ -2,7 +2,7 @@
 Tests for the SDK tool registry module.
 """
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -98,16 +98,27 @@ def test_scan_module_for_tools():
 
 def test_process_tools_with_agent():
     """Test that process_tools correctly wraps Agent objects with AgentToolWrapper."""
-    # Create a mock agent
-    mock_agent = MagicMock()
-    mock_agent.name = "test_agent"
-    mock_agent.description = "A test agent for testing"
-    mock_agent.invoke_async = AsyncMock(return_value="test response")
+
+    # Create a simple mock model for testing
+    class MockModel:
+        def __init__(self):
+            self.name = "test-model"
+            self.max_input_tokens = 1000
+            self.max_output_tokens = 1000
+
+        async def invoke_async(self, *args, **kwargs):
+            return {"message": "test"}
+
+    # Create a real Agent instance
+    from strands.agent.agent import Agent
+
+    model = MockModel()
+    agent = Agent(model=model, name="test_agent", description="A test agent for testing")
 
     tool_registry = ToolRegistry()
 
     # Process the agent as a tool
-    tool_names = tool_registry.process_tools([mock_agent])
+    tool_names = tool_registry.process_tools([agent])
 
     # Verify the agent was processed
     assert len(tool_names) == 1
@@ -125,42 +136,35 @@ def test_is_agent_instance():
     """Test the _is_agent_instance method correctly identifies agent objects."""
     tool_registry = ToolRegistry()
 
-    # Create a proper agent-like object
-    class MockAgent:
+    # Create a simple mock model for testing
+    class MockModel:
         def __init__(self):
-            self.name = "test_agent"
-            self.description = "A test agent"
-            self.invoke_async = AsyncMock()
+            self.name = "test-model"
+            self.max_input_tokens = 1000
+            self.max_output_tokens = 1000
 
-    mock_agent = MockAgent()
-    assert tool_registry._is_agent_instance(mock_agent) is True
+        async def invoke_async(self, *args, **kwargs):
+            return {"message": "test"}
 
-    # Test with object missing name
-    class MockNonAgentNoName:
-        def __init__(self):
-            self.description = "A description"
-            self.invoke_async = AsyncMock()
+    # Create a real Agent instance
+    from strands.agent.agent import Agent
 
-    mock_non_agent = MockNonAgentNoName()
-    assert tool_registry._is_agent_instance(mock_non_agent) is False
+    model = MockModel()
+    agent = Agent(model=model, name="test_agent", description="A test agent")
 
-    # Test with object missing description
-    class MockNonAgentNoDesc:
-        def __init__(self):
-            self.name = "test_name"
-            self.invoke_async = AsyncMock()
+    assert tool_registry._is_agent_instance(agent) is True
 
-    mock_non_agent = MockNonAgentNoDesc()
-    assert tool_registry._is_agent_instance(mock_non_agent) is False
-
-    # Test with object missing invoke_async
-    class MockNonAgentNoInvoke:
+    # Test with non-Agent objects
+    class NotAnAgent:
         def __init__(self):
             self.name = "test_name"
             self.description = "A description"
 
-    mock_non_agent = MockNonAgentNoInvoke()
-    assert tool_registry._is_agent_instance(mock_non_agent) is False
+    not_agent = NotAnAgent()
+    assert tool_registry._is_agent_instance(not_agent) is False
 
     # Test with regular object
     assert tool_registry._is_agent_instance("not an agent") is False
+
+    # Test with None
+    assert tool_registry._is_agent_instance(None) is False

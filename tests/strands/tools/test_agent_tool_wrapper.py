@@ -220,7 +220,7 @@ class TestAgentToolWrapper:
         assert result["toolUseId"] == "test_tool_use_123"
         assert result["status"] == "error"
         assert len(result["content"]) == 1
-        assert "Error executing sub-agent 'test_agent': Agent error" in result["content"][0]["text"]
+        assert "Error executing 'test_agent': Agent error" in result["content"][0]["text"]
 
     @pytest.mark.asyncio
     async def test_stream_with_complex_agent_result(self):
