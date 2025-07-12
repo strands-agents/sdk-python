@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Tuple, cast
 
 from ..agent import Agent, AgentResult
+from ..types.content import ContentBlock
 from ..types.event_loop import Metrics, Usage
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
@@ -42,12 +43,14 @@ class GraphState:
               Entry point nodes receive this task as their input if they have no dependencies.
     """
 
+    # Task (with default empty string)
+    task: str | list[ContentBlock] = ""
+
     # Execution state
     status: Status = Status.PENDING
     completed_nodes: set["GraphNode"] = field(default_factory=set)
     failed_nodes: set["GraphNode"] = field(default_factory=set)
     execution_order: list["GraphNode"] = field(default_factory=list)
-    task: str = ""
 
     # Results
     results: dict[str, NodeResult] = field(default_factory=dict)
@@ -247,7 +250,7 @@ class Graph(MultiAgentBase):
         self.entry_points = entry_points
         self.state = GraphState()
 
-    def execute(self, task: str) -> GraphResult:
+    def execute(self, task: str | list[ContentBlock]) -> GraphResult:
         """Execute task synchronously."""
 
         def execute() -> GraphResult:
@@ -257,7 +260,7 @@ class Graph(MultiAgentBase):
             future = executor.submit(execute)
             return future.result()
 
-    async def execute_async(self, task: str) -> GraphResult:
+    async def execute_async(self, task: str | list[ContentBlock]) -> GraphResult:
         """Execute the graph asynchronously."""
         logger.debug("task=<%s> | starting graph execution", task)
 
@@ -435,8 +438,8 @@ class Graph(MultiAgentBase):
         self.state.accumulated_metrics["latencyMs"] += node_result.accumulated_metrics.get("latencyMs", 0)
         self.state.execution_count += node_result.execution_count
 
-    def _build_node_input(self, node: GraphNode) -> str:
-        """Build input text for a node based on dependency outputs."""
+    def _build_node_input(self, node: GraphNode) -> list[ContentBlock]:
+        """Build input for a node based on dependency outputs."""
         # Get satisfied dependencies
         dependency_results = {}
         for edge in self.edges:
@@ -449,21 +452,36 @@ class Graph(MultiAgentBase):
                     dependency_results[edge.from_node.node_id] = self.state.results[edge.from_node.node_id]
 
         if not dependency_results:
-            return self.state.task
+            # No dependencies - return task as ContentBlocks
+            if isinstance(self.state.task, str):
+                return [ContentBlock(text=self.state.task)]
+            else:
+                return self.state.task
 
         # Combine task with dependency outputs
-        input_parts = [f"Original Task: {self.state.task}", "\nInputs from previous nodes:"]
+        node_input = []
+
+        # Add original task
+        if isinstance(self.state.task, str):
+            node_input.append(ContentBlock(text=f"Original Task: {self.state.task}"))
+        else:
+            # Add task content blocks with a prefix
+            node_input.append(ContentBlock(text="Original Task:"))
+            node_input.extend(self.state.task)
+
+        # Add dependency outputs
+        node_input.append(ContentBlock(text="\nInputs from previous nodes:"))
 
         for dep_id, node_result in dependency_results.items():
-            input_parts.append(f"\nFrom {dep_id}:")
+            node_input.append(ContentBlock(text=f"\nFrom {dep_id}:"))
             # Get all agent results from this node (flattened if nested)
             agent_results = node_result.get_agent_results()
             for result in agent_results:
                 agent_name = getattr(result, "agent_name", "Agent")
                 result_text = str(result)
-                input_parts.append(f"  - {agent_name}: {result_text}")
+                node_input.append(ContentBlock(text=f"  - {agent_name}: {result_text}"))
 
-        return "\n".join(input_parts)
+        return node_input
 
     def _build_result(self) -> GraphResult:
         """Build graph result from current state."""

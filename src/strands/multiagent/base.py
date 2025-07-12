@@ -9,6 +9,7 @@ from enum import Enum
 from typing import Union
 
 from ..agent import AgentResult
+from ..types.content import ContentBlock
 from ..types.event_loop import Metrics, Usage
 
 
@@ -75,13 +76,11 @@ class MultiAgentBase(ABC):
     """
 
     @abstractmethod
-    # TODO: for task - multi-modal input (Message), list of messages
-    async def execute_async(self, task: str) -> MultiAgentResult:
+    async def execute_async(self, task: str | list[ContentBlock]) -> MultiAgentResult:
         """Execute task asynchronously."""
         raise NotImplementedError("execute_async not implemented")
 
     @abstractmethod
-    # TODO: for task - multi-modal input (Message), list of messages
-    def execute(self, task: str) -> MultiAgentResult:
+    def execute(self, task: str | list[ContentBlock]) -> MultiAgentResult:
         """Execute task synchronously."""
         raise NotImplementedError("execute not implemented")

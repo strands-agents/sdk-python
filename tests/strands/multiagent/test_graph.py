@@ -273,10 +273,10 @@ async def test_graph_edge_cases():
     builder.add_node(entry_agent, "entry_only")
     graph = builder.build()
 
-    result = await graph.execute_async("Original task")
+    result = await graph.execute_async([{"text": "Original task"}])
 
     # Verify entry node was called with original task
-    entry_agent.stream_async.assert_called_once_with("Original task")
+    entry_agent.stream_async.assert_called_once_with([{"text": "Original task"}])
     assert result.status == Status.COMPLETED
 
 
