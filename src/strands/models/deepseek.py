@@ -222,19 +222,23 @@ class DeepSeekModel(Model):
 
                     # Handle reasoning content
                     if hasattr(delta, "reasoning_content") and delta.reasoning_content:
-                        yield self.format_chunk({
-                            "chunk_type": "content_delta",
-                            "data_type": "reasoning_content",
-                            "data": delta.reasoning_content,
-                        })
+                        yield self.format_chunk(
+                            {
+                                "chunk_type": "content_delta",
+                                "data_type": "reasoning_content",
+                                "data": delta.reasoning_content,
+                            }
+                        )
 
                     # Handle regular content
                     if hasattr(delta, "content") and delta.content:
-                        yield self.format_chunk({
-                            "chunk_type": "content_delta",
-                            "data_type": "text",
-                            "data": delta.content,
-                        })
+                        yield self.format_chunk(
+                            {
+                                "chunk_type": "content_delta",
+                                "data_type": "text",
+                                "data": delta.content,
+                            }
+                        )
 
                 if hasattr(choice, "finish_reason") and choice.finish_reason:
                     break
