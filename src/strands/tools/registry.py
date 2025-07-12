@@ -4,12 +4,11 @@ This module provides the central registry for all tools available to the agent, 
 invocation capabilities.
 """
 
-import importlib.util
 import inspect
 import logging
 import os
 import sys
-from importlib import import_module
+from importlib import import_module, util
 from os.path import expanduser
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -304,11 +303,11 @@ class ToolRegistry:
             sys.path.insert(0, tool_dir)
             try:
                 # Load the module directly using spec
-                spec = importlib.util.spec_from_file_location(tool_name, str(tool_path))
+                spec = util.spec_from_file_location(tool_name, str(tool_path))
                 if spec is None:
                     raise ImportError(f"Could not load spec for {tool_name}")
 
-                module = importlib.util.module_from_spec(spec)
+                module = util.module_from_spec(spec)
                 sys.modules[tool_name] = module
 
                 if spec.loader is None:
