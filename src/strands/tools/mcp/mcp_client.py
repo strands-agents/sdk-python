@@ -128,7 +128,7 @@ class MCPClient:
         async def _set_close_event() -> None:
             self._close_event.set()
 
-        self._invoke_on_background_thread(_set_close_event()).result()
+        self._invoke_on_background_thread_lazy(lambda: _set_close_event()).result()
         self._log_debug_with_thread("waiting for background thread to join")
         if self._background_thread is not None:
             self._background_thread.join()
@@ -153,10 +153,9 @@ class MCPClient:
         if not self._is_session_active():
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
-        async def _list_tools_async() -> ListToolsResult:
-            return await self._background_thread_session.list_tools()
-
-        list_tools_response: ListToolsResult = self._invoke_on_background_thread(_list_tools_async()).result()
+        list_tools_response: ListToolsResult = self._invoke_on_background_thread_lazy(
+            lambda: self._background_thread_session.list_tools()
+        ).result()
         self._log_debug_with_thread("received %d tools from MCP server", len(list_tools_response.tools))
 
         mcp_tools = [MCPAgentTool(tool, self) for tool in list_tools_response.tools]
@@ -188,11 +187,10 @@ class MCPClient:
         if not self._is_session_active():
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
-        async def _call_tool_async() -> MCPCallToolResult:
-            return await self._background_thread_session.call_tool(name, arguments, read_timeout_seconds)
-
         try:
-            call_tool_result: MCPCallToolResult = self._invoke_on_background_thread(_call_tool_async()).result()
+            call_tool_result: MCPCallToolResult = self._invoke_on_background_thread_lazy(
+                lambda: self._background_thread_session.call_tool(name, arguments, read_timeout_seconds)
+            ).result()
             return self._handle_tool_result(tool_use_id, call_tool_result)
         except Exception as e:
             logger.exception("tool execution failed")
@@ -223,11 +221,10 @@ class MCPClient:
         if not self._is_session_active():
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
-        async def _call_tool_async() -> MCPCallToolResult:
-            return await self._background_thread_session.call_tool(name, arguments, read_timeout_seconds)
-
         try:
-            future = self._invoke_on_background_thread(_call_tool_async())
+            future = self._invoke_on_background_thread_lazy(
+                lambda: self._background_thread_session.call_tool(name, arguments, read_timeout_seconds)
+            )
             call_tool_result: MCPCallToolResult = await asyncio.wrap_future(future)
             return self._handle_tool_result(tool_use_id, call_tool_result)
         except Exception as e:
@@ -342,6 +339,14 @@ class MCPClient:
     def _invoke_on_background_thread(self, coro: Coroutine[Any, Any, T]) -> futures.Future[T]:
         if self._background_thread_session is None or self._background_thread_event_loop is None:
             raise MCPClientInitializationError("the client session was not initialized")
+        return asyncio.run_coroutine_threadsafe(coro=coro, loop=self._background_thread_event_loop)
+
+    def _invoke_on_background_thread_lazy(
+        self, coro_factory: Callable[[], Coroutine[Any, Any, T]]
+    ) -> futures.Future[T]:
+        if self._background_thread_session is None or self._background_thread_event_loop is None:
+            raise MCPClientInitializationError("the client session was not initialized")
+        coro = coro_factory()
         return asyncio.run_coroutine_threadsafe(coro=coro, loop=self._background_thread_event_loop)
 
     def _is_session_active(self) -> bool:
