@@ -10,7 +10,7 @@ from typing import Any, Optional, cast
 
 from ..types.exceptions import SessionException
 from ..types.session import Session, SessionAgent, SessionMessage
-from .agent_session_manager import AgentSessionManager
+from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
 
 logger = logging.getLogger(__name__)
@@ -20,8 +20,21 @@ AGENT_PREFIX = "agent_"
 MESSAGE_PREFIX = "message_"
 
 
-class FileSessionManager(AgentSessionManager, SessionRepository):
-    """File-based session manager for local filesystem storage."""
+class FileSessionManager(RepositorySessionManager, SessionRepository):
+    """File-based session manager for local filesystem storage.
+
+    Creates the following filesystem structure for the session storage:
+    /<sessions_dir>/
+    └── session_<session_id>/
+        ├── session.json                # Session metadata
+        └── agents/
+            └── agent_<agent_id>/
+                ├── agent.json          # Agent metadata
+                └── messages/
+                    ├── message_<created_timestamp>_<id1>.json
+                    └── message_<created_timestamp>_<id2>.json
+
+    """
 
     def __init__(self, session_id: str, storage_dir: Optional[str] = None):
         """Initialize FileSession with filesystem storage.
@@ -44,10 +57,22 @@ class FileSessionManager(AgentSessionManager, SessionRepository):
         session_path = self._get_session_path(session_id)
         return os.path.join(session_path, "agents", f"{AGENT_PREFIX}{agent_id}")
 
-    def _get_message_path(self, session_id: str, agent_id: str, message_id: str) -> str:
-        """Get message file path."""
+    def _get_message_path(self, session_id: str, agent_id: str, message_id: str, timestamp: str) -> str:
+        """Get message file path.
+
+        Args:
+            session_id: ID of the session
+            agent_id: ID of the agent
+            message_id: ID of the message
+            timestamp: ISO format timestamp to include in filename for sorting
+        Returns:
+            The filename for the message
+        """
         agent_path = self._get_agent_path(session_id, agent_id)
-        return os.path.join(agent_path, "messages", f"{MESSAGE_PREFIX}{message_id}.json")
+        # Use timestamp for sortable filenames
+        # Replace colons and periods in ISO format with underscores for filesystem compatibility
+        filename_timestamp = timestamp.replace(":", "_").replace(".", "_")
+        return os.path.join(agent_path, "messages", f"{MESSAGE_PREFIX}{filename_timestamp}_{message_id}.json")
 
     def _read_file(self, path: str) -> dict[str, Any]:
         """Read JSON file."""
@@ -135,17 +160,26 @@ class FileSessionManager(AgentSessionManager, SessionRepository):
             session_id,
             agent_id,
             session_message.message_id,
+            session_message.created_at,
         )
         session_dict = asdict(session_message)
         self._write_file(message_file, session_dict)
 
     def read_message(self, session_id: str, agent_id: str, message_id: str) -> Optional[SessionMessage]:
         """Read message data."""
-        message_file = self._get_message_path(session_id, agent_id, message_id)
-        if not os.path.exists(message_file):
+        # Get the messages directory
+        messages_dir = os.path.join(self._get_agent_path(session_id, agent_id), "messages")
+        if not os.path.exists(messages_dir):
             return None
-        message_data = self._read_file(message_file)
-        return SessionMessage.from_dict(message_data)
+
+        # List files in messages directory, and check if the filename ends with the message id
+        for filename in os.listdir(messages_dir):
+            if filename.endswith(f"{message_id}.json"):
+                file_path = os.path.join(messages_dir, filename)
+                message_data = self._read_file(file_path)
+                return SessionMessage.from_dict(message_data)
+
+        return None
 
     def update_message(self, session_id: str, agent_id: str, session_message: SessionMessage) -> None:
         """Update message data."""
@@ -156,7 +190,7 @@ class FileSessionManager(AgentSessionManager, SessionRepository):
 
         # Preserve the original created_at timestamp
         session_message.created_at = previous_message.created_at
-        message_file = self._get_message_path(session_id, agent_id, message_id)
+        message_file = self._get_message_path(session_id, agent_id, message_id, session_message.created_at)
         self._write_file(message_file, asdict(session_message))
 
     def list_messages(
@@ -168,20 +202,25 @@ class FileSessionManager(AgentSessionManager, SessionRepository):
             raise SessionException(f"Messages directory missing from agent: {agent_id} in session {session_id}")
 
         # Read all message files
-        messages: list[SessionMessage] = []
+        message_files: list[str] = []
         for filename in os.listdir(messages_dir):
             if filename.startswith(MESSAGE_PREFIX) and filename.endswith(".json"):
-                file_path = os.path.join(messages_dir, filename)
-                message_data = self._read_file(file_path)
-                messages.append(SessionMessage.from_dict(message_data))
+                message_files.append(filename)
 
-        # Sort by created_at timestamp (oldest first)
-        messages.sort(key=lambda x: x.created_at)
+        # Sort filenames - the timestamp in the file's name will sort chronologically
+        message_files.sort()
 
-        # Apply pagination
+        # Apply pagination to filenames
         if limit is not None:
-            messages = messages[offset : offset + limit]
+            message_files = message_files[offset : offset + limit]
         else:
-            messages = messages[offset:]
+            message_files = message_files[offset:]
+
+        # Load only the message files
+        messages: list[SessionMessage] = []
+        for filename in message_files:
+            file_path = os.path.join(messages_dir, filename)
+            message_data = self._read_file(file_path)
+            messages.append(SessionMessage.from_dict(message_data))
 
         return messages

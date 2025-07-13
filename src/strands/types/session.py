@@ -13,7 +13,11 @@ from .content import Message
 
 
 class SessionType(str, Enum):
-    """Enumeration of session types."""
+    """Enumeration of session types.
+
+    As sessions are expanded to support new usecases like multi-agent patterns,
+    new types will be added here.
+    """
 
     AGENT = "AGENT"
 
@@ -74,13 +78,13 @@ class SessionMessage:
 
     @classmethod
     def from_dict(cls, env: dict[str, Any]) -> "SessionMessage":
-        """Initialize a SessionMessage from a dictionary, ignoring keys that are not calss parameters."""
+        """Initialize a SessionMessage from a dictionary, ignoring keys that are not class parameters."""
         return cls(**{k: v for k, v in env.items() if k in inspect.signature(cls).parameters})
 
 
 @dataclass
 class SessionAgent:
-    """Agent within a Session."""
+    """Agent that belongs to a Session."""
 
     agent_id: str
     state: Dict[str, Any]

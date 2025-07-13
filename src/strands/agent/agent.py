@@ -318,9 +318,9 @@ class Agent:
         self.hooks = HookRegistry()
 
         # Initialize session management functionality
-        self.session_manager = session_manager
-        if self.session_manager:
-            self.hooks.add_hook(self.session_manager)
+        self._session_manager = session_manager
+        if self._session_manager:
+            self.hooks.add_hook(self._session_manager)
 
         if hooks:
             for hook in hooks:

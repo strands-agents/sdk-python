@@ -14,13 +14,14 @@ if TYPE_CHECKING:
 class SessionManager(HookProvider, ABC):
     """Abstract interface for managing sessions.
 
-    A session represents a complete interaction context including conversation
-    history, user information, agent state, and metadata. This interface provides
-    methods to manage sessions and their associated data.
+    A session manager is in charge of persisting the conversation and state of an agent across its interaction.
+    Changes made to the agents conversation, state, or other attributes should be persisted immediately after
+    they are changed. The different methods introduced in this class are called at important lifecycle events
+    for an agent, and should be persisted in the session.
     """
 
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
-        """Register initialize and append_message as hooks for the Agent."""
+        """Register hooks for persisting the agent to the session."""
         registry.add_callback(AgentInitializedEvent, lambda event: self.initialize(event.agent))
         registry.add_callback(MessageAddedEvent, lambda event: self.append_message(event.message, event.agent))
         registry.add_callback(MessageAddedEvent, lambda event: self.sync_agent(event.agent))
@@ -36,10 +37,10 @@ class SessionManager(HookProvider, ABC):
 
     @abstractmethod
     def sync_agent(self, agent: "Agent") -> None:
-        """Sync the agent to the session.
+        """Serialize and sync the agent with the session storage.
 
         Args:
-            agent: Agent to sync to the session
+            agent: Agent who should be synchronized with the session storage
         """
 
     @abstractmethod

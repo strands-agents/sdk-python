@@ -165,6 +165,15 @@ class TestFileSessionManagerAgentOperations:
         result = file_manager.read_agent(sample_session.session_id, sample_agent.agent_id)
         assert result.state == {"updated": "value"}
 
+    def test_update_nonexistent_agent(self, file_manager, sample_session, sample_agent):
+        """Test updating an agent."""
+        # Create session and agent
+        file_manager.create_session(sample_session)
+
+        # Update agent
+        with pytest.raises(SessionException):
+            file_manager.update_agent(sample_session.session_id, sample_agent)
+
 
 class TestFileSessionManagerMessageOperations:
     """Tests for message operations."""
@@ -180,7 +189,7 @@ class TestFileSessionManagerMessageOperations:
 
         # Verify message file
         message_path = file_manager._get_message_path(
-            sample_session.session_id, sample_agent.agent_id, sample_message.message_id
+            sample_session.session_id, sample_agent.agent_id, sample_message.message_id, sample_message.created_at
         )
         assert os.path.exists(message_path)
 
@@ -196,12 +205,26 @@ class TestFileSessionManagerMessageOperations:
         file_manager.create_agent(sample_session.session_id, sample_agent)
         file_manager.create_message(sample_session.session_id, sample_agent.agent_id, sample_message)
 
+        # Create multiple messages when reading
+        sample_message.message_id = sample_message.message_id + "_2"
+        file_manager.create_message(sample_session.session_id, sample_agent.agent_id, sample_message)
+
         # Read message
         result = file_manager.read_message(sample_session.session_id, sample_agent.agent_id, sample_message.message_id)
 
         assert result.message_id == sample_message.message_id
         assert result.message["role"] == sample_message.message["role"]
         assert result.message["content"] == sample_message.message["content"]
+
+    def test_read_messages_with_new_agent(self, file_manager, sample_session, sample_agent):
+        """Test reading a message with with a new agent."""
+        # Create session and agent
+        file_manager.create_session(sample_session)
+        file_manager.create_agent(sample_session.session_id, sample_agent)
+
+        result = file_manager.read_message(sample_session.session_id, sample_agent.agent_id, "nonexistent_message")
+
+        assert result is None
 
     def test_read_nonexistent_message(self, file_manager, sample_session, sample_agent):
         """Test reading a message that doesnt exist."""
@@ -273,6 +296,16 @@ class TestFileSessionManagerMessageOperations:
 
         assert len(result) == 5
 
+    def test_list_messages_with_new_agent(self, file_manager, sample_session, sample_agent):
+        """Test listing messages with new agent."""
+        # Create session and agent
+        file_manager.create_session(sample_session)
+        file_manager.create_agent(sample_session.session_id, sample_agent)
+
+        result = file_manager.list_messages(sample_session.session_id, sample_agent.agent_id)
+
+        assert len(result) == 0
+
     def test_update_message(self, file_manager, sample_session, sample_agent, sample_message):
         """Test updating a message."""
         # Create session, agent, and message
@@ -288,7 +321,15 @@ class TestFileSessionManagerMessageOperations:
         result = file_manager.read_message(sample_session.session_id, sample_agent.agent_id, sample_message.message_id)
         assert result.message["content"][0]["text"] == "Updated content"
 
-    # Note: delete_message is not implemented in FileSessionManager
+    def test_update_nonexistent_message(self, file_manager, sample_session, sample_agent, sample_message):
+        """Test updating a message."""
+        # Create session, agent, and message
+        file_manager.create_session(sample_session)
+        file_manager.create_agent(sample_session.session_id, sample_agent)
+
+        # Update nonexistent message
+        with pytest.raises(SessionException):
+            file_manager.update_message(sample_session.session_id, sample_agent.agent_id, sample_message)
 
 
 class TestFileSessionManagerErrorHandling:

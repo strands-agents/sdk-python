@@ -39,7 +39,10 @@ class SessionRepository(ABC):
 
     @abstractmethod
     def update_message(self, session_id: str, agent_id: str, session_message: SessionMessage) -> None:
-        """Update a Message."""
+        """Update a Message.
+
+        A message is usually only updated when some content is redacted due to a guardrail.
+        """
 
     @abstractmethod
     def list_messages(

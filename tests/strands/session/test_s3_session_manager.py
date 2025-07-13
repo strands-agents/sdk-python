@@ -219,7 +219,9 @@ def test_create_message(s3_manager, sample_session, sample_agent, sample_message
     s3_manager.create_message(sample_session.session_id, sample_agent.agent_id, sample_message)
 
     # Verify S3 object created
-    key = s3_manager._get_message_path(sample_session.session_id, sample_agent.agent_id, sample_message.message_id)
+    key = s3_manager._get_message_path(
+        sample_session.session_id, sample_agent.agent_id, sample_message.message_id, sample_message.created_at
+    )
     response = s3_manager.client.get_object(Bucket=s3_manager.bucket, Key=key)
     data = json.loads(response["Body"].read().decode("utf-8"))
 

@@ -3,7 +3,7 @@
 import pytest
 
 from strands.agent.agent import Agent
-from strands.session.agent_session_manager import AgentSessionManager
+from strands.session.repository_session_manager import RepositorySessionManager
 from strands.types.content import ContentBlock
 from strands.types.exceptions import SessionException
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
@@ -19,7 +19,7 @@ def mock_repository():
 @pytest.fixture
 def session_manager(mock_repository):
     """Create a session manager with mock repository."""
-    return AgentSessionManager(session_id="test-session", session_repository=mock_repository)
+    return RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ def test_init_creates_session_if_not_exists(mock_repository):
     assert mock_repository.read_session("test-session") is None
 
     # Creating manager should create session
-    AgentSessionManager(session_id="test-session", session_repository=mock_repository)
+    RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
 
     # Verify session created
     session = mock_repository.read_session("test-session")
@@ -50,7 +50,7 @@ def test_init_uses_existing_session(mock_repository):
     mock_repository.create_session(session)
 
     # Creating manager should use existing session
-    manager = AgentSessionManager(session_id="test-session", session_repository=mock_repository)
+    manager = RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
 
     # Verify session used
     assert manager.session == session
@@ -71,14 +71,15 @@ def test_initialize_with_existing_agent_id(session_manager, agent):
 
 
 def test_initialize_multiple_agents_without_id(session_manager, agent):
-    """Test initializing multiple agents without IDs."""
+    """Test initializing multiple agents with same ID."""
     # First agent initialization works
+    agent.agent_id = "custom-agent"
     session_manager.initialize(agent)
 
     # Second agent with no set agent_id should fail
-    agent2 = Agent()
+    agent2 = Agent(agent_id="custom-agent")
 
-    with pytest.raises(SessionException, match="Set `agent_id` to support more than one agent in a session."):
+    with pytest.raises(SessionException, match="The `agent_id` of an agent must be unique in a session."):
         session_manager.initialize(agent2)
 
 
@@ -133,16 +134,3 @@ def test_append_message(session_manager, agent):
     assert len(messages) == 1
     assert messages[0].message["role"] == "user"
     assert messages[0].message["content"][0]["text"] == "Hello"
-
-
-def test_append_message_without_agent_id(session_manager, agent):
-    """Test appending a message to an agent without ID."""
-    # Agent has no ID
-    agent.agent_id = None
-
-    # Create message
-    message = {"role": "user", "content": [{"type": "text", "text": "Hello"}]}
-
-    # Append message should fail
-    with pytest.raises(ValueError, match="`agent.agent_id` must be set"):
-        session_manager.append_message(message, agent)

@@ -16,7 +16,7 @@ from strands.agent.conversation_manager.sliding_window_conversation_manager impo
 from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
-from strands.session.agent_session_manager import DEFAULT_SESSION_AGENT_ID, AgentSessionManager
+from strands.session.repository_session_manager import RepositorySessionManager
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
 from strands.types.session import Session, SessionAgent, SessionType
@@ -1404,7 +1404,7 @@ def test_agent_state_get_breaks_deep_dict_reference():
 
 def test_agent_session_management():
     mock_session_repository = MockedSessionRepository()
-    session_manager = AgentSessionManager(session_id="123", session_repository=mock_session_repository)
+    session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
     model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
     agent = Agent(session_manager=session_manager, model=model)
     agent("Hello!")
@@ -1416,11 +1416,11 @@ def test_agent_restored_from_session_management():
     mock_session_repository.create_agent(
         "123",
         SessionAgent(
-            agent_id=DEFAULT_SESSION_AGENT_ID,
+            agent_id="default",
             state={"foo": "bar"},
         ),
     )
-    session_manager = AgentSessionManager(session_id="123", session_repository=mock_session_repository)
+    session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
 
     agent = Agent(session_manager=session_manager)
 
