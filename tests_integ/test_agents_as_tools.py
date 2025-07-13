@@ -4,97 +4,15 @@ This module tests the core agents-as-tools pattern where Agent instances can be
 used as tools by other agents, including registry integration and end-to-end workflows.
 """
 
-from unittest.mock import AsyncMock
-
 import pytest
 
 from strands import Agent, tool
-from strands.tools.agent_tool_wrapper import AgentToolWrapper
 from strands.tools.registry import ToolRegistry
-from strands.types.tools import ToolUse
-
-
-def test_agent_tool_wrapper_basic_functionality():
-    """Test basic agent tool wrapper functionality."""
-    # Create a simple agent
-    sub_agent = Agent(
-        name="calculator_agent",
-        description="A simple calculator agent that can perform basic arithmetic",
-        load_tools_from_directory=False,
-    )
-
-    # Wrap it as a tool
-    wrapper = AgentToolWrapper(sub_agent)
-
-    # Verify wrapper properties
-    assert wrapper.tool_name == "calculator_agent"
-    assert wrapper.tool_type == "agent"
-    assert wrapper.tool_spec["name"] == "calculator_agent"
-    assert wrapper.tool_spec["description"] == "A simple calculator agent that can perform basic arithmetic"
-    assert "query" in wrapper.tool_spec["inputSchema"]["properties"]
 
 
 @pytest.mark.asyncio
-async def test_agent_tool_wrapper_execution():
-    """Test agent tool wrapper execution flow."""
-    # Create a mock sub-agent
-    sub_agent = Agent(
-        name="text_processor", description="An agent that processes text input", load_tools_from_directory=False
-    )
-
-    # Mock the invoke_async method
-    sub_agent.invoke_async = AsyncMock(return_value="Processed: Hello World")
-
-    # Wrap it as a tool
-    wrapper = AgentToolWrapper(sub_agent)
-
-    # Create a tool use request
-    tool_use: ToolUse = {"toolUseId": "test_123", "name": "text_processor", "input": {"query": "Hello World"}}
-
-    # Execute the tool
-    results = []
-    async for result in wrapper.stream(tool_use, {}):
-        results.append(result)
-
-    # Verify execution
-    assert len(results) == 1
-    result = results[0]
-    assert result["toolUseId"] == "test_123"
-    assert result["status"] == "success"
-    assert result["content"][0]["text"] == "Processed: Hello World"
-
-    # Verify sub-agent was called with correct query
-    sub_agent.invoke_async.assert_called_once_with("Hello World")
-
-
-def test_tool_registry_agent_detection():
-    """Test that tool registry can detect and register agents as tools."""
-    # Create a tool registry
-    registry = ToolRegistry()
-
-    # Create an agent
-    agent = Agent(
-        name="data_analyzer", description="An agent that analyzes data patterns", load_tools_from_directory=False
-    )
-
-    # Process the agent through the registry
-    tool_names = registry.process_tools([agent])
-
-    # Verify the agent was registered as a tool
-    assert len(tool_names) == 1
-    assert tool_names[0] == "data_analyzer"
-    assert "data_analyzer" in registry.registry
-
-    # Verify the registered tool is an AgentToolWrapper
-    registered_tool = registry.registry["data_analyzer"]
-    assert isinstance(registered_tool, AgentToolWrapper)
-    assert registered_tool.tool_name == "data_analyzer"
-    assert registered_tool.tool_type == "agent"
-
-
-@pytest.mark.asyncio
-async def test_agent_using_agent_as_tool():
-    """Test end-to-end scenario where one agent uses another agent as a tool."""
+async def test_agent_using_agent_as_tool_real_invocation():
+    """Test end-to-end scenario where one agent uses another agent as a tool with real invocation."""
 
     # Create a function tool for the sub-agent
     @tool
@@ -128,55 +46,72 @@ async def test_agent_using_agent_as_tool():
     assert math_helper_spec is not None
     assert math_helper_spec["name"] == "math_helper"
     assert math_helper_spec["description"] == "A helper agent that performs mathematical operations"
-    assert "query" in math_helper_spec["inputSchema"]["json"]["properties"]
+    assert "prompt" in math_helper_spec["inputSchema"]["json"]["properties"]
 
 
 @pytest.mark.asyncio
-async def test_agent_tool_error_handling():
-    """Test error handling in agent tools."""
-    # Create an agent that will raise an exception
-    failing_agent = Agent(
-        name="failing_agent", description="An agent that fails during execution", load_tools_from_directory=False
+async def test_parent_agent_invokes_sub_agent():
+    """Test that a parent agent can invoke a sub-agent and the sub-agent's messages are populated."""
+
+    # Create a sub-agent that will be used as a tool
+    tool_agent = Agent(
+        name="calculator",
+        description="A calculator agent that can perform basic arithmetic",
+        load_tools_from_directory=False,
     )
 
-    # Mock the invoke_async to raise an exception
-    failing_agent.invoke_async = AsyncMock(side_effect=Exception("Simulated failure"))
+    # Create a parent agent that uses the sub-agent as a tool
+    parent_agent = Agent(
+        name="orchestrator",
+        description="An orchestrator that delegates mathematical tasks",
+        tools=[tool_agent],
+        load_tools_from_directory=False,
+    )
 
-    # Wrap it as a tool
-    wrapper = AgentToolWrapper(failing_agent)
+    # Clear any existing messages
+    tool_agent.messages = []
+    parent_agent.messages = []
 
-    # Create a tool use request
-    tool_use: ToolUse = {"toolUseId": "error_test_123", "name": "failing_agent", "input": {"query": "This will fail"}}
+    # Invoke the parent agent with a task that should trigger the sub-agent
+    response = await parent_agent.invoke_async(
+        "Please use the calculator to help me with a simple math problem: what is 2 + 2?"
+    )
 
-    # Execute the tool
-    results = []
-    async for result in wrapper.stream(tool_use, {}):
-        results.append(result)
+    # Assert that the sub-agent was called (has messages)
+    assert len(tool_agent.messages) > 0, "Sub-agent should have been invoked and have messages"
 
-    # Verify error handling
-    assert len(results) == 1
-    result = results[0]
-    assert result["toolUseId"] == "error_test_123"
-    assert result["status"] == "error"
-    assert "Error executing 'failing_agent'" in result["content"][0]["text"]
-    assert "Simulated failure" in result["content"][0]["text"]
+    # Verify the parent agent also has messages
+    assert len(parent_agent.messages) > 0, "Parent agent should have messages from the conversation"
+
+    # Verify the response is not empty
+    assert response is not None and len(str(response).strip()) > 0, "Response should not be empty"
 
 
-def test_agent_tool_validation():
-    """Test agent tool validation requirements."""
-    # Test with valid agent
-    valid_agent = Agent(name="valid_agent", description="A properly configured agent", load_tools_from_directory=False)
+def test_tool_registry_agent_detection():
+    """Test that tool registry can detect and register agents as tools."""
+    # Create a tool registry
+    registry = ToolRegistry()
 
-    # Should not raise an exception
-    wrapper = AgentToolWrapper(valid_agent)
-    assert wrapper.tool_name == "valid_agent"
+    # Create an agent
+    agent = Agent(
+        name="data_analyzer", description="An agent that analyzes data patterns", load_tools_from_directory=False
+    )
 
-    # Test with agent having default name (should fail)
-    invalid_agent = Agent(description="An agent with default name", load_tools_from_directory=False)
-    # The default name is "Strands Agents"
+    # Process the agent through the registry
+    tool_names = registry.process_tools([agent])
 
-    with pytest.raises(ValueError, match="Agent must have both 'name' and 'description' parameters"):
-        AgentToolWrapper(invalid_agent)
+    # Verify the agent was registered as a tool
+    assert len(tool_names) == 1
+    assert tool_names[0] == "data_analyzer"
+    assert "data_analyzer" in registry.registry
+
+    # Verify the registered tool is an AgentToolWrapper
+    from strands.tools.agent_tool_wrapper import AgentToolWrapper
+
+    registered_tool = registry.registry["data_analyzer"]
+    assert isinstance(registered_tool, AgentToolWrapper)
+    assert registered_tool.tool_name == "data_analyzer"
+    assert registered_tool.tool_type == "agent"
 
 
 def test_multiple_agents_as_tools():
@@ -252,42 +187,112 @@ def test_mixed_tools_and_agents():
 
 
 @pytest.mark.asyncio
-async def test_agent_tool_context_isolation():
-    """Test that agent tools maintain proper context isolation."""
-    # Create two identical agents
-    agent1 = Agent(name="counter1", description="A counter agent instance 1", load_tools_from_directory=False)
+async def test_nested_agent_tool_invocation():
+    """Test that nested agent-as-tool invocations work correctly."""
 
-    agent2 = Agent(name="counter2", description="A counter agent instance 2", load_tools_from_directory=False)
+    # Create a bottom-level agent with a simple tool
+    @tool
+    def get_current_time() -> str:
+        """Get the current time."""
+        return "12:00 PM"
 
-    # Mock different behaviors for each agent
-    agent1.invoke_async = AsyncMock(return_value="Agent1 response")
-    agent2.invoke_async = AsyncMock(return_value="Agent2 response")
+    time_agent = Agent(
+        name="time_keeper",
+        description="An agent that provides time information",
+        tools=[get_current_time],
+        load_tools_from_directory=False,
+    )
 
-    # Wrap both as tools
-    wrapper1 = AgentToolWrapper(agent1)
-    wrapper2 = AgentToolWrapper(agent2)
+    # Create a middle-level agent that uses the time agent
+    middle_agent = Agent(
+        name="scheduler",
+        description="An agent that helps with scheduling using time information",
+        tools=[time_agent],
+        load_tools_from_directory=False,
+    )
 
-    # Execute both tools
-    tool_use1: ToolUse = {"toolUseId": "test1", "name": "counter1", "input": {"query": "Test query"}}
+    # Create a top-level agent that uses the middle agent
+    top_agent = Agent(
+        name="assistant",
+        description="A top-level assistant that handles various tasks",
+        tools=[middle_agent],
+        load_tools_from_directory=False,
+    )
 
-    tool_use2: ToolUse = {"toolUseId": "test2", "name": "counter2", "input": {"query": "Test query"}}
+    # Clear messages
+    time_agent.messages = []
+    middle_agent.messages = []
+    top_agent.messages = []
 
-    # Execute first tool
-    results1 = []
-    async for result in wrapper1.stream(tool_use1, {}):
-        results1.append(result)
+    # Invoke the top agent with a task that should cascade through the agents
+    response = await top_agent.invoke_async("Please help me schedule something by checking the current time")
 
-    # Execute second tool
-    results2 = []
-    async for result in wrapper2.stream(tool_use2, {}):
-        results2.append(result)
+    # Verify all agents were involved
+    assert len(time_agent.messages) > 0, "Bottom-level agent should have been invoked"
+    assert len(middle_agent.messages) > 0, "Middle-level agent should have been invoked"
+    assert len(top_agent.messages) > 0, "Top-level agent should have been invoked"
 
-    # Verify each agent was called independently
-    assert len(results1) == 1
-    assert len(results2) == 1
-    assert results1[0]["content"][0]["text"] == "Agent1 response"
-    assert results2[0]["content"][0]["text"] == "Agent2 response"
+    # Verify response is not empty
+    assert response is not None and len(str(response).strip()) > 0
 
-    # Verify each agent was called once
-    agent1.invoke_async.assert_called_once()
-    agent2.invoke_async.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_agent_tool_with_complex_workflow():
+    """Test a more complex workflow with multiple agent tools working together."""
+
+    # Create specialized agents
+    @tool
+    def analyze_sentiment(text: str) -> str:
+        """Analyze the sentiment of text."""
+        if "happy" in text.lower() or "good" in text.lower():
+            return "positive"
+        elif "sad" in text.lower() or "bad" in text.lower():
+            return "negative"
+        else:
+            return "neutral"
+
+    sentiment_agent = Agent(
+        name="sentiment_analyzer",
+        description="An agent that analyzes sentiment in text",
+        tools=[analyze_sentiment],
+        load_tools_from_directory=False,
+    )
+
+    @tool
+    def count_words(text: str) -> int:
+        """Count the number of words in text."""
+        return len(text.split())
+
+    word_counter = Agent(
+        name="word_counter",
+        description="An agent that counts words in text",
+        tools=[count_words],
+        load_tools_from_directory=False,
+    )
+
+    # Create a coordinator agent that uses both specialized agents
+    coordinator = Agent(
+        name="text_analyzer",
+        description="A coordinator that performs comprehensive text analysis",
+        tools=[sentiment_agent, word_counter],
+        load_tools_from_directory=False,
+    )
+
+    # Clear messages
+    sentiment_agent.messages = []
+    word_counter.messages = []
+    coordinator.messages = []
+
+    # Test the workflow
+    test_text = "This is a happy day with good weather"
+    response = await coordinator.invoke_async(
+        f"Please analyze this text: '{test_text}'. I need both sentiment analysis and word count."
+    )
+
+    # Verify all agents were involved
+    assert len(sentiment_agent.messages) > 0, "Sentiment agent should have been invoked"
+    assert len(word_counter.messages) > 0, "Word counter agent should have been invoked"
+    assert len(coordinator.messages) > 0, "Coordinator agent should have been invoked"
+
+    # Verify response contains analysis
+    assert response is not None and len(str(response).strip()) > 0

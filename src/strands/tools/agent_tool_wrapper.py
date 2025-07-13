@@ -29,7 +29,7 @@ class AgentToolWrapper(AgentTool):
         self._description = agent.description or ""
 
     def _validate_agent(self) -> None:
-        # Check if agent has the required attributes and they are properly set
+        """Check if agent has the required attributes and they are properly set."""
         if (
             not hasattr(self._agent, "name")
             or not hasattr(self._agent, "description")
@@ -57,10 +57,8 @@ class AgentToolWrapper(AgentTool):
             description=self._description,
             inputSchema={
                 "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "The query or task to send to the sub-agent"}
-                },
-                "required": ["query"],
+                "properties": {"prompt": {"type": "string", "description": "The prompt to send to the sub-agent"}},
+                "required": ["prompt"],
             },
         )
 
@@ -81,11 +79,11 @@ class AgentToolWrapper(AgentTool):
             Tool events with the last being the tool result
         """
         try:
-            # Extract the query from tool input
-            query = tool_use["input"].get("query", "")
+            # Extract the prompt from tool input
+            prompt = tool_use["input"].get("prompt", "")
 
             # Invoke the sub-agent
-            result = await self._agent.invoke_async(query)
+            result = await self._agent.invoke_async(prompt)
 
             # Convert agent response to tool result format
             tool_result = ToolResult(
