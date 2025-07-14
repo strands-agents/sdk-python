@@ -394,7 +394,8 @@ class OpenAIModel(Model):
         async for event in response:
             _ = event
 
-        yield self.format_chunk({"chunk_type": "metadata", "data": event.usage})
+        if event.usage:
+            yield self.format_chunk({"chunk_type": "metadata", "data": event.usage})
 
         logger.debug("finished streaming response from model")
 

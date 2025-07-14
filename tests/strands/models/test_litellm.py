@@ -198,6 +198,42 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
 
 
 @pytest.mark.asyncio
+async def test_stream_empty(litellm_acompletion, api_key, model_id, model, agenerator, alist):
+    mock_delta = unittest.mock.Mock(content=None, tool_calls=None, reasoning_content=None)
+
+    mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta)])
+    mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
+    mock_event_3 = unittest.mock.Mock()
+    mock_event_4 = unittest.mock.Mock(usage=None)
+
+    litellm_acompletion.side_effect = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3, mock_event_4])
+    )
+
+    messages = [{"role": "user", "content": []}]
+    response = model.stream(messages)
+
+    tru_events = await alist(response)
+    exp_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+    ]
+
+    assert len(tru_events) == len(exp_events)
+    expected_request = {
+        "api_key": api_key,
+        "model": model_id,
+        "messages": [],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+        "tools": [],
+    }
+    litellm_acompletion.assert_called_once_with(**expected_request)
+
+
+@pytest.mark.asyncio
 async def test_structured_output(litellm_acompletion, model, test_output_model_cls, alist):
     messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
 
