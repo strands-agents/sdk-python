@@ -74,6 +74,7 @@ class Model(abc.ABC):
         """Stream conversation with the model.
 
         This method handles the full lifecycle of conversing with the model:
+
         1. Format the messages, tool specs, and configuration into a streaming request
         2. Send the request to the model
         3. Yield the formatted message chunks

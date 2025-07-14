@@ -479,9 +479,10 @@ class Agent:
             prompt: User input as text or list of ContentBlock objects for multi-modal content.
             **kwargs: Additional parameters to pass to the event loop.
 
-        Returns:
+        Yields:
             An async iterator that yields events. Each event is a dictionary containing
             information about the current state of processing, such as:
+
             - data: Text content being generated
             - complete: Whether this is the final chunk
             - current_tool_use: Information about tools being executed

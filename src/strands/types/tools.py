@@ -224,7 +224,7 @@ class AgentTool(ABC):
             invocation_state: Context for the tool invocation, including agent state.
             **kwargs: Additional keyword arguments for future extensibility.
 
-        Yield:
+        Yields:
             Tool events with the last being the tool result.
         """
         ...

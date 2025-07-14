@@ -253,7 +253,7 @@ async def process_stream(chunks: AsyncIterable[StreamEvent]) -> AsyncGenerator[d
     Args:
         chunks: The chunks of the response stream from the model.
 
-    Returns:
+    Yields:
         The reason for stopping, the constructed message, and the usage metrics.
     """
     stop_reason: StopReason = "end_turn"
@@ -306,7 +306,7 @@ async def stream_messages(
         messages: List of messages to send.
         tool_specs: The list of tool specs.
 
-    Returns:
+    Yields:
         The reason for stopping, the final message, and the usage metrics
     """
     logger.debug("model=<%s> | streaming messages", model)

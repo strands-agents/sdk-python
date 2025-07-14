@@ -207,7 +207,7 @@ class PythonAgentTool(AgentTool):
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
-        Tool events with the last being the tool result.
+            Tool events with the last being the tool result.
         """
         if inspect.iscoroutinefunction(self._tool_func):
             result = await self._tool_func(tool_use, **invocation_state)
