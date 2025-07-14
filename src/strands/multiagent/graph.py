@@ -21,7 +21,10 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Tuple, cast
 
+from opentelemetry import trace as trace_api
+
 from ..agent import Agent, AgentResult
+from ..telemetry import get_tracer
 from ..types.content import ContentBlock
 from ..types.event_loop import Metrics, Usage
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
@@ -249,6 +252,7 @@ class Graph(MultiAgentBase):
         self.edges = edges
         self.entry_points = entry_points
         self.state = GraphState()
+        self.tracer = get_tracer()
 
     def execute(self, task: str | list[ContentBlock]) -> GraphResult:
         """Execute task synchronously."""
@@ -274,19 +278,20 @@ class Graph(MultiAgentBase):
         )
 
         start_time = time.time()
-        try:
-            await self._execute_graph()
-            self.state.status = Status.COMPLETED
-            logger.debug("status=<%s> | graph execution completed", self.state.status)
+        span = self.tracer.start_multiagent_span(task, "graph")
+        with trace_api.use_span(span, end_on_exit=True):
+            try:
+                await self._execute_graph()
+                self.state.status = Status.COMPLETED
+                logger.debug("status=<%s> | graph execution completed", self.state.status)
 
-        except Exception:
-            logger.exception("graph execution failed")
-            self.state.status = Status.FAILED
-            raise
-        finally:
-            self.state.execution_time = round((time.time() - start_time) * 1000)
-
-        return self._build_result()
+            except Exception:
+                logger.exception("graph execution failed")
+                self.state.status = Status.FAILED
+                raise
+            finally:
+                self.state.execution_time = round((time.time() - start_time) * 1000)
+            return self._build_result()
 
     async def _execute_graph(self) -> None:
         """Unified execution flow with conditional routing."""

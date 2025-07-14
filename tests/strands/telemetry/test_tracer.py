@@ -10,6 +10,7 @@ from opentelemetry.trace import (
 )
 
 from strands.telemetry.tracer import JSONEncoder, Tracer, get_tracer, serialize
+from strands.types.content import ContentBlock
 from strands.types.streaming import StopReason, Usage
 
 
@@ -198,7 +199,91 @@ def test_start_tool_call_span(mock_tracer):
         span = tracer.start_tool_call_span(tool)
 
         mock_tracer.start_span.assert_called_once()
-        assert mock_tracer.start_span.call_args[1]["name"] == "Tool: test-tool"
+        assert mock_tracer.start_span.call_args[1]["name"] == "execute_tool test-tool"
+        mock_span.set_attribute.assert_any_call("gen_ai.tool.name", "test-tool")
+        mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
+        mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "execute_tool")
+        mock_span.set_attribute.assert_any_call("gen_ai.tool.call.id", "123")
+        mock_span.add_event.assert_any_call(
+            "gen_ai.tool.message", attributes={"role": "tool", "content": json.dumps({"param": "value"}), "id": "123"}
+        )
+        assert span is not None
+
+
+def test_start_swarm_call_span_with_string_task(mock_tracer):
+    """Test starting a swarm call span with task as string."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        task = "Design foo bar"
+
+        span = tracer.start_multiagent_span(task, "swarm")
+
+        mock_tracer.start_span.assert_called_once()
+        assert mock_tracer.start_span.call_args[1]["name"] == "invoke_swarm"
+        mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
+        mock_span.set_attribute.assert_any_call("gen_ai.agent.name", "swarm")
+        mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "invoke_swarm")
+        mock_span.add_event.assert_any_call("gen_ai.user.message", attributes={"content": "Design foo bar"})
+        assert span is not None
+
+
+def test_start_swarm_span_with_contentblock_task(mock_tracer):
+    """Test starting a swarm call span with task as list of contentBlock."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        task = [ContentBlock(text="Original Task: foo bar")]
+
+        span = tracer.start_multiagent_span(task, "swarm")
+
+        mock_tracer.start_span.assert_called_once()
+        assert mock_tracer.start_span.call_args[1]["name"] == "invoke_swarm"
+        mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
+        mock_span.set_attribute.assert_any_call("gen_ai.agent.name", "swarm")
+        mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "invoke_swarm")
+        mock_span.add_event.assert_any_call(
+            "gen_ai.user.message", attributes={"content": '[{"text": "Original Task: foo bar"}]'}
+        )
+        assert span is not None
+
+
+def test_end_swarm_span(mock_span):
+    """Test ending a tool call span."""
+    tracer = Tracer()
+    swarm_final_reuslt = "foo bar bar"
+
+    tracer.end_swarm_span(mock_span, swarm_final_reuslt)
+
+    mock_span.add_event.assert_called_with(
+        "gen_ai.choice",
+        attributes={"message": "foo bar bar"},
+    )
+
+
+def test_start_graph_call_span(mock_tracer):
+    """Test starting a graph call span."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        tool = {"name": "test-tool", "toolUseId": "123", "input": {"param": "value"}}
+
+        span = tracer.start_tool_call_span(tool)
+
+        mock_tracer.start_span.assert_called_once()
+        assert mock_tracer.start_span.call_args[1]["name"] == "execute_tool test-tool"
         mock_span.set_attribute.assert_any_call("gen_ai.tool.name", "test-tool")
         mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
         mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "execute_tool")

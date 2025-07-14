@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -102,6 +102,22 @@ def string_content_agent():
 
 
 @pytest.fixture
+def mock_strands_tracer():
+    with patch("strands.multiagent.graph.get_tracer") as mock_get_tracer:
+        mock_tracer_instance = MagicMock()
+        mock_span = MagicMock()
+        mock_tracer_instance.start_multiagent_span.return_value = mock_span
+        mock_get_tracer.return_value = mock_tracer_instance
+        yield mock_tracer_instance
+
+
+@pytest.fixture
+def mock_use_span():
+    with patch("strands.multiagent.graph.trace_api.use_span") as mock_use_span:
+        yield mock_use_span
+
+
+@pytest.fixture
 def mock_graph(mock_agents, string_content_agent):
     """Create a graph for testing various scenarios."""
 
@@ -138,8 +154,9 @@ def mock_graph(mock_agents, string_content_agent):
 
 
 @pytest.mark.asyncio
-async def test_graph_execution(mock_graph, mock_agents, string_content_agent):
+async def test_graph_execution(mock_strands_tracer, mock_use_span, mock_graph, mock_agents, string_content_agent):
     """Test comprehensive graph execution with diverse nodes and conditional edges."""
+
     # Test graph structure
     assert len(mock_graph.nodes) == 8
     assert len(mock_graph.edges) == 8
@@ -214,9 +231,12 @@ async def test_graph_execution(mock_graph, mock_agents, string_content_agent):
     assert len(result.entry_points) == 1
     assert result.entry_points[0].node_id == "start_agent"
 
+    mock_strands_tracer.start_multiagent_span.assert_called()
+    mock_use_span.assert_called_once()
+
 
 @pytest.mark.asyncio
-async def test_graph_unsupported_node_type():
+async def test_graph_unsupported_node_type(mock_strands_tracer, mock_use_span):
     """Test unsupported executor type error handling."""
 
     class UnsupportedExecutor:
@@ -229,9 +249,12 @@ async def test_graph_unsupported_node_type():
     with pytest.raises(ValueError, match="Node 'unsupported_node' of type.*is not supported"):
         await graph.execute_async("test task")
 
+    mock_strands_tracer.start_multiagent_span.assert_called()
+    mock_use_span.assert_called_once()
+
 
 @pytest.mark.asyncio
-async def test_graph_execution_with_failures():
+async def test_graph_execution_with_failures(mock_strands_tracer, mock_use_span):
     """Test graph execution error handling and failure propagation."""
     failing_agent = Mock(spec=Agent)
     failing_agent.name = "failing_agent"
@@ -261,10 +284,12 @@ async def test_graph_execution_with_failures():
     assert graph.state.status == Status.FAILED
     assert any(node.node_id == "fail_node" for node in graph.state.failed_nodes)
     assert len(graph.state.completed_nodes) == 0
+    mock_strands_tracer.start_multiagent_span.assert_called()
+    mock_use_span.assert_called_once()
 
 
 @pytest.mark.asyncio
-async def test_graph_edge_cases():
+async def test_graph_edge_cases(mock_strands_tracer, mock_use_span):
     """Test specific edge cases for coverage."""
     # Test entry node execution without dependencies
     entry_agent = create_mock_agent("entry_agent", "Entry response")
@@ -278,6 +303,8 @@ async def test_graph_edge_cases():
     # Verify entry node was called with original task
     entry_agent.stream_async.assert_called_once_with([{"text": "Original task"}])
     assert result.status == Status.COMPLETED
+    mock_strands_tracer.start_multiagent_span.assert_called()
+    mock_use_span.assert_called_once()
 
 
 def test_graph_builder_validation():
@@ -415,7 +442,7 @@ def test_graph_dataclasses_and_enums():
     assert len(node.dependencies) == 0
 
 
-def test_graph_synchronous_execution(mock_agents):
+def test_graph_synchronous_execution(mock_strands_tracer, mock_use_span, mock_agents):
     """Test synchronous graph execution using execute method."""
     builder = GraphBuilder()
     builder.add_node(mock_agents["start_agent"], "start_agent")
@@ -444,3 +471,6 @@ def test_graph_synchronous_execution(mock_agents):
     # Verify return type is GraphResult
     assert isinstance(result, GraphResult)
     assert isinstance(result, MultiAgentResult)
+
+    mock_strands_tracer.start_multiagent_span.assert_called()
+    mock_use_span.assert_called_once()
