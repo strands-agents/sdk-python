@@ -11,12 +11,7 @@ from strands import Agent
 from strands.session.file_session_manager import FileSessionManager
 from strands.session.s3_session_manager import S3SessionManager
 
-
-@pytest.fixture
-def yellow_img(pytestconfig):
-    path = pytestconfig.rootdir / "tests_integ/yellow.png"
-    with open(path, "rb") as fp:
-        return fp.read()
+# yellow_img imported from conftest
 
 
 @pytest.fixture

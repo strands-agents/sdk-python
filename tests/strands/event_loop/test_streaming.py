@@ -528,8 +528,7 @@ def test_extract_usage_metrics():
 )
 @pytest.mark.asyncio
 async def test_process_stream(response, exp_events, agenerator, alist):
-    messages = [{"role": "user", "content": [{"text": "Some input!"}]}]
-    stream = strands.event_loop.streaming.process_stream(agenerator(response), messages)
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
 
     tru_events = await alist(stream)
     assert tru_events == exp_events

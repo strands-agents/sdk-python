@@ -1,13 +1,23 @@
+import tempfile
 import time
+from uuid import uuid4
 
 import boto3
 import pytest
 
 from strands import Agent
 from strands.models.bedrock import BedrockModel
+from strands.session.file_session_manager import FileSessionManager
 
 BLOCKED_INPUT = "BLOCKED_INPUT"
 BLOCKED_OUTPUT = "BLOCKED_OUTPUT"
+
+
+@pytest.fixture
+def temp_dir():
+    """Create a temporary directory for testing."""
+    with tempfile.TemporaryDirectory() as temp_dir:
+        yield temp_dir
 
 
 @pytest.fixture(scope="module")
@@ -158,3 +168,44 @@ def test_guardrail_output_intervention_redact_output(bedrock_guardrail, processi
     assert REDACT_MESSAGE in str(response1)
     assert response2.stop_reason != "guardrail_intervened"
     assert REDACT_MESSAGE not in str(response2)
+
+
+def test_guardrail_input_intervention_properly_redacts_in_session(boto_session, bedrock_guardrail, temp_dir):
+    bedrock_model = BedrockModel(
+        guardrail_id=bedrock_guardrail,
+        guardrail_version="DRAFT",
+        boto_session=boto_session,
+        guardrail_redact_input_message="BLOCKED!",
+    )
+
+    test_session_id = str(uuid4())
+    session_manager = FileSessionManager(session_id=test_session_id)
+
+    agent = Agent(
+        model=bedrock_model,
+        system_prompt="You are a helpful assistant.",
+        callback_handler=None,
+        session_manager=session_manager,
+    )
+
+    assert session_manager.read_agent(test_session_id, agent.agent_id) is not None
+
+    response1 = agent("CACTUS")
+
+    assert response1.stop_reason == "guardrail_intervened"
+    assert agent.messages[0]["content"][0]["text"] == "BLOCKED!"
+    user_input_session_message = session_manager.list_messages(test_session_id, agent.agent_id)[0]
+    # Assert persisted message is equal to the redacted message in the agent
+    assert user_input_session_message.to_message() == agent.messages[0]
+
+    # Restore an agent from the session, confirm input is still redacted
+    session_manager_2 = FileSessionManager(session_id=test_session_id)
+    agent_2 = Agent(
+        model=bedrock_model,
+        system_prompt="You are a helpful assistant.",
+        callback_handler=None,
+        session_manager=session_manager_2,
+    )
+
+    # Assert that the restored agent redacted message is equal to the original agent
+    assert agent.messages[0] == agent_2.messages[0]

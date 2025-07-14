@@ -1,5 +1,5 @@
 import json
-from typing import Any, AsyncGenerator, Iterable, Optional, Type, TypeVar
+from typing import Any, AsyncGenerator, Iterable, Optional, Type, TypedDict, TypeVar, Union
 
 from pydantic import BaseModel
 
@@ -12,6 +12,11 @@ from strands.types.tools import ToolSpec
 T = TypeVar("T", bound=BaseModel)
 
 
+class RedactionMessage(TypedDict):
+    redactedUserContent: str
+    redactedAssistantContent: str
+
+
 class MockedModelProvider(Model):
     """A mock implementation of the Model interface for testing purposes.
 
@@ -20,7 +25,7 @@ class MockedModelProvider(Model):
     to stream mock responses as events.
     """
 
-    def __init__(self, agent_responses: Messages):
+    def __init__(self, agent_responses: list[Union[Message, RedactionMessage]]):
         self.agent_responses = agent_responses
         self.index = 0
 
@@ -54,27 +59,36 @@ class MockedModelProvider(Model):
 
         self.index += 1
 
-    def map_agent_message_to_events(self, agent_message: Message) -> Iterable[dict[str, Any]]:
+    def map_agent_message_to_events(self, agent_message: Union[Message, RedactionMessage]) -> Iterable[dict[str, Any]]:
         stop_reason: StopReason = "end_turn"
         yield {"messageStart": {"role": "assistant"}}
-        for content in agent_message["content"]:
-            if "text" in content:
-                yield {"contentBlockStart": {"start": {}}}
-                yield {"contentBlockDelta": {"delta": {"text": content["text"]}}}
-                yield {"contentBlockStop": {}}
-            if "toolUse" in content:
-                stop_reason = "tool_use"
-                yield {
-                    "contentBlockStart": {
-                        "start": {
-                            "toolUse": {
-                                "name": content["toolUse"]["name"],
-                                "toolUseId": content["toolUse"]["toolUseId"],
+        if agent_message.get("redactedAssistantContent"):
+            yield {"redactContent": {"redactUserContentMessage": agent_message["redactedUserContent"]}}
+            yield {"contentBlockStart": {"start": {}}}
+            yield {"contentBlockDelta": {"delta": {"text": agent_message["redactedAssistantContent"]}}}
+            yield {"contentBlockStop": {}}
+            stop_reason = "guardrail_intervened"
+        else:
+            for content in agent_message["content"]:
+                if "text" in content:
+                    yield {"contentBlockStart": {"start": {}}}
+                    yield {"contentBlockDelta": {"delta": {"text": content["text"]}}}
+                    yield {"contentBlockStop": {}}
+                if "toolUse" in content:
+                    stop_reason = "tool_use"
+                    yield {
+                        "contentBlockStart": {
+                            "start": {
+                                "toolUse": {
+                                    "name": content["toolUse"]["name"],
+                                    "toolUseId": content["toolUse"]["toolUseId"],
+                                }
                             }
                         }
                     }
-                }
-                yield {"contentBlockDelta": {"delta": {"toolUse": {"input": json.dumps(content["toolUse"]["input"])}}}}
-                yield {"contentBlockStop": {}}
+                    yield {
+                        "contentBlockDelta": {"delta": {"toolUse": {"input": json.dumps(content["toolUse"]["input"])}}}
+                    }
+                    yield {"contentBlockStop": {}}
 
         yield {"messageStop": {"stopReason": stop_reason}}

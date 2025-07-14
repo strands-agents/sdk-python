@@ -27,6 +27,15 @@ class SessionManager(HookProvider, ABC):
         registry.add_callback(MessageAddedEvent, lambda event: self.sync_agent(event.agent))
 
     @abstractmethod
+    def redact_latest_message(self, redact_message: Message, agent: "Agent") -> None:
+        """Redact the message most recently appended to the agent in the session.
+
+        Args:
+            redact_message: New message to use that contains the redact content
+            agent: Agent to apply the message redaction to
+        """
+
+    @abstractmethod
     def append_message(self, message: Message, agent: "Agent") -> None:
         """Append a message to the agent's session.
 

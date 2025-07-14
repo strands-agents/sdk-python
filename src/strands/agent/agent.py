@@ -543,6 +543,19 @@ class Agent:
             # Execute the event loop cycle with retry logic for context limits
             events = self._execute_event_loop_cycle(invocation_state)
             async for event in events:
+                # Signal from the model provider that the message sent by the user should be redacted,
+                # likely due to a guardrail.
+                if (
+                    event.get("callback")
+                    and event["callback"].get("event")
+                    and event["callback"]["event"].get("redactContent")
+                    and event["callback"]["event"]["redactContent"].get("redactUserContentMessage")
+                ):
+                    self.messages[-1]["content"] = [
+                        {"text": event["callback"]["event"]["redactContent"]["redactUserContentMessage"]}
+                    ]
+                    if self._session_manager:
+                        self._session_manager.redact_latest_message(self.messages[-1], self)
                 yield event
 
         finally:

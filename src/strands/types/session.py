@@ -5,7 +5,7 @@ import inspect
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, cast
+from typing import Any, Dict, Optional, cast
 from uuid import uuid4
 
 from ..agent.agent import Agent
@@ -54,9 +54,18 @@ def decode_bytes_values(obj: Any) -> Any:
 
 @dataclass
 class SessionMessage:
-    """Message within a SessionAgent."""
+    """Message within a SessionAgent.
+
+    Attributes:
+        message: Message content
+        redact_message: If the original message is redacted, this is the new content to use
+        message_id: Unique id for a message
+        created_at: ISO format timestamp for when this message was created
+        updated_at: ISO format timestamp for when this message was last updated
+    """
 
     message: Message
+    redact_message: Optional[Message] = None
     message_id: str = field(default_factory=lambda: str(uuid4()))
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -73,8 +82,14 @@ class SessionMessage:
         )
 
     def to_message(self) -> Message:
-        """Convert SessionMessage back to a Message, decoding any bytes values."""
-        return cast(Message, decode_bytes_values(self.message))
+        """Convert SessionMessage back to a Message, decoding any bytes values.
+
+        If the message was redacted, return the redact content instead.
+        """
+        if self.redact_message is not None:
+            return cast(Message, decode_bytes_values(self.redact_message))
+        else:
+            return cast(Message, decode_bytes_values(self.message))
 
     @classmethod
     def from_dict(cls, env: dict[str, Any]) -> "SessionMessage":

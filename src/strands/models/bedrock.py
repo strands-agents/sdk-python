@@ -577,7 +577,7 @@ class BedrockModel(Model):
         tool_spec = convert_pydantic_to_tool_spec(output_model)
 
         response = self.stream(messages=prompt, tool_specs=[tool_spec], **kwargs)
-        async for event in streaming.process_stream(response, prompt):
+        async for event in streaming.process_stream(response):
             yield event
 
         stop_reason, messages, _, _ = event["stop"]

@@ -1,6 +1,7 @@
 """Repository session manager implementation."""
 
 import logging
+from typing import Optional
 
 from ..agent.agent import Agent
 from ..agent.state import AgentState
@@ -50,6 +51,9 @@ class RepositorySessionManager(SessionManager):
         # Keep track of the initialized agent id's so that two agents in a session cannot share an id
         self._initialized_agent_ids: set[str] = set()
 
+        # Keep track of the latest message stored in the session in case we need to redact its content.
+        self._latest_message: Optional[SessionMessage] = None
+
     def append_message(self, message: Message, agent: Agent) -> None:
         """Append a message to the agent's session.
 
@@ -57,8 +61,20 @@ class RepositorySessionManager(SessionManager):
             message: Message to add to the agent in the session
             agent: Agent to append the message to
         """
-        session_message = SessionMessage.from_message(message)
-        self.session_repository.create_message(self.session_id, agent.agent_id, session_message)
+        self._latest_message = SessionMessage.from_message(message)
+        self.session_repository.create_message(self.session_id, agent.agent_id, self._latest_message)
+
+    def redact_latest_message(self, redact_message: Message, agent: Agent) -> None:
+        """Redact the latest message appended to the session.
+
+        Args:
+            redact_message: New message to use that contains the redact content
+            agent: Agent to apply the message redaction to
+        """
+        if self._latest_message is None:
+            raise SessionException("No message to redact.")
+        self._latest_message.redact_message = redact_message
+        return self.session_repository.update_message(self.session_id, agent.agent_id, self._latest_message)
 
     def sync_agent(self, agent: Agent) -> None:
         """Serialize and update the agent into the session repository.

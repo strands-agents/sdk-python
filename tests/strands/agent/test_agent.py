@@ -4,6 +4,7 @@ import json
 import os
 import textwrap
 import unittest.mock
+from uuid import uuid4
 
 import pytest
 from pydantic import BaseModel
@@ -1425,3 +1426,61 @@ def test_agent_restored_from_session_management():
     agent = Agent(session_manager=session_manager)
 
     assert agent.state.get("foo") == "bar"
+
+
+def test_agent_redacts_input_on_triggered_guardrail():
+    mocked_model = MockedModelProvider(
+        [{"redactedUserContent": "BLOCKED!", "redactedAssistantContent": "INPUT BLOCKED!"}]
+    )
+
+    agent = Agent(
+        model=mocked_model,
+        system_prompt="You are a helpful assistant.",
+        callback_handler=None,
+    )
+
+    response1 = agent("CACTUS")
+
+    assert response1.stop_reason == "guardrail_intervened"
+    assert agent.messages[0]["content"][0]["text"] == "BLOCKED!"
+
+
+def test_agent_restored_from_session_management_with_redacted_input():
+    mocked_model = MockedModelProvider(
+        [{"redactedUserContent": "BLOCKED!", "redactedAssistantContent": "INPUT BLOCKED!"}]
+    )
+
+    test_session_id = str(uuid4())
+    mocked_session_repository = MockedSessionRepository()
+    session_manager = RepositorySessionManager(session_id=test_session_id, session_repository=mocked_session_repository)
+
+    agent = Agent(
+        model=mocked_model,
+        system_prompt="You are a helpful assistant.",
+        callback_handler=None,
+        session_manager=session_manager,
+    )
+
+    assert mocked_session_repository.read_agent(test_session_id, agent.agent_id) is not None
+
+    response1 = agent("CACTUS")
+
+    assert response1.stop_reason == "guardrail_intervened"
+    assert agent.messages[0]["content"][0]["text"] == "BLOCKED!"
+    user_input_session_message = mocked_session_repository.list_messages(test_session_id, agent.agent_id)[0]
+    # Assert persisted message is equal to the redacted message in the agent
+    assert user_input_session_message.to_message() == agent.messages[0]
+
+    # Restore an agent from the session, confirm input is still redacted
+    session_manager_2 = RepositorySessionManager(
+        session_id=test_session_id, session_repository=mocked_session_repository
+    )
+    agent_2 = Agent(
+        model=mocked_model,
+        system_prompt="You are a helpful assistant.",
+        callback_handler=None,
+        session_manager=session_manager_2,
+    )
+
+    # Assert that the restored agent redacted message is equal to the original agent
+    assert agent.messages[0] == agent_2.messages[0]

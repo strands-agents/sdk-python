@@ -221,17 +221,13 @@ def handle_message_stop(event: MessageStopEvent) -> StopReason:
     return event["stopReason"]
 
 
-def handle_redact_content(event: RedactContentEvent, messages: Messages, state: dict[str, Any]) -> None:
+def handle_redact_content(event: RedactContentEvent, state: dict[str, Any]) -> None:
     """Handles redacting content from the input or output.
 
     Args:
         event: Redact Content Event.
-        messages: Agent messages.
         state: The current state of message processing.
     """
-    if event.get("redactUserContentMessage") is not None:
-        messages[-1]["content"] = [{"text": event["redactUserContentMessage"]}]  # type: ignore
-
     if event.get("redactAssistantContentMessage") is not None:
         state["message"]["content"] = [{"text": event["redactAssistantContentMessage"]}]
 
@@ -251,15 +247,11 @@ def extract_usage_metrics(event: MetadataEvent) -> tuple[Usage, Metrics]:
     return usage, metrics
 
 
-async def process_stream(
-    chunks: AsyncIterable[StreamEvent],
-    messages: Messages,
-) -> AsyncGenerator[dict[str, Any], None]:
+async def process_stream(chunks: AsyncIterable[StreamEvent]) -> AsyncGenerator[dict[str, Any], None]:
     """Processes the response stream from the API, constructing the final message and extracting usage metrics.
 
     Args:
         chunks: The chunks of the response stream from the model.
-        messages: The agents messages.
 
     Returns:
         The reason for stopping, the constructed message, and the usage metrics.
@@ -295,7 +287,7 @@ async def process_stream(
         elif "metadata" in chunk:
             usage, metrics = extract_usage_metrics(chunk["metadata"])
         elif "redactContent" in chunk:
-            handle_redact_content(chunk["redactContent"], messages, state)
+            handle_redact_content(chunk["redactContent"], state)
 
     yield {"stop": (stop_reason, state["message"], usage, metrics)}
 
@@ -323,5 +315,5 @@ async def stream_messages(
 
     chunks = model.stream(messages, tool_specs if tool_specs else None, system_prompt)
 
-    async for event in process_stream(chunks, messages):
+    async for event in process_stream(chunks):
         yield event
