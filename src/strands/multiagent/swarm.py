@@ -284,7 +284,7 @@ class Swarm(MultiAgentBase):
             if not node.name:
                 node_id = f"node_{i}"
                 node.name = node_id
-                logger.info("node_id=<%d> | agent has no name, dynamically generating one", node_id)
+                logger.info("node_id=<%s> | agent has no name, dynamically generating one", node_id)
 
             node_id = str(node.name)
 

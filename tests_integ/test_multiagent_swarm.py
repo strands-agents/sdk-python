@@ -1,14 +1,8 @@
-import logging
-
 import pytest
 
 from strands import Agent, tool
 from strands.multiagent.swarm import Swarm
 from strands.types.content import ContentBlock
-
-logging.getLogger("strands.multiagent").setLevel(logging.DEBUG)
-logging.getLogger("strands.models").setLevel(logging.DEBUG)
-logging.basicConfig(format="%(levelname)s | %(name)s | %(message)s", handlers=[logging.StreamHandler()])
 
 
 @tool
