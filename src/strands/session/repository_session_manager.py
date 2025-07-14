@@ -48,11 +48,8 @@ class RepositorySessionManager(SessionManager):
 
         self.session = session
 
-        # Keep track of the initialized agent id's so that two agents in a session cannot share an id
-        self._initialized_agent_ids: set[str] = set()
-
-        # Keep track of the latest message stored in the session in case we need to redact its content.
-        self._latest_message: Optional[SessionMessage] = None
+        # Keep track of the latest message of each agent in case we need to redact it.
+        self._latest_agent_message: dict[str, Optional[SessionMessage]] = {}
 
     def append_message(self, message: Message, agent: Agent) -> None:
         """Append a message to the agent's session.
@@ -61,8 +58,16 @@ class RepositorySessionManager(SessionManager):
             message: Message to add to the agent in the session
             agent: Agent to append the message to
         """
-        self._latest_message = SessionMessage.from_message(message)
-        self.session_repository.create_message(self.session_id, agent.agent_id, self._latest_message)
+        # Calculate the next index (0 if this is the first message, otherwise increment the previous index)
+        latest_agent_message = self._latest_agent_message[agent.agent_id]
+        if latest_agent_message:
+            next_index = latest_agent_message.message_id + 1
+        else:
+            next_index = 0
+
+        session_message = SessionMessage.from_message(message, next_index)
+        self._latest_agent_message[agent.agent_id] = session_message
+        self.session_repository.create_message(self.session_id, agent.agent_id, session_message)
 
     def redact_latest_message(self, redact_message: Message, agent: Agent) -> None:
         """Redact the latest message appended to the session.
@@ -71,10 +76,11 @@ class RepositorySessionManager(SessionManager):
             redact_message: New message to use that contains the redact content
             agent: Agent to apply the message redaction to
         """
-        if self._latest_message is None:
+        latest_agent_message = self._latest_agent_message[agent.agent_id]
+        if latest_agent_message is None:
             raise SessionException("No message to redact.")
-        self._latest_message.redact_message = redact_message
-        return self.session_repository.update_message(self.session_id, agent.agent_id, self._latest_message)
+        latest_agent_message.redact_message = redact_message
+        return self.session_repository.update_message(self.session_id, agent.agent_id, latest_agent_message)
 
     def sync_agent(self, agent: Agent) -> None:
         """Serialize and update the agent into the session repository.
@@ -93,9 +99,9 @@ class RepositorySessionManager(SessionManager):
         Args:
             agent: Agent to initialize from the session
         """
-        if agent.agent_id in self._initialized_agent_ids:
+        if agent.agent_id in self._latest_agent_message:
             raise SessionException("The `agent_id` of an agent must be unique in a session.")
-        self._initialized_agent_ids.add(agent.agent_id)
+        self._latest_agent_message[agent.agent_id] = None
 
         session_agent = self.session_repository.read_agent(self.session_id, agent.agent_id)
 
@@ -108,8 +114,9 @@ class RepositorySessionManager(SessionManager):
 
             session_agent = SessionAgent.from_agent(agent)
             self.session_repository.create_agent(self.session_id, session_agent)
-            for message in agent.messages:
-                session_message = SessionMessage.from_message(message)
+            # Initialize messages with sequential indices
+            for i, message in enumerate(agent.messages):
+                session_message = SessionMessage.from_message(message, i)
                 self.session_repository.create_message(self.session_id, agent.agent_id, session_message)
         else:
             logger.debug(

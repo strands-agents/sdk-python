@@ -44,11 +44,12 @@ def sample_agent():
 @pytest.fixture
 def sample_message():
     """Create sample message for testing."""
-    return SessionMessage(
+    return SessionMessage.from_message(
         message={
             "role": "user",
             "content": [ContentBlock(text="Hello world")],
-        }
+        },
+        index=0,
     )
 
 
@@ -189,7 +190,7 @@ class TestFileSessionManagerMessageOperations:
 
         # Verify message file
         message_path = file_manager._get_message_path(
-            sample_session.session_id, sample_agent.agent_id, sample_message.message_id, sample_message.created_at
+            sample_session.session_id, sample_agent.agent_id, sample_message.message_id
         )
         assert os.path.exists(message_path)
 
@@ -206,7 +207,7 @@ class TestFileSessionManagerMessageOperations:
         file_manager.create_message(sample_session.session_id, sample_agent.agent_id, sample_message)
 
         # Create multiple messages when reading
-        sample_message.message_id = sample_message.message_id + "_2"
+        sample_message.message_id = sample_message.message_id + 1
         file_manager.create_message(sample_session.session_id, sample_agent.agent_id, sample_message)
 
         # Read message
@@ -244,7 +245,8 @@ class TestFileSessionManagerMessageOperations:
                 message={
                     "role": "user",
                     "content": [ContentBlock(text=f"Message {i}")],
-                }
+                },
+                message_id=i,
             )
             messages.append(message)
             file_manager.create_message(sample_session.session_id, sample_agent.agent_id, message)
@@ -266,7 +268,8 @@ class TestFileSessionManagerMessageOperations:
                 message={
                     "role": "user",
                     "content": [ContentBlock(text=f"Message {i}")],
-                }
+                },
+                message_id=i,
             )
             file_manager.create_message(sample_session.session_id, sample_agent.agent_id, message)
 
@@ -287,7 +290,8 @@ class TestFileSessionManagerMessageOperations:
                 message={
                     "role": "user",
                     "content": [ContentBlock(text=f"Message {i}")],
-                }
+                },
+                message_id=i,
             )
             file_manager.create_message(sample_session.session_id, sample_agent.agent_id, message)
 

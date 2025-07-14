@@ -1,5 +1,4 @@
 import json
-from dataclasses import asdict
 from uuid import uuid4
 
 from strands.types.session import (
@@ -15,7 +14,7 @@ from strands.types.session import (
 def test_session_json_serializable():
     session = Session(session_id=str(uuid4()), session_type=SessionType.AGENT)
     # json dumps will fail if its not json serializable
-    session_json_string = json.dumps(asdict(session))
+    session_json_string = json.dumps(session.to_dict())
     loaded_session = Session.from_dict(json.loads(session_json_string))
     assert loaded_session is not None
 
@@ -23,15 +22,15 @@ def test_session_json_serializable():
 def test_agent_json_serializable():
     agent = SessionAgent(agent_id=str(uuid4()), state={"foo": "bar"})
     # json dumps will fail if its not json serializable
-    agent_json_string = json.dumps(asdict(agent))
+    agent_json_string = json.dumps(agent.to_dict())
     loaded_agent = SessionAgent.from_dict(json.loads(agent_json_string))
     assert loaded_agent is not None
 
 
 def test_message_json_serializable():
-    message = SessionMessage(message={"role": "user", "content": [{"text": "Hello!"}]})
+    message = SessionMessage(message={"role": "user", "content": [{"text": "Hello!"}]}, message_id=0)
     # json dumps will fail if its not json serializable
-    message_json_string = json.dumps(asdict(message))
+    message_json_string = json.dumps(message.to_dict())
     loaded_message = SessionMessage.from_dict(json.loads(message_json_string))
     assert loaded_message is not None
 
@@ -75,10 +74,10 @@ def test_session_message_with_bytes():
     }
 
     # Create a SessionMessage
-    session_message = SessionMessage.from_message(message)
+    session_message = SessionMessage.from_message(message, 0)
 
     # Verify it's JSON serializable
-    message_json_string = json.dumps(asdict(session_message))
+    message_json_string = json.dumps(session_message.to_dict())
 
     # Load it back
     loaded_message = SessionMessage.from_dict(json.loads(message_json_string))

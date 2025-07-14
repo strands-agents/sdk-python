@@ -97,7 +97,8 @@ def test_initialize_restores_existing_agent(session_manager, agent):
         message={
             "role": "user",
             "content": [ContentBlock(text="Hello")],
-        }
+        },
+        message_id=0,
     )
     session_manager.session_repository.create_message("test-session", "existing-agent", message)
 
@@ -111,17 +112,10 @@ def test_initialize_restores_existing_agent(session_manager, agent):
     assert agent.messages[0]["content"][0]["text"] == "Hello"
 
 
-def test_append_message(session_manager, agent):
+def test_append_message(session_manager):
     """Test appending a message to an agent's session."""
     # Set agent ID
-    agent.agent_id = "test-agent"
-
-    # Create agent in repository
-    session_agent = SessionAgent(
-        agent_id="test-agent",
-        state={},
-    )
-    session_manager.session_repository.create_agent("test-session", session_agent)
+    agent = Agent(agent_id="test-agent", session_manager=session_manager)
 
     # Create message
     message = {"role": "user", "content": [{"type": "text", "text": "Hello"}]}

@@ -2,11 +2,10 @@
 
 import base64
 import inspect
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, Optional, cast
-from uuid import uuid4
+from typing import Any, Dict, Optional
 
 from ..agent.agent import Agent
 from .content import Message
@@ -58,25 +57,24 @@ class SessionMessage:
 
     Attributes:
         message: Message content
+        message_id: Index of the message in the conversation history
         redact_message: If the original message is redacted, this is the new content to use
-        message_id: Unique id for a message
         created_at: ISO format timestamp for when this message was created
         updated_at: ISO format timestamp for when this message was last updated
     """
 
     message: Message
+    message_id: int
     redact_message: Optional[Message] = None
-    message_id: str = field(default_factory=lambda: str(uuid4()))
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     @classmethod
-    def from_message(cls, message: Message) -> "SessionMessage":
+    def from_message(cls, message: Message, index: int) -> "SessionMessage":
         """Convert from a Message, base64 encoding bytes values."""
-        bytes_encoded_dict = encode_bytes_values(message)
         return cls(
-            message=bytes_encoded_dict,
-            message_id=str(uuid4()),
+            message=message,
+            message_id=index,
             created_at=datetime.now(timezone.utc).isoformat(),
             updated_at=datetime.now(timezone.utc).isoformat(),
         )
@@ -87,14 +85,19 @@ class SessionMessage:
         If the message was redacted, return the redact content instead.
         """
         if self.redact_message is not None:
-            return cast(Message, decode_bytes_values(self.redact_message))
+            return self.redact_message
         else:
-            return cast(Message, decode_bytes_values(self.message))
+            return self.message
 
     @classmethod
     def from_dict(cls, env: dict[str, Any]) -> "SessionMessage":
         """Initialize a SessionMessage from a dictionary, ignoring keys that are not class parameters."""
-        return cls(**{k: v for k, v in env.items() if k in inspect.signature(cls).parameters})
+        extracted_relevant_parameters = {k: v for k, v in env.items() if k in inspect.signature(cls).parameters}
+        return cls(**decode_bytes_values(extracted_relevant_parameters))
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert the SessionMessage to a dictionary representation."""
+        return encode_bytes_values(asdict(self))  # type: ignore
 
 
 @dataclass
@@ -121,6 +124,10 @@ class SessionAgent:
         """Initialize a SessionAgent from a dictionary, ignoring keys that are not calss parameters."""
         return cls(**{k: v for k, v in env.items() if k in inspect.signature(cls).parameters})
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert the SessionAgent to a dictionary representation."""
+        return asdict(self)
+
 
 @dataclass
 class Session:
@@ -135,3 +142,7 @@ class Session:
     def from_dict(cls, env: dict[str, Any]) -> "Session":
         """Initialize a Session from a dictionary, ignoring keys that are not calss parameters."""
         return cls(**{k: v for k, v in env.items() if k in inspect.signature(cls).parameters})
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert the Session to a dictionary representation."""
+        return asdict(self)

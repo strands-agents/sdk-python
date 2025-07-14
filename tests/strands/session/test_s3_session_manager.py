@@ -60,11 +60,12 @@ def sample_agent():
 @pytest.fixture
 def sample_message():
     """Create sample message for testing."""
-    return SessionMessage(
+    return SessionMessage.from_message(
         message={
             "role": "user",
             "content": [ContentBlock(text="test_message")],
-        }
+        },
+        index=0,
     )
 
 
@@ -219,9 +220,7 @@ def test_create_message(s3_manager, sample_session, sample_agent, sample_message
     s3_manager.create_message(sample_session.session_id, sample_agent.agent_id, sample_message)
 
     # Verify S3 object created
-    key = s3_manager._get_message_path(
-        sample_session.session_id, sample_agent.agent_id, sample_message.message_id, sample_message.created_at
-    )
+    key = s3_manager._get_message_path(sample_session.session_id, sample_agent.agent_id, sample_message.message_id)
     response = s3_manager.client.get_object(Bucket=s3_manager.bucket, Key=key)
     data = json.loads(response["Body"].read().decode("utf-8"))
 
@@ -268,7 +267,8 @@ def test_list_messages_all(s3_manager, sample_session, sample_agent):
             {
                 "role": "user",
                 "content": [ContentBlock(text=f"Message {i}")],
-            }
+            },
+            i,
         )
         messages.append(message)
         s3_manager.create_message(sample_session.session_id, sample_agent.agent_id, message)
@@ -286,12 +286,13 @@ def test_list_messages_with_pagination(s3_manager, sample_session, sample_agent)
     s3_manager.create_agent(sample_session.session_id, sample_agent)
 
     # Create multiple messages
-    for _ in range(10):
-        message = SessionMessage(
+    for index in range(10):
+        message = SessionMessage.from_message(
             message={
                 "role": "user",
                 "content": [ContentBlock(text="test_message")],
-            }
+            },
+            index=index,
         )
         s3_manager.create_message(sample_session.session_id, sample_agent.agent_id, message)
 

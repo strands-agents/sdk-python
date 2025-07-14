@@ -34,7 +34,7 @@ class SessionRepository(ABC):
         """Create a new Message for the Agent."""
 
     @abstractmethod
-    def read_message(self, session_id: str, agent_id: str, message_id: str) -> Optional[SessionMessage]:
+    def read_message(self, session_id: str, agent_id: str, message_id: int) -> Optional[SessionMessage]:
         """Read a Message."""
 
     @abstractmethod

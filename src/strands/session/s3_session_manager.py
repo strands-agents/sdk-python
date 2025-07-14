@@ -2,7 +2,6 @@
 
 import json
 import logging
-from dataclasses import asdict
 from typing import Any, Dict, List, Optional, cast
 
 import boto3
@@ -85,22 +84,18 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         session_path = self._get_session_path(session_id)
         return f"{session_path}agents/{AGENT_PREFIX}{agent_id}/"
 
-    def _get_message_path(self, session_id: str, agent_id: str, message_id: str, timestamp: str) -> str:
+    def _get_message_path(self, session_id: str, agent_id: str, message_id: int) -> str:
         """Get message S3 key.
 
         Args:
             session_id: ID of the session
             agent_id: ID of the agent
-            message_id: ID of the message
-            timestamp: ISO format timestamp to include in key for sorting
+            message_id: Index of the message
         Returns:
             The key for the message
         """
         agent_path = self._get_agent_path(session_id, agent_id)
-        # Use timestamp for sortable keys
-        # Replace colons and periods in ISO format with underscores for filesystem compatibility
-        filename_timestamp = timestamp.replace(":", "_").replace(".", "_")
-        return f"{agent_path}messages/{MESSAGE_PREFIX}{filename_timestamp}_{message_id}.json"
+        return f"{agent_path}messages/{MESSAGE_PREFIX}{message_id}.json"
 
     def _read_s3_object(self, key: str) -> Optional[Dict[str, Any]]:
         """Read JSON object from S3."""
@@ -139,7 +134,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
                 raise SessionException(f"S3 error checking session existence: {e}") from e
 
         # Write session object
-        session_dict = asdict(session)
+        session_dict = session.to_dict()
         self._write_s3_object(session_key, session_dict)
         return session
 
@@ -177,7 +172,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
     def create_agent(self, session_id: str, session_agent: SessionAgent) -> None:
         """Create a new agent in S3."""
         agent_id = session_agent.agent_id
-        agent_dict = asdict(session_agent)
+        agent_dict = session_agent.to_dict()
         agent_key = f"{self._get_agent_path(session_id, agent_id)}agent.json"
         self._write_s3_object(agent_key, agent_dict)
 
@@ -199,35 +194,22 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         # Preserve creation timestamp
         session_agent.created_at = previous_agent.created_at
         agent_key = f"{self._get_agent_path(session_id, agent_id)}agent.json"
-        self._write_s3_object(agent_key, asdict(session_agent))
+        self._write_s3_object(agent_key, session_agent.to_dict())
 
     def create_message(self, session_id: str, agent_id: str, session_message: SessionMessage) -> None:
         """Create a new message in S3."""
         message_id = session_message.message_id
-        message_dict = asdict(session_message)
-        message_key = self._get_message_path(session_id, agent_id, message_id, session_message.created_at)
+        message_dict = session_message.to_dict()
+        message_key = self._get_message_path(session_id, agent_id, message_id)
         self._write_s3_object(message_key, message_dict)
 
-    def read_message(self, session_id: str, agent_id: str, message_id: str) -> Optional[SessionMessage]:
+    def read_message(self, session_id: str, agent_id: str, message_id: int) -> Optional[SessionMessage]:
         """Read message data from S3."""
-        # Get the messages prefix
-        messages_prefix = f"{self._get_agent_path(session_id, agent_id)}messages/"
-        try:
-            paginator = self.client.get_paginator("list_objects_v2")
-            pages = paginator.paginate(Bucket=self.bucket, Prefix=messages_prefix)
-
-            for page in pages:
-                if "Contents" in page:
-                    for obj in page["Contents"]:
-                        if obj["Key"].endswith(f"{message_id}.json"):
-                            message_data = self._read_s3_object(obj["Key"])
-                            if message_data:
-                                return SessionMessage.from_dict(message_data)
-
+        message_key = self._get_message_path(session_id, agent_id, message_id)
+        message_data = self._read_s3_object(message_key)
+        if message_data is None:
             return None
-
-        except ClientError as e:
-            raise SessionException(f"S3 error reading message: {e}") from e
+        return SessionMessage.from_dict(message_data)
 
     def update_message(self, session_id: str, agent_id: str, session_message: SessionMessage) -> None:
         """Update message data in S3."""
@@ -238,8 +220,8 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
 
         # Preserve creation timestamp
         session_message.created_at = previous_message.created_at
-        message_key = self._get_message_path(session_id, agent_id, message_id, session_message.created_at)
-        self._write_s3_object(message_key, asdict(session_message))
+        message_key = self._get_message_path(session_id, agent_id, message_id)
+        self._write_s3_object(message_key, session_message.to_dict())
 
     def list_messages(
         self, session_id: str, agent_id: str, limit: Optional[int] = None, offset: int = 0
@@ -250,16 +232,21 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             paginator = self.client.get_paginator("list_objects_v2")
             pages = paginator.paginate(Bucket=self.bucket, Prefix=messages_prefix)
 
-            # Collect all message keys first
-            message_keys = []
+            # Collect all message keys and extract their indices
+            message_index_keys: list[tuple[int, str]] = []
             for page in pages:
                 if "Contents" in page:
                     for obj in page["Contents"]:
-                        if obj["Key"].endswith(".json") and MESSAGE_PREFIX in obj["Key"]:
-                            message_keys.append(obj["Key"])
+                        key = obj["Key"]
+                        if key.endswith(".json") and MESSAGE_PREFIX in key:
+                            # Extract the filename part from the full S3 key
+                            filename = key.split("/")[-1]
+                            # Extract index from message_<index>.json format
+                            index = int(filename[len(MESSAGE_PREFIX) : -5])  # Remove prefix and .json suffix
+                            message_index_keys.append((index, key))
 
-            # Sort keys - timestamp prefixed keys will sort chronologically
-            message_keys.sort()
+            # Sort by index and extract just the keys
+            message_keys = [k for _, k in sorted(message_index_keys)]
 
             # Apply pagination to keys before loading content
             if limit is not None:
