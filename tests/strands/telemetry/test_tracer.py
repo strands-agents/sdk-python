@@ -151,7 +151,7 @@ def test_start_model_invoke_span(mock_tracer):
         span = tracer.start_model_invoke_span(messages=messages, agent_name="TestAgent", model_id=model_id)
 
         mock_tracer.start_span.assert_called_once()
-        assert mock_tracer.start_span.call_args[1]["name"] == "Model invoke"
+        assert mock_tracer.start_span.call_args[1]["name"] == "chat"
         assert mock_tracer.start_span.call_args[1]["kind"] == SpanKind.CLIENT
         mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
         mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "chat")
@@ -240,7 +240,7 @@ def test_start_event_loop_cycle_span(mock_tracer):
         span = tracer.start_event_loop_cycle_span(event_loop_kwargs, messages=messages)
 
         mock_tracer.start_span.assert_called_once()
-        assert mock_tracer.start_span.call_args[1]["name"] == "Cycle cycle-123"
+        assert mock_tracer.start_span.call_args[1]["name"] == "execute_event_loop_cycle"
         mock_span.set_attribute.assert_any_call("event_loop.cycle_id", "cycle-123")
         mock_span.add_event.assert_any_call(
             "gen_ai.user.message", attributes={"content": json.dumps([{"text": "Hello"}])}

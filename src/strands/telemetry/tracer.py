@@ -235,7 +235,7 @@ class Tracer:
         # Add additional kwargs as attributes
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
 
-        span = self._start_span("Model invoke", parent_span, attributes, span_kind=trace_api.SpanKind.CLIENT)
+        span = self._start_span("chat", parent_span, attributes, span_kind=trace_api.SpanKind.CLIENT)
         for message in messages:
             self._add_event(
                 span,
@@ -371,7 +371,7 @@ class Tracer:
         # Add additional kwargs as attributes
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
 
-        span_name = f"Cycle {event_loop_cycle_id}"
+        span_name = "execute_event_loop_cycle"
         span = self._start_span(span_name, parent_span, attributes)
         for message in messages or []:
             self._add_event(
