@@ -20,7 +20,7 @@ from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
-from strands.types.session import Session, SessionAgent, SessionType
+from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
 from tests.fixtures.mock_session_repository import MockedSessionRepository
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
@@ -1428,6 +1428,26 @@ def test_agent_restored_from_session_management():
     assert agent.state.get("foo") == "bar"
 
 
+def test_agent_restored_from_session_management_with_message():
+    mock_session_repository = MockedSessionRepository()
+    mock_session_repository.create_session(Session(session_id="123", session_type=SessionType.AGENT))
+    mock_session_repository.create_agent(
+        "123",
+        SessionAgent(
+            agent_id="default",
+            state={"foo": "bar"},
+        ),
+    )
+    mock_session_repository.create_message(
+        "123", "default", SessionMessage({"role": "user", "content": [{"text": "Hello!"}]}, 0)
+    )
+    session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
+
+    agent = Agent(session_manager=session_manager)
+
+    assert agent.state.get("foo") == "bar"
+
+
 def test_agent_redacts_input_on_triggered_guardrail():
     mocked_model = MockedModelProvider(
         [{"redactedUserContent": "BLOCKED!", "redactedAssistantContent": "INPUT BLOCKED!"}]
@@ -1484,3 +1504,29 @@ def test_agent_restored_from_session_management_with_redacted_input():
 
     # Assert that the restored agent redacted message is equal to the original agent
     assert agent.messages[0] == agent_2.messages[0]
+
+
+def test_agent_restored_from_session_management_with_correct_index():
+    mock_model_provider = MockedModelProvider(
+        [{"role": "assistant", "content": [{"text": "hello!"}]}, {"role": "assistant", "content": [{"text": "world!"}]}]
+    )
+    mock_session_repository = MockedSessionRepository()
+    session_manager = RepositorySessionManager(session_id="test", session_repository=mock_session_repository)
+    agent = Agent(session_manager=session_manager, model=mock_model_provider)
+    agent("Hello!")
+
+    assert len(mock_session_repository.list_messages("test", agent.agent_id)) == 2
+
+    session_manager_2 = RepositorySessionManager(session_id="test", session_repository=mock_session_repository)
+    agent_2 = Agent(session_manager=session_manager_2, model=mock_model_provider)
+
+    assert len(agent_2.messages) == 2
+    assert agent_2.messages[1]["content"][0]["text"] == "hello!"
+
+    agent_2("Hello!")
+
+    assert len(agent_2.messages) == 4
+    session_messages = mock_session_repository.list_messages("test", agent_2.agent_id)
+    assert (len(session_messages)) == 4
+    assert session_messages[1].message["content"][0]["text"] == "hello!"
+    assert session_messages[3].message["content"][0]["text"] == "world!"

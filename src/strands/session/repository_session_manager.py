@@ -115,17 +115,20 @@ class RepositorySessionManager(SessionManager):
             session_agent = SessionAgent.from_agent(agent)
             self.session_repository.create_agent(self.session_id, session_agent)
             # Initialize messages with sequential indices
+            session_message = None
             for i, message in enumerate(agent.messages):
                 session_message = SessionMessage.from_message(message, i)
                 self.session_repository.create_message(self.session_id, agent.agent_id, session_message)
+            self._latest_agent_message[agent.agent_id] = session_message
         else:
             logger.debug(
                 "agent_id=<%s> | session_id=<%s> | restoring agent",
                 agent.agent_id,
                 self.session_id,
             )
-            agent.messages = [
-                session_message.to_message()
-                for session_message in self.session_repository.list_messages(self.session_id, agent.agent_id)
-            ]
+            session_messages = self.session_repository.list_messages(self.session_id, agent.agent_id)
+            if len(session_messages) > 0:
+                self._latest_agent_message[agent.agent_id] = session_messages[-1]
+            agent.messages = [session_message.to_message() for session_message in session_messages]
+
             agent.state = AgentState(session_agent.state)
