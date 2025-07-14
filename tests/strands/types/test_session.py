@@ -1,6 +1,7 @@
 import json
 from uuid import uuid4
 
+from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.types.session import (
     Session,
     SessionAgent,
@@ -20,7 +21,9 @@ def test_session_json_serializable():
 
 
 def test_agent_json_serializable():
-    agent = SessionAgent(agent_id=str(uuid4()), state={"foo": "bar"})
+    agent = SessionAgent(
+        agent_id=str(uuid4()), state={"foo": "bar"}, conversation_manager_state=NullConversationManager().get_state()
+    )
     # json dumps will fail if its not json serializable
     agent_json_string = json.dumps(agent.to_dict())
     loaded_agent = SessionAgent.from_dict(json.loads(agent_json_string))

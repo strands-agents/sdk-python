@@ -6,35 +6,11 @@ from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:
     from ...agent.agent import Agent
 
-from ...types.content import Message, Messages
+from ...types.content import Messages
 from ...types.exceptions import ContextWindowOverflowException
 from .conversation_manager import ConversationManager
 
 logger = logging.getLogger(__name__)
-
-
-def is_user_message(message: Message) -> bool:
-    """Check if a message is from a user.
-
-    Args:
-        message: The message object to check.
-
-    Returns:
-        True if the message has the user role, False otherwise.
-    """
-    return message["role"] == "user"
-
-
-def is_assistant_message(message: Message) -> bool:
-    """Check if a message is from an assistant.
-
-    Args:
-        message: The message object to check.
-
-    Returns:
-        True if the message has the assistant role, False otherwise.
-    """
-    return message["role"] == "assistant"
 
 
 class SlidingWindowConversationManager(ConversationManager):
@@ -52,6 +28,7 @@ class SlidingWindowConversationManager(ConversationManager):
                 Defaults to 40 messages.
             should_truncate_results: Truncate tool results when a message is too large for the model's context window
         """
+        super().__init__()
         self.window_size = window_size
         self.should_truncate_results = should_truncate_results
 
@@ -128,6 +105,9 @@ class SlidingWindowConversationManager(ConversationManager):
         else:
             # If we didn't find a valid trim_index, then we throw
             raise ContextWindowOverflowException("Unable to trim conversation context!") from e
+
+        # trim_index represents the number of messages being removed from the agents messages array
+        self.removed_message_count += trim_index
 
         # Overwrite message history
         messages[:] = messages[trim_index:]

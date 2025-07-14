@@ -31,8 +31,8 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             └── agent_<agent_id>/
                 ├── agent.json          # Agent metadata
                 └── messages/
-                    ├── message_<created_timestamp>_<id1>.json
-                    └── message_<created_timestamp>_<id2>.json
+                    ├── message_<id1>.json
+                    └── message_<id2>.json
 
     """
 
@@ -77,7 +77,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
 
     def _get_session_path(self, session_id: str) -> str:
         """Get session S3 prefix."""
-        return f"{self.prefix}{SESSION_PREFIX}{session_id}/"
+        return f"{self.prefix}/{SESSION_PREFIX}{session_id}/"
 
     def _get_agent_path(self, session_id: str, agent_id: str) -> str:
         """Get agent S3 prefix."""

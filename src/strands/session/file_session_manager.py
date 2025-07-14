@@ -30,8 +30,8 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
             └── agent_<agent_id>/
                 ├── agent.json          # Agent metadata
                 └── messages/
-                    ├── message_<created_timestamp>_<id1>.json
-                    └── message_<created_timestamp>_<id2>.json
+                    ├── message_<id1>.json
+                    └── message_<id2>.json
 
     """
 

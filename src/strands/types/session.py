@@ -106,6 +106,7 @@ class SessionAgent:
 
     agent_id: str
     state: Dict[str, Any]
+    conversation_manager_state: Dict[str, Any]
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -116,6 +117,7 @@ class SessionAgent:
             raise ValueError("agent_id needs to be defined.")
         return cls(
             agent_id=agent.agent_id,
+            conversation_manager_state=agent.conversation_manager.get_state(),
             state=agent.state.get(),
         )
 

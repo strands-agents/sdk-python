@@ -1,5 +1,6 @@
 from strands.session.session_repository import SessionRepository
 from strands.types.exceptions import SessionException
+from strands.types.session import SessionAgent, SessionMessage
 
 
 class MockedSessionRepository(SessionRepository):
@@ -11,7 +12,7 @@ class MockedSessionRepository(SessionRepository):
         self.agents = {}
         self.messages = {}
 
-    def create_session(self, session):
+    def create_session(self, session) -> None:
         """Create a session."""
         session_id = session.session_id
         if session_id in self.sessions:
@@ -19,13 +20,12 @@ class MockedSessionRepository(SessionRepository):
         self.sessions[session_id] = session
         self.agents[session_id] = {}
         self.messages[session_id] = {}
-        return session
 
-    def read_session(self, session_id):
+    def read_session(self, session_id) -> SessionAgent:
         """Read a session."""
         return self.sessions.get(session_id)
 
-    def create_agent(self, session_id, session_agent):
+    def create_agent(self, session_id, session_agent) -> None:
         """Create an agent."""
         agent_id = session_agent.agent_id
         if session_id not in self.sessions:
@@ -36,13 +36,13 @@ class MockedSessionRepository(SessionRepository):
         self.messages.setdefault(session_id, {}).setdefault(agent_id, {})
         return session_agent
 
-    def read_agent(self, session_id, agent_id):
+    def read_agent(self, session_id, agent_id) -> SessionAgent:
         """Read an agent."""
         if session_id not in self.sessions:
             return None
         return self.agents.get(session_id, {}).get(agent_id)
 
-    def update_agent(self, session_id, session_agent):
+    def update_agent(self, session_id, session_agent) -> None:
         """Update an agent."""
         agent_id = session_agent.agent_id
         if session_id not in self.sessions:
@@ -51,7 +51,7 @@ class MockedSessionRepository(SessionRepository):
             raise SessionException(f"Agent {agent_id} does not exist in session {session_id}")
         self.agents[session_id][agent_id] = session_agent
 
-    def create_message(self, session_id, agent_id, session_message):
+    def create_message(self, session_id, agent_id, session_message) -> None:
         """Create a message."""
         message_id = session_message.message_id
         if session_id not in self.sessions:
@@ -62,7 +62,7 @@ class MockedSessionRepository(SessionRepository):
             raise SessionException(f"Message {message_id} already exists in agent {agent_id} in session {session_id}")
         self.messages.setdefault(session_id, {}).setdefault(agent_id, {})[message_id] = session_message
 
-    def read_message(self, session_id, agent_id, message_id):
+    def read_message(self, session_id, agent_id, message_id) -> SessionMessage:
         """Read a message."""
         if session_id not in self.sessions:
             return None
@@ -70,7 +70,7 @@ class MockedSessionRepository(SessionRepository):
             return None
         return self.messages.get(session_id, {}).get(agent_id, {}).get(message_id)
 
-    def update_message(self, session_id, agent_id, session_message):
+    def update_message(self, session_id, agent_id, session_message) -> None:
         """Update a message."""
 
         message_id = session_message.message_id
@@ -82,7 +82,7 @@ class MockedSessionRepository(SessionRepository):
             raise SessionException(f"Message {message_id} does not exist in session {session_id}")
         self.messages[session_id][agent_id][message_id] = session_message
 
-    def list_messages(self, session_id, agent_id, limit=None, offset=0):
+    def list_messages(self, session_id, agent_id, limit=None, offset=0) -> list[SessionMessage]:
         """List messages."""
         if session_id not in self.sessions:
             return []

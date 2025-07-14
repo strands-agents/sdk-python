@@ -126,9 +126,25 @@ class RepositorySessionManager(SessionManager):
                 agent.agent_id,
                 self.session_id,
             )
-            session_messages = self.session_repository.list_messages(self.session_id, agent.agent_id)
+            agent.state = AgentState(session_agent.state)
+
+            # Restore the conversation manager to its previous state, and get the optional prepend messages
+            prepend_messsages = agent.conversation_manager.restore_from_session(
+                session_agent.conversation_manager_state
+            )
+
+            if prepend_messsages is None:
+                prepend_messsages = []
+
+            # List the messages currently in the session, using an offset of the messages previously removed
+            # by the converstaion manager.
+            session_messages = self.session_repository.list_messages(
+                session_id=self.session_id,
+                agent_id=agent.agent_id,
+                offset=agent.conversation_manager.removed_message_count,
+            )
             if len(session_messages) > 0:
                 self._latest_agent_message[agent.agent_id] = session_messages[-1]
-            agent.messages = [session_message.to_message() for session_message in session_messages]
 
-            agent.state = AgentState(session_agent.state)
+            # Resore the agents messages array including the optional prepend messages
+            agent.messages = prepend_messsages + [session_message.to_message() for session_message in session_messages]

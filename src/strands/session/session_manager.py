@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
-from ..hooks.events import AgentInitializedEvent, MessageAddedEvent
+from ..hooks.events import AfterInvocationEvent, AgentInitializedEvent, MessageAddedEvent
 from ..hooks.registry import HookProvider, HookRegistry
 from ..types.content import Message
 
@@ -22,9 +22,17 @@ class SessionManager(HookProvider, ABC):
 
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register hooks for persisting the agent to the session."""
+        # After the normal Agent initialization behavior, call the session initialize function to restore the agent
         registry.add_callback(AgentInitializedEvent, lambda event: self.initialize(event.agent))
+
+        # For each message appended to the Agents messages, store that message in the session
         registry.add_callback(MessageAddedEvent, lambda event: self.append_message(event.message, event.agent))
+
+        # Sync the agent into the session for each message in case the agent state was updated
         registry.add_callback(MessageAddedEvent, lambda event: self.sync_agent(event.agent))
+
+        # After an agent was invoked, sync it with the session to capture any conversation manager state updates
+        registry.add_callback(AfterInvocationEvent, lambda event: self.sync_agent(event.agent))
 
     @abstractmethod
     def redact_latest_message(self, redact_message: Message, agent: "Agent") -> None:

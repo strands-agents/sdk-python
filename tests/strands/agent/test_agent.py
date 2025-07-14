@@ -1419,6 +1419,7 @@ def test_agent_restored_from_session_management():
         SessionAgent(
             agent_id="default",
             state={"foo": "bar"},
+            conversation_manager_state=SlidingWindowConversationManager().get_state(),
         ),
     )
     session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
@@ -1436,6 +1437,7 @@ def test_agent_restored_from_session_management_with_message():
         SessionAgent(
             agent_id="default",
             state={"foo": "bar"},
+            conversation_manager_state=SlidingWindowConversationManager().get_state(),
         ),
     )
     mock_session_repository.create_message(
@@ -1530,3 +1532,41 @@ def test_agent_restored_from_session_management_with_correct_index():
     assert (len(session_messages)) == 4
     assert session_messages[1].message["content"][0]["text"] == "hello!"
     assert session_messages[3].message["content"][0]["text"] == "world!"
+
+
+def test_agent_with_session_and_conversation_manager():
+    mock_model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
+    mock_session_repository = MockedSessionRepository()
+    session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
+    conversation_manager = SlidingWindowConversationManager(window_size=1)
+    # Create an agent with a mocked model and session repository
+    agent = Agent(
+        session_manager=session_manager,
+        conversation_manager=conversation_manager,
+        model=mock_model,
+    )
+
+    # Assert session was initialized
+    assert mock_session_repository.read_session("123") is not None
+    assert mock_session_repository.read_agent("123", agent.agent_id) is not None
+    assert len(mock_session_repository.list_messages("123", agent.agent_id)) == 0
+
+    agent("Hello!")
+
+    # After invoking, assert that the messages were persisted
+    assert len(mock_session_repository.list_messages("123", agent.agent_id)) == 2
+    # Assert conversation manager reduced the messages
+    assert len(agent.messages) == 1
+
+    # Initialize another agent using the same session
+    session_manager_2 = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
+    conversation_manager_2 = SlidingWindowConversationManager(window_size=1)
+    agent_2 = Agent(
+        session_manager=session_manager_2,
+        conversation_manager=conversation_manager_2,
+        model=mock_model,
+    )
+    # Assert that the second agent was initialized properly, and that the messages of both agents are equal
+    assert agent.messages == agent_2.messages
+    # Asser the conversation manager was initialized properly
+    assert agent.conversation_manager.removed_message_count == agent_2.conversation_manager.removed_message_count

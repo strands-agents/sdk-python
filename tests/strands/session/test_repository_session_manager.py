@@ -3,6 +3,8 @@
 import pytest
 
 from strands.agent.agent import Agent
+from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
+from strands.agent.conversation_manager.summarizing_conversation_manager import SummarizingConversationManager
 from strands.session.repository_session_manager import RepositorySessionManager
 from strands.types.content import ContentBlock
 from strands.types.exceptions import SessionException
@@ -89,7 +91,11 @@ def test_initialize_restores_existing_agent(session_manager, agent):
     agent.agent_id = "existing-agent"
 
     # Create agent in repository first
-    session_agent = SessionAgent(agent_id="existing-agent", state={"key": "value"})
+    session_agent = SessionAgent(
+        agent_id="existing-agent",
+        state={"key": "value"},
+        conversation_manager_state=SlidingWindowConversationManager().get_state(),
+    )
     session_manager.session_repository.create_agent("test-session", session_agent)
 
     # Create some messages
@@ -112,9 +118,49 @@ def test_initialize_restores_existing_agent(session_manager, agent):
     assert agent.messages[0]["content"][0]["text"] == "Hello"
 
 
+def test_initialize_restores_existing_agent_with_summarizing_conversation_manager(session_manager):
+    """Test that initializing an existing agent restores its state."""
+    conversation_manager = SummarizingConversationManager()
+    conversation_manager.removed_message_count = 1
+    conversation_manager._summary_message = {"role": "assistant", "content": [{"text": "summary"}]}
+
+    # Create agent in repository first
+    session_agent = SessionAgent(
+        agent_id="existing-agent",
+        state={"key": "value"},
+        conversation_manager_state=conversation_manager.get_state(),
+    )
+    session_manager.session_repository.create_agent("test-session", session_agent)
+
+    # Create some messages
+    message = SessionMessage(
+        message={
+            "role": "user",
+            "content": [ContentBlock(text="Hello")],
+        },
+        message_id=0,
+    )
+    # Create two messages as one will be removed by the conversation manager
+    session_manager.session_repository.create_message("test-session", "existing-agent", message)
+    message.message_id = 1
+    session_manager.session_repository.create_message("test-session", "existing-agent", message)
+
+    # Initialize agent
+    agent = Agent(agent_id="existing-agent", conversation_manager=SummarizingConversationManager())
+    session_manager.initialize(agent)
+
+    # Verify agent state restored
+    assert agent.state.get("key") == "value"
+    # The session message plus the summary message
+    assert len(agent.messages) == 2
+    assert agent.messages[1]["role"] == "user"
+    assert agent.messages[1]["content"][0]["text"] == "Hello"
+    assert agent.conversation_manager.removed_message_count == 1
+
+
 def test_append_message(session_manager):
     """Test appending a message to an agent's session."""
-    # Set agent ID
+    # Set agent ID and session manager
     agent = Agent(agent_id="test-agent", session_manager=session_manager)
 
     # Create message

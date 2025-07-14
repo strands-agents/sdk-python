@@ -3,6 +3,8 @@
 import logging
 from typing import TYPE_CHECKING, Any, List, Optional
 
+from typing_extensions import override
+
 from ...types.content import Message
 from ...types.exceptions import ContextWindowOverflowException
 from .conversation_manager import ConversationManager
@@ -67,6 +69,7 @@ class SummarizingConversationManager(ConversationManager):
             summarization_system_prompt: Optional system prompt override for summarization.
                 If None, uses the default summarization prompt.
         """
+        super().__init__()
         if summarization_agent is not None and summarization_system_prompt is not None:
             raise ValueError(
                 "Cannot provide both summarization_agent and summarization_system_prompt. "
@@ -77,6 +80,25 @@ class SummarizingConversationManager(ConversationManager):
         self.preserve_recent_messages = preserve_recent_messages
         self.summarization_agent = summarization_agent
         self.summarization_system_prompt = summarization_system_prompt
+        self._summary_message: Optional[Message] = None
+
+    @override
+    def restore_from_session(self, state: dict[str, Any]) -> Optional[list[Message]]:
+        """Restores the Summarizing Conversation manager from its previous state in a session.
+
+        Args:
+            state: The previous state of the Summarizing Conversation Manager.
+
+        Returns:
+            Optionally returns the previous conversation summary if it exists.
+        """
+        super().restore_from_session(state)
+        self._summary_message = state.get("summary_message")
+        return [self._summary_message] if self._summary_message else None
+
+    def get_state(self) -> dict[str, Any]:
+        """Returns a dictionary representation of the state for the Summarizing Conversation Manager."""
+        return {"summary_message": self._summary_message, **super().get_state()}
 
     def apply_management(self, agent: "Agent", **kwargs: Any) -> None:
         """Apply management strategy to conversation history.
@@ -128,11 +150,17 @@ class SummarizingConversationManager(ConversationManager):
             messages_to_summarize = agent.messages[:messages_to_summarize_count]
             remaining_messages = agent.messages[messages_to_summarize_count:]
 
+            # Keep track of the number of messages that have been summarized thus far.
+            self.removed_message_count += len(messages_to_summarize)
+            # If there is a summary message, don't count it in the removed_message_count.
+            if self._summary_message:
+                self.removed_message_count -= 1
+
             # Generate summary
-            summary_message = self._generate_summary(messages_to_summarize, agent)
+            self._summary_message = self._generate_summary(messages_to_summarize, agent)
 
             # Replace the summarized messages with the summary
-            agent.messages[:] = [summary_message] + remaining_messages
+            agent.messages[:] = [self._summary_message] + remaining_messages
 
         except Exception as summarization_error:
             logger.error("Summarization failed: %s", summarization_error)
