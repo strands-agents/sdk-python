@@ -396,6 +396,8 @@ def test_format_chunk_metadata(model):
                 "inputTokens": 100,
                 "outputTokens": 50,
                 "totalTokens": 150,
+                "cacheReadInputTokens": 0,
+                "cacheWriteInputTokens": 0,
             },
             "metrics": {
                 "latencyMs": 1.0,
@@ -437,7 +439,13 @@ async def test_stream(ollama_client, model, agenerator, alist):
         {"messageStop": {"stopReason": "end_turn"}},
         {
             "metadata": {
-                "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
+                "usage": {
+                    "inputTokens": 10,
+                    "outputTokens": 5,
+                    "totalTokens": 15,
+                    "cacheReadInputTokens": 0,
+                    "cacheWriteInputTokens": 0,
+                },
                 "metrics": {"latencyMs": 1.0},
             }
         },
@@ -484,7 +492,13 @@ async def test_stream_with_tool_calls(ollama_client, model, agenerator, alist):
         {"messageStop": {"stopReason": "tool_use"}},
         {
             "metadata": {
-                "usage": {"inputTokens": 15, "outputTokens": 8, "totalTokens": 23},
+                "usage": {
+                    "inputTokens": 15,
+                    "outputTokens": 8,
+                    "totalTokens": 23,
+                    "cacheReadInputTokens": 0,
+                    "cacheWriteInputTokens": 0,
+                },
                 "metrics": {"latencyMs": 2.0},
             }
         },

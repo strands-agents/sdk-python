@@ -476,7 +476,13 @@ async def test_stream_stream_input_guardrails(
 ):
     metadata_event = {
         "metadata": {
-            "usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+            "usage": {
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "totalTokens": 0,
+                "cacheReadInputTokens": 0,
+                "cacheWriteInputTokens": 0,
+            },
             "metrics": {"latencyMs": 245},
             "trace": {
                 "guardrail": {
@@ -531,7 +537,13 @@ async def test_stream_stream_output_guardrails(
     model.update_config(guardrail_redact_input=False, guardrail_redact_output=True)
     metadata_event = {
         "metadata": {
-            "usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+            "usage": {
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "totalTokens": 0,
+                "cacheReadInputTokens": 0,
+                "cacheWriteInputTokens": 0,
+            },
             "metrics": {"latencyMs": 245},
             "trace": {
                 "guardrail": {
@@ -588,7 +600,13 @@ async def test_stream_output_guardrails_redacts_input_and_output(
     model.update_config(guardrail_redact_output=True)
     metadata_event = {
         "metadata": {
-            "usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+            "usage": {
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "totalTokens": 0,
+                "cacheReadInputTokens": 0,
+                "cacheWriteInputTokens": 0,
+            },
             "metrics": {"latencyMs": 245},
             "trace": {
                 "guardrail": {
@@ -645,7 +663,13 @@ async def test_stream_output_no_blocked_guardrails_doesnt_redact(
 ):
     metadata_event = {
         "metadata": {
-            "usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+            "usage": {
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "totalTokens": 0,
+                "cacheReadInputTokens": 0,
+                "cacheWriteInputTokens": 0,
+            },
             "metrics": {"latencyMs": 245},
             "trace": {
                 "guardrail": {
@@ -698,7 +722,13 @@ async def test_stream_output_no_guardrail_redact(
 ):
     metadata_event = {
         "metadata": {
-            "usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+            "usage": {
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "totalTokens": 0,
+                "cacheReadInputTokens": 0,
+                "cacheWriteInputTokens": 0,
+            },
             "metrics": {"latencyMs": 245},
             "trace": {
                 "guardrail": {
@@ -888,7 +918,13 @@ async def test_stream_with_streaming_false_with_metrics_and_usage(bedrock_client
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
-        "usage": {"inputTokens": 1234, "outputTokens": 1234, "totalTokens": 2468},
+        "usage": {
+            "inputTokens": 1234,
+            "outputTokens": 1234,
+            "totalTokens": 2468,
+            "cacheReadInputTokens": 128,
+            "cacheWriteInputTokens": 512,
+        },
         "metrics": {"latencyMs": 1234},
         "stopReason": "tool_use",
     }
@@ -906,7 +942,13 @@ async def test_stream_with_streaming_false_with_metrics_and_usage(bedrock_client
         {"messageStop": {"stopReason": "tool_use", "additionalModelResponseFields": None}},
         {
             "metadata": {
-                "usage": {"inputTokens": 1234, "outputTokens": 1234, "totalTokens": 2468},
+                "usage": {
+                    "inputTokens": 1234,
+                    "outputTokens": 1234,
+                    "totalTokens": 2468,
+                    "cacheReadInputTokens": 128,
+                    "cacheWriteInputTokens": 512,
+                },
                 "metrics": {"latencyMs": 1234},
             }
         },

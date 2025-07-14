@@ -168,7 +168,11 @@ class EventLoopMetrics:
     tool_metrics: Dict[str, ToolMetrics] = field(default_factory=dict)
     cycle_durations: List[float] = field(default_factory=list)
     traces: List[Trace] = field(default_factory=list)
-    accumulated_usage: Usage = field(default_factory=lambda: Usage(inputTokens=0, outputTokens=0, totalTokens=0))
+    accumulated_usage: Usage = field(
+        default_factory=lambda: Usage(
+            inputTokens=0, outputTokens=0, totalTokens=0, cacheReadInputTokens=0, cacheWriteInputTokens=0
+        )
+    )
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
 
     @property
@@ -263,6 +267,8 @@ class EventLoopMetrics:
         self.accumulated_usage["inputTokens"] += usage["inputTokens"]
         self.accumulated_usage["outputTokens"] += usage["outputTokens"]
         self.accumulated_usage["totalTokens"] += usage["totalTokens"]
+        self.accumulated_usage["cacheReadInputTokens"] += usage.get("cacheReadInputTokens", 0)
+        self.accumulated_usage["cacheWriteInputTokens"] += usage.get("cacheWriteInputTokens", 0)
 
     def update_metrics(self, metrics: Metrics) -> None:
         """Update the accumulated performance metrics with new metrics data.
@@ -320,15 +326,18 @@ def _metrics_summary_to_lines(event_loop_metrics: EventLoopMetrics, allowed_name
         An iterable of formatted text lines representing the metrics.
     """
     summary = event_loop_metrics.get_summary()
+    accumulated_usage = summary["accumulated_usage"]
     yield "Event Loop Metrics Summary:"
     yield (
         f"├─ Cycles: total={summary['total_cycles']}, avg_time={summary['average_cycle_time']:.3f}s, "
         f"total_time={summary['total_duration']:.3f}s"
     )
     yield (
-        f"├─ Tokens: in={summary['accumulated_usage']['inputTokens']}, "
-        f"out={summary['accumulated_usage']['outputTokens']}, "
-        f"total={summary['accumulated_usage']['totalTokens']}"
+        f"├─ Tokens: in={accumulated_usage['inputTokens']}"
+        f" (cache_write={accumulated_usage.get('cacheWriteInputTokens', 0)}), "
+        f"out={accumulated_usage['outputTokens']}, "
+        f"total={accumulated_usage['totalTokens']}"
+        f" (cache_read={accumulated_usage.get('cacheReadInputTokens', 0)})"
     )
     yield f"├─ Bedrock Latency: {summary['accumulated_metrics']['latencyMs']}ms"
 
@@ -421,6 +430,8 @@ class MetricsClient:
     event_loop_latency: Histogram
     event_loop_input_tokens: Histogram
     event_loop_output_tokens: Histogram
+    event_loop_input_tokens_cache_read: Histogram
+    event_loop_input_tokens_cache_write: Histogram
 
     tool_call_count: Counter
     tool_success_count: Counter
@@ -473,4 +484,10 @@ class MetricsClient:
         )
         self.event_loop_output_tokens = self.meter.create_histogram(
             name=constants.STRANDS_EVENT_LOOP_OUTPUT_TOKENS, unit="token"
+        )
+        self.event_loop_input_tokens_cache_read = self.meter.create_histogram(
+            name=constants.STRANDS_EVENT_LOOP_INPUT_TOKEN_CACHE_READ, unit="token"
+        )
+        self.event_loop_input_tokens_cache_write = self.meter.create_histogram(
+            name=constants.STRANDS_EVENT_LOOP_INPUT_TOKENS_CACHE_WRITE, unit="token"
         )

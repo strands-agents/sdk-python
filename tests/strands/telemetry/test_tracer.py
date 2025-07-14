@@ -166,7 +166,7 @@ def test_end_model_invoke_span(mock_span):
     """Test ending a model invoke span."""
     tracer = Tracer()
     message = {"role": "assistant", "content": [{"text": "Response"}]}
-    usage = Usage(inputTokens=10, outputTokens=20, totalTokens=30)
+    usage = Usage(inputTokens=10, outputTokens=20, totalTokens=30, cacheReadInputTokens=4, cacheWriteInputTokens=25)
     stop_reason: StopReason = "end_turn"
 
     tracer.end_model_invoke_span(mock_span, message, usage, stop_reason)
@@ -176,6 +176,9 @@ def test_end_model_invoke_span(mock_span):
     mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 20)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 20)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 30)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 4)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 25)
+
     mock_span.add_event.assert_called_with(
         "gen_ai.choice",
         attributes={"message": json.dumps(message["content"]), "finish_reason": "end_turn"},
@@ -305,7 +308,13 @@ def test_end_agent_span(mock_span):
 
     # Mock AgentResult with metrics
     mock_metrics = mock.MagicMock()
-    mock_metrics.accumulated_usage = {"inputTokens": 50, "outputTokens": 100, "totalTokens": 150}
+    mock_metrics.accumulated_usage = {
+        "inputTokens": 50,
+        "outputTokens": 100,
+        "totalTokens": 150,
+        "cacheReadInputTokens": 60,
+        "cacheWriteInputTokens": 100,
+    }
 
     mock_response = mock.MagicMock()
     mock_response.metrics = mock_metrics
@@ -319,6 +328,8 @@ def test_end_agent_span(mock_span):
     mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 100)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 100)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 150)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 60)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 100)
     mock_span.add_event.assert_any_call(
         "gen_ai.choice",
         attributes={"message": "Agent response", "finish_reason": "end_turn"},
