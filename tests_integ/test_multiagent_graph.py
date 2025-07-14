@@ -93,12 +93,17 @@ async def test_graph_execution_with_string(math_agent, summary_agent, validation
 
     builder = GraphBuilder()
 
+    summary_agent_duplicate = Agent(
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are a summarization expert. Create concise, clear summaries of complex information.",
+    )
+
     # Add various node types
     builder.add_node(nested_computation_graph, "computation_subgraph")  # Nested Graph node
     builder.add_node(math_agent, "secondary_math")  # Agent node
     builder.add_node(validation_agent, "validator")  # Agent node with condition
     builder.add_node(summary_agent, "primary_summary")  # Agent node
-    builder.add_node(summary_agent, "secondary_summary")  # Another Agent node
+    builder.add_node(summary_agent_duplicate, "secondary_summary")  # Another Agent node
 
     # Add edges with various configurations
     builder.add_edge("computation_subgraph", "secondary_math")  # Graph -> Agent
@@ -115,7 +120,7 @@ async def test_graph_execution_with_string(math_agent, summary_agent, validation
         "Calculate 15 + 27 and 8 * 6, analyze both results, perform additional calculations, validate everything, "
         "and provide a comprehensive summary"
     )
-    result = await graph.execute_async(task)
+    result = await graph.invoke_async(task)
 
     # Verify results
     assert result.status.value == "completed"
@@ -162,7 +167,7 @@ async def test_graph_execution_with_image(image_analysis_agent, summary_agent, y
     ]
 
     # Execute the graph with multi-modal input
-    result = await graph.execute_async(content_blocks)
+    result = await graph.invoke_async(content_blocks)
 
     # Verify results
     assert result.status.value == "completed"

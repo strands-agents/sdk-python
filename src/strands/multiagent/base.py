@@ -82,11 +82,11 @@ class MultiAgentBase(ABC):
     """
 
     @abstractmethod
-    async def execute_async(self, task: str | list[ContentBlock], **kwargs: Any) -> MultiAgentResult:
-        """Execute task asynchronously."""
-        raise NotImplementedError("execute_async not implemented")
+    async def invoke_async(self, task: str | list[ContentBlock], **kwargs: Any) -> MultiAgentResult:
+        """Invoke asynchronously."""
+        raise NotImplementedError("invoke_async not implemented")
 
     @abstractmethod
     def __call__(self, task: str | list[ContentBlock], **kwargs: Any) -> MultiAgentResult:
-        """Execute task synchronously."""
+        """Invoke synchronously."""
         raise NotImplementedError("__call__ not implemented")

@@ -140,6 +140,11 @@ class GraphBuilder:
 
     def add_node(self, executor: Agent | MultiAgentBase, node_id: str | None = None) -> GraphNode:
         """Add an Agent or MultiAgentBase instance as a node to the graph."""
+        # Check for duplicate node instances
+        seen_instances = {id(node.executor) for node in self.nodes.values()}
+        if id(executor) in seen_instances:
+            raise ValueError("Duplicate node instance detected. Each node must have a unique object instance.")
+
         # Auto-generate node_id if not provided
         if node_id is None:
             node_id = getattr(executor, "id", None) or getattr(executor, "name", None) or f"node_{len(self.nodes)}"
@@ -242,6 +247,9 @@ class Graph(MultiAgentBase):
         """Initialize Graph."""
         super().__init__()
 
+        # Validate nodes for duplicate instances
+        self._validate_graph(nodes)
+
         self.nodes = nodes
         self.edges = edges
         self.entry_points = entry_points
@@ -249,17 +257,17 @@ class Graph(MultiAgentBase):
         self.tracer = get_tracer()
 
     def __call__(self, task: str | list[ContentBlock], **kwargs: Any) -> GraphResult:
-        """Execute task synchronously."""
+        """Invoke the graph synchronously."""
 
         def execute() -> GraphResult:
-            return asyncio.run(self.execute_async(task))
+            return asyncio.run(self.invoke_async(task))
 
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)
             return future.result()
 
-    async def execute_async(self, task: str | list[ContentBlock], **kwargs: Any) -> GraphResult:
-        """Execute the graph asynchronously."""
+    async def invoke_async(self, task: str | list[ContentBlock], **kwargs: Any) -> GraphResult:
+        """Invoke the graph asynchronously."""
         logger.debug("task=<%s> | starting graph execution", task)
 
         # Initialize state
@@ -286,6 +294,15 @@ class Graph(MultiAgentBase):
             finally:
                 self.state.execution_time = round((time.time() - start_time) * 1000)
             return self._build_result()
+
+    def _validate_graph(self, nodes: dict[str, GraphNode]) -> None:
+        """Validate graph nodes for duplicate instances."""
+        # Check for duplicate node instances
+        seen_instances = set()
+        for node in nodes.values():
+            if id(node.executor) in seen_instances:
+                raise ValueError("Duplicate node instance detected. Each node must have a unique object instance.")
+            seen_instances.add(id(node.executor))
 
     async def _execute_graph(self) -> None:
         """Unified execution flow with conditional routing."""
@@ -349,7 +366,7 @@ class Graph(MultiAgentBase):
 
             # Execute based on node type and create unified NodeResult
             if isinstance(node.executor, MultiAgentBase):
-                multi_agent_result = await node.executor.execute_async(node_input)
+                multi_agent_result = await node.executor.invoke_async(node_input)
 
                 # Create NodeResult with MultiAgentResult directly
                 node_result = NodeResult(

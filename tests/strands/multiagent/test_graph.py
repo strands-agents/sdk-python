@@ -58,7 +58,7 @@ def create_mock_multi_agent(name, response_text="Multi-agent response"):
         execution_count=1,
         execution_time=150,
     )
-    multi_agent.execute_async = AsyncMock(return_value=mock_result)
+    multi_agent.invoke_async = AsyncMock(return_value=mock_result)
     multi_agent.execute = Mock(return_value=mock_result)
     return multi_agent
 
@@ -183,7 +183,7 @@ async def test_graph_execution(mock_strands_tracer, mock_use_span, mock_graph, m
     start_node = mock_graph.nodes["start_agent"]
     assert conditional_edge.should_traverse(GraphState(completed_nodes={start_node}))
 
-    result = await mock_graph.execute_async("Test comprehensive execution")
+    result = await mock_graph.invoke_async("Test comprehensive execution")
 
     # Verify execution results
     assert result.status == Status.COMPLETED
@@ -195,7 +195,7 @@ async def test_graph_execution(mock_strands_tracer, mock_use_span, mock_graph, m
 
     # Verify agent calls
     mock_agents["start_agent"].stream_async.assert_called_once()
-    mock_agents["multi_agent"].execute_async.assert_called_once()
+    mock_agents["multi_agent"].invoke_async.assert_called_once()
     mock_agents["conditional_agent"].stream_async.assert_called_once()
     mock_agents["final_agent"].stream_async.assert_called_once()
     mock_agents["no_metrics_agent"].stream_async.assert_called_once()
@@ -247,7 +247,7 @@ async def test_graph_unsupported_node_type(mock_strands_tracer, mock_use_span):
     graph = builder.build()
 
     with pytest.raises(ValueError, match="Node 'unsupported_node' of type.*is not supported"):
-        await graph.execute_async("test task")
+        await graph.invoke_async("test task")
 
     mock_strands_tracer.start_multiagent_span.assert_called()
     mock_use_span.assert_called_once()
@@ -279,7 +279,7 @@ async def test_graph_execution_with_failures(mock_strands_tracer, mock_use_span)
     graph = builder.build()
 
     with pytest.raises(Exception, match="Simulated failure"):
-        await graph.execute_async("Test error handling")
+        await graph.invoke_async("Test error handling")
 
     assert graph.state.status == Status.FAILED
     assert any(node.node_id == "fail_node" for node in graph.state.failed_nodes)
@@ -298,7 +298,7 @@ async def test_graph_edge_cases(mock_strands_tracer, mock_use_span):
     builder.add_node(entry_agent, "entry_only")
     graph = builder.build()
 
-    result = await graph.execute_async([{"text": "Original task"}])
+    result = await graph.invoke_async([{"text": "Original task"}])
 
     # Verify entry node was called with original task
     entry_agent.stream_async.assert_called_once_with([{"text": "Original task"}])
@@ -320,6 +320,23 @@ def test_graph_builder_validation():
     builder.add_node(agent1, "duplicate_id")
     with pytest.raises(ValueError, match="Node 'duplicate_id' already exists"):
         builder.add_node(agent2, "duplicate_id")
+
+    # Test duplicate node instances in GraphBuilder.add_node
+    builder = GraphBuilder()
+    same_agent = create_mock_agent("same_agent")
+    builder.add_node(same_agent, "node1")
+    with pytest.raises(ValueError, match="Duplicate node instance detected"):
+        builder.add_node(same_agent, "node2")  # Same agent instance, different node_id
+
+    # Test duplicate node instances in Graph.__init__
+    from strands.multiagent.graph import Graph, GraphNode
+
+    duplicate_agent = create_mock_agent("duplicate_agent")
+    node1 = GraphNode("node1", duplicate_agent)
+    node2 = GraphNode("node2", duplicate_agent)  # Same agent instance
+    nodes = {"node1": node1, "node2": node2}
+    with pytest.raises(ValueError, match="Duplicate node instance detected"):
+        Graph(nodes=nodes, edges=set(), entry_points=set())
 
     # Test edge validation with non-existent nodes
     builder = GraphBuilder()

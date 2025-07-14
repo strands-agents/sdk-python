@@ -138,7 +138,7 @@ def test_multi_agent_base_abstract_behavior():
 
     # Test that complete implementations can be instantiated
     class CompleteMultiAgent(MultiAgentBase):
-        async def execute_async(self, task: str) -> MultiAgentResult:
+        async def invoke_async(self, task: str) -> MultiAgentResult:
             return MultiAgentResult(results={})
 
         def __call__(self, task: str) -> MultiAgentResult:

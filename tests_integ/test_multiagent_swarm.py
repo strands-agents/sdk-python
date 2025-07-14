@@ -96,7 +96,7 @@ async def test_swarm_execution_with_image(researcher_agent, analyst_agent, write
     ]
 
     # Execute the swarm with multi-modal input
-    result = await swarm.execute_async(content_blocks)
+    result = await swarm.invoke_async(content_blocks)
 
     # Verify results
     assert result.status.value == "completed"

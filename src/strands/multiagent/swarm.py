@@ -13,6 +13,7 @@ Key Features:
 """
 
 import asyncio
+import copy
 import json
 import logging
 import time
@@ -21,8 +22,9 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Tuple, cast
 
 from ..agent import Agent, AgentResult
+from ..agent.state import AgentState
 from ..tools.decorator import tool
-from ..types.content import ContentBlock
+from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
@@ -35,6 +37,14 @@ class SwarmNode:
 
     node_id: str
     executor: Agent
+    _initial_messages: Messages = field(default_factory=list, init=False)
+    _initial_state: AgentState = field(default_factory=AgentState, init=False)
+
+    def __post_init__(self) -> None:
+        """Capture initial executor state after initialization."""
+        # Deep copy the initial messages and state to preserve them
+        self._initial_messages = copy.deepcopy(self.executor.messages)
+        self._initial_state = AgentState(self.executor.state.get())
 
     def __hash__(self) -> int:
         """Return hash for SwarmNode based on node_id."""
@@ -53,6 +63,11 @@ class SwarmNode:
     def __repr__(self) -> str:
         """Return detailed representation of SwarmNode."""
         return f"SwarmNode(node_id='{self.node_id}')"
+
+    def reset_executor_state(self) -> None:
+        """Reset SwarmNode executor state to initial state when swarm was created."""
+        self.executor.messages = copy.deepcopy(self._initial_messages)
+        self.executor.state = AgentState(self._initial_state.get())
 
 
 @dataclass
@@ -218,35 +233,19 @@ class Swarm(MultiAgentBase):
         self._setup_swarm(nodes)
         self._inject_swarm_tools()
 
-    def __call__(self, task: str | list[ContentBlock]) -> SwarmResult:
-        """Execute task synchronously.
-
-        Args:
-            task: The task to execute, either as a string or a list of ContentBlock objects
-                  for multi-modal content.
-
-        Returns:
-            SwarmResult containing execution results and metrics.
-        """
+    def __call__(self, task: str | list[ContentBlock], **kwargs: Any) -> SwarmResult:
+        """Invoke the swarm synchronously."""
 
         def execute() -> SwarmResult:
-            return asyncio.run(self.execute_async(task))
+            return asyncio.run(self.invoke_async(task))
 
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)
             return future.result()
 
-    async def execute_async(self, task: str | list[ContentBlock]) -> SwarmResult:
-        """Execute the swarm asynchronously.
-
-        Args:
-            task: The task to execute, either as a string or a list of ContentBlock objects
-                  for multi-modal content.
-
-        Returns:
-            SwarmResult containing execution results and metrics.
-        """
-        logger.info("starting swarm execution")
+    async def invoke_async(self, task: str | list[ContentBlock], **kwargs: Any) -> SwarmResult:
+        """Invoke the swarm asynchronously."""
+        logger.debug("starting swarm execution")
 
         # Initialize swarm state with configuration
         initial_node = next(iter(self.nodes.values()))  # First SwarmNode
@@ -259,8 +258,8 @@ class Swarm(MultiAgentBase):
 
         start_time = time.time()
         try:
-            logger.info("current_node=<%s> | starting swarm execution with node", self.state.current_node.node_id)
-            logger.info(
+            logger.debug("current_node=<%s> | starting swarm execution with node", self.state.current_node.node_id)
+            logger.debug(
                 "max_handoffs=<%d>, max_iterations=<%d>, timeout=<%s>s | swarm execution config",
                 self.max_handoffs,
                 self.max_iterations,
@@ -279,12 +278,15 @@ class Swarm(MultiAgentBase):
 
     def _setup_swarm(self, nodes: list[Agent]) -> None:
         """Initialize swarm configuration."""
+        # Validate nodes before setup
+        self._validate_swarm(nodes)
+
         # Validate agents have names and create SwarmNode objects
         for i, node in enumerate(nodes):
             if not node.name:
                 node_id = f"node_{i}"
                 node.name = node_id
-                logger.info("node_id=<%s> | agent has no name, dynamically generating one", node_id)
+                logger.debug("node_id=<%s> | agent has no name, dynamically generating one", node_id)
 
             node_id = str(node.name)
 
@@ -295,7 +297,16 @@ class Swarm(MultiAgentBase):
             self.nodes[node_id] = SwarmNode(node_id=node_id, executor=node)
 
         swarm_nodes = list(self.nodes.values())
-        logger.info("nodes=<%s> | initialized swarm with nodes", [node.node_id for node in swarm_nodes])
+        logger.debug("nodes=<%s> | initialized swarm with nodes", [node.node_id for node in swarm_nodes])
+
+    def _validate_swarm(self, nodes: list[Agent]) -> None:
+        """Validate swarm structure and nodes."""
+        # Check for duplicate object instances
+        seen_instances = set()
+        for node in nodes:
+            if id(node) in seen_instances:
+                raise ValueError("Duplicate node instance detected. Each node must have a unique object instance.")
+            seen_instances.add(id(node))
 
     def _inject_swarm_tools(self) -> None:
         """Add swarm coordination tools to each agent."""
@@ -324,7 +335,7 @@ class Swarm(MultiAgentBase):
             # Use the agent's tool registry to process and register the tools
             node.executor.tool_registry.process_tools(swarm_tools)
 
-        logger.info(
+        logger.debug(
             "tool_count=<%d>, node_count=<%d> | injected coordination tools into agents",
             len(swarm_tools),
             len(self.nodes),
@@ -388,7 +399,7 @@ class Swarm(MultiAgentBase):
         """Handle handoff to another agent."""
         # If task is already completed, don't allow further handoffs
         if self.state.completion_status != Status.EXECUTING:
-            logger.info(
+            logger.debug(
                 "task_status=<%s> | ignoring handoff request - task already completed",
                 self.state.completion_status,
             )
@@ -406,7 +417,7 @@ class Swarm(MultiAgentBase):
             for key, value in context.items():
                 self.shared_context.add_context(previous_agent, key, value)
 
-        logger.info(
+        logger.debug(
             "from_node=<%s>, to_node=<%s> | handed off from agent to agent",
             previous_agent.node_id,
             target_node.node_id,
@@ -416,7 +427,7 @@ class Swarm(MultiAgentBase):
         """Handle task completion."""
         self.state.completion_status = Status.COMPLETED
 
-        logger.info("swarm task completed")
+        logger.debug("swarm task completed")
 
     def _build_node_input(self, target_node: SwarmNode) -> str:
         """Build input text for a node based on shared context and handoffs.
@@ -499,7 +510,7 @@ class Swarm(MultiAgentBase):
             while True:
                 if self.state.completion_status != Status.EXECUTING:
                     reason = f"Completion status is: {self.state.completion_status}"
-                    logger.info("reason=<%s> | stopping execution", reason)
+                    logger.debug("reason=<%s> | stopping execution", reason)
                     break
 
                 should_continue, reason = self.state.should_continue(
@@ -511,7 +522,7 @@ class Swarm(MultiAgentBase):
                 )
                 if not should_continue:
                     self.state.completion_status = Status.FAILED
-                    logger.info("reason=<%s> | stopping execution", reason)
+                    logger.debug("reason=<%s> | stopping execution", reason)
                     break
 
                 # Get current node
@@ -521,13 +532,14 @@ class Swarm(MultiAgentBase):
                     self.state.completion_status = Status.FAILED
                     break
 
-                logger.info(
+                logger.debug(
                     "current_node=<%s>, iteration=<%d> | executing node",
                     current_node.node_id,
                     len(self.state.node_history) + 1,
                 )
 
                 # Execute node with timeout protection
+                # TODO: Implement cancellation token to stop _execute_node from continuing
                 try:
                     await asyncio.wait_for(
                         self._execute_node(current_node, self.state.task),
@@ -536,11 +548,11 @@ class Swarm(MultiAgentBase):
 
                     self.state.node_history.append(current_node)
 
-                    logger.info("node=<%s> | node execution completed", current_node.node_id)
+                    logger.debug("node=<%s> | node execution completed", current_node.node_id)
 
                     # Immediate check for completion after node execution
                     if self.state.completion_status != Status.EXECUTING:
-                        logger.info("status=<%s> | task completed with status", self.state.completion_status)  # type: ignore[unreachable]
+                        logger.debug("status=<%s> | task completed with status", self.state.completion_status)  # type: ignore[unreachable]
                         break
 
                 except asyncio.TimeoutError:
@@ -562,8 +574,8 @@ class Swarm(MultiAgentBase):
             self.state.completion_status = Status.FAILED
 
         elapsed_time = time.time() - self.state.start_time
-        logger.info("status=<%s> | swarm execution completed", self.state.completion_status)
-        logger.info(
+        logger.debug("status=<%s> | swarm execution completed", self.state.completion_status)
+        logger.debug(
             "node_history_length=<%d>, time=<%s>s | metrics",
             len(self.state.node_history),
             f"{elapsed_time:.2f}",
@@ -588,7 +600,7 @@ class Swarm(MultiAgentBase):
 
             # Execute node
             result = None
-            node.executor.messages = []  # Reset agent's messages to avoid polluting context
+            node.reset_executor_state()
             async for event in node.executor.stream_async(node_input):
                 if "result" in event:
                     result = cast(AgentResult, event["result"])

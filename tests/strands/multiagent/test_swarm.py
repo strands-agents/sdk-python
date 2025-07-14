@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, Mock
 import pytest
 
 from strands.agent import Agent, AgentResult
+from strands.agent.state import AgentState
 from strands.multiagent.base import Status
 from strands.multiagent.swarm import SharedContext, Swarm, SwarmNode, SwarmResult, SwarmState
 from strands.types.content import ContentBlock
@@ -18,6 +19,7 @@ def create_mock_agent(
     agent.name = name
     agent.id = agent_id or f"{name}_id"
     agent.messages = []
+    agent.state = AgentState()  # Add state attribute
     agent.tool_registry = Mock()
     agent.tool_registry.registry = {}
     agent.tool_registry.process_tools = Mock()
@@ -217,7 +219,7 @@ async def test_swarm_execution_async(mock_swarm, mock_agents):
     """Test asynchronous swarm execution."""
     # Execute swarm
     task = [ContentBlock(text="Analyze this task"), ContentBlock(text="Additional context")]
-    result = await mock_swarm.execute_async(task)
+    result = await mock_swarm.invoke_async(task)
 
     # Verify execution results
     assert result.status == Status.COMPLETED
@@ -294,6 +296,11 @@ def test_swarm_builder_validation(mock_agents):
     duplicate_agent = create_mock_agent("coordinator")
     with pytest.raises(ValueError, match="Node ID 'coordinator' is not unique"):
         Swarm(nodes=[mock_agents["coordinator"], duplicate_agent])
+
+    # Test duplicate agent instances
+    same_agent = mock_agents["coordinator"]
+    with pytest.raises(ValueError, match="Duplicate node instance detected"):
+        Swarm(nodes=[same_agent, same_agent])
 
     # Test tool name conflicts - handoff tool
     conflicting_agent = create_mock_agent("conflicting")
