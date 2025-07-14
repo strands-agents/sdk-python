@@ -65,8 +65,7 @@ def writer_agent():
     )
 
 
-@pytest.mark.asyncio
-async def test_swarm_execution_with_string(researcher_agent, analyst_agent, writer_agent):
+def test_swarm_execution_with_string(researcher_agent, analyst_agent, writer_agent):
     """Test swarm execution with string input."""
     # Create the swarm
     swarm = Swarm([researcher_agent, analyst_agent, writer_agent])
@@ -78,7 +77,7 @@ async def test_swarm_execution_with_string(researcher_agent, analyst_agent, writ
     )
 
     # Execute the swarm
-    result = await swarm.execute_async(task)
+    result = swarm(task)
 
     # Verify results
     assert result.status.value == "completed"

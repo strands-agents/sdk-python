@@ -13,6 +13,7 @@ Key Features:
 """
 
 import asyncio
+import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -55,139 +56,119 @@ class SwarmNode:
 
 
 @dataclass
-class SwarmMessage:
-    """Message passed between nodes in swarm."""
-
-    from_node: SwarmNode
-    to_node: SwarmNode
-    content: str
-    context: dict[str, Any]
-    timestamp: float = field(default_factory=time.time)
-
-
-@dataclass
-class SwarmConfig:
-    """Configuration for swarm execution safety."""
-
-    max_handoffs: int = 20  # Maximum handoffs to agents and users
-    max_iterations: int = 20  # Maximum node executions within the swarm
-    execution_timeout: float = 900.0  # Total execution timeout (seconds)
-    node_timeout: float = 300.0  # Individual node timeout (seconds)
-    ping_pong_check_nodes: int = 0  # Number of recent nodes to check for ping-pong, disabled by default
-    ping_pong_min_unique_nodes: int = 0  # Minimum unique nodes required in recent sequence, disabled by default
-
-
-@dataclass
 class SharedContext:
-    """Shared context accessible via tools."""
+    """Shared context between swarm nodes."""
 
     context: dict[str, dict[str, Any]] = field(default_factory=dict)
-    node_history: list[SwarmNode] = field(default_factory=list)
-    current_task: str | list[ContentBlock] | None = None
-    available_nodes: list[SwarmNode] = field(default_factory=list)
-
-    def set_task(self, task: str | list[ContentBlock]) -> None:
-        """Set the current task."""
-        self.current_task = task
-
-    def set_available_nodes(self, nodes: list[SwarmNode]) -> None:
-        """Set list of available agents."""
-        self.available_nodes = nodes
 
     def add_context(self, node: SwarmNode, key: str, value: Any) -> None:
         """Add context."""
+        self._validate_key(key)
+        self._validate_json_serializable(value)
+
         if node.node_id not in self.context:
             self.context[node.node_id] = {}
         self.context[node.node_id][key] = value
 
-    def get_relevant_context(self, target_node: SwarmNode) -> dict[str, Any]:
-        """Get context relevant to specific node."""
-        return {
-            "task": self.current_task,
-            "node_history": [node.node_id for node in self.node_history],
-            "shared_context": {k: v for k, v in self.context.items() if v},
-            "available_nodes": [node.node_id for node in self.available_nodes if node != target_node],
-        }
+    def _validate_key(self, key: str) -> None:
+        """Validate that a key is valid.
+
+        Args:
+            key: The key to validate
+
+        Raises:
+            ValueError: If key is invalid
+        """
+        if key is None:
+            raise ValueError("Key cannot be None")
+        if not isinstance(key, str):
+            raise ValueError("Key must be a string")
+        if not key.strip():
+            raise ValueError("Key cannot be empty")
+
+    def _validate_json_serializable(self, value: Any) -> None:
+        """Validate that a value is JSON serializable.
+
+        Args:
+            value: The value to validate
+
+        Raises:
+            ValueError: If value is not JSON serializable
+        """
+        try:
+            json.dumps(value)
+        except (TypeError, ValueError) as e:
+            raise ValueError(
+                f"Value is not JSON serializable: {type(value).__name__}. "
+                f"Only JSON-compatible types (str, int, float, bool, list, dict, None) are allowed."
+            ) from e
 
 
 @dataclass
 class SwarmState:
     """Current state of swarm execution."""
 
-    current_node: SwarmNode
-    task: str | list[ContentBlock]
-    completion_status: Status = Status.PENDING
-    shared_context: SharedContext = field(default_factory=SharedContext)
-    node_history: list[SwarmNode] = field(default_factory=list)
-    message_history: list[SwarmMessage] = field(default_factory=list)
-    iteration_count: int = 0
-    start_time: float = field(default_factory=time.time)
-    last_node_sequence: list[SwarmNode] = field(default_factory=list)
-    final_result: str | None = None
-    results: dict[str, NodeResult] = field(default_factory=dict)
+    current_node: SwarmNode  # The agent currently executing
+    task: str | list[ContentBlock]  # The original task from the user that is being executed
+    completion_status: Status = Status.PENDING  # Current swarm execution status
+    shared_context: SharedContext = field(default_factory=SharedContext)  # Context shared between agents
+    node_history: list[SwarmNode] = field(default_factory=list)  # Complete history of agents that have executed
+    start_time: float = field(default_factory=time.time)  # When swarm execution began
+    results: dict[str, NodeResult] = field(default_factory=dict)  # Results from each agent execution
+    # Total token usage across all agents
     accumulated_usage: Usage = field(default_factory=lambda: Usage(inputTokens=0, outputTokens=0, totalTokens=0))
+    # Total metrics across all agents
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
-    execution_count: int = 0
-    execution_time: int = 0
+    execution_time: int = 0  # Total execution time in milliseconds
+    handoff_message: str | None = None  # Message passed during agent handoff
 
-    def should_continue(self, config: SwarmConfig) -> Tuple[bool, str]:
+    def should_continue(
+        self,
+        *,
+        max_handoffs: int,
+        max_iterations: int,
+        execution_timeout: float,
+        repetitive_handoff_detection_window: int,
+        repetitive_handoff_min_unique_agents: int,
+    ) -> Tuple[bool, str]:
         """Check if the swarm should continue.
 
         Returns: (should_continue, reason)
         """
+        # Check handoff limit
+        if len(self.node_history) >= max_handoffs:
+            return False, f"Max handoffs reached: {max_handoffs}"
+
+        # Check iteration limit
+        if len(self.node_history) >= max_iterations:
+            return False, f"Max iterations reached: {max_iterations}"
+
+        # Check timeout
         elapsed = time.time() - self.start_time
+        if elapsed > execution_timeout:
+            return False, f"Execution timed out: {execution_timeout}s"
 
-        # 1. Check completion status
-        if self.completion_status != Status.EXECUTING:
-            return False, f"completion_status_changed_to_{self.completion_status}"
-
-        # 2. Check handoff limit
-        if len(self.node_history) >= config.max_handoffs:
-            self.completion_status = Status.FAILED
-            return False, f"max_handoffs_reached_{config.max_handoffs}"
-
-        # 3. Check iteration limit
-        if self.iteration_count >= config.max_iterations:
-            self.completion_status = Status.FAILED
-            return False, f"max_iterations_reached_{config.max_iterations}"
-
-        # 4. Check timeout
-        if elapsed > config.execution_timeout:
-            self.completion_status = Status.FAILED
-            return False, f"execution_timeout_{config.execution_timeout}s"
-
-        # 5. Check for node ping-pong (nodes passing back and forth)
-        if len(self.last_node_sequence) >= config.ping_pong_check_nodes:
-            recent = self.last_node_sequence[-config.ping_pong_check_nodes :]
+        # Check for repetitive handoffs (agents passing back and forth)
+        if repetitive_handoff_detection_window > 0 and len(self.node_history) >= repetitive_handoff_detection_window:
+            recent = self.node_history[-repetitive_handoff_detection_window:]
             unique_nodes = len(set(recent))
-            if unique_nodes < config.ping_pong_min_unique_nodes:
-                self.completion_status = Status.FAILED
+            if unique_nodes < repetitive_handoff_min_unique_agents:
                 return (
                     False,
-                    f"node_ping_pong_detected_{unique_nodes}_unique_in_{config.ping_pong_check_nodes}_recent",
+                    (
+                        f"Repetitive handoff: {unique_nodes} unique nodes "
+                        f"out of {repetitive_handoff_detection_window} recent iterations"
+                    ),
                 )
 
-        return True, "continuing"
-
-    def increment_iteration(self, current_node: SwarmNode, config: SwarmConfig) -> None:
-        """Increment iteration count and track node usage."""
-        self.iteration_count += 1
-        self.last_node_sequence.append(current_node)
-
-        # Keep only the required number of nodes for ping-pong detection
-        if len(self.last_node_sequence) > config.ping_pong_check_nodes:
-            self.last_node_sequence = self.last_node_sequence[-config.ping_pong_check_nodes :]
+        return True, "Continuing"
 
 
 @dataclass
 class SwarmResult(MultiAgentResult):
     """Result from swarm execution - extends MultiAgentResult with swarm-specific details."""
 
-    status: Status = Status.PENDING
     node_history: list[SwarmNode] = field(default_factory=list)
-    message_history: list[SwarmMessage] = field(default_factory=list)
-    iteration_count: int = 0
-    final_result: str | None = None
 
 
 class Swarm(MultiAgentBase):
@@ -196,17 +177,36 @@ class Swarm(MultiAgentBase):
     def __init__(
         self,
         nodes: list[Agent],
-        config: SwarmConfig | None = None,
+        *,
+        max_handoffs: int = 20,
+        max_iterations: int = 20,
+        execution_timeout: float = 900.0,
+        node_timeout: float = 300.0,
+        repetitive_handoff_detection_window: int = 0,
+        repetitive_handoff_min_unique_agents: int = 0,
     ) -> None:
         """Initialize Swarm with agents and configuration.
 
         Args:
             nodes: List of nodes (e.g. Agent) to include in the swarm
-            config: Optional swarm execution configuration
+            max_handoffs: Maximum handoffs to agents and users (default: 20)
+            max_iterations: Maximum node executions within the swarm (default: 20)
+            execution_timeout: Total execution timeout in seconds (default: 900.0)
+            node_timeout: Individual node timeout in seconds (default: 300.0)
+            repetitive_handoff_detection_window: Number of recent nodes to check for repetitive handoffs
+                Disabled by default (default: 0)
+            repetitive_handoff_min_unique_agents: Minimum unique agents required in recent sequence
+                Disabled by default (default: 0)
         """
         super().__init__()
 
-        self.config = config or SwarmConfig()
+        self.max_handoffs = max_handoffs
+        self.max_iterations = max_iterations
+        self.execution_timeout = execution_timeout
+        self.node_timeout = node_timeout
+        self.repetitive_handoff_detection_window = repetitive_handoff_detection_window
+        self.repetitive_handoff_min_unique_agents = repetitive_handoff_min_unique_agents
+
         self.shared_context = SharedContext()
         self.nodes: dict[str, SwarmNode] = {}
         self.state = SwarmState(
@@ -218,7 +218,7 @@ class Swarm(MultiAgentBase):
         self._setup_swarm(nodes)
         self._inject_swarm_tools()
 
-    def execute(self, task: str | list[ContentBlock]) -> SwarmResult:
+    def __call__(self, task: str | list[ContentBlock]) -> SwarmResult:
         """Execute task synchronously.
 
         Args:
@@ -256,23 +256,18 @@ class Swarm(MultiAgentBase):
             completion_status=Status.EXECUTING,
             shared_context=self.shared_context,
         )
-        self.shared_context.set_task(task)
 
         start_time = time.time()
         try:
             logger.info("current_node=<%s> | starting swarm execution with node", self.state.current_node.node_id)
             logger.info(
                 "max_handoffs=<%d>, max_iterations=<%d>, timeout=<%s>s | SwarmConfig",
-                self.config.max_handoffs,
-                self.config.max_iterations,
-                self.config.execution_timeout,
+                self.max_handoffs,
+                self.max_iterations,
+                self.execution_timeout,
             )
 
             await self._execute_swarm()
-
-            if self.state.completion_status == Status.EXECUTING:
-                self.state.completion_status = Status.COMPLETED
-
         except Exception:
             logger.exception("swarm execution failed")
             self.state.completion_status = Status.FAILED
@@ -286,16 +281,20 @@ class Swarm(MultiAgentBase):
         """Initialize swarm configuration."""
         # Validate agents have names and create SwarmNode objects
         for i, node in enumerate(nodes):
-            if not hasattr(node, "name") or not node.name:
+            if not node.name:
                 node_id = f"node_{i}"
                 node.name = node_id
                 logger.info("node_id=<%d> | agent has no name, dynamically generating one", node_id)
 
             node_id = str(node.name)
+
+            # Ensure node IDs are unique
+            if node_id in self.nodes:
+                raise ValueError(f"Node ID '{node_id}' is not unique. Each agent must have a unique name.")
+
             self.nodes[node_id] = SwarmNode(node_id=node_id, executor=node)
 
         swarm_nodes = list(self.nodes.values())
-        self.shared_context.set_available_nodes(swarm_nodes)
         logger.info("nodes=<%s> | initialized swarm with nodes", [node.node_id for node in swarm_nodes])
 
     def _inject_swarm_tools(self) -> None:
@@ -304,10 +303,24 @@ class Swarm(MultiAgentBase):
         swarm_tools = [
             self._create_handoff_tool(),
             self._create_complete_tool(),
-            self._create_context_tool(),
         ]
 
         for node in self.nodes.values():
+            # Check for existing tools with conflicting names
+            existing_tools = node.executor.tool_registry.registry
+            conflicting_tools = []
+
+            if "handoff_to_agent" in existing_tools:
+                conflicting_tools.append("handoff_to_agent")
+            if "complete_swarm_task" in existing_tools:
+                conflicting_tools.append("complete_swarm_task")
+
+            if conflicting_tools:
+                raise ValueError(
+                    f"Agent '{node.node_id}' already has tools with names that conflict with swarm coordination tools: "
+                    f"{', '.join(conflicting_tools)}. Please rename these tools to avoid conflicts."
+                )
+
             # Use the agent's tool registry to process and register the tools
             node.executor.tool_registry.process_tools(swarm_tools)
 
@@ -322,9 +335,7 @@ class Swarm(MultiAgentBase):
         swarm_ref = self  # Capture swarm reference
 
         @tool
-        def handoff_to_agent(  # noqa: D417
-            agent: Agent, agent_name: str, message: str, context: dict[str, Any] | None = None
-        ) -> dict[str, Any]:
+        def handoff_to_agent(agent_name: str, message: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
             """Transfer control to another agent in the swarm for specialized help.
 
             Args:
@@ -339,14 +350,14 @@ class Swarm(MultiAgentBase):
                 context = context or {}
 
                 # Validate target agent exists
-                if not swarm_ref.nodes.get(agent_name):
+                target_node = swarm_ref.nodes.get(agent_name)
+                if not target_node:
                     return {"status": "error", "content": [{"text": f"Error: Agent '{agent_name}' not found in swarm"}]}
 
                 # Execute handoff
-                swarm_ref._handle_handoff(agent, agent_name, message, context)
+                swarm_ref._handle_handoff(target_node, message, context)
 
                 return {"status": "success", "content": [{"text": f"Handed off to {agent_name}: {message}"}]}
-
             except Exception as e:
                 return {"status": "error", "content": [{"text": f"Error in handoff: {str(e)}"}]}
 
@@ -357,55 +368,23 @@ class Swarm(MultiAgentBase):
         swarm_ref = self  # Capture swarm reference
 
         @tool
-        def complete_swarm_task(agent: Agent, result: str, summary: str | None = None) -> dict[str, Any]:  # noqa: D417
-            """Mark the task as complete with final result. No more agents will be called.
-
-            Args:
-                result: The final result/answer
-                summary: Optional summary of how the task was completed
+        def complete_swarm_task() -> dict[str, Any]:
+            """Mark the task as complete. No more agents will be called.
 
             Returns:
                 Task completion confirmation
             """
             try:
                 # Mark swarm as complete
-                swarm_ref._handle_completion(agent, result, summary or "")
+                swarm_ref._handle_completion()
 
-                return {"status": "success", "content": [{"text": f"Task completed: {result}"}]}
-
+                return {"status": "success", "content": [{"text": "Task completed"}]}
             except Exception as e:
                 return {"status": "error", "content": [{"text": f"Error completing task: {str(e)}"}]}
 
         return complete_swarm_task
 
-    def _create_context_tool(self) -> Callable[..., Any]:
-        """Create context tool for accessing shared context."""
-        swarm_ref = self  # Capture swarm reference
-
-        @tool
-        def get_swarm_context() -> dict[str, Any]:
-            """Get the current shared context and agent history.
-
-            Returns:
-                Current swarm state including shared facts, agent history, etc.
-            """
-            try:
-                # Get context for current agent
-                current_node = swarm_ref.state.current_node
-                context = swarm_ref.shared_context.get_relevant_context(current_node)
-
-                context_text = swarm_ref._format_context(context)
-
-                return {"status": "success", "content": [{"text": context_text}]}
-
-            except Exception as e:
-                return {"status": "error", "content": [{"text": f"Error getting context: {str(e)}"}]}
-
-        return get_swarm_context
-
-    def _handle_handoff(
-        self, agent: Agent, target_agent_name: str, message: str, context: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _handle_handoff(self, target_node: SwarmNode, message: str, context: dict[str, Any]) -> None:
         """Handle handoff to another agent."""
         # If task is already completed, don't allow further handoffs
         if self.state.completion_status != Status.EXECUTING:
@@ -413,72 +392,73 @@ class Swarm(MultiAgentBase):
                 "task_status=<%s> | ignoring handoff request - task already completed",
                 self.state.completion_status,
             )
-            return {"status": "ignored", "reason": f"task_already_{self.state.completion_status}"}
-
-        # Get target node
-        target_node = self.nodes.get(target_agent_name)
-        if not target_node:
-            return {"status": "error", "reason": f"agent_{target_agent_name}_not_found"}
+            return
 
         # Update swarm state
         previous_agent = self.state.current_node
         self.state.current_node = target_node
 
-        # Add handoff message
-        handoff_msg = SwarmMessage(
-            from_node=previous_agent,
-            to_node=target_node,
-            content=message,
-            context=context,
-        )
-        self.state.message_history.append(handoff_msg)
+        # Store handoff message for the target agent
+        self.state.handoff_message = message
 
         # Store handoff context as shared context
         if context:
             for key, value in context.items():
                 self.shared_context.add_context(previous_agent, key, value)
 
-        agent.stop_event_loop = True
-
         logger.info(
             "from_node=<%s>, to_node=<%s> | handed off from agent to agent",
             previous_agent.node_id,
             target_node.node_id,
         )
-        return {"status": "success", "target_agent": target_agent_name}
 
-    def _handle_completion(self, agent: Agent, result: str, summary: str = "") -> None:
+    def _handle_completion(self) -> None:
         """Handle task completion."""
         self.state.completion_status = Status.COMPLETED
-        self.state.final_result = result
-
-        # Create a system node for completion message
-        system_node = SwarmNode("system", Agent())
-
-        # Add completion message
-        completion_msg = SwarmMessage(
-            from_node=self.state.current_node,
-            to_node=system_node,
-            content=result,
-            context={"summary": summary},
-        )
-        self.state.message_history.append(completion_msg)
-
-        agent.stop_event_loop = True
 
         logger.info("swarm task completed")
 
-    def _format_context(self, context_info: dict[str, Any]) -> str:
-        """Format task message with relevant context."""
+    def _build_node_input(self, target_node: SwarmNode) -> str:
+        """Build input text for a node based on shared context and handoffs.
+
+        Example formatted output:
+        ```
+        Handoff Message: The user needs help with Python debugging - I've identified the issue but need someone with more expertise to fix it.
+
+        User Request: My Python script is throwing a KeyError when processing JSON data from an API
+
+        Previous agents who worked on this: data_analyst → code_reviewer
+
+        Shared knowledge from previous agents:
+        • data_analyst: {"issue_location": "line 42", "error_type": "missing key validation", "suggested_fix": "add key existence check"}
+        • code_reviewer: {"code_quality": "good overall structure", "security_notes": "API key should be in environment variable"}
+
+        Other agents available for collaboration:
+        Agent name: data_analyst. Agent description: Analyzes data and provides deeper insights
+        Agent name: code_reviewer.
+        Agent name: security_specialist. Agent description: Focuses on secure coding practices and vulnerability assessment
+
+        You have access to swarm coordination tools if you need help from other agents or want to complete the task.
+        ```
+        """  # noqa: E501
+        context_info: dict[str, Any] = {
+            "task": self.state.task,
+            "node_history": [node.node_id for node in self.state.node_history],
+            "shared_context": {k: v for k, v in self.shared_context.context.items()},
+        }
         context_text = ""
+
+        # Include handoff message prominently at the top if present
+        if self.state.handoff_message:
+            context_text += f"Handoff Message: {self.state.handoff_message}\n\n"
 
         # Include task information if available
         if "task" in context_info:
             task = context_info.get("task")
             if isinstance(task, str):
-                context_text += f"Task: {task}\n\n"
+                context_text += f"User Request: {task}\n\n"
             elif isinstance(task, list):
-                context_text += "Task: Multi-modal task\n\n"
+                context_text += "User Request: Multi-modal task\n\n"
 
         # Include detailed node history
         if context_info.get("node_history"):
@@ -494,9 +474,10 @@ class Swarm(MultiAgentBase):
             context_text += "\n"
 
         # Include available nodes with descriptions if available
-        if context_info.get("available_nodes"):
+        other_nodes = [node_id for node_id in self.nodes.keys() if node_id != target_node.node_id]
+        if other_nodes:
             context_text += "Other agents available for collaboration:\n"
-            for node_id in context_info["available_nodes"]:
+            for node_id in other_nodes:
                 node = self.nodes.get(node_id)
                 context_text += f"Agent name: {node_id}."
                 if node and hasattr(node.executor, "description") and node.executor.description:
@@ -516,56 +497,63 @@ class Swarm(MultiAgentBase):
         try:
             # Main execution loop
             while True:
-                should_continue, reason = self.state.should_continue(self.config)
-                if not should_continue:
+                if self.state.completion_status != Status.EXECUTING:
+                    reason = f"Completion status is: {self.state.completion_status}"
                     logger.info("reason=<%s> | stopping execution", reason)
                     break
 
-                self.state.increment_iteration(self.state.current_node, self.config)
+                should_continue, reason = self.state.should_continue(
+                    max_handoffs=self.max_handoffs,
+                    max_iterations=self.max_iterations,
+                    execution_timeout=self.execution_timeout,
+                    repetitive_handoff_detection_window=self.repetitive_handoff_detection_window,
+                    repetitive_handoff_min_unique_agents=self.repetitive_handoff_min_unique_agents,
+                )
+                if not should_continue:
+                    self.state.completion_status = Status.FAILED
+                    logger.info("reason=<%s> | stopping execution", reason)
+                    break
 
                 # Get current node
-                current_node_node = self.state.current_node
-                if not current_node_node or current_node_node.node_id not in self.nodes:
-                    logger.error(
-                        "node=<%s> | node not found", current_node_node.node_id if current_node_node else "None"
-                    )
+                current_node = self.state.current_node
+                if not current_node or current_node.node_id not in self.nodes:
+                    logger.error("node=<%s> | node not found", current_node.node_id if current_node else "None")
                     self.state.completion_status = Status.FAILED
                     break
 
                 logger.info(
                     "current_node=<%s>, iteration=<%d> | executing node",
-                    current_node_node.node_id,
-                    self.state.iteration_count,
+                    current_node.node_id,
+                    len(self.state.node_history) + 1,
                 )
 
                 # Execute node with timeout protection
                 try:
                     await asyncio.wait_for(
-                        self._execute_node(current_node_node, self.state.task),
-                        timeout=self.config.node_timeout,
+                        self._execute_node(current_node, self.state.task),
+                        timeout=self.node_timeout,
                     )
 
-                    self.state.node_history.append(current_node_node)
-                    self.shared_context.node_history.append(current_node_node)
+                    self.state.node_history.append(current_node)
 
-                    logger.info("node=<%s> | node execution completed", current_node_node.node_id)
+                    logger.info("node=<%s> | node execution completed", current_node.node_id)
 
                     # Immediate check for completion after node execution
                     if self.state.completion_status != Status.EXECUTING:
-                        logger.info("status=<%s> | task completed with status", self.state.completion_status)
+                        logger.info("status=<%s> | task completed with status", self.state.completion_status)  # type: ignore[unreachable]
                         break
 
                 except asyncio.TimeoutError:
                     logger.exception(
                         "node=<%s>, timeout=<%s>s | node execution timed out after timeout",
-                        current_node_node.node_id,
-                        self.config.node_timeout,
+                        current_node.node_id,
+                        self.node_timeout,
                     )
                     self.state.completion_status = Status.FAILED
                     break
 
                 except Exception:
-                    logger.exception("node=<%s> | node execution failed", current_node_node.node_id)
+                    logger.exception("node=<%s> | node execution failed", current_node.node_id)
                     self.state.completion_status = Status.FAILED
                     break
 
@@ -576,8 +564,7 @@ class Swarm(MultiAgentBase):
         elapsed_time = time.time() - self.state.start_time
         logger.info("status=<%s> | swarm execution completed", self.state.completion_status)
         logger.info(
-            "iterations=<%d>, handoffs=<%d>, time=<%s>s | metrics",
-            self.state.iteration_count,
+            "node_history_length=<%d>, time=<%s>s | metrics",
             len(self.state.node_history),
             f"{elapsed_time:.2f}",
         )
@@ -589,9 +576,11 @@ class Swarm(MultiAgentBase):
 
         try:
             # Prepare context for node
-            context_info = self.shared_context.get_relevant_context(node)
-            context_text = self._format_context(context_info)
+            context_text = self._build_node_input(node)
             node_input = [ContentBlock(text=f"Context:\n{context_text}\n\n")]
+
+            # Clear handoff message after it's been included in context
+            self.state.handoff_message = None
 
             if not isinstance(task, str):
                 # Include additional ContentBlocks in node input
@@ -660,7 +649,6 @@ class Swarm(MultiAgentBase):
         self.state.accumulated_usage["outputTokens"] += node_result.accumulated_usage.get("outputTokens", 0)
         self.state.accumulated_usage["totalTokens"] += node_result.accumulated_usage.get("totalTokens", 0)
         self.state.accumulated_metrics["latencyMs"] += node_result.accumulated_metrics.get("latencyMs", 0)
-        self.state.execution_count += node_result.execution_count
 
     def _build_result(self) -> SwarmResult:
         """Build swarm result from current state."""
@@ -669,10 +657,7 @@ class Swarm(MultiAgentBase):
             results=self.state.results,
             accumulated_usage=self.state.accumulated_usage,
             accumulated_metrics=self.state.accumulated_metrics,
-            execution_count=self.state.execution_count,
+            execution_count=len(self.state.node_history),
             execution_time=self.state.execution_time,
             node_history=self.state.node_history,
-            message_history=self.state.message_history,
-            iteration_count=self.state.iteration_count,
-            final_result=self.state.final_result,
         )

@@ -248,7 +248,7 @@ class Graph(MultiAgentBase):
         self.state = GraphState()
         self.tracer = get_tracer()
 
-    def execute(self, task: str | list[ContentBlock], **kwargs: Any) -> GraphResult:
+    def __call__(self, task: str | list[ContentBlock], **kwargs: Any) -> GraphResult:
         """Execute task synchronously."""
 
         def execute() -> GraphResult:
@@ -438,7 +438,22 @@ class Graph(MultiAgentBase):
         self.state.execution_count += node_result.execution_count
 
     def _build_node_input(self, node: GraphNode) -> list[ContentBlock]:
-        """Build input for a node based on dependency outputs."""
+        """Build input text for a node based on dependency outputs.
+
+        Example formatted output:
+        ```
+        Original Task: Analyze the quarterly sales data and create a summary report
+
+        Inputs from previous nodes:
+
+        From data_processor:
+          - Agent: Sales data processed successfully. Found 1,247 transactions totaling $89,432.
+          - Agent: Key trends: 15% increase in Q3, top product category is Electronics.
+
+        From validator:
+          - Agent: Data validation complete. All records verified, no anomalies detected.
+        ```
+        """
         # Get satisfied dependencies
         dependency_results = {}
         for edge in self.edges:

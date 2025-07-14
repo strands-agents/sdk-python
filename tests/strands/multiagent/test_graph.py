@@ -453,7 +453,7 @@ def test_graph_synchronous_execution(mock_strands_tracer, mock_use_span, mock_ag
     graph = builder.build()
 
     # Test synchronous execution
-    result = graph.execute("Test synchronous execution")
+    result = graph("Test synchronous execution")
 
     # Verify execution results
     assert result.status == Status.COMPLETED
