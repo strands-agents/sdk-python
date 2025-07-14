@@ -1,3 +1,4 @@
+import math
 import time
 from unittest.mock import MagicMock, Mock
 
@@ -62,41 +63,6 @@ def create_mock_agent(
     return agent
 
 
-def create_handoff_agent(name, target_agent_name, response_text="Handing off"):
-    """Create a mock agent that performs handoffs."""
-    agent = create_mock_agent(name, response_text, complete_after_calls=999)  # Never complete naturally
-
-    def create_handoff_result():
-        agent._call_count += 1
-        # Perform handoff after first call
-        if agent._call_count == 1 and agent._swarm_ref:
-            target_node = agent._swarm_ref.nodes.get(target_agent_name)
-            if target_node:
-                agent._swarm_ref._handle_handoff(
-                    target_node, f"Handing off to {target_agent_name}", {"handoff_context": "test_data"}
-                )
-
-        return AgentResult(
-            message={"role": "assistant", "content": [{"text": response_text}]},
-            stop_reason="end_turn",
-            state={},
-            metrics=Mock(
-                accumulated_usage={"inputTokens": 5, "outputTokens": 10, "totalTokens": 15},
-                accumulated_metrics={"latencyMs": 50.0},
-            ),
-        )
-
-    agent.return_value = create_handoff_result()
-    agent.__call__ = Mock(side_effect=create_handoff_result)
-
-    async def mock_stream_async(*args, **kwargs):
-        result = create_handoff_result()
-        yield {"result": result}
-
-    agent.stream_async = MagicMock(side_effect=mock_stream_async)
-    return agent
-
-
 @pytest.fixture
 def mock_agents():
     """Create a set of mock agents for testing."""
@@ -126,8 +92,7 @@ def mock_swarm(mock_agents):
     return swarm
 
 
-@pytest.mark.asyncio
-async def test_swarm_structure_and_nodes(mock_swarm, mock_agents):
+def test_swarm_structure_and_nodes(mock_swarm, mock_agents):
     """Test swarm structure and SwarmNode properties."""
     # Test swarm structure
     assert len(mock_swarm.nodes) == 3
@@ -179,32 +144,6 @@ def test_shared_context(mock_swarm):
 
     with pytest.raises(ValueError, match="Value is not JSON serializable"):
         shared_context.add_context(coordinator_node, "key", lambda x: x)
-
-
-@pytest.mark.asyncio
-async def test_swarm_execution_async(mock_swarm, mock_agents):
-    """Test asynchronous swarm execution."""
-    # Execute swarm with multi-modal content
-    multi_modal_task = [ContentBlock(text="Analyze this task"), ContentBlock(text="Additional context")]
-    result = await mock_swarm.execute_async(multi_modal_task)
-
-    # Verify execution results
-    assert result.status == Status.COMPLETED
-    assert result.execution_count >= 1
-    assert len(result.results) >= 1
-    assert result.execution_time >= 0
-
-    # Verify agent was called
-    mock_agents["coordinator"].stream_async.assert_called()
-
-    # Verify metrics aggregation
-    assert result.accumulated_usage["totalTokens"] >= 0
-    assert result.accumulated_metrics["latencyMs"] >= 0
-
-    # Verify result type
-    assert isinstance(result, SwarmResult)
-    assert hasattr(result, "node_history")
-    assert len(result.node_history) >= 1
 
 
 def test_swarm_state_should_continue(mock_swarm):
@@ -273,6 +212,31 @@ def test_swarm_state_should_continue(mock_swarm):
     assert "Repetitive handoff" in reason
 
 
+@pytest.mark.asyncio
+async def test_swarm_execution_async(mock_swarm, mock_agents):
+    """Test asynchronous swarm execution."""
+    # Execute swarm
+    task = [ContentBlock(text="Analyze this task"), ContentBlock(text="Additional context")]
+    result = await mock_swarm.execute_async(task)
+
+    # Verify execution results
+    assert result.status == Status.COMPLETED
+    assert result.execution_count == 1
+    assert len(result.results) == 1
+
+    # Verify agent was called
+    mock_agents["coordinator"].stream_async.assert_called()
+
+    # Verify metrics aggregation
+    assert result.accumulated_usage["totalTokens"] >= 0
+    assert result.accumulated_metrics["latencyMs"] >= 0
+
+    # Verify result type
+    assert isinstance(result, SwarmResult)
+    assert hasattr(result, "node_history")
+    assert len(result.node_history) == 1
+
+
 def test_swarm_synchronous_execution(mock_agents):
     """Test synchronous swarm execution using __call__ method."""
     agents = list(mock_agents.values())
@@ -293,8 +257,8 @@ def test_swarm_synchronous_execution(mock_agents):
 
     # Verify execution results
     assert result.status == Status.COMPLETED
-    assert result.execution_count >= 1
-    assert len(result.results) >= 1
+    assert result.execution_count == 1
+    assert len(result.results) == 1
     assert result.execution_time >= 0
 
     # Verify agent was called
@@ -348,22 +312,72 @@ def test_swarm_builder_validation(mock_agents):
 
 def test_swarm_handoff_functionality():
     """Test swarm handoff functionality."""
-    # Test handoff functionality - successful handoff during execution
-    handoff_agent = create_handoff_agent("handoff_agent", "completion_agent")
-    completion_agent = create_mock_agent("completion_agent", complete_after_calls=1)
 
-    # Create a swarm with lower limits to avoid hitting max handoffs
-    handoff_swarm = Swarm(nodes=[handoff_agent, completion_agent], max_handoffs=5, max_iterations=5)
+    # Create an agent that will hand off to another agent
+    def create_handoff_agent(name, target_agent_name, response_text="Handing off"):
+        """Create a mock agent that performs handoffs."""
+        agent = create_mock_agent(name, response_text, complete_after_calls=math.inf)  # Never complete naturally
+        agent._handoff_done = False  # Track if handoff has been performed
+
+        def create_handoff_result():
+            agent._call_count += 1
+            # Perform handoff on first execution call (not setup calls)
+            if not agent._handoff_done and agent._swarm_ref and hasattr(agent._swarm_ref.state, "completion_status"):
+                target_node = agent._swarm_ref.nodes.get(target_agent_name)
+                if target_node:
+                    agent._swarm_ref._handle_handoff(
+                        target_node, f"Handing off to {target_agent_name}", {"handoff_context": "test_data"}
+                    )
+                    agent._handoff_done = True
+
+            return AgentResult(
+                message={"role": "assistant", "content": [{"text": response_text}]},
+                stop_reason="end_turn",
+                state={},
+                metrics=Mock(
+                    accumulated_usage={"inputTokens": 5, "outputTokens": 10, "totalTokens": 15},
+                    accumulated_metrics={"latencyMs": 50.0},
+                ),
+            )
+
+        agent.return_value = create_handoff_result()
+        agent.__call__ = Mock(side_effect=create_handoff_result)
+
+        async def mock_stream_async(*args, **kwargs):
+            result = create_handoff_result()
+            yield {"result": result}
+
+        agent.stream_async = MagicMock(side_effect=mock_stream_async)
+        return agent
+
+    # Create agents - first one hands off, second one completes
+    handoff_agent = create_handoff_agent("handoff_agent", "completion_agent")
+    completion_agent = create_mock_agent("completion_agent", "Task completed", complete_after_calls=1)
+
+    # Create a swarm with reasonable limits
+    handoff_swarm = Swarm(nodes=[handoff_agent, completion_agent], max_handoffs=10, max_iterations=10)
     handoff_agent._swarm_ref = handoff_swarm
     completion_agent._swarm_ref = handoff_swarm
 
-    # Execute swarm - this will trigger handoff during execution (not when completed)
+    # Execute swarm - this should hand off from first agent to second agent
     result = handoff_swarm("Test handoff during execution")
-    # The handoff might still fail due to the complexity of the mock setup, but we've covered the handoff path
-    # The important thing is that we've tested the handoff logic itself
-    assert result.status in [Status.COMPLETED, Status.FAILED]  # Either outcome is acceptable for coverage
 
-    # Test handoff when task is already completed (different path)
+    # Verify the handoff occurred
+    assert result.status == Status.COMPLETED
+    assert result.execution_count == 2  # Both agents should have executed
+    assert len(result.node_history) == 2
+
+    # Verify the handoff agent executed first
+    assert result.node_history[0].node_id == "handoff_agent"
+
+    # Verify the completion agent executed after handoff
+    assert result.node_history[1].node_id == "completion_agent"
+
+    # Verify both agents were called
+    handoff_agent.stream_async.assert_called()
+    completion_agent.stream_async.assert_called()
+
+    # Test handoff when task is already completed
     completed_swarm = Swarm(nodes=[handoff_agent, completion_agent])
     completed_swarm.state.completion_status = Status.COMPLETED
     completed_swarm._handle_handoff(completed_swarm.nodes["completion_agent"], "test message", {"key": "value"})

@@ -261,7 +261,7 @@ class Swarm(MultiAgentBase):
         try:
             logger.info("current_node=<%s> | starting swarm execution with node", self.state.current_node.node_id)
             logger.info(
-                "max_handoffs=<%d>, max_iterations=<%d>, timeout=<%s>s | SwarmConfig",
+                "max_handoffs=<%d>, max_iterations=<%d>, timeout=<%s>s | swarm execution config",
                 self.max_handoffs,
                 self.max_iterations,
                 self.execution_timeout,
