@@ -310,6 +310,8 @@ class OpenAIModel(Model):
                             "inputTokens": event["data"].prompt_tokens,
                             "outputTokens": event["data"].completion_tokens,
                             "totalTokens": event["data"].total_tokens,
+                            "cacheReadInputTokens": event["data"].prompt_tokens_details.cached_tokens,
+                            "cacheWriteInputTokens": 0,  # OpenAI does not return cache write information
                         },
                         "metrics": {
                             "latencyMs": 0,  # TODO
