@@ -250,7 +250,7 @@ class Graph(MultiAgentBase):
         self.entry_points = entry_points
         self.state = GraphState()
 
-    def execute(self, task: str | list[ContentBlock]) -> GraphResult:
+    def execute(self, task: str | list[ContentBlock], **kwargs: Any) -> GraphResult:
         """Execute task synchronously."""
 
         def execute() -> GraphResult:
@@ -260,7 +260,7 @@ class Graph(MultiAgentBase):
             future = executor.submit(execute)
             return future.result()
 
-    async def execute_async(self, task: str | list[ContentBlock]) -> GraphResult:
+    async def execute_async(self, task: str | list[ContentBlock], **kwargs: Any) -> GraphResult:
         """Execute the graph asynchronously."""
         logger.debug("task=<%s> | starting graph execution", task)
 

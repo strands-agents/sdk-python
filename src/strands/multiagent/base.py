@@ -6,7 +6,7 @@ Provides minimal foundation for multi-agent patterns (Swarm, Graph).
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Union
+from typing import Any, Union
 
 from ..agent import AgentResult
 from ..types.content import ContentBlock
@@ -76,11 +76,11 @@ class MultiAgentBase(ABC):
     """
 
     @abstractmethod
-    async def execute_async(self, task: str | list[ContentBlock]) -> MultiAgentResult:
+    async def execute_async(self, task: str | list[ContentBlock], **kwargs: Any) -> MultiAgentResult:
         """Execute task asynchronously."""
         raise NotImplementedError("execute_async not implemented")
 
     @abstractmethod
-    def execute(self, task: str | list[ContentBlock]) -> MultiAgentResult:
+    def execute(self, task: str | list[ContentBlock], **kwargs: Any) -> MultiAgentResult:
         """Execute task synchronously."""
         raise NotImplementedError("execute not implemented")
