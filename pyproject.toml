@@ -91,10 +91,10 @@ writer = [
 
 a2a = [
     "a2a-sdk[sql]>=0.2.11,<1.0.0",
-    "uvicorn>=0.34.2",
-    "httpx>=0.28.1",
-    "fastapi>=0.115.12",
-    "starlette>=0.46.2",
+    "uvicorn>=0.34.2,<1.0.0",
+    "httpx>=0.28.1,<1.0.0",
+    "fastapi>=0.115.12,<1.0.0",
+    "starlette>=0.46.2,<1.0.0",
 ]
 all = [
     # anthropic
@@ -137,10 +137,10 @@ all = [
 
     # a2a
     "a2a-sdk[sql]>=0.2.11,<1.0.0",
-    "uvicorn>=0.34.2",
-    "httpx>=0.28.1",
-    "fastapi>=0.115.12",
-    "starlette>=0.46.2",
+    "uvicorn>=0.34.2,<1.0.0",
+    "httpx>=0.28.1,<1.0.0",
+    "fastapi>=0.115.12,<1.0.0",
+    "starlette>=0.46.2,<1.0.0",
 ]
 
 [tool.hatch.version]
