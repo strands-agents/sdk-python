@@ -13,10 +13,15 @@ from strands import Agent
 from strands.agent import AgentResult
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
+from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
+from strands.session.repository_session_manager import RepositorySessionManager
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
+from strands.types.session import Session, SessionAgent, SessionType
+from tests.fixtures.mock_session_repository import MockedSessionRepository
+from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
 @pytest.fixture
@@ -334,7 +339,7 @@ def test_agent__call__(
     conversation_manager_spy.apply_management.assert_called_with(agent)
 
 
-def test_agent__call__passes_kwargs(mock_model, agent, tool, mock_event_loop_cycle, agenerator):
+def test_agent__call__passes_invocation_state(mock_model, agent, tool, mock_event_loop_cycle, agenerator):
     mock_model.mock_stream.side_effect = [
         agenerator(
             [
@@ -361,22 +366,22 @@ def test_agent__call__passes_kwargs(mock_model, agent, tool, mock_event_loop_cyc
     override_messages = [{"role": "user", "content": [{"text": "override msg"}]}]
     override_tool_config = {"test": "config"}
 
-    async def check_kwargs(**kwargs):
-        kwargs_kwargs = kwargs["kwargs"]
-        assert kwargs_kwargs["some_value"] == "a_value"
-        assert kwargs_kwargs["system_prompt"] == override_system_prompt
-        assert kwargs_kwargs["model"] == override_model
-        assert kwargs_kwargs["event_loop_metrics"] == override_event_loop_metrics
-        assert kwargs_kwargs["callback_handler"] == override_callback_handler
-        assert kwargs_kwargs["tool_handler"] == override_tool_handler
-        assert kwargs_kwargs["messages"] == override_messages
-        assert kwargs_kwargs["tool_config"] == override_tool_config
-        assert kwargs_kwargs["agent"] == agent
+    async def check_invocation_state(**kwargs):
+        invocation_state = kwargs["invocation_state"]
+        assert invocation_state["some_value"] == "a_value"
+        assert invocation_state["system_prompt"] == override_system_prompt
+        assert invocation_state["model"] == override_model
+        assert invocation_state["event_loop_metrics"] == override_event_loop_metrics
+        assert invocation_state["callback_handler"] == override_callback_handler
+        assert invocation_state["tool_handler"] == override_tool_handler
+        assert invocation_state["messages"] == override_messages
+        assert invocation_state["tool_config"] == override_tool_config
+        assert invocation_state["agent"] == agent
 
         # Return expected values from event_loop_cycle
         yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
 
-    mock_event_loop_cycle.side_effect = check_kwargs
+    mock_event_loop_cycle.side_effect = check_invocation_state
 
     agent(
         "test message",
@@ -636,7 +641,6 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
     )
 
     agent("test")
-
     callback_handler.assert_has_calls(
         [
             unittest.mock.call(init_event_loop=True),
@@ -1086,7 +1090,7 @@ async def test_stream_async_multi_modal_input(mock_model, agent, agenerator, ali
 
 
 @pytest.mark.asyncio
-async def test_stream_async_passes_kwargs(agent, mock_model, mock_event_loop_cycle, agenerator, alist):
+async def test_stream_async_passes_invocation_state(agent, mock_model, mock_event_loop_cycle, agenerator, alist):
     mock_model.mock_stream.side_effect = [
         agenerator(
             [
@@ -1105,13 +1109,13 @@ async def test_stream_async_passes_kwargs(agent, mock_model, mock_event_loop_cyc
         ),
     ]
 
-    async def check_kwargs(**kwargs):
-        kwargs_kwargs = kwargs["kwargs"]
-        assert kwargs_kwargs["some_value"] == "a_value"
+    async def check_invocation_state(**kwargs):
+        invocation_state = kwargs["invocation_state"]
+        assert invocation_state["some_value"] == "a_value"
         # Return expected values from event_loop_cycle
         yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
 
-    mock_event_loop_cycle.side_effect = check_kwargs
+    mock_event_loop_cycle.side_effect = check_invocation_state
 
     stream = agent.stream_async("test message", some_value="a_value")
 
@@ -1338,6 +1342,11 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
     mock_tracer.end_agent_span.assert_called_once_with(span=mock_span, error=test_exception)
 
 
+def test_agent_init_with_state_object():
+    agent = Agent(state=AgentState({"foo": "bar"}))
+    assert agent.state.get("foo") == "bar"
+
+
 def test_non_dict_throws_error():
     with pytest.raises(ValueError, match="state must be an AgentState object or a dict"):
         agent = Agent(state={"object", object()})
@@ -1391,3 +1400,28 @@ def test_agent_state_get_breaks_deep_dict_reference():
 
     # This will fail if AgentState reflects the updated reference
     json.dumps(agent.state.get())
+
+
+def test_agent_session_management():
+    mock_session_repository = MockedSessionRepository()
+    session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
+    agent = Agent(session_manager=session_manager, model=model)
+    agent("Hello!")
+
+
+def test_agent_restored_from_session_management():
+    mock_session_repository = MockedSessionRepository()
+    mock_session_repository.create_session(Session(session_id="123", session_type=SessionType.AGENT))
+    mock_session_repository.create_agent(
+        "123",
+        SessionAgent(
+            agent_id="default",
+            state={"foo": "bar"},
+        ),
+    )
+    session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
+
+    agent = Agent(session_manager=session_manager)
+
+    assert agent.state.get("foo") == "bar"

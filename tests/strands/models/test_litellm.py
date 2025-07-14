@@ -8,14 +8,14 @@ from strands.models.litellm import LiteLLMModel
 
 
 @pytest.fixture
-def litellm_client_cls():
-    with unittest.mock.patch.object(strands.models.litellm.litellm, "LiteLLM") as mock_client_cls:
-        yield mock_client_cls
+def litellm_acompletion():
+    with unittest.mock.patch.object(strands.models.litellm.litellm, "acompletion") as mock_acompletion:
+        yield mock_acompletion
 
 
 @pytest.fixture
-def litellm_client(litellm_client_cls):
-    return litellm_client_cls.return_value
+def api_key():
+    return "a1"
 
 
 @pytest.fixture
@@ -24,10 +24,10 @@ def model_id():
 
 
 @pytest.fixture
-def model(litellm_client, model_id):
-    _ = litellm_client
+def model(litellm_acompletion, api_key, model_id):
+    _ = litellm_acompletion
 
-    return LiteLLMModel(model_id=model_id)
+    return LiteLLMModel(client_args={"api_key": api_key}, model_id=model_id)
 
 
 @pytest.fixture
@@ -47,17 +47,6 @@ def test_output_model_cls():
         age: int
 
     return TestOutputModel
-
-
-def test__init__(litellm_client_cls, model_id):
-    model = LiteLLMModel({"api_key": "k1"}, model_id=model_id, params={"max_tokens": 1})
-
-    tru_config = model.get_config()
-    exp_config = {"model_id": "m1", "params": {"max_tokens": 1}}
-
-    assert tru_config == exp_config
-
-    litellm_client_cls.assert_called_once_with(api_key="k1")
 
 
 def test_update_config(model, model_id):
@@ -116,7 +105,7 @@ def test_format_request_message_content(content, exp_result):
 
 
 @pytest.mark.asyncio
-async def test_stream(litellm_client, model, alist):
+async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator, alist):
     mock_tool_call_1_part_1 = unittest.mock.Mock(index=0)
     mock_tool_call_2_part_1 = unittest.mock.Mock(index=1)
     mock_delta_1 = unittest.mock.Mock(
@@ -156,8 +145,8 @@ async def test_stream(litellm_client, model, alist):
         )
     )
 
-    litellm_client.chat.completions.create.return_value = iter(
-        [mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5, mock_event_6]
+    litellm_acompletion.side_effect = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5, mock_event_6])
     )
 
     messages = [{"role": "user", "content": [{"type": "text", "text": "calculate 2+2"}]}]
@@ -206,18 +195,20 @@ async def test_stream(litellm_client, model, alist):
     ]
 
     assert tru_events == exp_events
+
     expected_request = {
-        "model": "m1",
+        "api_key": api_key,
+        "model": model_id,
         "messages": [{"role": "user", "content": [{"text": "calculate 2+2", "type": "text"}]}],
         "stream": True,
         "stream_options": {"include_usage": True},
         "tools": [],
     }
-    litellm_client.chat.completions.create.assert_called_once_with(**expected_request)
+    litellm_acompletion.assert_called_once_with(**expected_request)
 
 
 @pytest.mark.asyncio
-async def test_structured_output(litellm_client, model, test_output_model_cls, alist):
+async def test_structured_output(litellm_acompletion, model, test_output_model_cls, alist):
     messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
 
     mock_choice = unittest.mock.Mock()
@@ -226,7 +217,7 @@ async def test_structured_output(litellm_client, model, test_output_model_cls, a
     mock_response = unittest.mock.Mock()
     mock_response.choices = [mock_choice]
 
-    litellm_client.chat.completions.create.return_value = mock_response
+    litellm_acompletion.side_effect = unittest.mock.AsyncMock(return_value=mock_response)
 
     with unittest.mock.patch.object(strands.models.litellm, "supports_response_schema", return_value=True):
         stream = model.structured_output(test_output_model_cls, messages)

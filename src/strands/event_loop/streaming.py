@@ -4,8 +4,8 @@ import json
 import logging
 from typing import Any, AsyncGenerator, AsyncIterable, Optional
 
+from ..models.model import Model
 from ..types.content import ContentBlock, Message, Messages
-from ..types.models import Model
 from ..types.streaming import (
     ContentBlockDeltaEvent,
     ContentBlockStart,

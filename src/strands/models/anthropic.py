@@ -17,9 +17,9 @@ from ..event_loop.streaming import process_stream
 from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
-from ..types.models import Model
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolSpec
+from .model import Model
 
 logger = logging.getLogger(__name__)
 
@@ -345,7 +345,11 @@ class AnthropicModel(Model):
 
     @override
     async def stream(
-        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+        self,
+        messages: Messages,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        system_prompt: Optional[str] = None,
+        **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Anthropic model.
 
@@ -353,6 +357,7 @@ class AnthropicModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Formatted message chunks from the model.
@@ -363,7 +368,7 @@ class AnthropicModel(Model):
         """
         logger.debug("formatting request")
         request = self.format_request(messages, tool_specs, system_prompt)
-        logger.debug("formatted request=<%s>", request)
+        logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")
         try:
@@ -389,20 +394,21 @@ class AnthropicModel(Model):
 
     @override
     async def structured_output(
-        self, output_model: Type[T], prompt: Messages
+        self, output_model: Type[T], prompt: Messages, **kwargs: Any
     ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:
             output_model: The output model to use for the agent.
             prompt: The prompt messages to use for the agent.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Model events with the last being the structured output.
         """
         tool_spec = convert_pydantic_to_tool_spec(output_model)
 
-        response = self.stream(messages=prompt, tool_specs=[tool_spec])
+        response = self.stream(messages=prompt, tool_specs=[tool_spec], **kwargs)
         async for event in process_stream(response, prompt):
             yield event
 

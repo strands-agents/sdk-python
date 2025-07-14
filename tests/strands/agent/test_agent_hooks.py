@@ -1,4 +1,4 @@
-from unittest.mock import ANY, Mock, call, patch
+from unittest.mock import ANY, Mock
 
 import pytest
 from pydantic import BaseModel
@@ -6,15 +6,16 @@ from pydantic import BaseModel
 import strands
 from strands import Agent
 from strands.experimental.hooks import (
-    AfterInvocationEvent,
     AfterModelInvocationEvent,
     AfterToolInvocationEvent,
-    AgentInitializedEvent,
-    BeforeInvocationEvent,
     BeforeModelInvocationEvent,
     BeforeToolInvocationEvent,
+)
+from strands.hooks import (
+    AfterInvocationEvent,
+    AgentInitializedEvent,
+    BeforeInvocationEvent,
     MessageAddedEvent,
-    get_registry,
 )
 from strands.types.content import Messages
 from strands.types.tools import ToolResult, ToolUse
@@ -77,7 +78,7 @@ def agent(
         tools=[agent_tool],
     )
 
-    hooks = get_registry(agent)
+    hooks = agent.hooks
     hooks.add_hook(hook_provider)
 
     def assert_message_is_last_message_added(event: MessageAddedEvent):
@@ -102,14 +103,16 @@ def user():
     return User(name="Jane Doe", age=30)
 
 
-@patch("strands.experimental.hooks.registry.HookRegistry.invoke_callbacks")
-def test_agent__init__hooks(mock_invoke_callbacks):
+def test_agent__init__hooks():
     """Verify that the AgentInitializedEvent is emitted on Agent construction."""
-    agent = Agent()
+    hook_provider = MockHookProvider(event_types=[AgentInitializedEvent])
+    agent = Agent(hooks=[hook_provider])
 
-    # Verify AgentInitialized event was invoked
-    mock_invoke_callbacks.assert_called_once()
-    assert mock_invoke_callbacks.call_args == call(AgentInitializedEvent(agent=agent))
+    length, events = hook_provider.get_events()
+
+    assert length == 1
+
+    assert next(events) == AgentInitializedEvent(agent=agent)
 
 
 def test_agent_tool_call(agent, hook_provider, agent_tool):
@@ -123,13 +126,13 @@ def test_agent_tool_call(agent, hook_provider, agent_tool):
     assert length == 6
 
     assert next(events) == BeforeToolInvocationEvent(
-        agent=agent, selected_tool=agent_tool, tool_use=tool_use, kwargs=ANY
+        agent=agent, selected_tool=agent_tool, tool_use=tool_use, invocation_state=ANY
     )
     assert next(events) == AfterToolInvocationEvent(
         agent=agent,
         selected_tool=agent_tool,
         tool_use=tool_use,
-        kwargs=ANY,
+        invocation_state=ANY,
         result=result,
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[0])
@@ -169,13 +172,13 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
 
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[1])
     assert next(events) == BeforeToolInvocationEvent(
-        agent=agent, selected_tool=agent_tool, tool_use=tool_use, kwargs=ANY
+        agent=agent, selected_tool=agent_tool, tool_use=tool_use, invocation_state=ANY
     )
     assert next(events) == AfterToolInvocationEvent(
         agent=agent,
         selected_tool=agent_tool,
         tool_use=tool_use,
-        kwargs=ANY,
+        invocation_state=ANY,
         result={"content": [{"text": "!loot a dekovni I"}], "status": "success", "toolUseId": "123"},
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[2])
@@ -230,13 +233,13 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
 
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[1])
     assert next(events) == BeforeToolInvocationEvent(
-        agent=agent, selected_tool=agent_tool, tool_use=tool_use, kwargs=ANY
+        agent=agent, selected_tool=agent_tool, tool_use=tool_use, invocation_state=ANY
     )
     assert next(events) == AfterToolInvocationEvent(
         agent=agent,
         selected_tool=agent_tool,
         tool_use=tool_use,
-        kwargs=ANY,
+        invocation_state=ANY,
         result={"content": [{"text": "!loot a dekovni I"}], "status": "success", "toolUseId": "123"},
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[2])

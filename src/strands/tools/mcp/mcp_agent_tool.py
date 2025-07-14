@@ -75,11 +75,16 @@ class MCPAgentTool(AgentTool):
         return "python"
 
     @override
-    async def stream(self, tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolGenerator:
+    async def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:
         """Stream the MCP tool.
 
         This method delegates the tool stream to the MCP server connection, passing the tool use ID, tool name, and
         input arguments.
+
+        Args:
+            tool_use: The tool use request containing tool ID and parameters.
+            invocation_state: Context for the tool invocation, including agent state.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Tool events with the last being the tool result.

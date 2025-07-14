@@ -13,9 +13,9 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
-from ..types.models.openai import OpenAIModel
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolSpec
+from .openai import OpenAIModel
 
 logger = logging.getLogger(__name__)
 
@@ -48,12 +48,10 @@ class LiteLLMModel(OpenAIModel):
                 https://github.com/BerriAI/litellm/blob/main/litellm/main.py.
             **model_config: Configuration options for the LiteLLM model.
         """
+        self.client_args = client_args or {}
         self.config = dict(model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
-
-        client_args = client_args or {}
-        self.client = litellm.LiteLLM(**client_args)
 
     @override
     def update_config(self, **model_config: Unpack[LiteLLMConfig]) -> None:  # type: ignore[override]
@@ -107,7 +105,11 @@ class LiteLLMModel(OpenAIModel):
 
     @override
     async def stream(
-        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+        self,
+        messages: Messages,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        system_prompt: Optional[str] = None,
+        **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the LiteLLM model.
 
@@ -115,16 +117,17 @@ class LiteLLMModel(OpenAIModel):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Formatted message chunks from the model.
         """
         logger.debug("formatting request")
         request = self.format_request(messages, tool_specs, system_prompt)
-        logger.debug("formatted request=<%s>", request)
+        logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")
-        response = self.client.chat.completions.create(**request)
+        response = await litellm.acompletion(**self.client_args, **request)
 
         logger.debug("got response from model")
         yield self.format_chunk({"chunk_type": "message_start"})
@@ -132,7 +135,7 @@ class LiteLLMModel(OpenAIModel):
 
         tool_calls: dict[int, list[Any]] = {}
 
-        for event in response:
+        async for event in response:
             # Defensive: skip events with empty or missing choices
             if not getattr(event, "choices", None):
                 continue
@@ -171,7 +174,7 @@ class LiteLLMModel(OpenAIModel):
         yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
 
         # Skip remaining events as we don't have use for anything except the final usage payload
-        for event in response:
+        async for event in response:
             _ = event
 
         usage = event.usage
@@ -188,21 +191,20 @@ class LiteLLMModel(OpenAIModel):
 
     @override
     async def structured_output(
-        self, output_model: Type[T], prompt: Messages
+        self, output_model: Type[T], prompt: Messages, **kwargs: Any
     ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:
             output_model: The output model to use for the agent.
             prompt: The prompt messages to use for the agent.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Model events with the last being the structured output.
         """
-        # The LiteLLM `Client` inits with Chat().
-        # Chat() inits with self.completions
-        # completions() has a method `create()` which wraps the real completion API of Litellm
-        response = self.client.chat.completions.create(
+        response = await litellm.acompletion(
+            **self.client_args,
             model=self.get_config()["model_id"],
             messages=self.format_request(prompt)["messages"],
             response_format=output_model,

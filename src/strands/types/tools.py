@@ -216,12 +216,13 @@ class AgentTool(ABC):
 
     @abstractmethod
     # pragma: no cover
-    def stream(self, tool_use: ToolUse, kwargs: dict[str, Any]) -> ToolGenerator:
+    def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:
         """Stream tool events and return the final result.
 
         Args:
             tool_use: The tool use request containing tool ID and parameters.
-            kwargs: Keyword arguments to pass to the tool.
+            invocation_state: Context for the tool invocation, including agent state.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Yield:
             Tool events with the last being the tool result.

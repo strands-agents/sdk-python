@@ -12,9 +12,9 @@ from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
 from ..types.content import ContentBlock, Messages
-from ..types.models import Model
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolSpec
+from .model import Model
 
 logger = logging.getLogger(__name__)
 
@@ -68,13 +68,11 @@ class OllamaModel(Model):
             ollama_client_args: Additional arguments for the Ollama client.
             **model_config: Configuration options for the Ollama model.
         """
+        self.host = host
+        self.client_args = ollama_client_args or {}
         self.config = OllamaModel.OllamaConfig(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
-
-        ollama_client_args = ollama_client_args if ollama_client_args is not None else {}
-
-        self.client = ollama.AsyncClient(host, **ollama_client_args)
 
     @override
     def update_config(self, **model_config: Unpack[OllamaConfig]) -> None:  # type: ignore
@@ -285,7 +283,11 @@ class OllamaModel(Model):
 
     @override
     async def stream(
-        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+        self,
+        messages: Messages,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        system_prompt: Optional[str] = None,
+        **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Ollama model.
 
@@ -293,18 +295,20 @@ class OllamaModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Formatted message chunks from the model.
         """
         logger.debug("formatting request")
         request = self.format_request(messages, tool_specs, system_prompt)
-        logger.debug("formatted request=<%s>", request)
+        logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")
         tool_requested = False
 
-        response = await self.client.chat(**request)
+        client = ollama.AsyncClient(self.host, **self.client_args)
+        response = await client.chat(**request)
 
         logger.debug("got response from model")
         yield self.format_chunk({"chunk_type": "message_start"})
@@ -329,13 +333,14 @@ class OllamaModel(Model):
 
     @override
     async def structured_output(
-        self, output_model: Type[T], prompt: Messages
+        self, output_model: Type[T], prompt: Messages, **kwargs: Any
     ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:
             output_model: The output model to use for the agent.
             prompt: The prompt messages to use for the agent.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Model events with the last being the structured output.
@@ -343,7 +348,9 @@ class OllamaModel(Model):
         formatted_request = self.format_request(messages=prompt)
         formatted_request["format"] = output_model.model_json_schema()
         formatted_request["stream"] = False
-        response = await self.client.chat(**formatted_request)
+
+        client = ollama.AsyncClient(self.host, **self.client_args)
+        response = await client.chat(**formatted_request)
 
         try:
             content = response.message.content.strip()

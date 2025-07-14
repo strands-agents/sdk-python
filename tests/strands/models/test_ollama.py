@@ -26,9 +26,7 @@ def host():
 
 
 @pytest.fixture
-def model(ollama_client, model_id, host):
-    _ = ollama_client
-
+def model(model_id, host):
     return OllamaModel(host, model_id=model_id)
 
 

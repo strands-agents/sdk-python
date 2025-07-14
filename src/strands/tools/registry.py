@@ -361,7 +361,7 @@ class ToolRegistry:
             logger.exception("tool_name=<%s> | failed to reload tool", tool_name)
             raise
 
-    def initialize_tools(self, load_tools_from_directory: bool = True) -> None:
+    def initialize_tools(self, load_tools_from_directory: bool = False) -> None:
         """Initialize all tools by discovering and loading them dynamically from all tool directories.
 
         Args:

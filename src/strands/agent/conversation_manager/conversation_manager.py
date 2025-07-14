@@ -1,7 +1,7 @@
 """Abstract interface for conversation history management."""
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
@@ -20,7 +20,7 @@ class ConversationManager(ABC):
 
     @abstractmethod
     # pragma: no cover
-    def apply_management(self, agent: "Agent") -> None:
+    def apply_management(self, agent: "Agent", **kwargs: Any) -> None:
         """Applies management strategy to the provided agent.
 
         Processes the conversation history to maintain appropriate size by modifying the messages list in-place.
@@ -30,12 +30,13 @@ class ConversationManager(ABC):
         Args:
             agent: The agent whose conversation history will be manage.
                 This list is modified in-place.
+            **kwargs: Additional keyword arguments for future extensibility.
         """
         pass
 
     @abstractmethod
     # pragma: no cover
-    def reduce_context(self, agent: "Agent", e: Optional[Exception] = None) -> None:
+    def reduce_context(self, agent: "Agent", e: Optional[Exception] = None, **kwargs: Any) -> None:
         """Called when the model's context window is exceeded.
 
         This method should implement the specific strategy for reducing the window size when a context overflow occurs.
@@ -52,5 +53,6 @@ class ConversationManager(ABC):
             agent: The agent whose conversation history will be reduced.
                 This list is modified in-place.
             e: The exception that triggered the context reduction, if any.
+            **kwargs: Additional keyword arguments for future extensibility.
         """
         pass

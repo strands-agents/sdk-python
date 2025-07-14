@@ -1,7 +1,7 @@
 """Sliding window conversation history management."""
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
@@ -55,63 +55,27 @@ class SlidingWindowConversationManager(ConversationManager):
         self.window_size = window_size
         self.should_truncate_results = should_truncate_results
 
-    def apply_management(self, agent: "Agent") -> None:
+    def apply_management(self, agent: "Agent", **kwargs: Any) -> None:
         """Apply the sliding window to the agent's messages array to maintain a manageable history size.
 
-        This method is called after every event loop cycle, as the messages array may have been modified with tool
-        results and assistant responses. It first removes any dangling messages that might create an invalid
-        conversation state, then applies the sliding window if the message count exceeds the window size.
-
-        Special handling is implemented to ensure we don't leave a user message with toolResult
-        as the first message in the array. It also ensures that all toolUse blocks have corresponding toolResult
-        blocks to maintain conversation coherence.
+        This method is called after every event loop cycle to apply a sliding window if the message count
+        exceeds the window size.
 
         Args:
             agent: The agent whose messages will be managed.
                 This list is modified in-place.
+            **kwargs: Additional keyword arguments for future extensibility.
         """
         messages = agent.messages
-        self._remove_dangling_messages(messages)
 
         if len(messages) <= self.window_size:
             logger.debug(
-                "window_size=<%s>, message_count=<%s> | skipping context reduction", len(messages), self.window_size
+                "message_count=<%s>, window_size=<%s> | skipping context reduction", len(messages), self.window_size
             )
             return
         self.reduce_context(agent)
 
-    def _remove_dangling_messages(self, messages: Messages) -> None:
-        """Remove dangling messages that would create an invalid conversation state.
-
-        After the event loop cycle is executed, we expect the messages array to end with either an assistant tool use
-        request followed by the pairing user tool result or an assistant response with no tool use request. If the
-        event loop cycle fails, we may end up in an invalid message state, and so this method will remove problematic
-        messages from the end of the array.
-
-        This method handles two specific cases:
-
-        - User with no tool result: Indicates that event loop failed to generate an assistant tool use request
-        - Assistant with tool use request: Indicates that event loop failed to generate a pairing user tool result
-
-        Args:
-            messages: The messages to clean up.
-                This list is modified in-place.
-        """
-        # remove any dangling user messages with no ToolResult
-        if len(messages) > 0 and is_user_message(messages[-1]):
-            if not any("toolResult" in content for content in messages[-1]["content"]):
-                messages.pop()
-
-        # remove any dangling assistant messages with ToolUse
-        if len(messages) > 0 and is_assistant_message(messages[-1]):
-            if any("toolUse" in content for content in messages[-1]["content"]):
-                messages.pop()
-                # remove remaining dangling user messages with no ToolResult after we popped off an assistant message
-                if len(messages) > 0 and is_user_message(messages[-1]):
-                    if not any("toolResult" in content for content in messages[-1]["content"]):
-                        messages.pop()
-
-    def reduce_context(self, agent: "Agent", e: Optional[Exception] = None) -> None:
+    def reduce_context(self, agent: "Agent", e: Optional[Exception] = None, **kwargs: Any) -> None:
         """Trim the oldest messages to reduce the conversation context size.
 
         The method handles special cases where trimming the messages leads to:
@@ -122,6 +86,7 @@ class SlidingWindowConversationManager(ConversationManager):
             agent: The agent whose messages will be reduce.
                 This list is modified in-place.
             e: The exception that triggered the context reduction, if any.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Raises:
             ContextWindowOverflowException: If the context cannot be reduced further.

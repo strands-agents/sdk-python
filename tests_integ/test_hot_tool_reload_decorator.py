@@ -30,7 +30,7 @@ def test_hot_reload_decorator():
 
     try:
         # Create an Agent instance without any tools
-        agent = Agent()
+        agent = Agent(load_tools_from_directory=True)
 
         # Create a test tool using @tool decorator
         with open(test_tool_path, "w") as f:
@@ -82,7 +82,7 @@ def test_hot_reload_decorator_update():
 
     try:
         # Create an Agent instance
-        agent = Agent()
+        agent = Agent(load_tools_from_directory=True)
 
         # Create the initial version of the tool
         with open(test_tool_path, "w") as f:

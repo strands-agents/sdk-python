@@ -1,7 +1,7 @@
 """Summarizing conversation history management with configurable options."""
 
 import logging
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from ...types.content import Message
 from ...types.exceptions import ContextWindowOverflowException
@@ -78,7 +78,7 @@ class SummarizingConversationManager(ConversationManager):
         self.summarization_agent = summarization_agent
         self.summarization_system_prompt = summarization_system_prompt
 
-    def apply_management(self, agent: "Agent") -> None:
+    def apply_management(self, agent: "Agent", **kwargs: Any) -> None:
         """Apply management strategy to conversation history.
 
         For the summarizing conversation manager, no proactive management is performed.
@@ -87,17 +87,19 @@ class SummarizingConversationManager(ConversationManager):
         Args:
             agent: The agent whose conversation history will be managed.
                 The agent's messages list is modified in-place.
+            **kwargs: Additional keyword arguments for future extensibility.
         """
         # No proactive management - summarization only happens on context overflow
         pass
 
-    def reduce_context(self, agent: "Agent", e: Optional[Exception] = None) -> None:
+    def reduce_context(self, agent: "Agent", e: Optional[Exception] = None, **kwargs: Any) -> None:
         """Reduce context using summarization.
 
         Args:
             agent: The agent whose conversation history will be reduced.
                 The agent's messages list is modified in-place.
             e: The exception that triggered the context reduction, if any.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Raises:
             ContextWindowOverflowException: If the context cannot be summarized.

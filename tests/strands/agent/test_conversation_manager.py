@@ -58,21 +58,21 @@ def conversation_manager(request):
                 {"role": "user", "content": [{"toolResult": {"toolUseId": "123", "content": [], "status": "success"}}]},
             ],
         ),
-        # 2 - Remove dangling user message with no tool result
+        # 2 - Keep user message
         (
             {"window_size": 2},
             [
                 {"role": "user", "content": [{"text": "Hello"}]},
             ],
-            [],
+            [{"role": "user", "content": [{"text": "Hello"}]}],
         ),
-        # 3 - Remove dangling assistant message with tool use
+        # 3 - Keep dangling assistant message with tool use
         (
             {"window_size": 3},
             [
                 {"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]},
             ],
-            [],
+            [{"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]}],
         ),
         # 4 - Remove dangling assistant message with tool use - User tool result remains
         (
@@ -83,6 +83,7 @@ def conversation_manager(request):
             ],
             [
                 {"role": "user", "content": [{"toolResult": {"toolUseId": "123", "content": [], "status": "success"}}]},
+                {"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]},
             ],
         ),
         # 5 - Remove dangling assistant message with tool use and user message without tool result
@@ -95,8 +96,9 @@ def conversation_manager(request):
                 {"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]},
             ],
             [
-                {"role": "user", "content": [{"text": "First"}]},
                 {"role": "assistant", "content": [{"text": "First response"}]},
+                {"role": "user", "content": [{"text": "Use a tool"}]},
+                {"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]},
             ],
         ),
         # 6 - Message count above max window size - Basic drop

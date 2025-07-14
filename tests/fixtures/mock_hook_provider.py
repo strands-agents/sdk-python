@@ -1,6 +1,6 @@
 from typing import Iterator, Tuple, Type
 
-from strands.experimental.hooks import HookEvent, HookProvider, HookRegistry
+from strands.hooks import HookEvent, HookProvider, HookRegistry
 
 
 class MockHookProvider(HookProvider):
