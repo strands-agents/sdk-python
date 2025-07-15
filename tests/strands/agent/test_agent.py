@@ -80,16 +80,20 @@ def mock_run_tool():
 
 @pytest.fixture
 def tool_registry():
-    return strands.tools.registry.ToolRegistry()
+    from strands.tools.registry import ToolRegistry
+
+    return ToolRegistry()
+
+
+# Define the decorated tool at module level
+@strands.tool(name="tool_decorated")
+def _tool_decorated_function(random_string: str) -> str:
+    return random_string
 
 
 @pytest.fixture
 def tool_decorated():
-    @strands.tools.tool(name="tool_decorated")
-    def function(random_string: str) -> str:
-        return random_string
-
-    return function
+    return _tool_decorated_function
 
 
 @pytest.fixture
@@ -142,7 +146,7 @@ def tool_imported(tmp_path, monkeypatch):
 
 @pytest.fixture
 def tool(tool_decorated, tool_registry):
-    tool_registry.register_tool(tool_decorated)
+    tool_registry.create_tool(tool_decorated)
     return tool_decorated
 
 
@@ -174,7 +178,7 @@ def agent(
     # Only register the tool directly if tools wasn't parameterized
     if not hasattr(request, "param") or request.param is None:
         # Create a new function tool directly from the decorated function
-        agent.tool_registry.register_tool(tool_decorated)
+        agent.tool_registry.create_tool(tool_decorated)
 
     return agent
 
@@ -194,7 +198,7 @@ def test_agent__init__tool_loader_format(tool_decorated, tool_module, tool_impor
 
     agent = Agent(tools=[tool_decorated, tool_module, tool_imported])
 
-    tru_tool_names = sorted(tool_spec["name"] for tool_spec in agent.tool_registry.get_all_tool_specs())
+    tru_tool_names = sorted(tool_spec["name"] for tool_spec in agent.tool_registry.list_tools().values())
     exp_tool_names = ["tool_decorated", "tool_imported", "tool_module"]
 
     assert tru_tool_names == exp_tool_names
@@ -205,7 +209,7 @@ def test_agent__init__tool_loader_dict(tool_module, tool_registry):
 
     agent = Agent(tools=[{"name": "tool_module", "path": tool_module}])
 
-    tru_tool_names = sorted(tool_spec["name"] for tool_spec in agent.tool_registry.get_all_tool_specs())
+    tru_tool_names = sorted(tool_spec["name"] for tool_spec in agent.tool_registry.list_tools().values())
     exp_tool_names = ["tool_module"]
 
     assert tru_tool_names == exp_tool_names
@@ -841,7 +845,7 @@ def test_agent_tool_tool_does_not_exist(agent):
 @pytest.mark.parametrize("tools", [None, [tool_decorated]], indirect=True)
 def test_agent_tool_names(tools, agent):
     actual = agent.tool_names
-    expected = list(agent.tool_registry.get_all_tools_config().keys())
+    expected = list(agent.tool_registry.list_tools().keys())
 
     assert actual == expected
 
@@ -859,11 +863,11 @@ def test_agent_init_with_no_model_or_model_id():
 def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint, mock_run_tool, agenerator):
     mock_run_tool.return_value = agenerator([{}])
 
-    @strands.tools.tool(name="system_prompter")
+    @strands.tool(name="system_prompter")
     def function(system_prompt: str) -> str:
         return system_prompt
 
-    agent.tool_registry.register_tool(function)
+    agent.tool_registry.create_tool(function)
 
     mock_randint.return_value = 1
 
@@ -885,11 +889,11 @@ def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint, 
 
     tool_name = "system-prompter"
 
-    @strands.tools.tool(name=tool_name)
+    @strands.tool(name=tool_name)
     def function(system_prompt: str) -> str:
         return system_prompt
 
-    agent.tool_registry.register_tool(function)
+    agent.tool_registry.create_tool(function)
 
     mock_randint.return_value = 1
 

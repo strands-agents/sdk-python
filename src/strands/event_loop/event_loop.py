@@ -117,7 +117,26 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
             model_id=model_id,
         )
         with trace_api.use_span(model_invoke_span):
-            tool_specs = agent.tool_registry.get_all_tool_specs()
+            tool_specs = list(agent.tool_registry.list_tools().values())
+
+        agent.hooks.invoke_callbacks(
+            BeforeModelInvocationEvent(
+                agent=agent,
+            )
+        )
+
+        try:
+            # TODO: To maintain backwards compatibility, we need to combine the stream event with invocation_state
+            #       before yielding to the callback handler. This will be revisited when migrating to strongly
+            #       typed events.
+            async for event in stream_messages(agent.model, agent.system_prompt, agent.messages, tool_specs):
+                if "callback" in event:
+                    yield {
+                        "callback": {**event["callback"], **(invocation_state if "delta" in event["callback"] else {})}
+                    }
+
+            stop_reason, message, usage, metrics = event["stop"]
+            invocation_state.setdefault("request_state", {})
 
             agent.hooks.invoke_callbacks(
                 BeforeModelInvocationEvent(
@@ -296,9 +315,14 @@ async def run_tool(agent: "Agent", tool_use: ToolUse, invocation_state: dict[str
     logger.debug("tool_use=<%s> | streaming", tool_use)
     tool_name = tool_use["name"]
 
-    # Get the tool info
-    tool_info = agent.tool_registry.dynamic_tools.get(tool_name)
-    tool_func = tool_info if tool_info is not None else agent.tool_registry.registry.get(tool_name)
+    # Get the tool info using the list_tools method
+    tool_specs = agent.tool_registry.list_tools()
+    tool_func = None
+
+    # Check if the tool exists in the registry
+    if tool_name in tool_specs:
+        # Get the tool from the registry
+        tool_func = agent.tool_registry.agent_tools.get(tool_name)
 
     # Add standard arguments to invocation_state for Python tools
     invocation_state.update(
@@ -307,7 +331,7 @@ async def run_tool(agent: "Agent", tool_use: ToolUse, invocation_state: dict[str
             "system_prompt": agent.system_prompt,
             "messages": agent.messages,
             "tool_config": ToolConfig(  # for backwards compatability
-                tools=[{"toolSpec": tool_spec} for tool_spec in agent.tool_registry.get_all_tool_specs()],
+                tools=[{"toolSpec": tool_spec} for tool_spec in agent.tool_registry.list_tools().values()],
                 toolChoice=cast(ToolChoice, {"auto": ToolChoiceAuto()}),
             ),
         }
@@ -333,7 +357,7 @@ async def run_tool(agent: "Agent", tool_use: ToolUse, invocation_state: dict[str
                 logger.error(
                     "tool_name=<%s>, available_tools=<%s> | tool not found in registry",
                     tool_name,
-                    list(agent.tool_registry.registry.keys()),
+                    list(agent.tool_registry.list_tools().keys()),
                 )
             else:
                 logger.debug(

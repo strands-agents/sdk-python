@@ -168,18 +168,17 @@ class Agent:
 
         def _find_normalized_tool_name(self, name: str) -> str:
             """Lookup the tool represented by name, replacing characters with underscores as necessary."""
-            tool_registry = self._agent.tool_registry.registry
+            # Use the list_tools method to get all tool specs
+            tool_specs = self._agent.tool_registry.list_tools()
 
-            if tool_registry.get(name, None):
+            if name in tool_specs:
                 return name
 
             # If the desired name contains underscores, it might be a placeholder for characters that can't be
             # represented as python identifiers but are valid as tool names, such as dashes. In that case, find
             # all tools that can be represented with the normalized name
             if "_" in name:
-                filtered_tools = [
-                    tool_name for (tool_name, tool) in tool_registry.items() if tool_name.replace("-", "_") == name
-                ]
+                filtered_tools = [tool_name for tool_name in tool_specs.keys() if tool_name.replace("-", "_") == name]
 
                 # The registry itself defends against similar names, so we can just take the first match
                 if filtered_tools:
@@ -281,16 +280,18 @@ class Agent:
                     self.trace_attributes[k] = v
 
         self.record_direct_tool_call = record_direct_tool_call
-        self.load_tools_from_directory = load_tools_from_directory
 
-        self.tool_registry = ToolRegistry()
+        # Initialize the tool registry with the directory loading option
+        self.tool_registry = ToolRegistry(load_tools_from_directory)
 
-        # Process tool list if provided
-        if tools is not None:
-            self.tool_registry.process_tools(tools)
+        # Initialize individual tools if provided
+        for tool in tools or []:
+            try:
+                self.tool_registry.create_tool(tool)
+            except Exception as e:
+                logger.error("Failed to create tool: %s", e)
 
-        # Initialize tools and configuration
-        self.tool_registry.initialize_tools(self.load_tools_from_directory)
+        # Set up tool watcher if loading from directory
         if load_tools_from_directory:
             self.tool_watcher = ToolWatcher(tool_registry=self.tool_registry)
 
@@ -347,8 +348,7 @@ class Agent:
         Returns:
             Names of all tools available to this agent.
         """
-        all_tools = self.tool_registry.get_all_tools_config()
-        return list(all_tools.keys())
+        return list(self.tool_registry.list_tools().keys())
 
     def __call__(self, prompt: Union[str, list[ContentBlock]], **kwargs: Any) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.

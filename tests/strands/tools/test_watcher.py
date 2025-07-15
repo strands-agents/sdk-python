@@ -59,8 +59,8 @@ def test_tool_watcher_initialization():
         },
     ],
 )
-@patch.object(ToolRegistry, "reload_tool")
-def test_on_modified_cases(mock_reload_tool, test_case):
+@patch.object(ToolRegistry, "update_tool")
+def test_on_modified_cases(mock_update_tool, test_case):
     """Test various cases for the on_modified method."""
     tool_registry = ToolRegistry()
     watcher = ToolWatcher(tool_registry)
@@ -76,13 +76,13 @@ def test_on_modified_cases(mock_reload_tool, test_case):
 
     # Verify the expected behavior
     if test_case["should_reload"]:
-        mock_reload_tool.assert_called_once_with(test_case["expected_tool_name"])
+        mock_update_tool.assert_called_once_with(test_case["src_path"])
     else:
-        mock_reload_tool.assert_not_called()
+        mock_update_tool.assert_not_called()
 
 
-@patch.object(ToolRegistry, "reload_tool", side_effect=Exception("Test error"))
-def test_on_modified_error_handling(mock_reload_tool):
+@patch.object(ToolRegistry, "update_tool", side_effect=Exception("Test error"))
+def test_on_modified_error_handling(mock_update_tool):
     """Test that on_modified handles errors during tool reloading."""
     tool_registry = ToolRegistry()
     watcher = ToolWatcher(tool_registry)
@@ -94,5 +94,5 @@ def test_on_modified_error_handling(mock_reload_tool):
     # Call the on_modified method - should not raise an exception
     watcher.tool_change_handler.on_modified(event)
 
-    # Verify that reload_tool was called
-    mock_reload_tool.assert_called_once_with("test_tool")
+    # Verify that update_tool was called
+    mock_update_tool.assert_called_once_with("/path/to/test_tool.py")
