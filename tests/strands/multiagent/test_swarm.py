@@ -56,11 +56,10 @@ def create_mock_agent(
     agent.return_value = create_mock_result()
     agent.__call__ = Mock(side_effect=create_mock_result)
 
-    async def mock_stream_async(*args, **kwargs):
-        result = create_mock_result()
-        yield {"result": result}
+    async def mock_invoke_async(*args, **kwargs):
+        return create_mock_result()
 
-    agent.stream_async = MagicMock(side_effect=mock_stream_async)
+    agent.invoke_async = MagicMock(side_effect=mock_invoke_async)
 
     return agent
 
@@ -227,7 +226,7 @@ async def test_swarm_execution_async(mock_swarm, mock_agents):
     assert len(result.results) == 1
 
     # Verify agent was called
-    mock_agents["coordinator"].stream_async.assert_called()
+    mock_agents["coordinator"].invoke_async.assert_called()
 
     # Verify metrics aggregation
     assert result.accumulated_usage["totalTokens"] >= 0
@@ -264,7 +263,7 @@ def test_swarm_synchronous_execution(mock_agents):
     assert result.execution_time >= 0
 
     # Verify agent was called
-    mock_agents["coordinator"].stream_async.assert_called()
+    mock_agents["coordinator"].invoke_async.assert_called()
 
     # Verify return type is SwarmResult
     assert isinstance(result, SwarmResult)
@@ -350,11 +349,10 @@ def test_swarm_handoff_functionality():
         agent.return_value = create_handoff_result()
         agent.__call__ = Mock(side_effect=create_handoff_result)
 
-        async def mock_stream_async(*args, **kwargs):
-            result = create_handoff_result()
-            yield {"result": result}
+        async def mock_invoke_async(*args, **kwargs):
+            return create_handoff_result()
 
-        agent.stream_async = MagicMock(side_effect=mock_stream_async)
+        agent.invoke_async = MagicMock(side_effect=mock_invoke_async)
         return agent
 
     # Create agents - first one hands off, second one completes
@@ -381,8 +379,8 @@ def test_swarm_handoff_functionality():
     assert result.node_history[1].node_id == "completion_agent"
 
     # Verify both agents were called
-    handoff_agent.stream_async.assert_called()
-    completion_agent.stream_async.assert_called()
+    handoff_agent.invoke_async.assert_called()
+    completion_agent.invoke_async.assert_called()
 
     # Test handoff when task is already completed
     completed_swarm = Swarm(nodes=[handoff_agent, completion_agent])

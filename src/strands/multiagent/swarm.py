@@ -19,7 +19,7 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Callable, Tuple, cast
+from typing import Any, Callable, Tuple
 
 from ..agent import Agent, AgentResult
 from ..agent.state import AgentState
@@ -601,12 +601,7 @@ class Swarm(MultiAgentBase):
             # Execute node
             result = None
             node.reset_executor_state()
-            async for event in node.executor.stream_async(node_input):
-                if "result" in event:
-                    result = cast(AgentResult, event["result"])
-
-            if not result:
-                raise ValueError(f"Node '{node_name}' did not return a result")
+            result = await node.executor.invoke_async(node_input)
 
             execution_time = round((time.time() - start_time) * 1000)
 

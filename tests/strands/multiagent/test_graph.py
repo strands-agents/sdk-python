@@ -29,10 +29,10 @@ def create_mock_agent(name, response_text="Default response", metrics=None, agen
     agent.return_value = mock_result
     agent.__call__ = Mock(return_value=mock_result)
 
-    async def mock_stream_async(*args, **kwargs):
-        yield {"result": mock_result}
+    async def mock_invoke_async(*args, **kwargs):
+        return mock_result
 
-    agent.stream_async = MagicMock(side_effect=mock_stream_async)
+    agent.invoke_async = MagicMock(side_effect=mock_invoke_async)
 
     return agent
 
@@ -194,14 +194,14 @@ async def test_graph_execution(mock_strands_tracer, mock_use_span, mock_graph, m
     assert result.execution_order[0].node_id == "start_agent"
 
     # Verify agent calls
-    mock_agents["start_agent"].stream_async.assert_called_once()
+    mock_agents["start_agent"].invoke_async.assert_called_once()
     mock_agents["multi_agent"].invoke_async.assert_called_once()
-    mock_agents["conditional_agent"].stream_async.assert_called_once()
-    mock_agents["final_agent"].stream_async.assert_called_once()
-    mock_agents["no_metrics_agent"].stream_async.assert_called_once()
-    mock_agents["partial_metrics_agent"].stream_async.assert_called_once()
-    string_content_agent.stream_async.assert_called_once()
-    mock_agents["blocked_agent"].stream_async.assert_not_called()
+    mock_agents["conditional_agent"].invoke_async.assert_called_once()
+    mock_agents["final_agent"].invoke_async.assert_called_once()
+    mock_agents["no_metrics_agent"].invoke_async.assert_called_once()
+    mock_agents["partial_metrics_agent"].invoke_async.assert_called_once()
+    string_content_agent.invoke_async.assert_called_once()
+    mock_agents["blocked_agent"].invoke_async.assert_not_called()
 
     # Verify metrics aggregation
     assert result.accumulated_usage["totalTokens"] > 0
@@ -261,12 +261,10 @@ async def test_graph_execution_with_failures(mock_strands_tracer, mock_use_span)
     failing_agent.id = "fail_node"
     failing_agent.__call__ = Mock(side_effect=Exception("Simulated failure"))
 
-    # Create a proper failing async generator for stream_async
-    async def mock_stream_failure(*args, **kwargs):
+    async def mock_invoke_failure(*args, **kwargs):
         raise Exception("Simulated failure")
-        yield  # This will never be reached
 
-    failing_agent.stream_async = mock_stream_failure
+    failing_agent.invoke_async = mock_invoke_failure
 
     success_agent = create_mock_agent("success_agent", "Success")
 
@@ -301,7 +299,7 @@ async def test_graph_edge_cases(mock_strands_tracer, mock_use_span):
     result = await graph.invoke_async([{"text": "Original task"}])
 
     # Verify entry node was called with original task
-    entry_agent.stream_async.assert_called_once_with([{"text": "Original task"}])
+    entry_agent.invoke_async.assert_called_once_with([{"text": "Original task"}])
     assert result.status == Status.COMPLETED
     mock_strands_tracer.start_multiagent_span.assert_called()
     mock_use_span.assert_called_once()
@@ -482,8 +480,8 @@ def test_graph_synchronous_execution(mock_strands_tracer, mock_use_span, mock_ag
     assert result.execution_order[1].node_id == "final_agent"
 
     # Verify agent calls
-    mock_agents["start_agent"].stream_async.assert_called_once()
-    mock_agents["final_agent"].stream_async.assert_called_once()
+    mock_agents["start_agent"].invoke_async.assert_called_once()
+    mock_agents["final_agent"].invoke_async.assert_called_once()
 
     # Verify return type is GraphResult
     assert isinstance(result, GraphResult)

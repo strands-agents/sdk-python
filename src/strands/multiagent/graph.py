@@ -19,11 +19,11 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Callable, Tuple, cast
+from typing import Any, Callable, Tuple
 
 from opentelemetry import trace as trace_api
 
-from ..agent import Agent, AgentResult
+from ..agent import Agent
 from ..telemetry import get_tracer
 from ..types.content import ContentBlock
 from ..types.event_loop import Metrics, Usage
@@ -379,15 +379,7 @@ class Graph(MultiAgentBase):
                 )
 
             elif isinstance(node.executor, Agent):
-                agent_response: AgentResult | None = (
-                    None  # Initialize with None to handle case where no result is yielded
-                )
-                async for event in node.executor.stream_async(node_input):
-                    if "result" in event:
-                        agent_response = cast(AgentResult, event["result"])
-
-                if not agent_response:
-                    raise ValueError(f"Node '{node.node_id}' did not return a result")
+                agent_response = await node.executor.invoke_async(node_input)
 
                 # Extract metrics from agent response
                 usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
