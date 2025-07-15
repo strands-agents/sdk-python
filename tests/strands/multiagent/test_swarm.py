@@ -1,4 +1,3 @@
-import math
 import time
 from unittest.mock import MagicMock, Mock, patch
 
@@ -14,9 +13,7 @@ from strands.session.session_manager import SessionManager
 from strands.types.content import ContentBlock
 
 
-def create_mock_agent(
-    name, response_text="Default response", metrics=None, agent_id=None, complete_after_calls=1, should_fail=False
-):
+def create_mock_agent(name, response_text="Default response", metrics=None, agent_id=None, should_fail=False):
     """Create a mock Agent with specified properties."""
     agent = Mock(spec=Agent)
     agent.name = name
@@ -27,8 +24,6 @@ def create_mock_agent(
     agent.tool_registry.registry = {}
     agent.tool_registry.process_tools = Mock()
     agent._call_count = 0
-    agent._complete_after = complete_after_calls
-    agent._swarm_ref = None  # Will be set by the swarm
     agent._should_fail = should_fail
     agent._session_manager = None
     agent.hooks = HookRegistry()
@@ -45,11 +40,6 @@ def create_mock_agent(
         # Simulate failure if requested
         if agent._should_fail:
             raise Exception("Simulated agent failure")
-
-        # After specified calls, complete the task
-        if agent._call_count >= agent._complete_after and agent._swarm_ref:
-            # Directly call the completion handler
-            agent._swarm_ref._handle_completion()
 
         return AgentResult(
             message={"role": "assistant", "content": [{"text": response_text}]},
@@ -73,9 +63,9 @@ def create_mock_agent(
 def mock_agents():
     """Create a set of mock agents for testing."""
     return {
-        "coordinator": create_mock_agent("coordinator", "Coordinating task", complete_after_calls=1),
-        "specialist": create_mock_agent("specialist", "Specialized response", complete_after_calls=1),
-        "reviewer": create_mock_agent("reviewer", "Review complete", complete_after_calls=1),
+        "coordinator": create_mock_agent("coordinator", "Coordinating task"),
+        "specialist": create_mock_agent("specialist", "Specialized response"),
+        "reviewer": create_mock_agent("reviewer", "Review complete"),
     }
 
 
@@ -90,10 +80,6 @@ def mock_swarm(mock_agents):
         execution_timeout=30.0,
         node_timeout=10.0,
     )
-
-    # Set swarm reference on agents so they can call completion
-    for agent in agents:
-        agent._swarm_ref = swarm
 
     return swarm
 
@@ -273,10 +259,6 @@ def test_swarm_synchronous_execution(mock_strands_tracer, mock_use_span, mock_ag
         node_timeout=5.0,
     )
 
-    # Set swarm reference on agents so they can call completion
-    for agent in agents:
-        agent._swarm_ref = swarm
-
     # Test synchronous execution
     result = swarm("Test synchronous swarm execution")
 
@@ -335,13 +317,6 @@ def test_swarm_builder_validation(mock_agents):
     with pytest.raises(ValueError, match="already has tools with names that conflict"):
         Swarm(nodes=[conflicting_agent])
 
-    # Test tool name conflicts - complete tool
-    conflicting_complete_agent = create_mock_agent("conflicting_complete")
-    conflicting_complete_agent.tool_registry.registry = {"complete_swarm_task": Mock()}
-
-    with pytest.raises(ValueError, match="already has tools with names that conflict"):
-        Swarm(nodes=[conflicting_complete_agent])
-
 
 def test_swarm_handoff_functionality():
     """Test swarm handoff functionality."""
@@ -349,13 +324,18 @@ def test_swarm_handoff_functionality():
     # Create an agent that will hand off to another agent
     def create_handoff_agent(name, target_agent_name, response_text="Handing off"):
         """Create a mock agent that performs handoffs."""
-        agent = create_mock_agent(name, response_text, complete_after_calls=math.inf)  # Never complete naturally
+        agent = create_mock_agent(name, response_text)
         agent._handoff_done = False  # Track if handoff has been performed
 
         def create_handoff_result():
             agent._call_count += 1
             # Perform handoff on first execution call (not setup calls)
-            if not agent._handoff_done and agent._swarm_ref and hasattr(agent._swarm_ref.state, "completion_status"):
+            if (
+                not agent._handoff_done
+                and hasattr(agent, "_swarm_ref")
+                and agent._swarm_ref
+                and hasattr(agent._swarm_ref.state, "completion_status")
+            ):
                 target_node = agent._swarm_ref.nodes.get(target_agent_name)
                 if target_node:
                     agent._swarm_ref._handle_handoff(
@@ -382,9 +362,9 @@ def test_swarm_handoff_functionality():
         agent.invoke_async = MagicMock(side_effect=mock_invoke_async)
         return agent
 
-    # Create agents - first one hands off, second one completes
+    # Create agents - first one hands off, second one completes by not handing off
     handoff_agent = create_handoff_agent("handoff_agent", "completion_agent")
-    completion_agent = create_mock_agent("completion_agent", "Task completed", complete_after_calls=1)
+    completion_agent = create_mock_agent("completion_agent", "Task completed")
 
     # Create a swarm with reasonable limits
     handoff_swarm = Swarm(nodes=[handoff_agent, completion_agent], max_handoffs=10, max_iterations=10)
@@ -427,10 +407,6 @@ def test_swarm_tool_creation_and_execution():
     assert error_result["status"] == "error"
     assert "not found" in error_result["content"][0]["text"]
 
-    completion_tool = error_swarm._create_complete_tool()
-    completion_result = completion_tool()
-    assert completion_result["status"] == "success"
-
 
 def test_swarm_failure_handling(mock_strands_tracer, mock_use_span):
     """Test swarm execution with agent failures."""
@@ -438,7 +414,6 @@ def test_swarm_failure_handling(mock_strands_tracer, mock_use_span):
     failing_agent = create_mock_agent("failing_agent")
     failing_agent._should_fail = True  # Set failure flag after creation
     failing_swarm = Swarm(nodes=[failing_agent], node_timeout=1.0)
-    failing_agent._swarm_ref = failing_swarm
 
     # The swarm catches exceptions internally and sets status to FAILED
     result = failing_swarm("Test failure handling")
@@ -451,10 +426,30 @@ def test_swarm_metrics_handling():
     """Test swarm metrics handling with missing metrics."""
     no_metrics_agent = create_mock_agent("no_metrics", metrics=None)
     no_metrics_swarm = Swarm(nodes=[no_metrics_agent])
-    no_metrics_agent._swarm_ref = no_metrics_swarm
 
     result = no_metrics_swarm("Test no metrics")
     assert result.status == Status.COMPLETED
+
+
+def test_swarm_auto_completion_without_handoff():
+    """Test swarm auto-completion when no handoff occurs."""
+    # Create a simple agent that doesn't hand off
+    no_handoff_agent = create_mock_agent("no_handoff_agent", "Task completed without handoff")
+
+    # Create a swarm with just this agent
+    auto_complete_swarm = Swarm(nodes=[no_handoff_agent])
+
+    # Execute swarm - this should complete automatically since there's no handoff
+    result = auto_complete_swarm("Test auto-completion without handoff")
+
+    # Verify the swarm completed successfully
+    assert result.status == Status.COMPLETED
+    assert result.execution_count == 1
+    assert len(result.node_history) == 1
+    assert result.node_history[0].node_id == "no_handoff_agent"
+
+    # Verify the agent was called
+    no_handoff_agent.invoke_async.assert_called()
 
 
 def test_swarm_validate_unsupported_features():

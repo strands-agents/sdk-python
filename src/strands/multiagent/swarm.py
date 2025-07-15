@@ -327,7 +327,6 @@ class Swarm(MultiAgentBase):
         # Create tool functions with proper closures
         swarm_tools = [
             self._create_handoff_tool(),
-            self._create_complete_tool(),
         ]
 
         for node in self.nodes.values():
@@ -337,8 +336,6 @@ class Swarm(MultiAgentBase):
 
             if "handoff_to_agent" in existing_tools:
                 conflicting_tools.append("handoff_to_agent")
-            if "complete_swarm_task" in existing_tools:
-                conflicting_tools.append("complete_swarm_task")
 
             if conflicting_tools:
                 raise ValueError(
@@ -388,27 +385,6 @@ class Swarm(MultiAgentBase):
 
         return handoff_to_agent
 
-    def _create_complete_tool(self) -> Callable[..., Any]:
-        """Create completion tool for task completion."""
-        swarm_ref = self  # Capture swarm reference
-
-        @tool
-        def complete_swarm_task() -> dict[str, Any]:
-            """Mark the task as complete. No more agents will be called.
-
-            Returns:
-                Task completion confirmation
-            """
-            try:
-                # Mark swarm as complete
-                swarm_ref._handle_completion()
-
-                return {"status": "success", "content": [{"text": "Task completed"}]}
-            except Exception as e:
-                return {"status": "error", "content": [{"text": f"Error completing task: {str(e)}"}]}
-
-        return complete_swarm_task
-
     def _handle_handoff(self, target_node: SwarmNode, message: str, context: dict[str, Any]) -> None:
         """Handle handoff to another agent."""
         # If task is already completed, don't allow further handoffs
@@ -437,12 +413,6 @@ class Swarm(MultiAgentBase):
             target_node.node_id,
         )
 
-    def _handle_completion(self) -> None:
-        """Handle task completion."""
-        self.state.completion_status = Status.COMPLETED
-
-        logger.debug("swarm task completed")
-
     def _build_node_input(self, target_node: SwarmNode) -> str:
         """Build input text for a node based on shared context and handoffs.
 
@@ -463,7 +433,7 @@ class Swarm(MultiAgentBase):
         Agent name: code_reviewer.
         Agent name: security_specialist. Agent description: Focuses on secure coding practices and vulnerability assessment
 
-        You have access to swarm coordination tools if you need help from other agents or want to complete the task.
+        You have access to swarm coordination tools if you need help from other agents. If you don't hand off to another agent, the swarm will consider the task complete.
         ```
         """  # noqa: E501
         context_info: dict[str, Any] = {
@@ -511,8 +481,8 @@ class Swarm(MultiAgentBase):
             context_text += "\n"
 
         context_text += (
-            "You have access to swarm coordination tools if you need help from other agents "
-            "or want to complete the task."
+            "You have access to swarm coordination tools if you need help from other agents. "
+            "If you don't hand off to another agent, the swarm will consider the task complete."
         )
 
         return context_text
@@ -564,9 +534,11 @@ class Swarm(MultiAgentBase):
 
                     logger.debug("node=<%s> | node execution completed", current_node.node_id)
 
-                    # Immediate check for completion after node execution
-                    if self.state.completion_status != Status.EXECUTING:
-                        logger.debug("status=<%s> | task completed with status", self.state.completion_status)  # type: ignore[unreachable]
+                    # Check if the current node is still the same after execution
+                    # If it is, then no handoff occurred and we consider the swarm complete
+                    if self.state.current_node == current_node:
+                        logger.debug("node=<%s> | no handoff occurred, marking swarm as complete", current_node.node_id)
+                        self.state.completion_status = Status.COMPLETED
                         break
 
                 except asyncio.TimeoutError:
