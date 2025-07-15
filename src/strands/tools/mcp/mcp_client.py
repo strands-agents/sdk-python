@@ -16,13 +16,14 @@ from asyncio import AbstractEventLoop
 from concurrent import futures
 from datetime import timedelta
 from types import TracebackType
-from typing import Any, Callable, Coroutine, Dict, List, Optional, TypeVar, Union
+from typing import Any, Callable, Coroutine, Dict, Optional, TypeVar, Union
 
 from mcp import ClientSession, ListToolsResult
 from mcp.types import CallToolResult as MCPCallToolResult
 from mcp.types import ImageContent as MCPImageContent
 from mcp.types import TextContent as MCPTextContent
 
+from ...types import PaginatedList
 from ...types.exceptions import MCPClientInitializationError
 from ...types.media import ImageFormat
 from ...types.tools import ToolResult, ToolResultContent, ToolResultStatus
@@ -128,7 +129,7 @@ class MCPClient:
         async def _set_close_event() -> None:
             self._close_event.set()
 
-        self._invoke_on_background_thread(_set_close_event())
+        self._invoke_on_background_thread(_set_close_event()).result()
         self._log_debug_with_thread("waiting for background thread to join")
         if self._background_thread is not None:
             self._background_thread.join()
@@ -140,7 +141,7 @@ class MCPClient:
         self._background_thread = None
         self._session_id = uuid.uuid4()
 
-    def list_tools_sync(self) -> List[MCPAgentTool]:
+    def list_tools_sync(self, pagination_token: Optional[str] = None) -> PaginatedList[MCPAgentTool]:
         """Synchronously retrieves the list of available tools from the MCP server.
 
         This method calls the asynchronous list_tools method on the MCP session
@@ -154,14 +155,14 @@ class MCPClient:
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _list_tools_async() -> ListToolsResult:
-            return await self._background_thread_session.list_tools()
+            return await self._background_thread_session.list_tools(cursor=pagination_token)
 
-        list_tools_response: ListToolsResult = self._invoke_on_background_thread(_list_tools_async())
+        list_tools_response: ListToolsResult = self._invoke_on_background_thread(_list_tools_async()).result()
         self._log_debug_with_thread("received %d tools from MCP server", len(list_tools_response.tools))
 
         mcp_tools = [MCPAgentTool(tool, self) for tool in list_tools_response.tools]
         self._log_debug_with_thread("successfully adapted %d MCP tools", len(mcp_tools))
-        return mcp_tools
+        return PaginatedList[MCPAgentTool](mcp_tools, token=list_tools_response.nextCursor)
 
     def call_tool_sync(
         self,
@@ -192,25 +193,68 @@ class MCPClient:
             return await self._background_thread_session.call_tool(name, arguments, read_timeout_seconds)
 
         try:
-            call_tool_result: MCPCallToolResult = self._invoke_on_background_thread(_call_tool_async())
-            self._log_debug_with_thread("received tool result with %d content items", len(call_tool_result.content))
-
-            mapped_content = [
-                mapped_content
-                for content in call_tool_result.content
-                if (mapped_content := self._map_mcp_content_to_tool_result_content(content)) is not None
-            ]
-
-            status: ToolResultStatus = "error" if call_tool_result.isError else "success"
-            self._log_debug_with_thread("tool execution completed with status: %s", status)
-            return ToolResult(status=status, toolUseId=tool_use_id, content=mapped_content)
+            call_tool_result: MCPCallToolResult = self._invoke_on_background_thread(_call_tool_async()).result()
+            return self._handle_tool_result(tool_use_id, call_tool_result)
         except Exception as e:
-            logger.warning("tool execution failed: %s", str(e), exc_info=True)
-            return ToolResult(
-                status="error",
-                toolUseId=tool_use_id,
-                content=[{"text": f"Tool execution failed: {str(e)}"}],
-            )
+            logger.exception("tool execution failed")
+            return self._handle_tool_execution_error(tool_use_id, e)
+
+    async def call_tool_async(
+        self,
+        tool_use_id: str,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: timedelta | None = None,
+    ) -> ToolResult:
+        """Asynchronously calls a tool on the MCP server.
+
+        This method calls the asynchronous call_tool method on the MCP session
+        and converts the result to the ToolResult format.
+
+        Args:
+            tool_use_id: Unique identifier for this tool use
+            name: Name of the tool to call
+            arguments: Optional arguments to pass to the tool
+            read_timeout_seconds: Optional timeout for the tool call
+
+        Returns:
+            ToolResult: The result of the tool call
+        """
+        self._log_debug_with_thread("calling MCP tool '%s' asynchronously with tool_use_id=%s", name, tool_use_id)
+        if not self._is_session_active():
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+
+        async def _call_tool_async() -> MCPCallToolResult:
+            return await self._background_thread_session.call_tool(name, arguments, read_timeout_seconds)
+
+        try:
+            future = self._invoke_on_background_thread(_call_tool_async())
+            call_tool_result: MCPCallToolResult = await asyncio.wrap_future(future)
+            return self._handle_tool_result(tool_use_id, call_tool_result)
+        except Exception as e:
+            logger.exception("tool execution failed")
+            return self._handle_tool_execution_error(tool_use_id, e)
+
+    def _handle_tool_execution_error(self, tool_use_id: str, exception: Exception) -> ToolResult:
+        """Create error ToolResult with consistent logging."""
+        return ToolResult(
+            status="error",
+            toolUseId=tool_use_id,
+            content=[{"text": f"Tool execution failed: {str(exception)}"}],
+        )
+
+    def _handle_tool_result(self, tool_use_id: str, call_tool_result: MCPCallToolResult) -> ToolResult:
+        self._log_debug_with_thread("received tool result with %d content items", len(call_tool_result.content))
+
+        mapped_content = [
+            mapped_content
+            for content in call_tool_result.content
+            if (mapped_content := self._map_mcp_content_to_tool_result_content(content)) is not None
+        ]
+
+        status: ToolResultStatus = "error" if call_tool_result.isError else "success"
+        self._log_debug_with_thread("tool execution completed with status: %s", status)
+        return ToolResult(status=status, toolUseId=tool_use_id, content=mapped_content)
 
     async def _async_background_thread(self) -> None:
         """Asynchronous method that runs in the background thread to manage the MCP connection.
@@ -296,12 +340,10 @@ class MCPClient:
             "[Thread: %s, Session: %s] %s", threading.current_thread().name, self._session_id, formatted_msg, **kwargs
         )
 
-    def _invoke_on_background_thread(self, coro: Coroutine[Any, Any, T]) -> T:
+    def _invoke_on_background_thread(self, coro: Coroutine[Any, Any, T]) -> futures.Future[T]:
         if self._background_thread_session is None or self._background_thread_event_loop is None:
             raise MCPClientInitializationError("the client session was not initialized")
-
-        future = asyncio.run_coroutine_threadsafe(coro=coro, loop=self._background_thread_event_loop)
-        return future.result()
+        return asyncio.run_coroutine_threadsafe(coro=coro, loop=self._background_thread_event_loop)
 
     def _is_session_active(self) -> bool:
         return self._background_thread is not None and self._background_thread.is_alive()

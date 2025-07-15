@@ -9,6 +9,7 @@ Classes:
     A2AAgent: A wrapper that adapts a Strands Agent to be A2A-compatible.
 """
 
+from .executor import StrandsA2AExecutor
 from .server import A2AServer
 
-__all__ = ["A2AServer"]
+__all__ = ["A2AServer", "StrandsA2AExecutor"]

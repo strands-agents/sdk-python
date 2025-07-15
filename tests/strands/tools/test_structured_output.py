@@ -226,3 +226,120 @@ def test_convert_pydantic_with_empty_docstring():
 
     tool_spec = convert_pydantic_to_tool_spec(EmptyDocUser)
     assert tool_spec["description"] == "EmptyDocUser structured output tool"
+
+
+def test_convert_pydantic_with_items_refs():
+    """Test that no $refs exist after lists of different components."""
+
+    class Address(BaseModel):
+        postal_code: Optional[str] = None
+
+    class Person(BaseModel):
+        """Complete person information."""
+
+        list_of_items: list[Address]
+        list_of_items_nullable: Optional[list[Address]]
+        list_of_item_or_nullable: list[Optional[Address]]
+
+    tool_spec = convert_pydantic_to_tool_spec(Person)
+
+    expected_spec = {
+        "description": "Complete person information.",
+        "inputSchema": {
+            "json": {
+                "description": "Complete person information.",
+                "properties": {
+                    "list_of_item_or_nullable": {
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "properties": {"postal_code": {"type": ["string", "null"]}},
+                                    "title": "Address",
+                                    "type": "object",
+                                },
+                                {"type": "null"},
+                            ]
+                        },
+                        "title": "List Of Item Or Nullable",
+                        "type": "array",
+                    },
+                    "list_of_items": {
+                        "items": {
+                            "properties": {"postal_code": {"type": ["string", "null"]}},
+                            "title": "Address",
+                            "type": "object",
+                        },
+                        "title": "List Of Items",
+                        "type": "array",
+                    },
+                    "list_of_items_nullable": {
+                        "items": {
+                            "properties": {"postal_code": {"type": ["string", "null"]}},
+                            "title": "Address",
+                            "type": "object",
+                        },
+                        "type": ["array", "null"],
+                    },
+                },
+                "required": ["list_of_items", "list_of_item_or_nullable"],
+                "title": "Person",
+                "type": "object",
+            }
+        },
+        "name": "Person",
+    }
+    assert tool_spec == expected_spec
+
+
+def test_convert_pydantic_with_refs():
+    """Test that no $refs exist after processing complex hierarchies."""
+
+    class Address(BaseModel):
+        street: str
+        city: str
+        country: str
+        postal_code: Optional[str] = None
+
+    class Contact(BaseModel):
+        address: Address
+
+    class Person(BaseModel):
+        """Complete person information."""
+
+        contact: Contact = Field(description="Contact methods")
+
+    tool_spec = convert_pydantic_to_tool_spec(Person)
+
+    expected_spec = {
+        "description": "Complete person information.",
+        "inputSchema": {
+            "json": {
+                "description": "Complete person information.",
+                "properties": {
+                    "contact": {
+                        "description": "Contact methods",
+                        "properties": {
+                            "address": {
+                                "properties": {
+                                    "city": {"title": "City", "type": "string"},
+                                    "country": {"title": "Country", "type": "string"},
+                                    "postal_code": {"type": ["string", "null"]},
+                                    "street": {"title": "Street", "type": "string"},
+                                },
+                                "required": ["street", "city", "country"],
+                                "title": "Address",
+                                "type": "object",
+                            }
+                        },
+                        "required": ["address"],
+                        "type": "object",
+                    }
+                },
+                "required": ["contact"],
+                "title": "Person",
+                "type": "object",
+            }
+        },
+        "name": "Person",
+    }
+    assert tool_spec == expected_spec

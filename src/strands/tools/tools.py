@@ -4,11 +4,15 @@ This module provides the base classes for all tool implementations in the SDK, i
 Python module-based tools, as well as utilities for validating tool uses and normalizing tool schemas.
 """
 
+import asyncio
+import inspect
 import logging
 import re
-from typing import Any, Callable, Dict
+from typing import Any
 
-from ..types.tools import AgentTool, ToolResult, ToolSpec, ToolUse
+from typing_extensions import override
+
+from ..types.tools import AgentTool, ToolFunc, ToolGenerator, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +48,7 @@ def validate_tool_use_name(tool: ToolUse) -> None:
         raise InvalidToolUseNameException(message)
 
     tool_name = tool["name"]
-    tool_name_pattern = r"^[a-zA-Z][a-zA-Z0-9_\-]*$"
+    tool_name_pattern = r"^[a-zA-Z0-9_\-]{1,}$"
     tool_name_max_length = 64
     valid_name_pattern = bool(re.match(tool_name_pattern, tool_name))
     tool_name_len = len(tool_name)
@@ -60,7 +64,7 @@ def validate_tool_use_name(tool: ToolUse) -> None:
         raise InvalidToolUseNameException(message)
 
 
-def _normalize_property(prop_name: str, prop_def: Any) -> Dict[str, Any]:
+def _normalize_property(prop_name: str, prop_def: Any) -> dict[str, Any]:
     """Normalize a single property definition.
 
     Args:
@@ -88,7 +92,7 @@ def _normalize_property(prop_name: str, prop_def: Any) -> Dict[str, Any]:
     return normalized_prop
 
 
-def normalize_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_schema(schema: dict[str, Any]) -> dict[str, Any]:
     """Normalize a JSON schema to match expectations.
 
     This function recursively processes nested objects to preserve the complete schema structure.
@@ -148,25 +152,23 @@ class PythonAgentTool(AgentTool):
     as SDK tools.
     """
 
-    _callback: Callable[[ToolUse, Any, dict[str, Any]], ToolResult]
     _tool_name: str
     _tool_spec: ToolSpec
+    _tool_func: ToolFunc
 
-    def __init__(
-        self, tool_name: str, tool_spec: ToolSpec, callback: Callable[[ToolUse, Any, dict[str, Any]], ToolResult]
-    ) -> None:
+    def __init__(self, tool_name: str, tool_spec: ToolSpec, tool_func: ToolFunc) -> None:
         """Initialize a Python-based tool.
 
         Args:
             tool_name: Unique identifier for the tool.
             tool_spec: Tool specification defining parameters and behavior.
-            callback: Python function to execute when the tool is invoked.
+            tool_func: Python function to execute when the tool is invoked.
         """
         super().__init__()
 
         self._tool_name = tool_name
         self._tool_spec = tool_spec
-        self._callback = callback
+        self._tool_func = tool_func
 
     @property
     def tool_name(self) -> str:
@@ -195,15 +197,21 @@ class PythonAgentTool(AgentTool):
         """
         return "python"
 
-    def invoke(self, tool: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolResult:
-        """Execute the Python function with the given tool use request.
+    @override
+    async def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:
+        """Stream the Python function with the given tool use request.
 
         Args:
-            tool: The tool use request.
-            *args: Additional positional arguments to pass to the underlying callback function.
-            **kwargs: Additional keyword arguments to pass to the underlying callback function.
+            tool_use: The tool use request.
+            invocation_state: Context for the tool invocation, including agent state.
+            **kwargs: Additional keyword arguments for future extensibility.
 
-        Returns:
-            A ToolResult containing the status and content from the callback execution.
+        Yields:
+            Tool events with the last being the tool result.
         """
-        return self._callback(tool, *args, **kwargs)
+        if inspect.iscoroutinefunction(self._tool_func):
+            result = await self._tool_func(tool_use, **invocation_state)
+        else:
+            result = await asyncio.to_thread(self._tool_func, tool_use, **invocation_state)
+
+        yield result

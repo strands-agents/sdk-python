@@ -10,10 +10,11 @@ from datetime import date, datetime, timezone
 from typing import Any, Dict, Mapping, Optional
 
 import opentelemetry.trace as trace_api
+from opentelemetry.instrumentation.threading import ThreadingInstrumentor
 from opentelemetry.trace import Span, StatusCode
 
 from ..agent.agent_result import AgentResult
-from ..types.content import Message, Messages
+from ..types.content import ContentBlock, Message, Messages
 from ..types.streaming import StopReason, Usage
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
@@ -85,10 +86,9 @@ class Tracer:
         """Initialize the tracer."""
         self.service_name = __name__
         self.tracer_provider: Optional[trace_api.TracerProvider] = None
-        self.tracer: Optional[trace_api.Tracer] = None
-
         self.tracer_provider = trace_api.get_tracer_provider()
         self.tracer = self.tracer_provider.get_tracer(self.service_name)
+        ThreadingInstrumentor().instrument()
 
     def _start_span(
         self,
@@ -96,7 +96,7 @@ class Tracer:
         parent_span: Optional[Span] = None,
         attributes: Optional[Dict[str, AttributeValue]] = None,
         span_kind: trace_api.SpanKind = trace_api.SpanKind.INTERNAL,
-    ) -> Optional[Span]:
+    ) -> Span:
         """Generic helper method to start a span with common attributes.
 
         Args:
@@ -108,10 +108,13 @@ class Tracer:
         Returns:
             The created span, or None if tracing is not enabled
         """
-        if self.tracer is None:
-            return None
+        if not parent_span:
+            parent_span = trace_api.get_current_span()
 
-        context = trace_api.set_span_in_context(parent_span) if parent_span else None
+        context = None
+        if parent_span and parent_span.is_recording() and parent_span != trace_api.INVALID_SPAN:
+            context = trace_api.set_span_in_context(parent_span)
+
         span = self.tracer.start_span(name=span_name, context=context, kind=span_kind)
 
         # Set start time as a common attribute
@@ -233,7 +236,7 @@ class Tracer:
         # Add additional kwargs as attributes
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
 
-        span = self._start_span("Model invoke", parent_span, attributes, span_kind=trace_api.SpanKind.CLIENT)
+        span = self._start_span("chat", parent_span, attributes=attributes, span_kind=trace_api.SpanKind.CLIENT)
         for message in messages:
             self._add_event(
                 span,
@@ -291,8 +294,8 @@ class Tracer:
         # Add additional kwargs as attributes
         attributes.update(kwargs)
 
-        span_name = f"Tool: {tool['name']}"
-        span = self._start_span(span_name, parent_span, attributes, span_kind=trace_api.SpanKind.INTERNAL)
+        span_name = f"execute_tool {tool['name']}"
+        span = self._start_span(span_name, parent_span, attributes=attributes, span_kind=trace_api.SpanKind.INTERNAL)
 
         self._add_event(
             span,
@@ -340,7 +343,7 @@ class Tracer:
 
     def start_event_loop_cycle_span(
         self,
-        event_loop_kwargs: Any,
+        invocation_state: Any,
         messages: Messages,
         parent_span: Optional[Span] = None,
         **kwargs: Any,
@@ -348,7 +351,7 @@ class Tracer:
         """Start a new span for an event loop cycle.
 
         Args:
-            event_loop_kwargs: Arguments for the event loop cycle.
+            invocation_state: Arguments for the event loop cycle.
             parent_span: Optional parent span to link this span to.
             messages:  Messages being processed in this cycle.
             **kwargs: Additional attributes to add to the span.
@@ -356,20 +359,20 @@ class Tracer:
         Returns:
             The created span, or None if tracing is not enabled.
         """
-        event_loop_cycle_id = str(event_loop_kwargs.get("event_loop_cycle_id"))
-        parent_span = parent_span if parent_span else event_loop_kwargs.get("event_loop_parent_span")
+        event_loop_cycle_id = str(invocation_state.get("event_loop_cycle_id"))
+        parent_span = parent_span if parent_span else invocation_state.get("event_loop_parent_span")
 
         attributes: Dict[str, AttributeValue] = {
             "event_loop.cycle_id": event_loop_cycle_id,
         }
 
-        if "event_loop_parent_cycle_id" in event_loop_kwargs:
-            attributes["event_loop.parent_cycle_id"] = str(event_loop_kwargs["event_loop_parent_cycle_id"])
+        if "event_loop_parent_cycle_id" in invocation_state:
+            attributes["event_loop.parent_cycle_id"] = str(invocation_state["event_loop_parent_cycle_id"])
 
         # Add additional kwargs as attributes
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
 
-        span_name = f"Cycle {event_loop_cycle_id}"
+        span_name = "execute_event_loop_cycle"
         span = self._start_span(span_name, parent_span, attributes)
         for message in messages or []:
             self._add_event(
@@ -405,7 +408,7 @@ class Tracer:
 
     def start_agent_span(
         self,
-        prompt: str,
+        message: Message,
         agent_name: str,
         model_id: Optional[str] = None,
         tools: Optional[list] = None,
@@ -415,7 +418,7 @@ class Tracer:
         """Start a new span for an agent invocation.
 
         Args:
-            prompt: The user prompt being sent to the agent.
+            message: The user message being sent to the agent.
             agent_name: Name of the agent.
             model_id: Optional model identifier.
             tools: Optional list of tools being used.
@@ -452,7 +455,7 @@ class Tracer:
             span,
             "gen_ai.user.message",
             event_attributes={
-                "content": prompt,
+                "content": serialize(message["content"]),
             },
         )
 
@@ -494,6 +497,41 @@ class Tracer:
                 )
 
         self._end_span(span, attributes, error)
+
+    def start_multiagent_span(
+        self,
+        task: str | list[ContentBlock],
+        instance: str,
+    ) -> Span:
+        """Start a new span for swarm invocation."""
+        attributes: Dict[str, AttributeValue] = {
+            "gen_ai.system": "strands-agents",
+            "gen_ai.agent.name": instance,
+            "gen_ai.operation.name": f"invoke_{instance}",
+        }
+
+        span = self._start_span(f"invoke_{instance}", attributes=attributes, span_kind=trace_api.SpanKind.CLIENT)
+        content = serialize(task) if isinstance(task, list) else task
+        self._add_event(
+            span,
+            "gen_ai.user.message",
+            event_attributes={"content": content},
+        )
+
+        return span
+
+    def end_swarm_span(
+        self,
+        span: Span,
+        result: Optional[str] = None,
+    ) -> None:
+        """End a swarm span with results."""
+        if result:
+            self._add_event(
+                span,
+                "gen_ai.choice",
+                event_attributes={"message": result},
+            )
 
 
 # Singleton instance for global access

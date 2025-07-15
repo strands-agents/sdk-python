@@ -4,6 +4,7 @@ import json
 import os
 import textwrap
 import unittest.mock
+from uuid import uuid4
 
 import pytest
 from pydantic import BaseModel
@@ -13,10 +14,15 @@ from strands import Agent
 from strands.agent import AgentResult
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
+from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
+from strands.session.repository_session_manager import RepositorySessionManager
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
+from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
+from tests.fixtures.mock_session_repository import MockedSessionRepository
+from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
 @pytest.fixture
@@ -27,12 +33,20 @@ def mock_randint():
 
 @pytest.fixture
 def mock_model(request):
-    def converse(*args, **kwargs):
-        return mock.mock_converse(*copy.deepcopy(args), **copy.deepcopy(kwargs))
+    async def stream(*args, **kwargs):
+        result = mock.mock_stream(*copy.deepcopy(args), **copy.deepcopy(kwargs))
+        # If result is already an async generator, yield from it
+        if hasattr(result, "__aiter__"):
+            async for item in result:
+                yield item
+        else:
+            # If result is a regular generator or iterable, convert to async
+            for item in result:
+                yield item
 
     mock = unittest.mock.Mock(spec=getattr(request, "param", None))
-    mock.configure_mock(mock_converse=unittest.mock.MagicMock())
-    mock.converse.side_effect = converse
+    mock.configure_mock(mock_stream=unittest.mock.MagicMock())
+    mock.stream.side_effect = stream
 
     return mock
 
@@ -55,6 +69,12 @@ def messages(request):
 @pytest.fixture
 def mock_event_loop_cycle():
     with unittest.mock.patch("strands.agent.agent.event_loop_cycle") as mock:
+        yield mock
+
+
+@pytest.fixture
+def mock_run_tool():
+    with unittest.mock.patch("strands.agent.agent.run_tool") as mock:
         yield mock
 
 
@@ -174,7 +194,7 @@ def test_agent__init__tool_loader_format(tool_decorated, tool_module, tool_impor
 
     agent = Agent(tools=[tool_decorated, tool_module, tool_imported])
 
-    tru_tool_names = sorted(tool_spec["toolSpec"]["name"] for tool_spec in agent.tool_config["tools"])
+    tru_tool_names = sorted(tool_spec["name"] for tool_spec in agent.tool_registry.get_all_tool_specs())
     exp_tool_names = ["tool_decorated", "tool_imported", "tool_module"]
 
     assert tru_tool_names == exp_tool_names
@@ -185,23 +205,10 @@ def test_agent__init__tool_loader_dict(tool_module, tool_registry):
 
     agent = Agent(tools=[{"name": "tool_module", "path": tool_module}])
 
-    tru_tool_names = sorted(tool_spec["toolSpec"]["name"] for tool_spec in agent.tool_config["tools"])
+    tru_tool_names = sorted(tool_spec["name"] for tool_spec in agent.tool_registry.get_all_tool_specs())
     exp_tool_names = ["tool_module"]
 
     assert tru_tool_names == exp_tool_names
-
-
-def test_agent__init__invalid_max_parallel_tools(tool_registry):
-    _ = tool_registry
-
-    with pytest.raises(ValueError):
-        Agent(max_parallel_tools=0)
-
-
-def test_agent__init__one_max_parallel_tools_succeeds(tool_registry):
-    _ = tool_registry
-
-    Agent(max_parallel_tools=1)
 
 
 def test_agent__init__with_default_model():
@@ -235,7 +242,7 @@ def test_agent__call__(
     conversation_manager_spy = unittest.mock.Mock(wraps=agent.conversation_manager)
     agent.conversation_manager = conversation_manager_spy
 
-    mock_model.mock_converse.side_effect = [
+    mock_model.mock_stream.side_effect = [
         agenerator(
             [
                 {
@@ -276,7 +283,7 @@ def test_agent__call__(
 
     assert tru_result == exp_result
 
-    mock_model.mock_converse.assert_has_calls(
+    mock_model.mock_stream.assert_has_calls(
         [
             unittest.mock.call(
                 [
@@ -333,8 +340,8 @@ def test_agent__call__(
     conversation_manager_spy.apply_management.assert_called_with(agent)
 
 
-def test_agent__call__passes_kwargs(mock_model, agent, tool, mock_event_loop_cycle, agenerator):
-    mock_model.mock_converse.side_effect = [
+def test_agent__call__passes_invocation_state(mock_model, agent, tool, mock_event_loop_cycle, agenerator):
+    mock_model.mock_stream.side_effect = [
         agenerator(
             [
                 {
@@ -360,22 +367,22 @@ def test_agent__call__passes_kwargs(mock_model, agent, tool, mock_event_loop_cyc
     override_messages = [{"role": "user", "content": [{"text": "override msg"}]}]
     override_tool_config = {"test": "config"}
 
-    async def check_kwargs(**kwargs):
-        kwargs_kwargs = kwargs["kwargs"]
-        assert kwargs_kwargs["some_value"] == "a_value"
-        assert kwargs_kwargs["system_prompt"] == override_system_prompt
-        assert kwargs_kwargs["model"] == override_model
-        assert kwargs_kwargs["event_loop_metrics"] == override_event_loop_metrics
-        assert kwargs_kwargs["callback_handler"] == override_callback_handler
-        assert kwargs_kwargs["tool_handler"] == override_tool_handler
-        assert kwargs_kwargs["messages"] == override_messages
-        assert kwargs_kwargs["tool_config"] == override_tool_config
-        assert kwargs_kwargs["agent"] == agent
+    async def check_invocation_state(**kwargs):
+        invocation_state = kwargs["invocation_state"]
+        assert invocation_state["some_value"] == "a_value"
+        assert invocation_state["system_prompt"] == override_system_prompt
+        assert invocation_state["model"] == override_model
+        assert invocation_state["event_loop_metrics"] == override_event_loop_metrics
+        assert invocation_state["callback_handler"] == override_callback_handler
+        assert invocation_state["tool_handler"] == override_tool_handler
+        assert invocation_state["messages"] == override_messages
+        assert invocation_state["tool_config"] == override_tool_config
+        assert invocation_state["agent"] == agent
 
         # Return expected values from event_loop_cycle
         yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
 
-    mock_event_loop_cycle.side_effect = check_kwargs
+    mock_event_loop_cycle.side_effect = check_invocation_state
 
     agent(
         "test message",
@@ -410,7 +417,7 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
     ]
     agent.messages = messages
 
-    mock_model.mock_converse.side_effect = [
+    mock_model.mock_stream.side_effect = [
         ContextWindowOverflowException(RuntimeError("Input is too long for requested model")),
         agenerator(
             [
@@ -440,7 +447,7 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
         },
     ]
 
-    mock_model.mock_converse.assert_called_with(
+    mock_model.mock_stream.assert_called_with(
         expected_messages,
         unittest.mock.ANY,
         unittest.mock.ANY,
@@ -465,7 +472,7 @@ def test_agent__call__always_sliding_window_conversation_manager_doesnt_infinite
     ] * 1000
     agent.messages = messages
 
-    mock_model.mock_converse.side_effect = ContextWindowOverflowException(
+    mock_model.mock_stream.side_effect = ContextWindowOverflowException(
         RuntimeError("Input is too long for requested model")
     )
 
@@ -489,7 +496,7 @@ def test_agent__call__null_conversation_window_manager__doesnt_infinite_loop(moc
     ] * 1000
     agent.messages = messages
 
-    mock_model.mock_converse.side_effect = ContextWindowOverflowException(
+    mock_model.mock_stream.side_effect = ContextWindowOverflowException(
         RuntimeError("Input is too long for requested model")
     )
 
@@ -513,7 +520,7 @@ def test_agent__call__tool_truncation_doesnt_infinite_loop(mock_model, agent):
     ]
     agent.messages = messages
 
-    mock_model.mock_converse.side_effect = ContextWindowOverflowException(
+    mock_model.mock_stream.side_effect = ContextWindowOverflowException(
         RuntimeError("Input is too long for requested model")
     )
 
@@ -534,7 +541,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
     ]
     agent.messages = messages
 
-    mock_model.mock_converse.side_effect = [
+    mock_model.mock_stream.side_effect = [
         agenerator(
             [
                 {
@@ -583,7 +590,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
         },
     ]
 
-    mock_model.mock_converse.assert_called_with(
+    mock_model.mock_stream.assert_called_with(
         expected_messages,
         unittest.mock.ANY,
         unittest.mock.ANY,
@@ -594,7 +601,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
 
 
 def test_agent__call__invalid_tool_use_event_loop_exception(mock_model, agent, tool, agenerator):
-    mock_model.mock_converse.side_effect = [
+    mock_model.mock_stream.side_effect = [
         agenerator(
             [
                 {
@@ -619,7 +626,7 @@ def test_agent__call__invalid_tool_use_event_loop_exception(mock_model, agent, t
 
 
 def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
-    mock_model.mock_converse.return_value = agenerator(
+    mock_model.mock_stream.return_value = agenerator(
         [
             {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "test"}}}},
             {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"value"}'}}}},
@@ -635,7 +642,6 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
     )
 
     agent("test")
-
     callback_handler.assert_has_calls(
         [
             unittest.mock.call(init_event_loop=True),
@@ -707,7 +713,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
 
 @pytest.mark.asyncio
 async def test_agent__call__in_async_context(mock_model, agent, agenerator):
-    mock_model.mock_converse.return_value = agenerator(
+    mock_model.mock_stream.return_value = agenerator(
         [
             {
                 "contentBlockStart": {"start": {}},
@@ -727,7 +733,7 @@ async def test_agent__call__in_async_context(mock_model, agent, agenerator):
 
 @pytest.mark.asyncio
 async def test_agent_invoke_async(mock_model, agent, agenerator):
-    mock_model.mock_converse.return_value = agenerator(
+    mock_model.mock_stream.return_value = agenerator(
         [
             {
                 "contentBlockStart": {"start": {}},
@@ -764,6 +770,24 @@ def test_agent_tool(mock_randint, agent):
 
     assert tru_result == exp_result
     conversation_manager_spy.apply_management.assert_called_with(agent)
+
+
+@pytest.mark.asyncio
+async def test_agent_tool_in_async_context(mock_randint, agent):
+    mock_randint.return_value = 123
+
+    tru_result = agent.tool.tool_decorated(random_string="abcdEfghI123")
+    exp_result = {
+        "content": [
+            {
+                "text": "abcdEfghI123",
+            },
+        ],
+        "status": "success",
+        "toolUseId": "tooluse_tool_decorated_123",
+    }
+
+    assert tru_result == exp_result
 
 
 def test_agent_tool_user_message_override(agent):
@@ -832,8 +856,8 @@ def test_agent_init_with_no_model_or_model_id():
     assert agent.model.get_config().get("model_id") == DEFAULT_BEDROCK_MODEL_ID
 
 
-def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint):
-    agent.tool_handler = unittest.mock.Mock(process=unittest.mock.Mock(return_value=iter([])))
+def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint, mock_run_tool, agenerator):
+    mock_run_tool.return_value = agenerator([{}])
 
     @strands.tools.tool(name="system_prompter")
     def function(system_prompt: str) -> str:
@@ -845,22 +869,19 @@ def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint):
 
     agent.tool.system_prompter(system_prompt="tool prompt")
 
-    agent.tool_handler.process.assert_called_with(
-        tool={
+    mock_run_tool.assert_called_with(
+        agent,
+        {
             "toolUseId": "tooluse_system_prompter_1",
             "name": "system_prompter",
             "input": {"system_prompt": "tool prompt"},
         },
-        model=unittest.mock.ANY,
-        system_prompt="You are a helpful assistant.",
-        messages=unittest.mock.ANY,
-        tool_config=unittest.mock.ANY,
-        kwargs={"system_prompt": "tool prompt"},
+        {"system_prompt": "tool prompt"},
     )
 
 
-def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint):
-    agent.tool_handler = unittest.mock.Mock(process=unittest.mock.Mock(return_value=iter([])))
+def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint, mock_run_tool, agenerator):
+    mock_run_tool.return_value = agenerator([{}])
 
     tool_name = "system-prompter"
 
@@ -875,16 +896,16 @@ def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint):
     agent.tool.system_prompter(system_prompt="tool prompt")
 
     # Verify the correct tool was invoked
-    assert agent.tool_handler.process.call_count == 1
-    tool_call = agent.tool_handler.process.call_args.kwargs.get("tool")
-
-    assert tool_call == {
+    assert mock_run_tool.call_count == 1
+    tru_tool_use = mock_run_tool.call_args.args[1]
+    exp_tool_use = {
         # Note that the tool-use uses the "python safe" name
         "toolUseId": "tooluse_system_prompter_1",
         # But the name of the tool is the one in the registry
         "name": tool_name,
         "input": {"system_prompt": "tool prompt"},
     }
+    assert tru_tool_use == exp_tool_use
 
 
 def test_agent_tool_with_no_normalized_match(agent, tool_registry, mock_randint):
@@ -951,6 +972,28 @@ def test_agent_structured_output(agent, user, agenerator):
     agent.model.structured_output.assert_called_once_with(type(user), [{"role": "user", "content": [{"text": prompt}]}])
 
 
+def test_agent_structured_output_multi_modal_input(agent, user, agenerator):
+    agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": user}]))
+
+    prompt = [
+        {"text": "Please describe the user in this image"},
+        {
+            "image": {
+                "format": "png",
+                "source": {
+                    "bytes": b"\x89PNG\r\n\x1a\n",
+                },
+            }
+        },
+    ]
+
+    tru_result = agent.structured_output(type(user), prompt)
+    exp_result = user
+    assert tru_result == exp_result
+
+    agent.model.structured_output.assert_called_once_with(type(user), [{"role": "user", "content": prompt}])
+
+
 @pytest.mark.asyncio
 async def test_agent_structured_output_in_async_context(agent, user, agenerator):
     agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": user}]))
@@ -1015,8 +1058,41 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle, alist):
 
 
 @pytest.mark.asyncio
-async def test_stream_async_passes_kwargs(agent, mock_model, mock_event_loop_cycle, agenerator, alist):
-    mock_model.mock_converse.side_effect = [
+async def test_stream_async_multi_modal_input(mock_model, agent, agenerator, alist):
+    mock_model.mock_stream.return_value = agenerator(
+        [
+            {"contentBlockDelta": {"delta": {"text": "I see text and an image"}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    )
+
+    prompt = [
+        {"text": "This is a description of the image:"},
+        {
+            "image": {
+                "format": "png",
+                "source": {
+                    "bytes": b"\x89PNG\r\n\x1a\n",
+                },
+            }
+        },
+    ]
+
+    stream = agent.stream_async(prompt)
+    await alist(stream)
+
+    tru_message = agent.messages
+    exp_message = [
+        {"content": prompt, "role": "user"},
+        {"content": [{"text": "I see text and an image"}], "role": "assistant"},
+    ]
+    assert tru_message == exp_message
+
+
+@pytest.mark.asyncio
+async def test_stream_async_passes_invocation_state(agent, mock_model, mock_event_loop_cycle, agenerator, alist):
+    mock_model.mock_stream.side_effect = [
         agenerator(
             [
                 {
@@ -1034,13 +1110,13 @@ async def test_stream_async_passes_kwargs(agent, mock_model, mock_event_loop_cyc
         ),
     ]
 
-    async def check_kwargs(**kwargs):
-        kwargs_kwargs = kwargs["kwargs"]
-        assert kwargs_kwargs["some_value"] == "a_value"
+    async def check_invocation_state(**kwargs):
+        invocation_state = kwargs["invocation_state"]
+        assert invocation_state["some_value"] == "a_value"
         # Return expected values from event_loop_cycle
         yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
 
-    mock_event_loop_cycle.side_effect = check_kwargs
+    mock_event_loop_cycle.side_effect = check_invocation_state
 
     stream = agent.stream_async("test message", some_value="a_value")
 
@@ -1132,7 +1208,7 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
     mock_get_tracer.return_value = mock_tracer
 
     # Setup mock model response
-    mock_model.mock_converse.side_effect = [
+    mock_model.mock_stream.side_effect = [
         agenerator(
             [
                 {"contentBlockDelta": {"delta": {"text": "test response"}}},
@@ -1147,12 +1223,12 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
-        prompt="test prompt",
         agent_name="Strands Agents",
-        model_id=unittest.mock.ANY,
-        tools=agent.tool_names,
-        system_prompt=agent.system_prompt,
         custom_trace_attributes=agent.trace_attributes,
+        message={"content": [{"text": "test prompt"}], "role": "user"},
+        model_id=unittest.mock.ANY,
+        system_prompt=agent.system_prompt,
+        tools=agent.tool_names,
     )
 
     # Verify span was ended with the result
@@ -1181,12 +1257,12 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
-        prompt="test prompt",
-        agent_name="Strands Agents",
-        model_id=unittest.mock.ANY,
-        tools=agent.tool_names,
-        system_prompt=agent.system_prompt,
         custom_trace_attributes=agent.trace_attributes,
+        agent_name="Strands Agents",
+        message={"content": [{"text": "test prompt"}], "role": "user"},
+        model_id=unittest.mock.ANY,
+        system_prompt=agent.system_prompt,
+        tools=agent.tool_names,
     )
 
     expected_response = AgentResult(
@@ -1208,7 +1284,7 @@ def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_mod
 
     # Setup mock model to raise an exception
     test_exception = ValueError("Test exception")
-    mock_model.mock_converse.side_effect = test_exception
+    mock_model.mock_stream.side_effect = test_exception
 
     # Create agent and make a call that will raise an exception
     agent = Agent(model=mock_model)
@@ -1219,12 +1295,12 @@ def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_mod
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
-        prompt="test prompt",
-        agent_name="Strands Agents",
-        model_id=unittest.mock.ANY,
-        tools=agent.tool_names,
-        system_prompt=agent.system_prompt,
         custom_trace_attributes=agent.trace_attributes,
+        agent_name="Strands Agents",
+        message={"content": [{"text": "test prompt"}], "role": "user"},
+        model_id=unittest.mock.ANY,
+        system_prompt=agent.system_prompt,
+        tools=agent.tool_names,
     )
 
     # Verify span was ended with the exception
@@ -1243,7 +1319,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
 
     # Define the side effect to simulate callback handler raising an Exception
     test_exception = ValueError("Test exception")
-    mock_model.mock_converse.side_effect = test_exception
+    mock_model.mock_stream.side_effect = test_exception
 
     # Create agent and make a call
     agent = Agent(model=mock_model)
@@ -1255,41 +1331,21 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
-        prompt="test prompt",
         agent_name="Strands Agents",
-        model_id=unittest.mock.ANY,
-        tools=agent.tool_names,
-        system_prompt=agent.system_prompt,
         custom_trace_attributes=agent.trace_attributes,
+        message={"content": [{"text": "test prompt"}], "role": "user"},
+        model_id=unittest.mock.ANY,
+        system_prompt=agent.system_prompt,
+        tools=agent.tool_names,
     )
 
     # Verify span was ended with the exception
     mock_tracer.end_agent_span.assert_called_once_with(span=mock_span, error=test_exception)
 
 
-@unittest.mock.patch("strands.agent.agent.get_tracer")
-def test_event_loop_cycle_includes_parent_span(mock_get_tracer, mock_event_loop_cycle, mock_model, agenerator):
-    """Test that event_loop_cycle is called with the parent span."""
-    # Setup mock tracer and span
-    mock_tracer = unittest.mock.MagicMock()
-    mock_span = unittest.mock.MagicMock()
-    mock_tracer.start_agent_span.return_value = mock_span
-    mock_get_tracer.return_value = mock_tracer
-
-    # Setup mock for event_loop_cycle
-    mock_event_loop_cycle.return_value = agenerator(
-        [{"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}]
-    )
-
-    # Create agent and make a call
-    agent = Agent(model=mock_model)
-    agent("test prompt")
-
-    # Verify event_loop_cycle was called with the span
-    mock_event_loop_cycle.assert_called_once()
-    kwargs = mock_event_loop_cycle.call_args[1]
-    assert "event_loop_parent_span" in kwargs
-    assert kwargs["event_loop_parent_span"] == mock_span
+def test_agent_init_with_state_object():
+    agent = Agent(state=AgentState({"foo": "bar"}))
+    assert agent.state.get("foo") == "bar"
 
 
 def test_non_dict_throws_error():
@@ -1345,3 +1401,172 @@ def test_agent_state_get_breaks_deep_dict_reference():
 
     # This will fail if AgentState reflects the updated reference
     json.dumps(agent.state.get())
+
+
+def test_agent_session_management():
+    mock_session_repository = MockedSessionRepository()
+    session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
+    agent = Agent(session_manager=session_manager, model=model)
+    agent("Hello!")
+
+
+def test_agent_restored_from_session_management():
+    mock_session_repository = MockedSessionRepository()
+    mock_session_repository.create_session(Session(session_id="123", session_type=SessionType.AGENT))
+    mock_session_repository.create_agent(
+        "123",
+        SessionAgent(
+            agent_id="default",
+            state={"foo": "bar"},
+            conversation_manager_state=SlidingWindowConversationManager().get_state(),
+        ),
+    )
+    session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
+
+    agent = Agent(session_manager=session_manager)
+
+    assert agent.state.get("foo") == "bar"
+
+
+def test_agent_restored_from_session_management_with_message():
+    mock_session_repository = MockedSessionRepository()
+    mock_session_repository.create_session(Session(session_id="123", session_type=SessionType.AGENT))
+    mock_session_repository.create_agent(
+        "123",
+        SessionAgent(
+            agent_id="default",
+            state={"foo": "bar"},
+            conversation_manager_state=SlidingWindowConversationManager().get_state(),
+        ),
+    )
+    mock_session_repository.create_message(
+        "123", "default", SessionMessage({"role": "user", "content": [{"text": "Hello!"}]}, 0)
+    )
+    session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
+
+    agent = Agent(session_manager=session_manager)
+
+    assert agent.state.get("foo") == "bar"
+
+
+def test_agent_redacts_input_on_triggered_guardrail():
+    mocked_model = MockedModelProvider(
+        [{"redactedUserContent": "BLOCKED!", "redactedAssistantContent": "INPUT BLOCKED!"}]
+    )
+
+    agent = Agent(
+        model=mocked_model,
+        system_prompt="You are a helpful assistant.",
+        callback_handler=None,
+    )
+
+    response1 = agent("CACTUS")
+
+    assert response1.stop_reason == "guardrail_intervened"
+    assert agent.messages[0]["content"][0]["text"] == "BLOCKED!"
+
+
+def test_agent_restored_from_session_management_with_redacted_input():
+    mocked_model = MockedModelProvider(
+        [{"redactedUserContent": "BLOCKED!", "redactedAssistantContent": "INPUT BLOCKED!"}]
+    )
+
+    test_session_id = str(uuid4())
+    mocked_session_repository = MockedSessionRepository()
+    session_manager = RepositorySessionManager(session_id=test_session_id, session_repository=mocked_session_repository)
+
+    agent = Agent(
+        model=mocked_model,
+        system_prompt="You are a helpful assistant.",
+        callback_handler=None,
+        session_manager=session_manager,
+    )
+
+    assert mocked_session_repository.read_agent(test_session_id, agent.agent_id) is not None
+
+    response1 = agent("CACTUS")
+
+    assert response1.stop_reason == "guardrail_intervened"
+    assert agent.messages[0]["content"][0]["text"] == "BLOCKED!"
+    user_input_session_message = mocked_session_repository.list_messages(test_session_id, agent.agent_id)[0]
+    # Assert persisted message is equal to the redacted message in the agent
+    assert user_input_session_message.to_message() == agent.messages[0]
+
+    # Restore an agent from the session, confirm input is still redacted
+    session_manager_2 = RepositorySessionManager(
+        session_id=test_session_id, session_repository=mocked_session_repository
+    )
+    agent_2 = Agent(
+        model=mocked_model,
+        system_prompt="You are a helpful assistant.",
+        callback_handler=None,
+        session_manager=session_manager_2,
+    )
+
+    # Assert that the restored agent redacted message is equal to the original agent
+    assert agent.messages[0] == agent_2.messages[0]
+
+
+def test_agent_restored_from_session_management_with_correct_index():
+    mock_model_provider = MockedModelProvider(
+        [{"role": "assistant", "content": [{"text": "hello!"}]}, {"role": "assistant", "content": [{"text": "world!"}]}]
+    )
+    mock_session_repository = MockedSessionRepository()
+    session_manager = RepositorySessionManager(session_id="test", session_repository=mock_session_repository)
+    agent = Agent(session_manager=session_manager, model=mock_model_provider)
+    agent("Hello!")
+
+    assert len(mock_session_repository.list_messages("test", agent.agent_id)) == 2
+
+    session_manager_2 = RepositorySessionManager(session_id="test", session_repository=mock_session_repository)
+    agent_2 = Agent(session_manager=session_manager_2, model=mock_model_provider)
+
+    assert len(agent_2.messages) == 2
+    assert agent_2.messages[1]["content"][0]["text"] == "hello!"
+
+    agent_2("Hello!")
+
+    assert len(agent_2.messages) == 4
+    session_messages = mock_session_repository.list_messages("test", agent_2.agent_id)
+    assert (len(session_messages)) == 4
+    assert session_messages[1].message["content"][0]["text"] == "hello!"
+    assert session_messages[3].message["content"][0]["text"] == "world!"
+
+
+def test_agent_with_session_and_conversation_manager():
+    mock_model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
+    mock_session_repository = MockedSessionRepository()
+    session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
+    conversation_manager = SlidingWindowConversationManager(window_size=1)
+    # Create an agent with a mocked model and session repository
+    agent = Agent(
+        session_manager=session_manager,
+        conversation_manager=conversation_manager,
+        model=mock_model,
+    )
+
+    # Assert session was initialized
+    assert mock_session_repository.read_session("123") is not None
+    assert mock_session_repository.read_agent("123", agent.agent_id) is not None
+    assert len(mock_session_repository.list_messages("123", agent.agent_id)) == 0
+
+    agent("Hello!")
+
+    # After invoking, assert that the messages were persisted
+    assert len(mock_session_repository.list_messages("123", agent.agent_id)) == 2
+    # Assert conversation manager reduced the messages
+    assert len(agent.messages) == 1
+
+    # Initialize another agent using the same session
+    session_manager_2 = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
+    conversation_manager_2 = SlidingWindowConversationManager(window_size=1)
+    agent_2 = Agent(
+        session_manager=session_manager_2,
+        conversation_manager=conversation_manager_2,
+        model=mock_model,
+    )
+    # Assert that the second agent was initialized properly, and that the messages of both agents are equal
+    assert agent.messages == agent_2.messages
+    # Asser the conversation manager was initialized properly
+    assert agent.conversation_manager.removed_message_count == agent_2.conversation_manager.removed_message_count
