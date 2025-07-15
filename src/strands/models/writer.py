@@ -427,8 +427,8 @@ class WriterModel(Model):
         """Get structured output from the model.
 
         Args:
-            output_model(Type[BaseModel]): The output model to use for the agent.
-            prompt(Messages): The prompt messages to use for the agent.
+            output_model: The output model to use for the agent.
+            prompt: The prompt messages to use for the agent.
             system_prompt: System prompt to provide context to the model.
             **kwargs: Additional keyword arguments for future extensibility.
         """

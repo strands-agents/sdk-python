@@ -184,13 +184,11 @@ class HookRegistry:
 
         This method finds all callbacks registered for the event's type and
         invokes them in the appropriate order. For events with should_reverse_callbacks=True,
-        callbacks are invoked in reverse registration order.
+        callbacks are invoked in reverse registration order. Any exceptions raised by callback
+        functions will propagate to the caller.
 
         Args:
             event: The event to dispatch to registered callbacks.
-
-        Raises:
-            Any exceptions raised by callback functions will propagate to the caller.
 
         Returns:
             The event dispatched to registered callbacks.

@@ -5,10 +5,12 @@ import inspect
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from ..agent.agent import Agent
 from .content import Message
+
+if TYPE_CHECKING:
+    from ..agent.agent import Agent
 
 
 class SessionType(str, Enum):
@@ -111,7 +113,7 @@ class SessionAgent:
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     @classmethod
-    def from_agent(cls, agent: Agent) -> "SessionAgent":
+    def from_agent(cls, agent: "Agent") -> "SessionAgent":
         """Convert an Agent to a SessionAgent."""
         if agent.agent_id is None:
             raise ValueError("agent_id needs to be defined.")

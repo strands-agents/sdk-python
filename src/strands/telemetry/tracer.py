@@ -473,7 +473,6 @@ class Tracer:
             span: The span to end.
             response: The response from the agent.
             error: Any error that occurred.
-            metrics: Metrics data to add to the span.
         """
         attributes: Dict[str, AttributeValue] = {}
 
@@ -540,9 +539,6 @@ _tracer_instance = None
 
 def get_tracer() -> Tracer:
     """Get or create the global tracer.
-
-    Args:
-        service_name: Name of the service for OpenTelemetry.
 
     Returns:
         The global tracer instance.

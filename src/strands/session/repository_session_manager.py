@@ -1,9 +1,8 @@
 """Repository session manager implementation."""
 
 import logging
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
-from ..agent.agent import Agent
 from ..agent.state import AgentState
 from ..types.content import Message
 from ..types.exceptions import SessionException
@@ -15,6 +14,9 @@ from ..types.session import (
 )
 from .session_manager import SessionManager
 from .session_repository import SessionRepository
+
+if TYPE_CHECKING:
+    from ..agent.agent import Agent
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +51,7 @@ class RepositorySessionManager(SessionManager):
         # Keep track of the latest message of each agent in case we need to redact it.
         self._latest_agent_message: dict[str, Optional[SessionMessage]] = {}
 
-    def append_message(self, message: Message, agent: Agent, **kwargs: Any) -> None:
+    def append_message(self, message: Message, agent: "Agent", **kwargs: Any) -> None:
         """Append a message to the agent's session.
 
         Args:
@@ -68,7 +70,7 @@ class RepositorySessionManager(SessionManager):
         self._latest_agent_message[agent.agent_id] = session_message
         self.session_repository.create_message(self.session_id, agent.agent_id, session_message)
 
-    def redact_latest_message(self, redact_message: Message, agent: Agent, **kwargs: Any) -> None:
+    def redact_latest_message(self, redact_message: Message, agent: "Agent", **kwargs: Any) -> None:
         """Redact the latest message appended to the session.
 
         Args:
@@ -82,7 +84,7 @@ class RepositorySessionManager(SessionManager):
         latest_agent_message.redact_message = redact_message
         return self.session_repository.update_message(self.session_id, agent.agent_id, latest_agent_message)
 
-    def sync_agent(self, agent: Agent, **kwargs: Any) -> None:
+    def sync_agent(self, agent: "Agent", **kwargs: Any) -> None:
         """Serialize and update the agent into the session repository.
 
         Args:
@@ -94,7 +96,7 @@ class RepositorySessionManager(SessionManager):
             SessionAgent.from_agent(agent),
         )
 
-    def initialize(self, agent: Agent, **kwargs: Any) -> None:
+    def initialize(self, agent: "Agent", **kwargs: Any) -> None:
         """Initialize an agent with a session.
 
         Args:
