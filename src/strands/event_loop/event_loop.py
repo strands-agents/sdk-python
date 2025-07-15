@@ -115,7 +115,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
             model_id=model_id,
         )
 
-        tool_specs = agent.tool_registry.get_all_tool_specs()
+        tool_specs = list(agent.tool_registry.list_tools().values())
 
         agent.hooks.invoke_callbacks(
             BeforeModelInvocationEvent(
@@ -291,9 +291,14 @@ async def run_tool(agent: "Agent", tool_use: ToolUse, invocation_state: dict[str
     logger.debug("tool_use=<%s> | streaming", tool_use)
     tool_name = tool_use["name"]
 
-    # Get the tool info
-    tool_info = agent.tool_registry.dynamic_tools.get(tool_name)
-    tool_func = tool_info if tool_info is not None else agent.tool_registry.registry.get(tool_name)
+    # Get the tool info using the list_tools method
+    tool_specs = agent.tool_registry.list_tools()
+    tool_func = None
+
+    # Check if the tool exists in the registry
+    if tool_name in tool_specs:
+        # Get the tool from the registry
+        tool_func = agent.tool_registry.agent_tools.get(tool_name)
 
     # Add standard arguments to invocation_state for Python tools
     invocation_state.update(
@@ -302,7 +307,7 @@ async def run_tool(agent: "Agent", tool_use: ToolUse, invocation_state: dict[str
             "system_prompt": agent.system_prompt,
             "messages": agent.messages,
             "tool_config": ToolConfig(  # for backwards compatability
-                tools=[{"toolSpec": tool_spec} for tool_spec in agent.tool_registry.get_all_tool_specs()],
+                tools=[{"toolSpec": tool_spec} for tool_spec in agent.tool_registry.list_tools().values()],
                 toolChoice=cast(ToolChoice, {"auto": ToolChoiceAuto()}),
             ),
         }
@@ -328,7 +333,7 @@ async def run_tool(agent: "Agent", tool_use: ToolUse, invocation_state: dict[str
                 logger.error(
                     "tool_name=<%s>, available_tools=<%s> | tool not found in registry",
                     tool_name,
-                    list(agent.tool_registry.registry.keys()),
+                    list(agent.tool_registry.list_tools().keys()),
                 )
             else:
                 logger.debug(

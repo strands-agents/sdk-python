@@ -41,7 +41,7 @@ def hook_provider():
 
 @pytest.fixture
 def agent_tool():
-    @strands.tools.tool(name="tool_decorated")
+    @strands.tool(name="tool_decorated")
     def reverse(random_string: str) -> str:
         return random_string[::-1]
 

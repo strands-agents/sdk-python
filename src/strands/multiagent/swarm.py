@@ -331,7 +331,7 @@ class Swarm(MultiAgentBase):
 
         for node in self.nodes.values():
             # Check for existing tools with conflicting names
-            existing_tools = node.executor.tool_registry.registry
+            existing_tools = node.executor.tool_registry.list_tools()
             conflicting_tools = []
 
             if "handoff_to_agent" in existing_tools:
@@ -343,8 +343,8 @@ class Swarm(MultiAgentBase):
                     f"{', '.join(conflicting_tools)}. Please rename these tools to avoid conflicts."
                 )
 
-            # Use the agent's tool registry to process and register the tools
-            node.executor.tool_registry.process_tools(swarm_tools)
+            for swarm_tool in swarm_tools:
+                node.executor.tool_registry.create_tool(swarm_tool)
 
         logger.debug(
             "tool_count=<%d>, node_count=<%d> | injected coordination tools into agents",

@@ -15,7 +15,7 @@ def test_a2a_agent_initialization(mock_strands_agent):
     """Test that A2AAgent initializes correctly with default values."""
     # Mock tool registry for default skills
     mock_tool_config = {"test_tool": {"name": "test_tool", "description": "A test tool"}}
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.list_tools.return_value = mock_tool_config
 
     a2a_agent = A2AServer(mock_strands_agent)
 
@@ -76,7 +76,7 @@ def test_a2a_agent_initialization_with_custom_skills(mock_strands_agent):
 def test_public_agent_card(mock_strands_agent):
     """Test that public_agent_card returns a valid AgentCard."""
     # Mock empty tool registry for this test
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+    mock_strands_agent.tool_registry.list_tools.return_value = {}
 
     a2a_agent = A2AServer(mock_strands_agent, skills=[])
 
@@ -114,7 +114,7 @@ def test_public_agent_card_with_missing_description(mock_strands_agent):
 def test_agent_skills_empty_registry(mock_strands_agent):
     """Test that agent_skills returns an empty list when no tools are registered."""
     # Mock empty tool registry
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+    mock_strands_agent.tool_registry.list_tools.return_value = {}
 
     a2a_agent = A2AServer(mock_strands_agent)
     skills = a2a_agent.agent_skills
@@ -127,7 +127,7 @@ def test_agent_skills_with_single_tool(mock_strands_agent):
     """Test that agent_skills returns correct skills for a single tool."""
     # Mock tool registry with one tool
     mock_tool_config = {"calculator": {"name": "calculator", "description": "Performs basic mathematical calculations"}}
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.list_tools.return_value = mock_tool_config
 
     a2a_agent = A2AServer(mock_strands_agent)
     skills = a2a_agent.agent_skills
@@ -150,7 +150,7 @@ def test_agent_skills_with_multiple_tools(mock_strands_agent):
         "weather": {"name": "weather", "description": "Gets current weather information"},
         "file_reader": {"name": "file_reader", "description": "Reads and processes files"},
     }
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.list_tools.return_value = mock_tool_config
 
     a2a_agent = A2AServer(mock_strands_agent)
     skills = a2a_agent.agent_skills
@@ -190,7 +190,7 @@ def test_agent_skills_with_complex_tool_config(mock_strands_agent):
             },
         }
     }
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.list_tools.return_value = mock_tool_config
 
     a2a_agent = A2AServer(mock_strands_agent)
     skills = a2a_agent.agent_skills
@@ -216,7 +216,7 @@ def test_agent_skills_preserves_tool_order(mock_strands_agent):
             ("tool_c", {"name": "tool_c", "description": "Third tool"}),
         ]
     )
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.list_tools.return_value = mock_tool_config
 
     a2a_agent = A2AServer(mock_strands_agent)
     skills = a2a_agent.agent_skills
@@ -236,7 +236,7 @@ def test_agent_skills_handles_missing_description(mock_strands_agent):
             # Missing description
         }
     }
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.list_tools.return_value = mock_tool_config
 
     a2a_agent = A2AServer(mock_strands_agent)
 
@@ -254,7 +254,7 @@ def test_agent_skills_handles_missing_name(mock_strands_agent):
             # Missing name
         }
     }
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.list_tools.return_value = mock_tool_config
 
     a2a_agent = A2AServer(mock_strands_agent)
 
@@ -268,7 +268,7 @@ def test_agent_skills_setter(mock_strands_agent):
 
     # Mock tool registry for initial setup
     mock_tool_config = {"test_tool": {"name": "test_tool", "description": "A test tool"}}
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.list_tools.return_value = mock_tool_config
 
     a2a_agent = A2AServer(mock_strands_agent)
 
@@ -299,7 +299,7 @@ def test_get_skills_from_tools_method(mock_strands_agent):
         "calculator": {"name": "calculator", "description": "Performs basic mathematical calculations"},
         "weather": {"name": "weather", "description": "Gets current weather information"},
     }
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.list_tools.return_value = mock_tool_config
 
     a2a_agent = A2AServer(mock_strands_agent)
     skills = a2a_agent._get_skills_from_tools()
@@ -321,7 +321,7 @@ def test_get_skills_from_tools_method(mock_strands_agent):
 def test_initialization_with_none_skills_uses_tools(mock_strands_agent):
     """Test that passing skills=None uses tools from the agent."""
     mock_tool_config = {"test_tool": {"name": "test_tool", "description": "A test tool"}}
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.list_tools.return_value = mock_tool_config
 
     a2a_agent = A2AServer(mock_strands_agent, skills=None)
 
@@ -345,7 +345,7 @@ def test_initialization_with_empty_skills_list(mock_strands_agent):
 def test_lazy_loading_behavior(mock_strands_agent):
     """Test that skills are only loaded from tools when accessed and no explicit skills are provided."""
     mock_tool_config = {"test_tool": {"name": "test_tool", "description": "A test tool"}}
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.list_tools.return_value = mock_tool_config
 
     # Create agent without explicit skills
     a2a_agent = A2AServer(mock_strands_agent)
@@ -369,7 +369,7 @@ def test_explicit_skills_override_tools(mock_strands_agent):
 
     # Mock tool registry with tools
     mock_tool_config = {"test_tool": {"name": "test_tool", "description": "A test tool"}}
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.list_tools.return_value = mock_tool_config
 
     # Provide explicit skills
     explicit_skills = [AgentSkill(name="explicit_skill", id="explicit_skill", description="An explicit skill", tags=[])]
@@ -386,7 +386,7 @@ def test_explicit_skills_override_tools(mock_strands_agent):
 def test_skills_not_loaded_during_initialization(mock_strands_agent):
     """Test that skills are not loaded from tools during initialization."""
     # Create a mock that would raise an exception if called
-    mock_strands_agent.tool_registry.get_all_tools_config.side_effect = Exception("Should not be called during init")
+    mock_strands_agent.tool_registry.list_tools.side_effect = Exception("Should not be called during init")
 
     # This should not raise an exception because tools are not accessed during initialization
     a2a_agent = A2AServer(mock_strands_agent)
@@ -396,8 +396,8 @@ def test_skills_not_loaded_during_initialization(mock_strands_agent):
 
     # Reset the mock to return proper data for when skills are actually accessed
     mock_tool_config = {"test_tool": {"name": "test_tool", "description": "A test tool"}}
-    mock_strands_agent.tool_registry.get_all_tools_config.side_effect = None
-    mock_strands_agent.tool_registry.get_all_tools_config.return_value = mock_tool_config
+    mock_strands_agent.tool_registry.list_tools.side_effect = None
+    mock_strands_agent.tool_registry.list_tools.return_value = mock_tool_config
 
     # Now accessing skills should work
     skills = a2a_agent.agent_skills
