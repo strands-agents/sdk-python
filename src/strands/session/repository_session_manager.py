@@ -1,7 +1,7 @@
 """Repository session manager implementation."""
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from ..agent.agent import Agent
 from ..agent.state import AgentState
@@ -22,20 +22,18 @@ logger = logging.getLogger(__name__)
 class RepositorySessionManager(SessionManager):
     """Session manager for persisting agents in a SessionRepository."""
 
-    def __init__(
-        self,
-        session_id: str,
-        session_repository: SessionRepository,
-    ):
+    def __init__(self, session_id: str, session_repository: SessionRepository, **kwargs: Any):
         """Initialize the RepositorySessionManager.
 
         If no session with the specified session_id exists yet, it will be created
         in the session_repository.
 
         Args:
-          session_id: ID to use for the session. A new session with this id will be created if it does
-              not exist in the reposiory yet
-          session_repository: Underlying session repository to use to store the sessions state.
+            session_id: ID to use for the session. A new session with this id will be created if it does
+                not exist in the reposiory yet
+            session_repository: Underlying session repository to use to store the sessions state.
+            **kwargs: Additional keyword arguments for future extensibility.
+
         """
         self.session_repository = session_repository
         self.session_id = session_id
@@ -51,12 +49,13 @@ class RepositorySessionManager(SessionManager):
         # Keep track of the latest message of each agent in case we need to redact it.
         self._latest_agent_message: dict[str, Optional[SessionMessage]] = {}
 
-    def append_message(self, message: Message, agent: Agent) -> None:
+    def append_message(self, message: Message, agent: Agent, **kwargs: Any) -> None:
         """Append a message to the agent's session.
 
         Args:
             message: Message to add to the agent in the session
             agent: Agent to append the message to
+            **kwargs: Additional keyword arguments for future extensibility.
         """
         # Calculate the next index (0 if this is the first message, otherwise increment the previous index)
         latest_agent_message = self._latest_agent_message[agent.agent_id]
@@ -69,12 +68,13 @@ class RepositorySessionManager(SessionManager):
         self._latest_agent_message[agent.agent_id] = session_message
         self.session_repository.create_message(self.session_id, agent.agent_id, session_message)
 
-    def redact_latest_message(self, redact_message: Message, agent: Agent) -> None:
+    def redact_latest_message(self, redact_message: Message, agent: Agent, **kwargs: Any) -> None:
         """Redact the latest message appended to the session.
 
         Args:
             redact_message: New message to use that contains the redact content
             agent: Agent to apply the message redaction to
+            **kwargs: Additional keyword arguments for future extensibility.
         """
         latest_agent_message = self._latest_agent_message[agent.agent_id]
         if latest_agent_message is None:
@@ -82,22 +82,24 @@ class RepositorySessionManager(SessionManager):
         latest_agent_message.redact_message = redact_message
         return self.session_repository.update_message(self.session_id, agent.agent_id, latest_agent_message)
 
-    def sync_agent(self, agent: Agent) -> None:
+    def sync_agent(self, agent: Agent, **kwargs: Any) -> None:
         """Serialize and update the agent into the session repository.
 
         Args:
             agent: Agent to sync to the session.
+            **kwargs: Additional keyword arguments for future extensibility.
         """
         self.session_repository.update_agent(
             self.session_id,
             SessionAgent.from_agent(agent),
         )
 
-    def initialize(self, agent: Agent) -> None:
+    def initialize(self, agent: Agent, **kwargs: Any) -> None:
         """Initialize an agent with a session.
 
         Args:
             agent: Agent to initialize from the session
+            **kwargs: Additional keyword arguments for future extensibility.
         """
         if agent.agent_id in self._latest_agent_message:
             raise SessionException("The `agent_id` of an agent must be unique in a session.")

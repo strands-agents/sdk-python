@@ -35,12 +35,13 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
 
     """
 
-    def __init__(self, session_id: str, storage_dir: Optional[str] = None):
+    def __init__(self, session_id: str, storage_dir: Optional[str] = None, **kwargs: Any):
         """Initialize FileSession with filesystem storage.
 
         Args:
             session_id: ID for the session
             storage_dir: Directory for local filesystem storage (defaults to temp dir)
+            **kwargs: Additional keyword arguments for future extensibility.
         """
         self.storage_dir = storage_dir or os.path.join(tempfile.gettempdir(), "strands/sessions")
         os.makedirs(self.storage_dir, exist_ok=True)
@@ -83,7 +84,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         with open(path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
-    def create_session(self, session: Session) -> Session:
+    def create_session(self, session: Session, **kwargs: Any) -> Session:
         """Create a new session."""
         session_dir = self._get_session_path(session.session_id)
         if os.path.exists(session_dir):
@@ -100,7 +101,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
 
         return session
 
-    def read_session(self, session_id: str) -> Optional[Session]:
+    def read_session(self, session_id: str, **kwargs: Any) -> Optional[Session]:
         """Read session data."""
         session_file = os.path.join(self._get_session_path(session_id), "session.json")
         if not os.path.exists(session_file):
@@ -109,7 +110,15 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         session_data = self._read_file(session_file)
         return Session.from_dict(session_data)
 
-    def create_agent(self, session_id: str, session_agent: SessionAgent) -> None:
+    def delete_session(self, session_id: str, **kwargs: Any) -> None:
+        """Delete session and all associated data."""
+        session_dir = self._get_session_path(session_id)
+        if not os.path.exists(session_dir):
+            raise SessionException(f"Session {session_id} does not exist")
+
+        shutil.rmtree(session_dir)
+
+    def create_agent(self, session_id: str, session_agent: SessionAgent, **kwargs: Any) -> None:
         """Create a new agent in the session."""
         agent_id = session_agent.agent_id
 
@@ -121,15 +130,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         session_data = session_agent.to_dict()
         self._write_file(agent_file, session_data)
 
-    def delete_session(self, session_id: str) -> None:
-        """Delete session and all associated data."""
-        session_dir = self._get_session_path(session_id)
-        if not os.path.exists(session_dir):
-            raise SessionException(f"Session {session_id} does not exist")
-
-        shutil.rmtree(session_dir)
-
-    def read_agent(self, session_id: str, agent_id: str) -> Optional[SessionAgent]:
+    def read_agent(self, session_id: str, agent_id: str, **kwargs: Any) -> Optional[SessionAgent]:
         """Read agent data."""
         agent_file = os.path.join(self._get_agent_path(session_id, agent_id), "agent.json")
         if not os.path.exists(agent_file):
@@ -138,7 +139,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         agent_data = self._read_file(agent_file)
         return SessionAgent.from_dict(agent_data)
 
-    def update_agent(self, session_id: str, session_agent: SessionAgent) -> None:
+    def update_agent(self, session_id: str, session_agent: SessionAgent, **kwargs: Any) -> None:
         """Update agent data."""
         agent_id = session_agent.agent_id
         previous_agent = self.read_agent(session_id=session_id, agent_id=agent_id)
@@ -149,7 +150,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         agent_file = os.path.join(self._get_agent_path(session_id, agent_id), "agent.json")
         self._write_file(agent_file, session_agent.to_dict())
 
-    def create_message(self, session_id: str, agent_id: str, session_message: SessionMessage) -> None:
+    def create_message(self, session_id: str, agent_id: str, session_message: SessionMessage, **kwargs: Any) -> None:
         """Create a new message for the agent."""
         message_file = self._get_message_path(
             session_id,
@@ -159,7 +160,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         session_dict = session_message.to_dict()
         self._write_file(message_file, session_dict)
 
-    def read_message(self, session_id: str, agent_id: str, message_id: int) -> Optional[SessionMessage]:
+    def read_message(self, session_id: str, agent_id: str, message_id: int, **kwargs: Any) -> Optional[SessionMessage]:
         """Read message data."""
         message_path = self._get_message_path(session_id, agent_id, message_id)
         if not os.path.exists(message_path):
@@ -167,7 +168,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         message_data = self._read_file(message_path)
         return SessionMessage.from_dict(message_data)
 
-    def update_message(self, session_id: str, agent_id: str, session_message: SessionMessage) -> None:
+    def update_message(self, session_id: str, agent_id: str, session_message: SessionMessage, **kwargs: Any) -> None:
         """Update message data."""
         message_id = session_message.message_id
         previous_message = self.read_message(session_id=session_id, agent_id=agent_id, message_id=message_id)
@@ -180,7 +181,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         self._write_file(message_file, session_message.to_dict())
 
     def list_messages(
-        self, session_id: str, agent_id: str, limit: Optional[int] = None, offset: int = 0
+        self, session_id: str, agent_id: str, limit: Optional[int] = None, offset: int = 0, **kwargs: Any
     ) -> list[SessionMessage]:
         """List messages for an agent with pagination."""
         messages_dir = os.path.join(self._get_agent_path(session_id, agent_id), "messages")

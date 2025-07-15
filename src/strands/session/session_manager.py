@@ -35,35 +35,39 @@ class SessionManager(HookProvider, ABC):
         registry.add_callback(AfterInvocationEvent, lambda event: self.sync_agent(event.agent))
 
     @abstractmethod
-    def redact_latest_message(self, redact_message: Message, agent: "Agent") -> None:
+    def redact_latest_message(self, redact_message: Message, agent: "Agent", **kwargs: Any) -> None:
         """Redact the message most recently appended to the agent in the session.
 
         Args:
             redact_message: New message to use that contains the redact content
             agent: Agent to apply the message redaction to
+            **kwargs: Additional keyword arguments for future extensibility.
         """
 
     @abstractmethod
-    def append_message(self, message: Message, agent: "Agent") -> None:
+    def append_message(self, message: Message, agent: "Agent", **kwargs: Any) -> None:
         """Append a message to the agent's session.
 
         Args:
             message: Message to add to the agent in the session
             agent: Agent to append the message to
+            **kwargs: Additional keyword arguments for future extensibility.
         """
 
     @abstractmethod
-    def sync_agent(self, agent: "Agent") -> None:
+    def sync_agent(self, agent: "Agent", **kwargs: Any) -> None:
         """Serialize and sync the agent with the session storage.
 
         Args:
             agent: Agent who should be synchronized with the session storage
+            **kwargs: Additional keyword arguments for future extensibility.
         """
 
     @abstractmethod
-    def initialize(self, agent: "Agent") -> None:
+    def initialize(self, agent: "Agent", **kwargs: Any) -> None:
         """Initialize an agent with a session.
 
         Args:
             agent: Agent to initialize
+            **kwargs: Additional keyword arguments for future extensibility.
         """

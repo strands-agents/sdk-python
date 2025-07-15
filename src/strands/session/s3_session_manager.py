@@ -44,6 +44,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         boto_session: Optional[boto3.Session] = None,
         boto_client_config: Optional[BotocoreConfig] = None,
         region_name: Optional[str] = None,
+        **kwargs: Any,
     ):
         """Initialize S3SessionManager with S3 storage.
 
@@ -54,6 +55,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             boto_session: Optional boto3 session
             boto_client_config: Optional boto3 client configuration
             region_name: AWS region for S3 storage
+            **kwargs: Additional keyword arguments for future extensibility.
         """
         self.bucket = bucket
         self.prefix = prefix
@@ -91,6 +93,8 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             session_id: ID of the session
             agent_id: ID of the agent
             message_id: Index of the message
+            **kwargs: Additional keyword arguments for future extensibility.
+
         Returns:
             The key for the message
         """
@@ -121,7 +125,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         except ClientError as e:
             raise SessionException(f"Failed to write S3 object {key}: {e}") from e
 
-    def create_session(self, session: Session) -> Session:
+    def create_session(self, session: Session, **kwargs: Any) -> Session:
         """Create a new session in S3."""
         session_key = f"{self._get_session_path(session.session_id)}session.json"
 
@@ -138,7 +142,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         self._write_s3_object(session_key, session_dict)
         return session
 
-    def read_session(self, session_id: str) -> Optional[Session]:
+    def read_session(self, session_id: str, **kwargs: Any) -> Optional[Session]:
         """Read session data from S3."""
         session_key = f"{self._get_session_path(session_id)}session.json"
         session_data = self._read_s3_object(session_key)
@@ -146,7 +150,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             return None
         return Session.from_dict(session_data)
 
-    def delete_session(self, session_id: str) -> None:
+    def delete_session(self, session_id: str, **kwargs: Any) -> None:
         """Delete session and all associated data from S3."""
         session_prefix = self._get_session_path(session_id)
         try:
@@ -169,14 +173,14 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         except ClientError as e:
             raise SessionException(f"S3 error deleting session {session_id}: {e}") from e
 
-    def create_agent(self, session_id: str, session_agent: SessionAgent) -> None:
+    def create_agent(self, session_id: str, session_agent: SessionAgent, **kwargs: Any) -> None:
         """Create a new agent in S3."""
         agent_id = session_agent.agent_id
         agent_dict = session_agent.to_dict()
         agent_key = f"{self._get_agent_path(session_id, agent_id)}agent.json"
         self._write_s3_object(agent_key, agent_dict)
 
-    def read_agent(self, session_id: str, agent_id: str) -> Optional[SessionAgent]:
+    def read_agent(self, session_id: str, agent_id: str, **kwargs: Any) -> Optional[SessionAgent]:
         """Read agent data from S3."""
         agent_key = f"{self._get_agent_path(session_id, agent_id)}agent.json"
         agent_data = self._read_s3_object(agent_key)
@@ -184,7 +188,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             return None
         return SessionAgent.from_dict(agent_data)
 
-    def update_agent(self, session_id: str, session_agent: SessionAgent) -> None:
+    def update_agent(self, session_id: str, session_agent: SessionAgent, **kwargs: Any) -> None:
         """Update agent data in S3."""
         agent_id = session_agent.agent_id
         previous_agent = self.read_agent(session_id=session_id, agent_id=agent_id)
@@ -196,14 +200,14 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         agent_key = f"{self._get_agent_path(session_id, agent_id)}agent.json"
         self._write_s3_object(agent_key, session_agent.to_dict())
 
-    def create_message(self, session_id: str, agent_id: str, session_message: SessionMessage) -> None:
+    def create_message(self, session_id: str, agent_id: str, session_message: SessionMessage, **kwargs: Any) -> None:
         """Create a new message in S3."""
         message_id = session_message.message_id
         message_dict = session_message.to_dict()
         message_key = self._get_message_path(session_id, agent_id, message_id)
         self._write_s3_object(message_key, message_dict)
 
-    def read_message(self, session_id: str, agent_id: str, message_id: int) -> Optional[SessionMessage]:
+    def read_message(self, session_id: str, agent_id: str, message_id: int, **kwargs: Any) -> Optional[SessionMessage]:
         """Read message data from S3."""
         message_key = self._get_message_path(session_id, agent_id, message_id)
         message_data = self._read_s3_object(message_key)
@@ -211,7 +215,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             return None
         return SessionMessage.from_dict(message_data)
 
-    def update_message(self, session_id: str, agent_id: str, session_message: SessionMessage) -> None:
+    def update_message(self, session_id: str, agent_id: str, session_message: SessionMessage, **kwargs: Any) -> None:
         """Update message data in S3."""
         message_id = session_message.message_id
         previous_message = self.read_message(session_id=session_id, agent_id=agent_id, message_id=message_id)
@@ -224,7 +228,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         self._write_s3_object(message_key, session_message.to_dict())
 
     def list_messages(
-        self, session_id: str, agent_id: str, limit: Optional[int] = None, offset: int = 0
+        self, session_id: str, agent_id: str, limit: Optional[int] = None, offset: int = 0, **kwargs: Any
     ) -> List[SessionMessage]:
         """List messages for an agent with pagination from S3."""
         messages_prefix = f"{self._get_agent_path(session_id, agent_id)}messages/"
