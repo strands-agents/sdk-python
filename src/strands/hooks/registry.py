@@ -206,6 +206,20 @@ class HookRegistry:
 
         return event
 
+    def has_callbacks(self) -> bool:
+        """Check if the registry has any registered callbacks.
+
+        Returns:
+            True if there are any registered callbacks, False otherwise.
+
+        Example:
+            ```python
+            if registry.has_callbacks():
+                print("Registry has callbacks registered")
+            ```
+        """
+        return bool(self._registered_callbacks)
+
     def get_callbacks_for(self, event: TEvent) -> Generator[HookCallback[TEvent], None, None]:
         """Get callbacks registered for the given event in the appropriate order.
 

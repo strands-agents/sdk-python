@@ -3,8 +3,11 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 import pytest
 
 from strands.agent import Agent, AgentResult
+from strands.hooks import AgentInitializedEvent
+from strands.hooks.registry import HookProvider, HookRegistry
 from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult
-from strands.multiagent.graph import GraphBuilder, GraphEdge, GraphNode, GraphResult, GraphState, Status
+from strands.multiagent.graph import Graph, GraphBuilder, GraphEdge, GraphNode, GraphResult, GraphState, Status
+from strands.session.session_manager import SessionManager
 
 
 def create_mock_agent(name, response_text="Default response", metrics=None, agent_id=None):
@@ -12,6 +15,8 @@ def create_mock_agent(name, response_text="Default response", metrics=None, agen
     agent = Mock(spec=Agent)
     agent.name = name
     agent.id = agent_id or f"{name}_id"
+    agent._session_manager = None
+    agent.hooks = HookRegistry()
 
     if metrics is None:
         metrics = Mock(
@@ -261,6 +266,10 @@ async def test_graph_execution_with_failures(mock_strands_tracer, mock_use_span)
     failing_agent.id = "fail_node"
     failing_agent.__call__ = Mock(side_effect=Exception("Simulated failure"))
 
+    # Add required attributes for validation
+    failing_agent._session_manager = None
+    failing_agent.hooks = HookRegistry()
+
     async def mock_invoke_failure(*args, **kwargs):
         raise Exception("Simulated failure")
 
@@ -489,3 +498,51 @@ def test_graph_synchronous_execution(mock_strands_tracer, mock_use_span, mock_ag
 
     mock_strands_tracer.start_multiagent_span.assert_called()
     mock_use_span.assert_called_once()
+
+
+def test_graph_validate_unsupported_features():
+    """Test Graph validation for session persistence and callbacks."""
+    # Test with normal agent (should work)
+    normal_agent = create_mock_agent("normal_agent")
+    normal_agent._session_manager = None
+    normal_agent.hooks = HookRegistry()
+
+    builder = GraphBuilder()
+    builder.add_node(normal_agent)
+    graph = builder.build()
+    assert len(graph.nodes) == 1
+
+    # Test with session manager (should fail in GraphBuilder.add_node)
+    mock_session_manager = Mock(spec=SessionManager)
+    agent_with_session = create_mock_agent("agent_with_session")
+    agent_with_session._session_manager = mock_session_manager
+    agent_with_session.hooks = HookRegistry()
+
+    builder = GraphBuilder()
+    with pytest.raises(ValueError, match="Session persistence is not supported for Graph agents yet"):
+        builder.add_node(agent_with_session)
+
+    # Test with callbacks (should fail in GraphBuilder.add_node)
+    class TestHookProvider(HookProvider):
+        def register_hooks(self, registry, **kwargs):
+            registry.add_callback(AgentInitializedEvent, lambda e: None)
+
+    agent_with_hooks = create_mock_agent("agent_with_hooks")
+    agent_with_hooks._session_manager = None
+    agent_with_hooks.hooks = HookRegistry()
+    agent_with_hooks.hooks.add_hook(TestHookProvider())
+
+    builder = GraphBuilder()
+    with pytest.raises(ValueError, match="Agent callbacks are not supported for Graph agents yet"):
+        builder.add_node(agent_with_hooks)
+
+    # Test validation in Graph constructor (when nodes are passed directly)
+    # Test with session manager in Graph constructor
+    node_with_session = GraphNode("node_with_session", agent_with_session)
+    with pytest.raises(ValueError, match="Session persistence is not supported for Graph agents yet"):
+        Graph(nodes={"node_with_session": node_with_session}, edges=set(), entry_points=set())
+
+    # Test with callbacks in Graph constructor
+    node_with_hooks = GraphNode("node_with_hooks", agent_with_hooks)
+    with pytest.raises(ValueError, match="Agent callbacks are not supported for Graph agents yet"):
+        Graph(nodes={"node_with_hooks": node_with_hooks}, edges=set(), entry_points=set())

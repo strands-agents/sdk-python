@@ -129,6 +129,32 @@ class GraphNode:
         return self.node_id == other.node_id
 
 
+def _validate_node_executor(
+    executor: Agent | MultiAgentBase, existing_nodes: dict[str, GraphNode] | None = None
+) -> None:
+    """Validate a node executor for graph compatibility.
+
+    Args:
+        executor: The executor to validate
+        existing_nodes: Optional dict of existing nodes to check for duplicates
+    """
+    # Check for duplicate node instances
+    if existing_nodes:
+        seen_instances = {id(node.executor) for node in existing_nodes.values()}
+        if id(executor) in seen_instances:
+            raise ValueError("Duplicate node instance detected. Each node must have a unique object instance.")
+
+    # Validate Agent-specific constraints
+    if isinstance(executor, Agent):
+        # Check for session persistence
+        if executor._session_manager is not None:
+            raise ValueError("Session persistence is not supported for Graph agents yet.")
+
+        # Check for callbacks
+        if executor.hooks.has_callbacks():
+            raise ValueError("Agent callbacks are not supported for Graph agents yet.")
+
+
 class GraphBuilder:
     """Builder pattern for constructing graphs."""
 
@@ -140,10 +166,7 @@ class GraphBuilder:
 
     def add_node(self, executor: Agent | MultiAgentBase, node_id: str | None = None) -> GraphNode:
         """Add an Agent or MultiAgentBase instance as a node to the graph."""
-        # Check for duplicate node instances
-        seen_instances = {id(node.executor) for node in self.nodes.values()}
-        if id(executor) in seen_instances:
-            raise ValueError("Duplicate node instance detected. Each node must have a unique object instance.")
+        _validate_node_executor(executor, self.nodes)
 
         # Auto-generate node_id if not provided
         if node_id is None:
@@ -303,6 +326,9 @@ class Graph(MultiAgentBase):
             if id(node.executor) in seen_instances:
                 raise ValueError("Duplicate node instance detected. Each node must have a unique object instance.")
             seen_instances.add(id(node.executor))
+
+            # Validate Agent-specific constraints for each node
+            _validate_node_executor(node.executor)
 
     async def _execute_graph(self) -> None:
         """Unified execution flow with conditional routing."""

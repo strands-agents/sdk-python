@@ -150,3 +150,18 @@ def test_invoke_callbacks_after_event(hook_registry, test_after_event):
     hook_registry.invoke_callbacks(test_after_event)
 
     assert call_order == ["callback2", "callback1"]  # Reverse order
+
+
+def test_has_callbacks(hook_registry, test_event):
+    """Test that has_callbacks returns correct boolean values."""
+    # Empty registry should return False
+    assert not hook_registry.has_callbacks()
+
+    # Registry with callbacks should return True
+    callback = Mock()
+    hook_registry.add_callback(TestEvent, callback)
+    assert hook_registry.has_callbacks()
+
+    # Test with multiple event types
+    hook_registry.add_callback(TestAfterEvent, Mock())
+    assert hook_registry.has_callbacks()

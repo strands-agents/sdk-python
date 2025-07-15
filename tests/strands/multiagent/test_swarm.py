@@ -6,8 +6,11 @@ import pytest
 
 from strands.agent import Agent, AgentResult
 from strands.agent.state import AgentState
+from strands.hooks import AgentInitializedEvent
+from strands.hooks.registry import HookProvider, HookRegistry
 from strands.multiagent.base import Status
 from strands.multiagent.swarm import SharedContext, Swarm, SwarmNode, SwarmResult, SwarmState
+from strands.session.session_manager import SessionManager
 from strands.types.content import ContentBlock
 
 
@@ -27,6 +30,8 @@ def create_mock_agent(
     agent._complete_after = complete_after_calls
     agent._swarm_ref = None  # Will be set by the swarm
     agent._should_fail = should_fail
+    agent._session_manager = None
+    agent.hooks = HookRegistry()
 
     if metrics is None:
         metrics = Mock(
@@ -450,3 +455,36 @@ def test_swarm_metrics_handling():
 
     result = no_metrics_swarm("Test no metrics")
     assert result.status == Status.COMPLETED
+
+
+def test_swarm_validate_unsupported_features():
+    """Test Swarm validation for session persistence and callbacks."""
+    # Test with normal agent (should work)
+    normal_agent = create_mock_agent("normal_agent")
+    normal_agent._session_manager = None
+    normal_agent.hooks = HookRegistry()
+
+    swarm = Swarm([normal_agent])
+    assert len(swarm.nodes) == 1
+
+    # Test with session manager (should fail)
+    mock_session_manager = Mock(spec=SessionManager)
+    agent_with_session = create_mock_agent("agent_with_session")
+    agent_with_session._session_manager = mock_session_manager
+    agent_with_session.hooks = HookRegistry()
+
+    with pytest.raises(ValueError, match="Session persistence is not supported for Swarm agents yet"):
+        Swarm([agent_with_session])
+
+    # Test with callbacks (should fail)
+    class TestHookProvider(HookProvider):
+        def register_hooks(self, registry, **kwargs):
+            registry.add_callback(AgentInitializedEvent, lambda e: None)
+
+    agent_with_hooks = create_mock_agent("agent_with_hooks")
+    agent_with_hooks._session_manager = None
+    agent_with_hooks.hooks = HookRegistry()
+    agent_with_hooks.hooks.add_hook(TestHookProvider())
+
+    with pytest.raises(ValueError, match="Agent callbacks are not supported for Swarm agents yet"):
+        Swarm([agent_with_hooks])
