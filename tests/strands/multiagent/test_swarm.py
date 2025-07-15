@@ -1,6 +1,6 @@
 import math
 import time
-from unittest.mock import MagicMock, Mock
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -92,6 +92,22 @@ def mock_swarm(mock_agents):
         agent._swarm_ref = swarm
 
     return swarm
+
+
+@pytest.fixture
+def mock_strands_tracer():
+    with patch("strands.multiagent.swarm.get_tracer") as mock_get_tracer:
+        mock_tracer_instance = MagicMock()
+        mock_span = MagicMock()
+        mock_tracer_instance.start_multiagent_span.return_value = mock_span
+        mock_get_tracer.return_value = mock_tracer_instance
+        yield mock_tracer_instance
+
+
+@pytest.fixture
+def mock_use_span():
+    with patch("strands.multiagent.swarm.trace_api.use_span") as mock_use_span:
+        yield mock_use_span
 
 
 def test_swarm_structure_and_nodes(mock_swarm, mock_agents):
@@ -215,7 +231,7 @@ def test_swarm_state_should_continue(mock_swarm):
 
 
 @pytest.mark.asyncio
-async def test_swarm_execution_async(mock_swarm, mock_agents):
+async def test_swarm_execution_async(mock_strands_tracer, mock_use_span, mock_swarm, mock_agents):
     """Test asynchronous swarm execution."""
     # Execute swarm
     task = [ContentBlock(text="Analyze this task"), ContentBlock(text="Additional context")]
@@ -238,8 +254,11 @@ async def test_swarm_execution_async(mock_swarm, mock_agents):
     assert hasattr(result, "node_history")
     assert len(result.node_history) == 1
 
+    mock_strands_tracer.start_multiagent_span.assert_called()
+    mock_use_span.assert_called_once()
 
-def test_swarm_synchronous_execution(mock_agents):
+
+def test_swarm_synchronous_execution(mock_strands_tracer, mock_use_span, mock_agents):
     """Test synchronous swarm execution using __call__ method."""
     agents = list(mock_agents.values())
     swarm = Swarm(
@@ -279,6 +298,9 @@ def test_swarm_synchronous_execution(mock_agents):
     # Test tool injection
     for node in swarm.nodes.values():
         node.executor.tool_registry.process_tools.assert_called()
+
+    mock_strands_tracer.start_multiagent_span.assert_called()
+    mock_use_span.assert_called_once()
 
 
 def test_swarm_builder_validation(mock_agents):
@@ -407,7 +429,7 @@ def test_swarm_tool_creation_and_execution():
     assert completion_result["status"] == "success"
 
 
-def test_swarm_failure_handling():
+def test_swarm_failure_handling(mock_strands_tracer, mock_use_span):
     """Test swarm execution with agent failures."""
     # Test execution with agent failures
     failing_agent = create_mock_agent("failing_agent")
@@ -418,6 +440,8 @@ def test_swarm_failure_handling():
     # The swarm catches exceptions internally and sets status to FAILED
     result = failing_swarm("Test failure handling")
     assert result.status == Status.FAILED
+    mock_strands_tracer.start_multiagent_span.assert_called()
+    mock_use_span.assert_called_once()
 
 
 def test_swarm_metrics_handling():

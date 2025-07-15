@@ -21,8 +21,11 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Tuple, cast
 
+from opentelemetry import trace as trace_api
+
 from ..agent import Agent, AgentResult
 from ..agent.state import AgentState
+from ..telemetry import get_tracer
 from ..tools.decorator import tool
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
@@ -229,6 +232,7 @@ class Swarm(MultiAgentBase):
             task="",
             completion_status=Status.PENDING,
         )
+        self.tracer = get_tracer()
 
         self._setup_swarm(nodes)
         self._inject_swarm_tools()
@@ -257,24 +261,26 @@ class Swarm(MultiAgentBase):
         )
 
         start_time = time.time()
-        try:
-            logger.debug("current_node=<%s> | starting swarm execution with node", self.state.current_node.node_id)
-            logger.debug(
-                "max_handoffs=<%d>, max_iterations=<%d>, timeout=<%s>s | swarm execution config",
-                self.max_handoffs,
-                self.max_iterations,
-                self.execution_timeout,
-            )
+        span = self.tracer.start_multiagent_span(task, "swarm")
+        with trace_api.use_span(span, end_on_exit=True):
+            try:
+                logger.debug("current_node=<%s> | starting swarm execution with node", self.state.current_node.node_id)
+                logger.debug(
+                    "max_handoffs=<%d>, max_iterations=<%d>, timeout=<%s>s | swarm execution config",
+                    self.max_handoffs,
+                    self.max_iterations,
+                    self.execution_timeout,
+                )
 
-            await self._execute_swarm()
-        except Exception:
-            logger.exception("swarm execution failed")
-            self.state.completion_status = Status.FAILED
-            raise
-        finally:
-            self.state.execution_time = round((time.time() - start_time) * 1000)
+                await self._execute_swarm()
+            except Exception:
+                logger.exception("swarm execution failed")
+                self.state.completion_status = Status.FAILED
+                raise
+            finally:
+                self.state.execution_time = round((time.time() - start_time) * 1000)
 
-        return self._build_result()
+            return self._build_result()
 
     def _setup_swarm(self, nodes: list[Agent]) -> None:
         """Initialize swarm configuration."""
