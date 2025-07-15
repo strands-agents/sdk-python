@@ -10,6 +10,7 @@ from pytest import mark
 
 from strands.models import BedrockModel, Model
 from strands.models.anthropic import AnthropicModel
+from strands.models.baseten import BasetenModel
 from strands.models.litellm import LiteLLMModel
 from strands.models.llamaapi import LlamaAPIModel
 from strands.models.mistral import MistralModel
@@ -67,6 +68,16 @@ anthropic = ProviderInfo(
         },
         model_id="claude-3-7-sonnet-20250219",
         max_tokens=512,
+    ),
+)
+baseten = ProviderInfo(
+    id="baseten",
+    environment_variable="BASETEN_API_KEY",
+    factory=lambda: BasetenModel(
+        model_id="deepseek-ai/DeepSeek-V3-0324",
+        client_args={
+            "api_key": os.getenv("BASETEN_API_KEY"),
+        },
     ),
 )
 bedrock = ProviderInfo(id="bedrock", factory=lambda: BedrockModel())
@@ -133,6 +144,7 @@ ollama = OllamaProviderInfo()
 all_providers = [
     bedrock,
     anthropic,
+    baseten,
     cohere,
     llama,
     litellm,
