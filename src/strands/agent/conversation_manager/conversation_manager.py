@@ -36,7 +36,7 @@ class ConversationManager(ABC):
         Args:
             state: Previous state of the conversation manager
         Returns:
-            Optional list of messages to prepend to the agents messages. By defualt returns None.
+            Optional list of messages to prepend to the agents messages. By default returns None.
         """
         if state.get("__name__") != self.__class__.__name__:
             raise ValueError("Invalid conversation manager state.")
