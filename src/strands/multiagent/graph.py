@@ -345,8 +345,8 @@ class Graph(MultiAgentBase):
                 if node not in self.state.completed_nodes
             ]
 
-            if tasks:
-                await asyncio.gather(*tasks)
+            for task in tasks:
+                await task
 
             # Find newly ready nodes after batch execution
             ready_nodes.extend(self._find_newly_ready_nodes())
