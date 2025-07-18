@@ -4,7 +4,7 @@ This module provides the StrandsA2AExecutor class, which adapts a Strands Agent
 to be used as an executor in the A2A protocol. It handles the execution of agent
 requests and the conversion of Strands Agent streamed responses to A2A events.
 
-The A2A AgentExecutor ensures clients recieve responses for synchronous and
+The A2A AgentExecutor ensures clients receive responses for synchronous and
 streamed requests to the A2AServer.
 """
 

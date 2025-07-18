@@ -125,7 +125,7 @@ class SessionAgent:
 
     @classmethod
     def from_dict(cls, env: dict[str, Any]) -> "SessionAgent":
-        """Initialize a SessionAgent from a dictionary, ignoring keys that are not calss parameters."""
+        """Initialize a SessionAgent from a dictionary, ignoring keys that are not class parameters."""
         return cls(**{k: v for k, v in env.items() if k in inspect.signature(cls).parameters})
 
     def to_dict(self) -> dict[str, Any]:
@@ -144,7 +144,7 @@ class Session:
 
     @classmethod
     def from_dict(cls, env: dict[str, Any]) -> "Session":
-        """Initialize a Session from a dictionary, ignoring keys that are not calss parameters."""
+        """Initialize a Session from a dictionary, ignoring keys that are not class parameters."""
         return cls(**{k: v for k, v in env.items() if k in inspect.signature(cls).parameters})
 
     def to_dict(self) -> dict[str, Any]:

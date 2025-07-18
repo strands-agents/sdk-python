@@ -32,7 +32,7 @@ class RepositorySessionManager(SessionManager):
 
         Args:
             session_id: ID to use for the session. A new session with this id will be created if it does
-                not exist in the reposiory yet
+                not exist in the repository yet
             session_repository: Underlying session repository to use to store the sessions state.
             **kwargs: Additional keyword arguments for future extensibility.
 
@@ -133,15 +133,15 @@ class RepositorySessionManager(SessionManager):
             agent.state = AgentState(session_agent.state)
 
             # Restore the conversation manager to its previous state, and get the optional prepend messages
-            prepend_messsages = agent.conversation_manager.restore_from_session(
+            prepend_messages = agent.conversation_manager.restore_from_session(
                 session_agent.conversation_manager_state
             )
 
-            if prepend_messsages is None:
-                prepend_messsages = []
+            if prepend_messages is None:
+                prepend_messages = []
 
             # List the messages currently in the session, using an offset of the messages previously removed
-            # by the converstaion manager.
+            # by the conversation manager.
             session_messages = self.session_repository.list_messages(
                 session_id=self.session_id,
                 agent_id=agent.agent_id,
@@ -150,5 +150,5 @@ class RepositorySessionManager(SessionManager):
             if len(session_messages) > 0:
                 self._latest_agent_message[agent.agent_id] = session_messages[-1]
 
-            # Resore the agents messages array including the optional prepend messages
-            agent.messages = prepend_messsages + [session_message.to_message() for session_message in session_messages]
+            # Restore the agents messages array including the optional prepend messages
+            agent.messages = prepend_messages + [session_message.to_message() for session_message in session_messages]
