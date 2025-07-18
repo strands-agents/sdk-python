@@ -13,6 +13,8 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any, AsyncGenerator, cast
 
+from opentelemetry import trace as trace_api
+
 from ..experimental.hooks import (
     AfterModelInvocationEvent,
     AfterToolInvocationEvent,
@@ -114,72 +116,75 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
             parent_span=cycle_span,
             model_id=model_id,
         )
-
-        tool_specs = agent.tool_registry.get_all_tool_specs()
-
-        agent.hooks.invoke_callbacks(
-            BeforeModelInvocationEvent(
-                agent=agent,
-            )
-        )
-
-        try:
-            # TODO: To maintain backwards compatibility, we need to combine the stream event with invocation_state
-            #       before yielding to the callback handler. This will be revisited when migrating to strongly
-            #       typed events.
-            async for event in stream_messages(agent.model, agent.system_prompt, agent.messages, tool_specs):
-                if "callback" in event:
-                    yield {
-                        "callback": {**event["callback"], **(invocation_state if "delta" in event["callback"] else {})}
-                    }
-
-            stop_reason, message, usage, metrics = event["stop"]
-            invocation_state.setdefault("request_state", {})
+        with trace_api.use_span(model_invoke_span):
+            tool_specs = agent.tool_registry.get_all_tool_specs()
 
             agent.hooks.invoke_callbacks(
-                AfterModelInvocationEvent(
+                BeforeModelInvocationEvent(
                     agent=agent,
-                    stop_response=AfterModelInvocationEvent.ModelStopResponse(
-                        stop_reason=stop_reason,
-                        message=message,
-                    ),
                 )
             )
 
-            if model_invoke_span:
-                tracer.end_model_invoke_span(model_invoke_span, message, usage, stop_reason)
-            break  # Success! Break out of retry loop
+            try:
+                # TODO: To maintain backwards compatibility, we need to combine the stream event with invocation_state
+                #       before yielding to the callback handler. This will be revisited when migrating to strongly
+                #       typed events.
+                async for event in stream_messages(agent.model, agent.system_prompt, agent.messages, tool_specs):
+                    if "callback" in event:
+                        yield {
+                            "callback": {
+                                **event["callback"],
+                                **(invocation_state if "delta" in event["callback"] else {}),
+                            }
+                        }
 
-        except Exception as e:
-            if model_invoke_span:
-                tracer.end_span_with_error(model_invoke_span, str(e), e)
+                stop_reason, message, usage, metrics = event["stop"]
+                invocation_state.setdefault("request_state", {})
 
-            agent.hooks.invoke_callbacks(
-                AfterModelInvocationEvent(
-                    agent=agent,
-                    exception=e,
+                agent.hooks.invoke_callbacks(
+                    AfterModelInvocationEvent(
+                        agent=agent,
+                        stop_response=AfterModelInvocationEvent.ModelStopResponse(
+                            stop_reason=stop_reason,
+                            message=message,
+                        ),
+                    )
                 )
-            )
 
-            if isinstance(e, ModelThrottledException):
-                if attempt + 1 == MAX_ATTEMPTS:
-                    yield {"callback": {"force_stop": True, "force_stop_reason": str(e)}}
+                if model_invoke_span:
+                    tracer.end_model_invoke_span(model_invoke_span, message, usage, stop_reason)
+                break  # Success! Break out of retry loop
+
+            except Exception as e:
+                if model_invoke_span:
+                    tracer.end_span_with_error(model_invoke_span, str(e), e)
+
+                agent.hooks.invoke_callbacks(
+                    AfterModelInvocationEvent(
+                        agent=agent,
+                        exception=e,
+                    )
+                )
+
+                if isinstance(e, ModelThrottledException):
+                    if attempt + 1 == MAX_ATTEMPTS:
+                        yield {"callback": {"force_stop": True, "force_stop_reason": str(e)}}
+                        raise e
+
+                    logger.debug(
+                        "retry_delay_seconds=<%s>, max_attempts=<%s>, current_attempt=<%s> "
+                        "| throttling exception encountered "
+                        "| delaying before next retry",
+                        current_delay,
+                        MAX_ATTEMPTS,
+                        attempt + 1,
+                    )
+                    time.sleep(current_delay)
+                    current_delay = min(current_delay * 2, MAX_DELAY)
+
+                    yield {"callback": {"event_loop_throttled_delay": current_delay, **invocation_state}}
+                else:
                     raise e
-
-                logger.debug(
-                    "retry_delay_seconds=<%s>, max_attempts=<%s>, current_attempt=<%s> "
-                    "| throttling exception encountered "
-                    "| delaying before next retry",
-                    current_delay,
-                    MAX_ATTEMPTS,
-                    attempt + 1,
-                )
-                time.sleep(current_delay)
-                current_delay = min(current_delay * 2, MAX_DELAY)
-
-                yield {"callback": {"event_loop_throttled_delay": current_delay, **invocation_state}}
-            else:
-                raise e
 
     try:
         # Add message in trace and mark the end of the stream messages trace
