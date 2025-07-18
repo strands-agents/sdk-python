@@ -38,7 +38,7 @@ def tool_module(tool_path):
         textwrap.dedent("""
             import strands
 
-            @strands.tools.tool
+            @strands.tool
             def identity(a: int):
                 return a
         """)
@@ -136,7 +136,7 @@ def test_load_python_tool_path_no_callable(tool_path):
         textwrap.dedent("""
             import strands
 
-            @strands.tools.tool
+            @strands.tool
             def identity(a: int):
                 return a
         """)
@@ -196,7 +196,7 @@ def test_load_python_tool_dot_missing():
         textwrap.dedent("""
             import strands
 
-            @strands.tools.tool
+            @strands.tool
             def identity(a: int):
                 return a
         """)

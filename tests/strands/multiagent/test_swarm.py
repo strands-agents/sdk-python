@@ -10,6 +10,7 @@ from strands.hooks.registry import HookProvider, HookRegistry
 from strands.multiagent.base import Status
 from strands.multiagent.swarm import SharedContext, Swarm, SwarmNode, SwarmResult, SwarmState
 from strands.session.session_manager import SessionManager
+from strands.tools.registry import ToolRegistry
 from strands.types.content import ContentBlock
 
 
@@ -20,9 +21,9 @@ def create_mock_agent(name, response_text="Default response", metrics=None, agen
     agent.id = agent_id or f"{name}_id"
     agent.messages = []
     agent.state = AgentState()  # Add state attribute
-    agent.tool_registry = Mock()
-    agent.tool_registry.registry = {}
-    agent.tool_registry.process_tools = Mock()
+    agent.tool_registry = Mock(spec=ToolRegistry)
+    agent.tool_registry.list_tools.return_value = {}
+    agent.tool_registry.create_tool.return_value = ""
     agent._call_count = 0
     agent._should_fail = should_fail
     agent._session_manager = None
@@ -283,7 +284,7 @@ def test_swarm_synchronous_execution(mock_strands_tracer, mock_use_span, mock_ag
 
     # Test tool injection
     for node in swarm.nodes.values():
-        node.executor.tool_registry.process_tools.assert_called()
+        node.executor.tool_registry.create_tool.assert_called()
 
     mock_strands_tracer.start_multiagent_span.assert_called()
     mock_use_span.assert_called_once()
@@ -312,7 +313,7 @@ def test_swarm_builder_validation(mock_agents):
 
     # Test tool name conflicts - handoff tool
     conflicting_agent = create_mock_agent("conflicting")
-    conflicting_agent.tool_registry.registry = {"handoff_to_agent": Mock()}
+    conflicting_agent.tool_registry.list_tools.return_value = {"handoff_to_agent": Mock()}
 
     with pytest.raises(ValueError, match="already has tools with names that conflict"):
         Swarm(nodes=[conflicting_agent])
