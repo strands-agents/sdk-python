@@ -368,7 +368,7 @@ def test_graph_builder_validation():
     with pytest.raises(ValueError, match="Entry points not found in nodes"):
         builder.build()
 
-    # Test cycle detection
+    # Test cyclic graph (should now be allowed)
     builder = GraphBuilder()
     builder.add_node(agent1, "a")
     builder.add_node(agent2, "b")
@@ -378,8 +378,8 @@ def test_graph_builder_validation():
     builder.add_edge("c", "a")  # Creates cycle
     builder.set_entry_point("a")
 
-    with pytest.raises(ValueError, match="Graph contains cycles"):
-        builder.build()
+    graph = builder.build()
+    assert any(node.node_id == "a" for node in graph.entry_points)
 
     # Test auto-detection of entry points
     builder = GraphBuilder()

@@ -1,15 +1,15 @@
-"""Directed Acyclic Graph (DAG) Multi-Agent Pattern Implementation.
+"""Directed Graph Multi-Agent Pattern Implementation.
 
-This module provides a deterministic DAG-based agent orchestration system where
+This module provides a deterministic graph-based agent orchestration system where
 agents or MultiAgentBase instances (like Swarm or Graph) are nodes in a graph,
 executed according to edge dependencies, with output from one node passed as input
 to connected nodes.
 
 Key Features:
 - Agents and MultiAgentBase instances (Swarm, Graph, etc.) as graph nodes
-- Deterministic execution order based on DAG structure
+- Deterministic execution based on dependency resolution
 - Output propagation along edges
-- Topological sort for execution ordering
+- Support for cyclic graphs (feedback loops)
 - Clear dependency management
 - Supports nested graphs (Graph as a node in another Graph)
 """
@@ -233,38 +233,16 @@ class GraphBuilder:
         return Graph(nodes=self.nodes.copy(), edges=self.edges.copy(), entry_points=self.entry_points.copy())
 
     def _validate_graph(self) -> None:
-        """Validate graph structure and detect cycles."""
+        """Validate entry points."""
         # Validate entry points exist
         entry_point_ids = {node.node_id for node in self.entry_points}
         invalid_entries = entry_point_ids - set(self.nodes.keys())
         if invalid_entries:
             raise ValueError(f"Entry points not found in nodes: {invalid_entries}")
 
-        # Check for cycles using DFS with color coding
-        WHITE, GRAY, BLACK = 0, 1, 2
-        colors = {node_id: WHITE for node_id in self.nodes}
-
-        def has_cycle_from(node_id: str) -> bool:
-            if colors[node_id] == GRAY:
-                return True  # Back edge found - cycle detected
-            if colors[node_id] == BLACK:
-                return False
-
-            colors[node_id] = GRAY
-            # Check all outgoing edges for cycles
-            for edge in self.edges:
-                if edge.from_node.node_id == node_id and has_cycle_from(edge.to_node.node_id):
-                    return True
-            colors[node_id] = BLACK
-            return False
-
-        # Check for cycles from each unvisited node
-        if any(colors[node_id] == WHITE and has_cycle_from(node_id) for node_id in self.nodes):
-            raise ValueError("Graph contains cycles - must be a directed acyclic graph")
-
 
 class Graph(MultiAgentBase):
-    """Directed Acyclic Graph multi-agent orchestration."""
+    """Directed Graph multi-agent orchestration."""
 
     def __init__(self, nodes: dict[str, GraphNode], edges: set[GraphEdge], entry_points: set[GraphNode]) -> None:
         """Initialize Graph."""
