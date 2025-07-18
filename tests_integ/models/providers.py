@@ -10,6 +10,7 @@ from pytest import mark
 
 from strands.models import BedrockModel, Model
 from strands.models.anthropic import AnthropicModel
+from strands.models.deepseek import DeepSeekModel
 from strands.models.litellm import LiteLLMModel
 from strands.models.llamaapi import LlamaAPIModel
 from strands.models.mistral import MistralModel
@@ -126,6 +127,14 @@ writer = ProviderInfo(
         stream_options={"include_usage": True},
     ),
 )
+deepseek = ProviderInfo(
+    id="deepseek",
+    environment_variable="DEEPSEEK_API_KEY",
+    factory=lambda: DeepSeekModel(
+        model_id="deepseek-chat",
+        api_key=os.getenv("DEEPSEEK_API_KEY"),
+    ),
+)
 
 ollama = OllamaProviderInfo()
 
@@ -134,6 +143,7 @@ all_providers = [
     bedrock,
     anthropic,
     cohere,
+    deepseek,
     llama,
     litellm,
     mistral,
