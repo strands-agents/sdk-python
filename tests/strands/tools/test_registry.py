@@ -7,9 +7,12 @@ from unittest.mock import MagicMock
 import pytest
 
 import strands
+from strands.agent.agent import Agent
 from strands.tools import PythonAgentTool
+from strands.tools.agent_tool_wrapper import AgentToolWrapper
 from strands.tools.decorator import DecoratedFunctionTool, tool
 from strands.tools.registry import ToolRegistry
+from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 
 def test_load_tool_from_filepath_failure():
@@ -93,3 +96,77 @@ def test_scan_module_for_tools():
 
     assert len(tools) == 2
     assert all(isinstance(tool, DecoratedFunctionTool) for tool in tools)
+
+
+def test_process_tools_with_agent():
+    """Test that process_tools correctly wraps Agent objects with AgentToolWrapper."""
+
+    # Create a real Agent instance using the mocked model provider
+    model = MockedModelProvider([])
+    agent = Agent(model=model, name="test_agent", description="A test agent for testing")
+
+    tool_registry = ToolRegistry()
+
+    # Process the agent as a tool
+    tool_names = tool_registry.process_tools([agent])
+
+    # Verify the agent was processed
+    assert len(tool_names) == 1
+    assert tool_names[0] == "test_agent"
+
+    # Verify the agent was wrapped and registered
+    assert "test_agent" in tool_registry.registry
+    wrapped_tool = tool_registry.registry["test_agent"]
+    assert isinstance(wrapped_tool, AgentToolWrapper)
+    assert wrapped_tool.tool_name == "test_agent"
+    assert wrapped_tool.tool_type == "agent"
+
+
+def test_process_tools_with_non_agent_objects():
+    """Test that process_tools correctly handles non-Agent objects and doesn't register them."""
+    tool_registry = ToolRegistry()
+
+    # Create a non-Agent object that might look like an agent
+    class NotAnAgent:
+        def __init__(self):
+            self.name = "test_name"
+            self.description = "A description"
+
+    not_agent = NotAnAgent()
+
+    # Process the non-agent object
+    tool_names = tool_registry.process_tools([not_agent])
+
+    # Verify the non-agent was not processed or registered
+    assert len(tool_names) == 0
+    assert "test_name" not in tool_registry.registry
+
+    # Test with other non-agent objects
+    tool_names = tool_registry.process_tools([123, None, {"not_a_tool": "spec"}])
+    assert len(tool_names) == 0
+
+
+def test_is_agent_instance():
+    """Test the _is_agent_instance method correctly identifies agent objects."""
+    tool_registry = ToolRegistry()
+
+    # Create a real Agent instance using the mocked model provider
+    model = MockedModelProvider([])
+    agent = Agent(model=model, name="test_agent", description="A test agent")
+
+    assert tool_registry._is_agent_instance(agent) is True
+
+    # Test with non-Agent objects
+    class NotAnAgent:
+        def __init__(self):
+            self.name = "test_name"
+            self.description = "A description"
+
+    not_agent = NotAnAgent()
+    assert tool_registry._is_agent_instance(not_agent) is False
+
+    # Test with regular object
+    assert tool_registry._is_agent_instance("not an agent") is False
+
+    # Test with None
+    assert tool_registry._is_agent_instance(None) is False

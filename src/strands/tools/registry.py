@@ -18,6 +18,7 @@ from typing_extensions import TypedDict, cast
 from strands.tools.decorator import DecoratedFunctionTool
 
 from ..types.tools import AgentTool, ToolSpec
+from .agent_tool_wrapper import AgentToolWrapper
 from .tools import PythonAgentTool, normalize_schema, normalize_tool_spec
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,12 @@ class ToolRegistry:
             elif isinstance(tool, AgentTool):
                 self.register_tool(tool)
                 tool_names.append(tool.tool_name)
+
+            # Case 6: Agent as tools
+            elif self._is_agent_instance(tool):
+                agent_tool = AgentToolWrapper(tool)
+                self.register_tool(agent_tool)
+                tool_names.append(agent_tool.tool_name)
             else:
                 logger.warning("tool=<%s> | unrecognized tool specification", tool)
 
@@ -598,3 +605,10 @@ class ToolRegistry:
                     logger.warning("tool_name=<%s> | failed to create function tool | %s", name, e)
 
         return tools
+
+    def _is_agent_instance(self, obj: Any) -> bool:
+        """Check if an object is an Agent instance."""
+        # Use local import to avoid circular dependencies
+        from ..agent.agent import Agent
+
+        return isinstance(obj, Agent)
