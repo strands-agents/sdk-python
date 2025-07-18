@@ -157,9 +157,7 @@ class Agent:
 
                 if should_record_direct_tool_call:
                     # Create a record of this tool execution in the message history
-                    self._agent._record_tool_execution(
-                        tool_use, tool_result, user_message_override, self._agent.messages
-                    )
+                    self._agent._record_tool_execution(tool_use, tool_result, user_message_override)
 
                 # Apply window management
                 self._agent.conversation_manager.apply_management(self._agent)
@@ -602,7 +600,6 @@ class Agent:
         tool: ToolUse,
         tool_result: ToolResult,
         user_message_override: Optional[str],
-        messages: Messages,
     ) -> None:
         """Record a tool execution in the message history.
 
@@ -617,11 +614,24 @@ class Agent:
             tool: The tool call information.
             tool_result: The result returned by the tool.
             user_message_override: Optional custom message to include.
-            messages: The message history to append to.
         """
         # Create user message describing the tool call
+
+        # Filter out non-serializable objects to prevent JSON serialization errors
+        serializable_input = {}
+        for key, value in tool["input"].items():
+            try:
+                json.dumps(value)  # Test if serializable
+                serializable_input[key] = value
+            except (TypeError, ValueError):
+                serializable_input[key] = f"<non-serializable: {type(value).__name__}>"
+
         user_msg_content: list[ContentBlock] = [
-            {"text": (f"agent.tool.{tool['name']} direct tool call.\nInput parameters: {json.dumps(tool['input'])}\n")}
+            {
+                "text": (
+                    f"agent.tool.{tool['name']} direct tool call.\nInput parameters: {json.dumps(serializable_input)}\n"
+                )
+            }
         ]
 
         # Add override message if provided
@@ -643,7 +653,7 @@ class Agent:
         }
         assistant_msg: Message = {
             "role": "assistant",
-            "content": [{"text": f"agent.{tool['name']} was called"}],
+            "content": [{"text": f"agent.tool.{tool['name']} was called."}],
         }
 
         # Add to message history
