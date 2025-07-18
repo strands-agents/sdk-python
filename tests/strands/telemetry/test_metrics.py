@@ -319,6 +319,8 @@ def test_event_loop_metrics_update_usage(usage, event_loop_metrics, mock_get_met
         inputTokens=3,
         outputTokens=6,
         totalTokens=9,
+        cacheReadInputTokenCount=0,
+        cacheWriteInputTokenCount=0,
     )
 
     assert tru_usage == exp_usage
@@ -358,6 +360,8 @@ def test_event_loop_metrics_get_summary(trace, tool, event_loop_metrics, mock_ge
             "inputTokens": 0,
             "outputTokens": 0,
             "totalTokens": 0,
+            "cacheReadInputTokenCount": 0,
+            "cacheWriteInputTokenCount": 0,
         },
         "average_cycle_time": 0,
         "tool_usage": {
@@ -394,7 +398,7 @@ def test_event_loop_metrics_get_summary(trace, tool, event_loop_metrics, mock_ge
             {},
             "Event Loop Metrics Summary:\n"
             "├─ Cycles: total=0, avg_time=0.000s, total_time=0.000s\n"
-            "├─ Tokens: in=0, out=0, total=0\n"
+            "├─ Tokens: in=0, out=0, total=0, cache_read=0, cache_write=0\n"
             "├─ Bedrock Latency: 0ms\n"
             "├─ Tool Usage:\n"
             "   └─ tool1:\n"
@@ -412,7 +416,7 @@ def test_event_loop_metrics_get_summary(trace, tool, event_loop_metrics, mock_ge
             {},
             "Event Loop Metrics Summary:\n"
             "├─ Cycles: total=0, avg_time=0.000s, total_time=0.000s\n"
-            "├─ Tokens: in=0, out=0, total=0\n"
+            "├─ Tokens: in=0, out=0, total=0, cache_read=0, cache_write=0\n"
             "├─ Bedrock Latency: 0ms\n"
             "├─ Tool Usage:\n"
             "   └─ tool1:\n"

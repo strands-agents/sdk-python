@@ -1,22 +1,26 @@
 """Event loop-related type definitions for the SDK."""
 
-from typing import Literal
+from typing import Literal, Optional
 
 from typing_extensions import TypedDict
 
 
-class Usage(TypedDict):
+class Usage(TypedDict, total=False):
     """Token usage information for model interactions.
 
     Attributes:
         inputTokens: Number of tokens sent in the request to the model..
         outputTokens: Number of tokens that the model generated for the request.
         totalTokens: Total number of tokens (input + output).
+        cacheReadInputTokenCount: Number of tokens read from the cache.
+        cacheWriteInputTokenCount: Number of tokens written to the cache.
     """
 
     inputTokens: int
     outputTokens: int
     totalTokens: int
+    cacheReadInputTokenCount: Optional[int]
+    cacheWriteInputTokenCount: Optional[int]
 
 
 class Metrics(TypedDict):

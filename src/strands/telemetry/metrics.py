@@ -168,7 +168,15 @@ class EventLoopMetrics:
     tool_metrics: Dict[str, ToolMetrics] = field(default_factory=dict)
     cycle_durations: List[float] = field(default_factory=list)
     traces: List[Trace] = field(default_factory=list)
-    accumulated_usage: Usage = field(default_factory=lambda: Usage(inputTokens=0, outputTokens=0, totalTokens=0))
+    accumulated_usage: Usage = field(
+        default_factory=lambda: Usage(
+            inputTokens=0,
+            outputTokens=0,
+            totalTokens=0,
+            cacheReadInputTokenCount=0,
+            cacheWriteInputTokenCount=0,
+        )
+    )
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
 
     @property
@@ -263,6 +271,10 @@ class EventLoopMetrics:
         self.accumulated_usage["inputTokens"] += usage["inputTokens"]
         self.accumulated_usage["outputTokens"] += usage["outputTokens"]
         self.accumulated_usage["totalTokens"] += usage["totalTokens"]
+        if "cacheReadInputTokenCount" in usage and self.accumulated_usage.get("cacheReadInputTokenCount") is not None:
+            self.accumulated_usage["cacheReadInputTokenCount"] += usage.get("cacheReadInputTokenCount", 0)
+        if "cacheWriteInputTokenCount" in usage and self.accumulated_usage.get("cacheWriteInputTokenCount") is not None:
+            self.accumulated_usage["cacheWriteInputTokenCount"] += usage.get("cacheWriteInputTokenCount", 0)
 
     def update_metrics(self, metrics: Metrics) -> None:
         """Update the accumulated performance metrics with new metrics data.
@@ -328,7 +340,9 @@ def _metrics_summary_to_lines(event_loop_metrics: EventLoopMetrics, allowed_name
     yield (
         f"├─ Tokens: in={summary['accumulated_usage']['inputTokens']}, "
         f"out={summary['accumulated_usage']['outputTokens']}, "
-        f"total={summary['accumulated_usage']['totalTokens']}"
+        f"total={summary['accumulated_usage']['totalTokens']}, "
+        f"cache_read={summary['accumulated_usage']['cacheReadInputTokenCount']}, "
+        f"cache_write={summary['accumulated_usage']['cacheWriteInputTokenCount']}"
     )
     yield f"├─ Bedrock Latency: {summary['accumulated_metrics']['latencyMs']}ms"
 
