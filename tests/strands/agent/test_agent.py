@@ -1616,7 +1616,7 @@ def test_agent_tool_non_serializable_parameter_filtering(agent, mock_randint):
     tool_call_text = user_message["content"][1]["text"]
     assert "agent.tool.tool_decorated direct tool call." in tool_call_text
     assert '"random_string": "test_value"' in tool_call_text
-    assert '"non_serializable_agent": "<non-serializable: Agent>"' in tool_call_text
+    assert '"non_serializable_agent": "<<non-serializable: Agent>>"' in tool_call_text
 
 
 def test_agent_tool_multiple_non_serializable_types(agent, mock_randint):
@@ -1663,11 +1663,14 @@ def test_agent_tool_multiple_non_serializable_types(agent, mock_randint):
     assert '"serializable_dict": {"key": "value"}' in tool_call_text
 
     # Verify non-serializable objects are replaced with descriptive strings
-    assert '"agent": "<non-serializable: Agent>"' in tool_call_text
-    assert '"custom_object": "<non-serializable: CustomClass>"' in tool_call_text
-    assert '"function": "<non-serializable: function>"' in tool_call_text
-    assert '"set_object": "<non-serializable: set>"' in tool_call_text
-    assert '"complex_number": "<non-serializable: complex>"' in tool_call_text
+    assert '"agent": "<<non-serializable: Agent>>"' in tool_call_text
+    assert (
+        '"custom_object": "<<non-serializable: test_agent_tool_multiple_non_serializable_types.<locals>.CustomClass>>"'
+        in tool_call_text
+    )
+    assert '"function": "<<non-serializable: function>>"' in tool_call_text
+    assert '"set_object": "<<non-serializable: set>>"' in tool_call_text
+    assert '"complex_number": "<<non-serializable: complex>>"' in tool_call_text
 
 
 def test_agent_tool_serialization_edge_cases(agent, mock_randint):
@@ -1705,7 +1708,7 @@ def test_agent_tool_serialization_edge_cases(agent, mock_randint):
     assert '"nested_dict_serializable": {"nested": {"key": "value"}}' in tool_call_text
 
     # Verify non-serializable nested structure is replaced
-    assert '"nested_list_with_non_serializable": "<non-serializable: list>"' in tool_call_text
+    assert '"nested_list_with_non_serializable": [1, 2, "<<non-serializable: Agent>>"]' in tool_call_text
 
 
 def test_agent_tool_no_non_serializable_parameters(agent, mock_randint):
@@ -1731,8 +1734,8 @@ def test_agent_tool_no_non_serializable_parameters(agent, mock_randint):
     # Verify normal parameter serialization (no filtering needed)
     assert "agent.tool.tool_decorated direct tool call." in tool_call_text
     assert '"random_string": "normal_call"' in tool_call_text
-    # Should not contain any "<non-serializable:" strings
-    assert "<non-serializable:" not in tool_call_text
+    # Should not contain any "<<non-serializable:" strings
+    assert "<<non-serializable:" not in tool_call_text
 
 
 def test_agent_tool_record_direct_tool_call_disabled_with_non_serializable(agent, mock_randint):

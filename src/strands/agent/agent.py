@@ -616,22 +616,10 @@ class Agent:
             user_message_override: Optional custom message to include.
         """
         # Create user message describing the tool call
-
-        # Filter out non-serializable objects to prevent JSON serialization errors
-        serializable_input = {}
-        for key, value in tool["input"].items():
-            try:
-                json.dumps(value)  # Test if serializable
-                serializable_input[key] = value
-            except (TypeError, ValueError):
-                serializable_input[key] = f"<non-serializable: {type(value).__name__}>"
+        input_parameters = json.dumps(tool["input"], default=lambda o: f"<<non-serializable: {type(o).__qualname__}>>")
 
         user_msg_content: list[ContentBlock] = [
-            {
-                "text": (
-                    f"agent.tool.{tool['name']} direct tool call.\nInput parameters: {json.dumps(serializable_input)}\n"
-                )
-            }
+            {"text": (f"agent.tool.{tool['name']} direct tool call.\nInput parameters: {input_parameters}\n")}
         ]
 
         # Add override message if provided
