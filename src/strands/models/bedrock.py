@@ -75,6 +75,7 @@ class BedrockModel(Model):
             streaming: Flag to enable/disable streaming. Defaults to True.
             temperature: Controls randomness in generation (higher = more random)
             top_p: Controls diversity via nucleus sampling (alternative to temperature)
+            endpoint_url: Custom endpoint URL for VPC endpoints (PrivateLink)
         """
 
         additional_args: Optional[dict[str, Any]]
@@ -96,6 +97,7 @@ class BedrockModel(Model):
         streaming: Optional[bool]
         temperature: Optional[float]
         top_p: Optional[float]
+        endpoint_url: Optional[str]  #Adding Endpoint URL
 
     def __init__(
         self,
@@ -113,6 +115,7 @@ class BedrockModel(Model):
             region_name: AWS region to use for the Bedrock service.
                 Defaults to the AWS_REGION environment variable if set, or "us-west-2" if not set.
             **model_config: Configuration options for the Bedrock model.
+                Use endpoint_url for VPC endpoint connectivity.
         """
         if region_name and boto_session:
             raise ValueError("Cannot specify both `region_name` and `boto_session`.")
@@ -143,6 +146,7 @@ class BedrockModel(Model):
         self.client = session.client(
             service_name="bedrock-runtime",
             config=client_config,
+            endpoint_url=self.config.get("endpoint_url"),
             region_name=resolved_region,
         )
 
