@@ -57,8 +57,6 @@ def _load_api_keys_from_secrets_manager():
             secret = json.loads(response["SecretString"])
             for key, value in secret.items():
                 os.environ[f"{key.upper()}_API_KEY"] = str(value)
-        else:
-            raise Exception("No API keys found in secrets manager")
 
     except Exception as e:
         logger.warning("Error retrieving secret", e)
