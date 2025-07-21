@@ -1,6 +1,6 @@
 import pytest
 
-from strands.types.models import Model
+from strands.models import Model
 from tests_integ.models.providers import ProviderInfo, all_providers
 
 

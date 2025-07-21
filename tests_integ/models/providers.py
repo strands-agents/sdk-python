@@ -72,11 +72,11 @@ anthropic = ProviderInfo(
 bedrock = ProviderInfo(id="bedrock", factory=lambda: BedrockModel())
 cohere = ProviderInfo(
     id="cohere",
-    environment_variable="CO_API_KEY",
+    environment_variable="COHERE_API_KEY",
     factory=lambda: OpenAIModel(
         client_args={
             "base_url": "https://api.cohere.com/compatibility/v1",
-            "api_key": os.getenv("CO_API_KEY"),
+            "api_key": os.getenv("COHERE_API_KEY"),
         },
         model_id="command-a-03-2025",
         params={"stream_options": None},

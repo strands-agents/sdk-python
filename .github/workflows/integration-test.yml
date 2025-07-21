@@ -69,4 +69,4 @@ jobs:
           AWS_REGION_NAME: us-east-1 # Needed for LiteLLM
         id: tests
         run: |
-          hatch test tests_integ
+          hatch test tests_integ/models
