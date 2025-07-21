@@ -49,8 +49,8 @@ def _load_api_keys_from_secrets_manager():
     """Load API keys as environment variables from AWS Secrets Manager."""
     session = boto3.session.Session()
     client = session.client(service_name="secretsmanager")
-    secret_name = os.getenv("STRANDS_TEST_API_KEYS_SECRET_NAME")
     try:
+        secret_name = os.getenv("STRANDS_TEST_API_KEYS_SECRET_NAME")
         response = client.get_secret_value(SecretId=secret_name)
 
         if "SecretString" in response:
