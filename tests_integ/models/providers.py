@@ -59,7 +59,7 @@ class OllamaProviderInfo(ProviderInfo):
         except requests.exceptions.ConnectionError:
             pass
 
-        self.mark = mark.skipif(
+        self.marks = mark.skipif(
             not is_server_available,
             reason="Local Ollama endpoint not available at localhost:11434",
         )
