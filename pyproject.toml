@@ -90,7 +90,7 @@ writer = [
 ]
 
 a2a = [
-    "a2a-sdk[sql]>=0.2.11,<1.0.0",
+    "a2a-sdk[sql]>=0.2.16,<1.0.0",
     "uvicorn>=0.34.2,<1.0.0",
     "httpx>=0.28.1,<1.0.0",
     "fastapi>=0.115.12,<1.0.0",
@@ -136,7 +136,7 @@ all = [
     "opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0",
 
     # a2a
-    "a2a-sdk[sql]>=0.2.11,<1.0.0",
+    "a2a-sdk[sql]>=0.2.16,<1.0.0",
     "uvicorn>=0.34.2,<1.0.0",
     "httpx>=0.28.1,<1.0.0",
     "fastapi>=0.115.12,<1.0.0",
