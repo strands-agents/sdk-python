@@ -3,7 +3,7 @@ Aggregates all providers for testing all providers in one go.
 """
 
 import os
-from typing import Callable, Optional, List, Union
+from typing import Callable, Optional
 
 import pytest
 import requests
@@ -31,7 +31,7 @@ class ProviderInfo:
     ) -> None:
         self.id = id
         self.model_factory = factory
-        
+
         skip_mark = mark.skipif(
             environment_variable is not None and environment_variable not in os.environ,
             reason=f"{environment_variable} environment variable missing",
@@ -82,7 +82,7 @@ anthropic = ProviderInfo(
         model_id="claude-3-7-sonnet-20250219",
         max_tokens=512,
     ),
-    flaky=True
+    flaky=True,
 )
 bedrock = ProviderInfo(id="bedrock", factory=lambda: BedrockModel())
 cohere = ProviderInfo(
