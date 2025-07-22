@@ -49,17 +49,18 @@ def _load_api_keys_from_secrets_manager():
     """Load API keys as environment variables from AWS Secrets Manager."""
     session = boto3.session.Session()
     client = session.client(service_name="secretsmanager")
-    try:
-        secret_name = os.getenv("STRANDS_TEST_API_KEYS_SECRET_NAME")
-        response = client.get_secret_value(SecretId=secret_name)
+    if "STRANDS_TEST_API_KEYS_SECRET_NAME" in os.environ:
+        try:
+            secret_name = os.getenv("STRANDS_TEST_API_KEYS_SECRET_NAME")
+            response = client.get_secret_value(SecretId=secret_name)
 
-        if "SecretString" in response:
-            secret = json.loads(response["SecretString"])
-            for key, value in secret.items():
-                os.environ[f"{key.upper()}_API_KEY"] = str(value)
+            if "SecretString" in response:
+                secret = json.loads(response["SecretString"])
+                for key, value in secret.items():
+                    os.environ[f"{key.upper()}_API_KEY"] = str(value)
 
-    except Exception as e:
-        logger.warning("Error retrieving secret", e)
+        except Exception as e:
+            logger.warning("Error retrieving secret", e)
 
     """
     Validate that required environment variables are set when running in GitHub Actions.

@@ -8,16 +8,8 @@ from strands import Agent
 from strands.models.anthropic import AnthropicModel
 from tests_integ.models import providers
 
-"""
-These tests only run if we have the anthropic api key
-
-Because of infrequent burst usage Anthropic is occasionally failing tests with 529s. We retrying with delay to
-avoid these false negatives.
-
-{'type': 'error', 'error': {'details': None, 'type': 'overloaded_error', 'message': 'Overloaded'}}
-https://docs.anthropic.com/en/api/errors#http-errors
-"""
-pytestmark = [providers.anthropic.mark, pytest.mark.flaky(reruns=2, reruns_delay=5)]
+# these tests only run if we have the anthropic api key
+pytestmark = providers.anthropic.mark
 
 
 @pytest.fixture

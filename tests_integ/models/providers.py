@@ -3,8 +3,9 @@ Aggregates all providers for testing all providers in one go.
 """
 
 import os
-from typing import Callable, Optional
+from typing import Callable, Optional, List, Union
 
+import pytest
 import requests
 from pytest import mark
 
@@ -26,13 +27,19 @@ class ProviderInfo:
         id: str,
         factory: Callable[[], Model],
         environment_variable: Optional[str] = None,
+        flaky: bool = False,
     ) -> None:
         self.id = id
         self.model_factory = factory
-        self.mark = mark.skipif(
+        
+        skip_mark = mark.skipif(
             environment_variable is not None and environment_variable not in os.environ,
             reason=f"{environment_variable} environment variable missing",
         )
+        if flaky:
+            self.mark = [skip_mark, pytest.mark.flaky(reruns=2, reruns_delay=5)]
+        else:
+            self.mark = skip_mark
 
     def create_model(self) -> Model:
         return self.model_factory()
@@ -58,6 +65,13 @@ class OllamaProviderInfo(ProviderInfo):
         )
 
 
+"""
+Because of infrequent burst usage Anthropic is occasionally failing tests with 529s. We retrying with delay to
+avoid these false negatives.
+
+{'type': 'error', 'error': {'details': None, 'type': 'overloaded_error', 'message': 'Overloaded'}}
+https://docs.anthropic.com/en/api/errors#http-errors
+"""
 anthropic = ProviderInfo(
     id="anthropic",
     environment_variable="ANTHROPIC_API_KEY",
@@ -68,6 +82,7 @@ anthropic = ProviderInfo(
         model_id="claude-3-7-sonnet-20250219",
         max_tokens=512,
     ),
+    flaky=True
 )
 bedrock = ProviderInfo(id="bedrock", factory=lambda: BedrockModel())
 cohere = ProviderInfo(
