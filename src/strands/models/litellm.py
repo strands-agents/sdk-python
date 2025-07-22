@@ -127,7 +127,8 @@ class LiteLLMModel(OpenAIModel):
         logger.debug("request=<%s>", request)
 
         # Check if streaming is disabled in the params
-        params = self.get_config().get("params", {})
+        config = self.get_config()
+        params = config.get("params") or {}
         is_streaming = params.get("stream", True)
 
         litellm_request = {**request}
@@ -194,7 +195,7 @@ class LiteLLMModel(OpenAIModel):
             yield self.format_chunk({"chunk_type": "message_start"})
             yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
-            tool_calls: dict[int, list[Any]] = {}
+            streaming_tool_calls: dict[int, list[Any]] = {}
             finish_reason = None
 
             try:
@@ -219,7 +220,7 @@ class LiteLLMModel(OpenAIModel):
                         )
 
                     for tool_call in choice.delta.tool_calls or []:
-                        tool_calls.setdefault(tool_call.index, []).append(tool_call)
+                        streaming_tool_calls.setdefault(tool_call.index, []).append(tool_call)
 
                     if choice.finish_reason:
                         finish_reason = choice.finish_reason
@@ -230,7 +231,7 @@ class LiteLLMModel(OpenAIModel):
             yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
 
             # Process tool calls
-            for tool_deltas in tool_calls.values():
+            for tool_deltas in streaming_tool_calls.values():
                 yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]})
 
                 for tool_delta in tool_deltas:
