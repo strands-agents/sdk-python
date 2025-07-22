@@ -83,8 +83,8 @@ class A2AServer:
             url=self.http_url,
             version=self.version,
             skills=self.agent_skills,
-            defaultInputModes=["text"],
-            defaultOutputModes=["text"],
+            default_input_modes=["text"],
+            default_output_modes=["text"],
             capabilities=self.capabilities,
         )
 
