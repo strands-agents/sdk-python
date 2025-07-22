@@ -14,8 +14,7 @@ Because of infrequent burst usage, Anthropic tests are unreliable, failing tests
 https://docs.anthropic.com/en/api/errors#http-errors
 """
 pytestmark = pytest.skip(
-    "Because of infrequent burst usage, Anthropic tests are unreliable, failing with 529s",
-    allow_module_level=True
+    "Because of infrequent burst usage, Anthropic tests are unreliable, failing with 529s", allow_module_level=True
 )
 
 
