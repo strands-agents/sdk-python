@@ -9,7 +9,7 @@ from strands.models.llamaapi import LlamaAPIModel
 from tests_integ.models import providers
 
 # these tests only run if we have the llama api key
-pytestmark = providers.llama.marks
+pytestmark = providers.llama.mark
 
 
 @pytest.fixture

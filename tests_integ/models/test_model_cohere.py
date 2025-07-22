@@ -8,7 +8,7 @@ from strands.models.openai import OpenAIModel
 from tests_integ.models import providers
 
 # these tests only run if we have the cohere api key
-pytestmark = providers.cohere.marks
+pytestmark = providers.cohere.mark
 
 
 @pytest.fixture

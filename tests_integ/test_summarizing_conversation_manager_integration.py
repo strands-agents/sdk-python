@@ -23,7 +23,7 @@ from strands.agent.conversation_manager import SummarizingConversationManager
 from strands.models.anthropic import AnthropicModel
 from tests_integ.models import providers
 
-pytestmark = providers.anthropic.marks
+pytestmark = providers.anthropic.mark
 
 
 @pytest.fixture
