@@ -7,7 +7,7 @@ from strands.models.ollama import OllamaModel
 from tests_integ.models import providers
 
 # these tests only run if we have the ollama is running
-pytestmark = providers.ollama.mark
+pytestmark = providers.ollama.marks
 
 
 @pytest.fixture

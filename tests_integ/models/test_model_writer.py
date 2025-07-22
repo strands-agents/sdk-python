@@ -9,7 +9,7 @@ from strands.models.writer import WriterModel
 from tests_integ.models import providers
 
 # these tests only run if we have the writer api key
-pytestmark = providers.writer.mark
+pytestmark = providers.writer.marks
 
 
 @pytest.fixture

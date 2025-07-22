@@ -8,7 +8,7 @@ from strands.models.openai import OpenAIModel
 from tests_integ.models import providers
 
 # these tests only run if we have the cohere api key
-pytestmark = providers.cohere.mark
+pytestmark = providers.cohere.marks
 
 
 @pytest.fixture
@@ -16,7 +16,7 @@ def model():
     return OpenAIModel(
         client_args={
             "base_url": "https://api.cohere.com/compatibility/v1",
-            "api_key": os.getenv("CO_API_KEY"),
+            "api_key": os.getenv("COHERE_API_KEY"),
         },
         model_id="command-a-03-2025",
         params={"stream_options": None},

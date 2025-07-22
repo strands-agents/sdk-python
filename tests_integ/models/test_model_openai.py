@@ -9,7 +9,7 @@ from strands.models.openai import OpenAIModel
 from tests_integ.models import providers
 
 # these tests only run if we have the openai api key
-pytestmark = providers.openai.mark
+pytestmark = providers.openai.marks
 
 
 @pytest.fixture

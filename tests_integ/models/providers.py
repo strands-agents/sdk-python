@@ -37,9 +37,9 @@ class ProviderInfo:
             reason=f"{environment_variable} environment variable missing",
         )
         if flaky:
-            self.mark = [skip_mark, pytest.mark.flaky(reruns=2, reruns_delay=5)]
+            self.marks = [skip_mark, pytest.mark.flaky(reruns=2, reruns_delay=5)]
         else:
-            self.mark = skip_mark
+            self.marks = [skip_mark]
 
     def create_model(self) -> Model:
         return self.model_factory()

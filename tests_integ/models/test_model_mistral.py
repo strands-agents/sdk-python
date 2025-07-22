@@ -9,7 +9,7 @@ from strands.models.mistral import MistralModel
 from tests_integ.models import providers
 
 # these tests only run if we have the mistral api key
-pytestmark = providers.mistral.mark
+pytestmark = providers.mistral.marks
 
 
 @pytest.fixture()

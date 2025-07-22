@@ -9,7 +9,7 @@ from strands.models.anthropic import AnthropicModel
 from tests_integ.models import providers
 
 # these tests only run if we have the anthropic api key
-pytestmark = providers.anthropic.mark
+pytestmark = providers.anthropic.marks
 
 
 @pytest.fixture
