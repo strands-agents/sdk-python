@@ -478,3 +478,82 @@ def test_format_request_messages_cache_point_support():
     ]
 
     assert result == expected
+async def test_stream_non_streaming(litellm_acompletion, api_key, model_id, alist):
+    """Test LiteLLM model with streaming disabled (stream=False).
+
+    This test verifies that the LiteLLM model works correctly when streaming is disabled,
+    which was the issue reported in GitHub issue #477.
+    """
+
+    mock_function = unittest.mock.Mock()
+    mock_function.name = "calculator"
+    mock_function.arguments = '{"expression": "123981723 + 234982734"}'
+
+    mock_tool_call = unittest.mock.Mock(index=0, function=mock_function, id="tool_call_id_123")
+
+    mock_message = unittest.mock.Mock()
+    mock_message.content = "I'll calculate that for you"
+    mock_message.reasoning_content = "Let me think about this calculation"
+    mock_message.tool_calls = [mock_tool_call]
+
+    mock_choice = unittest.mock.Mock()
+    mock_choice.message = mock_message
+    mock_choice.finish_reason = "tool_calls"
+
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+    mock_response.usage = unittest.mock.Mock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
+
+    litellm_acompletion.side_effect = unittest.mock.AsyncMock(return_value=mock_response)
+
+    model = LiteLLMModel(
+        client_args={"api_key": api_key},
+        model_id=model_id,
+        params={"stream": False},  # This is the key setting that was causing the #477 isuue
+    )
+
+    messages = [{"role": "user", "content": [{"type": "text", "text": "What is 123981723 + 234982734?"}]}]
+    response = model.stream(messages)
+
+    tru_events = await alist(response)
+
+    exp_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "I'll calculate that for you"}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "Let me think about this calculation"}}}},
+        {"contentBlockStop": {}},
+        {
+            "contentBlockStart": {
+                "start": {"toolUse": {"name": "calculator", "toolUseId": mock_message.tool_calls[0].id}}
+            }
+        },
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "123981723 + 234982734"}'}}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "tool_use"}},
+        {
+            "metadata": {
+                "usage": {
+                    "inputTokens": 10,
+                    "outputTokens": 20,
+                    "totalTokens": 30,
+                },
+                "metrics": {"latencyMs": 0},
+            }
+        },
+    ]
+
+    assert len(tru_events) == len(exp_events)
+
+    for i, (tru, exp) in enumerate(zip(tru_events, exp_events, strict=False)):
+        assert tru == exp, f"Event {i} mismatch: {tru} != {exp}"
+
+    expected_request = {
+        "api_key": api_key,
+        "model": model_id,
+        "messages": [{"role": "user", "content": [{"text": "What is 123981723 + 234982734?", "type": "text"}]}],
+        "stream": False,  # Verify that stream=False was passed to litellm
+        "stream_options": {"include_usage": True},
+        "tools": [],
+    }
+    litellm_acompletion.assert_called_once_with(**expected_request)
