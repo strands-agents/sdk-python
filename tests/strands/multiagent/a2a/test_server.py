@@ -511,9 +511,6 @@ def test_serve_handles_general_exception(mock_run, mock_strands_agent, caplog):
     assert "Strands A2A server has shutdown" in caplog.text
 
 
-# Tests for http_url parameter and path mounting functionality
-
-
 def test_initialization_with_http_url_no_path(mock_strands_agent):
     """Test initialization with http_url containing no path."""
     mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
@@ -612,8 +609,6 @@ def test_to_starlette_app_with_mounting(mock_strands_agent):
     app = a2a_agent.to_starlette_app()
 
     assert isinstance(app, Starlette)
-    # The returned app should be the parent app with the A2A app mounted
-    # We can't easily inspect the mounting, but we can verify it's a Starlette app
 
 
 def test_to_starlette_app_without_mounting(mock_strands_agent):
