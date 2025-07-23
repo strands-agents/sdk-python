@@ -273,7 +273,7 @@ class Tracer:
 
         self._end_span(span, attributes, error)
 
-    def start_tool_call_span(self, tool: ToolUse, parent_span: Optional[Span] = None, **kwargs: Any) -> Optional[Span]:
+    def start_tool_call_span(self, tool: ToolUse, parent_span: Optional[Span] = None, **kwargs: Any) -> Span:
         """Start a new span for a tool call.
 
         Args:
