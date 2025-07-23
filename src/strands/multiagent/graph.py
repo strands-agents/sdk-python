@@ -15,6 +15,7 @@ Key Features:
 """
 
 import asyncio
+import copy
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -24,8 +25,9 @@ from typing import Any, Callable, Tuple
 from opentelemetry import trace as trace_api
 
 from ..agent import Agent
+from ..agent.state import AgentState
 from ..telemetry import get_tracer
-from ..types.content import ContentBlock
+from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
@@ -117,6 +119,33 @@ class GraphNode:
     execution_status: Status = Status.PENDING
     result: NodeResult | None = None
     execution_time: int = 0
+    _initial_messages: Messages = field(default_factory=list, init=False)
+    _initial_state: AgentState = field(default_factory=AgentState, init=False)
+
+    def __post_init__(self) -> None:
+        """Capture initial executor state after initialization."""
+        # Deep copy the initial messages and state to preserve them
+        if hasattr(self.executor, "messages"):
+            self._initial_messages = copy.deepcopy(self.executor.messages)
+
+        if hasattr(self.executor, "state") and hasattr(self.executor.state, "get"):
+            self._initial_state = AgentState(self.executor.state.get())
+
+    def reset_executor_state(self) -> None:
+        """Reset GraphNode executor state to initial state when graph was created.
+
+        This is particularly useful for cyclic graphs where nodes may be executed
+        multiple times and need to start fresh on each cycle.
+        """
+        if hasattr(self.executor, "messages"):
+            self.executor.messages = copy.deepcopy(self._initial_messages)
+
+        if hasattr(self.executor, "state"):
+            self.executor.state = AgentState(self._initial_state.get())
+
+        # Reset execution status
+        self.execution_status = Status.PENDING
+        self.result = None
 
     def __hash__(self) -> int:
         """Return hash for GraphNode based on node_id."""
@@ -360,6 +389,13 @@ class Graph(MultiAgentBase):
 
     async def _execute_node(self, node: GraphNode) -> None:
         """Execute a single node with error handling."""
+        # Reset the node's state if it's being revisited in a cycle
+        if node in self.state.completed_nodes:
+            logger.debug("node_id=<%s> | resetting node state for cyclic execution", node.node_id)
+            node.reset_executor_state()
+            # Remove from completed nodes since we're re-executing it
+            self.state.completed_nodes.remove(node)
+
         node.execution_status = Status.EXECUTING
         logger.debug("node_id=<%s> | executing node", node.node_id)
 
