@@ -699,3 +699,161 @@ def test_http_url_trailing_slash_handling(mock_strands_agent):
     assert a2a_agent2.http_url == "http://example.com/agent1/"
     assert a2a_agent1.mount_path == "/agent1"
     assert a2a_agent2.mount_path == "/agent1"
+
+
+def test_serve_at_root_default_behavior(mock_strands_agent):
+    """Test default behavior extracts mount path from http_url."""
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    server = A2AServer(mock_strands_agent, http_url="http://my-alb.com/agent1", skills=[])
+
+    assert server.mount_path == "/agent1"
+    assert server.http_url == "http://my-alb.com/agent1/"
+
+
+def test_serve_at_root_overrides_mounting(mock_strands_agent):
+    """Test serve_at_root=True overrides automatic path mounting."""
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    server = A2AServer(mock_strands_agent, http_url="http://my-alb.com/agent1", serve_at_root=True, skills=[])
+
+    assert server.mount_path == ""  # Should be empty despite path in URL
+    assert server.http_url == "http://my-alb.com/agent1/"  # Public URL unchanged
+
+
+def test_serve_at_root_with_no_path(mock_strands_agent):
+    """Test serve_at_root=True when no path in URL (redundant but valid)."""
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    server = A2AServer(mock_strands_agent, host="localhost", port=8080, serve_at_root=True, skills=[])
+
+    assert server.mount_path == ""
+    assert server.http_url == "http://localhost:8080/"
+
+
+def test_serve_at_root_complex_path(mock_strands_agent):
+    """Test serve_at_root=True with complex nested paths."""
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    server = A2AServer(
+        mock_strands_agent, http_url="http://api.example.com/v1/agents/my-agent", serve_at_root=True, skills=[]
+    )
+
+    assert server.mount_path == ""
+    assert server.http_url == "http://api.example.com/v1/agents/my-agent/"
+
+
+def test_serve_at_root_fastapi_mounting_behavior(mock_strands_agent):
+    """Test FastAPI mounting behavior with serve_at_root."""
+    from fastapi.testclient import TestClient
+
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    # Normal mounting
+    server_mounted = A2AServer(mock_strands_agent, http_url="http://my-alb.com/agent1", skills=[])
+    app_mounted = server_mounted.to_fastapi_app()
+    client_mounted = TestClient(app_mounted)
+
+    # Should work at mounted path
+    response = client_mounted.get("/agent1/.well-known/agent.json")
+    assert response.status_code == 200
+
+    # Should not work at root
+    response = client_mounted.get("/.well-known/agent.json")
+    assert response.status_code == 404
+
+
+def test_serve_at_root_fastapi_root_behavior(mock_strands_agent):
+    """Test FastAPI serve_at_root behavior."""
+    from fastapi.testclient import TestClient
+
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    # Serve at root
+    server_root = A2AServer(mock_strands_agent, http_url="http://my-alb.com/agent1", serve_at_root=True, skills=[])
+    app_root = server_root.to_fastapi_app()
+    client_root = TestClient(app_root)
+
+    # Should work at root
+    response = client_root.get("/.well-known/agent.json")
+    assert response.status_code == 200
+
+    # Should not work at mounted path (since we're serving at root)
+    response = client_root.get("/agent1/.well-known/agent.json")
+    assert response.status_code == 404
+
+
+def test_serve_at_root_starlette_behavior(mock_strands_agent):
+    """Test Starlette serve_at_root behavior."""
+    from starlette.testclient import TestClient
+
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    # Normal mounting
+    server_mounted = A2AServer(mock_strands_agent, http_url="http://my-alb.com/agent1", skills=[])
+    app_mounted = server_mounted.to_starlette_app()
+    client_mounted = TestClient(app_mounted)
+
+    # Should work at mounted path
+    response = client_mounted.get("/agent1/.well-known/agent.json")
+    assert response.status_code == 200
+
+    # Serve at root
+    server_root = A2AServer(mock_strands_agent, http_url="http://my-alb.com/agent1", serve_at_root=True, skills=[])
+    app_root = server_root.to_starlette_app()
+    client_root = TestClient(app_root)
+
+    # Should work at root
+    response = client_root.get("/.well-known/agent.json")
+    assert response.status_code == 200
+
+
+def test_serve_at_root_alb_scenarios(mock_strands_agent):
+    """Test common ALB deployment scenarios."""
+    from fastapi.testclient import TestClient
+
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    # ALB with path preservation
+    server_preserved = A2AServer(mock_strands_agent, http_url="http://my-alb.amazonaws.com/agent1", skills=[])
+    app_preserved = server_preserved.to_fastapi_app()
+    client_preserved = TestClient(app_preserved)
+
+    # Container receives /agent1/.well-known/agent.json
+    response = client_preserved.get("/agent1/.well-known/agent.json")
+    assert response.status_code == 200
+    agent_data = response.json()
+    assert agent_data["url"] == "http://my-alb.amazonaws.com/agent1/"
+
+    # ALB with path stripping
+    server_stripped = A2AServer(
+        mock_strands_agent, http_url="http://my-alb.amazonaws.com/agent1", serve_at_root=True, skills=[]
+    )
+    app_stripped = server_stripped.to_fastapi_app()
+    client_stripped = TestClient(app_stripped)
+
+    # Container receives /.well-known/agent.json (path stripped by ALB)
+    response = client_stripped.get("/.well-known/agent.json")
+    assert response.status_code == 200
+    agent_data = response.json()
+    assert agent_data["url"] == "http://my-alb.amazonaws.com/agent1/"
+
+
+def test_serve_at_root_edge_cases(mock_strands_agent):
+    """Test edge cases for serve_at_root parameter."""
+    mock_strands_agent.tool_registry.get_all_tools_config.return_value = {}
+
+    # Root path in URL
+    server1 = A2AServer(mock_strands_agent, http_url="http://example.com/", skills=[])
+    assert server1.mount_path == ""
+
+    # serve_at_root should be redundant but not cause issues
+    server2 = A2AServer(mock_strands_agent, http_url="http://example.com/", serve_at_root=True, skills=[])
+    assert server2.mount_path == ""
+
+    # Multiple nested paths
+    server3 = A2AServer(
+        mock_strands_agent, http_url="http://api.example.com/v1/agents/team1/agent1", serve_at_root=True, skills=[]
+    )
+    assert server3.mount_path == ""
+    assert server3.http_url == "http://api.example.com/v1/agents/team1/agent1/"

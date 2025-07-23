@@ -133,9 +133,7 @@ class RepositorySessionManager(SessionManager):
             agent.state = AgentState(session_agent.state)
 
             # Restore the conversation manager to its previous state, and get the optional prepend messages
-            prepend_messages = agent.conversation_manager.restore_from_session(
-                session_agent.conversation_manager_state
-            )
+            prepend_messages = agent.conversation_manager.restore_from_session(session_agent.conversation_manager_state)
 
             if prepend_messages is None:
                 prepend_messages = []
