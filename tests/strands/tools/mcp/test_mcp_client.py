@@ -399,6 +399,3 @@ def test_get_prompt_sync_session_not_active():
 
     with pytest.raises(MCPClientInitializationError, match="client session is not running"):
         client.get_prompt_sync("test_prompt_id", {})
-
-
-

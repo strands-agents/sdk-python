@@ -164,7 +164,7 @@ class MCPClient:
         mcp_tools = [MCPAgentTool(tool, self) for tool in list_tools_response.tools]
         self._log_debug_with_thread("successfully adapted %d MCP tools", len(mcp_tools))
         return PaginatedList[MCPAgentTool](mcp_tools, token=list_tools_response.nextCursor)
-    
+
     def list_prompts_sync(self, pagination_token: Optional[str] = None) -> ListPromptsResult:
         """Synchronously retrieves the list of available prompts from the MCP server.
 
