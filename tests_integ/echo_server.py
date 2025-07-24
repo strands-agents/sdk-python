@@ -15,7 +15,7 @@ Usage:
     $ python echo_server.py
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
 
 from mcp.server import FastMCP
 
