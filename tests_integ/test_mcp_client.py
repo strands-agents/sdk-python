@@ -94,7 +94,7 @@ def test_mcp_client():
             arguments={"to_echo": "STRUCTURED_DATA_TEST"},
         )
 
-        assert result['content'][-1]['json']['result'] == {"echoed": "STRUCTURED_DATA_TEST"}
+        assert result["content"][-1]["json"]["result"] == {"echoed": "STRUCTURED_DATA_TEST"}
 
 
 def test_can_reuse_mcp_client():

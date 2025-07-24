@@ -14,6 +14,7 @@ Usage:
     Run this file directly to start the echo server:
     $ python echo_server.py
 """
+
 from typing import Dict, Any
 
 from mcp.server import FastMCP

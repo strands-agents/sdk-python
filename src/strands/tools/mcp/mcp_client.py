@@ -250,7 +250,7 @@ class MCPClient:
 
     def _handle_tool_result(self, tool_use_id: str, call_tool_result: MCPCallToolResult) -> ToolResult:
         """Maps MCP tool result to the agent's ToolResult format.
-        
+
         This method processes the content from the MCP tool call result and converts it to the format
         expected by the agent framework. If structured content is available in the MCP tool result,
         it will be appended as the last item in the content array of the returned ToolResult.
@@ -271,9 +271,7 @@ class MCPClient:
         ]
 
         if call_tool_result.structuredContent:
-            mapped_content.append({
-                "json": call_tool_result.structuredContent
-            })
+            mapped_content.append({"json": call_tool_result.structuredContent})
 
         status: ToolResultStatus = "error" if call_tool_result.isError else "success"
         self._log_debug_with_thread("tool execution completed with status: %s", status)

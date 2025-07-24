@@ -144,9 +144,7 @@ def test_call_tool_sync_with_structured_content(mock_transport, mock_session):
     mock_content = MCPTextContent(type="text", text="Test message")
     structured_content = {"result": 42, "status": "completed"}
     mock_session.call_tool.return_value = MCPCallToolResult(
-        isError=False, 
-        content=[mock_content],
-        structuredContent=structured_content
+        isError=False, content=[mock_content], structuredContent=structured_content
     )
 
     with MCPClient(mock_transport["transport_callable"]) as client:
@@ -217,11 +215,7 @@ async def test_call_tool_async_with_structured_content(mock_transport, mock_sess
     """Test that call_tool_async correctly handles structured content."""
     mock_content = MCPTextContent(type="text", text="Test message")
     structured_content = {"result": 42, "status": "completed"}
-    mock_result = MCPCallToolResult(
-        isError=False, 
-        content=[mock_content],
-        structuredContent=structured_content
-    )
+    mock_result = MCPCallToolResult(isError=False, content=[mock_content], structuredContent=structured_content)
     mock_session.call_tool.return_value = mock_result
 
     with MCPClient(mock_transport["transport_callable"]) as client:
