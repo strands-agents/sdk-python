@@ -277,6 +277,18 @@ def test_extract_usage_metrics():
     assert tru_usage == exp_usage and tru_metrics == exp_metrics
 
 
+def test_extract_usage_metrics_with_cache_tokens():
+    event = {
+        "usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, "cacheReadInputTokens": 0},
+        "metrics": {"latencyMs": 0},
+    }
+
+    tru_usage, tru_metrics = strands.event_loop.streaming.extract_usage_metrics(event)
+    exp_usage, exp_metrics = event["usage"], event["metrics"]
+
+    assert tru_usage == exp_usage and tru_metrics == exp_metrics
+
+
 @pytest.mark.parametrize(
     ("response", "exp_events"),
     [
