@@ -275,7 +275,7 @@ def convert_pydantic_to_tool_spec(
     Returns:
         ToolSpec: Dict containing the Bedrock tool specification
     """
-    name = model.__name__
+    name = f"{model.__name__}OutputStructurer"
 
     # Get the JSON schema
     input_schema = model.model_json_schema()
@@ -300,7 +300,7 @@ def convert_pydantic_to_tool_spec(
     # Construct the tool specification
     return ToolSpec(
         name=name,
-        description=model_description or f"{name} structured output tool",
+        description=model_description or f"{model.__name__} structured output tool",
         inputSchema={"json": final_schema},
     )
 

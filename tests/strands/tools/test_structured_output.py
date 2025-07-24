@@ -41,7 +41,7 @@ def test_convert_pydantic_to_tool_spec_basic():
     tool_spec = convert_pydantic_to_tool_spec(User)
 
     expected_spec = {
-        "name": "User",
+        "name": "UserOutputStructurer",
         "description": "User model with name and age.",
         "inputSchema": {
             "json": {
@@ -73,7 +73,7 @@ def test_convert_pydantic_to_tool_spec_complex():
     tool_spec = convert_pydantic_to_tool_spec(ListOfUsersWithPlanet)
 
     expected_spec = {
-        "name": "ListOfUsersWithPlanet",
+        "name": "ListOfUsersWithPlanetOutputStructurer",
         "description": "List of users model with planet.",
         "inputSchema": {
             "json": {
@@ -127,7 +127,7 @@ def test_convert_pydantic_to_tool_spec_multiple_same_type():
     tool_spec = convert_pydantic_to_tool_spec(TwoUsersWithPlanet)
 
     expected_spec = {
-        "name": "TwoUsersWithPlanet",
+        "name": "TwoUsersWithPlanetOutputStructurer",
         "description": "Two users model with planet.",
         "inputSchema": {
             "json": {
@@ -286,7 +286,7 @@ def test_convert_pydantic_with_items_refs():
                 "type": "object",
             }
         },
-        "name": "Person",
+        "name": "PersonOutputStructurer",
     }
     assert tool_spec == expected_spec
 
@@ -340,6 +340,39 @@ def test_convert_pydantic_with_refs():
                 "type": "object",
             }
         },
-        "name": "Person",
+        "name": "PersonOutputStructurer",
     }
     assert tool_spec == expected_spec
+
+
+def test_tool_name_validation():
+    """Test that tool names follow proper naming conventions."""
+    import re
+    
+    # Tool names should start with a letter and contain only alphanumeric characters and underscores
+    tool_name_pattern = re.compile(r'^[a-zA-Z][a-zA-Z0-9_]*$')
+    
+    # Test with various model names
+    class SimpleModel(BaseModel):
+        value: str
+    
+    class Model_With_Underscores(BaseModel):
+        value: str
+    
+    class Model123(BaseModel):
+        value: str
+    
+    # Test all models produce valid tool names
+    for model_class in [SimpleModel, Model_With_Underscores, Model123, User, UserWithPlanet]:
+        tool_spec = convert_pydantic_to_tool_spec(model_class)
+        tool_name = tool_spec["name"]
+        
+        # Verify the tool name matches the expected pattern
+        assert tool_name_pattern.match(tool_name), f"Tool name '{tool_name}' does not match valid pattern"
+        
+        # Verify the tool name ends with OutputStructurer
+        assert tool_name.endswith("OutputStructurer"), f"Tool name '{tool_name}' should end with 'OutputStructurer'"
+        
+        # Verify the tool name starts with the model name
+        expected_prefix = model_class.__name__
+        assert tool_name.startswith(expected_prefix), f"Tool name '{tool_name}' should start with '{expected_prefix}'"
