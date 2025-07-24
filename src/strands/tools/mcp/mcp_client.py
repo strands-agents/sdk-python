@@ -165,52 +165,6 @@ class MCPClient:
         self._log_debug_with_thread("successfully adapted %d MCP tools", len(mcp_tools))
         return PaginatedList[MCPAgentTool](mcp_tools, token=list_tools_response.nextCursor)
     
-    def list_prompts_sync(self) -> ListPromptsResult:
-        """Synchronously retrieves the list of available prompts from the MCP server.
-
-        This method calls the asynchronous list_prompts method on the MCP session
-        and adapts the returned prompts to the AgentTool interface.
-
-        Returns:
-            ListPromptsResult: A list of available prompts
-        """
-        self._log_debug_with_thread("listing MCP prompts synchronously")
-        if not self._is_session_active():
-            raise MCPClientInitializationError("the client session is not running")
-
-        async def _list_prompts_async() -> ListPromptsResult:
-            return await self._background_thread_session.list_prompts()
-
-        list_prompts_response: ListPromptsResult = self._invoke_on_background_thread(_list_prompts_async())
-        self._log_debug_with_thread("received %d prompts from MCP server:")
-        for prompt in list_prompts_response.prompts:
-            self._log_debug_with_thread(prompt.name)
-
-        return list_prompts_response
-    
-    def get_prompt_sync(self, prompt_id: str, args: dict[Any, Any]) -> GetPromptResult:
-        """Synchronously retrieves a prompt from the MCP server.
-
-        Args:
-            prompt_id: The ID of the prompt to retrieve
-            args: Optional arguments to pass to the prompt
-
-        Returns:
-            GetPromptResult: The prompt response from the MCP server
-        """
-        self._log_debug_with_thread("getting MCP prompt synchronously")
-        if not self._is_session_active():
-            raise MCPClientInitializationError("the client session is not running")
-        
-        async def _get_prompt_async():
-            return await self._background_thread_session.get_prompt(
-                prompt_id, arguments=args
-            )
-        get_prompt_response: GetPromptResult = self._invoke_on_background_thread(_get_prompt_async())
-        self._log_debug_with_thread("received prompt from MCP server:", get_prompt_response)
-
-        return get_prompt_response
-
     def list_prompts_sync(self, pagination_token: Optional[str] = None) -> ListPromptsResult:
         """Synchronously retrieves the list of available prompts from the MCP server.
 
@@ -237,6 +191,31 @@ class MCPClient:
 
         return list_prompts_response
 
+    async def list_prompts_async(self, pagination_token: Optional[str] = None) -> ListPromptsResult:
+        """Asynchronously retrieves the list of available prompts from the MCP server.
+
+        This method calls the asynchronous list_prompts method on the MCP session
+        and returns the raw ListPromptsResult with pagination support.
+
+        Args:
+            pagination_token: Optional token for pagination
+
+        Returns:
+            ListPromptsResult: The raw MCP response containing prompts and pagination info
+        """
+        self._log_debug_with_thread("listing MCP prompts asynchronously")
+        if not self._is_session_active():
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+
+        async def _list_prompts_async() -> ListPromptsResult:
+            return await self._background_thread_session.list_prompts(cursor=pagination_token)
+
+        future = self._invoke_on_background_thread(_list_prompts_async())
+        list_prompts_response: ListPromptsResult = await asyncio.wrap_future(future)
+        self._log_debug_with_thread("received %d prompts from MCP server", len(list_prompts_response.prompts))
+
+        return list_prompts_response
+
     def get_prompt_sync(self, prompt_id: str, args: dict[str, Any]) -> GetPromptResult:
         """Synchronously retrieves a prompt from the MCP server.
 
@@ -255,6 +234,29 @@ class MCPClient:
             return await self._background_thread_session.get_prompt(prompt_id, arguments=args)
 
         get_prompt_response: GetPromptResult = self._invoke_on_background_thread(_get_prompt_async()).result()
+        self._log_debug_with_thread("received prompt from MCP server")
+
+        return get_prompt_response
+
+    async def get_prompt_async(self, prompt_id: str, args: dict[str, Any]) -> GetPromptResult:
+        """Asynchronously retrieves a prompt from the MCP server.
+
+        Args:
+            prompt_id: The ID of the prompt to retrieve
+            args: Optional arguments to pass to the prompt
+
+        Returns:
+            GetPromptResult: The prompt response from the MCP server
+        """
+        self._log_debug_with_thread("getting MCP prompt asynchronously")
+        if not self._is_session_active():
+            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+
+        async def _get_prompt_async() -> GetPromptResult:
+            return await self._background_thread_session.get_prompt(prompt_id, arguments=args)
+
+        future = self._invoke_on_background_thread(_get_prompt_async())
+        get_prompt_response: GetPromptResult = await asyncio.wrap_future(future)
         self._log_debug_with_thread("received prompt from MCP server")
 
         return get_prompt_response
@@ -350,54 +352,6 @@ class MCPClient:
         status: ToolResultStatus = "error" if call_tool_result.isError else "success"
         self._log_debug_with_thread("tool execution completed with status: %s", status)
         return ToolResult(status=status, toolUseId=tool_use_id, content=mapped_content)
-
-    async def list_prompts_async(self, pagination_token: Optional[str] = None) -> ListPromptsResult:
-        """Asynchronously retrieves the list of available prompts from the MCP server.
-
-        This method calls the asynchronous list_prompts method on the MCP session
-        and returns the raw ListPromptsResult with pagination support.
-
-        Args:
-            pagination_token: Optional token for pagination
-
-        Returns:
-            ListPromptsResult: The raw MCP response containing prompts and pagination info
-        """
-        self._log_debug_with_thread("listing MCP prompts asynchronously")
-        if not self._is_session_active():
-            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
-
-        async def _list_prompts_async() -> ListPromptsResult:
-            return await self._background_thread_session.list_prompts(cursor=pagination_token)
-
-        future = self._invoke_on_background_thread(_list_prompts_async())
-        list_prompts_response: ListPromptsResult = await asyncio.wrap_future(future)
-        self._log_debug_with_thread("received %d prompts from MCP server", len(list_prompts_response.prompts))
-
-        return list_prompts_response
-
-    async def get_prompt_async(self, prompt_id: str, args: dict[str, Any]) -> GetPromptResult:
-        """Asynchronously retrieves a prompt from the MCP server.
-
-        Args:
-            prompt_id: The ID of the prompt to retrieve
-            args: Optional arguments to pass to the prompt
-
-        Returns:
-            GetPromptResult: The prompt response from the MCP server
-        """
-        self._log_debug_with_thread("getting MCP prompt asynchronously")
-        if not self._is_session_active():
-            raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
-
-        async def _get_prompt_async() -> GetPromptResult:
-            return await self._background_thread_session.get_prompt(prompt_id, arguments=args)
-
-        future = self._invoke_on_background_thread(_get_prompt_async())
-        get_prompt_response: GetPromptResult = await asyncio.wrap_future(future)
-        self._log_debug_with_thread("received prompt from MCP server")
-
-        return get_prompt_response
 
     async def _async_background_thread(self) -> None:
         """Asynchronous method that runs in the background thread to manage the MCP connection.
