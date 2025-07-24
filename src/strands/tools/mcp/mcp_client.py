@@ -57,7 +57,8 @@ class MCPClient:
     It handles the creation, initialization, and cleanup of MCP connections.
 
     The connection runs in a background thread to avoid blocking the main application thread
-    while maintaining communication with the MCP service.
+    while maintaining communication with the MCP service. When structured content is available
+    from MCP tools, it will be returned as the last item in the content array of the ToolResult.
     """
 
     def __init__(self, transport_callable: Callable[[], MCPTransport]):
@@ -174,7 +175,9 @@ class MCPClient:
         """Synchronously calls a tool on the MCP server.
 
         This method calls the asynchronous call_tool method on the MCP session
-        and converts the result to the ToolResult format.
+        and converts the result to the ToolResult format. If the MCP tool returns
+        structured content, it will be included as the last item in the content array
+        of the returned ToolResult.
 
         Args:
             tool_use_id: Unique identifier for this tool use
@@ -209,7 +212,9 @@ class MCPClient:
         """Asynchronously calls a tool on the MCP server.
 
         This method calls the asynchronous call_tool method on the MCP session
-        and converts the result to the ToolResult format.
+        and converts the result to the ToolResult format. If the MCP tool returns
+        structured content, it will be included as the last item in the content array
+        of the returned ToolResult.
 
         Args:
             tool_use_id: Unique identifier for this tool use
@@ -244,6 +249,19 @@ class MCPClient:
         )
 
     def _handle_tool_result(self, tool_use_id: str, call_tool_result: MCPCallToolResult) -> ToolResult:
+        """Maps MCP tool result to the agent's ToolResult format.
+        
+        This method processes the content from the MCP tool call result and converts it to the format
+        expected by the agent framework. If structured content is available in the MCP tool result,
+        it will be appended as the last item in the content array of the returned ToolResult.
+
+        Args:
+            tool_use_id: Unique identifier for this tool use
+            call_tool_result: The result from the MCP tool call
+
+        Returns:
+            ToolResult: The converted tool result
+        """
         self._log_debug_with_thread("received tool result with %d content items", len(call_tool_result.content))
 
         mapped_content = [
@@ -251,6 +269,11 @@ class MCPClient:
             for content in call_tool_result.content
             if (mapped_content := self._map_mcp_content_to_tool_result_content(content)) is not None
         ]
+
+        if call_tool_result.structuredContent:
+            mapped_content.append({
+                "json": call_tool_result.structuredContent
+            })
 
         status: ToolResultStatus = "error" if call_tool_result.isError else "success"
         self._log_debug_with_thread("tool execution completed with status: %s", status)

@@ -2,7 +2,7 @@
 Echo Server for MCP Integration Testing
 
 This module implements a simple echo server using the Model Context Protocol (MCP).
-It provides a basic tool that echoes back any input string, which is useful for
+It provides basic tools that echo back input strings and structured content, which is useful for
 testing the MCP communication flow and validating that messages are properly
 transmitted between the client and server.
 
@@ -14,6 +14,7 @@ Usage:
     Run this file directly to start the echo server:
     $ python echo_server.py
 """
+from typing import Dict, Any
 
 from mcp.server import FastMCP
 
@@ -22,8 +23,8 @@ def start_echo_server():
     """
     Initialize and start the MCP echo server.
 
-    Creates a FastMCP server instance with a single 'echo' tool that returns
-    any input string back to the caller. The server uses stdio transport
+    Creates a FastMCP server instance with tools that return
+    input strings and structured content back to the caller. The server uses stdio transport
     for communication.
     """
     mcp = FastMCP("Echo Server")
@@ -31,6 +32,10 @@ def start_echo_server():
     @mcp.tool(description="Echos response back to the user")
     def echo(to_echo: str) -> str:
         return to_echo
+
+    @mcp.tool(description="Echos response back with structured content")
+    def echo_with_structured_content(to_echo: str) -> Dict[str, Any]:
+        return {"echoed": to_echo}
 
     mcp.run(transport="stdio")
 

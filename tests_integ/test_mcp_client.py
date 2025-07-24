@@ -87,6 +87,15 @@ def test_mcp_client():
             ]
         )
 
+        tool_use_id = "test-structured-content-123"
+        result = stdio_mcp_client.call_tool_sync(
+            tool_use_id=tool_use_id,
+            name="echo_with_structured_content",
+            arguments={"to_echo": "STRUCTURED_DATA_TEST"},
+        )
+
+        assert result['content'][-1]['json']['result'] == {"echoed": "STRUCTURED_DATA_TEST"}
+
 
 def test_can_reuse_mcp_client():
     stdio_mcp_client = MCPClient(

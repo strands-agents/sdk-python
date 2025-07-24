@@ -139,6 +139,28 @@ def test_call_tool_sync_session_not_active():
         client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
 
 
+def test_call_tool_sync_with_structured_content(mock_transport, mock_session):
+    """Test that call_tool_sync correctly handles structured content."""
+    mock_content = MCPTextContent(type="text", text="Test message")
+    structured_content = {"result": 42, "status": "completed"}
+    mock_session.call_tool.return_value = MCPCallToolResult(
+        isError=False, 
+        content=[mock_content],
+        structuredContent=structured_content
+    )
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
+
+        mock_session.call_tool.assert_called_once_with("test_tool", {"param": "value"}, None)
+
+        assert result["status"] == "success"
+        assert result["toolUseId"] == "test-123"
+        assert len(result["content"]) == 2
+        assert result["content"][0]["text"] == "Test message"
+        assert result["content"][1]["json"] == structured_content
+
+
 def test_call_tool_sync_exception(mock_transport, mock_session):
     """Test that call_tool_sync correctly handles exceptions."""
     mock_session.call_tool.side_effect = Exception("Test exception")
@@ -188,6 +210,48 @@ async def test_call_tool_async_status(mock_transport, mock_session, is_error, ex
         assert result["toolUseId"] == "test-123"
         assert len(result["content"]) == 1
         assert result["content"][0]["text"] == "Test message"
+
+
+@pytest.mark.asyncio
+async def test_call_tool_async_with_structured_content(mock_transport, mock_session):
+    """Test that call_tool_async correctly handles structured content."""
+    mock_content = MCPTextContent(type="text", text="Test message")
+    structured_content = {"result": 42, "status": "completed"}
+    mock_result = MCPCallToolResult(
+        isError=False, 
+        content=[mock_content],
+        structuredContent=structured_content
+    )
+    mock_session.call_tool.return_value = mock_result
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        with (
+            patch("asyncio.run_coroutine_threadsafe") as mock_run_coroutine_threadsafe,
+            patch("asyncio.wrap_future") as mock_wrap_future,
+        ):
+            # Create a mock future that returns the mock result
+            mock_future = MagicMock()
+            mock_run_coroutine_threadsafe.return_value = mock_future
+
+            # Create an async mock that resolves to the mock result
+            async def mock_awaitable():
+                return mock_result
+
+            mock_wrap_future.return_value = mock_awaitable()
+
+            result = await client.call_tool_async(
+                tool_use_id="test-123", name="test_tool", arguments={"param": "value"}
+            )
+
+            # Verify the asyncio functions were called correctly
+            mock_run_coroutine_threadsafe.assert_called_once()
+            mock_wrap_future.assert_called_once_with(mock_future)
+
+        assert result["status"] == "success"
+        assert result["toolUseId"] == "test-123"
+        assert len(result["content"]) == 2
+        assert result["content"][0]["text"] == "Test message"
+        assert result["content"][1]["json"] == structured_content
 
 
 @pytest.mark.asyncio
