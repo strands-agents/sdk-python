@@ -214,23 +214,23 @@ async def test_mcp_client_async():
     sse_mcp_client = MCPClient(lambda: sse_client("http://127.0.0.1:8005/sse"))
 
     with sse_mcp_client:
-        # Test async prompts functionality
-        prompts_result = await sse_mcp_client.list_prompts_async()
+        # Test sync prompts functionality
+        prompts_result = sse_mcp_client.list_prompts_sync()
         assert len(prompts_result.prompts) >= 2
 
         prompt_names = [prompt.name for prompt in prompts_result.prompts]
         assert "greeting_prompt" in prompt_names
         assert "math_prompt" in prompt_names
 
-        # Test get_prompt_async
-        greeting_result = await sse_mcp_client.get_prompt_async("greeting_prompt", {"name": "Bob"})
+        # Test get_prompt_sync
+        greeting_result = sse_mcp_client.get_prompt_sync("greeting_prompt", {"name": "Bob"})
         assert len(greeting_result.messages) > 0
         prompt_text = greeting_result.messages[0].content.text
         assert "Hello, Bob!" in prompt_text
         assert "How are you today?" in prompt_text
 
-        # Test async pagination for prompts
-        prompts_with_pagination = await sse_mcp_client.list_prompts_async(pagination_token="test_token")
+        # Test sync pagination for prompts
+        prompts_with_pagination = sse_mcp_client.list_prompts_sync(pagination_token="test_token")
         assert len(prompts_with_pagination.prompts) >= 0
 
         # Test async tools functionality (existing)
