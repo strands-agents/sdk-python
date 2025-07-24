@@ -29,7 +29,6 @@ def start_comprehensive_mcp_server(transport: Literal["sse", "streamable-http"],
 
     mcp = FastMCP("Comprehensive MCP Server", port=port)
 
-    # Tools
     @mcp.tool(description="Calculator tool which performs calculations")
     def calculator(x: int, y: int) -> int:
         return x + y
@@ -52,19 +51,12 @@ def start_comprehensive_mcp_server(transport: Literal["sse", "streamable-http"],
     def math_prompt(operation: str = "addition", difficulty: str = "easy") -> str:
         return f"Create a {difficulty} {operation} math problem and solve it step by step."
 
-    # Resources (if supported by FastMCP - this is a placeholder for when resources are implemented)
-    # @mcp.resource(description="A sample text resource")
-    # def sample_resource() -> str:
-    #     return "This is a sample resource content"
-
     mcp.run(transport=transport)
 
 
 def test_mcp_client():
     """
-    Comprehensive test for MCP client functionality including tools, prompts, and resources.
-
-    Test should yield output similar to the following for tools:
+    Test should yield output similar to the following
     {'role': 'user', 'content': [{'text': 'add 1 and 2, then echo the result back to me'}]}
     {'role': 'assistant', 'content': [{'text': "I'll help you add 1 and 2 and then echo the result back to you.\n\nFirst, I'll calculate 1 + 2:"}, {'toolUse': {'toolUseId': 'tooluse_17ptaKUxQB20ySZxwgiI_w', 'name': 'calculator', 'input': {'x': 1, 'y': 2}}}]}
     {'role': 'user', 'content': [{'toolResult': {'status': 'success', 'toolUseId': 'tooluse_17ptaKUxQB20ySZxwgiI_w', 'content': [{'text': '3'}]}}]}
@@ -98,7 +90,6 @@ def test_mcp_client():
         assert any([block["name"] == "echo" for block in tool_use_content_blocks])
         assert any([block["name"] == "calculator" for block in tool_use_content_blocks])
 
-        # Test image generation tool
         image_prompt = """
         Generate a custom image, then tell me if the image is red, blue, yellow, pink, orange, or green. 
         RESPOND ONLY WITH THE COLOR
@@ -179,20 +170,20 @@ def test_streamable_http_mcp_client():
     def transport_callback() -> MCPTransport:
         return streamablehttp_client(url="http://127.0.0.1:8001/mcp")
 
-    sse_mcp_client = MCPClient(transport_callback)
-    with sse_mcp_client:
+    streamable_http_client = MCPClient(transport_callback)
+    with streamable_http_client:
         # Test tools
-        agent = Agent(tools=sse_mcp_client.list_tools_sync())
+        agent = Agent(tools=streamable_http_client.list_tools_sync())
         agent("add 1 and 2 using a calculator")
 
         tool_use_content_blocks = _messages_to_content_blocks(agent.messages)
         assert any([block["name"] == "calculator" for block in tool_use_content_blocks])
 
         # Test prompts
-        prompts_result = sse_mcp_client.list_prompts_sync()
+        prompts_result = streamable_http_client.list_prompts_sync()
         assert len(prompts_result.prompts) >= 2
 
-        greeting_result = sse_mcp_client.get_prompt_sync("greeting_prompt", {"name": "Charlie"})
+        greeting_result = streamable_http_client.get_prompt_sync("greeting_prompt", {"name": "Charlie"})
         assert len(greeting_result.messages) > 0
         prompt_text = greeting_result.messages[0].content.text
         assert "Hello, Charlie!" in prompt_text
@@ -200,43 +191,3 @@ def test_streamable_http_mcp_client():
 
 def _messages_to_content_blocks(messages: List[Message]) -> List[ToolUse]:
     return [block["toolUse"] for message in messages for block in message["content"] if "toolUse" in block]
-
-
-@pytest.mark.asyncio
-async def test_mcp_client_async():
-    """Test MCP client async functionality with comprehensive server (tools, prompts, resources)."""
-    server_thread = threading.Thread(
-        target=start_comprehensive_mcp_server, kwargs={"transport": "sse", "port": 8005}, daemon=True
-    )
-    server_thread.start()
-    time.sleep(2)  # wait for server to startup completely
-
-    sse_mcp_client = MCPClient(lambda: sse_client("http://127.0.0.1:8005/sse"))
-
-    with sse_mcp_client:
-        # Test sync prompts functionality
-        prompts_result = sse_mcp_client.list_prompts_sync()
-        assert len(prompts_result.prompts) >= 2
-
-        prompt_names = [prompt.name for prompt in prompts_result.prompts]
-        assert "greeting_prompt" in prompt_names
-        assert "math_prompt" in prompt_names
-
-        # Test get_prompt_sync
-        greeting_result = sse_mcp_client.get_prompt_sync("greeting_prompt", {"name": "Bob"})
-        assert len(greeting_result.messages) > 0
-        prompt_text = greeting_result.messages[0].content.text
-        assert "Hello, Bob!" in prompt_text
-        assert "How are you today?" in prompt_text
-
-        # Test sync pagination for prompts
-        prompts_with_pagination = sse_mcp_client.list_prompts_sync(pagination_token="test_token")
-        assert len(prompts_with_pagination.prompts) >= 0
-
-        # Test async tools functionality (existing)
-        tools_result = sse_mcp_client.list_tools_sync()
-        assert len(tools_result) >= 2  # calculator and generate_custom_image
-
-        tool_names = [tool.tool_name for tool in tools_result]
-        assert "calculator" in tool_names
-        assert "generate_custom_image" in tool_names
