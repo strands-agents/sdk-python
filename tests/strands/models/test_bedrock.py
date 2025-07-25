@@ -51,7 +51,7 @@ def model(bedrock_client, model_id):
 
 @pytest.fixture
 def messages():
-    return [{"role": "user", "content": {"text": "test"}}]
+    return [{"role": "user", "content": [{"text": "test"}]}]
 
 
 @pytest.fixture
@@ -1202,3 +1202,37 @@ async def test_stream_logging(bedrock_client, model, messages, caplog, alist):
     assert "invoking model" in log_text
     assert "got response from model" in log_text
     assert "finished streaming response from model" in log_text
+
+
+def test_format_request_cleans_tool_result_content_blocks(model, model_id):
+    """Test that format_request cleans toolResult blocks by removing extra fields."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Hello"},
+                {
+                    "toolResult": {
+                        "content": [{"text": "Tool output"}],
+                        "toolUseId": "tool-123",
+                        "status": "success",
+                        "extraField": "should be removed",
+                        "mcpMetadata": {"server": "test"},
+                    }
+                },
+            ],
+        }
+    ]
+
+    request = model.format_request(messages)
+
+    # Verify the request structure
+    assert request["modelId"] == model_id
+    assert "messages" in request
+
+    # Verify toolResult only contains allowed fields in the formatted request
+    tool_result = request["messages"][0]["content"][1]["toolResult"]
+    expected = {"content": [{"text": "Tool output"}], "toolUseId": "tool-123", "status": "success"}
+    assert tool_result == expected
+    assert "extraField" not in tool_result
+    assert "mcpMetadata" not in tool_result

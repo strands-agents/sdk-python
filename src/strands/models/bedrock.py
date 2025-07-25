@@ -7,7 +7,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union
+from typing import Any, AsyncGenerator, Callable, Iterable, List, Literal, Optional, Type, TypeVar, Union
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -17,10 +17,10 @@ from typing_extensions import TypedDict, Unpack, override
 
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
-from ..types.content import Messages
+from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
-from ..types.tools import ToolSpec
+from ..types.tools import ToolResult, ToolSpec
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -181,7 +181,7 @@ class BedrockModel(Model):
         """
         return {
             "modelId": self.config["model_id"],
-            "messages": messages,
+            "messages": self._clean_tool_result_content_blocks(messages),
             "system": [
                 *([{"text": system_prompt}] if system_prompt else []),
                 *([{"cachePoint": {"type": self.config["cache_prompt"]}}] if self.config.get("cache_prompt") else []),
@@ -245,6 +245,42 @@ class BedrockModel(Model):
                 else {}
             ),
         }
+
+    def _clean_tool_result_content_blocks(self, messages: Messages) -> Messages:
+        """Additional fields may be added to ToolResult, like MCPToolResult. These can be useful for retaining
+        information to be used later in hooks.
+
+        However, Bedrock will throw validation exceptions when presented with additional unexpected fields.
+        https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolResultBlock.html
+        """
+
+        cleaned_messages = []
+
+        for message in messages:
+            cleaned_content: List[ContentBlock] = []
+
+            for content_block in message["content"]:
+                if "toolResult" in content_block:
+                    # Create a new content block with only the cleaned toolResult
+                    cleaned_block: ContentBlock = content_block.copy()
+                    tool_result: ToolResult = content_block["toolResult"]
+
+                    # Keep only the required fields for Bedrock
+                    cleaned_tool_result = ToolResult(
+                        content=tool_result["content"], toolUseId=tool_result["toolUseId"], status=tool_result["status"]
+                    )
+
+                    cleaned_block["toolResult"] = cleaned_tool_result
+                    cleaned_content.append(cleaned_block)
+                else:
+                    # Keep other content blocks as-is
+                    cleaned_content.append(content_block)
+
+            # Create new message with cleaned content
+            cleaned_message: Message = Message(content=cleaned_content, role=message["role"])
+            cleaned_messages.append(cleaned_message)
+
+        return cleaned_messages
 
     def _has_blocked_guardrail(self, guardrail_data: dict[str, Any]) -> bool:
         """Check if guardrail data contains any blocked policies.

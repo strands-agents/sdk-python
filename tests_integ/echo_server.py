@@ -30,11 +30,11 @@ def start_echo_server():
     """
     mcp = FastMCP("Echo Server")
 
-    @mcp.tool(description="Echos response back to the user")
+    @mcp.tool(description="Echos response back to the user", structured_output=False)
     def echo(to_echo: str) -> str:
         return to_echo
 
-    @mcp.tool(description="Echos response back with structured content")
+    @mcp.tool(description="Echos response back with structured content", structured_output=True)
     def echo_with_structured_content(to_echo: str) -> Dict[str, Any]:
         return {"echoed": to_echo}
 
