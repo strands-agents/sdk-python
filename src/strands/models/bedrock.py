@@ -247,13 +247,13 @@ class BedrockModel(Model):
         }
 
     def _clean_tool_result_content_blocks(self, messages: Messages) -> Messages:
-        """Additional fields may be added to ToolResult, like MCPToolResult. These can be useful for retaining
-        information to be used later in hooks.
+        """Clean tool result content blocks by removing additional fields.
+
+        These can be useful for retaining information to be used later in hooks.
 
         However, Bedrock will throw validation exceptions when presented with additional unexpected fields.
         https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolResultBlock.html
         """
-
         cleaned_messages = []
 
         for message in messages:
