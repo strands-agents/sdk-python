@@ -275,7 +275,7 @@ class MCPClient:
             content=mapped_content,
         )
         if call_tool_result.structuredContent:
-            result.structuredContent = call_tool_result.structuredContent
+            result["structuredContent"] = call_tool_result.structuredContent
 
         return result
 
