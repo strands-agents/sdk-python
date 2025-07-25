@@ -9,7 +9,7 @@ from strands.models.llamaapi import LlamaAPIModel
 
 @pytest.fixture
 def llamaapi_client():
-    with unittest.mock.patch.object(strands.models.llamaapi, "LlamaAPIClient") as mock_client_cls:
+    with unittest.mock.patch.object(strands.models.llamaapi.llama_api_client, "AsyncLlamaAPIClient") as mock_client_cls:
         yield mock_client_cls.return_value
 
 
@@ -361,3 +361,40 @@ def test_format_chunk_other(model):
 
     with pytest.raises(RuntimeError, match="chunk_type=<other> | unknown type"):
         model.format_chunk(event)
+
+
+@pytest.mark.asyncio
+async def test_stream(llamaapi_client, model, agenerator, alist):
+    mock_event_1 = unittest.mock.Mock(event=unittest.mock.Mock(event_type="start", stop_reason=None))
+    mock_event_2 = unittest.mock.Mock(
+        event=unittest.mock.Mock(
+            delta=unittest.mock.Mock(text="test stream", type="text"),
+            event_type="complete",
+            stop_reason="end_turn",
+        ),
+    )
+
+    llamaapi_client.chat.completions.create = unittest.mock.AsyncMock(
+        return_value=agenerator([mock_event_1, mock_event_2])
+    )
+
+    messages = [{"role": "user", "content": [{"text": "calculate 2+2"}]}]
+    response = model.stream(messages)
+
+    tru_events = await alist(response)
+    exp_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "test stream"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+    ]
+    assert tru_events == exp_events
+
+    expected_request = {
+        "model": "Llama-4-Maverick-17B-128E-Instruct-FP8",
+        "messages": [{"role": "user", "content": [{"text": "calculate 2+2", "type": "text"}]}],
+        "stream": True,
+        "tools": [],
+    }
+    llamaapi_client.chat.completions.create.assert_called_once_with(**expected_request)
