@@ -724,7 +724,7 @@ async def test_structured_output(anthropic_client, model, test_output_model_cls,
                 return_value={
                     "type": "content_block_start",
                     "index": 0,
-                    "content_block": {"type": "tool_use", "id": "123", "name": "TestOutputModel"},
+                    "content_block": {"type": "tool_use", "id": "123", "name": "TestOutputModelOutputStructurer"},
                 }
             ),
         ),

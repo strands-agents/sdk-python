@@ -1084,7 +1084,7 @@ async def test_structured_output(bedrock_client, model, test_output_model_cls, a
     bedrock_client.converse_stream.return_value = {
         "stream": [
             {"messageStart": {"role": "assistant"}},
-            {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "TestOutputModel"}}}},
+            {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "TestOutputModelOutputStructurer"}}}},
             {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"name": "John", "age": 30}'}}}},
             {"contentBlockStop": {}},
             {"messageStop": {"stopReason": "tool_use"}},
