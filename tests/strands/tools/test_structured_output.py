@@ -41,7 +41,7 @@ def test_convert_pydantic_to_tool_spec_basic():
     tool_spec = convert_pydantic_to_tool_spec(User)
 
     expected_spec = {
-        "name": "User",
+        "name": "UserOutputStructurer",
         "description": "User model with name and age.",
         "inputSchema": {
             "json": {
@@ -73,7 +73,7 @@ def test_convert_pydantic_to_tool_spec_complex():
     tool_spec = convert_pydantic_to_tool_spec(ListOfUsersWithPlanet)
 
     expected_spec = {
-        "name": "ListOfUsersWithPlanet",
+        "name": "ListOfUsersWithPlanetOutputStructurer",
         "description": "List of users model with planet.",
         "inputSchema": {
             "json": {
@@ -127,7 +127,7 @@ def test_convert_pydantic_to_tool_spec_multiple_same_type():
     tool_spec = convert_pydantic_to_tool_spec(TwoUsersWithPlanet)
 
     expected_spec = {
-        "name": "TwoUsersWithPlanet",
+        "name": "TwoUsersWithPlanetOutputStructurer",
         "description": "Two users model with planet.",
         "inputSchema": {
             "json": {
@@ -286,7 +286,7 @@ def test_convert_pydantic_with_items_refs():
                 "type": "object",
             }
         },
-        "name": "Person",
+        "name": "PersonOutputStructurer",
     }
     assert tool_spec == expected_spec
 
@@ -340,6 +340,6 @@ def test_convert_pydantic_with_refs():
                 "type": "object",
             }
         },
-        "name": "Person",
+        "name": "PersonOutputStructurer",
     }
     assert tool_spec == expected_spec
