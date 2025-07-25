@@ -48,7 +48,7 @@ def agent(model, tools, system_prompt):
 def test_agent_with_tools(agent):
     result = agent("What is the time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
-    
+
     assert "12:00" in text and "sunny" in text
 
 
@@ -59,7 +59,7 @@ def test_agent_with_tools(agent):
 def test_agent_without_tools(model, system_prompt):
     agent = Agent(model=model, system_prompt=system_prompt)
     result = agent("Hello, how are you?")
-    
+
     assert result.message["content"][0]["text"]
     assert len(result.message["content"][0]["text"]) > 0
 
@@ -72,5 +72,5 @@ def test_agent_without_tools(model, system_prompt):
 def test_agent_different_locations(agent, location):
     result = agent(f"What is the weather in {location}?")
     text = result.message["content"][0]["text"].lower()
-    
+
     assert location.lower() in text and "sunny" in text

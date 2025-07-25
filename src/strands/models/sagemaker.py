@@ -8,6 +8,7 @@ from typing import Any, AsyncGenerator, Literal, Optional, Type, TypedDict, Type
 
 import boto3
 from botocore.config import Config as BotocoreConfig
+from mypy_boto3_sagemaker_runtime import SageMakerRuntimeClient
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
@@ -88,6 +89,8 @@ class ToolCall:
 class SageMakerAIModel(OpenAIModel):
     """Amazon SageMaker model provider implementation."""
 
+    client: SageMakerRuntimeClient  # type: ignore[assignment]
+
     class SageMakerAIPayloadSchema(TypedDict, total=False):
         """Payload schema for the Amazon SageMaker AI model.
 
@@ -151,9 +154,8 @@ class SageMakerAIModel(OpenAIModel):
             "endpoint_config=<%s> payload_config=<%s> | initializing", self.endpoint_config, self.payload_config
         )
 
-        session = boto_session or boto3.Session(
-            region_name=self.endpoint_config.get("region_name") or os.getenv("AWS_REGION") or "us-west-2",
-        )
+        region = self.endpoint_config.get("region_name") or os.getenv("AWS_REGION") or "us-west-2"
+        session = boto_session or boto3.Session(region_name=str(region))
 
         # Add strands-agents to the request user agent
         if boto_client_config:
@@ -181,7 +183,7 @@ class SageMakerAIModel(OpenAIModel):
         self.endpoint_config.update(endpoint_config)
 
     @override
-    def get_config(self) -> SageMakerAIEndpointConfig:
+    def get_config(self) -> "SageMakerAIModel.SageMakerAIEndpointConfig":  # type: ignore[override]
         """Get the Amazon SageMaker model configuration.
 
         Returns:
@@ -406,8 +408,8 @@ class SageMakerAIModel(OpenAIModel):
 
             else:
                 # Not all SageMaker AI models support streaming!
-                response = self.client.invoke_endpoint(**request)
-                final_response_json = json.loads(response["Body"].read().decode("utf-8"))
+                response = self.client.invoke_endpoint(**request)  # type: ignore[assignment]
+                final_response_json = json.loads(response["Body"].read().decode("utf-8"))  # type: ignore[attr-defined]
                 logger.info("response=<%s>", json.dumps(final_response_json, indent=2))
 
                 # Obtain the key elements from the response
