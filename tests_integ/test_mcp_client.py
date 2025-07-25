@@ -87,6 +87,26 @@ def test_mcp_client():
             ]
         )
 
+        tool_use_id = "test-structured-content-123"
+        result = stdio_mcp_client.call_tool_sync(
+            tool_use_id=tool_use_id,
+            name="echo_with_structured_content",
+            arguments={"to_echo": "STRUCTURED_DATA_TEST"},
+        )
+
+        # With the new MCPToolResult, structured content is in its own field
+        assert "structuredContent" in result
+        assert result["structuredContent"]["result"] == {"echoed": "STRUCTURED_DATA_TEST"}
+
+        # Verify that structured content is NOT in the content array (old behavior)
+        for content_item in result["content"]:
+            assert "json" not in content_item
+
+        # Verify the result is an MCPToolResult (at runtime it's just a dict, but type-wise it should be MCPToolResult)
+        assert result["status"] in ["success", "error"]
+        assert result["toolUseId"] == tool_use_id
+        assert "content" in result
+
 
 def test_can_reuse_mcp_client():
     stdio_mcp_client = MCPClient(
@@ -101,6 +121,58 @@ def test_can_reuse_mcp_client():
 
         tool_use_content_blocks = _messages_to_content_blocks(agent.messages)
         assert any([block["name"] == "echo" for block in tool_use_content_blocks])
+
+
+@pytest.mark.asyncio
+async def test_mcp_client_async_structured_content():
+    """Test that async MCP client calls properly handle structured content."""
+    stdio_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/echo_server.py"]))
+    )
+
+    with stdio_mcp_client:
+        tool_use_id = "test-async-structured-content-456"
+        result = await stdio_mcp_client.call_tool_async(
+            tool_use_id=tool_use_id,
+            name="echo_with_structured_content",
+            arguments={"to_echo": "ASYNC_STRUCTURED_TEST"},
+        )
+
+        # Verify structured content is in its own field
+        assert "structuredContent" in result
+        assert result["structuredContent"]["result"] == {"echoed": "ASYNC_STRUCTURED_TEST"}
+
+        # Verify structured content is NOT in the content array
+        for content_item in result["content"]:
+            assert "json" not in content_item
+
+        # Verify basic MCPToolResult structure
+        assert result["status"] in ["success", "error"]
+        assert result["toolUseId"] == tool_use_id
+        assert "content" in result
+
+
+def test_mcp_client_without_structured_content():
+    """Test that MCP client works correctly when tools don't return structured content."""
+    stdio_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/echo_server.py"]))
+    )
+
+    with stdio_mcp_client:
+        tool_use_id = "test-no-structured-content-789"
+        result = stdio_mcp_client.call_tool_sync(
+            tool_use_id=tool_use_id,
+            name="echo",  # This tool doesn't return structured content
+            arguments={"to_echo": "SIMPLE_ECHO_TEST"},
+        )
+
+        # Verify no structured content when tool doesn't provide it
+        assert result.get("structuredContent") is None
+
+        # Verify basic result structure
+        assert result["status"] == "success"
+        assert result["toolUseId"] == tool_use_id
+        assert len(result["content"]) > 0
 
 
 @pytest.mark.skipif(
