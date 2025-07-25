@@ -184,12 +184,12 @@ class MCPClient:
         async def _list_prompts_async() -> ListPromptsResult:
             return await self._background_thread_session.list_prompts(cursor=pagination_token)
 
-        list_prompts_response: ListPromptsResult = self._invoke_on_background_thread(_list_prompts_async()).result()
-        self._log_debug_with_thread("received %d prompts from MCP server", len(list_prompts_response.prompts))
-        for prompt in list_prompts_response.prompts:
+        list_prompts_result: ListPromptsResult = self._invoke_on_background_thread(_list_prompts_async()).result()
+        self._log_debug_with_thread("received %d prompts from MCP server", len(list_prompts_result.prompts))
+        for prompt in list_prompts_result.prompts:
             self._log_debug_with_thread(prompt.name)
 
-        return list_prompts_response
+        return list_prompts_result
 
     def get_prompt_sync(self, prompt_id: str, args: dict[str, Any]) -> GetPromptResult:
         """Synchronously retrieves a prompt from the MCP server.
@@ -208,10 +208,10 @@ class MCPClient:
         async def _get_prompt_async() -> GetPromptResult:
             return await self._background_thread_session.get_prompt(prompt_id, arguments=args)
 
-        get_prompt_response: GetPromptResult = self._invoke_on_background_thread(_get_prompt_async()).result()
+        get_prompt_result: GetPromptResult = self._invoke_on_background_thread(_get_prompt_async()).result()
         self._log_debug_with_thread("received prompt from MCP server")
 
-        return get_prompt_response
+        return get_prompt_result
 
     def call_tool_sync(
         self,
