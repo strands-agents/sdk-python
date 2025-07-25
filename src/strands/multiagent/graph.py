@@ -1,20 +1,21 @@
-"""Directed Acyclic Graph (DAG) Multi-Agent Pattern Implementation.
+"""Directed Graph Multi-Agent Pattern Implementation.
 
-This module provides a deterministic DAG-based agent orchestration system where
+This module provides a deterministic graph-based agent orchestration system where
 agents or MultiAgentBase instances (like Swarm or Graph) are nodes in a graph,
 executed according to edge dependencies, with output from one node passed as input
 to connected nodes.
 
 Key Features:
 - Agents and MultiAgentBase instances (Swarm, Graph, etc.) as graph nodes
-- Deterministic execution order based on DAG structure
+- Deterministic execution based on dependency resolution
 - Output propagation along edges
-- Topological sort for execution ordering
+- Support for cyclic graphs (feedback loops)
 - Clear dependency management
 - Supports nested graphs (Graph as a node in another Graph)
 """
 
 import asyncio
+import copy
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -24,8 +25,9 @@ from typing import Any, Callable, Tuple
 from opentelemetry import trace as trace_api
 
 from ..agent import Agent
+from ..agent.state import AgentState
 from ..telemetry import get_tracer
-from ..types.content import ContentBlock
+from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
@@ -117,6 +119,33 @@ class GraphNode:
     execution_status: Status = Status.PENDING
     result: NodeResult | None = None
     execution_time: int = 0
+    _initial_messages: Messages = field(default_factory=list, init=False)
+    _initial_state: AgentState = field(default_factory=AgentState, init=False)
+
+    def __post_init__(self) -> None:
+        """Capture initial executor state after initialization."""
+        # Deep copy the initial messages and state to preserve them
+        if hasattr(self.executor, "messages"):
+            self._initial_messages = copy.deepcopy(self.executor.messages)
+
+        if hasattr(self.executor, "state") and hasattr(self.executor.state, "get"):
+            self._initial_state = AgentState(self.executor.state.get())
+
+    def reset_executor_state(self) -> None:
+        """Reset GraphNode executor state to initial state when graph was created.
+
+        This is particularly useful for cyclic graphs where nodes may be executed
+        multiple times and need to start fresh on each cycle.
+        """
+        if hasattr(self.executor, "messages"):
+            self.executor.messages = copy.deepcopy(self._initial_messages)
+
+        if hasattr(self.executor, "state"):
+            self.executor.state = AgentState(self._initial_state.get())
+
+        # Reset execution status
+        self.execution_status = Status.PENDING
+        self.result = None
 
     def __hash__(self) -> int:
         """Return hash for GraphNode based on node_id."""
@@ -233,38 +262,16 @@ class GraphBuilder:
         return Graph(nodes=self.nodes.copy(), edges=self.edges.copy(), entry_points=self.entry_points.copy())
 
     def _validate_graph(self) -> None:
-        """Validate graph structure and detect cycles."""
+        """Validate entry points."""
         # Validate entry points exist
         entry_point_ids = {node.node_id for node in self.entry_points}
         invalid_entries = entry_point_ids - set(self.nodes.keys())
         if invalid_entries:
             raise ValueError(f"Entry points not found in nodes: {invalid_entries}")
 
-        # Check for cycles using DFS with color coding
-        WHITE, GRAY, BLACK = 0, 1, 2
-        colors = {node_id: WHITE for node_id in self.nodes}
-
-        def has_cycle_from(node_id: str) -> bool:
-            if colors[node_id] == GRAY:
-                return True  # Back edge found - cycle detected
-            if colors[node_id] == BLACK:
-                return False
-
-            colors[node_id] = GRAY
-            # Check all outgoing edges for cycles
-            for edge in self.edges:
-                if edge.from_node.node_id == node_id and has_cycle_from(edge.to_node.node_id):
-                    return True
-            colors[node_id] = BLACK
-            return False
-
-        # Check for cycles from each unvisited node
-        if any(colors[node_id] == WHITE and has_cycle_from(node_id) for node_id in self.nodes):
-            raise ValueError("Graph contains cycles - must be a directed acyclic graph")
-
 
 class Graph(MultiAgentBase):
-    """Directed Acyclic Graph multi-agent orchestration."""
+    """Directed Graph multi-agent orchestration."""
 
     def __init__(self, nodes: dict[str, GraphNode], edges: set[GraphEdge], entry_points: set[GraphNode]) -> None:
         """Initialize Graph."""
@@ -387,6 +394,13 @@ class Graph(MultiAgentBase):
 
     async def _execute_node(self, node: GraphNode) -> None:
         """Execute a single node with error handling."""
+        # Reset the node's state if it's being revisited in a cycle
+        if node in self.state.completed_nodes:
+            logger.debug("node_id=<%s> | resetting node state for cyclic execution", node.node_id)
+            node.reset_executor_state()
+            # Remove from completed nodes since we're re-executing it
+            self.state.completed_nodes.remove(node)
+
         node.execution_status = Status.EXECUTING
         logger.debug("node_id=<%s> | executing node", node.node_id)
 
