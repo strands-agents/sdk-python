@@ -269,12 +269,15 @@ class MCPClient:
 
         status: ToolResultStatus = "error" if call_tool_result.isError else "success"
         self._log_debug_with_thread("tool execution completed with status: %s", status)
-        return MCPToolResult(
+        result = MCPToolResult(
             status=status,
             toolUseId=tool_use_id,
             content=mapped_content,
-            structuredContent=call_tool_result.structuredContent,
         )
+        if call_tool_result.structuredContent:
+            result.structuredContent = call_tool_result.structuredContent
+
+        return result
 
     async def _async_background_thread(self) -> None:
         """Asynchronous method that runs in the background thread to manage the MCP connection.
