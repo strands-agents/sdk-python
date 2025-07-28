@@ -268,7 +268,7 @@ class FunctionToolMetadata:
             error_msg = str(e)
             raise ValueError(f"Validation failed for input parameters: {error_msg}") from e
 
-    def _inject_special_parameters(
+    def inject_special_parameters(
         self, validated_input: dict[str, Any], tool_use: ToolUse, invocation_state: dict[str, Any]
     ) -> None:
         """Inject special framework-provided parameters into the validated input.
@@ -444,7 +444,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             validated_input = self._metadata.validate_input(tool_input)
 
             # Inject special framework-provided parameters
-            self._metadata._inject_special_parameters(validated_input, tool_use, invocation_state)
+            self._metadata.inject_special_parameters(validated_input, tool_use, invocation_state)
 
             # "Too few arguments" expected, hence the type ignore
             if inspect.iscoroutinefunction(self._tool_func):
