@@ -61,7 +61,7 @@ import docstring_parser
 from pydantic import BaseModel, Field, create_model
 from typing_extensions import override
 
-from ..types.tools import AgentTool, JSONSchema, ToolGenerator, ToolSpec, ToolUse, StrandsContext
+from ..types.tools import AgentTool, JSONSchema, StrandsContext, ToolGenerator, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -107,22 +107,6 @@ class FunctionToolMetadata:
         # Create a Pydantic model for validation
         self.input_model = self._create_input_model()
 
-    def _is_special_parameter(self, param_name: str) -> bool:
-        """Check if a parameter should be automatically injected by the framework.
-        
-        Special parameters include:
-        - Standard Python parameters: self, cls
-        - Framework-provided context parameters: agent, strands_context
-        
-        Args:
-            param_name: The name of the parameter to check.
-            
-        Returns:
-            True if the parameter should be excluded from input validation and 
-            automatically injected during tool execution.
-        """
-        return param_name in {"self", "cls", "agent", "strands_context"}
-
     def _create_input_model(self) -> Type[BaseModel]:
         """Create a Pydantic model from function signature for input validation.
 
@@ -158,6 +142,22 @@ class FunctionToolMetadata:
         else:
             # Handle case with no parameters
             return create_model(model_name)
+
+    def _is_special_parameter(self, param_name: str) -> bool:
+        """Check if a parameter should be automatically injected by the framework.
+
+        Special parameters include:
+        - Standard Python parameters: self, cls
+        - Framework-provided context parameters: agent, strands_context
+
+        Args:
+            param_name: The name of the parameter to check.
+
+        Returns:
+            True if the parameter should be excluded from input validation and
+            automatically injected during tool execution.
+        """
+        return param_name in {"self", "cls", "agent", "strands_context"}
 
     def extract_metadata(self) -> ToolSpec:
         """Extract metadata from the function to create a tool specification.
@@ -272,10 +272,10 @@ class FunctionToolMetadata:
         self, validated_input: dict[str, Any], tool_use: ToolUse, invocation_state: dict[str, Any]
     ) -> None:
         """Inject special framework-provided parameters into the validated input.
-        
+
         This method automatically provides framework-level context to tools that request it
         through their function signature.
-        
+
         Args:
             validated_input: The validated input parameters (modified in place).
             tool_use: The tool use request containing tool invocation details.
@@ -288,7 +288,7 @@ class FunctionToolMetadata:
                 "invocation_state": invocation_state,
             }
             validated_input["strands_context"] = strands_context
-            
+
         # Inject agent if requested (backward compatibility)
         if "agent" in self.signature.parameters and "agent" in invocation_state:
             validated_input["agent"] = invocation_state["agent"]

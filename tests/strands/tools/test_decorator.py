@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import strands
-from strands.types.tools import ToolUse, StrandsContext
+from strands.types.tools import StrandsContext, ToolUse
 
 
 @pytest.fixture(scope="module")
@@ -1041,36 +1041,34 @@ async def test_tool_with_complex_anyof_schema(alist):
 @pytest.mark.asyncio
 async def test_strands_context_injection(alist):
     """Test that StrandsContext is properly injected into tools that request it."""
-    
+
     @strands.tool
     def context_tool(message: str, strands_context: StrandsContext) -> dict:
         """Tool that uses StrandsContext to access tool_use_id."""
         tool_use_id = strands_context["tool_use"]["toolUseId"]
         tool_name = strands_context["tool_use"]["name"]
         agent_info = strands_context["invocation_state"].get("agent", "no-agent")
-        
+
         return {
             "status": "success",
-            "content": [{"text": f"Tool '{tool_name}' (ID: {tool_use_id}) with agent '{agent_info}' processed: {message}"}]
+            "content": [
+                {"text": f"Tool '{tool_name}' (ID: {tool_use_id}) with agent '{agent_info}' processed: {message}"}
+            ],
         }
-    
+
     # Test tool use with context injection
-    tool_use = {
-        "toolUseId": "test-context-123",
-        "name": "context_tool", 
-        "input": {"message": "hello world"}
-    }
+    tool_use = {"toolUseId": "test-context-123", "name": "context_tool", "input": {"message": "hello world"}}
     invocation_state = {"agent": "test-agent"}
-    
+
     stream = context_tool.stream(tool_use, invocation_state)
     result = (await alist(stream))[-1]
-    
+
     assert result["status"] == "success"
     assert result["toolUseId"] == "test-context-123"
     assert "Tool 'context_tool' (ID: test-context-123)" in result["content"][0]["text"]
     assert "with agent 'test-agent'" in result["content"][0]["text"]
     assert "processed: hello world" in result["content"][0]["text"]
-    
+
     # Verify strands_context is excluded from schema
     tool_spec = context_tool.tool_spec
     schema_properties = tool_spec["inputSchema"]["json"].get("properties", {})
