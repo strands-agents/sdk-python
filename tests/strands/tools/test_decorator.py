@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import strands
+from strands import Agent
 from strands.types.tools import StrandsContext, ToolUse
 
 
@@ -1043,7 +1044,7 @@ async def test_strands_context_injection(alist):
     """Test that StrandsContext is properly injected into tools that request it."""
 
     @strands.tool
-    def context_tool(message: str, strands_context: StrandsContext) -> dict:
+    def context_tool(message: str, agent: Agent, strands_context: StrandsContext) -> dict:
         """Tool that uses StrandsContext to access tool_use_id."""
         tool_use_id = strands_context["tool_use"]["toolUseId"]
         tool_name = strands_context["tool_use"]["name"]
@@ -1052,7 +1053,13 @@ async def test_strands_context_injection(alist):
         return {
             "status": "success",
             "content": [
-                {"text": f"Tool '{tool_name}' (ID: {tool_use_id}) with agent '{agent_info}' processed: {message}"}
+                {
+                    "text": f"""
+			Tool '{tool_name}' (ID: {tool_use_id}) 
+			with agent '{agent_info}' 
+                        and injected agent '{agent}' processed: {message}
+                     """
+                }
             ],
         }
 
@@ -1067,10 +1074,12 @@ async def test_strands_context_injection(alist):
     assert result["toolUseId"] == "test-context-123"
     assert "Tool 'context_tool' (ID: test-context-123)" in result["content"][0]["text"]
     assert "with agent 'test-agent'" in result["content"][0]["text"]
+    assert "and injected agent 'test-agent'" in result["content"][0]["text"]
     assert "processed: hello world" in result["content"][0]["text"]
 
-    # Verify strands_context is excluded from schema
+    # Verify strands_context and agent are excluded from schema
     tool_spec = context_tool.tool_spec
     schema_properties = tool_spec["inputSchema"]["json"].get("properties", {})
     assert "message" in schema_properties
     assert "strands_context" not in schema_properties
+    assert "agent" not in schema_properties
