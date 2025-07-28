@@ -11,7 +11,7 @@ import sys
 from importlib import import_module, util
 from os.path import expanduser
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from typing_extensions import TypedDict, cast
 
@@ -54,7 +54,7 @@ class ToolRegistry:
         """
         tool_names = []
 
-        for tool in tools:
+        def add_tool(tool: Any) -> None:
             # Case 1: String file path
             if isinstance(tool, str):
                 # Extract tool name from path
@@ -97,8 +97,15 @@ class ToolRegistry:
             elif isinstance(tool, AgentTool):
                 self.register_tool(tool)
                 tool_names.append(tool.tool_name)
+            # Case 6: Nested iterable (list, tuple, etc.) - add each sub-tool
+            elif isinstance(tool, Iterable) and not isinstance(tool, (str, bytes, bytearray)):
+                for t in tool:
+                    add_tool(t)
             else:
                 logger.warning("tool=<%s> | unrecognized tool specification", tool)
+
+        for a_tool in tools:
+            add_tool(a_tool)
 
         return tool_names
 

@@ -93,3 +93,30 @@ def test_scan_module_for_tools():
 
     assert len(tools) == 2
     assert all(isinstance(tool, DecoratedFunctionTool) for tool in tools)
+
+
+def test_process_tools_flattens_lists_and_tuples_and_sets():
+    def function() -> str:
+        return "done"
+
+    tool_a = tool(name="tool_a")(function)
+    tool_b = tool(name="tool_b")(function)
+    tool_c = tool(name="tool_c")(function)
+    tool_d = tool(name="tool_d")(function)
+    tool_e = tool(name="tool_e")(function)
+    tool_f = tool(name="tool_f")(function)
+
+    registry = ToolRegistry()
+
+    all_tools = [tool_a, (tool_b, tool_c), [{tool_d, tool_e}, [tool_f]]]
+
+    tru_tool_names = sorted(registry.process_tools(all_tools))
+    exp_tool_names = [
+        "tool_a",
+        "tool_b",
+        "tool_c",
+        "tool_d",
+        "tool_e",
+        "tool_f",
+    ]
+    assert tru_tool_names == exp_tool_names

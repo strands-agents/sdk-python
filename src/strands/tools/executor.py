@@ -5,7 +5,7 @@ import logging
 import time
 from typing import Any, Optional, cast
 
-from opentelemetry import trace
+from opentelemetry import trace as trace_api
 
 from ..telemetry.metrics import EventLoopMetrics, Trace
 from ..telemetry.tracer import get_tracer
@@ -23,7 +23,7 @@ async def run_tools(
     invalid_tool_use_ids: list[str],
     tool_results: list[ToolResult],
     cycle_trace: Trace,
-    parent_span: Optional[trace.Span] = None,
+    parent_span: Optional[trace_api.Span] = None,
 ) -> ToolGenerator:
     """Execute tools concurrently.
 
@@ -53,24 +53,23 @@ async def run_tools(
         tool_name = tool_use["name"]
         tool_trace = Trace(f"Tool: {tool_name}", parent_id=cycle_trace.id, raw_name=tool_name)
         tool_start_time = time.time()
+        with trace_api.use_span(tool_call_span):
+            try:
+                async for event in handler(tool_use):
+                    worker_queue.put_nowait((worker_id, event))
+                    await worker_event.wait()
+                    worker_event.clear()
 
-        try:
-            async for event in handler(tool_use):
-                worker_queue.put_nowait((worker_id, event))
-                await worker_event.wait()
-                worker_event.clear()
+                result = cast(ToolResult, event)
+            finally:
+                worker_queue.put_nowait((worker_id, stop_event))
 
-            result = cast(ToolResult, event)
-        finally:
-            worker_queue.put_nowait((worker_id, stop_event))
+            tool_success = result.get("status") == "success"
+            tool_duration = time.time() - tool_start_time
+            message = Message(role="user", content=[{"toolResult": result}])
+            event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, tool_success, message)
+            cycle_trace.add_child(tool_trace)
 
-        tool_success = result.get("status") == "success"
-        tool_duration = time.time() - tool_start_time
-        message = Message(role="user", content=[{"toolResult": result}])
-        event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, tool_success, message)
-        cycle_trace.add_child(tool_trace)
-
-        if tool_call_span:
             tracer.end_tool_call_span(tool_call_span, result)
 
         return result

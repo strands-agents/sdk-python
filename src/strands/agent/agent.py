@@ -16,7 +16,7 @@ import random
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Optional, Type, TypeVar, Union, cast
 
-from opentelemetry import trace
+from opentelemetry import trace as trace_api
 from pydantic import BaseModel
 
 from ..event_loop.event_loop import event_loop_cycle, run_tool
@@ -157,9 +157,7 @@ class Agent:
 
                 if should_record_direct_tool_call:
                     # Create a record of this tool execution in the message history
-                    self._agent._record_tool_execution(
-                        tool_use, tool_result, user_message_override, self._agent.messages
-                    )
+                    self._agent._record_tool_execution(tool_use, tool_result, user_message_override)
 
                 # Apply window management
                 self._agent.conversation_manager.apply_management(self._agent)
@@ -300,7 +298,7 @@ class Agent:
 
         # Initialize tracer instance (no-op if not configured)
         self.tracer = get_tracer()
-        self.trace_span: Optional[trace.Span] = None
+        self.trace_span: Optional[trace_api.Span] = None
 
         # Initialize agent state management
         if state is not None:
@@ -503,24 +501,24 @@ class Agent:
         content: list[ContentBlock] = [{"text": prompt}] if isinstance(prompt, str) else prompt
         message: Message = {"role": "user", "content": content}
 
-        self._start_agent_trace_span(message)
+        self.trace_span = self._start_agent_trace_span(message)
+        with trace_api.use_span(self.trace_span):
+            try:
+                events = self._run_loop(message, invocation_state=kwargs)
+                async for event in events:
+                    if "callback" in event:
+                        callback_handler(**event["callback"])
+                        yield event["callback"]
 
-        try:
-            events = self._run_loop(message, invocation_state=kwargs)
-            async for event in events:
-                if "callback" in event:
-                    callback_handler(**event["callback"])
-                    yield event["callback"]
+                result = AgentResult(*event["stop"])
+                callback_handler(result=result)
+                yield {"result": result}
 
-            result = AgentResult(*event["stop"])
-            callback_handler(result=result)
-            yield {"result": result}
+                self._end_agent_trace_span(response=result)
 
-            self._end_agent_trace_span(response=result)
-
-        except Exception as e:
-            self._end_agent_trace_span(error=e)
-            raise
+            except Exception as e:
+                self._end_agent_trace_span(error=e)
+                raise
 
     async def _run_loop(
         self, message: Message, invocation_state: dict[str, Any]
@@ -602,7 +600,6 @@ class Agent:
         tool: ToolUse,
         tool_result: ToolResult,
         user_message_override: Optional[str],
-        messages: Messages,
     ) -> None:
         """Record a tool execution in the message history.
 
@@ -617,11 +614,12 @@ class Agent:
             tool: The tool call information.
             tool_result: The result returned by the tool.
             user_message_override: Optional custom message to include.
-            messages: The message history to append to.
         """
         # Create user message describing the tool call
+        input_parameters = json.dumps(tool["input"], default=lambda o: f"<<non-serializable: {type(o).__qualname__}>>")
+
         user_msg_content: list[ContentBlock] = [
-            {"text": (f"agent.tool.{tool['name']} direct tool call.\nInput parameters: {json.dumps(tool['input'])}\n")}
+            {"text": (f"agent.tool.{tool['name']} direct tool call.\nInput parameters: {input_parameters}\n")}
         ]
 
         # Add override message if provided
@@ -643,7 +641,7 @@ class Agent:
         }
         assistant_msg: Message = {
             "role": "assistant",
-            "content": [{"text": f"agent.{tool['name']} was called"}],
+            "content": [{"text": f"agent.tool.{tool['name']} was called."}],
         }
 
         # Add to message history
@@ -652,15 +650,14 @@ class Agent:
         self._append_message(tool_result_msg)
         self._append_message(assistant_msg)
 
-    def _start_agent_trace_span(self, message: Message) -> None:
+    def _start_agent_trace_span(self, message: Message) -> trace_api.Span:
         """Starts a trace span for the agent.
 
         Args:
             message: The user message.
         """
         model_id = self.model.config.get("model_id") if hasattr(self.model, "config") else None
-
-        self.trace_span = self.tracer.start_agent_span(
+        return self.tracer.start_agent_span(
             message=message,
             agent_name=self.name,
             model_id=model_id,

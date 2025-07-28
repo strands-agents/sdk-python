@@ -345,13 +345,18 @@ class Graph(MultiAgentBase):
             current_batch = ready_nodes.copy()
             ready_nodes.clear()
 
-            # Execute current batch of ready nodes
-            for node in current_batch:
-                if node not in self.state.completed_nodes:
-                    await self._execute_node(node)
+            # Execute current batch of ready nodes concurrently
+            tasks = [
+                asyncio.create_task(self._execute_node(node))
+                for node in current_batch
+                if node not in self.state.completed_nodes
+            ]
 
-                    # Find newly ready nodes after this execution
-                    ready_nodes.extend(self._find_newly_ready_nodes())
+            for task in tasks:
+                await task
+
+            # Find newly ready nodes after batch execution
+            ready_nodes.extend(self._find_newly_ready_nodes())
 
     def _find_newly_ready_nodes(self) -> list["GraphNode"]:
         """Find nodes that became ready after the last execution."""

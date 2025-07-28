@@ -213,7 +213,7 @@ class Tracer:
         parent_span: Optional[Span] = None,
         model_id: Optional[str] = None,
         **kwargs: Any,
-    ) -> Optional[Span]:
+    ) -> Span:
         """Start a new span for a model invocation.
 
         Args:
@@ -273,7 +273,7 @@ class Tracer:
 
         self._end_span(span, attributes, error)
 
-    def start_tool_call_span(self, tool: ToolUse, parent_span: Optional[Span] = None, **kwargs: Any) -> Optional[Span]:
+    def start_tool_call_span(self, tool: ToolUse, parent_span: Optional[Span] = None, **kwargs: Any) -> Span:
         """Start a new span for a tool call.
 
         Args:
@@ -414,7 +414,7 @@ class Tracer:
         tools: Optional[list] = None,
         custom_trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
         **kwargs: Any,
-    ) -> Optional[Span]:
+    ) -> Span:
         """Start a new span for an agent invocation.
 
         Args:

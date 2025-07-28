@@ -131,7 +131,10 @@ async def test_graph_execution_with_string(math_agent, summary_agent, validation
 
     # Verify execution order - extract node_ids from GraphNode objects
     execution_order_ids = [node.node_id for node in result.execution_order]
-    assert execution_order_ids == ["computation_subgraph", "secondary_math", "validator", "primary_summary"]
+    # With parallel execution, secondary_math and validator can complete in any order
+    assert execution_order_ids[0] == "computation_subgraph"  # First
+    assert execution_order_ids[3] == "primary_summary"  # Last
+    assert set(execution_order_ids[1:3]) == {"secondary_math", "validator"}  # Middle two in any order
 
     # Verify specific nodes completed
     assert "computation_subgraph" in result.results

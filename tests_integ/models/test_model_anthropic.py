@@ -6,10 +6,17 @@ import pytest
 import strands
 from strands import Agent
 from strands.models.anthropic import AnthropicModel
-from tests_integ.models import providers
 
-# these tests only run if we have the anthropic api key
-pytestmark = providers.anthropic.mark
+"""
+These tests only run if we have the anthropic api key
+
+Because of infrequent burst usage, Anthropic tests are unreliable, failing tests with 529s.
+{'type': 'error', 'error': {'details': None, 'type': 'overloaded_error', 'message': 'Overloaded'}}
+https://docs.anthropic.com/en/api/errors#http-errors
+"""
+pytestmark = pytest.skip(
+    "Because of infrequent burst usage, Anthropic tests are unreliable, failing with 529s", allow_module_level=True
+)
 
 
 @pytest.fixture
