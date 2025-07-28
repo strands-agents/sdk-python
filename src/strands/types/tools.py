@@ -117,6 +117,21 @@ class ToolChoiceTool(TypedDict):
     name: str
 
 
+class StrandsContext(TypedDict, total=False):
+    """Context object containing framework-provided data for decorated tools.
+    
+    This object provides access to framework-level information that may be useful
+    for tool implementations. All fields are optional to maintain backward compatibility.
+    
+    Attributes:
+        tool_use: The complete ToolUse object containing tool invocation details.
+        invocation_state: Context for the tool invocation, including agent state.
+    """
+    
+    tool_use: ToolUse
+    invocation_state: dict[str, Any]
+
+
 ToolChoice = Union[
     dict[Literal["auto"], ToolChoiceAuto],
     dict[Literal["any"], ToolChoiceAny],
