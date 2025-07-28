@@ -110,6 +110,10 @@ class FunctionToolMetadata:
     def _is_special_parameter(self, param_name: str) -> bool:
         """Check if a parameter should be automatically injected by the framework.
         
+        Special parameters include:
+        - Standard Python parameters: self, cls
+        - Framework-provided context parameters: agent, strands_context
+        
         Args:
             param_name: The name of the parameter to check.
             
@@ -117,15 +121,7 @@ class FunctionToolMetadata:
             True if the parameter should be excluded from input validation and 
             automatically injected during tool execution.
         """
-        # Standard Python special parameters
-        if param_name in ("self", "cls"):
-            return True
-            
-        # Framework-provided context parameters
-        if param_name in ("strands_context", "agent"):
-            return True
-            
-        return False
+        return param_name in {"self", "cls", "agent", "strands_context"}
 
     def _create_input_model(self) -> Type[BaseModel]:
         """Create a Pydantic model from function signature for input validation.
