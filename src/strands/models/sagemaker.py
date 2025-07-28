@@ -274,8 +274,6 @@ class SageMakerAIModel(OpenAIModel):
         if self.endpoint_config.get("additional_args"):
             request.update(self.endpoint_config["additional_args"].__dict__)
 
-        print(json.dumps(request["Body"], indent=2))
-
         return request
 
     @override
