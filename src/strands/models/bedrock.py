@@ -17,10 +17,10 @@ from typing_extensions import TypedDict, Unpack, override
 
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
-from ..types.content import Messages
+from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
-from ..types.tools import ToolSpec
+from ..types.tools import ToolResult, ToolSpec
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -181,7 +181,7 @@ class BedrockModel(Model):
         """
         return {
             "modelId": self.config["model_id"],
-            "messages": messages,
+            "messages": self._format_bedrock_messages(messages),
             "system": [
                 *([{"text": system_prompt}] if system_prompt else []),
                 *([{"cachePoint": {"type": self.config["cache_prompt"]}}] if self.config.get("cache_prompt") else []),
@@ -245,6 +245,53 @@ class BedrockModel(Model):
                 else {}
             ),
         }
+
+    def _format_bedrock_messages(self, messages: Messages) -> Messages:
+        """Format messages for Bedrock API compatibility.
+
+        This function ensures messages conform to Bedrock's expected format by:
+        - Cleaning tool result content blocks by removing additional fields that may be
+          useful for retaining information in hooks but would cause Bedrock validation
+          exceptions when presented with unexpected fields
+        - Ensuring all message content blocks are properly formatted for the Bedrock API
+
+        Args:
+            messages: List of messages to format
+
+        Returns:
+            Messages formatted for Bedrock API compatibility
+
+        Note:
+            Bedrock will throw validation exceptions when presented with additional
+            unexpected fields in tool result blocks.
+            https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolResultBlock.html
+        """
+        cleaned_messages = []
+
+        for message in messages:
+            cleaned_content: list[ContentBlock] = []
+
+            for content_block in message["content"]:
+                if "toolResult" in content_block:
+                    # Create a new content block with only the cleaned toolResult
+                    tool_result: ToolResult = content_block["toolResult"]
+
+                    # Keep only the required fields for Bedrock
+                    cleaned_tool_result = ToolResult(
+                        content=tool_result["content"], toolUseId=tool_result["toolUseId"], status=tool_result["status"]
+                    )
+
+                    cleaned_block = {"toolResult": cleaned_tool_result}
+                    cleaned_content.append(cleaned_block)
+                else:
+                    # Keep other content blocks as-is
+                    cleaned_content.append(content_block)
+
+            # Create new message with cleaned content
+            cleaned_message: Message = Message(content=cleaned_content, role=message["role"])
+            cleaned_messages.append(cleaned_message)
+
+        return cleaned_messages
 
     def _has_blocked_guardrail(self, guardrail_data: dict[str, Any]) -> bool:
         """Check if guardrail data contains any blocked policies.
