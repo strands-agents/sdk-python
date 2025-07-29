@@ -626,6 +626,10 @@ class Agent:
         if user_message_override:
             user_msg_content.insert(0, {"text": f"{user_message_override}\n"})
 
+        sanitized_input = json.loads(input_parameters)
+        sanitized_tool = tool.copy()
+        sanitized_tool["input"] = sanitized_input
+
         # Create the message sequence
         user_msg: Message = {
             "role": "user",
@@ -633,7 +637,7 @@ class Agent:
         }
         tool_use_msg: Message = {
             "role": "assistant",
-            "content": [{"toolUse": tool}],
+            "content": [{"toolUse": sanitized_tool}],
         }
         tool_result_msg: Message = {
             "role": "user",
