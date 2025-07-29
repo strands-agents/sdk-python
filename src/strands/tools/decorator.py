@@ -143,22 +143,6 @@ class FunctionToolMetadata:
             # Handle case with no parameters
             return create_model(model_name)
 
-    def _is_special_parameter(self, param_name: str) -> bool:
-        """Check if a parameter should be automatically injected by the framework.
-
-        Special parameters include:
-        - Standard Python parameters: self, cls
-        - Framework-provided context parameters: agent, strands_context
-
-        Args:
-            param_name: The name of the parameter to check.
-
-        Returns:
-            True if the parameter should be excluded from input validation and
-            automatically injected during tool execution.
-        """
-        return param_name in {"self", "cls", "agent", "strands_context"}
-
     def extract_metadata(self) -> ToolSpec:
         """Extract metadata from the function to create a tool specification.
 
@@ -292,6 +276,22 @@ class FunctionToolMetadata:
         # Inject agent if requested (backward compatibility)
         if "agent" in self.signature.parameters and "agent" in invocation_state:
             validated_input["agent"] = invocation_state["agent"]
+
+    def _is_special_parameter(self, param_name: str) -> bool:
+        """Check if a parameter should be automatically injected by the framework.
+
+        Special parameters include:
+        - Standard Python parameters: self, cls
+        - Framework-provided context parameters: agent, strands_context
+
+        Args:
+            param_name: The name of the parameter to check.
+
+        Returns:
+            True if the parameter should be excluded from input validation and
+            automatically injected during tool execution.
+        """
+        return param_name in {"self", "cls", "agent", "strands_context"}
 
 
 P = ParamSpec("P")  # Captures all parameters

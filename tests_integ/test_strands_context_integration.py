@@ -15,7 +15,10 @@ logging.basicConfig(format="%(levelname)s | %(name)s | %(message)s", handlers=[l
 def tool_with_context(message: str, strands_context: StrandsContext) -> dict:
     """Tool that uses StrandsContext to access tool_use_id."""
     tool_use_id = strands_context["tool_use"]["toolUseId"]
-    return {"status": "success", "content": [{"text": f"Context tool processed '{message}' with ID: {tool_use_id}"}]}
+    return {
+        "status": "success",
+        "content": [{"text": f"Context tool processed '{message}' with ID: {tool_use_id}"}],
+    }
 
 
 @tool
@@ -36,9 +39,14 @@ def test_strands_context_integration():
     agent = Agent(tools=[tool_with_context, tool_with_agent_and_context])
 
     # Test tool with StrandsContext
-    result1 = agent.tool.tool_with_context(message="hello world")
-    assert result1.get("status") == "success"
+    result_with_context = agent.tool.tool_with_context(message="hello world")
+    assert (
+        "Context tool processed 'hello world' with ID: tooluse_tool_with_context_"
+        in result_with_context["content"][0]["text"]
+    )
 
-    # Test tool with both agent and StrandsContext
-    result = agent.tool.tool_with_agent_and_context(message="hello agent")
-    assert result.get("status") == "success"
+    result_with_agent_and_context = agent.tool.tool_with_agent_and_context(message="hello agent", agent=agent)
+    assert (
+        "Agent 'Strands Agents' processed 'hello agent' with ID: tooluse_tool_with_agent_and_context_"
+        in result_with_agent_and_context["content"][0]["text"]
+    )
