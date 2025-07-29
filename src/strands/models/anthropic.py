@@ -414,7 +414,7 @@ class AnthropicModel(Model):
         stop_reason, messages, _, _ = event["stop"]
 
         if stop_reason != "tool_use":
-            raise ValueError("No valid tool use or tool use input was found in the Anthropic response.")
+            raise ValueError(f"Model returned stop_reason: {stop_reason} instead of \"tool_use\".")
 
         content = messages["content"]
         output_response: dict[str, Any] | None = None

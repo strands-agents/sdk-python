@@ -13,6 +13,7 @@ import strands
 from strands.models import BedrockModel
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, DEFAULT_BEDROCK_REGION
 from strands.types.exceptions import ModelThrottledException
+from strands.types.tools import ToolSpec
 
 
 @pytest.fixture
@@ -51,7 +52,7 @@ def model(bedrock_client, model_id):
 
 @pytest.fixture
 def messages():
-    return [{"role": "user", "content": {"text": "test"}}]
+    return [{"role": "user", "content": [{"text": "test"}]}]
 
 
 @pytest.fixture
@@ -90,8 +91,12 @@ def inference_config():
 
 
 @pytest.fixture
-def tool_spec():
-    return {"t1": 1}
+def tool_spec() -> ToolSpec:
+    return {
+        "description": "description",
+        "name": "name",
+        "inputSchema": {"key": "val"},
+    }
 
 
 @pytest.fixture
@@ -750,7 +755,7 @@ async def test_stream_output_no_guardrail_redact(
 
 
 @pytest.mark.asyncio
-async def test_stream_with_streaming_false(bedrock_client, alist):
+async def test_stream_with_streaming_false(bedrock_client, alist, messages):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
@@ -759,8 +764,7 @@ async def test_stream_with_streaming_false(bedrock_client, alist):
 
     # Create model and call stream
     model = BedrockModel(model_id="test-model", streaming=False)
-    request = {"modelId": "test-model"}
-    response = model.stream(request)
+    response = model.stream(messages)
 
     tru_events = await alist(response)
     exp_events = [
@@ -776,7 +780,7 @@ async def test_stream_with_streaming_false(bedrock_client, alist):
 
 
 @pytest.mark.asyncio
-async def test_stream_with_streaming_false_and_tool_use(bedrock_client, alist):
+async def test_stream_with_streaming_false_and_tool_use(bedrock_client, alist, messages):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {
@@ -790,8 +794,7 @@ async def test_stream_with_streaming_false_and_tool_use(bedrock_client, alist):
 
     # Create model and call stream
     model = BedrockModel(model_id="test-model", streaming=False)
-    request = {"modelId": "test-model"}
-    response = model.stream(request)
+    response = model.stream(messages)
 
     tru_events = await alist(response)
     exp_events = [
@@ -808,7 +811,7 @@ async def test_stream_with_streaming_false_and_tool_use(bedrock_client, alist):
 
 
 @pytest.mark.asyncio
-async def test_stream_with_streaming_false_and_reasoning(bedrock_client, alist):
+async def test_stream_with_streaming_false_and_reasoning(bedrock_client, alist, messages):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {
@@ -828,8 +831,7 @@ async def test_stream_with_streaming_false_and_reasoning(bedrock_client, alist):
 
     # Create model and call stream
     model = BedrockModel(model_id="test-model", streaming=False)
-    request = {"modelId": "test-model"}
-    response = model.stream(request)
+    response = model.stream(messages)
 
     tru_events = await alist(response)
     exp_events = [
@@ -847,7 +849,7 @@ async def test_stream_with_streaming_false_and_reasoning(bedrock_client, alist):
 
 
 @pytest.mark.asyncio
-async def test_stream_and_reasoning_no_signature(bedrock_client, alist):
+async def test_stream_and_reasoning_no_signature(bedrock_client, alist, messages):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {
@@ -867,8 +869,7 @@ async def test_stream_and_reasoning_no_signature(bedrock_client, alist):
 
     # Create model and call stream
     model = BedrockModel(model_id="test-model", streaming=False)
-    request = {"modelId": "test-model"}
-    response = model.stream(request)
+    response = model.stream(messages)
 
     tru_events = await alist(response)
     exp_events = [
@@ -884,7 +885,7 @@ async def test_stream_and_reasoning_no_signature(bedrock_client, alist):
 
 
 @pytest.mark.asyncio
-async def test_stream_with_streaming_false_with_metrics_and_usage(bedrock_client, alist):
+async def test_stream_with_streaming_false_with_metrics_and_usage(bedrock_client, alist, messages):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
@@ -895,8 +896,7 @@ async def test_stream_with_streaming_false_with_metrics_and_usage(bedrock_client
 
     # Create model and call stream
     model = BedrockModel(model_id="test-model", streaming=False)
-    request = {"modelId": "test-model"}
-    response = model.stream(request)
+    response = model.stream(messages)
 
     tru_events = await alist(response)
     exp_events = [
@@ -919,7 +919,7 @@ async def test_stream_with_streaming_false_with_metrics_and_usage(bedrock_client
 
 
 @pytest.mark.asyncio
-async def test_stream_input_guardrails(bedrock_client, alist):
+async def test_stream_input_guardrails(bedrock_client, alist, messages):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
@@ -937,8 +937,7 @@ async def test_stream_input_guardrails(bedrock_client, alist):
 
     # Create model and call stream
     model = BedrockModel(model_id="test-model", streaming=False)
-    request = {"modelId": "test-model"}
-    response = model.stream(request)
+    response = model.stream(messages)
 
     tru_events = await alist(response)
     exp_events = [
@@ -970,7 +969,7 @@ async def test_stream_input_guardrails(bedrock_client, alist):
 
 
 @pytest.mark.asyncio
-async def test_stream_output_guardrails(bedrock_client, alist):
+async def test_stream_output_guardrails(bedrock_client, alist, messages):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
@@ -989,8 +988,7 @@ async def test_stream_output_guardrails(bedrock_client, alist):
     }
 
     model = BedrockModel(model_id="test-model", streaming=False)
-    request = {"modelId": "test-model"}
-    response = model.stream(request)
+    response = model.stream(messages)
 
     tru_events = await alist(response)
     exp_events = [
@@ -1024,7 +1022,7 @@ async def test_stream_output_guardrails(bedrock_client, alist):
 
 
 @pytest.mark.asyncio
-async def test_stream_output_guardrails_redacts_output(bedrock_client, alist):
+async def test_stream_output_guardrails_redacts_output(bedrock_client, alist, messages):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
@@ -1043,8 +1041,7 @@ async def test_stream_output_guardrails_redacts_output(bedrock_client, alist):
     }
 
     model = BedrockModel(model_id="test-model", streaming=False)
-    request = {"modelId": "test-model"}
-    response = model.stream(request)
+    response = model.stream(messages)
 
     tru_events = await alist(response)
     exp_events = [
@@ -1101,7 +1098,7 @@ async def test_structured_output(bedrock_client, model, test_output_model_cls, a
 
 @pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
 @pytest.mark.asyncio
-async def test_add_note_on_client_error(bedrock_client, model, alist):
+async def test_add_note_on_client_error(bedrock_client, model, alist, messages):
     """Test that add_note is called on ClientError with region and model ID information."""
     # Mock the client error response
     error_response = {"Error": {"Code": "ValidationException", "Message": "Some error message"}}
@@ -1109,13 +1106,13 @@ async def test_add_note_on_client_error(bedrock_client, model, alist):
 
     # Call the stream method which should catch and add notes to the exception
     with pytest.raises(ClientError) as err:
-        await alist(model.stream({"modelId": "test-model"}))
+        await alist(model.stream(messages))
 
     assert err.value.__notes__ == ["└ Bedrock region: us-west-2", "└ Model id: m1"]
 
 
 @pytest.mark.asyncio
-async def test_no_add_note_when_not_available(bedrock_client, model, alist):
+async def test_no_add_note_when_not_available(bedrock_client, model, alist, messages):
     """Verify that on any python version (even < 3.11 where add_note is not available, we get the right exception)."""
     # Mock the client error response
     error_response = {"Error": {"Code": "ValidationException", "Message": "Some error message"}}
@@ -1123,12 +1120,12 @@ async def test_no_add_note_when_not_available(bedrock_client, model, alist):
 
     # Call the stream method which should catch and add notes to the exception
     with pytest.raises(ClientError):
-        await alist(model.stream({"modelId": "test-model"}))
+        await alist(model.stream(messages))
 
 
 @pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
 @pytest.mark.asyncio
-async def test_add_note_on_access_denied_exception(bedrock_client, model, alist):
+async def test_add_note_on_access_denied_exception(bedrock_client, model, alist, messages):
     """Test that add_note adds documentation link for AccessDeniedException."""
     # Mock the client error response for access denied
     error_response = {
@@ -1142,7 +1139,7 @@ async def test_add_note_on_access_denied_exception(bedrock_client, model, alist)
 
     # Call the stream method which should catch and add notes to the exception
     with pytest.raises(ClientError) as err:
-        await alist(model.stream({"modelId": "test-model"}))
+        await alist(model.stream(messages))
 
     assert err.value.__notes__ == [
         "└ Bedrock region: us-west-2",
@@ -1154,7 +1151,7 @@ async def test_add_note_on_access_denied_exception(bedrock_client, model, alist)
 
 @pytest.mark.skipif(sys.version_info < (3, 11), reason="This test requires Python 3.11 or higher (need add_note)")
 @pytest.mark.asyncio
-async def test_add_note_on_validation_exception_throughput(bedrock_client, model, alist):
+async def test_add_note_on_validation_exception_throughput(bedrock_client, model, alist, messages):
     """Test that add_note adds documentation link for ValidationException about on-demand throughput."""
     # Mock the client error response for validation exception
     error_response = {
@@ -1170,7 +1167,7 @@ async def test_add_note_on_validation_exception_throughput(bedrock_client, model
 
     # Call the stream method which should catch and add notes to the exception
     with pytest.raises(ClientError) as err:
-        await alist(model.stream({"modelId": "test-model"}))
+        await alist(model.stream(messages))
 
     assert err.value.__notes__ == [
         "└ Bedrock region: us-west-2",
@@ -1202,3 +1199,32 @@ async def test_stream_logging(bedrock_client, model, messages, caplog, alist):
     assert "invoking model" in log_text
     assert "got response from model" in log_text
     assert "finished streaming response from model" in log_text
+
+
+def test_format_request_cleans_tool_result_content_blocks(model, model_id):
+    """Test that format_request cleans toolResult blocks by removing extra fields."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [{"text": "Tool output"}],
+                        "toolUseId": "tool123",
+                        "status": "success",
+                        "extraField": "should be removed",
+                        "mcpMetadata": {"server": "test"},
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    # Verify toolResult only contains allowed fields in the formatted request
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+    expected = {"content": [{"text": "Tool output"}], "toolUseId": "tool123", "status": "success"}
+    assert tool_result == expected
+    assert "extraField" not in tool_result
+    assert "mcpMetadata" not in tool_result
