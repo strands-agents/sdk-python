@@ -352,6 +352,7 @@ class OpenAIModel(Model):
 
         tool_calls: dict[int, list[Any]] = {}
 
+        has_tool_call = False
         async for event in response:
             # Defensive: skip events with empty or missing choices
             if not getattr(event, "choices", None):
@@ -374,8 +375,11 @@ class OpenAIModel(Model):
 
             for tool_call in choice.delta.tool_calls or []:
                 tool_calls.setdefault(tool_call.index, []).append(tool_call)
+                has_tool_call = True
 
             if choice.finish_reason:
+                if choice.finish_reason == "stop" and has_tool_call:
+                    choice.finish_reason = "tool_calls"
                 break
 
         yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
