@@ -281,7 +281,7 @@ class BedrockModel(Model):
                         content=tool_result["content"], toolUseId=tool_result["toolUseId"], status=tool_result["status"]
                     )
 
-                    cleaned_block = {"toolResult": cleaned_tool_result}
+                    cleaned_block: ContentBlock = {"toolResult": cleaned_tool_result}
                     cleaned_content.append(cleaned_block)
                 else:
                     # Keep other content blocks as-is
