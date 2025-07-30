@@ -56,6 +56,7 @@ class GraphState:
     completed_nodes: set["GraphNode"] = field(default_factory=set)
     failed_nodes: set["GraphNode"] = field(default_factory=set)
     execution_order: list["GraphNode"] = field(default_factory=list)
+    start_time: float = field(default_factory=time.time)
 
     # Results
     results: dict[str, NodeResult] = field(default_factory=dict)
@@ -70,6 +71,28 @@ class GraphState:
     total_nodes: int = 0
     edges: list[Tuple["GraphNode", "GraphNode"]] = field(default_factory=list)
     entry_points: list["GraphNode"] = field(default_factory=list)
+
+    def should_continue(
+        self,
+        *,
+        max_node_executions: int | None,
+        execution_timeout: float | None,
+    ) -> Tuple[bool, str]:
+        """Check if the graph should continue execution.
+
+        Returns: (should_continue, reason)
+        """
+        # Check node execution limit (only if set)
+        if max_node_executions is not None and len(self.execution_order) >= max_node_executions:
+            return False, f"Max node executions reached: {max_node_executions}"
+
+        # Check timeout (only if set)
+        if execution_timeout is not None:
+            elapsed = time.time() - self.start_time
+            if elapsed > execution_timeout:
+                return False, f"Execution timed out: {execution_timeout}s"
+
+        return True, "Continuing"
 
 
 @dataclass
@@ -192,8 +215,13 @@ class GraphBuilder:
         self.nodes: dict[str, GraphNode] = {}
         self.edges: set[GraphEdge] = set()
         self.entry_points: set[GraphNode] = set()
+        
+        # Configuration options
+        self._max_node_executions: int | None = None
+        self._execution_timeout: float | None = None
+        self._node_timeout: float | None = None
 
-    def add_node(self, executor: Agent | MultiAgentBase, node_id: str | None = None) -> GraphNode:
+    def add_node(self, executor: Agent | MultiAgentBase, node_id: str | None = None) -> "GraphBuilder":
         """Add an Agent or MultiAgentBase instance as a node to the graph."""
         _validate_node_executor(executor, self.nodes)
 
@@ -206,14 +234,14 @@ class GraphBuilder:
 
         node = GraphNode(node_id=node_id, executor=executor)
         self.nodes[node_id] = node
-        return node
+        return self
 
     def add_edge(
         self,
         from_node: str | GraphNode,
         to_node: str | GraphNode,
         condition: Callable[[GraphState], bool] | None = None,
-    ) -> GraphEdge:
+    ) -> "GraphBuilder":
         """Add an edge between two nodes with optional condition function that receives full GraphState."""
 
         def resolve_node(node: str | GraphNode, node_type: str) -> GraphNode:
@@ -233,7 +261,7 @@ class GraphBuilder:
         edge = GraphEdge(from_node=from_node_obj, to_node=to_node_obj, condition=condition)
         self.edges.add(edge)
         to_node_obj.dependencies.add(from_node_obj)
-        return edge
+        return self
 
     def set_entry_point(self, node_id: str) -> "GraphBuilder":
         """Set a node as an entry point for graph execution."""
@@ -242,8 +270,35 @@ class GraphBuilder:
         self.entry_points.add(self.nodes[node_id])
         return self
 
+    def set_max_node_executions(self, max_executions: int) -> "GraphBuilder":
+        """Set maximum number of node executions allowed.
+        
+        Args:
+            max_executions: Maximum total node executions (None for no limit)
+        """
+        self._max_node_executions = max_executions
+        return self
+
+    def set_execution_timeout(self, timeout: float) -> "GraphBuilder":
+        """Set total execution timeout.
+        
+        Args:
+            timeout: Total execution timeout in seconds (None for no limit)
+        """
+        self._execution_timeout = timeout
+        return self
+
+    def set_node_timeout(self, timeout: float) -> "GraphBuilder":
+        """Set individual node execution timeout.
+        
+        Args:
+            timeout: Individual node timeout in seconds (None for no limit)
+        """
+        self._node_timeout = timeout
+        return self
+
     def build(self) -> "Graph":
-        """Build and validate the graph."""
+        """Build and validate the graph with configured settings."""
         if not self.nodes:
             raise ValueError("Graph must contain at least one node")
 
@@ -259,7 +314,14 @@ class GraphBuilder:
         # Validate entry points and check for cycles
         self._validate_graph()
 
-        return Graph(nodes=self.nodes.copy(), edges=self.edges.copy(), entry_points=self.entry_points.copy())
+        return Graph(
+            nodes=self.nodes.copy(),
+            edges=self.edges.copy(),
+            entry_points=self.entry_points.copy(),
+            max_node_executions=self._max_node_executions,
+            execution_timeout=self._execution_timeout,
+            node_timeout=self._node_timeout,
+        )
 
     def _validate_graph(self) -> None:
         """Validate entry points."""
@@ -273,8 +335,26 @@ class GraphBuilder:
 class Graph(MultiAgentBase):
     """Directed Graph multi-agent orchestration."""
 
-    def __init__(self, nodes: dict[str, GraphNode], edges: set[GraphEdge], entry_points: set[GraphNode]) -> None:
-        """Initialize Graph."""
+    def __init__(
+        self,
+        nodes: dict[str, GraphNode],
+        edges: set[GraphEdge],
+        entry_points: set[GraphNode],
+        *,
+        max_node_executions: int | None = None,
+        execution_timeout: float | None = None,
+        node_timeout: float | None = None,
+    ) -> None:
+        """Initialize Graph with execution limits.
+
+        Args:
+            nodes: Dictionary of node_id to GraphNode
+            edges: Set of GraphEdge objects
+            entry_points: Set of GraphNode objects that are entry points
+            max_node_executions: Maximum total node executions (default: None - no limit)
+            execution_timeout: Total execution timeout in seconds (default: None - no limit)
+            node_timeout: Individual node timeout in seconds (default: None - no limit)
+        """
         super().__init__()
 
         # Validate nodes for duplicate instances
@@ -283,6 +363,9 @@ class Graph(MultiAgentBase):
         self.nodes = nodes
         self.edges = edges
         self.entry_points = entry_points
+        self.max_node_executions = max_node_executions
+        self.execution_timeout = execution_timeout
+        self.node_timeout = node_timeout
         self.state = GraphState()
         self.tracer = get_tracer()
 
@@ -301,20 +384,29 @@ class Graph(MultiAgentBase):
         logger.debug("task=<%s> | starting graph execution", task)
 
         # Initialize state
+        start_time = time.time()
         self.state = GraphState(
             status=Status.EXECUTING,
             task=task,
             total_nodes=len(self.nodes),
             edges=[(edge.from_node, edge.to_node) for edge in self.edges],
             entry_points=list(self.entry_points),
+            start_time=start_time,
         )
 
-        start_time = time.time()
         span = self.tracer.start_multiagent_span(task, "graph")
         with trace_api.use_span(span, end_on_exit=True):
             try:
+                logger.debug(
+                    "max_node_executions=<%s>, execution_timeout=<%s>s, node_timeout=<%s>s | graph execution config",
+                    self.max_node_executions or "None",
+                    self.execution_timeout or "None",
+                    self.node_timeout or "None",
+                )
+
                 await self._execute_graph()
-                self.state.status = Status.COMPLETED
+                if self.state.status == Status.EXECUTING:  # Only set to COMPLETED if still executing
+                    self.state.status = Status.COMPLETED
                 logger.debug("status=<%s> | graph execution completed", self.state.status)
 
             except Exception:
@@ -342,6 +434,16 @@ class Graph(MultiAgentBase):
         ready_nodes = list(self.entry_points)
 
         while ready_nodes:
+            # Check execution limits before continuing
+            should_continue, reason = self.state.should_continue(
+                max_node_executions=self.max_node_executions,
+                execution_timeout=self.execution_timeout,
+            )
+            if not should_continue:
+                self.state.status = Status.FAILED
+                logger.debug("reason=<%s> | stopping execution", reason)
+                return  # Let the top-level exception handler deal with it
+
             current_batch = ready_nodes.copy()
             ready_nodes.clear()
 
@@ -393,7 +495,7 @@ class Graph(MultiAgentBase):
         return False
 
     async def _execute_node(self, node: GraphNode) -> None:
-        """Execute a single node with error handling."""
+        """Execute a single node with error handling and timeout protection."""
         # Reset the node's state if it's being revisited in a cycle
         if node in self.state.completed_nodes:
             logger.debug("node_id=<%s> | resetting node state for cyclic execution", node.node_id)
@@ -409,42 +511,65 @@ class Graph(MultiAgentBase):
             # Build node input from satisfied dependencies
             node_input = self._build_node_input(node)
 
-            # Execute based on node type and create unified NodeResult
-            if isinstance(node.executor, MultiAgentBase):
-                multi_agent_result = await node.executor.invoke_async(node_input)
+            # Execute with timeout protection (only if node_timeout is set)
+            try:
+                # Execute based on node type and create unified NodeResult
+                if isinstance(node.executor, MultiAgentBase):
+                    if self.node_timeout is not None:
+                        multi_agent_result = await asyncio.wait_for(
+                            node.executor.invoke_async(node_input),
+                            timeout=self.node_timeout,
+                        )
+                    else:
+                        multi_agent_result = await node.executor.invoke_async(node_input)
 
-                # Create NodeResult with MultiAgentResult directly
-                node_result = NodeResult(
-                    result=multi_agent_result,  # type is MultiAgentResult
-                    execution_time=multi_agent_result.execution_time,
-                    status=Status.COMPLETED,
-                    accumulated_usage=multi_agent_result.accumulated_usage,
-                    accumulated_metrics=multi_agent_result.accumulated_metrics,
-                    execution_count=multi_agent_result.execution_count,
+                    # Create NodeResult with MultiAgentResult directly
+                    node_result = NodeResult(
+                        result=multi_agent_result,  # type is MultiAgentResult
+                        execution_time=multi_agent_result.execution_time,
+                        status=Status.COMPLETED,
+                        accumulated_usage=multi_agent_result.accumulated_usage,
+                        accumulated_metrics=multi_agent_result.accumulated_metrics,
+                        execution_count=multi_agent_result.execution_count,
+                    )
+
+                elif isinstance(node.executor, Agent):
+                    if self.node_timeout is not None:
+                        agent_response = await asyncio.wait_for(
+                            node.executor.invoke_async(node_input),
+                            timeout=self.node_timeout,
+                        )
+                    else:
+                        agent_response = await node.executor.invoke_async(node_input)
+
+                    # Extract metrics from agent response
+                    usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
+                    metrics = Metrics(latencyMs=0)
+                    if hasattr(agent_response, "metrics") and agent_response.metrics:
+                        if hasattr(agent_response.metrics, "accumulated_usage"):
+                            usage = agent_response.metrics.accumulated_usage
+                        if hasattr(agent_response.metrics, "accumulated_metrics"):
+                            metrics = agent_response.metrics.accumulated_metrics
+
+                    node_result = NodeResult(
+                        result=agent_response,  # type is AgentResult
+                        execution_time=round((time.time() - start_time) * 1000),
+                        status=Status.COMPLETED,
+                        accumulated_usage=usage,
+                        accumulated_metrics=metrics,
+                        execution_count=1,
+                    )
+                else:
+                    raise ValueError(f"Node '{node.node_id}' of type '{type(node.executor)}' is not supported")
+
+            except asyncio.TimeoutError:
+                timeout_msg = f"Node '{node.node_id}' execution timed out after {self.node_timeout}s"
+                logger.exception(
+                    "node=<%s>, timeout=<%s>s | node execution timed out after timeout",
+                    node.node_id,
+                    self.node_timeout,
                 )
-
-            elif isinstance(node.executor, Agent):
-                agent_response = await node.executor.invoke_async(node_input)
-
-                # Extract metrics from agent response
-                usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
-                metrics = Metrics(latencyMs=0)
-                if hasattr(agent_response, "metrics") and agent_response.metrics:
-                    if hasattr(agent_response.metrics, "accumulated_usage"):
-                        usage = agent_response.metrics.accumulated_usage
-                    if hasattr(agent_response.metrics, "accumulated_metrics"):
-                        metrics = agent_response.metrics.accumulated_metrics
-
-                node_result = NodeResult(
-                    result=agent_response,  # type is AgentResult
-                    execution_time=round((time.time() - start_time) * 1000),
-                    status=Status.COMPLETED,
-                    accumulated_usage=usage,
-                    accumulated_metrics=metrics,
-                    execution_count=1,
-                )
-            else:
-                raise ValueError(f"Node '{node.node_id}' of type '{type(node.executor)}' is not supported")
+                raise Exception(timeout_msg) from None
 
             # Mark as completed
             node.execution_status = Status.COMPLETED
