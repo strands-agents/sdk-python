@@ -364,6 +364,8 @@ class GraphBuilder:
             # Check for cycles from each unvisited node
             if any(colors[node_id] == WHITE and has_cycle_from(node_id) for node_id in self.nodes):
                 raise ValueError("Graph contains cycles - use allow_cycles() to enable cyclic graphs")
+        elif self._max_node_executions is None and self._execution_timeout is None:
+            logger.warning("Cyclic graphs without limits may run indefinitely")
 
 
 class Graph(MultiAgentBase):
