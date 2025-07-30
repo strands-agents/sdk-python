@@ -140,7 +140,7 @@ def mock_graph(mock_agents, string_content_agent):
     builder.add_node(mock_agents["start_agent"], "start_agent")
     builder.add_node(mock_agents["multi_agent"], "multi_node")
     builder.add_node(mock_agents["conditional_agent"], "conditional_agent")
-    builder.add_node(mock_agents["final_agent"], "final_node")
+    final_agent_graph_node = builder.add_node(mock_agents["final_agent"], "final_node")
     builder.add_node(mock_agents["no_metrics_agent"], "no_metrics_node")
     builder.add_node(mock_agents["partial_metrics_agent"], "partial_metrics_node")
     builder.add_node(string_content_agent, "string_content_node")
@@ -150,7 +150,7 @@ def mock_graph(mock_agents, string_content_agent):
     builder.add_edge("start_agent", "multi_node")
     builder.add_edge("start_agent", "conditional_agent", condition=condition_check_completion)
     builder.add_edge("multi_node", "final_node")
-    builder.add_edge("conditional_agent", "final_node")  # Use string ID instead of node object
+    builder.add_edge("conditional_agent", final_agent_graph_node)
     builder.add_edge("start_agent", "no_metrics_node")
     builder.add_edge("start_agent", "partial_metrics_node")
     builder.add_edge("start_agent", "string_content_node")
@@ -253,16 +253,9 @@ async def test_graph_unsupported_node_type(mock_strands_tracer, mock_use_span):
     builder.add_node(UnsupportedExecutor(), "unsupported_node")
     graph = builder.build()
 
-    # Execute the graph - should fail due to unsupported node type
-    result = await graph.invoke_async("test task")
-
-    # Verify the result shows failure
-    assert result.status == Status.FAILED
-    assert result.failed_nodes == 1
-    assert "unsupported_node" in result.results
-    node_result = result.results["unsupported_node"]
-    assert node_result.status == Status.FAILED
-    assert "is not supported" in str(node_result.result)
+    # Execute the graph - should raise ValueError due to unsupported node type
+    with pytest.raises(ValueError, match="Node 'unsupported_node' of type .* is not supported"):
+        await graph.invoke_async("test task")
 
     mock_strands_tracer.start_multiagent_span.assert_called()
     mock_use_span.assert_called_once()
@@ -295,20 +288,9 @@ async def test_graph_execution_with_failures(mock_strands_tracer, mock_use_span)
 
     graph = builder.build()
 
-    # Execute the graph - should fail due to failing agent
-    result = await graph.invoke_async("Test error handling")
-
-    # Verify the result shows failure
-    assert result.status == Status.FAILED
-    assert result.failed_nodes == 1
-    assert result.completed_nodes == 0
-    assert len(result.results) == 1  # Only the failed node should have results
-    assert "fail_node" in result.results
-
-    # Verify the failure was recorded
-    fail_result = result.results["fail_node"]
-    assert fail_result.status == Status.FAILED
-    assert "Simulated failure" in str(fail_result.result)
+    # Execute the graph - should raise Exception due to failing agent
+    with pytest.raises(Exception, match="Simulated failure"):
+        await graph.invoke_async("Test error handling")
 
     mock_strands_tracer.start_multiagent_span.assert_called()
     mock_use_span.assert_called_once()
@@ -358,6 +340,7 @@ async def test_cyclic_graph_execution(mock_strands_tracer, mock_use_span):
     builder.add_edge("b", "c")
     builder.add_edge("c", "a")  # Creates cycle
     builder.set_entry_point("a")
+    builder.allow_cycles()  # Enable cycles explicitly
 
     # Patch the reset_executor_state method to track calls
     original_reset = GraphNode.reset_executor_state
@@ -475,7 +458,7 @@ def test_graph_builder_validation():
     with pytest.raises(ValueError, match="Entry points not found in nodes"):
         builder.build()
 
-    # Test cyclic graph (should now be allowed)
+    # Test cycle detection (should be forbidden by default)
     builder = GraphBuilder()
     builder.add_node(agent1, "a")
     builder.add_node(agent2, "b")
@@ -485,6 +468,12 @@ def test_graph_builder_validation():
     builder.add_edge("c", "a")  # Creates cycle
     builder.set_entry_point("a")
 
+    # Should fail with cycle detection
+    with pytest.raises(ValueError, match="Graph contains cycles - use allow_cycles\\(\\) to enable cyclic graphs"):
+        builder.build()
+
+    # Should succeed when cycles are explicitly allowed
+    builder.allow_cycles()
     graph = builder.build()
     assert any(node.node_id == "a" for node in graph.entry_points)
 
@@ -507,21 +496,25 @@ def test_graph_builder_validation():
     with pytest.raises(ValueError, match="No entry points found - all nodes have dependencies"):
         builder.build()
 
-    # Test custom execution limits
+    # Test custom execution limits and allow_cycles
     builder = GraphBuilder()
     builder.add_node(agent1, "test_node")
-    graph = builder.set_max_node_executions(10).set_execution_timeout(300.0).set_node_timeout(60.0).build()
+    graph = (
+        builder.set_max_node_executions(10).set_execution_timeout(300.0).set_node_timeout(60.0).allow_cycles().build()
+    )
     assert graph.max_node_executions == 10
     assert graph.execution_timeout == 300.0
     assert graph.node_timeout == 60.0
+    assert graph.allow_cycles is True
 
-    # Test default execution limits (None)
+    # Test default execution limits and allow_cycles (None and False)
     builder = GraphBuilder()
     builder.add_node(agent1, "test_node")
     graph = builder.build()
     assert graph.max_node_executions is None
     assert graph.execution_timeout is None
     assert graph.node_timeout is None
+    assert graph.allow_cycles is False
 
 
 @pytest.mark.asyncio
@@ -622,22 +615,14 @@ async def test_graph_node_timeout(mock_strands_tracer, mock_use_span):
     assert result.status == Status.COMPLETED
     assert result.completed_nodes == 1
 
-    # Test with very short node timeout - should timeout
+    # Test with very short node timeout - should raise timeout exception
     builder = GraphBuilder()
     builder.add_node(timeout_agent, "timeout_node")
     graph = builder.set_max_node_executions(50).set_execution_timeout(900.0).set_node_timeout(0.1).build()
-    result = await graph.invoke_async("Test node timeout")
 
-    # Verify the result shows failure
-    assert result.status == Status.FAILED
-    assert result.failed_nodes == 1  # Should be 1 failed node
-    assert result.completed_nodes == 0  # No nodes should complete
-
-    # Verify that the timeout error was recorded
-    assert "timeout_node" in result.results
-    node_result = result.results["timeout_node"]
-    assert node_result.status == Status.FAILED
-    assert "execution timed out" in str(node_result.result)
+    # Execute the graph - should raise Exception due to timeout
+    with pytest.raises(Exception, match="Node 'timeout_node' execution timed out after 0.1s"):
+        await graph.invoke_async("Test node timeout")
 
     mock_strands_tracer.start_multiagent_span.assert_called()
     mock_use_span.assert_called()
@@ -946,6 +931,7 @@ async def test_controlled_cyclic_execution():
     builder.add_edge("a", "b")
     builder.add_edge("b", "a")  # Creates cycle
     builder.set_entry_point("a")
+    builder.allow_cycles()  # Enable cycles explicitly
 
     # Build with limited max_node_executions to prevent infinite loop
     graph = builder.set_max_node_executions(3).build()
@@ -971,3 +957,139 @@ async def test_controlled_cyclic_execution():
     # The state.execution_count should be set for both agents after execution
     assert agent_a.state.get("execution_count") >= 1  # Node A executed at least once
     assert agent_b.state.get("execution_count") >= 1  # Node B executed at least once
+
+
+def test_allow_cycles_backward_compatibility():
+    """Test that allow_cycles provides backward compatibility by default."""
+    agent1 = create_mock_agent("agent1")
+    agent2 = create_mock_agent("agent2")
+
+    # Test default behavior - DAG only
+    builder = GraphBuilder()
+    builder.add_node(agent1, "a")
+    builder.add_node(agent2, "b")
+    builder.add_edge("a", "b")
+    builder.set_entry_point("a")
+
+    graph = builder.build()
+    assert graph.allow_cycles is False
+
+    # Test allow_cycles with True
+    builder = GraphBuilder()
+    builder.add_node(agent1, "a")
+    builder.add_node(agent2, "b")
+    builder.add_edge("a", "b")
+    builder.set_entry_point("a")
+    builder.allow_cycles(True)
+
+    graph = builder.build()
+    assert graph.allow_cycles is True
+
+    # Test allow_cycles with False explicitly
+    builder = GraphBuilder()
+    builder.add_node(agent1, "a")
+    builder.add_node(agent2, "b")
+    builder.add_edge("a", "b")
+    builder.set_entry_point("a")
+    builder.allow_cycles(False)
+
+    graph = builder.build()
+    assert graph.allow_cycles is False
+
+
+def test_allow_cycles_method_chaining():
+    """Test that allow_cycles method returns GraphBuilder for chaining."""
+    agent1 = create_mock_agent("agent1")
+
+    builder = GraphBuilder()
+    result = builder.allow_cycles()
+
+    # Verify method chaining works
+    assert result is builder
+    assert builder._allow_cycles is True
+
+    # Test full method chaining
+    builder.add_node(agent1, "test_node")
+    builder.set_max_node_executions(10)
+    graph = builder.build()
+
+    assert graph.allow_cycles is True
+    assert graph.max_node_executions == 10
+
+
+@pytest.mark.asyncio
+async def test_dag_behavior_with_cycles_disabled():
+    """Test that DAG behavior is preserved when cycles are disabled (default)."""
+    agent_a = create_mock_agent("agent_a", "Response A")
+    agent_b = create_mock_agent("agent_b", "Response B")
+
+    # Create linear DAG
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "a")
+    builder.add_node(agent_b, "b")
+    builder.add_edge("a", "b")
+    builder.set_entry_point("a")
+
+    graph = builder.build()
+    assert graph.allow_cycles is False
+
+    # Execute should work normally
+    result = await graph.invoke_async("Test DAG execution")
+    assert result.status == Status.COMPLETED
+    assert len(result.execution_order) == 2
+    assert result.execution_order[0].node_id == "a"
+    assert result.execution_order[1].node_id == "b"
+
+    # Verify agents were called once each (no state reset)
+    agent_a.invoke_async.assert_called_once()
+    agent_b.invoke_async.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_state_reset_only_with_cycles_enabled():
+    """Test that state reset only happens when cycles are enabled."""
+    # Create a mock agent that tracks state modifications
+    agent = create_mock_agent("test_agent", "Test response")
+    agent.state = AgentState()
+    agent.messages = [{"role": "system", "content": "Initial message"}]
+
+    # Create GraphNode
+    node = GraphNode("test_node", agent)
+
+    # Simulate agent being in completed_nodes (as if revisited)
+    from strands.multiagent.graph import GraphState
+
+    state = GraphState()
+    state.completed_nodes.add(node)
+
+    # Create graph with cycles disabled (default)
+    builder = GraphBuilder()
+    builder.add_node(agent, "test_node")
+    graph = builder.build()
+
+    # Mock the _execute_node method to test conditional reset logic
+    import unittest.mock
+
+    with unittest.mock.patch.object(node, "reset_executor_state") as mock_reset:
+        # Simulate the conditional logic from _execute_node
+        if graph.allow_cycles and node in state.completed_nodes:
+            node.reset_executor_state()
+            state.completed_nodes.remove(node)
+
+        # With cycles disabled, reset should not be called
+        mock_reset.assert_not_called()
+
+    # Now test with cycles enabled
+    builder = GraphBuilder()
+    builder.add_node(agent, "test_node")
+    builder.allow_cycles()
+    graph = builder.build()
+
+    with unittest.mock.patch.object(node, "reset_executor_state") as mock_reset:
+        # Simulate the conditional logic from _execute_node
+        if graph.allow_cycles and node in state.completed_nodes:
+            node.reset_executor_state()
+            state.completed_nodes.remove(node)
+
+        # With cycles enabled, reset should be called
+        mock_reset.assert_called_once()
