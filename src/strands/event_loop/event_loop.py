@@ -226,7 +226,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
                 (
                     "Agent has reached an unrecoverable state due to max_tokens limit. "
                     "For more information see: "
-                    "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
+                    "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#eventloopmaxtokensreachedexception"
                 )
             )
 

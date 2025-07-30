@@ -18,7 +18,7 @@ class EventLoopException(Exception):
         super().__init__(str(original_exception))
 
 
-class EventLoopMaxTokensReachedException(EventLoopException):
+class EventLoopMaxTokensReachedException(Exception):
     """Exception raised when the model reaches its maximum token generation limit.
 
     This exception is raised when the model stops generating tokens because it has reached the maximum number of
