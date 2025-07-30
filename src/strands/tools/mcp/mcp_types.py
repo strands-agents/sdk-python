@@ -1,11 +1,15 @@
 """Type definitions for MCP integration."""
 
 from contextlib import AbstractAsyncContextManager
+from typing import Any, Dict
 
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.client.streamable_http import GetSessionIdCallback
 from mcp.shared.memory import MessageStream
 from mcp.shared.message import SessionMessage
+from typing_extensions import NotRequired
+
+from strands.types.tools import ToolResult
 
 """
 MCPTransport defines the interface for MCP transport implementations. This abstracts
@@ -41,3 +45,19 @@ _MessageStreamWithGetSessionIdCallback = tuple[
     MemoryObjectReceiveStream[SessionMessage | Exception], MemoryObjectSendStream[SessionMessage], GetSessionIdCallback
 ]
 MCPTransport = AbstractAsyncContextManager[MessageStream | _MessageStreamWithGetSessionIdCallback]
+
+
+class MCPToolResult(ToolResult):
+    """Result of an MCP tool execution.
+
+    Extends the base ToolResult with MCP-specific structured content support.
+    The structuredContent field contains optional JSON data returned by MCP tools
+    that provides structured results beyond the standard text/image/document content.
+
+    Attributes:
+        structuredContent: Optional JSON object containing structured data returned
+            by the MCP tool. This allows MCP tools to return complex data structures
+            that can be processed programmatically by agents or other tools.
+    """
+
+    structuredContent: NotRequired[Dict[str, Any]]
