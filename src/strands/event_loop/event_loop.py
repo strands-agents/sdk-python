@@ -28,7 +28,12 @@ from ..telemetry.metrics import Trace
 from ..telemetry.tracer import get_tracer
 from ..tools.executor import run_tools, validate_and_prepare_tools
 from ..types.content import Message
-from ..types.exceptions import ContextWindowOverflowException, EventLoopException, ModelThrottledException
+from ..types.exceptions import (
+    ContextWindowOverflowException,
+    EventLoopException,
+    EventLoopMaxTokensReachedException,
+    ModelThrottledException,
+)
 from ..types.streaming import Metrics, StopReason
 from ..types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolGenerator, ToolResult, ToolUse
 from .streaming import stream_messages
@@ -216,6 +221,14 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
                 yield event
 
             return
+        elif stop_reason == "max_tokens":
+            raise EventLoopMaxTokensReachedException(
+                (
+                    "Agent has reached an unrecoverable state due to max_tokens limit. "
+                    "For more information see: "
+                    "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
+                )
+            )
 
         # End the cycle and return results
         agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace, attributes)
