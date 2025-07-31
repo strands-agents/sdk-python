@@ -16,3 +16,5 @@ def test_context_window_overflow():
 
     with pytest.raises(MaxTokensReachedException):
         agent("Tell me a story!")
+    
+    assert len(agent.messages) == 1
