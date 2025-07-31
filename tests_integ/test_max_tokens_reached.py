@@ -11,7 +11,7 @@ def story_tool(story: str) -> str:
 
 
 def test_context_window_overflow():
-    model = BedrockModel(max_tokens=1)
+    model = BedrockModel(max_tokens=100)
     agent = Agent(model=model, tools=[story_tool])
 
     with pytest.raises(MaxTokensReachedException):
