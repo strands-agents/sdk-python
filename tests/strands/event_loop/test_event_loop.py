@@ -22,6 +22,7 @@ from strands.tools.registry import ToolRegistry
 from strands.types.exceptions import (
     ContextWindowOverflowException,
     EventLoopException,
+    MaxTokensReachedException,
     ModelThrottledException,
 )
 from tests.fixtures.mock_hook_provider import MockHookProvider
@@ -567,7 +568,7 @@ async def test_event_loop_cycle_max_tokens_exception(
     agenerator,
     alist,
 ):
-    """Test that max_tokens stop reason raises EventLoopMaxTokensReachedException."""
+    """Test that max_tokens stop reason raises MaxTokensReachedException."""
 
     # Note the empty toolUse to handle case raised in https://github.com/strands-agents/sdk-python/issues/495
     model.stream.return_value = agenerator(
@@ -584,8 +585,8 @@ async def test_event_loop_cycle_max_tokens_exception(
         ]
     )
 
-    # Call event_loop_cycle, expecting it to raise EventLoopMaxTokensReachedException
-    with pytest.raises(EventLoopException) as exc_info:
+    # Call event_loop_cycle, expecting it to raise MaxTokensReachedException
+    with pytest.raises(MaxTokensReachedException) as exc_info:
         stream = strands.event_loop.event_loop.event_loop_cycle(
             agent=agent,
             invocation_state={},
@@ -596,9 +597,13 @@ async def test_event_loop_cycle_max_tokens_exception(
     expected_message = (
         "Agent has reached an unrecoverable state due to max_tokens limit. "
         "For more information see: "
-        "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#eventloopmaxtokensreachedexception"
+        "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
     )
     assert str(exc_info.value) == expected_message
+
+    # Verify that the message has not been appended to the messages array
+    assert len(agent.messages) == 1
+    assert exc_info.value.incomplete_message not in agent.messages
 
 
 @patch("strands.event_loop.event_loop.get_tracer")
