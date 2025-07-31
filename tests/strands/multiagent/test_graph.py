@@ -1,3 +1,4 @@
+import re
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -378,8 +379,25 @@ def test_graph_builder_validation():
     builder.add_edge("c", "a")  # Creates cycle
     builder.set_entry_point("a")
 
-    with pytest.raises(ValueError, match="Graph contains cycles"):
+    with pytest.raises(
+        ValueError,
+        match=re.escape(
+            "Graph contains unconditional cycles — it must either be a Directed Acyclic Graph (DAG) "
+            "or contain at least one conditional edge within each cycle."
+        ),
+    ):
         builder.build()
+
+    # Test cycle detection with back edge condition
+    builder = GraphBuilder()
+    builder.add_node(agent1, "a")
+    builder.add_node(agent2, "b")
+    builder.add_node(create_mock_agent("agent3"), "c")
+    builder.add_edge("a", "b")
+    builder.add_edge("b", "c")
+    builder.add_edge("c", "a", condition=lambda _: True)  # Creates cycle
+    builder.set_entry_point("a")
+    builder.build()
 
     # Test auto-detection of entry points
     builder = GraphBuilder()
