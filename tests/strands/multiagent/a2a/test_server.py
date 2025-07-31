@@ -87,8 +87,8 @@ def test_public_agent_card(mock_strands_agent):
     assert card.description == "A test agent for unit testing"
     assert card.url == "http://0.0.0.0:9000/"
     assert card.version == "0.0.1"
-    assert card.defaultInputModes == ["text"]
-    assert card.defaultOutputModes == ["text"]
+    assert card.default_input_modes == ["text"]
+    assert card.default_output_modes == ["text"]
     assert card.skills == []
     assert card.capabilities == a2a_agent.capabilities
 
