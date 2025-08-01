@@ -1,20 +1,21 @@
-"""Directed Acyclic Graph (DAG) Multi-Agent Pattern Implementation.
+"""Directed Graph Multi-Agent Pattern Implementation.
 
-This module provides a deterministic DAG-based agent orchestration system where
+This module provides a deterministic graph-based agent orchestration system where
 agents or MultiAgentBase instances (like Swarm or Graph) are nodes in a graph,
 executed according to edge dependencies, with output from one node passed as input
 to connected nodes.
 
 Key Features:
 - Agents and MultiAgentBase instances (Swarm, Graph, etc.) as graph nodes
-- Deterministic execution order based on DAG structure
+- Deterministic execution based on dependency resolution
 - Output propagation along edges
-- Topological sort for execution ordering
+- Support for cyclic graphs (feedback loops)
 - Clear dependency management
 - Supports nested graphs (Graph as a node in another Graph)
 """
 
 import asyncio
+import copy
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -24,8 +25,9 @@ from typing import Any, Callable, Tuple
 from opentelemetry import trace as trace_api
 
 from ..agent import Agent
+from ..agent.state import AgentState
 from ..telemetry import get_tracer
-from ..types.content import ContentBlock
+from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
@@ -54,6 +56,7 @@ class GraphState:
     completed_nodes: set["GraphNode"] = field(default_factory=set)
     failed_nodes: set["GraphNode"] = field(default_factory=set)
     execution_order: list["GraphNode"] = field(default_factory=list)
+    start_time: float = field(default_factory=time.time)
 
     # Results
     results: dict[str, NodeResult] = field(default_factory=dict)
@@ -68,6 +71,27 @@ class GraphState:
     total_nodes: int = 0
     edges: list[Tuple["GraphNode", "GraphNode"]] = field(default_factory=list)
     entry_points: list["GraphNode"] = field(default_factory=list)
+
+    def should_continue(
+        self,
+        max_node_executions: int | None,
+        execution_timeout: float | None,
+    ) -> Tuple[bool, str]:
+        """Check if the graph should continue execution.
+
+        Returns: (should_continue, reason)
+        """
+        # Check node execution limit (only if set)
+        if max_node_executions is not None and len(self.execution_order) >= max_node_executions:
+            return False, f"Max node executions reached: {max_node_executions}"
+
+        # Check timeout (only if set)
+        if execution_timeout is not None:
+            elapsed = time.time() - self.start_time
+            if elapsed > execution_timeout:
+                return False, f"Execution timed out: {execution_timeout}s"
+
+        return True, "Continuing"
 
 
 @dataclass
@@ -117,6 +141,33 @@ class GraphNode:
     execution_status: Status = Status.PENDING
     result: NodeResult | None = None
     execution_time: int = 0
+    _initial_messages: Messages = field(default_factory=list, init=False)
+    _initial_state: AgentState = field(default_factory=AgentState, init=False)
+
+    def __post_init__(self) -> None:
+        """Capture initial executor state after initialization."""
+        # Deep copy the initial messages and state to preserve them
+        if hasattr(self.executor, "messages"):
+            self._initial_messages = copy.deepcopy(self.executor.messages)
+
+        if hasattr(self.executor, "state") and hasattr(self.executor.state, "get"):
+            self._initial_state = AgentState(self.executor.state.get())
+
+    def reset_executor_state(self) -> None:
+        """Reset GraphNode executor state to initial state when graph was created.
+
+        This is particularly useful for cyclic graphs where nodes may be executed
+        multiple times and need to start fresh on each cycle.
+        """
+        if hasattr(self.executor, "messages"):
+            self.executor.messages = copy.deepcopy(self._initial_messages)
+
+        if hasattr(self.executor, "state"):
+            self.executor.state = AgentState(self._initial_state.get())
+
+        # Reset execution status
+        self.execution_status = Status.PENDING
+        self.result = None
 
     def __hash__(self) -> int:
         """Return hash for GraphNode based on node_id."""
@@ -163,6 +214,12 @@ class GraphBuilder:
         self.nodes: dict[str, GraphNode] = {}
         self.edges: set[GraphEdge] = set()
         self.entry_points: set[GraphNode] = set()
+
+        # Configuration options
+        self._max_node_executions: int | None = None
+        self._execution_timeout: float | None = None
+        self._node_timeout: float | None = None
+        self._allow_cycles: bool = False
 
     def add_node(self, executor: Agent | MultiAgentBase, node_id: str | None = None) -> GraphNode:
         """Add an Agent or MultiAgentBase instance as a node to the graph."""
@@ -213,8 +270,44 @@ class GraphBuilder:
         self.entry_points.add(self.nodes[node_id])
         return self
 
+    def allow_cycles(self, enabled: bool = True) -> "GraphBuilder":
+        """Enable cyclic graph execution with automatic state reset on node revisit.
+
+        Args:
+            enabled: Whether to allow cycles in the graph (default: True)
+        """
+        self._allow_cycles = enabled
+        return self
+
+    def set_max_node_executions(self, max_executions: int) -> "GraphBuilder":
+        """Set maximum number of node executions allowed.
+
+        Args:
+            max_executions: Maximum total node executions (None for no limit)
+        """
+        self._max_node_executions = max_executions
+        return self
+
+    def set_execution_timeout(self, timeout: float) -> "GraphBuilder":
+        """Set total execution timeout.
+
+        Args:
+            timeout: Total execution timeout in seconds (None for no limit)
+        """
+        self._execution_timeout = timeout
+        return self
+
+    def set_node_timeout(self, timeout: float) -> "GraphBuilder":
+        """Set individual node execution timeout.
+
+        Args:
+            timeout: Individual node timeout in seconds (None for no limit)
+        """
+        self._node_timeout = timeout
+        return self
+
     def build(self) -> "Graph":
-        """Build and validate the graph."""
+        """Build and validate the graph with configured settings."""
         if not self.nodes:
             raise ValueError("Graph must contain at least one node")
 
@@ -230,44 +323,75 @@ class GraphBuilder:
         # Validate entry points and check for cycles
         self._validate_graph()
 
-        return Graph(nodes=self.nodes.copy(), edges=self.edges.copy(), entry_points=self.entry_points.copy())
+        return Graph(
+            nodes=self.nodes.copy(),
+            edges=self.edges.copy(),
+            entry_points=self.entry_points.copy(),
+            max_node_executions=self._max_node_executions,
+            execution_timeout=self._execution_timeout,
+            node_timeout=self._node_timeout,
+            allow_cycles=self._allow_cycles,
+        )
 
     def _validate_graph(self) -> None:
-        """Validate graph structure and detect cycles."""
+        """Validate graph structure and conditionally check for cycles."""
         # Validate entry points exist
         entry_point_ids = {node.node_id for node in self.entry_points}
         invalid_entries = entry_point_ids - set(self.nodes.keys())
         if invalid_entries:
             raise ValueError(f"Entry points not found in nodes: {invalid_entries}")
 
-        # Check for cycles using DFS with color coding
-        WHITE, GRAY, BLACK = 0, 1, 2
-        colors = {node_id: WHITE for node_id in self.nodes}
+        # Check for cycles only if not explicitly allowed
+        if not self._allow_cycles:
+            # Check for cycles using DFS with color coding
+            WHITE, GRAY, BLACK = 0, 1, 2
+            colors = {node_id: WHITE for node_id in self.nodes}
 
-        def has_cycle_from(node_id: str) -> bool:
-            if colors[node_id] == GRAY:
-                return True  # Back edge found - cycle detected
-            if colors[node_id] == BLACK:
+            def has_cycle_from(node_id: str) -> bool:
+                if colors[node_id] == GRAY:
+                    return True  # Back edge found - cycle detected
+                if colors[node_id] == BLACK:
+                    return False
+
+                colors[node_id] = GRAY
+                # Check all outgoing edges for cycles
+                for edge in self.edges:
+                    if edge.from_node.node_id == node_id and has_cycle_from(edge.to_node.node_id):
+                        return True
+                colors[node_id] = BLACK
                 return False
 
-            colors[node_id] = GRAY
-            # Check all outgoing edges for cycles
-            for edge in self.edges:
-                if edge.from_node.node_id == node_id and has_cycle_from(edge.to_node.node_id):
-                    return True
-            colors[node_id] = BLACK
-            return False
-
-        # Check for cycles from each unvisited node
-        if any(colors[node_id] == WHITE and has_cycle_from(node_id) for node_id in self.nodes):
-            raise ValueError("Graph contains cycles - must be a directed acyclic graph")
+            # Check for cycles from each unvisited node
+            if any(colors[node_id] == WHITE and has_cycle_from(node_id) for node_id in self.nodes):
+                raise ValueError("Graph contains cycles - use allow_cycles() to enable cyclic graphs")
+        elif self._max_node_executions is None and self._execution_timeout is None:
+            logger.warning("Cyclic graphs without limits may run indefinitely")
 
 
 class Graph(MultiAgentBase):
-    """Directed Acyclic Graph multi-agent orchestration."""
+    """Directed Graph multi-agent orchestration with optional cycle support."""
 
-    def __init__(self, nodes: dict[str, GraphNode], edges: set[GraphEdge], entry_points: set[GraphNode]) -> None:
-        """Initialize Graph."""
+    def __init__(
+        self,
+        nodes: dict[str, GraphNode],
+        edges: set[GraphEdge],
+        entry_points: set[GraphNode],
+        max_node_executions: Optional[int] = None,
+        execution_timeout: Optional[float] = None,
+        node_timeout: Optional[float] = None,
+        allow_cycles: bool = False,
+    ) -> None:
+        """Initialize Graph with execution limits.
+
+        Args:
+            nodes: Dictionary of node_id to GraphNode
+            edges: Set of GraphEdge objects
+            entry_points: Set of GraphNode objects that are entry points
+            max_node_executions: Maximum total node executions (default: None - no limit)
+            execution_timeout: Total execution timeout in seconds (default: None - no limit)
+            node_timeout: Individual node timeout in seconds (default: None - no limit)
+            allow_cycles: Whether to allow cycles in the graph (default: False)
+        """
         super().__init__()
 
         # Validate nodes for duplicate instances
@@ -276,6 +400,10 @@ class Graph(MultiAgentBase):
         self.nodes = nodes
         self.edges = edges
         self.entry_points = entry_points
+        self.max_node_executions = max_node_executions
+        self.execution_timeout = execution_timeout
+        self.node_timeout = node_timeout
+        self.allow_cycles = allow_cycles
         self.state = GraphState()
         self.tracer = get_tracer()
 
@@ -294,20 +422,34 @@ class Graph(MultiAgentBase):
         logger.debug("task=<%s> | starting graph execution", task)
 
         # Initialize state
+        start_time = time.time()
         self.state = GraphState(
             status=Status.EXECUTING,
             task=task,
             total_nodes=len(self.nodes),
             edges=[(edge.from_node, edge.to_node) for edge in self.edges],
             entry_points=list(self.entry_points),
+            start_time=start_time,
         )
 
-        start_time = time.time()
         span = self.tracer.start_multiagent_span(task, "graph")
         with trace_api.use_span(span, end_on_exit=True):
             try:
+                logger.debug(
+                    "max_node_executions=<%s>, execution_timeout=<%s>s, node_timeout=<%s>s | graph execution config",
+                    self.max_node_executions or "None",
+                    self.execution_timeout or "None",
+                    self.node_timeout or "None",
+                )
+
                 await self._execute_graph()
-                self.state.status = Status.COMPLETED
+
+                # Set final status based on execution results
+                if self.state.failed_nodes:
+                    self.state.status = Status.FAILED
+                elif self.state.status == Status.EXECUTING:  # Only set to COMPLETED if still executing and no failures
+                    self.state.status = Status.COMPLETED
+
                 logger.debug("status=<%s> | graph execution completed", self.state.status)
 
             except Exception:
@@ -335,6 +477,16 @@ class Graph(MultiAgentBase):
         ready_nodes = list(self.entry_points)
 
         while ready_nodes:
+            # Check execution limits before continuing
+            should_continue, reason = self.state.should_continue(
+                max_node_executions=self.max_node_executions,
+                execution_timeout=self.execution_timeout,
+            )
+            if not should_continue:
+                self.state.status = Status.FAILED
+                logger.debug("reason=<%s> | stopping execution", reason)
+                return  # Let the top-level exception handler deal with it
+
             current_batch = ready_nodes.copy()
             ready_nodes.clear()
 
@@ -386,7 +538,14 @@ class Graph(MultiAgentBase):
         return False
 
     async def _execute_node(self, node: GraphNode) -> None:
-        """Execute a single node with error handling."""
+        """Execute a single node with error handling and timeout protection."""
+        # Reset the node's state if cycles are allowed and it's being revisited
+        if self.allow_cycles and node in self.state.completed_nodes:
+            logger.debug("node_id=<%s> | resetting node state for cyclic execution", node.node_id)
+            node.reset_executor_state()
+            # Remove from completed nodes since we're re-executing it
+            self.state.completed_nodes.remove(node)
+
         node.execution_status = Status.EXECUTING
         logger.debug("node_id=<%s> | executing node", node.node_id)
 
@@ -395,42 +554,65 @@ class Graph(MultiAgentBase):
             # Build node input from satisfied dependencies
             node_input = self._build_node_input(node)
 
-            # Execute based on node type and create unified NodeResult
-            if isinstance(node.executor, MultiAgentBase):
-                multi_agent_result = await node.executor.invoke_async(node_input)
+            # Execute with timeout protection (only if node_timeout is set)
+            try:
+                # Execute based on node type and create unified NodeResult
+                if isinstance(node.executor, MultiAgentBase):
+                    if self.node_timeout is not None:
+                        multi_agent_result = await asyncio.wait_for(
+                            node.executor.invoke_async(node_input),
+                            timeout=self.node_timeout,
+                        )
+                    else:
+                        multi_agent_result = await node.executor.invoke_async(node_input)
 
-                # Create NodeResult with MultiAgentResult directly
-                node_result = NodeResult(
-                    result=multi_agent_result,  # type is MultiAgentResult
-                    execution_time=multi_agent_result.execution_time,
-                    status=Status.COMPLETED,
-                    accumulated_usage=multi_agent_result.accumulated_usage,
-                    accumulated_metrics=multi_agent_result.accumulated_metrics,
-                    execution_count=multi_agent_result.execution_count,
+                    # Create NodeResult with MultiAgentResult directly
+                    node_result = NodeResult(
+                        result=multi_agent_result,  # type is MultiAgentResult
+                        execution_time=multi_agent_result.execution_time,
+                        status=Status.COMPLETED,
+                        accumulated_usage=multi_agent_result.accumulated_usage,
+                        accumulated_metrics=multi_agent_result.accumulated_metrics,
+                        execution_count=multi_agent_result.execution_count,
+                    )
+
+                elif isinstance(node.executor, Agent):
+                    if self.node_timeout is not None:
+                        agent_response = await asyncio.wait_for(
+                            node.executor.invoke_async(node_input),
+                            timeout=self.node_timeout,
+                        )
+                    else:
+                        agent_response = await node.executor.invoke_async(node_input)
+
+                    # Extract metrics from agent response
+                    usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
+                    metrics = Metrics(latencyMs=0)
+                    if hasattr(agent_response, "metrics") and agent_response.metrics:
+                        if hasattr(agent_response.metrics, "accumulated_usage"):
+                            usage = agent_response.metrics.accumulated_usage
+                        if hasattr(agent_response.metrics, "accumulated_metrics"):
+                            metrics = agent_response.metrics.accumulated_metrics
+
+                    node_result = NodeResult(
+                        result=agent_response,  # type is AgentResult
+                        execution_time=round((time.time() - start_time) * 1000),
+                        status=Status.COMPLETED,
+                        accumulated_usage=usage,
+                        accumulated_metrics=metrics,
+                        execution_count=1,
+                    )
+                else:
+                    raise ValueError(f"Node '{node.node_id}' of type '{type(node.executor)}' is not supported")
+
+            except asyncio.TimeoutError:
+                timeout_msg = f"Node '{node.node_id}' execution timed out after {self.node_timeout}s"
+                logger.exception(
+                    "node=<%s>, timeout=<%s>s | node execution timed out after timeout",
+                    node.node_id,
+                    self.node_timeout,
                 )
-
-            elif isinstance(node.executor, Agent):
-                agent_response = await node.executor.invoke_async(node_input)
-
-                # Extract metrics from agent response
-                usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
-                metrics = Metrics(latencyMs=0)
-                if hasattr(agent_response, "metrics") and agent_response.metrics:
-                    if hasattr(agent_response.metrics, "accumulated_usage"):
-                        usage = agent_response.metrics.accumulated_usage
-                    if hasattr(agent_response.metrics, "accumulated_metrics"):
-                        metrics = agent_response.metrics.accumulated_metrics
-
-                node_result = NodeResult(
-                    result=agent_response,  # type is AgentResult
-                    execution_time=round((time.time() - start_time) * 1000),
-                    status=Status.COMPLETED,
-                    accumulated_usage=usage,
-                    accumulated_metrics=metrics,
-                    execution_count=1,
-                )
-            else:
-                raise ValueError(f"Node '{node.node_id}' of type '{type(node.executor)}' is not supported")
+                raise Exception(timeout_msg) from None
 
             # Mark as completed
             node.execution_status = Status.COMPLETED
