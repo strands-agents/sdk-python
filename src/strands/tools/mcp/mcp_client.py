@@ -29,6 +29,7 @@ from ...types.exceptions import MCPClientInitializationError
 from ...types.media import ImageFormat
 from ...types.tools import ToolResultContent, ToolResultStatus
 from .mcp_agent_tool import MCPAgentTool
+from .mcp_instrumentation import mcp_instrumentation
 from .mcp_types import MCPToolResult, MCPTransport
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,7 @@ class MCPClient:
         Args:
             transport_callable: A callable that returns an MCPTransport (read_stream, write_stream) tuple
         """
+        mcp_instrumentation()
         self._session_id = uuid.uuid4()
         self._log_debug_with_thread("initializing MCPClient connection")
         self._init_future: futures.Future[None] = futures.Future()  # Main thread blocks until future completes
