@@ -376,9 +376,9 @@ class Graph(MultiAgentBase):
         nodes: dict[str, GraphNode],
         edges: set[GraphEdge],
         entry_points: set[GraphNode],
-        max_node_executions: int | None = None,
-        execution_timeout: float | None = None,
-        node_timeout: float | None = None,
+        max_node_executions: Optional[int] = None,
+        execution_timeout: Optional[float] = None,
+        node_timeout: Optional[float] = None,
         allow_cycles: bool = False,
     ) -> None:
         """Initialize Graph with execution limits.
