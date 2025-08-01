@@ -143,3 +143,36 @@ def test_agent_state_update_from_tool():
 
     assert agent.state.get("hello") == "world"
     assert agent.state.get("foo") == "baz"
+
+
+def test_agent_state_update_from_tool_using_keyword_param():
+    @tool
+    def update_state(**kwargs):
+        agent = kwargs.get("agent")
+        assert agent is not None
+        assert agent.state.get("foo") == "bar"
+        agent.state.set("hello", "world")
+        agent.state.set("foo", "baz")
+
+    agent_messages: Messages = [
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"name": "update_state", "toolUseId": "123", "input": {}}}],
+        },
+        {"role": "assistant", "content": [{"text": "I invoked a tool!"}]},
+    ]
+    mocked_model_provider = MockedModelProvider(agent_messages)
+
+    agent = Agent(
+        model=mocked_model_provider,
+        tools=[update_state],
+        state={"foo": "bar"},
+    )
+
+    assert agent.state.get("hello") is None
+    assert agent.state.get("foo") == "bar"
+
+    agent("Invoke Mocked!")
+
+    assert agent.state.get("hello") == "world"
+    assert agent.state.get("foo") == "baz"
