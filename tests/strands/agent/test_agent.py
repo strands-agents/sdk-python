@@ -1300,12 +1300,12 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
+        messages=[{"content": [{"text": "test prompt"}], "role": "user"}],
         agent_name="Strands Agents",
-        custom_trace_attributes=agent.trace_attributes,
-        message={"content": [{"text": "test prompt"}], "role": "user"},
         model_id=unittest.mock.ANY,
-        system_prompt=agent.system_prompt,
         tools=agent.tool_names,
+        system_prompt=agent.system_prompt,
+        custom_trace_attributes=agent.trace_attributes,
     )
 
     # Verify span was ended with the result
@@ -1334,12 +1334,12 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
-        custom_trace_attributes=agent.trace_attributes,
+        messages=[{"content": [{"text": "test prompt"}], "role": "user"}],
         agent_name="Strands Agents",
-        message={"content": [{"text": "test prompt"}], "role": "user"},
         model_id=unittest.mock.ANY,
-        system_prompt=agent.system_prompt,
         tools=agent.tool_names,
+        system_prompt=agent.system_prompt,
+        custom_trace_attributes=agent.trace_attributes,
     )
 
     expected_response = AgentResult(
@@ -1372,12 +1372,12 @@ def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_mod
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
-        custom_trace_attributes=agent.trace_attributes,
+        messages=[{"content": [{"text": "test prompt"}], "role": "user"}],
         agent_name="Strands Agents",
-        message={"content": [{"text": "test prompt"}], "role": "user"},
         model_id=unittest.mock.ANY,
-        system_prompt=agent.system_prompt,
         tools=agent.tool_names,
+        system_prompt=agent.system_prompt,
+        custom_trace_attributes=agent.trace_attributes,
     )
 
     # Verify span was ended with the exception
@@ -1408,12 +1408,12 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
+        messages=[{"content": [{"text": "test prompt"}], "role": "user"}],
         agent_name="Strands Agents",
-        custom_trace_attributes=agent.trace_attributes,
-        message={"content": [{"text": "test prompt"}], "role": "user"},
         model_id=unittest.mock.ANY,
-        system_prompt=agent.system_prompt,
         tools=agent.tool_names,
+        system_prompt=agent.system_prompt,
+        custom_trace_attributes=agent.trace_attributes,
     )
 
     # Verify span was ended with the exception
@@ -1831,3 +1831,61 @@ def test_agent_tool_record_direct_tool_call_disabled_with_non_serializable(agent
 
     # Verify no messages were recorded
     assert len(agent.messages) == 0
+
+
+def test_agent_empty_invoke():
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
+    agent = Agent(model=model, messages=[{"role": "user", "content": [{"text": "hello!"}]}])
+    result = agent()
+    assert str(result) == "hello!\n"
+    assert len(agent.messages) == 2
+
+
+def test_agent_empty_list_invoke():
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
+    agent = Agent(model=model, messages=[{"role": "user", "content": [{"text": "hello!"}]}])
+    result = agent([])
+    assert str(result) == "hello!\n"
+    assert len(agent.messages) == 2
+
+
+def test_agent_with_assistant_role_message():
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "world!"}]}])
+    agent = Agent(model=model)
+    assistant_message = [{"role": "assistant", "content": [{"text": "hello..."}]}]
+    result = agent(assistant_message)
+    assert str(result) == "world!\n"
+    assert len(agent.messages) == 2
+
+
+def test_agent_with_multiple_messages_on_invoke():
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "world!"}]}])
+    agent = Agent(model=model)
+    input_messages = [
+        {"role": "user", "content": [{"text": "hello"}]},
+        {"role": "assistant", "content": [{"text": "..."}]},
+    ]
+    result = agent(input_messages)
+    assert str(result) == "world!\n"
+    assert len(agent.messages) == 3
+
+
+def test_agent_with_invalid_input():
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "world!"}]}])
+    agent = Agent(model=model)
+    with pytest.raises(ValueError, match="Input prompt must be of type: `str | list[Contentblock] | Messages | None`."):
+        agent({"invalid": "input"})
+
+
+def test_agent_with_invalid_input_list():
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "world!"}]}])
+    agent = Agent(model=model)
+    with pytest.raises(ValueError, match="Input prompt must be of type: `str | list[Contentblock] | Messages | None`."):
+        agent([{"invalid": "input"}])
+
+
+def test_agent_with_list_of_message_and_content_block():
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "world!"}]}])
+    agent = Agent(model=model)
+    with pytest.raises(ValueError, match="Input prompt must be of type: `str | list[Contentblock] | Messages | None`."):
+        agent([{"role": "user", "content": [{"text": "hello"}]}, {"text", "hello"}])
