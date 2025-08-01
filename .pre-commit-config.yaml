@@ -1,36 +1,36 @@
 repos:
   - repo: local
     hooks:
-      - id: hatch-format
-        name: Format code
-        entry: hatch fmt --formatter
+      - id: format-check
+        name: Check code formatting
+        entry: uv run poe format-check
         language: system
         pass_filenames: false
         types: [python]
         stages: [pre-commit]
-      - id: hatch-lint
-        name: Lint code
-        entry: hatch run test-lint
+      - id: lint-check
+        name: Check code linting
+        entry: uv run poe lint-check
         language: system
         pass_filenames: false
         types: [python]
         stages: [pre-commit]
-      - id: hatch-test-lint
-        name: Type linting
-        entry: hatch run test-lint
+      - id: typecheck
+        name: Type checking
+        entry: uv run poe typecheck
         language: system
         pass_filenames: false
-        types: [ python ]
-        stages: [ pre-commit ]
-      - id: hatch-test
+        types: [python]
+        stages: [pre-commit]
+      - id: test
         name: Unit tests
-        entry: hatch test
+        entry: uv run poe test
         language: system
         pass_filenames: false
         types: [python]
         stages: [pre-commit]
       - id: commitizen-check
         name: Check commit message
-        entry: hatch run cz check --commit-msg-file
+        entry: uv run cz check --commit-msg-file
         language: system
         stages: [commit-msg]

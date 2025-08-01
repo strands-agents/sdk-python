@@ -130,6 +130,67 @@ You can check:
 - Feature requests in [Feature Requests](../../issues?q=is%3Aissue%20state%3Aopen%20label%3Aenhancement) for new functionality to implement
 
 
+## Dependency Management with uv lock
+
+This project uses `uv lock` to ensure reproducible dependency resolution across all environments. The `uv.lock` file contains exact versions of all dependencies and **must be committed to git**.
+
+### For Developers
+
+**Initial Setup:**
+```bash
+# Install exact dependencies from lock file
+uv sync --dev
+```
+
+**Daily Development:**
+```bash
+# Use locked dependencies for all commands
+uv run poe test
+uv run poe lint
+uv run poe format
+```
+
+**Adding New Dependencies:**
+```bash
+# Add new dependency and update lock file
+uv add "new-package>=1.0.0"
+# The lock file is automatically updated
+git add pyproject.toml uv.lock
+git commit -m "feat: add new-package dependency"
+```
+
+**Updating Dependencies:**
+```bash
+# Update to latest compatible versions
+uv lock
+
+# Or upgrade to latest versions (major updates)
+uv lock --upgrade
+
+# Always commit lock file changes
+git add uv.lock
+git commit -m "chore: update dependencies"
+```
+
+### Why Lock Files Matter
+
+- **Reproducible Builds**: Same exact dependencies across dev, CI, and production
+- **Faster CI**: Pre-resolved dependencies eliminate resolution time
+- **Security**: Pinned versions prevent supply chain attacks
+- **Team Consistency**: Everyone gets identical dependency trees
+
+### Lock File Commands
+
+| Command | Purpose |
+|---------|---------|
+| `uv sync --dev` | Install exact dependencies from lock file |
+| `uv sync` | Install production dependencies only |
+| `uv lock` | Update lock file with latest compatible versions |
+| `uv lock --upgrade` | Upgrade all dependencies to latest versions |
+
+**Important**: Always commit `uv.lock` changes alongside `pyproject.toml` changes!
+
+
 ## Code of Conduct
 This project has adopted the [Amazon Open Source Code of Conduct](https://aws.github.io/code-of-conduct).
 For more information see the [Code of Conduct FAQ](https://aws.github.io/code-of-conduct-faq) or contact
