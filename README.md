@@ -129,6 +129,7 @@ from strands import Agent
 from strands.models import BedrockModel
 from strands.models.ollama import OllamaModel
 from strands.models.llamaapi import LlamaAPIModel
+from strands.models.llamacpp import LlamaCppModel
 
 # Bedrock
 bedrock_model = BedrockModel(
@@ -152,6 +153,14 @@ llama_model = LlamaAPIModel(
     model_id="Llama-4-Maverick-17B-128E-Instruct-FP8",
 )
 agent = Agent(model=llama_model)
+response = agent("Tell me about Agentic AI")
+
+# llama.cpp
+llamacpp_model = LlamaCppModel(
+    base_url="http://localhost:8080",
+    params={"temperature": 0.7, "max_tokens": 100}
+)
+agent = Agent(model=llamacpp_model)
 response = agent("Tell me about Agentic AI")
 ```
 
