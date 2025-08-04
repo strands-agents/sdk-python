@@ -20,6 +20,7 @@ from opentelemetry import trace as trace_api
 from pydantic import BaseModel
 
 from ..event_loop.event_loop import event_loop_cycle, run_tool
+from ..experimental.hooks.events import EventLoopFailureEvent
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
     AfterInvocationEvent,
@@ -582,7 +583,7 @@ class Agent:
             )
             async for event in events:
                 yield event
-
+            return
         except ContextWindowOverflowException as e:
             # Try reducing the context size and retrying
             self.conversation_manager.reduce_context(self, e=e)
@@ -591,6 +592,21 @@ class Agent:
             if self._session_manager:
                 self._session_manager.sync_agent(self)
 
+            # If the events have been handled, attempt to restart the event loop in the now-healthy state
+            events = self._execute_event_loop_cycle(invocation_state)
+            async for event in events:
+                yield event
+        except Exception as e:
+            """
+            Catch all other exceptions which are unrecoverable without intervention.
+            Reraise exception if EventLoopFailureEvent.should_continue is false
+            """
+            event_loop_failure_event = EventLoopFailureEvent(agent=self, exception=e)
+            self.hooks.invoke_callbacks(event_loop_failure_event)
+            if not event_loop_failure_event.should_continue_loop:
+                raise
+
+            # If the events have been handled, attempt to restart the event loop in the now-healthy state
             events = self._execute_event_loop_cycle(invocation_state)
             async for event in events:
                 yield event

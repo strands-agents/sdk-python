@@ -1,15 +1,17 @@
-from unittest.mock import ANY, Mock
+from unittest.mock import ANY, Mock, patch
 
 import pytest
 from pydantic import BaseModel
 
 import strands
+from src.strands.types.exceptions import MaxTokensReachedException
 from strands import Agent
 from strands.experimental.hooks import (
     AfterModelInvocationEvent,
     AfterToolInvocationEvent,
     BeforeModelInvocationEvent,
     BeforeToolInvocationEvent,
+    EventLoopFailureEvent,
 )
 from strands.hooks import (
     AfterInvocationEvent,
@@ -35,6 +37,7 @@ def hook_provider():
             BeforeModelInvocationEvent,
             AfterModelInvocationEvent,
             MessageAddedEvent,
+            EventLoopFailureEvent,
         ]
     )
 
@@ -292,3 +295,53 @@ async def test_agent_structured_async_output_hooks(agent, hook_provider, user, a
     assert next(events) == AfterInvocationEvent(agent=agent)
 
     assert len(agent.messages) == 1
+
+
+def test_event_loop_failure_event_exception_rethrown_when_not_handled(agent, hook_provider):
+    """Test that EventLoopFailureEvent is triggered and exceptions are re-thrown when not handled."""
+
+    # Mock event_loop_cycle to raise a general exception (not ContextWindowOverflowException)
+    with patch("strands.agent.agent.event_loop_cycle") as mock_cycle:
+        mock_cycle.side_effect = MaxTokensReachedException("Event loop failure", {"content": [], "role": "assistant"})
+
+        with pytest.raises(MaxTokensReachedException):
+            agent("test message")
+    length, events = hook_provider.get_events()
+    failure_events = [event for event in list(events) if isinstance(event, EventLoopFailureEvent)]
+
+    assert len(failure_events) == 1
+    assert isinstance(failure_events[0].exception, MaxTokensReachedException)
+    assert failure_events[0].should_continue_loop is False
+
+
+def test_event_loop_failure_event_exception_handled_by_hook(agent, hook_provider):
+    """Test that EventLoopFailureEvent allows hooks to handle exceptions and continue execution."""
+
+    first_call = True
+
+    def hook_callback(event: EventLoopFailureEvent):
+        nonlocal first_call
+        # Hook handles the exception by setting should_continue_loop to True
+        event.should_continue_loop = first_call
+        first_call = False
+
+    agent.hooks.add_callback(EventLoopFailureEvent, hook_callback)
+
+    # Mock event_loop_cycle to raise a general exception
+    with patch("strands.agent.agent.event_loop_cycle") as mock_cycle:
+        mock_cycle.side_effect = MaxTokensReachedException("Event loop failure", {"content": [], "role": "assistant"})
+
+        # Should NOT raise exception due to hook handling on the first failure
+        with pytest.raises(MaxTokensReachedException):
+            agent("test message")
+
+    length, events = hook_provider.get_events()
+    failure_events = [event for event in list(events) if isinstance(event, EventLoopFailureEvent)]
+
+    assert len(failure_events) == 2
+
+    assert isinstance(failure_events[0].exception, MaxTokensReachedException)
+    assert failure_events[0].should_continue_loop is True
+
+    assert isinstance(failure_events[1].exception, MaxTokensReachedException)
+    assert failure_events[1].should_continue_loop is False
