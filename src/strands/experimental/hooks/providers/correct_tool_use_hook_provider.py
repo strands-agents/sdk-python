@@ -1,3 +1,11 @@
+"""Hook provider for correcting incomplete tool uses due to token limits.
+
+This module provides the CorrectToolUseHookProvider class, which handles scenarios where
+the model's response is truncated due to maximum token limits, resulting in incomplete
+or malformed tool use entries. The provider automatically corrects these issues to allow
+the agent conversation to continue gracefully.
+"""
+
 import logging
 from typing import Any
 
@@ -42,24 +50,25 @@ class CorrectToolUseHookProvider(HookProvider):
         logger.info("Handling MaxTokensReachedException - inspecting incomplete message for invalid tool uses")
 
         incomplete_message: Message = event.exception.incomplete_message
-        valid_content: list[ContentBlock] = []
 
-        for i, content in enumerate(incomplete_message["content"]):
+        if not incomplete_message["content"]:
+            # Cannot correct invalid content block if content is empty
+            return
+
+        valid_content: list[ContentBlock] = []
+        for content in incomplete_message["content"]:
             tool_use: ToolUse = content.get("toolUse")
             if not tool_use:
                 valid_content.append(content)
-                logger.debug(f"Content block {i}: Valid non-tool content preserved")
                 continue
 
             """
             Ideally this would be future proofed using a pydantic validator. Since ToolUse is not implemented
             using pydantic, we inspect each field.
             """
-            tool_name = tool_use.get("name", "<unknown>")
-            tool_input = tool_use.get("input")
-            tool_use_id = tool_use.get("toolUseId")
-
-            if not (tool_name and tool_input and tool_use_id):
+            # Check if tool use is incomplete (missing or empty required fields)
+            tool_name = tool_use.get("name")
+            if not (tool_name and tool_use.get("input") and tool_use.get("toolUseId")):
                 """
                 If tool_use does not conform to the expected schema it means the max_tokens issue resulted in it not 
                 being populated it correctly.
@@ -67,29 +76,22 @@ class CorrectToolUseHookProvider(HookProvider):
                 It is safe to drop the content block, but we insert a new one to ensure Agent is aware of failure
                 on the next iteration.
                 """
+                display_name = tool_name if tool_name else "<unknown>"
                 logger.warning(
-                    f"Invalid tool use found at content block {i}: tool_name='{tool_name}', "
-                    f"Replacing with error message due to max_tokens truncation."
+                    "tool_name=<%s> | replacing with error message due to max_tokens truncation.", display_name
                 )
 
                 valid_content.append(
                     {
-                        "text": f"The selected tool {tool_name}'s tool use was incomplete due "
+                        "text": f"The selected tool {display_name}'s tool use was incomplete due "
                         f"to maximum token limits being reached."
                     }
                 )
             else:
-                # Tool use is invalid for an unknown reason. Cannot safely recover, so allow exception to propagate
-                logger.debug(
-                    f"Tool use at content block {i} appears complete but is still invalid. "
-                    f"tool_name='{tool_name}', tool_use_id='{tool_use_id}'. "
-                    f"Cannot safely recover - allowing exception to propagate."
-                )
+                # ToolUse was invalid for an unknown reason. Cannot correct, return and allow exception to propagate up.
                 return
 
         valid_message: Message = {"content": valid_content, "role": incomplete_message["role"]}
         event.agent.messages.append(valid_message)
         event.agent.hooks.invoke_callbacks(MessageAddedEvent(agent=event.agent, message=valid_message))
         event.should_continue_loop = True
-
-        logger.info("MaxTokensReachedException handled successfully - continuing event loop")
