@@ -4,7 +4,6 @@ import pytest
 from pydantic import BaseModel
 
 import strands
-from src.strands.types.exceptions import MaxTokensReachedException
 from strands import Agent
 from strands.experimental.hooks import (
     AfterModelInvocationEvent,
@@ -20,6 +19,7 @@ from strands.hooks import (
     MessageAddedEvent,
 )
 from strands.types.content import Messages
+from strands.types.exceptions import MaxTokensReachedException
 from strands.types.tools import ToolResult, ToolUse
 from tests.fixtures.mock_hook_provider import MockHookProvider
 from tests.fixtures.mocked_model_provider import MockedModelProvider
