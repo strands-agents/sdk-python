@@ -24,6 +24,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
     """S3-based session manager for cloud storage.
 
     Creates the following filesystem structure for the session storage:
+    ```bash
     /<sessions_dir>/
     └── session_<session_id>/
         ├── session.json                # Session metadata
@@ -33,7 +34,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
                 └── messages/
                     ├── message_<id1>.json
                     └── message_<id2>.json
-
+    ```
     """
 
     def __init__(
