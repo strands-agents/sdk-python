@@ -9,12 +9,11 @@ the agent conversation to continue gracefully.
 import logging
 from typing import Any
 
-from src.strands.hooks import MessageAddedEvent
-from src.strands.types.tools import ToolUse
 from strands.experimental.hooks.events import EventLoopFailureEvent
-from strands.hooks import HookProvider, HookRegistry
+from strands.hooks import HookProvider, HookRegistry, MessageAddedEvent
 from strands.types.content import ContentBlock, Message
 from strands.types.exceptions import MaxTokensReachedException
+from strands.types.tools import ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +56,7 @@ class CorrectToolUseHookProvider(HookProvider):
 
         valid_content: list[ContentBlock] = []
         for content in incomplete_message["content"]:
-            tool_use: ToolUse = content.get("toolUse")
+            tool_use: ToolUse | None = content.get("toolUse")
             if not tool_use:
                 valid_content.append(content)
                 continue
