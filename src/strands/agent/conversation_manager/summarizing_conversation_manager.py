@@ -6,8 +6,9 @@ from typing import TYPE_CHECKING, Any, List, Optional
 from typing_extensions import override
 
 from ...types.content import Message
-from ...types.exceptions import ContextWindowOverflowException
+from ...types.exceptions import ContextWindowOverflowException, MaxTokensReachedException
 from .conversation_manager import ConversationManager
+from .token_limit_recovery import recover_from_max_tokens_reached
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -250,3 +251,13 @@ class SummarizingConversationManager(ConversationManager):
             raise ContextWindowOverflowException("Unable to trim conversation context!")
 
         return split_point
+
+    def handle_token_limit_reached(self, agent: "Agent", e: MaxTokensReachedException, **kwargs: Any) -> None:
+        """Apply summarization strategy for token limit recovery.
+
+        Args:
+            agent: The agent whose conversation state will be recovered.
+            e: The MaxTokensReachedException that triggered the recovery.
+            **kwargs: Additional keyword arguments for future extensibility.
+        """
+        recover_from_max_tokens_reached(agent, e)

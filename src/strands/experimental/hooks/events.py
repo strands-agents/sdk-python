@@ -121,29 +121,3 @@ class AfterModelInvocationEvent(HookEvent):
     def should_reverse_callbacks(self) -> bool:
         """True to invoke callbacks in reverse order."""
         return True
-
-
-@dataclass
-class EventLoopFailureEvent(HookEvent):
-    """Event triggered when the event loop encounters a failure.
-
-    This event is fired when an exception occurs during event loop execution,
-    allowing hook providers to handle the failure or perform recovery actions.
-
-    Attributes:
-        exception: The exception that caused the event loop failure.
-        should_continue_loop: Flag that hooks can set to True to indicate they have
-            handled the exception and the event loop should continue normally.
-
-    Warning:
-        Setting should_continue_loop=True without properly addressing the underlying
-        cause of the exception may result in infinite loops if the same failure
-        condition persists. Hooks should implement appropriate error handling,
-        retry limits, or state modifications to prevent recurring failures.
-    """
-
-    exception: Exception
-    should_continue_loop: bool = False
-
-    def _can_write(self, name: str) -> bool:
-        return name == "should_continue_loop"

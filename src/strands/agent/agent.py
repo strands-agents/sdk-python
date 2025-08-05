@@ -20,7 +20,6 @@ from opentelemetry import trace as trace_api
 from pydantic import BaseModel
 
 from ..event_loop.event_loop import event_loop_cycle, run_tool
-from ..experimental.hooks.events import EventLoopFailureEvent
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
     AfterInvocationEvent,
@@ -38,7 +37,7 @@ from ..telemetry.tracer import get_tracer
 from ..tools.registry import ToolRegistry
 from ..tools.watcher import ToolWatcher
 from ..types.content import ContentBlock, Message, Messages
-from ..types.exceptions import ContextWindowOverflowException
+from ..types.exceptions import ContextWindowOverflowException, MaxTokensReachedException
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
@@ -54,11 +53,12 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
-# Sentinel class and object to distinguish between explicit None and default parameter value
+# Sentinel classes to distinguish between explicit None and default parameter value
 class _DefaultCallbackHandlerSentinel:
     """Sentinel class to distinguish between explicit None and default parameter value."""
 
     pass
+
 
 
 _DEFAULT_CALLBACK_HANDLER = _DefaultCallbackHandlerSentinel()
@@ -247,7 +247,7 @@ class Agent:
             state: stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
                 Defaults to an empty AgentState object.
             hooks: hooks to be added to the agent hook registry
-                Defaults to None.
+                Defaults to set of if None.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
         """
@@ -587,29 +587,17 @@ class Agent:
         except ContextWindowOverflowException as e:
             # Try reducing the context size and retrying
             self.conversation_manager.reduce_context(self, e=e)
+        except MaxTokensReachedException as e:
+            # Recover conversation state after token limit exceeded, then continue with next cycle
+            self.conversation_manager.handle_token_limit_reached(self, e=e)
 
-            # Sync agent after reduce_context to keep conversation_manager_state up to date in the session
-            if self._session_manager:
-                self._session_manager.sync_agent(self)
+        # Sync agent after handling exception to keep conversation_manager_state up to date in the session
+        if self._session_manager:
+            self._session_manager.sync_agent(self)
 
-            # If the events have been handled, attempt to restart the event loop in the now-healthy state
-            events = self._execute_event_loop_cycle(invocation_state)
-            async for event in events:
-                yield event
-        except Exception as e:
-            """
-            Catch all other exceptions which are unrecoverable without intervention.
-            Reraise exception if EventLoopFailureEvent.should_continue is false
-            """
-            event_loop_failure_event = EventLoopFailureEvent(agent=self, exception=e)
-            self.hooks.invoke_callbacks(event_loop_failure_event)
-            if not event_loop_failure_event.should_continue_loop:
-                raise
-
-            # If the events have been handled, attempt to restart the event loop in the now-healthy state
-            events = self._execute_event_loop_cycle(invocation_state)
-            async for event in events:
-                yield event
+        events = self._execute_event_loop_cycle(invocation_state)
+        async for event in events:
+            yield event
 
     def _record_tool_execution(
         self,

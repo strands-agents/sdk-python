@@ -7,8 +7,9 @@ if TYPE_CHECKING:
     from ...agent.agent import Agent
 
 from ...types.content import Messages
-from ...types.exceptions import ContextWindowOverflowException
+from ...types.exceptions import ContextWindowOverflowException, MaxTokensReachedException
 from .conversation_manager import ConversationManager
+from .token_limit_recovery import recover_from_max_tokens_reached
 
 logger = logging.getLogger(__name__)
 
@@ -177,3 +178,13 @@ class SlidingWindowConversationManager(ConversationManager):
                 return idx
 
         return None
+
+    def handle_token_limit_reached(self, agent: "Agent", e: MaxTokensReachedException, **kwargs: Any) -> None:
+        """Apply sliding window strategy for token limit recovery.
+
+        Args:
+            agent: The agent whose conversation state will be recovered.
+            e: The MaxTokensReachedException that triggered the recovery.
+            **kwargs: Additional keyword arguments for future extensibility.
+        """
+        recover_from_max_tokens_reached(agent, e)

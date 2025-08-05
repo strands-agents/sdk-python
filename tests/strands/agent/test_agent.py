@@ -19,7 +19,7 @@ from strands.handlers.callback_handler import PrintingCallbackHandler, null_call
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
 from strands.types.content import Messages
-from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
+from strands.types.exceptions import ContextWindowOverflowException, EventLoopException, MaxTokensReachedException
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
 from tests.fixtures.mock_session_repository import MockedSessionRepository
 from tests.fixtures.mocked_model_provider import MockedModelProvider
@@ -544,6 +544,72 @@ def test_agent__call__tool_truncation_doesnt_infinite_loop(mock_model, agent):
     )
 
     with pytest.raises(ContextWindowOverflowException):
+        agent("Test!")
+
+
+def test_agent__call__max_tokens_reached_triggers_conversation_manager_recovery(mock_model, agent, agenerator):
+    """Test that MaxTokensReachedException triggers conversation manager handle_token_limit_reached."""
+    conversation_manager_spy = unittest.mock.Mock(wraps=agent.conversation_manager)
+    agent.conversation_manager = conversation_manager_spy
+
+    incomplete_message = {
+        "role": "assistant",
+        "content": [
+            {"text": "I'll help you with that."},
+            {"toolUse": {"name": "calculator", "input": {}, "toolUseId": ""}},  # Missing toolUseId
+        ]
+    }
+
+    mock_model.mock_stream.side_effect = [
+        MaxTokensReachedException(
+            message="Token limit reached",
+            incomplete_message=incomplete_message
+        ),
+        agenerator(
+            [
+                {"contentBlockStart": {"start": {}}},
+                {"contentBlockDelta": {"delta": {"text": "Recovered response"}}},
+                {"contentBlockStop": {}},
+                {"messageStop": {"stopReason": "end_turn"}},
+            ]
+        ),
+    ]
+
+    result = agent("Test message")
+
+    # Verify handle_token_limit_reached was called
+    assert conversation_manager_spy.handle_token_limit_reached.call_count == 1
+    
+    # Verify the call was made with the correct exception
+    call_args = conversation_manager_spy.handle_token_limit_reached.call_args
+    args, kwargs = call_args
+    assert len(args) >= 2  # Should have at least agent and exception
+    assert isinstance(args[1], MaxTokensReachedException)  # Second argument should be the exception
+    
+    # Verify apply_management was also called
+    assert conversation_manager_spy.apply_management.call_count > 0
+    
+    # Verify the agent continued and produced a result
+    assert result is not None
+
+
+def test_agent__call__max_tokens_reached_with_null_conversation_manager_raises_exception(mock_model, agent):
+    """Test that MaxTokensReachedException with NullConversationManager raises the exception."""
+    agent.conversation_manager = NullConversationManager()
+
+    incomplete_message = {
+        "role": "assistant",
+        "content": [
+            {"toolUse": {"name": "calculator", "input": {}, "toolUseId": ""}},  # Missing toolUseId
+        ]
+    }
+
+    mock_model.mock_stream.side_effect = MaxTokensReachedException(
+        message="Token limit reached",
+        incomplete_message=incomplete_message
+    )
+
+    with pytest.raises(MaxTokensReachedException):
         agent("Test!")
 
 

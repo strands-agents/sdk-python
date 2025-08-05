@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, Optional
 if TYPE_CHECKING:
     from ...agent.agent import Agent
 
-from ...types.exceptions import ContextWindowOverflowException
+from ...types.exceptions import ContextWindowOverflowException, MaxTokensReachedException
 from .conversation_manager import ConversationManager
 
 
@@ -44,3 +44,16 @@ class NullConversationManager(ConversationManager):
             raise e
         else:
             raise ContextWindowOverflowException("Context window overflowed!")
+
+    def handle_token_limit_reached(self, agent: "Agent", e: MaxTokensReachedException, **kwargs: Any) -> None:
+        """Does not handle token limit recovery and raises the exception.
+
+        Args:
+            agent: The agent whose conversation state will remain unmodified.
+            e: The MaxTokensReachedException that triggered the recovery.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Raises:
+            e: The provided exception.
+        """
+        raise e

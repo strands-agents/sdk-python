@@ -3,7 +3,7 @@ import logging
 import pytest
 
 from strands import Agent, tool
-from strands.experimental.hooks.providers.correct_tool_use_hook_provider import CorrectToolUseHookProvider
+from strands.agent import NullConversationManager
 from strands.models.bedrock import BedrockModel
 from strands.types.exceptions import MaxTokensReachedException
 
@@ -18,9 +18,9 @@ def story_tool(story: str) -> str:
     return story
 
 
-def test_context_window_overflow():
+def test_max_tokens_reached():
     model = BedrockModel(max_tokens=100)
-    agent = Agent(model=model, tools=[story_tool])
+    agent = Agent(model=model, tools=[story_tool], conversation_manager=NullConversationManager())
 
     with pytest.raises(MaxTokensReachedException):
         agent("Tell me a story!")
@@ -31,8 +31,7 @@ def test_context_window_overflow():
 def test_max_tokens_reached_with_hook_provider():
     """Test that MaxTokensReachedException can be handled by a hook provider."""
     model = BedrockModel(max_tokens=100)
-    hook_provider = CorrectToolUseHookProvider()
-    agent = Agent(model=model, tools=[story_tool], hooks=[hook_provider])
+    agent = Agent(model=model, tools=[story_tool])  # Defaults to include SlidingWindowConversationManager
 
     # This should NOT raise an exception because the hook handles it
     agent("Tell me a story!")

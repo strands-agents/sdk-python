@@ -5,7 +5,6 @@ from .events import (
     AfterToolInvocationEvent,
     BeforeModelInvocationEvent,
     BeforeToolInvocationEvent,
-    EventLoopFailureEvent,
 )
 
 __all__ = [
@@ -13,5 +12,4 @@ __all__ = [
     "AfterToolInvocationEvent",
     "BeforeModelInvocationEvent",
     "AfterModelInvocationEvent",
-    "EventLoopFailureEvent",
 ]

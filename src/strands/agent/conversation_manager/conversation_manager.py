@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Optional
 
 from ...types.content import Message
+from ...types.exceptions import MaxTokensReachedException
 
 if TYPE_CHECKING:
     from ...agent.agent import Agent
@@ -83,6 +84,21 @@ class ConversationManager(ABC):
             agent: The agent whose conversation history will be reduced.
                 This list is modified in-place.
             e: The exception that triggered the context reduction, if any.
+            **kwargs: Additional keyword arguments for future extensibility.
+        """
+        pass
+
+    @abstractmethod
+    def handle_token_limit_reached(self, agent: "Agent", e: MaxTokensReachedException, **kwargs: Any) -> None:
+        """Called when MaxTokensReachedException is thrown to recover conversation state.
+
+        This method should implement recovery strategies when the token limit is exceeded and the message array
+        may be in a broken state. It is called outside the event loop to apply default recovery mechanisms.
+
+        Args:
+            agent: The agent whose conversation state will be recovered.
+                This list is modified in-place.
+            e: The MaxTokensReachedException that triggered the recovery.
             **kwargs: Additional keyword arguments for future extensibility.
         """
         pass
