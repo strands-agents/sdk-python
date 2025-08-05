@@ -1,4 +1,5 @@
 import asyncio
+import time
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -340,7 +341,7 @@ async def test_cyclic_graph_execution(mock_strands_tracer, mock_use_span):
     builder.add_edge("b", "c")
     builder.add_edge("c", "a")  # Creates cycle
     builder.set_entry_point("a")
-    builder.allow_cycles()  # Enable cycles explicitly
+    builder.reset_on_revisit()  # Enable state reset on revisit
 
     # Patch the reset_executor_state method to track calls
     original_reset = GraphNode.reset_executor_state
@@ -468,12 +469,7 @@ def test_graph_builder_validation():
     builder.add_edge("c", "a")  # Creates cycle
     builder.set_entry_point("a")
 
-    # Should fail with cycle detection
-    with pytest.raises(ValueError, match="Graph contains cycles - use allow_cycles\\(\\) to enable cyclic graphs"):
-        builder.build()
-
-    # Should succeed when cycles are explicitly allowed
-    builder.allow_cycles()
+    # Should succeed - cycles are now allowed by default
     graph = builder.build()
     assert any(node.node_id == "a" for node in graph.entry_points)
 
@@ -496,25 +492,29 @@ def test_graph_builder_validation():
     with pytest.raises(ValueError, match="No entry points found - all nodes have dependencies"):
         builder.build()
 
-    # Test custom execution limits and allow_cycles
+    # Test custom execution limits and reset_on_revisit
     builder = GraphBuilder()
     builder.add_node(agent1, "test_node")
     graph = (
-        builder.set_max_node_executions(10).set_execution_timeout(300.0).set_node_timeout(60.0).allow_cycles().build()
+        builder.set_max_node_executions(10)
+        .set_execution_timeout(300.0)
+        .set_node_timeout(60.0)
+        .reset_on_revisit()
+        .build()
     )
     assert graph.max_node_executions == 10
     assert graph.execution_timeout == 300.0
     assert graph.node_timeout == 60.0
-    assert graph.allow_cycles is True
+    assert graph.reset_on_revisit is True
 
-    # Test default execution limits and allow_cycles (None and False)
+    # Test default execution limits and reset_on_revisit (None and False)
     builder = GraphBuilder()
     builder.add_node(agent1, "test_node")
     graph = builder.build()
     assert graph.max_node_executions is None
     assert graph.execution_timeout is None
     assert graph.node_timeout is None
-    assert graph.allow_cycles is False
+    assert graph.reset_on_revisit is False
 
 
 @pytest.mark.asyncio
@@ -566,18 +566,30 @@ async def test_graph_execution_limits(mock_strands_tracer, mock_use_span):
     assert result.status == Status.FAILED  # Should fail due to limit
     assert len(result.execution_order) == 2  # Should stop at 2 executions
 
-    # TODO: Fix execution timeout test - the timeout check only happens at loop iteration start,
-    # not during individual node execution. For single-node graphs, this means the timeout
-    # might never be triggered. This is a test design issue, not a refactoring issue.
+    # Test execution timeout by manipulating start time (like Swarm does)
+    timeout_agent_a = create_mock_agent("timeout_agent_a", "Response A")
+    timeout_agent_b = create_mock_agent("timeout_agent_b", "Response B")
 
-    # Test execution timeout
-    # slow_agent = create_mock_agent("slow_agent", "Slow response")
+    # Create a cyclic graph that would run indefinitely
+    builder = GraphBuilder()
+    builder.add_node(timeout_agent_a, "a")
+    builder.add_node(timeout_agent_b, "b")
+    builder.add_edge("a", "b")
+    builder.add_edge("b", "a")  # Creates cycle
+    builder.set_entry_point("a")
 
-    # async def slow_invoke(*args, **kwargs):
-    #     await asyncio.sleep(0.1)  # Delay longer than timeout
-    #     return slow_agent.return_value
+    # Enable reset_on_revisit so the cycle can continue
+    graph = builder.reset_on_revisit(True).set_execution_timeout(5.0).set_max_node_executions(100).build()
 
-    # slow_agent.invoke_async = AsyncMock(side_effect=slow_invoke)
+    # Manipulate the start time to simulate timeout (like Swarm does)
+    result = await graph.invoke_async("Test execution timeout")
+    # Manually set start time to simulate timeout condition
+    graph.state.start_time = time.time() - 10  # Set start time to 10 seconds ago
+
+    # Check the timeout logic directly
+    should_continue, reason = graph.state.should_continue(max_node_executions=100, execution_timeout=5.0)
+    assert should_continue is False
+    assert "Execution timed out" in reason
 
     # builder = GraphBuilder()
     # builder.add_node(slow_agent, "slow")
@@ -931,7 +943,7 @@ async def test_controlled_cyclic_execution():
     builder.add_edge("a", "b")
     builder.add_edge("b", "a")  # Creates cycle
     builder.set_entry_point("a")
-    builder.allow_cycles()  # Enable cycles explicitly
+    builder.reset_on_revisit()  # Enable state reset on revisit
 
     # Build with limited max_node_executions to prevent infinite loop
     graph = builder.set_max_node_executions(3).build()
@@ -959,12 +971,12 @@ async def test_controlled_cyclic_execution():
     assert agent_b.state.get("execution_count") >= 1  # Node B executed at least once
 
 
-def test_allow_cycles_backward_compatibility():
-    """Test that allow_cycles provides backward compatibility by default."""
+def test_reset_on_revisit_backward_compatibility():
+    """Test that reset_on_revisit provides backward compatibility by default."""
     agent1 = create_mock_agent("agent1")
     agent2 = create_mock_agent("agent2")
 
-    # Test default behavior - DAG only
+    # Test default behavior - reset_on_revisit is False by default
     builder = GraphBuilder()
     builder.add_node(agent1, "a")
     builder.add_node(agent2, "b")
@@ -972,58 +984,58 @@ def test_allow_cycles_backward_compatibility():
     builder.set_entry_point("a")
 
     graph = builder.build()
-    assert graph.allow_cycles is False
+    assert graph.reset_on_revisit is False
 
-    # Test allow_cycles with True
+    # Test reset_on_revisit with True
     builder = GraphBuilder()
     builder.add_node(agent1, "a")
     builder.add_node(agent2, "b")
     builder.add_edge("a", "b")
     builder.set_entry_point("a")
-    builder.allow_cycles(True)
+    builder.reset_on_revisit(True)
 
     graph = builder.build()
-    assert graph.allow_cycles is True
+    assert graph.reset_on_revisit is True
 
-    # Test allow_cycles with False explicitly
+    # Test reset_on_revisit with False explicitly
     builder = GraphBuilder()
     builder.add_node(agent1, "a")
     builder.add_node(agent2, "b")
     builder.add_edge("a", "b")
     builder.set_entry_point("a")
-    builder.allow_cycles(False)
+    builder.reset_on_revisit(False)
 
     graph = builder.build()
-    assert graph.allow_cycles is False
+    assert graph.reset_on_revisit is False
 
 
-def test_allow_cycles_method_chaining():
-    """Test that allow_cycles method returns GraphBuilder for chaining."""
+def test_reset_on_revisit_method_chaining():
+    """Test that reset_on_revisit method returns GraphBuilder for chaining."""
     agent1 = create_mock_agent("agent1")
 
     builder = GraphBuilder()
-    result = builder.allow_cycles()
+    result = builder.reset_on_revisit()
 
     # Verify method chaining works
     assert result is builder
-    assert builder._allow_cycles is True
+    assert builder._reset_on_revisit is True
 
     # Test full method chaining
     builder.add_node(agent1, "test_node")
     builder.set_max_node_executions(10)
     graph = builder.build()
 
-    assert graph.allow_cycles is True
+    assert graph.reset_on_revisit is True
     assert graph.max_node_executions == 10
 
 
 @pytest.mark.asyncio
-async def test_dag_behavior_with_cycles_disabled():
-    """Test that DAG behavior is preserved when cycles are disabled (default)."""
+async def test_linear_graph_behavior():
+    """Test that linear graph behavior works correctly."""
     agent_a = create_mock_agent("agent_a", "Response A")
     agent_b = create_mock_agent("agent_b", "Response B")
 
-    # Create linear DAG
+    # Create linear graph
     builder = GraphBuilder()
     builder.add_node(agent_a, "a")
     builder.add_node(agent_b, "b")
@@ -1031,10 +1043,10 @@ async def test_dag_behavior_with_cycles_disabled():
     builder.set_entry_point("a")
 
     graph = builder.build()
-    assert graph.allow_cycles is False
+    assert graph.reset_on_revisit is False
 
     # Execute should work normally
-    result = await graph.invoke_async("Test DAG execution")
+    result = await graph.invoke_async("Test linear execution")
     assert result.status == Status.COMPLETED
     assert len(result.execution_order) == 2
     assert result.execution_order[0].node_id == "a"
@@ -1072,24 +1084,24 @@ async def test_state_reset_only_with_cycles_enabled():
 
     with unittest.mock.patch.object(node, "reset_executor_state") as mock_reset:
         # Simulate the conditional logic from _execute_node
-        if graph.allow_cycles and node in state.completed_nodes:
+        if graph.reset_on_revisit and node in state.completed_nodes:
             node.reset_executor_state()
             state.completed_nodes.remove(node)
 
-        # With cycles disabled, reset should not be called
+        # With reset_on_revisit disabled, reset should not be called
         mock_reset.assert_not_called()
 
-    # Now test with cycles enabled
+    # Now test with reset_on_revisit enabled
     builder = GraphBuilder()
     builder.add_node(agent, "test_node")
-    builder.allow_cycles()
+    builder.reset_on_revisit()
     graph = builder.build()
 
     with unittest.mock.patch.object(node, "reset_executor_state") as mock_reset:
         # Simulate the conditional logic from _execute_node
-        if graph.allow_cycles and node in state.completed_nodes:
+        if graph.reset_on_revisit and node in state.completed_nodes:
             node.reset_executor_state()
             state.completed_nodes.remove(node)
 
-        # With cycles enabled, reset should be called
+        # With reset_on_revisit enabled, reset should be called
         mock_reset.assert_called_once()

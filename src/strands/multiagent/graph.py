@@ -20,7 +20,7 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Callable, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 from opentelemetry import trace as trace_api
 
@@ -74,8 +74,8 @@ class GraphState:
 
     def should_continue(
         self,
-        max_node_executions: int | None,
-        execution_timeout: float | None,
+        max_node_executions: Optional[int],
+        execution_timeout: Optional[float],
     ) -> Tuple[bool, str]:
         """Check if the graph should continue execution.
 
@@ -156,8 +156,8 @@ class GraphNode:
     def reset_executor_state(self) -> None:
         """Reset GraphNode executor state to initial state when graph was created.
 
-        This is particularly useful for cyclic graphs where nodes may be executed
-        multiple times and need to start fresh on each cycle.
+        This is useful when nodes are executed multiple times and need to start
+        fresh on each execution, providing stateless behavior.
         """
         if hasattr(self.executor, "messages"):
             self.executor.messages = copy.deepcopy(self._initial_messages)
@@ -216,10 +216,10 @@ class GraphBuilder:
         self.entry_points: set[GraphNode] = set()
 
         # Configuration options
-        self._max_node_executions: int | None = None
-        self._execution_timeout: float | None = None
-        self._node_timeout: float | None = None
-        self._allow_cycles: bool = False
+        self._max_node_executions: Optional[int] = None
+        self._execution_timeout: Optional[float] = None
+        self._node_timeout: Optional[float] = None
+        self._reset_on_revisit: bool = False
 
     def add_node(self, executor: Agent | MultiAgentBase, node_id: str | None = None) -> GraphNode:
         """Add an Agent or MultiAgentBase instance as a node to the graph."""
@@ -270,13 +270,17 @@ class GraphBuilder:
         self.entry_points.add(self.nodes[node_id])
         return self
 
-    def allow_cycles(self, enabled: bool = True) -> "GraphBuilder":
-        """Enable cyclic graph execution with automatic state reset on node revisit.
+    def reset_on_revisit(self, enabled: bool = True) -> "GraphBuilder":
+        """Control whether nodes reset their state when revisited.
+
+        When enabled, nodes will reset their messages and state to initial values
+        each time they are revisited (re-executed). This is useful for stateless
+        behavior where nodes should start fresh on each revisit.
 
         Args:
-            enabled: Whether to allow cycles in the graph (default: True)
+            enabled: Whether to reset node state when revisited (default: True)
         """
-        self._allow_cycles = enabled
+        self._reset_on_revisit = enabled
         return self
 
     def set_max_node_executions(self, max_executions: int) -> "GraphBuilder":
@@ -330,46 +334,24 @@ class GraphBuilder:
             max_node_executions=self._max_node_executions,
             execution_timeout=self._execution_timeout,
             node_timeout=self._node_timeout,
-            allow_cycles=self._allow_cycles,
+            reset_on_revisit=self._reset_on_revisit,
         )
 
     def _validate_graph(self) -> None:
-        """Validate graph structure and conditionally check for cycles."""
+        """Validate graph structure."""
         # Validate entry points exist
         entry_point_ids = {node.node_id for node in self.entry_points}
         invalid_entries = entry_point_ids - set(self.nodes.keys())
         if invalid_entries:
             raise ValueError(f"Entry points not found in nodes: {invalid_entries}")
 
-        # Check for cycles only if not explicitly allowed
-        if not self._allow_cycles:
-            # Check for cycles using DFS with color coding
-            WHITE, GRAY, BLACK = 0, 1, 2
-            colors = {node_id: WHITE for node_id in self.nodes}
-
-            def has_cycle_from(node_id: str) -> bool:
-                if colors[node_id] == GRAY:
-                    return True  # Back edge found - cycle detected
-                if colors[node_id] == BLACK:
-                    return False
-
-                colors[node_id] = GRAY
-                # Check all outgoing edges for cycles
-                for edge in self.edges:
-                    if edge.from_node.node_id == node_id and has_cycle_from(edge.to_node.node_id):
-                        return True
-                colors[node_id] = BLACK
-                return False
-
-            # Check for cycles from each unvisited node
-            if any(colors[node_id] == WHITE and has_cycle_from(node_id) for node_id in self.nodes):
-                raise ValueError("Graph contains cycles - use allow_cycles() to enable cyclic graphs")
-        elif self._max_node_executions is None and self._execution_timeout is None:
-            logger.warning("Cyclic graphs without limits may run indefinitely")
+        # Warn about potential infinite loops if no execution limits are set
+        if self._max_node_executions is None and self._execution_timeout is None:
+            logger.warning("Graph without execution limits may run indefinitely if cycles exist")
 
 
 class Graph(MultiAgentBase):
-    """Directed Graph multi-agent orchestration with optional cycle support."""
+    """Directed Graph multi-agent orchestration with configurable revisit behavior."""
 
     def __init__(
         self,
@@ -379,9 +361,9 @@ class Graph(MultiAgentBase):
         max_node_executions: Optional[int] = None,
         execution_timeout: Optional[float] = None,
         node_timeout: Optional[float] = None,
-        allow_cycles: bool = False,
+        reset_on_revisit: bool = False,
     ) -> None:
-        """Initialize Graph with execution limits.
+        """Initialize Graph with execution limits and reset behavior.
 
         Args:
             nodes: Dictionary of node_id to GraphNode
@@ -390,7 +372,7 @@ class Graph(MultiAgentBase):
             max_node_executions: Maximum total node executions (default: None - no limit)
             execution_timeout: Total execution timeout in seconds (default: None - no limit)
             node_timeout: Individual node timeout in seconds (default: None - no limit)
-            allow_cycles: Whether to allow cycles in the graph (default: False)
+            reset_on_revisit: Whether to reset node state when revisited (default: False)
         """
         super().__init__()
 
@@ -403,7 +385,7 @@ class Graph(MultiAgentBase):
         self.max_node_executions = max_node_executions
         self.execution_timeout = execution_timeout
         self.node_timeout = node_timeout
-        self.allow_cycles = allow_cycles
+        self.reset_on_revisit = reset_on_revisit
         self.state = GraphState()
         self.tracer = get_tracer()
 
@@ -539,9 +521,9 @@ class Graph(MultiAgentBase):
 
     async def _execute_node(self, node: GraphNode) -> None:
         """Execute a single node with error handling and timeout protection."""
-        # Reset the node's state if cycles are allowed and it's being revisited
-        if self.allow_cycles and node in self.state.completed_nodes:
-            logger.debug("node_id=<%s> | resetting node state for cyclic execution", node.node_id)
+        # Reset the node's state if reset_on_revisit is enabled and it's being revisited
+        if self.reset_on_revisit and node in self.state.completed_nodes:
+            logger.debug("node_id=<%s> | resetting node state for revisit", node.node_id)
             node.reset_executor_state()
             # Remove from completed nodes since we're re-executing it
             self.state.completed_nodes.remove(node)
