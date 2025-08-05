@@ -53,12 +53,11 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 
-# Sentinel classes to distinguish between explicit None and default parameter value
+# Sentinel class and object to distinguish between explicit None and default parameter value
 class _DefaultCallbackHandlerSentinel:
     """Sentinel class to distinguish between explicit None and default parameter value."""
 
     pass
-
 
 
 _DEFAULT_CALLBACK_HANDLER = _DefaultCallbackHandlerSentinel()
@@ -247,7 +246,7 @@ class Agent:
             state: stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
                 Defaults to an empty AgentState object.
             hooks: hooks to be added to the agent hook registry
-                Defaults to set of if None.
+                Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
         """

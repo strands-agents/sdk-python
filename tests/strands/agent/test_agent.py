@@ -557,14 +557,11 @@ def test_agent__call__max_tokens_reached_triggers_conversation_manager_recovery(
         "content": [
             {"text": "I'll help you with that."},
             {"toolUse": {"name": "calculator", "input": {}, "toolUseId": ""}},  # Missing toolUseId
-        ]
+        ],
     }
 
     mock_model.mock_stream.side_effect = [
-        MaxTokensReachedException(
-            message="Token limit reached",
-            incomplete_message=incomplete_message
-        ),
+        MaxTokensReachedException(message="Token limit reached", incomplete_message=incomplete_message),
         agenerator(
             [
                 {"contentBlockStart": {"start": {}}},
@@ -579,16 +576,16 @@ def test_agent__call__max_tokens_reached_triggers_conversation_manager_recovery(
 
     # Verify handle_token_limit_reached was called
     assert conversation_manager_spy.handle_token_limit_reached.call_count == 1
-    
+
     # Verify the call was made with the correct exception
     call_args = conversation_manager_spy.handle_token_limit_reached.call_args
     args, kwargs = call_args
     assert len(args) >= 2  # Should have at least agent and exception
     assert isinstance(args[1], MaxTokensReachedException)  # Second argument should be the exception
-    
+
     # Verify apply_management was also called
     assert conversation_manager_spy.apply_management.call_count > 0
-    
+
     # Verify the agent continued and produced a result
     assert result is not None
 
@@ -601,12 +598,11 @@ def test_agent__call__max_tokens_reached_with_null_conversation_manager_raises_e
         "role": "assistant",
         "content": [
             {"toolUse": {"name": "calculator", "input": {}, "toolUseId": ""}},  # Missing toolUseId
-        ]
+        ],
     }
 
     mock_model.mock_stream.side_effect = MaxTokensReachedException(
-        message="Token limit reached",
-        incomplete_message=incomplete_message
+        message="Token limit reached", incomplete_message=incomplete_message
     )
 
     with pytest.raises(MaxTokensReachedException):

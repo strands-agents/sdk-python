@@ -15,15 +15,15 @@ logger = logging.getLogger(__name__)
 
 def recover_from_max_tokens_reached(agent: "Agent", exception: MaxTokensReachedException) -> None:
     """Handle MaxTokensReachedException by cleaning up orphaned tool uses and adding corrected message.
-    
+
     This function fixes incomplete tool uses that may occur when the model's response is truncated
     due to token limits. It:
-    
+
     1. Inspects each content block in the incomplete message for invalid tool uses
     2. Replaces incomplete tool use blocks with informative text messages
     3. Preserves valid content blocks in the corrected message
     4. Adds the corrected message to the agent's conversation history
-    
+
     Args:
         agent: The agent whose conversation will be updated with the corrected message.
         exception: The MaxTokensReachedException containing the incomplete message.
@@ -48,9 +48,7 @@ def recover_from_max_tokens_reached(agent: "Agent", exception: MaxTokensReachedE
         if not (tool_name and tool_use.get("input") and tool_use.get("toolUseId")):
             # Tool use is incomplete due to max_tokens truncation
             display_name = tool_name if tool_name else "<unknown>"
-            logger.warning(
-                "tool_name=<%s> | replacing with error message due to max_tokens truncation.", display_name
-            )
+            logger.warning("tool_name=<%s> | replacing with error message due to max_tokens truncation.", display_name)
 
             valid_content.append(
                 {
