@@ -61,7 +61,7 @@ import docstring_parser
 from pydantic import BaseModel, Field, create_model
 from typing_extensions import override
 
-from ..types.tools import AgentTool, JSONSchema, ToolGenerator, ToolSpec, ToolUse
+from ..types.tools import AgentTool, JSONSchema, StrandsContext, ToolGenerator, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +113,7 @@ class FunctionToolMetadata:
         This method analyzes the function's signature, type hints, and docstring to create a Pydantic model that can
         validate input data before passing it to the function.
 
-        Special parameters like 'self', 'cls', and 'agent' are excluded from the model.
+        Special parameters that can be automatically injected are excluded from the model.
 
         Returns:
             A Pydantic BaseModel class customized for the function's parameters.
@@ -121,8 +121,8 @@ class FunctionToolMetadata:
         field_definitions: dict[str, Any] = {}
 
         for name, param in self.signature.parameters.items():
-            # Skip special parameters
-            if name in ("self", "cls", "agent"):
+            # Skip parameters that will be automatically injected
+            if self._is_special_parameter(name):
                 continue
 
             # Get parameter type and default
@@ -251,6 +251,47 @@ class FunctionToolMetadata:
             # Re-raise with more detailed error message
             error_msg = str(e)
             raise ValueError(f"Validation failed for input parameters: {error_msg}") from e
+
+    def inject_special_parameters(
+        self, validated_input: dict[str, Any], tool_use: ToolUse, invocation_state: dict[str, Any]
+    ) -> None:
+        """Inject special framework-provided parameters into the validated input.
+
+        This method automatically provides framework-level context to tools that request it
+        through their function signature.
+
+        Args:
+            validated_input: The validated input parameters (modified in place).
+            tool_use: The tool use request containing tool invocation details.
+            invocation_state: Context for the tool invocation, including agent state.
+        """
+        # Inject StrandsContext if requested
+        if "strands_context" in self.signature.parameters:
+            strands_context: StrandsContext = {
+                "tool_use": tool_use,
+                "invocation_state": invocation_state,
+            }
+            validated_input["strands_context"] = strands_context
+
+        # Inject agent if requested (backward compatibility)
+        if "agent" in self.signature.parameters and "agent" in invocation_state:
+            validated_input["agent"] = invocation_state["agent"]
+
+    def _is_special_parameter(self, param_name: str) -> bool:
+        """Check if a parameter should be automatically injected by the framework.
+
+        Special parameters include:
+        - Standard Python parameters: self, cls
+        - Framework-provided context parameters: agent, strands_context
+
+        Args:
+            param_name: The name of the parameter to check.
+
+        Returns:
+            True if the parameter should be excluded from input validation and
+            automatically injected during tool execution.
+        """
+        return param_name in {"self", "cls", "agent", "strands_context"}
 
 
 P = ParamSpec("P")  # Captures all parameters
@@ -402,9 +443,8 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             # Validate input against the Pydantic model
             validated_input = self._metadata.validate_input(tool_input)
 
-            # Pass along the agent if provided and expected by the function
-            if "agent" in invocation_state and "agent" in self._metadata.signature.parameters:
-                validated_input["agent"] = invocation_state.get("agent")
+            # Inject special framework-provided parameters
+            self._metadata.inject_special_parameters(validated_input, tool_use, invocation_state)
 
             # "Too few arguments" expected, hence the type ignore
             if inspect.iscoroutinefunction(self._tool_func):
