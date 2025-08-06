@@ -39,7 +39,6 @@ async def recover_tool_use_on_max_tokens_reached(agent: "Agent", exception: MaxT
         raise exception
 
     valid_content: list[ContentBlock] = []
-    has_corrected_content = False
     for content in incomplete_message["content"]:
         tool_use: ToolUse | None = content.get("toolUse")
         if not tool_use:
