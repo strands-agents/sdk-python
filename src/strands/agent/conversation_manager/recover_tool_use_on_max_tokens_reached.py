@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def recover_tool_use_on_max_tokens_reached(agent: "Agent", exception: MaxTokensReachedException) -> None:
+async def recover_tool_use_on_max_tokens_reached(agent: "Agent", exception: MaxTokensReachedException) -> None:
     """Handle MaxTokensReachedException by cleaning up orphaned tool uses and adding corrected message.
 
     This function fixes incomplete tool uses that may occur when the model's response is truncated
@@ -35,7 +35,7 @@ def recover_tool_use_on_max_tokens_reached(agent: "Agent", exception: MaxTokensR
 
     if not incomplete_message["content"]:
         # Cannot correct invalid content block if content is empty
-        return
+        raise exception
 
     valid_content: list[ContentBlock] = []
     for content in incomplete_message["content"]:
@@ -59,7 +59,7 @@ def recover_tool_use_on_max_tokens_reached(agent: "Agent", exception: MaxTokensR
             )
         else:
             # ToolUse was invalid for an unknown reason. Cannot correct, return without modifying
-            return
+            raise exception
 
     valid_message: Message = {"content": valid_content, "role": incomplete_message["role"]}
     agent.messages.append(valid_message)

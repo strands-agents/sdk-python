@@ -88,7 +88,7 @@ class ConversationManager(ABC):
         """
         pass
 
-    def handle_token_limit_reached(self, agent: "Agent", e: MaxTokensReachedException, **kwargs: Any) -> None:
+    async def handle_token_limit_reached(self, agent: "Agent", e: MaxTokensReachedException, **kwargs: Any) -> None:
         """Called when MaxTokensReachedException is thrown to recover conversation state.
 
         This method should implement recovery strategies when the token limit is exceeded and the message array

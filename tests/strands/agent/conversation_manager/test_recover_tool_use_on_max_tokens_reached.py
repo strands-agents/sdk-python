@@ -2,6 +2,8 @@
 
 from unittest.mock import Mock
 
+import pytest
+
 from strands.agent.agent import Agent
 from strands.agent.conversation_manager.recover_tool_use_on_max_tokens_reached import (
     recover_tool_use_on_max_tokens_reached,
@@ -11,7 +13,8 @@ from strands.types.content import Message
 from strands.types.exceptions import MaxTokensReachedException
 
 
-def test_recover_tool_use_on_max_tokens_reached_with_incomplete_tool_use():
+@pytest.mark.asyncio
+async def test_recover_tool_use_on_max_tokens_reached_with_incomplete_tool_use():
     """Test recovery when incomplete tool use is present in the message."""
     agent = Agent()
     # Mock the hooks.invoke_callbacks method
@@ -29,7 +32,7 @@ def test_recover_tool_use_on_max_tokens_reached_with_incomplete_tool_use():
 
     exception = MaxTokensReachedException(message="Token limit reached", incomplete_message=incomplete_message)
 
-    recover_tool_use_on_max_tokens_reached(agent, exception)
+    await recover_tool_use_on_max_tokens_reached(agent, exception)
 
     # Should add one corrected message
     assert len(agent.messages) == initial_message_count + 1
@@ -55,7 +58,8 @@ def test_recover_tool_use_on_max_tokens_reached_with_incomplete_tool_use():
     assert call_args.message == corrected_message
 
 
-def test_recover_tool_use_on_max_tokens_reached_with_unknown_tool_name():
+@pytest.mark.asyncio
+async def test_recover_tool_use_on_max_tokens_reached_with_unknown_tool_name():
     """Test recovery when tool use has no name."""
     agent = Agent()
     # Mock the hooks.invoke_callbacks method
@@ -72,7 +76,7 @@ def test_recover_tool_use_on_max_tokens_reached_with_unknown_tool_name():
 
     exception = MaxTokensReachedException(message="Token limit reached", incomplete_message=incomplete_message)
 
-    recover_tool_use_on_max_tokens_reached(agent, exception)
+    await recover_tool_use_on_max_tokens_reached(agent, exception)
 
     # Should add one corrected message
     assert len(agent.messages) == initial_message_count + 1
@@ -95,8 +99,9 @@ def test_recover_tool_use_on_max_tokens_reached_with_unknown_tool_name():
     assert call_args.message == corrected_message
 
 
-def test_recover_tool_use_on_max_tokens_reached_with_valid_tool_use():
-    """Test that valid tool uses are not modified and function returns early."""
+@pytest.mark.asyncio
+async def test_recover_tool_use_on_max_tokens_reached_with_valid_tool_use():
+    """Test that an exception that is raised without recoverability, re-raises exception."""
     agent = Agent()
     # Mock the hooks.invoke_callbacks method
     mock_invoke_callbacks = Mock()
@@ -113,7 +118,8 @@ def test_recover_tool_use_on_max_tokens_reached_with_valid_tool_use():
 
     exception = MaxTokensReachedException(message="Token limit reached", incomplete_message=incomplete_message)
 
-    recover_tool_use_on_max_tokens_reached(agent, exception)
+    with pytest.raises(MaxTokensReachedException):
+        await recover_tool_use_on_max_tokens_reached(agent, exception)
 
     # Should not add any message since tool use was valid
     assert len(agent.messages) == initial_message_count
@@ -122,8 +128,9 @@ def test_recover_tool_use_on_max_tokens_reached_with_valid_tool_use():
     mock_invoke_callbacks.assert_not_called()
 
 
-def test_recover_tool_use_on_max_tokens_reached_with_empty_content():
-    """Test that empty content is handled gracefully."""
+@pytest.mark.asyncio
+async def test_recover_tool_use_on_max_tokens_reached_with_empty_content():
+    """Test that an exception that is raised without recoverability, re-raises exception."""
     agent = Agent()
     # Mock the hooks.invoke_callbacks method
     mock_invoke_callbacks = Mock()
@@ -134,7 +141,8 @@ def test_recover_tool_use_on_max_tokens_reached_with_empty_content():
 
     exception = MaxTokensReachedException(message="Token limit reached", incomplete_message=incomplete_message)
 
-    recover_tool_use_on_max_tokens_reached(agent, exception)
+    with pytest.raises(MaxTokensReachedException):
+        await recover_tool_use_on_max_tokens_reached(agent, exception)
 
     # Should not add any message since content is empty
     assert len(agent.messages) == initial_message_count
@@ -143,7 +151,8 @@ def test_recover_tool_use_on_max_tokens_reached_with_empty_content():
     mock_invoke_callbacks.assert_not_called()
 
 
-def test_recover_tool_use_on_max_tokens_reached_with_mixed_content():
+@pytest.mark.asyncio
+async def test_recover_tool_use_on_max_tokens_reached_with_mixed_content():
     """Test recovery with mix of valid content and incomplete tool use."""
     agent = Agent()
     # Mock the hooks.invoke_callbacks method
@@ -162,7 +171,7 @@ def test_recover_tool_use_on_max_tokens_reached_with_mixed_content():
 
     exception = MaxTokensReachedException(message="Token limit reached", incomplete_message=incomplete_message)
 
-    recover_tool_use_on_max_tokens_reached(agent, exception)
+    await recover_tool_use_on_max_tokens_reached(agent, exception)
 
     # Should add one corrected message
     assert len(agent.messages) == initial_message_count + 1
@@ -189,7 +198,8 @@ def test_recover_tool_use_on_max_tokens_reached_with_mixed_content():
     assert call_args.message == corrected_message
 
 
-def test_recover_tool_use_on_max_tokens_reached_preserves_non_tool_content():
+@pytest.mark.asyncio
+async def test_recover_tool_use_on_max_tokens_reached_preserves_non_tool_content():
     """Test that non-tool content is preserved as-is."""
     agent = Agent()
     # Mock the hooks.invoke_callbacks method
@@ -208,7 +218,7 @@ def test_recover_tool_use_on_max_tokens_reached_preserves_non_tool_content():
 
     exception = MaxTokensReachedException(message="Token limit reached", incomplete_message=incomplete_message)
 
-    recover_tool_use_on_max_tokens_reached(agent, exception)
+    await recover_tool_use_on_max_tokens_reached(agent, exception)
 
     # Should add one corrected message
     assert len(agent.messages) == initial_message_count + 1

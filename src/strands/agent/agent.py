@@ -588,7 +588,7 @@ class Agent:
             self.conversation_manager.reduce_context(agent=self, e=e)
         except MaxTokensReachedException as e:
             # Recover conversation state after token limit exceeded, then continue with next cycle
-            self.conversation_manager.handle_token_limit_reached(agent=self, e=e)
+            await self.conversation_manager.handle_token_limit_reached(agent=self, e=e)
 
         # Sync agent after handling exception to keep conversation_manager_state up to date in the session
         if self._session_manager:

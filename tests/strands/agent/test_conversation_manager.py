@@ -208,7 +208,8 @@ def test_sliding_window_conversation_manager_with_tool_results_truncated():
     assert messages == expected_messages
 
 
-def test_sliding_window_conversation_manager_handle_token_limit_reached():
+@pytest.mark.asyncio
+async def test_sliding_window_conversation_manager_handle_token_limit_reached():
     """Test that SlidingWindowConversationManager handles token limit recovery."""
     manager = SlidingWindowConversationManager()
     test_agent = Agent()
@@ -224,7 +225,7 @@ def test_sliding_window_conversation_manager_handle_token_limit_reached():
 
     test_exception = MaxTokensReachedException(message="Token limit reached", incomplete_message=incomplete_message)
 
-    manager.handle_token_limit_reached(test_agent, test_exception)
+    await manager.handle_token_limit_reached(test_agent, test_exception)
 
     # Should add one corrected message
     assert len(test_agent.messages) == initial_message_count + 1
@@ -287,7 +288,8 @@ def test_null_conversation_does_not_restore_with_incorrect_state():
         manager.restore_from_session({})
 
 
-def test_summarizing_conversation_manager_handle_token_limit_reached():
+@pytest.mark.asyncio
+async def test_summarizing_conversation_manager_handle_token_limit_reached():
     """Test that SummarizingConversationManager handles token limit recovery."""
     from strands.agent.conversation_manager.summarizing_conversation_manager import SummarizingConversationManager
 
@@ -304,7 +306,7 @@ def test_summarizing_conversation_manager_handle_token_limit_reached():
 
     test_exception = MaxTokensReachedException(message="Token limit reached", incomplete_message=incomplete_message)
 
-    manager.handle_token_limit_reached(test_agent, test_exception)
+    await manager.handle_token_limit_reached(test_agent, test_exception)
 
     # Should add one corrected message
     assert len(test_agent.messages) == initial_message_count + 1
@@ -320,7 +322,8 @@ def test_summarizing_conversation_manager_handle_token_limit_reached():
     assert "incomplete due to maximum token limits" in corrected_message["content"][0]["text"]
 
 
-def test_null_conversation_manager_handle_token_limit_reached_raises_exception():
+@pytest.mark.asyncio
+async def test_null_conversation_manager_handle_token_limit_reached_raises_exception():
     """Test that NullConversationManager raises the provided exception."""
     manager = NullConversationManager()
     test_agent = Agent()
@@ -331,4 +334,4 @@ def test_null_conversation_manager_handle_token_limit_reached_raises_exception()
     test_exception = MaxTokensReachedException(message="test", incomplete_message=test_message)
 
     with pytest.raises(MaxTokensReachedException):
-        manager.handle_token_limit_reached(test_agent, test_exception)
+        await manager.handle_token_limit_reached(test_agent, test_exception)

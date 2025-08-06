@@ -113,6 +113,16 @@ class SlidingWindowConversationManager(ConversationManager):
         # Overwrite message history
         messages[:] = messages[trim_index:]
 
+    async def handle_token_limit_reached(self, agent: "Agent", e: MaxTokensReachedException, **kwargs: Any) -> None:
+        """Apply sliding window strategy for token limit recovery.
+
+        Args:
+            agent: The agent whose conversation state will be recovered.
+            e: The MaxTokensReachedException that triggered the recovery.
+            **kwargs: Additional keyword arguments for future extensibility.
+        """
+        await recover_tool_use_on_max_tokens_reached(agent, e)
+
     def _truncate_tool_results(self, messages: Messages, msg_idx: int) -> bool:
         """Truncate tool results in a message to reduce context size.
 
@@ -178,13 +188,3 @@ class SlidingWindowConversationManager(ConversationManager):
                 return idx
 
         return None
-
-    def handle_token_limit_reached(self, agent: "Agent", e: MaxTokensReachedException, **kwargs: Any) -> None:
-        """Apply sliding window strategy for token limit recovery.
-
-        Args:
-            agent: The agent whose conversation state will be recovered.
-            e: The MaxTokensReachedException that triggered the recovery.
-            **kwargs: Additional keyword arguments for future extensibility.
-        """
-        recover_tool_use_on_max_tokens_reached(agent, e)
