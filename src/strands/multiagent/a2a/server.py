@@ -31,7 +31,7 @@ class A2AServer:
         agent: SAAgent,
         *,
         # AgentCard
-        host: str = "0.0.0.0",
+        host: str = "127.0.0.1",
         port: int = 9000,
         http_url: str | None = None,
         serve_at_root: bool = False,
@@ -42,13 +42,12 @@ class A2AServer:
         queue_manager: QueueManager | None = None,
         push_config_store: PushNotificationConfigStore | None = None,
         push_sender: PushNotificationSender | None = None,
-
     ):
         """Initialize an A2A-compatible server from a Strands agent.
 
         Args:
             agent: The Strands Agent to wrap with A2A compatibility.
-            host: The hostname or IP address to bind the A2A server to. Defaults to "0.0.0.0".
+            host: The hostname or IP address to bind the A2A server to. Defaults to "127.0.0.1".
             port: The port to bind the A2A server to. Defaults to 9000.
             http_url: The public HTTP URL where this agent will be accessible. If provided,
                 this overrides the generated URL from host/port and enables automatic
