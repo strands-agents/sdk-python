@@ -128,8 +128,15 @@ async def test_recover_tool_use_on_max_tokens_reached_with_valid_tool_use():
     mock_invoke_callbacks.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "content,description",
+    [
+        ([], "empty content"),
+        ([{"text": "Just some text with no tools to edit."}], "text-only content"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_recover_tool_use_on_max_tokens_reached_with_empty_content():
+async def test_recover_tool_use_on_max_tokens_reached_with_empty_content(content, description):
     """Test that an exception that is raised without recoverability, re-raises exception."""
     agent = Agent()
     # Mock the hooks.invoke_callbacks method
@@ -137,14 +144,14 @@ async def test_recover_tool_use_on_max_tokens_reached_with_empty_content():
     agent.hooks.invoke_callbacks = mock_invoke_callbacks
     initial_message_count = len(agent.messages)
 
-    incomplete_message: Message = {"role": "assistant", "content": []}
+    incomplete_message: Message = {"role": "assistant", "content": content}
 
     exception = MaxTokensReachedException(message="Token limit reached", incomplete_message=incomplete_message)
 
     with pytest.raises(MaxTokensReachedException):
         await recover_tool_use_on_max_tokens_reached(agent, exception)
 
-    # Should not add any message since content is empty
+    # Should not add any message since there's nothing to recover
     assert len(agent.messages) == initial_message_count
 
     # Verify that the MessageAddedEvent callback was NOT invoked
