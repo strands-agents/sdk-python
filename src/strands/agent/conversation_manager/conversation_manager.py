@@ -88,12 +88,11 @@ class ConversationManager(ABC):
         """
         pass
 
-    @abstractmethod
     def handle_token_limit_reached(self, agent: "Agent", e: MaxTokensReachedException, **kwargs: Any) -> None:
         """Called when MaxTokensReachedException is thrown to recover conversation state.
 
         This method should implement recovery strategies when the token limit is exceeded and the message array
-        may be in a broken state. It is called outside the event loop to apply default recovery mechanisms.
+        may be in a broken state.
 
         Args:
             agent: The agent whose conversation state will be recovered.
@@ -101,4 +100,4 @@ class ConversationManager(ABC):
             e: The MaxTokensReachedException that triggered the recovery.
             **kwargs: Additional keyword arguments for future extensibility.
         """
-        pass
+        raise e

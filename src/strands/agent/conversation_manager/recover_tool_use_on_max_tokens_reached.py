@@ -3,6 +3,7 @@
 import logging
 from typing import TYPE_CHECKING
 
+from ...hooks import MessageAddedEvent
 from ...types.content import ContentBlock, Message
 from ...types.exceptions import MaxTokensReachedException
 from ...types.tools import ToolUse
@@ -13,7 +14,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def recover_from_max_tokens_reached(agent: "Agent", exception: MaxTokensReachedException) -> None:
+def recover_tool_use_on_max_tokens_reached(agent: "Agent", exception: MaxTokensReachedException) -> None:
     """Handle MaxTokensReachedException by cleaning up orphaned tool uses and adding corrected message.
 
     This function fixes incomplete tool uses that may occur when the model's response is truncated
@@ -28,7 +29,7 @@ def recover_from_max_tokens_reached(agent: "Agent", exception: MaxTokensReachedE
         agent: The agent whose conversation will be updated with the corrected message.
         exception: The MaxTokensReachedException containing the incomplete message.
     """
-    logger.info("Handling MaxTokensReachedException - inspecting incomplete message for invalid tool uses")
+    logger.info("handling MaxTokensReachedException - inspecting incomplete message for invalid tool uses")
 
     incomplete_message: Message = exception.incomplete_message
 
@@ -62,3 +63,4 @@ def recover_from_max_tokens_reached(agent: "Agent", exception: MaxTokensReachedE
 
     valid_message: Message = {"content": valid_content, "role": incomplete_message["role"]}
     agent.messages.append(valid_message)
+    agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=valid_message))

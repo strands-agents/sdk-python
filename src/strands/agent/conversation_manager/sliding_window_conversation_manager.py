@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 from ...types.content import Messages
 from ...types.exceptions import ContextWindowOverflowException, MaxTokensReachedException
 from .conversation_manager import ConversationManager
-from .token_limit_recovery import recover_from_max_tokens_reached
+from .recover_tool_use_on_max_tokens_reached import recover_tool_use_on_max_tokens_reached
 
 logger = logging.getLogger(__name__)
 
@@ -187,4 +187,4 @@ class SlidingWindowConversationManager(ConversationManager):
             e: The MaxTokensReachedException that triggered the recovery.
             **kwargs: Additional keyword arguments for future extensibility.
         """
-        recover_from_max_tokens_reached(agent, e)
+        recover_tool_use_on_max_tokens_reached(agent, e)

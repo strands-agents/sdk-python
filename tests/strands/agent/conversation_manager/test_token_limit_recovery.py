@@ -1,14 +1,22 @@
 """Tests for token limit recovery utility."""
 
+from unittest.mock import Mock
+
 from strands.agent.agent import Agent
-from strands.agent.conversation_manager.token_limit_recovery import recover_from_max_tokens_reached
+from strands.agent.conversation_manager.recover_tool_use_on_max_tokens_reached import (
+    recover_tool_use_on_max_tokens_reached,
+)
+from strands.hooks import MessageAddedEvent
 from strands.types.content import Message
 from strands.types.exceptions import MaxTokensReachedException
 
 
-def test_recover_from_max_tokens_reached_with_incomplete_tool_use():
+def test_recover_tool_use_on_max_tokens_reached_with_incomplete_tool_use():
     """Test recovery when incomplete tool use is present in the message."""
     agent = Agent()
+    # Mock the hooks.invoke_callbacks method
+    mock_invoke_callbacks = Mock()
+    agent.hooks.invoke_callbacks = mock_invoke_callbacks
     initial_message_count = len(agent.messages)
 
     incomplete_message: Message = {
@@ -21,7 +29,7 @@ def test_recover_from_max_tokens_reached_with_incomplete_tool_use():
 
     exception = MaxTokensReachedException(message="Token limit reached", incomplete_message=incomplete_message)
 
-    recover_from_max_tokens_reached(agent, exception)
+    recover_tool_use_on_max_tokens_reached(agent, exception)
 
     # Should add one corrected message
     assert len(agent.messages) == initial_message_count + 1
@@ -39,10 +47,20 @@ def test_recover_from_max_tokens_reached_with_incomplete_tool_use():
     assert "calculator" in corrected_message["content"][1]["text"]
     assert "incomplete due to maximum token limits" in corrected_message["content"][1]["text"]
 
+    # Verify that the MessageAddedEvent callback was invoked
+    mock_invoke_callbacks.assert_called_once()
+    call_args = mock_invoke_callbacks.call_args[0][0]
+    assert isinstance(call_args, MessageAddedEvent)
+    assert call_args.agent == agent
+    assert call_args.message == corrected_message
 
-def test_recover_from_max_tokens_reached_with_unknown_tool_name():
+
+def test_recover_tool_use_on_max_tokens_reached_with_unknown_tool_name():
     """Test recovery when tool use has no name."""
     agent = Agent()
+    # Mock the hooks.invoke_callbacks method
+    mock_invoke_callbacks = Mock()
+    agent.hooks.invoke_callbacks = mock_invoke_callbacks
     initial_message_count = len(agent.messages)
 
     incomplete_message: Message = {
@@ -54,7 +72,7 @@ def test_recover_from_max_tokens_reached_with_unknown_tool_name():
 
     exception = MaxTokensReachedException(message="Token limit reached", incomplete_message=incomplete_message)
 
-    recover_from_max_tokens_reached(agent, exception)
+    recover_tool_use_on_max_tokens_reached(agent, exception)
 
     # Should add one corrected message
     assert len(agent.messages) == initial_message_count + 1
@@ -69,10 +87,20 @@ def test_recover_from_max_tokens_reached_with_unknown_tool_name():
     assert "<unknown>" in corrected_message["content"][0]["text"]
     assert "incomplete due to maximum token limits" in corrected_message["content"][0]["text"]
 
+    # Verify that the MessageAddedEvent callback was invoked
+    mock_invoke_callbacks.assert_called_once()
+    call_args = mock_invoke_callbacks.call_args[0][0]
+    assert isinstance(call_args, MessageAddedEvent)
+    assert call_args.agent == agent
+    assert call_args.message == corrected_message
 
-def test_recover_from_max_tokens_reached_with_valid_tool_use():
+
+def test_recover_tool_use_on_max_tokens_reached_with_valid_tool_use():
     """Test that valid tool uses are not modified and function returns early."""
     agent = Agent()
+    # Mock the hooks.invoke_callbacks method
+    mock_invoke_callbacks = Mock()
+    agent.hooks.invoke_callbacks = mock_invoke_callbacks
     initial_message_count = len(agent.messages)
 
     incomplete_message: Message = {
@@ -85,30 +113,42 @@ def test_recover_from_max_tokens_reached_with_valid_tool_use():
 
     exception = MaxTokensReachedException(message="Token limit reached", incomplete_message=incomplete_message)
 
-    recover_from_max_tokens_reached(agent, exception)
+    recover_tool_use_on_max_tokens_reached(agent, exception)
 
     # Should not add any message since tool use was valid
     assert len(agent.messages) == initial_message_count
 
+    # Verify that the MessageAddedEvent callback was NOT invoked
+    mock_invoke_callbacks.assert_not_called()
 
-def test_recover_from_max_tokens_reached_with_empty_content():
+
+def test_recover_tool_use_on_max_tokens_reached_with_empty_content():
     """Test that empty content is handled gracefully."""
     agent = Agent()
+    # Mock the hooks.invoke_callbacks method
+    mock_invoke_callbacks = Mock()
+    agent.hooks.invoke_callbacks = mock_invoke_callbacks
     initial_message_count = len(agent.messages)
 
     incomplete_message: Message = {"role": "assistant", "content": []}
 
     exception = MaxTokensReachedException(message="Token limit reached", incomplete_message=incomplete_message)
 
-    recover_from_max_tokens_reached(agent, exception)
+    recover_tool_use_on_max_tokens_reached(agent, exception)
 
     # Should not add any message since content is empty
     assert len(agent.messages) == initial_message_count
 
+    # Verify that the MessageAddedEvent callback was NOT invoked
+    mock_invoke_callbacks.assert_not_called()
 
-def test_recover_from_max_tokens_reached_with_mixed_content():
+
+def test_recover_tool_use_on_max_tokens_reached_with_mixed_content():
     """Test recovery with mix of valid content and incomplete tool use."""
     agent = Agent()
+    # Mock the hooks.invoke_callbacks method
+    mock_invoke_callbacks = Mock()
+    agent.hooks.invoke_callbacks = mock_invoke_callbacks
     initial_message_count = len(agent.messages)
 
     incomplete_message: Message = {
@@ -122,7 +162,7 @@ def test_recover_from_max_tokens_reached_with_mixed_content():
 
     exception = MaxTokensReachedException(message="Token limit reached", incomplete_message=incomplete_message)
 
-    recover_from_max_tokens_reached(agent, exception)
+    recover_tool_use_on_max_tokens_reached(agent, exception)
 
     # Should add one corrected message
     assert len(agent.messages) == initial_message_count + 1
@@ -141,10 +181,20 @@ def test_recover_from_max_tokens_reached_with_mixed_content():
     assert "calculator" in corrected_message["content"][1]["text"]
     assert "incomplete due to maximum token limits" in corrected_message["content"][1]["text"]
 
+    # Verify that the MessageAddedEvent callback was invoked
+    mock_invoke_callbacks.assert_called_once()
+    call_args = mock_invoke_callbacks.call_args[0][0]
+    assert isinstance(call_args, MessageAddedEvent)
+    assert call_args.agent == agent
+    assert call_args.message == corrected_message
 
-def test_recover_from_max_tokens_reached_preserves_non_tool_content():
+
+def test_recover_tool_use_on_max_tokens_reached_preserves_non_tool_content():
     """Test that non-tool content is preserved as-is."""
     agent = Agent()
+    # Mock the hooks.invoke_callbacks method
+    mock_invoke_callbacks = Mock()
+    agent.hooks.invoke_callbacks = mock_invoke_callbacks
     initial_message_count = len(agent.messages)
 
     incomplete_message: Message = {
@@ -158,7 +208,7 @@ def test_recover_from_max_tokens_reached_preserves_non_tool_content():
 
     exception = MaxTokensReachedException(message="Token limit reached", incomplete_message=incomplete_message)
 
-    recover_from_max_tokens_reached(agent, exception)
+    recover_tool_use_on_max_tokens_reached(agent, exception)
 
     # Should add one corrected message
     assert len(agent.messages) == initial_message_count + 1
@@ -175,3 +225,10 @@ def test_recover_from_max_tokens_reached_preserves_non_tool_content():
     # Third content block should be replaced with error message
     assert "text" in corrected_message["content"][2]
     assert "<unknown>" in corrected_message["content"][2]["text"]
+
+    # Verify that the MessageAddedEvent callback was invoked
+    mock_invoke_callbacks.assert_called_once()
+    call_args = mock_invoke_callbacks.call_args[0][0]
+    assert isinstance(call_args, MessageAddedEvent)
+    assert call_args.agent == agent
+    assert call_args.message == corrected_message

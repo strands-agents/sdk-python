@@ -8,7 +8,7 @@ from typing_extensions import override
 from ...types.content import Message
 from ...types.exceptions import ContextWindowOverflowException, MaxTokensReachedException
 from .conversation_manager import ConversationManager
-from .token_limit_recovery import recover_from_max_tokens_reached
+from .recover_tool_use_on_max_tokens_reached import recover_tool_use_on_max_tokens_reached
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -260,4 +260,4 @@ class SummarizingConversationManager(ConversationManager):
             e: The MaxTokensReachedException that triggered the recovery.
             **kwargs: Additional keyword arguments for future extensibility.
         """
-        recover_from_max_tokens_reached(agent, e)
+        recover_tool_use_on_max_tokens_reached(agent, e)
