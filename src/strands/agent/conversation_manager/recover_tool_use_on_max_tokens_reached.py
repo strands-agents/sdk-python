@@ -32,7 +32,6 @@ async def recover_tool_use_on_max_tokens_reached(agent: "Agent", exception: MaxT
     logger.info("handling MaxTokensReachedException - inspecting incomplete message for invalid tool uses")
 
     incomplete_message: Message = exception.incomplete_message
-    logger.warning(f"incomplete message {incomplete_message}")
 
     if not incomplete_message["content"]:
         # Cannot correct invalid content block if content is empty
@@ -58,7 +57,6 @@ async def recover_tool_use_on_max_tokens_reached(agent: "Agent", exception: MaxT
                     f"to maximum token limits being reached."
                 }
             )
-            has_corrected_content = True
         else:
             # ToolUse was invalid for an unknown reason. Cannot correct, return without modifying
             raise exception
