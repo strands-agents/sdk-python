@@ -56,13 +56,14 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }} # Pull the commit from the forked repo
           persist-credentials: false  # Don't persist credentials for subsequent actions
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
         with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
           python-version: '3.10'
-      - name: Install dependencies
-        run: |
-          pip install --no-cache-dir hatch
+      - name: Sync dependencies from lock file
+        run: uv sync --frozen --all-extras --group dev
       - name: Run integration tests
         env:
           AWS_REGION: us-east-1
@@ -70,4 +71,4 @@ jobs:
           STRANDS_TEST_API_KEYS_SECRET_NAME: ${{ secrets.STRANDS_TEST_API_KEYS_SECRET_NAME }}
         id: tests
         run: |
-          hatch test tests_integ
+          uv run poe test-integ
