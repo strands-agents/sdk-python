@@ -19,7 +19,8 @@ from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Option
 from opentelemetry import trace as trace_api
 from pydantic import BaseModel
 
-from ..event_loop.event_loop import event_loop_cycle, run_tool
+from ..event_loop.event_loop import event_loop_cycle
+from ..experimental.tools.executors import Executor as ToolExecutor
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
     AfterInvocationEvent,
@@ -34,6 +35,7 @@ from ..models.model import Model
 from ..session.session_manager import SessionManager
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer
+from ..tools import executors as tool_executors
 from ..tools.registry import ToolRegistry
 from ..tools.watcher import ToolWatcher
 from ..types.content import ContentBlock, Message, Messages
@@ -135,10 +137,12 @@ class Agent:
                     "name": normalized_name,
                     "input": kwargs.copy(),
                 }
+                invocation_state = {**kwargs, "skip_tracing": True, "tool_results": []}
+
+                tool_executor = tool_executors.sequential.Executor()
 
                 async def acall() -> ToolResult:
-                    # Pass kwargs as invocation_state
-                    async for event in run_tool(self._agent, tool_use, kwargs):
+                    async for event in tool_executor.stream(self._agent, tool_use, invocation_state):
                         _ = event
 
                     return cast(ToolResult, event)
@@ -207,6 +211,7 @@ class Agent:
         state: Optional[Union[AgentState, dict]] = None,
         hooks: Optional[list[HookProvider]] = None,
         session_manager: Optional[SessionManager] = None,
+        tool_executor: Optional[ToolExecutor] = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -249,6 +254,7 @@ class Agent:
                 Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
+            tool_executor: Definition of tool execution stragety (e.g., sequential, concurrent, etc.).
         """
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
@@ -319,6 +325,8 @@ class Agent:
         self._session_manager = session_manager
         if self._session_manager:
             self.hooks.add_hook(self._session_manager)
+
+        self.tool_executor = tool_executor or tool_executors.concurrent.Executor()
 
         if hooks:
             for hook in hooks:

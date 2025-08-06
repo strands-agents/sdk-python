@@ -44,6 +44,7 @@ import asyncio
 import functools
 import inspect
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import (
     Any,
     Callable,
@@ -406,11 +407,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             if "agent" in invocation_state and "agent" in self._metadata.signature.parameters:
                 validated_input["agent"] = invocation_state.get("agent")
 
-            # "Too few arguments" expected, hence the type ignore
-            if inspect.iscoroutinefunction(self._tool_func):
-                result = await self._tool_func(**validated_input)  # type: ignore
-            else:
-                result = await asyncio.to_thread(self._tool_func, **validated_input)  # type: ignore
+            result = await self._stream(validated_input, invocation_state)
 
             # FORMAT THE RESULT for Strands Agent
             if isinstance(result, dict) and "status" in result and "content" in result:
@@ -443,6 +440,34 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
                 "status": "error",
                 "content": [{"text": f"Error: {error_type} - {error_msg}"}],
             }
+
+    async def _stream(self, validated_input: dict[str, Any], invocation_state: dict[str, Any]) -> Any:
+        """Execute the tool function based on type.
+
+        Args:
+            validated_input: Validated input parameters for the tool function.
+            invocation_state: Context for the tool invocation.
+
+        Returns:
+            The result of the tool function execution.
+        """
+        # "Too few arguments" expected, hence the type ignores
+
+        if inspect.iscoroutinefunction(self._tool_func):
+            return await self._tool_func(**validated_input)  # type: ignore
+
+        thread_pool = invocation_state.get("thread_pool")
+
+        if isinstance(thread_pool, ThreadPoolExecutor):
+            return await asyncio.get_event_loop().run_in_executor(
+                thread_pool,
+                lambda: self._tool_func(**validated_input),  # type: ignore
+            )
+
+        if thread_pool == "asyncio":
+            return await asyncio.to_thread(self._tool_func, **validated_input)  # type: ignore
+
+        return self._tool_func(**validated_input)  # type:ignore
 
     @property
     def supports_hot_reload(self) -> bool:
