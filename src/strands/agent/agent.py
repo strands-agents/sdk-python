@@ -37,7 +37,7 @@ from ..telemetry.tracer import get_tracer
 from ..tools.registry import ToolRegistry
 from ..tools.watcher import ToolWatcher
 from ..types.content import ContentBlock, Message, Messages
-from ..types.exceptions import ContextWindowOverflowException, MaxTokensReachedException
+from ..types.exceptions import ContextWindowOverflowException
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
@@ -582,21 +582,18 @@ class Agent:
             )
             async for event in events:
                 yield event
-            return
+
         except ContextWindowOverflowException as e:
             # Try reducing the context size and retrying
-            self.conversation_manager.reduce_context(agent=self, e=e)
-        except MaxTokensReachedException as e:
-            # Recover conversation state after token limit exceeded, then continue with next cycle
-            await self.conversation_manager.handle_token_limit_reached(agent=self, e=e)
+            self.conversation_manager.reduce_context(self, e=e)
 
-        # Sync agent after handling exception to keep conversation_manager_state up to date in the session
-        if self._session_manager:
-            self._session_manager.sync_agent(self)
+            # Sync agent after reduce_context to keep conversation_manager_state up to date in the session
+            if self._session_manager:
+                self._session_manager.sync_agent(self)
 
-        events = self._execute_event_loop_cycle(invocation_state)
-        async for event in events:
-            yield event
+            events = self._execute_event_loop_cycle(invocation_state)
+            async for event in events:
+                yield event
 
     def _record_tool_execution(
         self,

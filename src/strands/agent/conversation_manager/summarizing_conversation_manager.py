@@ -6,9 +6,8 @@ from typing import TYPE_CHECKING, Any, List, Optional
 from typing_extensions import override
 
 from ...types.content import Message
-from ...types.exceptions import ContextWindowOverflowException, MaxTokensReachedException
+from ...types.exceptions import ContextWindowOverflowException
 from .conversation_manager import ConversationManager
-from .recover_tool_use_on_max_tokens_reached import recover_tool_use_on_max_tokens_reached
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -166,16 +165,6 @@ class SummarizingConversationManager(ConversationManager):
         except Exception as summarization_error:
             logger.error("Summarization failed: %s", summarization_error)
             raise summarization_error from e
-
-    async def handle_token_limit_reached(self, agent: "Agent", e: MaxTokensReachedException, **kwargs: Any) -> None:
-        """Apply summarization strategy for token limit recovery.
-
-        Args:
-            agent: The agent whose conversation state will be recovered.
-            e: The MaxTokensReachedException that triggered the recovery.
-            **kwargs: Additional keyword arguments for future extensibility.
-        """
-        await recover_tool_use_on_max_tokens_reached(agent, e)
 
     def _generate_summary(self, messages: List[Message], agent: "Agent") -> Message:
         """Generate a summary of the provided messages.

@@ -3,11 +3,7 @@ import pytest
 from strands.agent.agent import Agent
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
-from strands.types.content import Message
-from strands.types.exceptions import (
-    ContextWindowOverflowException,
-    MaxTokensReachedException,
-)
+from strands.types.exceptions import ContextWindowOverflowException
 
 
 @pytest.fixture
@@ -208,42 +204,6 @@ def test_sliding_window_conversation_manager_with_tool_results_truncated():
     assert messages == expected_messages
 
 
-@pytest.mark.asyncio
-async def test_sliding_window_conversation_manager_handle_token_limit_reached():
-    """Test that SlidingWindowConversationManager handles token limit recovery."""
-    manager = SlidingWindowConversationManager()
-    test_agent = Agent()
-    initial_message_count = len(test_agent.messages)
-
-    incomplete_message: Message = {
-        "role": "assistant",
-        "content": [
-            {"text": "I'll help you with that."},
-            {"toolUse": {"name": "calculator", "input": {}, "toolUseId": ""}},  # Missing toolUseId
-        ],
-    }
-
-    test_exception = MaxTokensReachedException(message="Token limit reached", incomplete_message=incomplete_message)
-
-    await manager.handle_token_limit_reached(test_agent, test_exception)
-
-    # Should add one corrected message
-    assert len(test_agent.messages) == initial_message_count + 1
-
-    # Check the corrected message content
-    corrected_message = test_agent.messages[-1]
-    assert corrected_message["role"] == "assistant"
-    assert len(corrected_message["content"]) == 2
-
-    # First content block should be preserved
-    assert corrected_message["content"][0] == {"text": "I'll help you with that."}
-
-    # Second content block should be replaced with error message
-    assert "text" in corrected_message["content"][1]
-    assert "calculator" in corrected_message["content"][1]["text"]
-    assert "incomplete due to maximum token limits" in corrected_message["content"][1]["text"]
-
-
 def test_null_conversation_manager_reduce_context_raises_context_window_overflow_exception():
     """Test that NullConversationManager doesn't modify messages."""
     manager = NullConversationManager()
@@ -286,52 +246,3 @@ def test_null_conversation_does_not_restore_with_incorrect_state():
 
     with pytest.raises(ValueError):
         manager.restore_from_session({})
-
-
-@pytest.mark.asyncio
-async def test_summarizing_conversation_manager_handle_token_limit_reached():
-    """Test that SummarizingConversationManager handles token limit recovery."""
-    from strands.agent.conversation_manager.summarizing_conversation_manager import SummarizingConversationManager
-
-    manager = SummarizingConversationManager()
-    test_agent = Agent()
-    initial_message_count = len(test_agent.messages)
-
-    incomplete_message: Message = {
-        "role": "assistant",
-        "content": [
-            {"toolUse": {"name": "", "input": {}, "toolUseId": "123"}},  # Missing name
-        ],
-    }
-
-    test_exception = MaxTokensReachedException(message="Token limit reached", incomplete_message=incomplete_message)
-
-    await manager.handle_token_limit_reached(test_agent, test_exception)
-
-    # Should add one corrected message
-    assert len(test_agent.messages) == initial_message_count + 1
-
-    # Check the corrected message content
-    corrected_message = test_agent.messages[-1]
-    assert corrected_message["role"] == "assistant"
-    assert len(corrected_message["content"]) == 1
-
-    # Content should be replaced with error message using <unknown>
-    assert "text" in corrected_message["content"][0]
-    assert "<unknown>" in corrected_message["content"][0]["text"]
-    assert "incomplete due to maximum token limits" in corrected_message["content"][0]["text"]
-
-
-@pytest.mark.asyncio
-async def test_null_conversation_manager_handle_token_limit_reached_raises_exception():
-    """Test that NullConversationManager raises the provided exception."""
-    manager = NullConversationManager()
-    test_agent = Agent()
-    test_message: Message = {
-        "role": "assistant",
-        "content": [{"text": "Hello"}],
-    }
-    test_exception = MaxTokensReachedException(message="test", incomplete_message=test_message)
-
-    with pytest.raises(MaxTokensReachedException):
-        await manager.handle_token_limit_reached(test_agent, test_exception)

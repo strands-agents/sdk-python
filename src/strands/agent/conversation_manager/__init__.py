@@ -15,14 +15,12 @@ is critical for effective agent interactions.
 
 from .conversation_manager import ConversationManager
 from .null_conversation_manager import NullConversationManager
-from .recover_tool_use_on_max_tokens_reached import recover_tool_use_on_max_tokens_reached
 from .sliding_window_conversation_manager import SlidingWindowConversationManager
 from .summarizing_conversation_manager import SummarizingConversationManager
 
 __all__ = [
     "ConversationManager",
     "NullConversationManager",
-    "recover_tool_use_on_max_tokens_reached",
     "SlidingWindowConversationManager",
     "SummarizingConversationManager",
 ]

@@ -2,8 +2,6 @@
 
 from typing import Any
 
-from strands.types.content import Message
-
 
 class EventLoopException(Exception):
     """Exception raised by the event loop."""
@@ -28,14 +26,12 @@ class MaxTokensReachedException(Exception):
     the complexity of the response, or when the model naturally reaches its configured output limit during generation.
     """
 
-    def __init__(self, message: str, incomplete_message: Message):
+    def __init__(self, message: str):
         """Initialize the exception with an error message and the incomplete message object.
 
         Args:
             message: The error message describing the token limit issue
-            incomplete_message: The valid Message object with incomplete content due to token limits
         """
-        self.incomplete_message = incomplete_message
         super().__init__(message)
 
 

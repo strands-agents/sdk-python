@@ -2,8 +2,8 @@ import logging
 
 import pytest
 
+from src.strands.agent import AgentResult
 from strands import Agent, tool
-from strands.agent import NullConversationManager
 from strands.models.bedrock import BedrockModel
 from strands.types.exceptions import MaxTokensReachedException
 
@@ -19,22 +19,13 @@ def story_tool(story: str) -> str:
 
 
 def test_max_tokens_reached():
+    """Test that MaxTokensReachedException is raised but the agent can still rerun on the second pass"""
     model = BedrockModel(max_tokens=100)
-    agent = Agent(model=model, tools=[story_tool], conversation_manager=NullConversationManager())
+    agent = Agent(model=model, tools=[story_tool])
 
+    # This should raise an exception
     with pytest.raises(MaxTokensReachedException):
         agent("Tell me a story!")
-
-    assert len(agent.messages) == 1
-
-
-def test_max_tokens_reached_with_hook_provider():
-    """Test that MaxTokensReachedException can be handled by a hook provider."""
-    model = BedrockModel(max_tokens=100)
-    agent = Agent(model=model, tools=[story_tool])  # Defaults to include SlidingWindowConversationManager
-
-    # This should NOT raise an exception because the hook handles it
-    agent("Tell me a story!")
 
     # Validate that at least one message contains the incomplete tool use error message
     expected_text = "tool use was incomplete due to maximum token limits being reached"
@@ -48,3 +39,10 @@ def test_max_tokens_reached_with_hook_provider():
     assert any(expected_text in text for text in all_text_content), (
         f"Expected to find message containing '{expected_text}' in agent messages"
     )
+
+    # Remove tools from agent and re-run with a generic question
+    agent.tool_registry.registry = {}
+    agent.tool_registry.tool_config = {}
+
+    result: AgentResult = agent("What is 3+3")
+    assert result.stop_reason == "end_turn"
