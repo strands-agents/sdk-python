@@ -11,14 +11,14 @@ existing AgentState usage while providing advanced memory optimization
 capabilities for complex multi-agent scenarios.
 """
 
-from .config import MemoryConfig, MemoryCategory, MemoryThresholds
+from .config import MemoryCategory, MemoryConfig, MemoryThresholds
 from .enhanced_state import EnhancedAgentState
 from .lifecycle import MemoryLifecycleManager
 from .metrics import MemoryMetrics, MemoryUsageStats
 
 __all__ = [
     "MemoryConfig",
-    "MemoryCategory", 
+    "MemoryCategory",
     "MemoryThresholds",
     "EnhancedAgentState",
     "MemoryLifecycleManager",
