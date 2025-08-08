@@ -29,9 +29,6 @@ def recover_message_on_max_tokens_reached(message: Message) -> Message:
     model responses are truncated, providing clear feedback about what happened and preventing
     potentially incomplete or corrupted tool executions.
 
-    TODO: after https://github.com/strands-agents/sdk-python/issues/561 is completed, only the verifiable
-        invalid tool_use content blocks need to be replaced.
-
     Args:
         message: The potentially incomplete message from the model that was truncated
                 due to max token limits.
