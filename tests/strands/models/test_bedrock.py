@@ -383,6 +383,25 @@ def test_format_request_tool_specs(model, messages, model_id, tool_spec):
     assert tru_request == exp_request
 
 
+def test_format_request_skip_empty_content(model, model_id, inference_config):
+    messages = [{"role": "user", "content": []}]
+    model.update_config(**inference_config)
+    tru_request = model.format_request(messages)
+    exp_request = {
+        "inferenceConfig": {
+            "maxTokens": inference_config["max_tokens"],
+            "stopSequences": inference_config["stop_sequences"],
+            "temperature": inference_config["temperature"],
+            "topP": inference_config["top_p"],
+        },
+        "modelId": model_id,
+        "messages": [],
+        "system": [],
+    }
+
+    assert tru_request == exp_request
+
+
 def test_format_request_cache(model, messages, model_id, tool_spec, cache_type):
     model.update_config(cache_prompt=cache_type, cache_tools=cache_type)
     tru_request = model.format_request(messages, [tool_spec])
