@@ -61,7 +61,7 @@ def recover_message_on_max_tokens_reached(message: Message) -> Message:
             continue
 
         # Replace all tool uses with error messages when max_tokens is reached
-        display_name = tool_use.get("name", "<unknown>")
+        display_name = tool_use.get("name") or "<unknown>"
         logger.warning("tool_name=<%s> | replacing with error message due to max_tokens truncation.", display_name)
 
         valid_content.append(
