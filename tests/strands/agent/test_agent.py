@@ -984,10 +984,17 @@ def test_agent_structured_output(agent, system_prompt, user, agenerator):
 
     prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
 
+    # Store initial message count
+    initial_message_count = len(agent.messages)
+
     tru_result = agent.structured_output(type(user), prompt)
     exp_result = user
     assert tru_result == exp_result
 
+    # Verify conversation history is not polluted
+    assert len(agent.messages) == initial_message_count
+
+    # Verify the model was called with temporary messages array
     agent.model.structured_output.assert_called_once_with(
         type(user), [{"role": "user", "content": [{"text": prompt}]}], system_prompt=system_prompt
     )
@@ -1008,10 +1015,17 @@ def test_agent_structured_output_multi_modal_input(agent, system_prompt, user, a
         },
     ]
 
+    # Store initial message count
+    initial_message_count = len(agent.messages)
+
     tru_result = agent.structured_output(type(user), prompt)
     exp_result = user
     assert tru_result == exp_result
 
+    # Verify conversation history is not polluted
+    assert len(agent.messages) == initial_message_count
+
+    # Verify the model was called with temporary messages array
     agent.model.structured_output.assert_called_once_with(
         type(user), [{"role": "user", "content": prompt}], system_prompt=system_prompt
     )
@@ -1023,9 +1037,40 @@ async def test_agent_structured_output_in_async_context(agent, user, agenerator)
 
     prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
 
+    # Store initial message count
+    initial_message_count = len(agent.messages)
+
     tru_result = await agent.structured_output_async(type(user), prompt)
     exp_result = user
     assert tru_result == exp_result
+
+    # Verify conversation history is not polluted
+    assert len(agent.messages) == initial_message_count
+
+
+def test_agent_structured_output_without_prompt(agent, system_prompt, user, agenerator):
+    """Test that structured_output works with existing conversation history and no new prompt."""
+    agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": user}]))
+
+    # Add some existing messages to the agent
+    existing_messages = [
+        {"role": "user", "content": [{"text": "Jane Doe is 30 years old"}]},
+        {"role": "assistant", "content": [{"text": "I understand."}]},
+    ]
+    agent.messages.extend(existing_messages)
+
+    initial_message_count = len(agent.messages)
+
+    tru_result = agent.structured_output(type(user))  # No prompt provided
+    exp_result = user
+    assert tru_result == exp_result
+
+    # Verify conversation history is unchanged
+    assert len(agent.messages) == initial_message_count
+    assert agent.messages == existing_messages
+
+    # Verify the model was called with existing messages only
+    agent.model.structured_output.assert_called_once_with(type(user), existing_messages, system_prompt=system_prompt)
 
 
 @pytest.mark.asyncio
@@ -1034,10 +1079,17 @@ async def test_agent_structured_output_async(agent, system_prompt, user, agenera
 
     prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
 
+    # Store initial message count
+    initial_message_count = len(agent.messages)
+
     tru_result = agent.structured_output(type(user), prompt)
     exp_result = user
     assert tru_result == exp_result
 
+    # Verify conversation history is not polluted
+    assert len(agent.messages) == initial_message_count
+
+    # Verify the model was called with temporary messages array
     agent.model.structured_output.assert_called_once_with(
         type(user), [{"role": "user", "content": [{"text": prompt}]}], system_prompt=system_prompt
     )

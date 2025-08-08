@@ -403,8 +403,8 @@ class Agent:
     def structured_output(self, output_model: Type[T], prompt: Optional[Union[str, list[ContentBlock]]] = None) -> T:
         """This method allows you to get structured output from the agent.
 
-        If you pass in a prompt, it will be added to the conversation history and the agent will respond to it.
-        If you don't pass in a prompt, it will use only the conversation history to respond.
+        If you pass in a prompt, it will be used temporarily without adding it to the conversation history.
+        If you don't pass in a prompt, it will use only the existing conversation history to respond.
 
         For smaller models, you may want to use the optional prompt to add additional instructions to explicitly
         instruct the model to output the structured data.
@@ -412,7 +412,7 @@ class Agent:
         Args:
             output_model: The output model (a JSON schema written as a Pydantic BaseModel)
                 that the agent will use when responding.
-            prompt: The prompt to use for the agent.
+            prompt: The prompt to use for the agent (will not be added to conversation history).
 
         Raises:
             ValueError: If no conversation history or prompt is provided.
@@ -430,8 +430,8 @@ class Agent:
     ) -> T:
         """This method allows you to get structured output from the agent.
 
-        If you pass in a prompt, it will be added to the conversation history and the agent will respond to it.
-        If you don't pass in a prompt, it will use only the conversation history to respond.
+        If you pass in a prompt, it will be used temporarily without adding it to the conversation history.
+        If you don't pass in a prompt, it will use only the existing conversation history to respond.
 
         For smaller models, you may want to use the optional prompt to add additional instructions to explicitly
         instruct the model to output the structured data.
@@ -439,7 +439,7 @@ class Agent:
         Args:
             output_model: The output model (a JSON schema written as a Pydantic BaseModel)
                 that the agent will use when responding.
-            prompt: The prompt to use for the agent.
+            prompt: The prompt to use for the agent (will not be added to conversation history).
 
         Raises:
             ValueError: If no conversation history or prompt is provided.
@@ -450,12 +450,14 @@ class Agent:
             if not self.messages and not prompt:
                 raise ValueError("No conversation history or prompt provided")
 
-            # add the prompt as the last message
+            # Create temporary messages array if prompt is provided
             if prompt:
                 content: list[ContentBlock] = [{"text": prompt}] if isinstance(prompt, str) else prompt
-                self._append_message({"role": "user", "content": content})
+                temp_messages = self.messages + [{"role": "user", "content": content}]
+            else:
+                temp_messages = self.messages
 
-            events = self.model.structured_output(output_model, self.messages, system_prompt=self.system_prompt)
+            events = self.model.structured_output(output_model, temp_messages, system_prompt=self.system_prompt)
             async for event in events:
                 if "callback" in event:
                     self.callback_handler(**cast(dict, event["callback"]))
