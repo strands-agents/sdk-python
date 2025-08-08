@@ -123,7 +123,8 @@ async def test_stream(identity_tool, alist):
 @pytest.mark.asyncio
 async def test_stream_with_agent(alist):
     @strands.tool
-    def identity(a: int, agent: dict = None):
+    def identity(a: int, **kwargs):
+        agent = kwargs.get("agent")
         return a, agent
 
     stream = identity.stream({"input": {"a": 2}}, {"agent": {"state": 1}})
@@ -1036,3 +1037,222 @@ async def test_tool_with_complex_anyof_schema(alist):
     result = (await alist(stream))[-1]
     assert result["status"] == "success"
     assert "NoneType: None" in result["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_tool_with_kwargs_invocation_state(alist):
+    """Test that tools with **kwargs receive invocation_state contents."""
+
+    @strands.tool
+    def kwargs_tool(param: str, **kwargs) -> str:
+        """Tool with **kwargs that should receive invocation_state.
+
+        Args:
+            param: Regular parameter
+        """
+        agent = kwargs.get("agent", "no_agent")
+        custom_key = kwargs.get("custom_key", "no_custom_key")
+        return f"param: {param}, agent: {agent}, custom_key: {custom_key}"
+
+    # Test with invocation_state containing agent and custom keys
+    invocation_state = {"agent": "test_agent", "custom_key": "test_value", "another_key": "another_value"}
+
+    tool_use = {"toolUseId": "test-id", "input": {"param": "test_param"}}
+    stream = kwargs_tool.stream(tool_use, invocation_state)
+
+    result = (await alist(stream))[-1]
+    assert result["status"] == "success"
+    assert "param: test_param" in result["content"][0]["text"]
+    assert "agent: test_agent" in result["content"][0]["text"]
+    assert "custom_key: test_value" in result["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_tool_with_different_keyword_param_name(alist):
+    """Test that tools with **kwargs receive invocation_state contents."""
+
+    @strands.tool
+    def kwargs_tool(param: str, **context) -> str:
+        """Tool with different keyword parameter name that should receive invocation_state.
+
+        Args:
+            param: Regular parameter
+        """
+        agent = context.get("agent", "no_agent")
+        custom_key = context.get("custom_key", "no_custom_key")
+        return f"param: {param}, agent: {agent}, custom_key: {custom_key}"
+
+    # Test with invocation_state containing agent and custom keys
+    invocation_state = {"agent": "test_agent", "custom_key": "test_value", "another_key": "another_value"}
+
+    tool_use = {"toolUseId": "test-id", "input": {"param": "test_param"}}
+    stream = kwargs_tool.stream(tool_use, invocation_state)
+
+    result = (await alist(stream))[-1]
+    assert result["status"] == "success"
+    assert "param: test_param" in result["content"][0]["text"]
+    assert "agent: test_agent" in result["content"][0]["text"]
+    assert "custom_key: test_value" in result["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_tool_without_kwargs_no_invocation_state(alist):
+    """Test that tools without **kwargs don't receive invocation_state contents."""
+
+    @strands.tool
+    def no_kwargs_tool(param: str) -> str:
+        """Tool without **kwargs.
+
+        Args:
+            param: Regular parameter
+        """
+        return f"param: {param}"
+
+    # Test with invocation_state - should not be passed to function
+    invocation_state = {"agent": "test_agent", "custom_key": "test_value"}
+
+    tool_use = {"toolUseId": "test-id", "input": {"param": "test_param"}}
+    stream = no_kwargs_tool.stream(tool_use, invocation_state)
+
+    result = (await alist(stream))[-1]
+    assert result["status"] == "success"
+    assert result["content"][0]["text"] == "param: test_param"
+
+
+@pytest.mark.asyncio
+async def test_tool_kwargs_with_empty_invocation_state(alist):
+    """Test that tools with **kwargs work with empty invocation_state."""
+
+    @strands.tool
+    def kwargs_tool_empty(param: str, **kwargs) -> str:
+        """Tool with **kwargs tested with empty invocation_state.
+
+        Args:
+            param: Regular parameter
+        """
+        kwargs_count = len(kwargs)
+        return f"param: {param}, kwargs_count: {kwargs_count}"
+
+    # Test with empty invocation_state
+    tool_use = {"toolUseId": "test-id", "input": {"param": "test_param"}}
+    stream = kwargs_tool_empty.stream(tool_use, {})
+
+    result = (await alist(stream))[-1]
+    assert result["status"] == "success"
+    assert "param: test_param, kwargs_count: 0" in result["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_tool_kwargs_schema_generation(alist):
+    """Test that **kwargs parameters are excluded from schema generation."""
+
+    @strands.tool
+    def kwargs_schema_tool(required_param: str, optional_param: str = "default", **kwargs) -> str:
+        """Tool with **kwargs to test schema generation.
+
+        Args:
+            required_param: Required parameter
+            optional_param: Optional parameter with default
+        """
+        return f"required: {required_param}, optional: {optional_param}"
+
+    # Check that schema doesn't include **kwargs
+    spec = kwargs_schema_tool.tool_spec
+    schema = spec["inputSchema"]["json"]
+
+    # Should have required_param and optional_param, but not kwargs
+    assert "required_param" in schema["properties"]
+    assert "optional_param" in schema["properties"]
+    assert len(schema["properties"]) == 2  # Only these two parameters
+
+    # Only required_param should be required
+    assert schema["required"] == ["required_param"]
+
+
+@pytest.mark.asyncio
+async def test_tool_kwargs_with_mixed_parameters(alist):
+    """Test tool with **kwargs alongside regular and optional parameters."""
+
+    @strands.tool
+    def mixed_params_tool(required: str, optional: int = 42, **kwargs) -> str:
+        """Tool with mixed parameter types.
+
+        Args:
+            required: Required parameter
+            optional: Optional parameter with default
+        """
+        agent = kwargs.get("agent", "no_agent")
+        extra_data = kwargs.get("extra_data", "no_extra")
+        return f"required: {required}, optional: {optional}, agent: {agent}, extra: {extra_data}"
+
+    # Test with all types of parameters
+    invocation_state = {"agent": "test_agent", "extra_data": "extra_value", "unused_key": "unused_value"}
+
+    tool_use = {"toolUseId": "test-id", "input": {"required": "test_req", "optional": 100}}
+    stream = mixed_params_tool.stream(tool_use, invocation_state)
+
+    result = (await alist(stream))[-1]
+    assert result["status"] == "success"
+    content = result["content"][0]["text"]
+    assert "required: test_req" in content
+    assert "optional: 100" in content
+    assert "agent: test_agent" in content
+    assert "extra: extra_value" in content
+
+
+@pytest.mark.asyncio
+async def test_tool_kwargs_async_function(alist):
+    """Test that **kwargs work with async tool functions."""
+
+    @strands.tool
+    async def async_kwargs_tool(param: str, **kwargs) -> str:
+        """Async tool with **kwargs.
+
+        Args:
+            param: Regular parameter
+        """
+        agent = kwargs.get("agent", "no_agent")
+        return f"async param: {param}, agent: {agent}"
+
+    # Test async function with invocation_state
+    invocation_state = {"agent": "async_agent"}
+
+    tool_use = {"toolUseId": "test-id", "input": {"param": "async_test"}}
+    stream = async_kwargs_tool.stream(tool_use, invocation_state)
+
+    result = (await alist(stream))[-1]
+    assert result["status"] == "success"
+    assert "async param: async_test" in result["content"][0]["text"]
+    assert "agent: async_agent" in result["content"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_tool_kwargs_class_method(alist):
+    """Test that **kwargs work with class methods."""
+
+    class TestClass:
+        def __init__(self, prefix):
+            self.prefix = prefix
+
+        @strands.tool
+        def kwargs_method(self, param: str, **kwargs) -> str:
+            """Class method with **kwargs.
+
+            Args:
+                param: Test parameter
+            """
+            agent = kwargs.get("agent", "no_agent")
+            return f"{self.prefix}: param: {param}, agent: {agent}"
+
+    # Test class method with invocation_state
+    instance = TestClass("TestPrefix")
+    invocation_state = {"agent": "class_agent"}
+
+    tool_use = {"toolUseId": "test-id", "input": {"param": "class_test"}}
+    stream = instance.kwargs_method.stream(tool_use, invocation_state)
+
+    result = (await alist(stream))[-1]
+    assert result["status"] == "success"
+    content = result["content"][0]["text"]
+    assert "TestPrefix: param: class_test" in content
+    assert "agent: class_agent" in content
