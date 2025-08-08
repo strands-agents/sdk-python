@@ -234,8 +234,8 @@ test-integ = [
     "hatch test tests_integ {args}"
 ]
 prepare = [
-    "hatch fmt --linter",
     "hatch fmt --formatter",
+    "hatch fmt --linter",
     "hatch run test-lint",
     "hatch test --all"
 ]

@@ -751,6 +751,24 @@ async def test_agent__call__in_async_context(mock_model, agent, agenerator):
 
 
 @pytest.mark.asyncio
+async def test_agent_invocations_prompt_validation(agent, alist):
+    with pytest.raises(ValueError):
+        await agent.invoke_async(prompt=None)
+
+    with pytest.raises(ValueError):
+        await agent(prompt=None)
+
+    with pytest.raises(ValueError):
+        await alist(agent.stream_async(prompt=None))
+
+    with pytest.raises(ValueError):
+        await agent.structured_output(type(user), prompt=None)
+
+    with pytest.raises(ValueError):
+        await agent.structured_output_async(type(user), prompt=None)
+
+
+@pytest.mark.asyncio
 async def test_agent_invoke_async(mock_model, agent, agenerator):
     mock_model.mock_stream.return_value = agenerator(
         [

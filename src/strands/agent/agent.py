@@ -367,6 +367,9 @@ class Agent:
                 - message: The final message from the model
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
+
+        Raises:
+            ValueError: If prompt is None.
         """
 
         def execute() -> AgentResult:
@@ -393,6 +396,9 @@ class Agent:
                 - message: The final message from the model
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
+
+        Raises:
+            ValueError: If prompt is None.
         """
         events = self.stream_async(prompt, **kwargs)
         async for event in events:
@@ -452,8 +458,7 @@ class Agent:
 
             # Create temporary messages array if prompt is provided
             if prompt:
-                content: list[ContentBlock] = [{"text": prompt}] if isinstance(prompt, str) else prompt
-                temp_messages = self.messages + [{"role": "user", "content": content}]
+                temp_messages = self.messages + [self._standardize_prompt(prompt)]
             else:
                 temp_messages = self.messages
 
@@ -489,6 +494,7 @@ class Agent:
             - And other event data provided by the callback handler
 
         Raises:
+            ValueError: If prompt is None.
             Exception: Any exceptions from the agent invocation will be propagated to the caller.
 
         Example:
@@ -500,8 +506,7 @@ class Agent:
         """
         callback_handler = kwargs.get("callback_handler", self.callback_handler)
 
-        content: list[ContentBlock] = [{"text": prompt}] if isinstance(prompt, str) else prompt
-        message: Message = {"role": "user", "content": content}
+        message = self._standardize_prompt(prompt)
 
         self.trace_span = self._start_agent_trace_span(message)
         with trace_api.use_span(self.trace_span):
@@ -562,6 +567,15 @@ class Agent:
         finally:
             self.conversation_manager.apply_management(self)
             self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
+
+    def _standardize_prompt(self, prompt: Union[str, list[ContentBlock]]) -> Message:
+        """Convert the prompt into a Message, validating it along the way."""
+        if prompt is None:
+            raise ValueError("User prompt must not be None")
+
+        content: list[ContentBlock] = [{"text": prompt}] if isinstance(prompt, str) else prompt
+        message: Message = {"role": "user", "content": content}
+        return message
 
     async def _execute_event_loop_cycle(self, invocation_state: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the event loop cycle with retry logic for context window limits.
