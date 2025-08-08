@@ -95,7 +95,7 @@ def test_recover_message_on_max_tokens_reached_with_missing_tool_use_id():
 
 
 def test_recover_message_on_max_tokens_reached_with_valid_tool_use():
-    """Test that valid tool uses are preserved unchanged."""
+    """Test that even valid tool uses are replaced with error messages."""
     complete_message: Message = {
         "role": "assistant",
         "content": [
@@ -106,13 +106,15 @@ def test_recover_message_on_max_tokens_reached_with_valid_tool_use():
 
     result = recover_message_on_max_tokens_reached(complete_message)
 
-    # Should preserve the message exactly as-is
+    # Should replace even valid tool uses with error messages
     assert result["role"] == "assistant"
     assert len(result["content"]) == 2
     assert result["content"][0] == {"text": "I'll help you with that."}
-    assert result["content"][1] == {
-        "toolUse": {"name": "calculator", "input": {"expression": "2+2"}, "toolUseId": "123"}
-    }
+
+    # Valid tool use should also be replaced with error message
+    assert "text" in result["content"][1]
+    assert "calculator" in result["content"][1]["text"]
+    assert "incomplete due to maximum token limits" in result["content"][1]["text"]
 
 
 def test_recover_message_on_max_tokens_reached_with_empty_content():
