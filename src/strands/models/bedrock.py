@@ -7,7 +7,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union
+from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -18,7 +18,11 @@ from typing_extensions import TypedDict, Unpack, override
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Message, Messages
-from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
+from ..types.exceptions import (
+    ContextWindowOverflowException,
+    ModelThrottledException,
+    UnsupportedModelCitationsException,
+)
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolResult, ToolSpec
 from .model import Model
@@ -32,6 +36,15 @@ BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
     "Input is too long for requested model",
     "input length and `max_tokens` exceed context limit",
     "too many total text bytes",
+]
+
+# Model IDs that support citation functionality
+CITATION_SUPPORTED_MODELS = [
+    "anthropic.claude-3-5-sonnet-20241022-v2:0",
+    "anthropic.claude-3-7-sonnet-20250219-v1:0",
+    "anthropic.claude-opus-4-20250514-v1:0",
+    "anthropic.claude-sonnet-4-20250514-v1:0",
+    "anthropic.claude-opus-4-1-20250805-v1:0",
 ]
 
 T = TypeVar("T", bound=BaseModel)
@@ -349,6 +362,42 @@ class BedrockModel(Model):
 
         return events
 
+    def _has_citations_config(self, messages: Messages) -> bool:
+        """Check if any message contains document content with citations enabled.
+
+        Args:
+            messages: List of messages to check for citations config.
+
+        Returns:
+            True if any message contains a document with citations enabled, False otherwise.
+        """
+        for message in messages:
+            for content_block in message["content"]:
+                if "document" in content_block:
+                    document = content_block["document"]
+                    if "citations" in document and document["citations"] is not None:
+                        citations_config = document["citations"]
+                        if "enabled" in citations_config and citations_config["enabled"]:
+                            return True
+        return False
+
+    def _validate_citations_support(self, messages: Messages) -> None:
+        """Validate that the current model supports citations if citations are requested.
+
+        Args:
+            messages: List of messages to check for citations config.
+
+        Raises:
+            UnsupportedModelCitationsException: If citations are requested but the model doesn't support them.
+        """
+        if self._has_citations_config(messages):
+            model_id = self.config["model_id"]
+            # Bedrock model IDs may include a cross-region prefix (e.g., "us.") before the model ID.
+            # Treat a model as supported if its ID ends with any of the supported model IDs.
+            is_supported = any(model_id.endswith(supported_id) for supported_id in CITATION_SUPPORTED_MODELS)
+            if not is_supported:
+                raise UnsupportedModelCitationsException(model_id, CITATION_SUPPORTED_MODELS)
+
     @override
     async def stream(
         self,
@@ -374,7 +423,10 @@ class BedrockModel(Model):
         Raises:
             ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: If the model service is throttling requests.
+            UnsupportedModelCitationsException: If citations are requested but the model doesn't support them.
         """
+        # Validate citations support before starting the thread (fail fast in async context)
+        self._validate_citations_support(messages)
 
         def callback(event: Optional[StreamEvent] = None) -> None:
             loop.call_soon_threadsafe(queue.put_nowait, event)
@@ -510,7 +562,7 @@ class BedrockModel(Model):
         yield {"messageStart": {"role": response["output"]["message"]["role"]}}
 
         # Process content blocks
-        for content in response["output"]["message"]["content"]:
+        for content in cast(list[ContentBlock], response["output"]["message"]["content"]):
             # Yield contentBlockStart event if needed
             if "toolUse" in content:
                 yield {
@@ -553,6 +605,25 @@ class BedrockModel(Model):
                             }
                         }
                     }
+            elif "citationsContent" in content:
+                # For non-streaming citations, emit text and metadata deltas in sequence
+                # to match streaming behavior where they flow naturally
+                if "content" in content["citationsContent"]:
+                    text_content = "".join([content["text"] for content in content["citationsContent"]["content"]])
+                    yield {
+                        "contentBlockDelta": {"delta": {"text": text_content}},
+                    }
+
+                for citation in content["citationsContent"]["citations"]:
+                    # Then emit citation metadata (for structure)
+                    from ..types.streaming import CitationsDelta
+
+                    citation_metadata: CitationsDelta = {
+                        "title": citation["title"],
+                        "location": citation["location"],
+                        "sourceContent": citation["sourceContent"],
+                    }
+                    yield {"contentBlockDelta": {"delta": {"citation": citation_metadata}}}
 
             # Yield contentBlockStop event
             yield {"contentBlockStop": {}}

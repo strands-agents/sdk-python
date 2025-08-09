@@ -128,6 +128,13 @@ def handle_content_block_delta(
         state["text"] += delta_content["text"]
         callback_event["callback"] = {"data": delta_content["text"], "delta": delta_content}
 
+    elif "citation" in delta_content:
+        if "citationsContent" not in state:
+            state["citationsContent"] = []
+
+        state["citationsContent"].append(delta_content["citation"])
+        callback_event["callback"] = {"citation_metadata": delta_content["citation"], "delta": delta_content}
+
     elif "reasoningContent" in delta_content:
         if "text" in delta_content["reasoningContent"]:
             if "reasoningText" not in state:
@@ -168,6 +175,7 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
     current_tool_use = state["current_tool_use"]
     text = state["text"]
     reasoning_text = state["reasoningText"]
+    citations_content = state["citationsContent"] if "citationsContent" in state else []
 
     if current_tool_use:
         if "input" not in current_tool_use:
@@ -205,6 +213,18 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
             }
         )
         state["reasoningText"] = ""
+
+    # Handle citations_content independently - not as elif since we can have both text and citations
+    if citations_content:
+        # Convert CitationsDelta objects back to CitationsContentBlock format
+        # that matches non-streaming behavior
+        from ..types.citations import CitationsContentBlock
+
+        citations_block: CitationsContentBlock = {
+            "citations": citations_content  # citations_content contains CitationsDelta objects
+        }
+        content.append({"citationsContent": citations_block})
+        state["citationsContent"] = []
 
     return state
 
@@ -264,6 +284,7 @@ async def process_stream(chunks: AsyncIterable[StreamEvent]) -> AsyncGenerator[d
         "current_tool_use": {},
         "reasoningText": "",
         "signature": "",
+        "citationsContent": [],
     }
     state["content"] = state["message"]["content"]
 

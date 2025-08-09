@@ -12,7 +12,7 @@ from botocore.exceptions import ClientError, EventStreamError
 import strands
 from strands.models import BedrockModel
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, DEFAULT_BEDROCK_REGION
-from strands.types.exceptions import ModelThrottledException
+from strands.types.exceptions import ModelThrottledException, UnsupportedModelCitationsException
 from strands.types.tools import ToolSpec
 
 
@@ -1228,3 +1228,205 @@ def test_format_request_cleans_tool_result_content_blocks(model, model_id):
     assert tool_result == expected
     assert "extraField" not in tool_result
     assert "mcpMetadata" not in tool_result
+
+
+# Citation validation tests
+
+
+def test_has_citations_config_with_enabled_citations(bedrock_client):
+    """Test _has_citations_config returns True when citations are enabled."""
+    model = BedrockModel()
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "document": {
+                        "name": "test.pdf",
+                        "source": {"bytes": b"test content"},
+                        "format": "pdf",
+                        "citations": {"enabled": True},
+                    }
+                }
+            ],
+        }
+    ]
+
+    assert model._has_citations_config(messages) is True
+
+
+def test_has_citations_config_with_disabled_citations(bedrock_client):
+    """Test _has_citations_config returns False when citations are disabled."""
+    model = BedrockModel()
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "document": {
+                        "name": "test.pdf",
+                        "source": {"bytes": b"test content"},
+                        "format": "pdf",
+                        "citations": {"enabled": False},
+                    }
+                }
+            ],
+        }
+    ]
+
+    assert model._has_citations_config(messages) is False
+
+
+def test_has_citations_config_with_no_citations(bedrock_client):
+    """Test _has_citations_config returns False when no citations config."""
+    model = BedrockModel()
+    messages = [
+        {
+            "role": "user",
+            "content": [{"document": {"name": "test.pdf", "source": {"bytes": b"test content"}, "format": "pdf"}}],
+        }
+    ]
+
+    assert model._has_citations_config(messages) is False
+
+
+def test_has_citations_config_with_no_documents(bedrock_client):
+    """Test _has_citations_config returns False when no documents."""
+    model = BedrockModel()
+    messages = [{"role": "user", "content": [{"text": "test message"}]}]
+
+    assert model._has_citations_config(messages) is False
+
+
+def test_validate_citations_support_with_supported_model(bedrock_client):
+    """Test _validate_citations_support passes with supported model."""
+    model = BedrockModel(model_id="anthropic.claude-3-5-sonnet-20241022-v2:0")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "document": {
+                        "name": "test.pdf",
+                        "source": {"bytes": b"test content"},
+                        "format": "pdf",
+                        "citations": {"enabled": True},
+                    }
+                }
+            ],
+        }
+    ]
+
+    # Should not raise an exception
+    model._validate_citations_support(messages)
+
+
+def test_validate_citations_support_with_unsupported_model(bedrock_client):
+    """Test _validate_citations_support raises exception with unsupported model."""
+    model = BedrockModel(model_id="us.anthropic.claude-3-5-haiku-20241022-v1:0")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "document": {
+                        "name": "test.pdf",
+                        "source": {"bytes": b"test content"},
+                        "format": "pdf",
+                        "citations": {"enabled": True},
+                    }
+                }
+            ],
+        }
+    ]
+
+    with pytest.raises(UnsupportedModelCitationsException) as exc_info:
+        model._validate_citations_support(messages)
+
+    assert "us.anthropic.claude-3-5-haiku-20241022-v1:0" in str(exc_info.value)
+    assert "anthropic.claude-3-5-sonnet-20241022-v2:0" in str(exc_info.value)
+
+
+def test_validate_citations_support_with_no_citations(bedrock_client):
+    """Test _validate_citations_support passes when no citations are requested."""
+    model = BedrockModel(model_id="us.anthropic.claude-3-5-haiku-20241022-v1:0")
+    messages = [{"role": "user", "content": [{"text": "test message"}]}]
+
+    # Should not raise an exception since no citations are requested
+    model._validate_citations_support(messages)
+
+
+@pytest.mark.asyncio
+async def test_stream_with_citations_unsupported_model(bedrock_client, alist):
+    """Test that stream raises exception for unsupported model with citations."""
+    model = BedrockModel(model_id="us.anthropic.claude-3-5-haiku-20241022-v1:0")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "document": {
+                        "name": "test.pdf",
+                        "source": {"bytes": b"test content"},
+                        "format": "pdf",
+                        "citations": {"enabled": True},
+                    }
+                },
+                {"text": "What does this document say?"},
+            ],
+        }
+    ]
+
+    with pytest.raises(UnsupportedModelCitationsException) as exc_info:
+        await alist(model.stream(messages))
+
+    assert "us.anthropic.claude-3-5-haiku-20241022-v1:0" in str(exc_info.value)
+    assert "anthropic.claude-3-5-sonnet-20241022-v2:0" in str(exc_info.value)
+
+    # Verify the Bedrock client was not called since validation failed early
+    bedrock_client.converse_stream.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_stream_with_citations_supported_model(bedrock_client, alist):
+    """Test that stream works with supported model and citations."""
+    model = BedrockModel(model_id="anthropic.claude-opus-4-20250514-v1:0")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "document": {
+                        "name": "test.pdf",
+                        "source": {"bytes": b"test content"},
+                        "format": "pdf",
+                        "citations": {"enabled": True},
+                    }
+                },
+                {"text": "What does this document say?"},
+            ],
+        }
+    ]
+
+    # Mock successful response
+    bedrock_client.converse_stream.return_value = {"stream": [{"messageStart": {"role": "assistant"}}]}
+
+    # Should not raise an exception
+    await alist(model.stream(messages))
+
+    # Verify the Bedrock client was called since validation passed
+    bedrock_client.converse_stream.assert_called_once()
+
+
+def test_unsupported_model_citations_exception_message():
+    """Test that UnsupportedModelCitationsException has proper message format."""
+    model_id = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+    supported_models = ["anthropic.claude-3-5-sonnet-20241022-v2:0"]
+
+    exception = UnsupportedModelCitationsException(model_id, supported_models)
+
+    assert model_id in str(exception)
+    assert "anthropic.claude-3-5-sonnet-20241022-v2:0" in str(exception)
+    assert "does not support document citations" in str(exception)
+    assert exception.model_id == model_id
+    assert exception.supported_models == supported_models

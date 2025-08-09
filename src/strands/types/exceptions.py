@@ -75,3 +75,27 @@ class SessionException(Exception):
     """Exception raised when session operations fail."""
 
     pass
+
+
+class UnsupportedModelCitationsException(Exception):
+    """Exception raised when trying to use citations with an unsupported model.
+
+    This exception is raised when a user attempts to use document citations with a Bedrock model
+    that does not support the citations feature. Citations are only supported by specific Claude models.
+    """
+
+    def __init__(self, model_id: str, supported_models: list[str]) -> None:
+        """Initialize exception with model information.
+
+        Args:
+            model_id: The model ID that doesn't support citations.
+            supported_models: List of model IDs that do support citations.
+        """
+        self.model_id = model_id
+        self.supported_models = supported_models
+
+        message = (
+            f"Model '{model_id}' does not support document citations. "
+            f"Supported models for citations are: {', '.join(supported_models)}"
+        )
+        super().__init__(message)
