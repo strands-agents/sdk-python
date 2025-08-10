@@ -3,7 +3,9 @@
 Provides minimal foundation for multi-agent patterns (Swarm, Graph).
 """
 
+import asyncio
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Union
@@ -86,7 +88,12 @@ class MultiAgentBase(ABC):
         """Invoke asynchronously."""
         raise NotImplementedError("invoke_async not implemented")
 
-    @abstractmethod
     def __call__(self, task: str | list[ContentBlock], **kwargs: Any) -> MultiAgentResult:
         """Invoke synchronously."""
-        raise NotImplementedError("__call__ not implemented")
+
+        def execute() -> MultiAgentResult:
+            return asyncio.run(self.invoke_async(task, **kwargs))
+
+        with ThreadPoolExecutor() as executor:
+            future = executor.submit(execute)
+            return future.result()
