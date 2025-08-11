@@ -1,6 +1,7 @@
 """Types for agent invocation state and context."""
 
 from typing import TYPE_CHECKING, Any, Dict, TypedDict
+from uuid import UUID
 
 from opentelemetry.trace import Span
 
@@ -34,8 +35,8 @@ class InvocationState(TypedDict, total=False):
     agent: "Agent"  # Forward reference to avoid circular imports
 
     # Event loop cycle management
-    event_loop_cycle_id: str
-    event_loop_parent_cycle_id: str
+    event_loop_cycle_id: UUID
+    event_loop_parent_cycle_id: UUID
 
     # State management
     request_state: Dict[str, Any]
