@@ -38,6 +38,7 @@ from ..tools.registry import ToolRegistry
 from ..tools.watcher import ToolWatcher
 from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
+from ..types.invocation import InvocationState
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
@@ -523,7 +524,7 @@ class Agent:
                 raise
 
     async def _run_loop(
-        self, message: Message, invocation_state: dict[str, Any]
+        self, message: Message, invocation_state: InvocationState
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the agent's event loop with the given message and parameters.
 
@@ -563,7 +564,7 @@ class Agent:
             self.conversation_manager.apply_management(self)
             self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
-    async def _execute_event_loop_cycle(self, invocation_state: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
+    async def _execute_event_loop_cycle(self, invocation_state: InvocationState) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the event loop cycle with retry logic for context window limits.
 
         This internal method handles the execution of the event loop cycle and implements

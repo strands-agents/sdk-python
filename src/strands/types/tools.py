@@ -8,6 +8,8 @@ These types are modeled after the Bedrock API.
 from abc import ABC, abstractmethod
 from typing import Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
 
+from .invocation import InvocationState
+
 from typing_extensions import TypedDict
 
 from .media import DocumentContent, ImageContent
@@ -129,7 +131,7 @@ class StrandsContext(TypedDict, total=False):
     """
 
     tool_use: ToolUse
-    invocation_state: dict[str, Any]
+    invocation_state: InvocationState
 
 
 ToolChoice = Union[
@@ -231,7 +233,7 @@ class AgentTool(ABC):
 
     @abstractmethod
     # pragma: no cover
-    def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:
+    def stream(self, tool_use: ToolUse, invocation_state: InvocationState, **kwargs: Any) -> ToolGenerator:
         """Stream tool events and return the final result.
 
         Args:

@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 from ...hooks import HookEvent
 from ...types.content import Message
+from ...types.invocation import InvocationState
 from ...types.streaming import StopReason
 from ...types.tools import AgentTool, ToolResult, ToolUse
 
@@ -30,7 +31,7 @@ class BeforeToolInvocationEvent(HookEvent):
 
     selected_tool: Optional[AgentTool]
     tool_use: ToolUse
-    invocation_state: dict[str, Any]
+    invocation_state: InvocationState
 
     def _can_write(self, name: str) -> bool:
         return name in ["selected_tool", "tool_use"]
@@ -57,7 +58,7 @@ class AfterToolInvocationEvent(HookEvent):
 
     selected_tool: Optional[AgentTool]
     tool_use: ToolUse
-    invocation_state: dict[str, Any]
+    invocation_state: InvocationState
     result: ToolResult
     exception: Optional[Exception] = None
 

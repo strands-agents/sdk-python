@@ -61,6 +61,7 @@ import docstring_parser
 from pydantic import BaseModel, Field, create_model
 from typing_extensions import override
 
+from ..types.invocation import InvocationState
 from ..types.tools import AgentTool, JSONSchema, StrandsContext, ToolGenerator, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
@@ -253,7 +254,7 @@ class FunctionToolMetadata:
             raise ValueError(f"Validation failed for input parameters: {error_msg}") from e
 
     def inject_special_parameters(
-        self, validated_input: dict[str, Any], tool_use: ToolUse, invocation_state: dict[str, Any]
+        self, validated_input: dict[str, Any], tool_use: ToolUse, invocation_state: InvocationState
     ) -> None:
         """Inject special framework-provided parameters into the validated input.
 
@@ -413,7 +414,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         return "function"
 
     @override
-    async def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:
+    async def stream(self, tool_use: ToolUse, invocation_state: InvocationState, **kwargs: Any) -> ToolGenerator:
         """Stream the tool with a tool use specification.
 
         This method handles tool use streams from a Strands Agent. It validates the input,

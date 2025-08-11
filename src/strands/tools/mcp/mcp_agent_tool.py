@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from mcp.types import Tool as MCPTool
 from typing_extensions import override
 
+from ...types.invocation import InvocationState
 from ...types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
 
 if TYPE_CHECKING:
@@ -75,7 +76,7 @@ class MCPAgentTool(AgentTool):
         return "python"
 
     @override
-    async def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:
+    async def stream(self, tool_use: ToolUse, invocation_state: InvocationState, **kwargs: Any) -> ToolGenerator:
         """Stream the MCP tool.
 
         This method delegates the tool stream to the MCP server connection, passing the tool use ID, tool name, and
