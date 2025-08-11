@@ -10,6 +10,7 @@ from botocore.config import Config as BotocoreConfig
 
 from strands.models.sagemaker import (
     FunctionCall,
+    ModelProvider,
     SageMakerAIModel,
     ToolCall,
     UsageMetadata,
@@ -522,6 +523,248 @@ class TestSageMakerAIModel:
         assert usage_data["totalTokens"] == 30
 
 
+class TestModelProvider:
+    """Test suite for model provider functionality."""
+
+    def test_default_model_provider(self, boto_session):
+        """Test that default model provider is set to OpenAI."""
+        endpoint_config = {"endpoint_name": "test-endpoint", "region_name": "us-east-1"}
+        payload_config = {"max_tokens": 1024}
+
+        model = SageMakerAIModel(
+            endpoint_config=endpoint_config, payload_config=payload_config, boto_session=boto_session
+        )
+
+        assert model.endpoint_config["model_provider"] == ModelProvider.OPENAI
+
+    def test_model_provider_enum(self, boto_session):
+        """Test setting model provider using enum."""
+        endpoint_config = {
+            "endpoint_name": "test-endpoint",
+            "region_name": "us-east-1",
+            "model_provider": ModelProvider.LLAMA,
+        }
+        payload_config = {"max_tokens": 1024}
+
+        model = SageMakerAIModel(
+            endpoint_config=endpoint_config, payload_config=payload_config, boto_session=boto_session
+        )
+
+        assert model.endpoint_config["model_provider"] == ModelProvider.LLAMA
+
+    def test_model_provider_string(self, boto_session):
+        """Test setting model provider using string."""
+        endpoint_config = {"endpoint_name": "test-endpoint", "region_name": "us-east-1", "model_provider": "mistral"}
+        payload_config = {"max_tokens": 1024}
+
+        model = SageMakerAIModel(
+            endpoint_config=endpoint_config, payload_config=payload_config, boto_session=boto_session
+        )
+
+        assert model.endpoint_config["model_provider"] == ModelProvider.MISTRAL
+
+    def test_custom_formatter_required(self, boto_session):
+        """Test that custom formatter is required when using CUSTOM provider."""
+        endpoint_config = {
+            "endpoint_name": "test-endpoint",
+            "region_name": "us-east-1",
+            "model_provider": ModelProvider.CUSTOM,
+        }
+        payload_config = {"max_tokens": 1024}
+
+        with pytest.raises(ValueError, match="custom_formatter is required when model_provider is CUSTOM"):
+            SageMakerAIModel(endpoint_config=endpoint_config, payload_config=payload_config, boto_session=boto_session)
+
+    def test_custom_formatter_with_function(self, boto_session):
+        """Test using custom formatter with a function."""
+
+        def custom_formatter(messages, system_prompt=None):
+            formatted = []
+            if system_prompt:
+                formatted.append({"role": "system", "text": system_prompt})
+            for msg in messages:
+                formatted.append({"role": msg["role"], "text": msg["content"][0]["text"]})
+            return formatted
+
+        endpoint_config = {
+            "endpoint_name": "test-endpoint",
+            "region_name": "us-east-1",
+            "model_provider": ModelProvider.CUSTOM,
+            "custom_formatter": custom_formatter,
+        }
+        payload_config = {"max_tokens": 1024}
+
+        model = SageMakerAIModel(
+            endpoint_config=endpoint_config, payload_config=payload_config, boto_session=boto_session
+        )
+
+        assert model.endpoint_config["model_provider"] == ModelProvider.CUSTOM
+        assert model.endpoint_config["custom_formatter"] == custom_formatter
+
+    def test_format_messages_openai_provider(self, boto_session, messages, system_prompt):
+        """Test message formatting with OpenAI provider."""
+        endpoint_config = {
+            "endpoint_name": "test-endpoint",
+            "region_name": "us-east-1",
+            "model_provider": ModelProvider.OPENAI,
+        }
+        payload_config = {"max_tokens": 1024}
+
+        model = SageMakerAIModel(
+            endpoint_config=endpoint_config, payload_config=payload_config, boto_session=boto_session
+        )
+
+        formatted = model._format_messages_for_provider(messages, system_prompt)
+
+        assert len(formatted) == 2  # system + user message
+        assert formatted[0]["role"] == "system"
+        assert formatted[0]["content"] == system_prompt
+        assert formatted[1]["role"] == "user"
+        assert len(formatted[1]["content"]) == 1
+        assert formatted[1]["content"][0]["text"] == "What is the capital of France?"
+
+    def test_format_messages_llama_provider(self, boto_session, messages, system_prompt):
+        """Test message formatting with Llama provider."""
+        endpoint_config = {
+            "endpoint_name": "test-endpoint",
+            "region_name": "us-east-1",
+            "model_provider": ModelProvider.LLAMA,
+        }
+        payload_config = {"max_tokens": 1024}
+
+        model = SageMakerAIModel(
+            endpoint_config=endpoint_config, payload_config=payload_config, boto_session=boto_session
+        )
+
+        formatted = model._format_messages_for_provider(messages, system_prompt)
+
+        assert len(formatted) == 2  # system + user message
+        assert formatted[0]["role"] == "system"
+        assert formatted[0]["content"] == system_prompt
+        assert formatted[1]["role"] == "user"
+        assert isinstance(formatted[1]["content"], str)  # Llama uses string content
+        assert "What is the capital of France?" in formatted[1]["content"]
+
+    def test_format_messages_custom_provider(self, boto_session, messages, system_prompt):
+        """Test message formatting with custom provider."""
+
+        def custom_formatter(msgs, sys_prompt=None):
+            result = [{"custom_format": True}]
+            if sys_prompt:
+                result.append({"system": sys_prompt})
+            for msg in msgs:
+                result.append({"speaker": msg["role"], "text": msg["content"][0]["text"]})
+            return result
+
+        endpoint_config = {
+            "endpoint_name": "test-endpoint",
+            "region_name": "us-east-1",
+            "model_provider": ModelProvider.CUSTOM,
+            "custom_formatter": custom_formatter,
+        }
+        payload_config = {"max_tokens": 1024}
+
+        model = SageMakerAIModel(
+            endpoint_config=endpoint_config, payload_config=payload_config, boto_session=boto_session
+        )
+
+        formatted = model._format_messages_for_provider(messages, system_prompt)
+
+        assert len(formatted) == 3  # custom marker + system + user
+        assert formatted[0]["custom_format"] is True
+        assert formatted[1]["system"] == system_prompt
+        assert formatted[2]["speaker"] == "user"
+        assert formatted[2]["text"] == "What is the capital of France?"
+
+    def test_format_messages_with_tool_use_llama(self, boto_session, system_prompt):
+        """Test Llama formatting with tool use messages."""
+        messages_with_tools = [
+            {"role": "user", "content": [{"text": "What's the weather?"}]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"toolUse": {"toolUseId": "tool123", "name": "get_weather", "input": {"location": "Paris"}}}
+                ],
+            },
+            {
+                "role": "user",
+                "content": [{"toolResult": {"toolUseId": "tool123", "content": [{"text": "Sunny, 25°C"}]}}],
+            },
+        ]
+
+        endpoint_config = {
+            "endpoint_name": "test-endpoint",
+            "region_name": "us-east-1",
+            "model_provider": ModelProvider.LLAMA,
+        }
+        payload_config = {"max_tokens": 1024}
+
+        model = SageMakerAIModel(
+            endpoint_config=endpoint_config, payload_config=payload_config, boto_session=boto_session
+        )
+
+        formatted = model._format_messages_for_provider(messages_with_tools, system_prompt)
+
+        assert len(formatted) == 4  # system + 3 messages
+        # Check that tool calls are formatted as strings for Llama
+        assistant_msg = formatted[2]
+        assert isinstance(assistant_msg["content"], str)
+        assert "TOOL_CALL" in assistant_msg["content"]
+        assert "get_weather" in assistant_msg["content"]
+
+        # Check that tool results are formatted as strings
+        tool_result_msg = formatted[3]
+        assert isinstance(tool_result_msg["content"], str)
+        assert "TOOL_RESULT" in tool_result_msg["content"]
+        assert "Sunny, 25°C" in tool_result_msg["content"]
+
+    def test_format_messages_anthropic_with_images(self, boto_session):
+        """Test Anthropic formatting with image content."""
+        import base64
+
+        # Create mock image data
+        image_bytes = b"fake_image_data"
+        messages_with_image = [
+            {
+                "role": "user",
+                "content": [
+                    {"text": "What's in this image?"},
+                    {"image": {"format": "png", "source": {"bytes": image_bytes}}},
+                ],
+            }
+        ]
+
+        endpoint_config = {
+            "endpoint_name": "test-endpoint",
+            "region_name": "us-east-1",
+            "model_provider": ModelProvider.ANTHROPIC,
+        }
+        payload_config = {"max_tokens": 1024}
+
+        model = SageMakerAIModel(
+            endpoint_config=endpoint_config, payload_config=payload_config, boto_session=boto_session
+        )
+
+        formatted = model._format_messages_for_provider(messages_with_image)
+
+        assert len(formatted) == 1
+        user_msg = formatted[0]
+        assert user_msg["role"] == "user"
+        assert len(user_msg["content"]) == 2
+
+        # Check text content
+        text_content = user_msg["content"][0]
+        assert text_content["type"] == "text"
+        assert text_content["text"] == "What's in this image?"
+
+        # Check image content
+        image_content = user_msg["content"][1]
+        assert image_content["type"] == "image"
+        assert image_content["source"]["type"] == "base64"
+        assert image_content["source"]["media_type"] == "image/png"
+        assert image_content["source"]["data"] == base64.b64encode(image_bytes).decode("utf-8")
+
+
 class TestDataClasses:
     """Test suite for data classes."""
 
@@ -572,3 +815,28 @@ class TestDataClasses:
         assert tool2.type == "function"
         assert tool2.function.name == "get_time"
         assert tool2.function.arguments == '{"timezone": "UTC"}'
+
+
+class TestModelProviderEnum:
+    """Test suite for ModelProvider enum."""
+
+    def test_model_provider_values(self):
+        """Test ModelProvider enum values."""
+        assert ModelProvider.OPENAI.value == "openai"
+        assert ModelProvider.MISTRAL.value == "mistral"
+        assert ModelProvider.LLAMA.value == "llama"
+        assert ModelProvider.ANTHROPIC.value == "anthropic"
+        assert ModelProvider.CUSTOM.value == "custom"
+
+    def test_model_provider_from_string(self):
+        """Test creating ModelProvider from string."""
+        assert ModelProvider("openai") == ModelProvider.OPENAI
+        assert ModelProvider("mistral") == ModelProvider.MISTRAL
+        assert ModelProvider("llama") == ModelProvider.LLAMA
+        assert ModelProvider("anthropic") == ModelProvider.ANTHROPIC
+        assert ModelProvider("custom") == ModelProvider.CUSTOM
+
+    def test_invalid_model_provider(self):
+        """Test invalid model provider string raises ValueError."""
+        with pytest.raises(ValueError):
+            ModelProvider("invalid_provider")
