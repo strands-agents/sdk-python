@@ -1,13 +1,16 @@
 """Types for agent invocation state and context."""
 
-from typing import TYPE_CHECKING, Any, Dict, TypedDict
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, TypedDict
 from uuid import UUID
 
 from opentelemetry.trace import Span
 
 if TYPE_CHECKING:
     from ..agent import Agent
+    from ..models.model import Model
     from ..telemetry import Trace
+    from ..types.content import Message
+    from ..types.tools import ToolConfig
 
 
 class InvocationState(TypedDict, total=False):
@@ -26,6 +29,12 @@ class InvocationState(TypedDict, total=False):
         event_loop_cycle_span: Span object for distributed tracing.
         event_loop_parent_span: Parent span for tracing hierarchy.
 
+    Agent Context Fields:
+        model: The model instance used by the agent for inference.
+        system_prompt: The system prompt used to guide the agent's behavior.
+        messages: The conversation history as a list of messages.
+        tool_config: Configuration for tools available to the agent.
+
     Additional Fields:
         Any additional keyword arguments passed during agent invocation or added
         by hooks and tools during execution are also included in this state.
@@ -43,5 +52,11 @@ class InvocationState(TypedDict, total=False):
 
     # Tracing and monitoring
     event_loop_cycle_trace: "Trace"  # "Trace"  # Trace object type varies by implementation
-    event_loop_cycle_span: Span  # Span object type varies by implementation
-    event_loop_parent_span: Span  # Parent span for tracing hierarchy
+    event_loop_cycle_span: Span | None  # Span object type varies by implementation
+    event_loop_parent_span: Span | None  # Parent span for tracing hierarchy
+
+    # Agent context fields
+    model: "Model"  # The model instance used by the agent
+    system_prompt: Optional[str]  # The system prompt for the agent
+    messages: List["Message"]  # The conversation history
+    tool_config: "ToolConfig"  # Configuration for available tools
