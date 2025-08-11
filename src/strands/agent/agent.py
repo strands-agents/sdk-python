@@ -139,7 +139,7 @@ class Agent:
 
                 async def acall() -> ToolResult:
                     # Pass kwargs as invocation_state
-                    async for event in run_tool(self._agent, tool_use, kwargs):
+                    async for event in run_tool(self._agent, tool_use, InvocationState(**kwargs)):
                         _ = event
 
                     return cast(ToolResult, event)
@@ -507,7 +507,7 @@ class Agent:
         self.trace_span = self._start_agent_trace_span(message)
         with trace_api.use_span(self.trace_span):
             try:
-                events = self._run_loop(message, invocation_state=kwargs)
+                events = self._run_loop(message, invocation_state=InvocationState(**kwargs))
                 async for event in events:
                     if "callback" in event:
                         callback_handler(**event["callback"])
