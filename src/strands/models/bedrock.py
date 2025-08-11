@@ -489,7 +489,7 @@ class BedrockModel(Model):
 
         await task
 
-    def _strip_reasoning_content_from_message(self, message: dict) -> dict:
+    def _strip_reasoning_content_from_message(self, message: Message) -> Message:
         # Deep copy the message to avoid mutating original
         import copy
 
