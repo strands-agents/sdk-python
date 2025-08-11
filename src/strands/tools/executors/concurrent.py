@@ -3,6 +3,8 @@
 import asyncio
 from typing import TYPE_CHECKING, Any
 
+from typing_extensions import override
+
 from ...experimental.tools.executors import Executor as SAExecutor
 from ...types.tools import ToolGenerator, ToolUse
 
@@ -13,6 +15,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class Executor(SAExecutor):
     """Concurrent tool executor."""
 
+    @override
     async def execute(
         self, agent: "Agent", tool_uses: list[ToolUse], invocation_state: dict[str, Any]
     ) -> ToolGenerator:
