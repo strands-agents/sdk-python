@@ -61,7 +61,7 @@ class StrandsA2AExecutor(AgentExecutor):
             task = new_task(context.message)  # type: ignore
             await event_queue.enqueue_event(task)
 
-        updater = TaskUpdater(event_queue, task.id, task.contextId)
+        updater = TaskUpdater(event_queue, task.id, task.context_id)
 
         try:
             await self._execute_streaming(context, updater)

@@ -23,6 +23,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
     """File-based session manager for local filesystem storage.
 
     Creates the following filesystem structure for the session storage:
+    ```bash
     /<sessions_dir>/
     └── session_<session_id>/
         ├── session.json                # Session metadata
@@ -32,7 +33,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
                 └── messages/
                     ├── message_<id1>.json
                     └── message_<id2>.json
-
+    ```
     """
 
     def __init__(self, session_id: str, storage_dir: Optional[str] = None, **kwargs: Any):

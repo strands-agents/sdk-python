@@ -28,9 +28,15 @@ from ..telemetry.metrics import Trace
 from ..telemetry.tracer import get_tracer
 from ..tools.executor import run_tools, validate_and_prepare_tools
 from ..types.content import Message
-from ..types.exceptions import ContextWindowOverflowException, EventLoopException, ModelThrottledException
+from ..types.exceptions import (
+    ContextWindowOverflowException,
+    EventLoopException,
+    MaxTokensReachedException,
+    ModelThrottledException,
+)
 from ..types.streaming import Metrics, StopReason
 from ..types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolGenerator, ToolResult, ToolUse
+from ._recover_message_on_max_tokens_reached import recover_message_on_max_tokens_reached
 from .streaming import stream_messages
 
 if TYPE_CHECKING:
@@ -151,6 +157,9 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
                     )
                 )
 
+                if stop_reason == "max_tokens":
+                    message = recover_message_on_max_tokens_reached(message)
+
                 if model_invoke_span:
                     tracer.end_model_invoke_span(model_invoke_span, message, usage, stop_reason)
                 break  # Success! Break out of retry loop
@@ -200,6 +209,22 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
         agent.event_loop_metrics.update_usage(usage)
         agent.event_loop_metrics.update_metrics(metrics)
 
+        if stop_reason == "max_tokens":
+            """
+            Handle max_tokens limit reached by the model.
+            
+            When the model reaches its maximum token limit, this represents a potentially unrecoverable
+            state where the model's response was truncated. By default, Strands fails hard with an
+            MaxTokensReachedException to maintain consistency with other failure types.
+            """
+            raise MaxTokensReachedException(
+                message=(
+                    "Agent has reached an unrecoverable state due to max_tokens limit. "
+                    "For more information see: "
+                    "https://strandsagents.com/latest/user-guide/concepts/agents/agent-loop/#maxtokensreachedexception"
+                )
+            )
+
         # If the model is requesting to use tools
         if stop_reason == "tool_use":
             # Handle tool execution
@@ -231,7 +256,8 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
         # Don't yield or log the exception - we already did it when we
         # raised the exception and we don't need that duplication.
         raise
-    except ContextWindowOverflowException as e:
+    except (ContextWindowOverflowException, MaxTokensReachedException) as e:
+        # Special cased exceptions which we want to bubble up rather than get wrapped in an EventLoopException
         if cycle_span:
             tracer.end_span_with_error(cycle_span, str(e), e)
         raise e

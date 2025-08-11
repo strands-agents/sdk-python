@@ -55,7 +55,7 @@ class AnthropicModel(Model):
                 For a complete list of supported parameters, see https://docs.anthropic.com/en/api/messages.
         """
 
-        max_tokens: Required[str]
+        max_tokens: Required[int]
         model_id: Required[str]
         params: Optional[dict[str, Any]]
 
@@ -414,7 +414,7 @@ class AnthropicModel(Model):
         stop_reason, messages, _, _ = event["stop"]
 
         if stop_reason != "tool_use":
-            raise ValueError(f"Model returned stop_reason: {stop_reason} instead of \"tool_use\".")
+            raise ValueError(f'Model returned stop_reason: {stop_reason} instead of "tool_use".')
 
         content = messages["content"]
         output_response: dict[str, Any] | None = None

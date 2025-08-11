@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from mcp import ListToolsResult
 from mcp.types import CallToolResult as MCPCallToolResult
+from mcp.types import GetPromptResult, ListPromptsResult, Prompt, PromptMessage
 from mcp.types import TextContent as MCPTextContent
 from mcp.types import Tool as MCPTool
 
@@ -404,3 +405,64 @@ def test_exception_when_future_not_running():
 
         # Verify that set_exception was not called since the future was not running
         mock_future.set_exception.assert_not_called()
+
+
+# Prompt Tests - Sync Methods
+
+
+def test_list_prompts_sync(mock_transport, mock_session):
+    """Test that list_prompts_sync correctly retrieves prompts."""
+    mock_prompt = Prompt(name="test_prompt", description="A test prompt", id="prompt_1")
+    mock_session.list_prompts.return_value = ListPromptsResult(prompts=[mock_prompt])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.list_prompts_sync()
+
+        mock_session.list_prompts.assert_called_once_with(cursor=None)
+        assert len(result.prompts) == 1
+        assert result.prompts[0].name == "test_prompt"
+        assert result.nextCursor is None
+
+
+def test_list_prompts_sync_with_pagination_token(mock_transport, mock_session):
+    """Test that list_prompts_sync correctly passes pagination token and returns next cursor."""
+    mock_prompt = Prompt(name="test_prompt", description="A test prompt", id="prompt_1")
+    mock_session.list_prompts.return_value = ListPromptsResult(prompts=[mock_prompt], nextCursor="next_page_token")
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.list_prompts_sync(pagination_token="current_page_token")
+
+        mock_session.list_prompts.assert_called_once_with(cursor="current_page_token")
+        assert len(result.prompts) == 1
+        assert result.prompts[0].name == "test_prompt"
+        assert result.nextCursor == "next_page_token"
+
+
+def test_list_prompts_sync_session_not_active():
+    """Test that list_prompts_sync raises an error when session is not active."""
+    client = MCPClient(MagicMock())
+
+    with pytest.raises(MCPClientInitializationError, match="client session is not running"):
+        client.list_prompts_sync()
+
+
+def test_get_prompt_sync(mock_transport, mock_session):
+    """Test that get_prompt_sync correctly retrieves a prompt."""
+    mock_message = PromptMessage(role="user", content=MCPTextContent(type="text", text="This is a test prompt"))
+    mock_session.get_prompt.return_value = GetPromptResult(messages=[mock_message])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.get_prompt_sync("test_prompt_id", {"key": "value"})
+
+        mock_session.get_prompt.assert_called_once_with("test_prompt_id", arguments={"key": "value"})
+        assert len(result.messages) == 1
+        assert result.messages[0].role == "user"
+        assert result.messages[0].content.text == "This is a test prompt"
+
+
+def test_get_prompt_sync_session_not_active():
+    """Test that get_prompt_sync raises an error when session is not active."""
+    client = MCPClient(MagicMock())
+
+    with pytest.raises(MCPClientInitializationError, match="client session is not running"):
+        client.get_prompt_sync("test_prompt_id", {})

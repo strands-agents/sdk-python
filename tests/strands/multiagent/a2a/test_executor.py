@@ -36,7 +36,7 @@ async def test_execute_streaming_mode_with_data_events(mock_strands_agent, mock_
     # Mock the task creation
     mock_task = MagicMock()
     mock_task.id = "test-task-id"
-    mock_task.contextId = "test-context-id"
+    mock_task.context_id = "test-context-id"
     mock_request_context.current_task = mock_task
 
     await executor.execute(mock_request_context, mock_event_queue)
@@ -65,7 +65,7 @@ async def test_execute_streaming_mode_with_result_event(mock_strands_agent, mock
     # Mock the task creation
     mock_task = MagicMock()
     mock_task.id = "test-task-id"
-    mock_task.contextId = "test-context-id"
+    mock_task.context_id = "test-context-id"
     mock_request_context.current_task = mock_task
 
     await executor.execute(mock_request_context, mock_event_queue)
@@ -95,7 +95,7 @@ async def test_execute_streaming_mode_with_empty_data(mock_strands_agent, mock_r
     # Mock the task creation
     mock_task = MagicMock()
     mock_task.id = "test-task-id"
-    mock_task.contextId = "test-context-id"
+    mock_task.context_id = "test-context-id"
     mock_request_context.current_task = mock_task
 
     await executor.execute(mock_request_context, mock_event_queue)
@@ -125,7 +125,7 @@ async def test_execute_streaming_mode_with_unexpected_event(mock_strands_agent, 
     # Mock the task creation
     mock_task = MagicMock()
     mock_task.id = "test-task-id"
-    mock_task.contextId = "test-context-id"
+    mock_task.context_id = "test-context-id"
     mock_request_context.current_task = mock_task
 
     await executor.execute(mock_request_context, mock_event_queue)
@@ -156,7 +156,7 @@ async def test_execute_creates_task_when_none_exists(mock_strands_agent, mock_re
     mock_request_context.current_task = None
 
     with patch("strands.multiagent.a2a.executor.new_task") as mock_new_task:
-        mock_new_task.return_value = MagicMock(id="new-task-id", contextId="new-context-id")
+        mock_new_task.return_value = MagicMock(id="new-task-id", context_id="new-context-id")
 
         await executor.execute(mock_request_context, mock_event_queue)
 
@@ -180,7 +180,7 @@ async def test_execute_streaming_mode_handles_agent_exception(
     # Mock the task creation
     mock_task = MagicMock()
     mock_task.id = "test-task-id"
-    mock_task.contextId = "test-context-id"
+    mock_task.context_id = "test-context-id"
     mock_request_context.current_task = mock_task
 
     with pytest.raises(ServerError):
@@ -210,7 +210,7 @@ async def test_handle_agent_result_with_none_result(mock_strands_agent, mock_req
     # Mock the task creation
     mock_task = MagicMock()
     mock_task.id = "test-task-id"
-    mock_task.contextId = "test-context-id"
+    mock_task.context_id = "test-context-id"
     mock_request_context.current_task = mock_task
 
     # Mock TaskUpdater
@@ -235,7 +235,7 @@ async def test_handle_agent_result_with_result_but_no_message(
     # Mock the task creation
     mock_task = MagicMock()
     mock_task.id = "test-task-id"
-    mock_task.contextId = "test-context-id"
+    mock_task.context_id = "test-context-id"
     mock_request_context.current_task = mock_task
 
     # Mock TaskUpdater

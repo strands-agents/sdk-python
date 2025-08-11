@@ -22,9 +22,9 @@ def test_a2a_agent_initialization(mock_strands_agent):
     assert a2a_agent.strands_agent == mock_strands_agent
     assert a2a_agent.name == "Test Agent"
     assert a2a_agent.description == "A test agent for unit testing"
-    assert a2a_agent.host == "0.0.0.0"
+    assert a2a_agent.host == "127.0.0.1"
     assert a2a_agent.port == 9000
-    assert a2a_agent.http_url == "http://0.0.0.0:9000/"
+    assert a2a_agent.http_url == "http://127.0.0.1:9000/"
     assert a2a_agent.version == "0.0.1"
     assert isinstance(a2a_agent.capabilities, AgentCapabilities)
     assert len(a2a_agent.agent_skills) == 1
@@ -85,10 +85,10 @@ def test_public_agent_card(mock_strands_agent):
     assert isinstance(card, AgentCard)
     assert card.name == "Test Agent"
     assert card.description == "A test agent for unit testing"
-    assert card.url == "http://0.0.0.0:9000/"
+    assert card.url == "http://127.0.0.1:9000/"
     assert card.version == "0.0.1"
-    assert card.defaultInputModes == ["text"]
-    assert card.defaultOutputModes == ["text"]
+    assert card.default_input_modes == ["text"]
+    assert card.default_output_modes == ["text"]
     assert card.skills == []
     assert card.capabilities == a2a_agent.capabilities
 
@@ -448,7 +448,7 @@ def test_serve_with_starlette(mock_run, mock_strands_agent):
     mock_run.assert_called_once()
     args, kwargs = mock_run.call_args
     assert isinstance(args[0], Starlette)
-    assert kwargs["host"] == "0.0.0.0"
+    assert kwargs["host"] == "127.0.0.1"
     assert kwargs["port"] == 9000
 
 
@@ -462,7 +462,7 @@ def test_serve_with_fastapi(mock_run, mock_strands_agent):
     mock_run.assert_called_once()
     args, kwargs = mock_run.call_args
     assert isinstance(args[0], FastAPI)
-    assert kwargs["host"] == "0.0.0.0"
+    assert kwargs["host"] == "127.0.0.1"
     assert kwargs["port"] == 9000
 
 
