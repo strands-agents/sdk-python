@@ -1,17 +1,11 @@
-[build-system]
-requires = ["hatchling", "hatch-vcs"]
-build-backend = "hatchling.build"
-
 [project]
 name = "strands-agents"
 dynamic = ["version"]
 description = "A model-driven approach to building AI agents in just a few lines of code"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "Apache-2.0"}
-authors = [
-    {name = "AWS", email = "opensource@amazon.com"},
-]
+license = { text = "Apache-2.0" }
+authors = [{ name = "AWS", email = "opensource@amazon.com" }]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
@@ -43,56 +37,20 @@ Homepage = "https://github.com/strands-agents/sdk-python"
 "Bug Tracker" = "https://github.com/strands-agents/sdk-python/issues"
 Documentation = "https://strandsagents.com"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/strands"]
-
 [project.optional-dependencies]
-anthropic = [
-    "anthropic>=0.21.0,<1.0.0",
-]
-dev = [
-    "commitizen>=4.4.0,<5.0.0",
-    "hatch>=1.0.0,<2.0.0",
-    "moto>=5.1.0,<6.0.0",
-    "mypy>=1.15.0,<2.0.0",
-    "pre-commit>=3.2.0,<4.2.0",
-    "pytest>=8.0.0,<9.0.0",
-    "pytest-asyncio>=0.26.0,<0.27.0",
-    "pytest-cov>=4.1.0,<5.0.0",
-    "pytest-xdist>=3.0.0,<4.0.0",
-    "ruff>=0.4.4,<0.5.0",
-]
-docs = [
-    "sphinx>=5.0.0,<6.0.0",
-    "sphinx-rtd-theme>=1.0.0,<2.0.0",
-    "sphinx-autodoc-typehints>=1.12.0,<2.0.0",
-]
-litellm = [
-    "litellm>=1.72.6,<1.73.0",
-]
-llamaapi = [
-    "llama-api-client>=0.1.0,<1.0.0",
-]
-mistral = [
-    "mistralai>=1.8.2",
-]
-ollama = [
-    "ollama>=0.4.8,<1.0.0",
-]
-openai = [
-    "openai>=1.68.0,<2.0.0",
-]
-otel = [
-    "opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0",
-]
-writer = [
-    "writer-sdk>=2.2.0,<3.0.0"
-]
+anthropic = ["anthropic>=0.21.0,<1.0.0"]
+litellm = ["litellm>=1.72.6,<1.73.0"]
+llamaapi = ["llama-api-client>=0.1.0,<1.0.0"]
+mistral = ["mistralai>=1.8.2"]
+ollama = ["ollama>=0.4.8,<1.0.0"]
+openai = ["openai>=1.68.0,<2.0.0"]
+otel = ["opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0"]
+writer = ["writer-sdk>=2.2.0,<3.0.0"]
 
 sagemaker = [
     "boto3>=1.26.0,<2.0.0",
     "botocore>=1.29.0,<2.0.0",
-    "boto3-stubs[sagemaker-runtime]>=1.26.0,<2.0.0"
+    "boto3-stubs[sagemaker-runtime]>=1.26.0,<2.0.0",
 ]
 
 a2a = [
@@ -104,10 +62,12 @@ a2a = [
     "starlette>=0.46.2,<1.0.0",
 ]
 all = [
-    # anthropic
-    "anthropic>=0.21.0,<1.0.0",
+    "strands-agents[a2a,sagemaker,anthropic,litellm,llamaapi,ollama,openai,otel,mistral,writer]",
+]
 
-    # dev
+### DEPENDENCY GROUPS ### 
+[dependency-groups]
+dev = [
     "commitizen>=4.4.0,<5.0.0",
     "hatch>=1.0.0,<2.0.0",
     "moto>=5.1.0,<6.0.0",
@@ -118,127 +78,25 @@ all = [
     "pytest-cov>=4.1.0,<5.0.0",
     "pytest-xdist>=3.0.0,<4.0.0",
     "ruff>=0.4.4,<0.5.0",
-
-    # docs
-    "sphinx>=5.0.0,<6.0.0",
-    "sphinx-rtd-theme>=1.0.0,<2.0.0",
-    "sphinx-autodoc-typehints>=1.12.0,<2.0.0",
-
-    # litellm
-    "litellm>=1.72.6,<1.73.0",
-
-    # llama
-    "llama-api-client>=0.1.0,<1.0.0",
-
-    # mistral
-    "mistralai>=1.8.2",
-
-    # ollama
-    "ollama>=0.4.8,<1.0.0",
-
-    # openai
-    "openai>=1.68.0,<2.0.0",
-
-    # otel
-    "opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0",
-
-    # a2a
-    "a2a-sdk[sql]>=0.3.0,<0.4.0",
-    "uvicorn>=0.34.2,<1.0.0",
-    "httpx>=0.28.1,<1.0.0",
-    "fastapi>=0.115.12,<1.0.0",
-    "starlette>=0.46.2,<1.0.0",
+    "poethepoet>=0.36.0,<0.37.0",
 ]
+
+### BUILD SYSTEM ### 
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/strands"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.hatch.version]
 # Tells Hatch to use your version control system (git) to determine the version.
 source = "vcs"
 
-[tool.hatch.envs.hatch-static-analysis]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "writer", "a2a", "sagemaker"]
-dependencies = [
-  "mypy>=1.15.0,<2.0.0",
-  "ruff>=0.11.6,<0.12.0",
-  "strands-agents @ {root:uri}"
-]
-
-[tool.hatch.envs.hatch-static-analysis.scripts]
-format-check = [
-    "ruff format --check"
-]
-format-fix = [
-    "ruff format"
-]
-lint-check = [
-    "ruff check",
-    "mypy -p src"
-]
-lint-fix = [
-    "ruff check --fix"
-]
-
-[tool.hatch.envs.hatch-test]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "writer", "a2a", "sagemaker"]
-extra-dependencies = [
-    "moto>=5.1.0,<6.0.0",
-    "pytest>=8.0.0,<9.0.0",
-    "pytest-asyncio>=0.26.0,<0.27.0",
-    "pytest-cov>=4.1.0,<5.0.0",
-    "pytest-xdist>=3.0.0,<4.0.0",
-]
-extra-args = [
-    "-n",
-    "auto",
-    "-vv",
-]
-
-[tool.hatch.envs.dev]
-dev-mode = true
-features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel", "mistral", "writer", "a2a", "sagemaker"]
-
-[[tool.hatch.envs.hatch-test.matrix]]
-python = ["3.13", "3.12", "3.11", "3.10"]
-
-[tool.hatch.envs.hatch-test.scripts]
-run = [
-    "pytest{env:HATCH_TEST_ARGS:} {args}"
-]
-run-cov = [
-    "pytest{env:HATCH_TEST_ARGS:} --cov --cov-config=pyproject.toml {args}"
-]
-
-cov-combine = []
-cov-report = []
-
-
-[tool.hatch.envs.default.scripts]
-list = [
-    "echo 'Scripts commands available for default env:'; hatch env show --json | jq --raw-output '.default.scripts | keys[]'"
-]
-format = [
-  "hatch fmt --formatter",
-]
-test-format = [
-    "hatch fmt --formatter --check",
-]
-lint = [
-    "hatch fmt --linter"
-]
-test-lint = [
-    "hatch fmt --linter --check"
-]
-test = [
-    "hatch test --cover --cov-report html --cov-report xml {args}"
-]
-test-integ = [
-    "hatch test tests_integ {args}"
-]
-prepare = [
-    "hatch fmt --linter",
-    "hatch fmt --formatter",
-    "hatch run test-lint",
-    "hatch test --all"
-]
+### CODE QUALITY ### 
 
 [tool.mypy]
 python_version = "3.10"
@@ -262,17 +120,22 @@ ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 120
-include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests_integ/**/*.py"]
+include = [
+    "examples/**/*.py",
+    "src/**/*.py",
+    "tests/**/*.py",
+    "tests_integ/**/*.py",
+]
 
 [tool.ruff.lint]
 select = [
-  "B", # flake8-bugbear
-  "D", # pydocstyle
-  "E", # pycodestyle
-  "F", # pyflakes
-  "G", # logging format
-  "I", # isort
-  "LOG", # logging
+    "B",   # flake8-bugbear
+    "D",   # pydocstyle
+    "E",   # pycodestyle
+    "F",   # pyflakes
+    "G",   # logging format
+    "I",   # isort
+    "LOG", # logging
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -282,9 +145,7 @@ select = [
 convention = "google"
 
 [tool.pytest.ini_options]
-testpaths = [
-    "tests"
-]
+testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.coverage.run]
@@ -307,19 +168,89 @@ output = "build/coverage/coverage.xml"
 name = "cz_conventional_commits"
 tag_format = "v$version"
 bump_message = "chore(release): bump version $current_version -> $new_version"
-version_files = [
-    "pyproject.toml:version",
-]
+version_files = ["pyproject.toml:version"]
 update_changelog_on_bump = true
 style = [
-    ["qmark", "fg:#ff9d00 bold"],
-    ["question", "bold"],
-    ["answer", "fg:#ff9d00 bold"],
-    ["pointer", "fg:#ff9d00 bold"],
-    ["highlighted", "fg:#ff9d00 bold"],
-    ["selected", "fg:#cc5454"],
-    ["separator", "fg:#cc5454"],
-    ["instruction", ""],
-    ["text", ""],
-    ["disabled", "fg:#858585 italic"]
+    [
+        "qmark",
+        "fg:#ff9d00 bold",
+    ],
+    [
+        "question",
+        "bold",
+    ],
+    [
+        "answer",
+        "fg:#ff9d00 bold",
+    ],
+    [
+        "pointer",
+        "fg:#ff9d00 bold",
+    ],
+    [
+        "highlighted",
+        "fg:#ff9d00 bold",
+    ],
+    [
+        "selected",
+        "fg:#cc5454",
+    ],
+    [
+        "separator",
+        "fg:#cc5454",
+    ],
+    [
+        "instruction",
+        "",
+    ],
+    [
+        "text",
+        "",
+    ],
+    [
+        "disabled",
+        "fg:#858585 italic",
+    ],
 ]
+
+### POETHEPOET + UV ###
+[tool.poe]
+executor.type = "uv"
+
+[tool.poe.tasks]
+
+# FORMATTING
+format = { cmd = "ruff format src", help = "Format code with ruff" }
+format-check = { cmd = "ruff format --check src", help = "Check code formatting" }
+
+# LINTING  
+lint = { cmd = "ruff check --fix src", help = "Lint and fix code with ruff" }
+lint-check = { cmd = "ruff check src", help = "Check code linting" }
+
+# TYPE CHECKING
+typecheck = { cmd = "mypy src/strands", help = "Run type checking with mypy" }
+
+# QUALITY CHECKS
+code-quality = { sequence = [
+    "format",
+    "lint",
+    "typecheck",
+], help = "Run all quality checks" }
+
+# TESTING
+test = { cmd = "pytest -n auto -vv", help = "Run tests with pytest" }
+test-cov = { cmd = "pytest -n auto -vv --cov --cov-config=pyproject.toml --cov-report=term-missing --cov-report=html --cov-report=xml", help = "Run tests with coverage" }
+
+# INTEGRATION TESTING  
+test-integ = { cmd = "pytest tests_integ -v", help = "Run integration tests" }
+
+# COMBINED WORKFLOWS
+test-all = { sequence = [
+    "test-cov",
+    "test-integ",
+], help = "Run all tests with coverage" }
+
+prepare = { sequence = [
+    "code-quality",
+    "test-cov",
+], help = "Run full preparation pipeline (quality + tests)" }
