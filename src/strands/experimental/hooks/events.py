@@ -4,7 +4,7 @@ This module defines the events that are emitted as Agents run through the lifecy
 """
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Optional
 
 from ...hooks import HookEvent
 from ...types.content import Message

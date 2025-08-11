@@ -564,7 +564,9 @@ class Agent:
             self.conversation_manager.apply_management(self)
             self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
-    async def _execute_event_loop_cycle(self, invocation_state: InvocationState) -> AsyncGenerator[dict[str, Any], None]:
+    async def _execute_event_loop_cycle(
+        self, invocation_state: InvocationState
+    ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the event loop cycle with retry logic for context window limits.
 
         This internal method handles the execution of the event loop cycle and implements

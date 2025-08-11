@@ -211,7 +211,9 @@ class PythonAgentTool(AgentTool):
             Tool events with the last being the tool result.
         """
         if inspect.iscoroutinefunction(self._tool_func):
-            result = await self._tool_func(tool_use, **invocation_state) # this will fail if invocation state and kwargs overlap
+            result = await self._tool_func(
+                tool_use, **invocation_state
+            )  # this will fail if invocation state and kwargs overlap
         else:
             result = await asyncio.to_thread(self._tool_func, tool_use, **invocation_state)
 

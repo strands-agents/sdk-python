@@ -1,12 +1,13 @@
 """Types for agent invocation state and context."""
 
-from typing import Any, Dict, TypedDict, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, TypedDict
 
 from opentelemetry.trace import Span
 
 if TYPE_CHECKING:
     from ..agent import Agent
     from ..telemetry import Trace
+
 
 class InvocationState(TypedDict, total=False):
     """Type definition for invocation_state used throughout the agent framework.
@@ -18,10 +19,10 @@ class InvocationState(TypedDict, total=False):
     Core Framework Fields:
         agent: The Agent instance executing the invocation (added for backward compatibility).
         event_loop_cycle_id: Unique identifier for the current event loop cycle.
+        event_loop_parent_cycle_id: id of the parent cycle for recursive calls.
         request_state: State dictionary maintained across event loop cycles.
         event_loop_cycle_trace: Trace object for monitoring the current cycle.
         event_loop_cycle_span: Span object for distributed tracing.
-        event_loop_parent_cycle_id: UUID of the parent cycle for recursive calls. # always uuid? or just string?
         event_loop_parent_span: Parent span for tracing hierarchy.
 
     Additional Fields:
@@ -41,5 +42,5 @@ class InvocationState(TypedDict, total=False):
 
     # Tracing and monitoring
     event_loop_cycle_trace: "Trace"  # "Trace"  # Trace object type varies by implementation
-    event_loop_cycle_span: Span   # Span object type varies by implementation
+    event_loop_cycle_span: Span  # Span object type varies by implementation
     event_loop_parent_span: Span  # Parent span for tracing hierarchy

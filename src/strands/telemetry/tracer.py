@@ -13,10 +13,9 @@ import opentelemetry.trace as trace_api
 from opentelemetry.instrumentation.threading import ThreadingInstrumentor
 from opentelemetry.trace import Span, StatusCode
 
-from ..types.invocation import InvocationState
-
 from ..agent.agent_result import AgentResult
 from ..types.content import ContentBlock, Message, Messages
+from ..types.invocation import InvocationState
 from ..types.streaming import StopReason, Usage
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
