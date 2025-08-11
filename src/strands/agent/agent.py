@@ -473,8 +473,8 @@ class Agent:
                     )
                 if self.system_prompt:
                     structured_output_span.add_event(
-                        "gen_ai.tool.message",
-                        attributes={"role": "tool", "content": serialize([{"text": self.system_prompt}])},
+                        "gen_ai.system.message",
+                        attributes={"role": "system", "content": serialize([{"text": self.system_prompt}])},
                     )
                 events = self.model.structured_output(output_model, temp_messages, system_prompt=self.system_prompt)
                 async for event in events:
