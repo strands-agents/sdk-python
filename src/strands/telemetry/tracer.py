@@ -343,7 +343,7 @@ class Tracer:
 
     def start_event_loop_cycle_span(
         self,
-        invocation_state: dict[str, Any],
+        invocation_state: Any,
         messages: Messages,
         parent_span: Optional[Span] = None,
         **kwargs: Any,
