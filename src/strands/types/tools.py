@@ -6,12 +6,15 @@ These types are modeled after the Bedrock API.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
 
 from typing_extensions import TypedDict
 
-from .invocation import InvocationState
 from .media import DocumentContent, ImageContent
+
+if TYPE_CHECKING:
+    from .. import Agent
 
 JSONSchema = dict
 """Type alias for JSON Schema dictionaries."""
@@ -118,19 +121,21 @@ class ToolChoiceTool(TypedDict):
     name: str
 
 
-class StrandsContext(TypedDict, total=False):
+@dataclass
+class ToolContext:
     """Context object containing framework-provided data for decorated tools.
 
     This object provides access to framework-level information that may be useful
-    for tool implementations. All fields are optional to maintain backward compatibility.
+    for tool implementations.
 
     Attributes:
         tool_use: The complete ToolUse object containing tool invocation details.
-        invocation_state: Context for the tool invocation, including agent state.
+        agent: The Agent instance executing this tool, providing access to conversation history,
+               model configuration, and other agent state.
     """
 
     tool_use: ToolUse
-    invocation_state: InvocationState
+    agent: "Agent"
 
 
 ToolChoice = Union[
@@ -232,7 +237,7 @@ class AgentTool(ABC):
 
     @abstractmethod
     # pragma: no cover
-    def stream(self, tool_use: ToolUse, invocation_state: InvocationState, **kwargs: Any) -> ToolGenerator:
+    def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:
         """Stream tool events and return the final result.
 
         Args:

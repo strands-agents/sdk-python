@@ -15,7 +15,6 @@ from opentelemetry.trace import Span, StatusCode
 
 from ..agent.agent_result import AgentResult
 from ..types.content import ContentBlock, Message, Messages
-from ..types.invocation import InvocationState
 from ..types.streaming import StopReason, Usage
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
@@ -344,7 +343,7 @@ class Tracer:
 
     def start_event_loop_cycle_span(
         self,
-        invocation_state: InvocationState,
+        invocation_state: dict[str, Any],
         messages: Messages,
         parent_span: Optional[Span] = None,
         **kwargs: Any,

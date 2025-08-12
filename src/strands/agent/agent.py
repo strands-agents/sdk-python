@@ -38,7 +38,6 @@ from ..tools.registry import ToolRegistry
 from ..tools.watcher import ToolWatcher
 from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
-from ..types.invocation import InvocationState
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
@@ -139,7 +138,7 @@ class Agent:
 
                 async def acall() -> ToolResult:
                     # Pass kwargs as invocation_state
-                    async for event in run_tool(self._agent, tool_use, cast(InvocationState, kwargs)):
+                    async for event in run_tool(self._agent, tool_use, kwargs):
                         _ = event
 
                     return cast(ToolResult, event)
@@ -507,7 +506,7 @@ class Agent:
         self.trace_span = self._start_agent_trace_span(message)
         with trace_api.use_span(self.trace_span):
             try:
-                events = self._run_loop(message, invocation_state=cast(InvocationState, kwargs))
+                events = self._run_loop(message, invocation_state=kwargs)
                 async for event in events:
                     if "callback" in event:
                         callback_handler(**event["callback"])
@@ -524,7 +523,7 @@ class Agent:
                 raise
 
     async def _run_loop(
-        self, message: Message, invocation_state: InvocationState
+        self, message: Message, invocation_state: dict[str, Any]
     ) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the agent's event loop with the given message and parameters.
 
@@ -564,9 +563,7 @@ class Agent:
             self.conversation_manager.apply_management(self)
             self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
-    async def _execute_event_loop_cycle(
-        self, invocation_state: InvocationState
-    ) -> AsyncGenerator[dict[str, Any], None]:
+    async def _execute_event_loop_cycle(self, invocation_state: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
         """Execute the event loop cycle with retry logic for context window limits.
 
         This internal method handles the execution of the event loop cycle and implements

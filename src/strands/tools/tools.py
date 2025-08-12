@@ -12,7 +12,6 @@ from typing import Any
 
 from typing_extensions import override
 
-from ..types.invocation import InvocationState
 from ..types.tools import AgentTool, ToolFunc, ToolGenerator, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
@@ -199,7 +198,9 @@ class PythonAgentTool(AgentTool):
         return "python"
 
     @override
-    async def stream(self, tool_use: ToolUse, invocation_state: InvocationState, **kwargs: Any) -> ToolGenerator:
+    async def stream(
+        self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any
+    ) -> ToolGenerator:
         """Stream the Python function with the given tool use request.
 
         Args:

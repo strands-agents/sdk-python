@@ -4,11 +4,10 @@ This module defines the events that are emitted as Agents run through the lifecy
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from ...hooks import HookEvent
 from ...types.content import Message
-from ...types.invocation import InvocationState
 from ...types.streaming import StopReason
 from ...types.tools import AgentTool, ToolResult, ToolUse
 
@@ -31,7 +30,7 @@ class BeforeToolInvocationEvent(HookEvent):
 
     selected_tool: Optional[AgentTool]
     tool_use: ToolUse
-    invocation_state: InvocationState
+    invocation_state: dict[str, Any]
 
     def _can_write(self, name: str) -> bool:
         return name in ["selected_tool", "tool_use"]
@@ -58,7 +57,7 @@ class AfterToolInvocationEvent(HookEvent):
 
     selected_tool: Optional[AgentTool]
     tool_use: ToolUse
-    invocation_state: InvocationState
+    invocation_state: dict[str, Any]
     result: ToolResult
     exception: Optional[Exception] = None
 

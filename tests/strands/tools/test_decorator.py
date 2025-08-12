@@ -9,7 +9,7 @@ import pytest
 
 import strands
 from strands import Agent
-from strands.types.tools import StrandsContext, ToolUse
+from strands.types.tools import AgentTool, ToolContext, ToolUse
 
 
 @pytest.fixture(scope="module")
@@ -1040,46 +1040,45 @@ async def test_tool_with_complex_anyof_schema(alist):
 
 
 @pytest.mark.asyncio
-async def test_strands_context_injection(alist):
-    """Test that StrandsContext is properly injected into tools that request it."""
+async def test_tool_context_injection(alist):
+    """Test that ToolContext is properly injected into tools that request it."""
 
-    @strands.tool
-    def context_tool(message: str, agent: Agent, strands_context: StrandsContext) -> dict:
-        """Tool that uses StrandsContext to access tool_use_id."""
-        tool_use_id = strands_context["tool_use"]["toolUseId"]
-        tool_name = strands_context["tool_use"]["name"]
-        agent_info = strands_context["invocation_state"].get("agent", "no-agent")
+    @strands.tool(context=True)
+    def context_tool(message: str, agent: Agent, tool_context: ToolContext) -> dict:
+        """Tool that uses ToolContext to access tool_use_id."""
+        tool_use_id = tool_context.tool_use["toolUseId"]
+        tool_name = tool_context.tool_use["name"]
+        agent_from_tool_context = tool_context.agent
 
         return {
             "status": "success",
             "content": [
-                {
-                    "text": f"""
-			Tool '{tool_name}' (ID: {tool_use_id}) 
-			with agent '{agent_info}' 
-                        and injected agent '{agent}' processed: {message}
-                     """
-                }
+                {"text": f"Tool '{tool_name}' (ID: {tool_use_id})"},
+                {"text": f"injected agent '{agent.name}' processed: {message}"},
+                {"text": f"context agent '{agent_from_tool_context.name}'"},
             ],
         }
 
-    # Test tool use with context injection
-    tool_use = {"toolUseId": "test-context-123", "name": "context_tool", "input": {"message": "hello world"}}
-    invocation_state = {"agent": "test-agent"}
+    tool: AgentTool = context_tool
+    generator = tool.stream(
+        tool_use={
+            "toolUseId": "test-id",
+            "name": "context_tool",
+            "input": {
+                "message": "some_message"  # note that we do not include agent nor tool context
+            },
+        },
+        invocation_state={
+            "agent": Agent(name="test_agent"),
+        },
+    )
+    tool_results = [value async for value in generator]
 
-    stream = context_tool.stream(tool_use, invocation_state)
-    result = (await alist(stream))[-1]
+    assert len(tool_results) == 1
+    tool_result = tool_results[0]
 
-    assert result["status"] == "success"
-    assert result["toolUseId"] == "test-context-123"
-    assert "Tool 'context_tool' (ID: test-context-123)" in result["content"][0]["text"]
-    assert "with agent 'test-agent'" in result["content"][0]["text"]
-    assert "and injected agent 'test-agent'" in result["content"][0]["text"]
-    assert "processed: hello world" in result["content"][0]["text"]
-
-    # Verify strands_context and agent are excluded from schema
-    tool_spec = context_tool.tool_spec
-    schema_properties = tool_spec["inputSchema"]["json"].get("properties", {})
-    assert "message" in schema_properties
-    assert "strands_context" not in schema_properties
-    assert "agent" not in schema_properties
+    assert tool_result["status"] == "success"
+    assert tool_result["toolUseId"] == "test-id"
+    assert tool_result["content"][0]["text"] == "Tool 'context_tool' (ID: test-id)"
+    assert tool_result["content"][1]["text"] == "injected agent 'test_agent' processed: some_message"
+    assert tool_result["content"][2]["text"] == "context agent 'test_agent'"

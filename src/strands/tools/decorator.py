@@ -61,8 +61,7 @@ import docstring_parser
 from pydantic import BaseModel, Field, create_model
 from typing_extensions import override
 
-from ..types.invocation import InvocationState
-from ..types.tools import AgentTool, JSONSchema, StrandsContext, ToolGenerator, ToolSpec, ToolUse
+from ..types.tools import AgentTool, JSONSchema, ToolContext, ToolGenerator, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -85,16 +84,18 @@ class FunctionToolMetadata:
     validate tool usage.
     """
 
-    def __init__(self, func: Callable[..., Any]) -> None:
+    def __init__(self, func: Callable[..., Any], context_param: str | None = None) -> None:
         """Initialize with the function to process.
 
         Args:
             func: The function to extract metadata from.
                  Can be a standalone function or a class method.
+            context_param: Name of the context parameter to inject, if any.
         """
         self.func = func
         self.signature = inspect.signature(func)
         self.type_hints = get_type_hints(func)
+        self._context_param = context_param
 
         # Parse the docstring with docstring_parser
         doc_str = inspect.getdoc(func) or ""
@@ -254,7 +255,7 @@ class FunctionToolMetadata:
             raise ValueError(f"Validation failed for input parameters: {error_msg}") from e
 
     def inject_special_parameters(
-        self, validated_input: dict[str, Any], tool_use: ToolUse, invocation_state: InvocationState
+        self, validated_input: dict[str, Any], tool_use: ToolUse, invocation_state: dict[str, Any]
     ) -> None:
         """Inject special framework-provided parameters into the validated input.
 
@@ -266,33 +267,36 @@ class FunctionToolMetadata:
             tool_use: The tool use request containing tool invocation details.
             invocation_state: Context for the tool invocation, including agent state.
         """
-        # Inject StrandsContext if requested
-        if "strands_context" in self.signature.parameters:
-            strands_context: StrandsContext = {
-                "tool_use": tool_use,
-                "invocation_state": invocation_state,
-            }
-            validated_input["strands_context"] = strands_context
+        # Inject  if requested
+        if self._context_param and self._context_param in self.signature.parameters:
+            tool_context = ToolContext(tool_use=tool_use, agent=invocation_state["agent"])
+            validated_input[self._context_param] = tool_context
 
         # Inject agent if requested (backward compatibility)
         if "agent" in self.signature.parameters and "agent" in invocation_state:
             validated_input["agent"] = invocation_state["agent"]
 
     def _is_special_parameter(self, param_name: str) -> bool:
-        """Check if a parameter should be automatically injected by the framework.
+        """Check if a parameter should be automatically injected by the framework or is a standard Python method param.
 
         Special parameters include:
-        - Standard Python parameters: self, cls
-        - Framework-provided context parameters: agent, strands_context
+        - Standard Python method parameters: self, cls
+        - Framework-provided context parameters: agent, and configurable context parameter (defaults to tool_context)
 
         Args:
             param_name: The name of the parameter to check.
 
         Returns:
             True if the parameter should be excluded from input validation and
-            automatically injected during tool execution.
+            handled specially during tool execution.
         """
-        return param_name in {"self", "cls", "agent", "strands_context"}
+        special_params = {"self", "cls", "agent"}
+
+        # Add context parameter if configured
+        if self._context_param:
+            special_params.add(self._context_param)
+
+        return param_name in special_params
 
 
 P = ParamSpec("P")  # Captures all parameters
@@ -414,7 +418,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         return "function"
 
     @override
-    async def stream(self, tool_use: ToolUse, invocation_state: InvocationState, **kwargs: Any) -> ToolGenerator:
+    async def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:
         """Stream the tool with a tool use specification.
 
         This method handles tool use streams from a Strands Agent. It validates the input,
@@ -515,6 +519,7 @@ def tool(
     description: Optional[str] = None,
     inputSchema: Optional[JSONSchema] = None,
     name: Optional[str] = None,
+    context: bool | str = False,
 ) -> Callable[[Callable[P, R]], DecoratedFunctionTool[P, R]]: ...
 # Suppressing the type error because we want callers to be able to use both `tool` and `tool()` at the
 # call site, but the actual implementation handles that and it's not representable via the type-system
@@ -523,6 +528,7 @@ def tool(  # type: ignore
     description: Optional[str] = None,
     inputSchema: Optional[JSONSchema] = None,
     name: Optional[str] = None,
+    context: bool | str = False,
 ) -> Union[DecoratedFunctionTool[P, R], Callable[[Callable[P, R]], DecoratedFunctionTool[P, R]]]:
     """Decorator that transforms a Python function into a Strands tool.
 
@@ -548,6 +554,9 @@ def tool(  # type: ignore
         description: Optional custom description to override the function's docstring.
         inputSchema: Optional custom JSON schema to override the automatically generated schema.
         name: Optional custom name to override the function's name.
+        context: When provided, places a  object in the designated parameter. If True, the param name
+            defaults to 'tool_context', or if an override is needed, set context equal to a string to designate
+            the param name.
 
     Returns:
         An AgentTool that also mimics the original function when invoked
@@ -577,15 +586,24 @@ def tool(  # type: ignore
 
     Example with parameters:
         ```python
-        @tool(name="custom_tool", description="A tool with a custom name and description")
-        def my_tool(name: str, count: int = 1) -> str:
-            return f"Processed {name} {count} times"
+        @tool(name="custom_tool", description="A tool with a custom name and description", context=True)
+        def my_tool(name: str, count: int = 1, tool_context: ) -> str:
+            tool_id = tool_context["tool_use"]["toolUseId"]
+            return f"Processed {name} {count} times with tool ID {tool_id}"
         ```
     """
 
     def decorator(f: T) -> "DecoratedFunctionTool[P, R]":
+        # Resolve context parameter name
+        if isinstance(context, bool):
+            context_param = "tool_context" if context else None
+        else:  # Type hint guarantees it's a string
+            context_param = context.strip()
+            if not context_param:
+                raise ValueError("Context parameter name cannot be empty")
+
         # Create function tool metadata
-        tool_meta = FunctionToolMetadata(f)
+        tool_meta = FunctionToolMetadata(f, context_param)
         tool_spec = tool_meta.extract_metadata()
         if name is not None:
             tool_spec["name"] = name

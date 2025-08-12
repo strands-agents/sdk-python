@@ -3,6 +3,6 @@
 from . import agent, models, telemetry, types
 from .agent.agent import Agent
 from .tools.decorator import tool
-from .types.tools import StrandsContext
+from .types.tools import ToolContext
 
-__all__ = ["Agent", "agent", "models", "tool", "types", "telemetry", "StrandsContext"]
+__all__ = ["Agent", "agent", "models", "tool", "types", "telemetry", "ToolContext"]

@@ -34,7 +34,6 @@ from ..types.exceptions import (
     MaxTokensReachedException,
     ModelThrottledException,
 )
-from ..types.invocation import InvocationState
 from ..types.streaming import Metrics, StopReason
 from ..types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolGenerator, ToolResult, ToolUse
 from ._recover_message_on_max_tokens_reached import recover_message_on_max_tokens_reached
@@ -50,7 +49,7 @@ INITIAL_DELAY = 4
 MAX_DELAY = 240  # 4 minutes
 
 
-async def event_loop_cycle(agent: "Agent", invocation_state: InvocationState) -> AsyncGenerator[dict[str, Any], None]:
+async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
     """Execute a single cycle of the event loop.
 
     This core function processes a single conversation turn, handling model inference, tool execution, and error
@@ -274,7 +273,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: InvocationState) ->
     yield {"stop": (stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])}
 
 
-async def recurse_event_loop(agent: "Agent", invocation_state: InvocationState) -> AsyncGenerator[dict[str, Any], None]:
+async def recurse_event_loop(agent: "Agent", invocation_state: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
     """Make a recursive call to event_loop_cycle with the current state.
 
     This function is used when the event loop needs to continue processing after tool execution.
@@ -307,7 +306,7 @@ async def recurse_event_loop(agent: "Agent", invocation_state: InvocationState) 
     recursive_trace.end()
 
 
-async def run_tool(agent: "Agent", tool_use: ToolUse, invocation_state: InvocationState) -> ToolGenerator:
+async def run_tool(agent: "Agent", tool_use: ToolUse, invocation_state: dict[str, Any]) -> ToolGenerator:
     """Process a tool invocation.
 
     Looks up the tool in the registry and streams it with the provided parameters.
@@ -430,7 +429,7 @@ async def _handle_tool_execution(
     cycle_trace: Trace,
     cycle_span: Any,
     cycle_start_time: float,
-    invocation_state: InvocationState,
+    invocation_state: dict[str, Any],
 ) -> AsyncGenerator[dict[str, Any], None]:
     tool_uses: list[ToolUse] = []
     tool_results: list[ToolResult] = []
