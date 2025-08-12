@@ -198,9 +198,7 @@ class PythonAgentTool(AgentTool):
         return "python"
 
     @override
-    async def stream(
-        self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any
-    ) -> ToolGenerator:
+    async def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:
         """Stream the Python function with the given tool use request.
 
         Args:
@@ -212,9 +210,7 @@ class PythonAgentTool(AgentTool):
             Tool events with the last being the tool result.
         """
         if inspect.iscoroutinefunction(self._tool_func):
-            result = await self._tool_func(
-                tool_use, **invocation_state
-            )  # this will fail if invocation state and kwargs overlap
+            result = await self._tool_func(tool_use, **invocation_state)
         else:
             result = await asyncio.to_thread(self._tool_func, tool_use, **invocation_state)
 

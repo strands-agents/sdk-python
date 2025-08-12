@@ -267,7 +267,6 @@ class FunctionToolMetadata:
             tool_use: The tool use request containing tool invocation details.
             invocation_state: Context for the tool invocation, including agent state.
         """
-        # Inject  if requested
         if self._context_param and self._context_param in self.signature.parameters:
             tool_context = ToolContext(tool_use=tool_use, agent=invocation_state["agent"])
             validated_input[self._context_param] = tool_context
@@ -597,7 +596,7 @@ def tool(  # type: ignore
         # Resolve context parameter name
         if isinstance(context, bool):
             context_param = "tool_context" if context else None
-        else:  # Type hint guarantees it's a string
+        else:
             context_param = context.strip()
             if not context_param:
                 raise ValueError("Context parameter name cannot be empty")
