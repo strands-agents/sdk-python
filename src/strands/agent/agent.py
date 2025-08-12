@@ -137,9 +137,9 @@ class Agent:
                     "name": normalized_name,
                     "input": kwargs.copy(),
                 }
-                invocation_state = {**kwargs, "skip_tracing": True, "tool_results": []}
+                invocation_state = {**kwargs, "tool_results": []}
 
-                tool_executor = tool_executors.sequential.Executor()
+                tool_executor = tool_executors.sequential.Executor(skip_tracing=True)
 
                 async def acall() -> ToolResult:
                     async for event in tool_executor.stream(self._agent, tool_use, invocation_state):

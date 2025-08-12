@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class Executor(abc.ABC):
     """Abstract base class for tool executors."""
 
-    def __init__(self, thread_pool: ThreadPoolExecutor | str | None = "asyncio"):
+    def __init__(self, thread_pool: ThreadPoolExecutor | str | None = "asyncio", skip_tracing: bool = False):
         """Initialize the executor.
 
         Args:
@@ -36,8 +36,12 @@ class Executor(abc.ABC):
                 - "asyncio" (default): Use the asyncio thread pool
                 - ThreadPoolExecutor: Use the provided custom thread pool
                 - None: Run sync tools in the main thread (i.e., blocking)
+
+            skip_tracing: Do not trace call.
+                Useful for direct tool calls where event loop span metadata is not available.
         """
         self.thread_pool = thread_pool
+        self.skip_tracing = skip_tracing
 
     @staticmethod
     def _trace(stream: Callable) -> Callable:
@@ -64,7 +68,7 @@ class Executor(abc.ABC):
             Yields:
                 Tool events with the last being the tool result.
             """
-            if invocation_state.get("skip_tracing", False):
+            if self.skip_tracing:
                 async for event in stream(self, agent, tool_use, invocation_state):
                     yield event
                 return
