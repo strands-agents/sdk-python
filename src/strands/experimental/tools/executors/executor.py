@@ -55,7 +55,11 @@ class Executor(abc.ABC):
         """
 
         async def wrapper(
-            self: "Executor", agent: "Agent", tool_use: ToolUse, invocation_state: dict[str, Any]
+            self: "Executor",
+            agent: "Agent",
+            tool_use: ToolUse,
+            tool_results: list[ToolResult],
+            invocation_state: dict[str, Any],
         ) -> ToolGenerator:
             """Execute tool with tracing and metrics collection.
 
@@ -63,13 +67,14 @@ class Executor(abc.ABC):
                 self: The executor instance.
                 agent: The agent for which the tool is being executed.
                 tool_use: Metadata and inputs for the tool to be executed.
+                tool_results: List of tool results from each tool execution.
                 invocation_state: Context for the tool invocation.
 
             Yields:
                 Tool events with the last being the tool result.
             """
             if self.skip_tracing:
-                async for event in stream(self, agent, tool_use, invocation_state):
+                async for event in stream(self, agent, tool_use, tool_results, invocation_state):
                     yield event
                 return
 
@@ -84,7 +89,7 @@ class Executor(abc.ABC):
             tool_start_time = time.time()
 
             with trace_api.use_span(tool_call_span):
-                async for event in stream(self, agent, tool_use, invocation_state):
+                async for event in stream(self, agent, tool_use, tool_results, invocation_state):
                     yield event
 
                 result = cast(ToolResult, event)
@@ -100,7 +105,9 @@ class Executor(abc.ABC):
         return wrapper
 
     @_trace
-    async def stream(self, agent: "Agent", tool_use: ToolUse, invocation_state: dict[str, Any]) -> ToolGenerator:
+    async def stream(
+        self, agent: "Agent", tool_use: ToolUse, tool_results: list[ToolResult], invocation_state: dict[str, Any]
+    ) -> ToolGenerator:
         """Stream tool events.
 
         This method adds additional logic to the stream invocation including:
@@ -113,6 +120,7 @@ class Executor(abc.ABC):
         Args:
             agent: The agent for which the tool is being executed.
             tool_use: Metadata and inputs for the tool to be executed.
+            tool_results: List of tool results from each tool execution.
             invocation_state: Context for the tool invocation.
 
         Yields:
@@ -180,7 +188,7 @@ class Executor(abc.ABC):
                     )
                 )
                 yield after_event.result
-                invocation_state["tool_results"].append(after_event.result)
+                tool_results.append(after_event.result)
                 return
 
             async for event in selected_tool.stream(tool_use, invocation_state):
@@ -198,7 +206,7 @@ class Executor(abc.ABC):
                 )
             )
             yield after_event.result
-            invocation_state["tool_results"].append(after_event.result)
+            tool_results.append(after_event.result)
 
         except Exception as e:
             logger.exception("tool_name=<%s> | failed to process tool", tool_name)
@@ -218,16 +226,19 @@ class Executor(abc.ABC):
                 )
             )
             yield after_event.result
-            invocation_state["tool_results"].append(after_event.result)
+            tool_results.append(after_event.result)
 
     @abc.abstractmethod
     # pragma: no cover
-    def execute(self, agent: "Agent", tool_uses: list[ToolUse], invocation_state: dict[str, Any]) -> ToolGenerator:
+    def execute(
+        self, agent: "Agent", tool_uses: list[ToolUse], tool_results: list[ToolResult], invocation_state: dict[str, Any]
+    ) -> ToolGenerator:
         """Execute the given tools according to this executor's strategy.
 
         Args:
             agent: The agent for which tools are being executed.
             tool_uses: Metadata and inputs for the tools to be executed.
+            tool_results: List of tool results from each tool execution.
             invocation_state: Context for the tool invocation.
 
         Yields:

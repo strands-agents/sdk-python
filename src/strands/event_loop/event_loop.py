@@ -346,11 +346,10 @@ async def _handle_tool_execution(
         {
             "event_loop_cycle_trace": cycle_trace,
             "event_loop_cycle_span": cycle_span,
-            "tool_results": tool_results,
         }
     )
 
-    tool_events = agent.tool_executor.execute(agent, tool_uses, invocation_state)
+    tool_events = agent.tool_executor.execute(agent, tool_uses, tool_results, invocation_state)
     async for tool_event in tool_events:
         yield tool_event
 

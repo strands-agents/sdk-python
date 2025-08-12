@@ -98,9 +98,13 @@ def agent(tool_registry, hook_registry):
 
 
 @pytest.fixture
+def tool_results():
+    return []
+
+
+@pytest.fixture
 def invocation_state():
     return {
-        "tool_results": [],
         "event_loop_cycle_span": unittest.mock.Mock(),
         "event_loop_cycle_trace": unittest.mock.Mock(),
     }

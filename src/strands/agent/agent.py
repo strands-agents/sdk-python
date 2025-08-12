@@ -137,15 +137,16 @@ class Agent:
                     "name": normalized_name,
                     "input": kwargs.copy(),
                 }
-                invocation_state = {**kwargs, "tool_results": []}
+                tool_results: list[ToolResult] = []
+                invocation_state = kwargs
 
                 tool_executor = tool_executors.sequential.Executor(skip_tracing=True)
 
                 async def acall() -> ToolResult:
-                    async for event in tool_executor.stream(self._agent, tool_use, invocation_state):
+                    async for event in tool_executor.stream(self._agent, tool_use, tool_results, invocation_state):
                         _ = event
 
-                    return cast(ToolResult, event)
+                    return tool_results[0]
 
                 def tcall() -> ToolResult:
                     return asyncio.run(acall())

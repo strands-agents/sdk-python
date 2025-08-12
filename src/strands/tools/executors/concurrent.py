@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from typing_extensions import override
 
 from ...experimental.tools.executors import Executor as SAExecutor
-from ...types.tools import ToolGenerator, ToolUse
+from ...types.tools import ToolGenerator, ToolResult, ToolUse
 
 if TYPE_CHECKING:  # pragma: no cover
     from ...agent import Agent
@@ -17,13 +17,14 @@ class Executor(SAExecutor):
 
     @override
     async def execute(
-        self, agent: "Agent", tool_uses: list[ToolUse], invocation_state: dict[str, Any]
+        self, agent: "Agent", tool_uses: list[ToolUse], tool_results: list[ToolResult], invocation_state: dict[str, Any]
     ) -> ToolGenerator:
         """Execute tools concurrently.
 
         Args:
             agent: The agent for which tools are being executed.
             tool_uses: Metadata and inputs for the tools to be executed.
+            tool_results: List of tool results from each tool execution.
             invocation_state: Context for the tool invocation.
 
         Yields:
@@ -35,7 +36,16 @@ class Executor(SAExecutor):
 
         tasks = [
             asyncio.create_task(
-                self._task(agent, tool_use, invocation_state, task_id, task_queue, task_events[task_id], stop_event)
+                self._task(
+                    agent,
+                    tool_use,
+                    tool_results,
+                    invocation_state,
+                    task_id,
+                    task_queue,
+                    task_events[task_id],
+                    stop_event,
+                )
             )
             for task_id, tool_use in enumerate(tool_uses)
         ]
@@ -56,6 +66,7 @@ class Executor(SAExecutor):
         self,
         agent: "Agent",
         tool_use: ToolUse,
+        tool_results: list[ToolResult],
         invocation_state: dict[str, Any],
         task_id: int,
         task_queue: asyncio.Queue,
@@ -67,6 +78,7 @@ class Executor(SAExecutor):
         Args:
             agent: The agent executing the tool.
             tool_use: Tool use metadata and inputs.
+            tool_results: List of tool results from each tool execution.
             invocation_state: Context for tool execution.
             task_id: Unique identifier for this task.
             task_queue: Queue to put tool events into.
@@ -74,7 +86,7 @@ class Executor(SAExecutor):
             stop_event: Sentinel object to signal task completion.
         """
         try:
-            async for event in self.stream(agent, tool_use, invocation_state):
+            async for event in self.stream(agent, tool_use, tool_results, invocation_state):
                 task_queue.put_nowait((task_id, event))
                 await task_event.wait()
                 task_event.clear()

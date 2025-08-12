@@ -12,7 +12,7 @@ from strands.experimental.tools.executors import Executor as SAToolExecutor
 @pytest.fixture
 def executor_cls():
     class ClsExecutor(SAToolExecutor):
-        def execute(self, _agent, _tool_uses, _invocation_state):
+        def execute(self, _agent, _tool_uses, _tool_results, _invocation_state):
             raise NotImplementedError
 
     return ClsExecutor
@@ -30,9 +30,11 @@ def tracer():
 
 
 @pytest.mark.asyncio
-async def test_executor_stream_yields_result(executor, agent, invocation_state, hook_events, weather_tool, alist):
+async def test_executor_stream_yields_result(
+    executor, agent, tool_results, invocation_state, hook_events, weather_tool, alist
+):
     tool_use = {"name": "weather_tool", "toolUseId": "1", "input": {}}
-    stream = executor.stream(agent, tool_use, invocation_state)
+    stream = executor.stream(agent, tool_use, tool_results, invocation_state)
 
     tru_events = await alist(stream)
     exp_events = [
@@ -41,7 +43,7 @@ async def test_executor_stream_yields_result(executor, agent, invocation_state, 
     ]
     assert tru_events == exp_events
 
-    tru_results = invocation_state["tool_results"]
+    tru_results = tool_results
     exp_results = [exp_events[-1]]
     assert tru_results == exp_results
 
@@ -65,15 +67,17 @@ async def test_executor_stream_yields_result(executor, agent, invocation_state, 
 
 
 @pytest.mark.asyncio
-async def test_executor_stream_yields_tool_error(executor, agent, invocation_state, hook_events, exception_tool, alist):
+async def test_executor_stream_yields_tool_error(
+    executor, agent, tool_results, invocation_state, hook_events, exception_tool, alist
+):
     tool_use = {"name": "exception_tool", "toolUseId": "1", "input": {}}
-    stream = executor.stream(agent, tool_use, invocation_state)
+    stream = executor.stream(agent, tool_use, tool_results, invocation_state)
 
     tru_events = await alist(stream)
     exp_events = [{"toolUseId": "1", "status": "error", "content": [{"text": "Error: Tool error"}]}]
     assert tru_events == exp_events
 
-    tru_results = invocation_state["tool_results"]
+    tru_results = tool_results
     exp_results = [exp_events[-1]]
     assert tru_results == exp_results
 
@@ -90,15 +94,15 @@ async def test_executor_stream_yields_tool_error(executor, agent, invocation_sta
 
 
 @pytest.mark.asyncio
-async def test_executor_stream_yields_unknown_tool(executor, agent, invocation_state, hook_events, alist):
+async def test_executor_stream_yields_unknown_tool(executor, agent, tool_results, invocation_state, hook_events, alist):
     tool_use = {"name": "unknown_tool", "toolUseId": "1", "input": {}}
-    stream = executor.stream(agent, tool_use, invocation_state)
+    stream = executor.stream(agent, tool_use, tool_results, invocation_state)
 
     tru_events = await alist(stream)
     exp_events = [{"toolUseId": "1", "status": "error", "content": [{"text": "Unknown tool: unknown_tool"}]}]
     assert tru_events == exp_events
 
-    tru_results = invocation_state["tool_results"]
+    tru_results = tool_results
     exp_results = [exp_events[-1]]
     assert tru_results == exp_results
 
@@ -114,9 +118,9 @@ async def test_executor_stream_yields_unknown_tool(executor, agent, invocation_s
 
 
 @pytest.mark.asyncio
-async def test_executor_stream_span(executor, tracer, agent, invocation_state, alist):
+async def test_executor_stream_span(executor, tracer, agent, tool_results, invocation_state, alist):
     tool_use = {"name": "weather_tool", "toolUseId": "1", "input": {}}
-    stream = executor.stream(agent, tool_use, invocation_state)
+    stream = executor.stream(agent, tool_use, tool_results, invocation_state)
 
     await alist(stream)
 
@@ -128,12 +132,12 @@ async def test_executor_stream_span(executor, tracer, agent, invocation_state, a
 
 
 @pytest.mark.asyncio
-async def test_executor_stream_threaded(executor_cls, agent, invocation_state, tool_events, alist):
+async def test_executor_stream_threaded(executor_cls, agent, tool_results, invocation_state, tool_events, alist):
     tool_use = {"name": "thread_tool", "toolUseId": "1", "input": {}}
 
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="test_thread_pool") as thread_pool:
         executor = executor_cls(thread_pool)
-        stream = executor.stream(agent, tool_use, invocation_state)
+        stream = executor.stream(agent, tool_use, tool_results, invocation_state)
 
         await alist(stream)
 
