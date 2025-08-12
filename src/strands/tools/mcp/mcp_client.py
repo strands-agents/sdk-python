@@ -63,17 +63,23 @@ class MCPClient:
     from MCP tools, it will be returned as the last item in the content array of the ToolResult.
     """
 
-    def __init__(self, transport_callable: Callable[[], MCPTransport]):
+    def __init__(self, transport_callable: Callable[[], MCPTransport], *, startup_timeout: int = 30):
         """Initialize a new MCP Server connection.
 
         Args:
             transport_callable: A callable that returns an MCPTransport (read_stream, write_stream) tuple
+            startup_timeout: Timeout after which MCP server initialization should be cancelled
+                Defaults to 30.
         """
+        self._startup_timeout = startup_timeout
+
         mcp_instrumentation()
         self._session_id = uuid.uuid4()
         self._log_debug_with_thread("initializing MCPClient connection")
-        self._init_future: futures.Future[None] = futures.Future()  # Main thread blocks until future completes
-        self._close_event = asyncio.Event()  # Do not want to block other threads while close event is false
+        # Main thread blocks until future completesock
+        self._init_future: futures.Future[None] = futures.Future()
+        # Do not want to block other threads while close event is false
+        self._close_event = asyncio.Event()
         self._transport_callable = transport_callable
 
         self._background_thread: threading.Thread | None = None
@@ -109,7 +115,7 @@ class MCPClient:
         self._log_debug_with_thread("background thread started, waiting for ready event")
         try:
             # Blocking main thread until session is initialized in other thread or if the thread stops
-            self._init_future.result(timeout=30)
+            self._init_future.result(timeout=self._startup_timeout)
             self._log_debug_with_thread("the client initialization was successful")
         except futures.TimeoutError as e:
             raise MCPClientInitializationError("background thread did not start in 30 seconds") from e
@@ -347,7 +353,8 @@ class MCPClient:
                     self._log_debug_with_thread("session initialized successfully")
                     # Store the session for use while we await the close event
                     self._background_thread_session = session
-                    self._init_future.set_result(None)  # Signal that the session has been created and is ready for use
+                    # Signal that the session has been created and is ready for use
+                    self._init_future.set_result(None)
 
                     self._log_debug_with_thread("waiting for close signal")
                     # Keep background thread running until signaled to close.
