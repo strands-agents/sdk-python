@@ -73,12 +73,6 @@ def mock_event_loop_cycle():
 
 
 @pytest.fixture
-def mock_run_tool():
-    with unittest.mock.patch("strands.agent.agent.run_tool") as mock:
-        yield mock
-
-
-@pytest.fixture
 def tool_registry():
     return strands.tools.registry.ToolRegistry()
 
@@ -875,9 +869,7 @@ def test_agent_init_with_no_model_or_model_id():
     assert agent.model.get_config().get("model_id") == DEFAULT_BEDROCK_MODEL_ID
 
 
-def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint, mock_run_tool, agenerator):
-    mock_run_tool.return_value = agenerator([{}])
-
+def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint, agenerator):
     @strands.tools.tool(name="system_prompter")
     def function(system_prompt: str) -> str:
         return system_prompt
@@ -886,22 +878,12 @@ def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint, mo
 
     mock_randint.return_value = 1
 
-    agent.tool.system_prompter(system_prompt="tool prompt")
-
-    mock_run_tool.assert_called_with(
-        agent,
-        {
-            "toolUseId": "tooluse_system_prompter_1",
-            "name": "system_prompter",
-            "input": {"system_prompt": "tool prompt"},
-        },
-        {"system_prompt": "tool prompt"},
-    )
+    tru_result = agent.tool.system_prompter(system_prompt="tool prompt")
+    exp_result = {"toolUseId": "tooluse_system_prompter_1", "status": "success", "content": [{"text": "tool prompt"}]}
+    assert tru_result == exp_result
 
 
-def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint, mock_run_tool, agenerator):
-    mock_run_tool.return_value = agenerator([{}])
-
+def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint, agenerator):
     tool_name = "system-prompter"
 
     @strands.tools.tool(name=tool_name)
@@ -912,19 +894,9 @@ def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint, 
 
     mock_randint.return_value = 1
 
-    agent.tool.system_prompter(system_prompt="tool prompt")
-
-    # Verify the correct tool was invoked
-    assert mock_run_tool.call_count == 1
-    tru_tool_use = mock_run_tool.call_args.args[1]
-    exp_tool_use = {
-        # Note that the tool-use uses the "python safe" name
-        "toolUseId": "tooluse_system_prompter_1",
-        # But the name of the tool is the one in the registry
-        "name": tool_name,
-        "input": {"system_prompt": "tool prompt"},
-    }
-    assert tru_tool_use == exp_tool_use
+    tru_result = agent.tool.system_prompter(system_prompt="tool prompt")
+    exp_result = {"toolUseId": "tooluse_system_prompter_1", "status": "success", "content": [{"text": "tool prompt"}]}
+    assert tru_result == exp_result
 
 
 def test_agent_tool_with_no_normalized_match(agent, tool_registry, mock_randint):
