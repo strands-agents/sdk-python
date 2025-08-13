@@ -125,6 +125,10 @@ class FunctionToolMetadata:
             if name in ("self", "cls", "agent"):
                 continue
 
+            # Skip **kwargs parameter
+            if param.kind == inspect.Parameter.VAR_KEYWORD:
+                continue
+
             # Get parameter type and default
             param_type = self.type_hints.get(name, Any)
             default = ... if param.default is inspect.Parameter.empty else param.default
@@ -402,9 +406,17 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             # Validate input against the Pydantic model
             validated_input = self._metadata.validate_input(tool_input)
 
-            # Pass along the agent if provided and expected by the function
+            # To keep backwards-compatibility
+            # The prefered option is to pass the agent via invocation state (or **kwargs)
             if "agent" in invocation_state and "agent" in self._metadata.signature.parameters:
                 validated_input["agent"] = invocation_state.get("agent")
+
+            # Pass invocation_state contents as kwargs if the function has **kwargs
+            has_kwargs = any(
+                param.kind == inspect.Parameter.VAR_KEYWORD for param in self._metadata.signature.parameters.values()
+            )
+            if has_kwargs:
+                validated_input.update(invocation_state)
 
             # "Too few arguments" expected, hence the type ignore
             if inspect.iscoroutinefunction(self._tool_func):
