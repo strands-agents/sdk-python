@@ -60,6 +60,23 @@ def test__init__model_configs(ollama_client, model_id, host):
     assert tru_max_tokens == exp_max_tokens
 
 
+@pytest.mark.asyncio
+async def test__init__with_api_key(host, model_id, agenerator):
+    api_key = "test_api_key"
+    model = OllamaModel(host, model_id=model_id, api_key=api_key)
+
+    with unittest.mock.patch("strands.models.ollama.ollama.AsyncClient") as mock_async_client:
+        mock_async_client.return_value.chat = unittest.mock.AsyncMock(return_value=agenerator([]))
+
+        messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+        # We need to consume the generator to trigger the call
+        async for _ in model.stream(messages):
+            pass
+
+        mock_async_client.assert_called_once_with(host, headers={"Authorization": f"Bearer {api_key}"})
+
+
+
 def test_update_config(model, model_id):
     model.update_config(model_id=model_id)
 

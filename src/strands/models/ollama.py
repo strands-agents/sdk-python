@@ -36,6 +36,7 @@ class OllamaModel(Model):
 
         Attributes:
             additional_args: Any additional arguments to include in the request.
+            api_key: The API key for authenticating with the Ollama server.
             keep_alive: Controls how long the model will stay loaded into memory following the request (default: "5m").
             max_tokens: Maximum number of tokens to generate in the response.
             model_id: Ollama model ID (e.g., "llama3", "mistral", "phi3").
@@ -46,6 +47,7 @@ class OllamaModel(Model):
         """
 
         additional_args: Optional[dict[str, Any]]
+        api_key: Optional[str]
         keep_alive: Optional[str]
         max_tokens: Optional[int]
         model_id: str
@@ -58,6 +60,7 @@ class OllamaModel(Model):
         self,
         host: Optional[str],
         *,
+        api_key: Optional[str] = None,
         ollama_client_args: Optional[dict[str, Any]] = None,
         **model_config: Unpack[OllamaConfig],
     ) -> None:
@@ -65,12 +68,17 @@ class OllamaModel(Model):
 
         Args:
             host: The address of the Ollama server hosting the model.
+            api_key: The API key for authenticating with the Ollama server.
             ollama_client_args: Additional arguments for the Ollama client.
             **model_config: Configuration options for the Ollama model.
         """
         self.host = host
         self.client_args = ollama_client_args or {}
-        self.config = OllamaModel.OllamaConfig(**model_config)
+        self.config = OllamaModel.OllamaConfig(api_key=api_key, **model_config)
+
+        if self.config.get("api_key"):
+            headers = self.client_args.setdefault("headers", {})
+            headers["Authorization"] = f"Bearer {self.config['api_key']}"
 
         logger.debug("config=<%s> | initializing", self.config)
 
