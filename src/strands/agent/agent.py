@@ -617,8 +617,11 @@ class Agent:
             tool_result: The result returned by the tool.
             user_message_override: Optional custom message to include.
         """
+        # Filter tool input parameters to only include those defined in tool spec
+        filtered_input = self._filter_tool_parameters_for_recording(tool["name"], tool["input"])
+
         # Create user message describing the tool call
-        input_parameters = json.dumps(tool["input"], default=lambda o: f"<<non-serializable: {type(o).__qualname__}>>")
+        input_parameters = json.dumps(filtered_input, default=lambda o: f"<<non-serializable: {type(o).__qualname__}>>")
 
         user_msg_content: list[ContentBlock] = [
             {"text": (f"agent.tool.{tool['name']} direct tool call.\nInput parameters: {input_parameters}\n")}
@@ -628,9 +631,12 @@ class Agent:
         if user_message_override:
             user_msg_content.insert(0, {"text": f"{user_message_override}\n"})
 
-        sanitized_input = json.loads(input_parameters)
-        sanitized_tool = tool.copy()
-        sanitized_tool["input"] = sanitized_input
+        # Create filtered tool use for message history
+        filtered_tool: ToolUse = {
+            "toolUseId": tool["toolUseId"],
+            "name": tool["name"],
+            "input": filtered_input,
+        }
 
         # Create the message sequence
         user_msg: Message = {
@@ -639,7 +645,7 @@ class Agent:
         }
         tool_use_msg: Message = {
             "role": "assistant",
-            "content": [{"toolUse": sanitized_tool}],
+            "content": [{"toolUse": filtered_tool}],
         }
         tool_result_msg: Message = {
             "role": "user",
@@ -695,6 +701,25 @@ class Agent:
                 trace_attributes["error"] = error
 
             self.tracer.end_agent_span(**trace_attributes)
+
+    def _filter_tool_parameters_for_recording(self, tool_name: str, input_params: dict[str, Any]) -> dict[str, Any]:
+        """Filter input parameters to only include those defined in the tool specification.
+
+        Args:
+            tool_name: Name of the tool to get specification for
+            input_params: Original input parameters
+
+        Returns:
+            Filtered parameters containing only those defined in tool spec
+        """
+        all_tools_config = self.tool_registry.get_all_tools_config()
+        tool_spec = all_tools_config.get(tool_name)
+
+        if not tool_spec or "inputSchema" not in tool_spec:
+            return input_params.copy()
+
+        properties = tool_spec["inputSchema"]["json"]["properties"]
+        return {k: v for k, v in input_params.items() if k in properties}
 
     def _append_message(self, message: Message) -> None:
         """Appends a message to the agent's list of messages and invokes the callbacks for the MessageCreatedEvent."""
