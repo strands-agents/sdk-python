@@ -1039,26 +1039,8 @@ async def test_tool_with_complex_anyof_schema(alist):
     assert "NoneType: None" in result["content"][0]["text"]
 
 
-@pytest.mark.asyncio
-async def test_tool_context_injection(alist):
-    """Test that ToolContext is properly injected into tools that request it."""
-
-    @strands.tool(context=True)
-    def context_tool(message: str, agent: Agent, tool_context: ToolContext) -> dict:
-        """Tool that uses ToolContext to access tool_use_id."""
-        tool_use_id = tool_context.tool_use["toolUseId"]
-        tool_name = tool_context.tool_use["name"]
-        agent_from_tool_context = tool_context.agent
-
-        return {
-            "status": "success",
-            "content": [
-                {"text": f"Tool '{tool_name}' (ID: {tool_use_id})"},
-                {"text": f"injected agent '{agent.name}' processed: {message}"},
-                {"text": f"context agent '{agent_from_tool_context.name}'"},
-            ],
-        }
-
+async def _run_context_injection_test(context_tool: AgentTool):
+    """Common test logic for context injection tests."""
     tool: AgentTool = context_tool
     generator = tool.stream(
         tool_use={
@@ -1077,8 +1059,137 @@ async def test_tool_context_injection(alist):
     assert len(tool_results) == 1
     tool_result = tool_results[0]
 
-    assert tool_result["status"] == "success"
-    assert tool_result["toolUseId"] == "test-id"
-    assert tool_result["content"][0]["text"] == "Tool 'context_tool' (ID: test-id)"
-    assert tool_result["content"][1]["text"] == "injected agent 'test_agent' processed: some_message"
-    assert tool_result["content"][2]["text"] == "context agent 'test_agent'"
+    assert tool_result == {
+        "status": "success",
+        "content": [
+            {"text": "Tool 'context_tool' (ID: test-id)"},
+            {"text": "injected agent 'test_agent' processed: some_message"},
+            {"text": "context agent 'test_agent'"}
+        ],
+        "toolUseId": "test-id",
+    }
+
+
+@pytest.mark.asyncio
+async def test_tool_context_injection_default():
+    """Test that ToolContext is properly injected with default parameter name (tool_context)."""
+
+    @strands.tool(context=True)
+    def context_tool(message: str, agent: Agent, tool_context: ToolContext) -> dict:
+        """Tool that uses ToolContext to access tool_use_id."""
+        tool_use_id = tool_context.tool_use["toolUseId"]
+        tool_name = tool_context.tool_use["name"]
+        agent_from_tool_context = tool_context.agent
+
+        return {
+            "status": "success",
+            "content": [
+                {"text": f"Tool '{tool_name}' (ID: {tool_use_id})"},
+                {"text": f"injected agent '{agent.name}' processed: {message}"},
+                {"text": f"context agent '{agent_from_tool_context.name}'"},
+            ],
+        }
+
+    await _run_context_injection_test(context_tool)
+
+
+@pytest.mark.asyncio
+async def test_tool_context_injection_custom_name():
+    """Test that ToolContext is properly injected with custom parameter name."""
+
+    @strands.tool(context="custom_context_name")
+    def context_tool(message: str, agent: Agent, custom_context_name: ToolContext) -> dict:
+        """Tool that uses ToolContext to access tool_use_id."""
+        tool_use_id = custom_context_name.tool_use["toolUseId"]
+        tool_name = custom_context_name.tool_use["name"]
+        agent_from_tool_context = custom_context_name.agent
+
+        return {
+            "status": "success",
+            "content": [
+                {"text": f"Tool '{tool_name}' (ID: {tool_use_id})"},
+                {"text": f"injected agent '{agent.name}' processed: {message}"},
+                {"text": f"context agent '{agent_from_tool_context.name}'"},
+            ],
+        }
+
+    await _run_context_injection_test(context_tool)
+
+
+@pytest.mark.asyncio
+async def test_tool_context_injection_disabled_missing_parameter():
+    """Test that when context=False, missing tool_context parameter causes validation error."""
+
+    @strands.tool(context=False)
+    def context_tool(message: str, agent: Agent, tool_context: str) -> dict:
+        """Tool that expects tool_context as a regular string parameter."""
+        return {
+            "status": "success",
+            "content": [
+                {"text": f"Message: {message}"},
+                {"text": f"Agent: {agent.name}"},
+                {"text": f"Tool context string: {tool_context}"},
+            ],
+        }
+
+    # Verify that missing tool_context parameter causes validation error
+    tool: AgentTool = context_tool
+    generator = tool.stream(
+        tool_use={
+            "toolUseId": "test-id",
+            "name": "context_tool",
+            "input": {
+                "message": "some_message"
+                # Missing tool_context parameter - should cause validation error instead of being auto injected
+            },
+        },
+        invocation_state={
+            "agent": Agent(name="test_agent"),
+        },
+    )
+    tool_results = [value async for value in generator]
+
+    assert len(tool_results) == 1
+    tool_result = tool_results[0]
+    
+    # Should get a validation error because tool_context is required but not provided
+    assert tool_result["status"] == "error"
+    assert "tool_context" in tool_result["content"][0]["text"].lower()
+    assert "validation" in tool_result["content"][0]["text"].lower()
+
+
+@pytest.mark.asyncio
+async def test_tool_context_injection_disabled_string_parameter():
+    """Test that when context=False, tool_context can be passed as a string parameter."""
+
+    @strands.tool(context=False)
+    def context_tool(message: str, agent: Agent, tool_context: str) -> str:
+        """Tool that expects tool_context as a regular string parameter."""
+        return "success"
+
+    # Verify that providing tool_context as a string works correctly
+    tool: AgentTool = context_tool
+    generator = tool.stream(
+        tool_use={
+            "toolUseId": "test-id-2",
+            "name": "context_tool",
+            "input": {
+                "message": "some_message",
+                "tool_context": "my_custom_context_string"
+            },
+        },
+        invocation_state={
+            "agent": Agent(name="test_agent"),
+        },
+    )
+    tool_results = [value async for value in generator]
+
+    assert len(tool_results) == 1
+    tool_result = tool_results[0]
+
+    # Should succeed with the string parameter
+    assert tool_result == {
+        "status": "success",
+        "content": [{"text": "success"}],
+        "toolUseId": "test-id-2",
+    }

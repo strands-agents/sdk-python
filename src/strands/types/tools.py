@@ -132,6 +132,10 @@ class ToolContext:
         tool_use: The complete ToolUse object containing tool invocation details.
         agent: The Agent instance executing this tool, providing access to conversation history,
                model configuration, and other agent state.
+
+    Note:
+        This class is intended to be instantiated by the SDK. Direct construction by users
+        is not supported and may break in future versions as new fields are added.
     """
 
     tool_use: ToolUse
