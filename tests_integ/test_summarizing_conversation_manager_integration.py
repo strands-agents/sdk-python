@@ -151,15 +151,18 @@ def test_summarization_with_context_overflow(model):
 
     # Verify summarization occurred
     assert len(agent.messages) < initial_message_count
-    # Should have: 1 summary + remaining messages
+    # Should have: 1 summary prompt + 1 summary + remaining messages
     # With 6 messages, summary_ratio=0.5, preserve_recent_messages=2:
     # messages_to_summarize = min(6 * 0.5, 6 - 2) = min(3, 4) = 3
-    # So we summarize 3 messages, leaving 3 remaining + 1 summary = 4 total
-    expected_total_messages = 4
+    # So we summarize 3 messages, leaving 3 remaining + 1 summary prompt + 1 summary = 5 total
+    expected_total_messages = 5
     assert len(agent.messages) == expected_total_messages
 
-    # First message should be the summary (assistant message)
-    summary_message = agent.messages[0]
+    # First message should be the summary prompt
+    summary_prompt = agent.messages[0]
+    assert summary_prompt == {"content": [{"text": "Please summarize this conversation"}], "role": "user"}
+    # Second message should be the summary
+    summary_message = agent.messages[1]
     assert summary_message["role"] == "assistant"
     assert len(summary_message["content"]) > 0
 
@@ -361,7 +364,7 @@ def test_dedicated_summarization_agent(model, summarization_model):
     assert len(agent.messages) < original_length
 
     # Get the summary message
-    summary_message = agent.messages[0]
+    summary_message = agent.messages[1]
     assert summary_message["role"] == "assistant"
 
     # Extract summary text
