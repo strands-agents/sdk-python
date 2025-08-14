@@ -553,7 +553,7 @@ def tool(  # type: ignore
         description: Optional custom description to override the function's docstring.
         inputSchema: Optional custom JSON schema to override the automatically generated schema.
         name: Optional custom name to override the function's name.
-        context: When provided, places a  object in the designated parameter. If True, the param name
+        context: When provided, places an object in the designated parameter. If True, the param name
             defaults to 'tool_context', or if an override is needed, set context equal to a string to designate
             the param name.
 
