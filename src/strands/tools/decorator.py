@@ -586,7 +586,7 @@ def tool(  # type: ignore
     Example with parameters:
         ```python
         @tool(name="custom_tool", description="A tool with a custom name and description", context=True)
-        def my_tool(name: str, count: int = 1, tool_context: ) -> str:
+        def my_tool(name: str, count: int = 1, tool_context: ToolContext) -> str:
             tool_id = tool_context["tool_use"]["toolUseId"]
             return f"Processed {name} {count} times with tool ID {tool_id}"
         ```
