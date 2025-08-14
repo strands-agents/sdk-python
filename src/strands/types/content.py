@@ -10,6 +10,7 @@ from typing import Dict, List, Literal, Optional
 
 from typing_extensions import TypedDict
 
+from .citations import CitationsContentBlock
 from .media import DocumentContent, ImageContent, VideoContent
 from .tools import ToolResult, ToolUse
 
@@ -83,6 +84,7 @@ class ContentBlock(TypedDict, total=False):
         toolResult: The result for a tool request that a model makes.
         toolUse: Information about a tool use request from a model.
         video: Video to include in the message.
+        citationsContent: Contains the citations for a document.
     """
 
     cachePoint: CachePoint
@@ -94,6 +96,7 @@ class ContentBlock(TypedDict, total=False):
     toolResult: ToolResult
     toolUse: ToolUse
     video: VideoContent
+    citationsContent: CitationsContentBlock
 
 
 class SystemContentBlock(TypedDict, total=False):
