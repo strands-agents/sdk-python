@@ -8,6 +8,7 @@ servers.
 
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_client import MCPClient
+from .mcp_from_config import MCPServerConfig
 from .mcp_types import MCPTransport
 
-__all__ = ["MCPAgentTool", "MCPClient", "MCPTransport"]
+__all__ = ["MCPAgentTool", "MCPClient", "MCPServerConfig", "MCPTransport"]
