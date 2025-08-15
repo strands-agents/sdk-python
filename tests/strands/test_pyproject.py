@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-import tomllib
+import tomli
 
 
 def test_optional_dependencies_version_consistency():
@@ -10,7 +10,7 @@ def test_optional_dependencies_version_consistency():
     pyproject_path = Path(__file__).parent.parent.parent / "pyproject.toml"
 
     with open(pyproject_path, "rb") as f:
-        data = tomllib.load(f)
+        data = tomli.load(f)
 
     optional_deps = data["project"]["optional-dependencies"]
 
