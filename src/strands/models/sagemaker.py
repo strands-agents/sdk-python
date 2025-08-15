@@ -196,17 +196,17 @@ class SageMakerAIModel(OpenAIModel):
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
     ) -> dict[str, Any]:
         """Format an Amazon SageMaker chat streaming request.
-
+    
         Args:
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
-
+    
         Returns:
             An Amazon SageMaker chat streaming request.
         """
         formatted_messages = self.format_request_messages(messages, system_prompt)
-
+    
         payload = {
             "messages": formatted_messages,
             "tools": [
@@ -227,7 +227,11 @@ class SageMakerAIModel(OpenAIModel):
                 if k not in ["additional_args", "tool_results_as_user_messages"]
             },
         }
-
+    
+        # Add additional_args from payload_config to the payload
+        if self.payload_config.get("additional_args"):
+            payload.update(self.payload_config["additional_args"])
+    
         # Remove tools and tool_choice if tools = []
         if not payload["tools"]:
             payload.pop("tools")
@@ -235,7 +239,7 @@ class SageMakerAIModel(OpenAIModel):
         else:
             # Ensure the model can use tools when available
             payload["tool_choice"] = "auto"
-
+    
         for message in payload["messages"]:  # type: ignore
             # Assistant message must have either content or tool_calls, but not both
             if message.get("role", "") == "assistant" and message.get("tool_calls", []) != []:
@@ -252,7 +256,7 @@ class SageMakerAIModel(OpenAIModel):
                     break
             # Cast message content to string for TGI compatibility
             # message["content"] = str(message.get("content", ""))
-
+    
         logger.info("payload=<%s>", json.dumps(payload, indent=2))
         # Format the request according to the SageMaker Runtime API requirements
         request = {
@@ -261,7 +265,7 @@ class SageMakerAIModel(OpenAIModel):
             "ContentType": "application/json",
             "Accept": "application/json",
         }
-
+    
         # Add optional SageMaker parameters if provided
         if self.endpoint_config.get("inference_component_name"):
             request["InferenceComponentName"] = self.endpoint_config["inference_component_name"]
@@ -269,11 +273,11 @@ class SageMakerAIModel(OpenAIModel):
             request["TargetModel"] = self.endpoint_config["target_model"]
         if self.endpoint_config.get("target_variant"):
             request["TargetVariant"] = self.endpoint_config["target_variant"]
-
-        # Add additional args if provided
+    
+        # Add additional args from endpoint_config if provided (these are SageMaker API parameters)
         if self.endpoint_config.get("additional_args"):
-            request.update(self.endpoint_config["additional_args"].__dict__)
-
+            request.update(self.endpoint_config["additional_args"])
+    
         return request
 
     @override
