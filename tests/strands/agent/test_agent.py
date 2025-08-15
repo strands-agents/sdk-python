@@ -258,7 +258,7 @@ def test_agent__init__deeply_nested_tools(tool_decorated, tool_module, tool_impo
     ],
 )
 def test_agent__init__invalid_id(agent_id):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=f"agent_id={agent_id} | id cannot contain path separators"):
         Agent(agent_id=agent_id)
 
 

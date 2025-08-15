@@ -7,10 +7,9 @@ import shutil
 import tempfile
 from typing import Any, Optional, cast
 
-from ..agent.identifier import validate as validate_agent_id
+from .. import _identifier
 from ..types.exceptions import SessionException
 from ..types.session import Session, SessionAgent, SessionMessage
-from .identifier import validate as validate_session_id
 from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
 
@@ -61,7 +60,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         Raises:
             ValueError: If session id contains a path separator.
         """
-        session_id = validate_session_id(session_id)
+        session_id = _identifier.validate(session_id, _identifier.Identifier.SESSION)
         return os.path.join(self.storage_dir, f"{SESSION_PREFIX}{session_id}")
 
     def _get_agent_path(self, session_id: str, agent_id: str) -> str:
@@ -75,7 +74,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
             ValueError: If session id or agent id contains a path separator.
         """
         session_path = self._get_session_path(session_id)
-        agent_id = validate_agent_id(agent_id)
+        agent_id = _identifier.validate(agent_id, _identifier.Identifier.AGENT)
         return os.path.join(session_path, "agents", f"{AGENT_PREFIX}{agent_id}")
 
     def _get_message_path(self, session_id: str, agent_id: str, message_id: int) -> str:

@@ -19,6 +19,7 @@ from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Option
 from opentelemetry import trace as trace_api
 from pydantic import BaseModel
 
+from .. import _identifier
 from ..event_loop.event_loop import event_loop_cycle, run_tool
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
@@ -40,7 +41,6 @@ from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
-from . import identifier
 from .agent_result import AgentResult
 from .conversation_manager import (
     ConversationManager,
@@ -258,7 +258,7 @@ class Agent:
         self.messages = messages if messages is not None else []
 
         self.system_prompt = system_prompt
-        self.agent_id = identifier.validate(agent_id or _DEFAULT_AGENT_ID)
+        self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
 
