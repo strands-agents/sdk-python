@@ -3,10 +3,11 @@
 - Docs: https://aws.amazon.com/bedrock/
 """
 
+import asyncio
 import json
 import logging
 import os
-from typing import Any, Generator, Iterable, List, Literal, Optional, Type, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -14,17 +15,17 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
-from ..event_loop.streaming import process_stream
+from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
-from ..types.content import Messages
+from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
-from ..types.models import Model
 from ..types.streaming import StreamEvent
-from ..types.tools import ToolSpec
+from ..types.tools import ToolResult, ToolSpec
+from .model import Model
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
 DEFAULT_BEDROCK_REGION = "us-west-2"
 
 BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
@@ -66,7 +67,7 @@ class BedrockModel(Model):
             guardrail_redact_output: Flag to redact output if guardrail is triggered. Defaults to False.
             guardrail_redact_output_message: If a Bedrock Output guardrail triggers, replace output with this message.
             max_tokens: Maximum number of tokens to generate in the response
-            model_id: The Bedrock model ID (e.g., "us.anthropic.claude-3-7-sonnet-20250219-v1:0")
+            model_id: The Bedrock model ID (e.g., "us.anthropic.claude-sonnet-4-20250514-v1:0")
             stop_sequences: List of sequences that will stop generation when encountered
             streaming: Flag to enable/disable streaming. Defaults to True.
             temperature: Controls randomness in generation (higher = more random)
@@ -162,7 +163,6 @@ class BedrockModel(Model):
         """
         return self.config
 
-    @override
     def format_request(
         self,
         messages: Messages,
@@ -181,7 +181,7 @@ class BedrockModel(Model):
         """
         return {
             "modelId": self.config["model_id"],
-            "messages": messages,
+            "messages": self._format_bedrock_messages(messages),
             "system": [
                 *([{"text": system_prompt}] if system_prompt else []),
                 *([{"cachePoint": {"type": self.config["cache_prompt"]}}] if self.config.get("cache_prompt") else []),
@@ -246,17 +246,52 @@ class BedrockModel(Model):
             ),
         }
 
-    @override
-    def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
-        """Format the Bedrock response events into standardized message chunks.
+    def _format_bedrock_messages(self, messages: Messages) -> Messages:
+        """Format messages for Bedrock API compatibility.
+
+        This function ensures messages conform to Bedrock's expected format by:
+        - Cleaning tool result content blocks by removing additional fields that may be
+          useful for retaining information in hooks but would cause Bedrock validation
+          exceptions when presented with unexpected fields
+        - Ensuring all message content blocks are properly formatted for the Bedrock API
 
         Args:
-            event: A response event from the Bedrock model.
+            messages: List of messages to format
 
         Returns:
-            The formatted chunk.
+            Messages formatted for Bedrock API compatibility
+
+        Note:
+            Bedrock will throw validation exceptions when presented with additional
+            unexpected fields in tool result blocks.
+            https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolResultBlock.html
         """
-        return cast(StreamEvent, event)
+        cleaned_messages = []
+
+        for message in messages:
+            cleaned_content: list[ContentBlock] = []
+
+            for content_block in message["content"]:
+                if "toolResult" in content_block:
+                    # Create a new content block with only the cleaned toolResult
+                    tool_result: ToolResult = content_block["toolResult"]
+
+                    # Keep only the required fields for Bedrock
+                    cleaned_tool_result = ToolResult(
+                        content=tool_result["content"], toolUseId=tool_result["toolUseId"], status=tool_result["status"]
+                    )
+
+                    cleaned_block: ContentBlock = {"toolResult": cleaned_tool_result}
+                    cleaned_content.append(cleaned_block)
+                else:
+                    # Keep other content blocks as-is
+                    cleaned_content.append(content_block)
+
+            # Create new message with cleaned content
+            cleaned_message: Message = Message(content=cleaned_content, role=message["role"])
+            cleaned_messages.append(cleaned_message)
+
+        return cleaned_messages
 
     def _has_blocked_guardrail(self, guardrail_data: dict[str, Any]) -> bool:
         """Check if guardrail data contains any blocked policies.
@@ -286,7 +321,7 @@ class BedrockModel(Model):
         Returns:
             List of redaction events to yield.
         """
-        events: List[StreamEvent] = []
+        events: list[StreamEvent] = []
 
         if self.config.get("guardrail_redact_input", True):
             logger.debug("Redacting user input due to guardrail.")
@@ -315,27 +350,84 @@ class BedrockModel(Model):
         return events
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[StreamEvent]:
-        """Send the request to the Bedrock model and get the response.
+    async def stream(
+        self,
+        messages: Messages,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        system_prompt: Optional[str] = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream conversation with the Bedrock model.
 
         This method calls either the Bedrock converse_stream API or the converse API
         based on the streaming parameter in the configuration.
 
         Args:
-            request: The formatted request to send to the Bedrock model
+            messages: List of message objects to be processed by the model.
+            tool_specs: List of tool specifications to make available to the model.
+            system_prompt: System prompt to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
-        Returns:
-            An iterable of response events from the Bedrock model
+        Yields:
+            Model events.
 
         Raises:
             ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: If the model service is throttling requests.
         """
-        streaming = self.config.get("streaming", True)
 
+        def callback(event: Optional[StreamEvent] = None) -> None:
+            loop.call_soon_threadsafe(queue.put_nowait, event)
+            if event is None:
+                return
+
+        loop = asyncio.get_event_loop()
+        queue: asyncio.Queue[Optional[StreamEvent]] = asyncio.Queue()
+
+        thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt)
+        task = asyncio.create_task(thread)
+
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
+
+            yield event
+
+        await task
+
+    def _stream(
+        self,
+        callback: Callable[..., None],
+        messages: Messages,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        system_prompt: Optional[str] = None,
+    ) -> None:
+        """Stream conversation with the Bedrock model.
+
+        This method operates in a separate thread to avoid blocking the async event loop with the call to
+        Bedrock's converse_stream.
+
+        Args:
+            callback: Function to send events to the main thread.
+            messages: List of message objects to be processed by the model.
+            tool_specs: List of tool specifications to make available to the model.
+            system_prompt: System prompt to provide context to the model.
+
+        Raises:
+            ContextWindowOverflowException: If the input exceeds the model's context window.
+            ModelThrottledException: If the model service is throttling requests.
+        """
         try:
+            logger.debug("formatting request")
+            request = self.format_request(messages, tool_specs, system_prompt)
+            logger.debug("request=<%s>", request)
+
+            logger.debug("invoking model")
+            streaming = self.config.get("streaming", True)
+
+            logger.debug("got response from model")
             if streaming:
-                # Streaming implementation
                 response = self.client.converse_stream(**request)
                 for chunk in response["stream"]:
                     if (
@@ -345,31 +437,30 @@ class BedrockModel(Model):
                     ):
                         guardrail_data = chunk["metadata"]["trace"]["guardrail"]
                         if self._has_blocked_guardrail(guardrail_data):
-                            yield from self._generate_redaction_events()
-                    yield chunk
+                            for event in self._generate_redaction_events():
+                                callback(event)
+
+                    callback(chunk)
+
             else:
-                # Non-streaming implementation
                 response = self.client.converse(**request)
+                for event in self._convert_non_streaming_to_streaming(response):
+                    callback(event)
 
-                # Convert and yield from the response
-                yield from self._convert_non_streaming_to_streaming(response)
-
-                # Check for guardrail triggers after yielding any events (same as streaming path)
                 if (
                     "trace" in response
                     and "guardrail" in response["trace"]
                     and self._has_blocked_guardrail(response["trace"]["guardrail"])
                 ):
-                    yield from self._generate_redaction_events()
+                    for event in self._generate_redaction_events():
+                        callback(event)
 
         except ClientError as e:
             error_message = str(e)
 
-            # Handle throttling error
             if e.response["Error"]["Code"] == "ThrottlingException":
                 raise ModelThrottledException(error_message) from e
 
-            # Handle context window overflow
             if any(overflow_message in error_message for overflow_message in BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES):
                 logger.warning("bedrock threw context window overflow error")
                 raise ContextWindowOverflowException(e) from e
@@ -388,7 +479,7 @@ class BedrockModel(Model):
                 ):
                     e.add_note(
                         "└ For more information see "
-                        "https://strandsagents.com/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue"
+                        "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue"
                     )
 
                 if (
@@ -400,8 +491,11 @@ class BedrockModel(Model):
                         "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported"
                     )
 
-            # Otherwise raise the error
             raise e
+
+        finally:
+            callback()
+            logger.debug("finished streaming response from model")
 
     def _convert_non_streaming_to_streaming(self, response: dict[str, Any]) -> Iterable[StreamEvent]:
         """Convert a non-streaming response to the streaming format.
@@ -514,28 +608,30 @@ class BedrockModel(Model):
         return False
 
     @override
-    def structured_output(
-        self, output_model: Type[T], prompt: Messages
-    ) -> Generator[dict[str, Union[T, Any]], None, None]:
+    async def structured_output(
+        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:
             output_model: The output model to use for the agent.
             prompt: The prompt messages to use for the agent.
+            system_prompt: System prompt to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Model events with the last being the structured output.
         """
         tool_spec = convert_pydantic_to_tool_spec(output_model)
 
-        response = self.converse(messages=prompt, tool_specs=[tool_spec])
-        for event in process_stream(response, prompt):
+        response = self.stream(messages=prompt, tool_specs=[tool_spec], system_prompt=system_prompt, **kwargs)
+        async for event in streaming.process_stream(response):
             yield event
 
         stop_reason, messages, _, _ = event["stop"]
 
         if stop_reason != "tool_use":
-            raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
+            raise ValueError(f'Model returned stop_reason: {stop_reason} instead of "tool_use".')
 
         content = messages["content"]
         output_response: dict[str, Any] | None = None

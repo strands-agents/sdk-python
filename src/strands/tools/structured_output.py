@@ -54,7 +54,9 @@ def _flatten_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
 
                 # Process each nested property
                 for nested_prop_name, nested_prop_value in prop_value["properties"].items():
-                    processed_prop["properties"][nested_prop_name] = nested_prop_value
+                    is_required = "required" in prop_value and nested_prop_name in prop_value["required"]
+                    sub_property = _process_property(nested_prop_value, schema.get("$defs", {}), is_required)
+                    processed_prop["properties"][nested_prop_name] = sub_property
 
                 # Copy required fields if present
                 if "required" in prop_value:
@@ -136,6 +138,10 @@ def _process_property(
             # Copy description if available in the property
             if "description" in prop:
                 result["description"] = prop["description"]
+
+            # Need to process item refs as well (#337)
+            if "items" in result:
+                result["items"] = _process_property(result["items"], defs)
 
             return result
 

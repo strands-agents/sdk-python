@@ -5,16 +5,16 @@
 
 import json
 import logging
-from typing import Any, Generator, Iterable, Optional, Type, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, Optional, Type, TypeVar, Union, cast
 
-from ollama import Client as OllamaClient
+import ollama
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
 from ..types.content import ContentBlock, Messages
-from ..types.models import Model
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolSpec
+from .model import Model
 
 logger = logging.getLogger(__name__)
 
@@ -68,13 +68,11 @@ class OllamaModel(Model):
             ollama_client_args: Additional arguments for the Ollama client.
             **model_config: Configuration options for the Ollama model.
         """
+        self.host = host
+        self.client_args = ollama_client_args or {}
         self.config = OllamaModel.OllamaConfig(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
-
-        ollama_client_args = ollama_client_args if ollama_client_args is not None else {}
-
-        self.client = OllamaClient(host, **ollama_client_args)
 
     @override
     def update_config(self, **model_config: Unpack[OllamaConfig]) -> None:  # type: ignore
@@ -165,7 +163,6 @@ class OllamaModel(Model):
             for formatted_message in self._format_request_message_contents(message["role"], content)
         ]
 
-    @override
     def format_request(
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
     ) -> dict[str, Any]:
@@ -219,7 +216,6 @@ class OllamaModel(Model):
             ),
         }
 
-    @override
     def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
         """Format the Ollama response events into standardized message chunks.
 
@@ -283,54 +279,76 @@ class OllamaModel(Model):
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
-        """Send the request to the Ollama model and get the streaming response.
-
-        This method calls the Ollama chat API and returns the stream of response events.
+    async def stream(
+        self,
+        messages: Messages,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        system_prompt: Optional[str] = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream conversation with the Ollama model.
 
         Args:
-            request: The formatted request to send to the Ollama model.
+            messages: List of message objects to be processed by the model.
+            tool_specs: List of tool specifications to make available to the model.
+            system_prompt: System prompt to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
-        Returns:
-            An iterable of response events from the Ollama model.
+        Yields:
+            Formatted message chunks from the model.
         """
+        logger.debug("formatting request")
+        request = self.format_request(messages, tool_specs, system_prompt)
+        logger.debug("request=<%s>", request)
+
+        logger.debug("invoking model")
         tool_requested = False
 
-        response = self.client.chat(**request)
+        client = ollama.AsyncClient(self.host, **self.client_args)
+        response = await client.chat(**request)
 
-        yield {"chunk_type": "message_start"}
-        yield {"chunk_type": "content_start", "data_type": "text"}
+        logger.debug("got response from model")
+        yield self.format_chunk({"chunk_type": "message_start"})
+        yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
-        for event in response:
+        async for event in response:
             for tool_call in event.message.tool_calls or []:
-                yield {"chunk_type": "content_start", "data_type": "tool", "data": tool_call}
-                yield {"chunk_type": "content_delta", "data_type": "tool", "data": tool_call}
-                yield {"chunk_type": "content_stop", "data_type": "tool", "data": tool_call}
+                yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_call})
+                yield self.format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_call})
+                yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool", "data": tool_call})
                 tool_requested = True
 
-            yield {"chunk_type": "content_delta", "data_type": "text", "data": event.message.content}
+            yield self.format_chunk({"chunk_type": "content_delta", "data_type": "text", "data": event.message.content})
 
-        yield {"chunk_type": "content_stop", "data_type": "text"}
-        yield {"chunk_type": "message_stop", "data": "tool_use" if tool_requested else event.done_reason}
-        yield {"chunk_type": "metadata", "data": event}
+        yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
+        yield self.format_chunk(
+            {"chunk_type": "message_stop", "data": "tool_use" if tool_requested else event.done_reason}
+        )
+        yield self.format_chunk({"chunk_type": "metadata", "data": event})
+
+        logger.debug("finished streaming response from model")
 
     @override
-    def structured_output(
-        self, output_model: Type[T], prompt: Messages
-    ) -> Generator[dict[str, Union[T, Any]], None, None]:
+    async def structured_output(
+        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:
             output_model: The output model to use for the agent.
             prompt: The prompt messages to use for the agent.
+            system_prompt: System prompt to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Model events with the last being the structured output.
         """
-        formatted_request = self.format_request(messages=prompt)
+        formatted_request = self.format_request(messages=prompt, system_prompt=system_prompt)
         formatted_request["format"] = output_model.model_json_schema()
         formatted_request["stream"] = False
-        response = self.client.chat(**formatted_request)
+
+        client = ollama.AsyncClient(self.host, **self.client_args)
+        response = await client.chat(**formatted_request)
 
         try:
             content = response.message.content.strip()

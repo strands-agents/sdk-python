@@ -11,12 +11,13 @@ import sys
 from importlib import import_module, util
 from os.path import expanduser
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from typing_extensions import TypedDict, cast
 
-from ..types.tools import AgentTool, Tool, ToolChoice, ToolChoiceAuto, ToolConfig, ToolSpec
-from .loader import scan_module_for_tools
+from strands.tools.decorator import DecoratedFunctionTool
+
+from ..types.tools import AgentTool, ToolSpec
 from .tools import PythonAgentTool, normalize_schema, normalize_tool_spec
 
 logger = logging.getLogger(__name__)
@@ -53,7 +54,7 @@ class ToolRegistry:
         """
         tool_names = []
 
-        for tool in tools:
+        def add_tool(tool: Any) -> None:
             # Case 1: String file path
             if isinstance(tool, str):
                 # Extract tool name from path
@@ -84,7 +85,7 @@ class ToolRegistry:
                     self.load_tool_from_filepath(tool_name=tool_name, tool_path=module_path)
                     tool_names.append(tool_name)
                 else:
-                    function_tools = scan_module_for_tools(tool)
+                    function_tools = self._scan_module_for_tools(tool)
                     for function_tool in function_tools:
                         self.register_tool(function_tool)
                         tool_names.append(function_tool.tool_name)
@@ -96,8 +97,15 @@ class ToolRegistry:
             elif isinstance(tool, AgentTool):
                 self.register_tool(tool)
                 tool_names.append(tool.tool_name)
+            # Case 6: Nested iterable (list, tuple, etc.) - add each sub-tool
+            elif isinstance(tool, Iterable) and not isinstance(tool, (str, bytes, bytearray)):
+                for t in tool:
+                    add_tool(t)
             else:
                 logger.warning("tool=<%s> | unrecognized tool specification", tool)
+
+        for a_tool in tools:
+            add_tool(a_tool)
 
         return tool_names
 
@@ -313,7 +321,7 @@ class ToolRegistry:
 
             # Look for function-based tools first
             try:
-                function_tools = scan_module_for_tools(module)
+                function_tools = self._scan_module_for_tools(module)
 
                 if function_tools:
                     for function_tool in function_tools:
@@ -346,11 +354,7 @@ class ToolRegistry:
             # Validate tool spec
             self.validate_tool_spec(module.TOOL_SPEC)
 
-            new_tool = PythonAgentTool(
-                tool_name=tool_name,
-                tool_spec=module.TOOL_SPEC,
-                callback=tool_function,
-            )
+            new_tool = PythonAgentTool(tool_name, module.TOOL_SPEC, tool_function)
 
             # Register the tool
             self.register_tool(new_tool)
@@ -364,7 +368,7 @@ class ToolRegistry:
             logger.exception("tool_name=<%s> | failed to reload tool", tool_name)
             raise
 
-    def initialize_tools(self, load_tools_from_directory: bool = True) -> None:
+    def initialize_tools(self, load_tools_from_directory: bool = False) -> None:
         """Initialize all tools by discovering and loading them dynamically from all tool directories.
 
         Args:
@@ -400,7 +404,7 @@ class ToolRegistry:
                 if tool_path.suffix == ".py":
                     # Check for decorated function tools first
                     try:
-                        function_tools = scan_module_for_tools(module)
+                        function_tools = self._scan_module_for_tools(module)
 
                         if function_tools:
                             for function_tool in function_tools:
@@ -430,11 +434,7 @@ class ToolRegistry:
                                     continue
 
                                 tool_spec = module.TOOL_SPEC
-                                tool = PythonAgentTool(
-                                    tool_name=tool_name,
-                                    tool_spec=tool_spec,
-                                    callback=tool_function,
-                                )
+                                tool = PythonAgentTool(tool_name, tool_spec, tool_function)
                                 self.register_tool(tool)
                                 successful_loads += 1
 
@@ -462,11 +462,7 @@ class ToolRegistry:
                                 continue
 
                             tool_spec = module.TOOL_SPEC
-                            tool = PythonAgentTool(
-                                tool_name=tool_name,
-                                tool_spec=tool_spec,
-                                callback=tool_function,
-                            )
+                            tool = PythonAgentTool(tool_name, tool_spec, tool_function)
                             self.register_tool(tool)
                             successful_loads += 1
 
@@ -483,20 +479,15 @@ class ToolRegistry:
             for tool_name, error in tool_import_errors.items():
                 logger.debug("tool_name=<%s> | import error | %s", tool_name, error)
 
-    def initialize_tool_config(self) -> ToolConfig:
-        """Initialize tool configuration from tool handler with optional filtering.
+    def get_all_tool_specs(self) -> list[ToolSpec]:
+        """Get all the tool specs for all tools in this registry..
 
         Returns:
-            Tool config.
+            A list of ToolSpecs.
         """
         all_tools = self.get_all_tools_config()
-
-        tools: List[Tool] = [{"toolSpec": tool_spec} for tool_spec in all_tools.values()]
-
-        return ToolConfig(
-            tools=tools,
-            toolChoice=cast(ToolChoice, {"auto": ToolChoiceAuto()}),
-        )
+        tools: List[ToolSpec] = [tool_spec for tool_spec in all_tools.values()]
+        return tools
 
     def validate_tool_spec(self, tool_spec: ToolSpec) -> None:
         """Validate tool specification against required schema.
@@ -592,3 +583,25 @@ class ToolRegistry:
         else:
             tool_config["tools"].append(new_tool_entry)
             logger.debug("tool_name=<%s> | added new tool", new_tool_name)
+
+    def _scan_module_for_tools(self, module: Any) -> List[AgentTool]:
+        """Scan a module for function-based tools.
+
+        Args:
+            module: The module to scan.
+
+        Returns:
+            List of FunctionTool instances found in the module.
+        """
+        tools: List[AgentTool] = []
+
+        for name, obj in inspect.getmembers(module):
+            if isinstance(obj, DecoratedFunctionTool):
+                # Create a function tool with correct name
+                try:
+                    # Cast as AgentTool for mypy
+                    tools.append(cast(AgentTool, obj))
+                except Exception as e:
+                    logger.warning("tool_name=<%s> | failed to create function tool | %s", name, e)
+
+        return tools

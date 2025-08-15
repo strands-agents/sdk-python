@@ -6,17 +6,17 @@
 import base64
 import json
 import logging
-from typing import Any, Callable, Dict, Generator, Iterable, List, Optional, Type, TypeVar, Union
+from typing import Any, AsyncGenerator, Iterable, Optional, Type, TypeVar, Union
 
-from mistralai import Mistral
+import mistralai
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
-from ..types.models import Model
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolResult, ToolSpec, ToolUse
+from .model import Model
 
 logger = logging.getLogger(__name__)
 
@@ -90,11 +90,9 @@ class MistralModel(Model):
 
         logger.debug("config=<%s> | initializing", self.config)
 
-        client_args = client_args or {}
+        self.client_args = client_args or {}
         if api_key:
-            client_args["api_key"] = api_key
-
-        self.client = Mistral(**client_args)
+            self.client_args["api_key"] = api_key
 
     @override
     def update_config(self, **model_config: Unpack[MistralConfig]) -> None:  # type: ignore
@@ -114,7 +112,7 @@ class MistralModel(Model):
         """
         return self.config
 
-    def _format_request_message_content(self, content: ContentBlock) -> Union[str, Dict[str, Any]]:
+    def _format_request_message_content(self, content: ContentBlock) -> Union[str, dict[str, Any]]:
         """Format a Mistral content block.
 
         Args:
@@ -170,7 +168,7 @@ class MistralModel(Model):
         Returns:
             Mistral formatted tool message.
         """
-        content_parts: List[str] = []
+        content_parts: list[str] = []
         for content in tool_result["content"]:
             if "json" in content:
                 content_parts.append(json.dumps(content["json"]))
@@ -205,9 +203,9 @@ class MistralModel(Model):
             role = message["role"]
             contents = message["content"]
 
-            text_contents: List[str] = []
-            tool_calls: List[Dict[str, Any]] = []
-            tool_messages: List[Dict[str, Any]] = []
+            text_contents: list[str] = []
+            tool_calls: list[dict[str, Any]] = []
+            tool_messages: list[dict[str, Any]] = []
 
             for content in contents:
                 if "text" in content:
@@ -220,7 +218,7 @@ class MistralModel(Model):
                     tool_messages.append(self._format_request_tool_message(content["toolResult"]))
 
             if text_contents or tool_calls:
-                formatted_message: Dict[str, Any] = {
+                formatted_message: dict[str, Any] = {
                     "role": role,
                     "content": " ".join(text_contents) if text_contents else "",
                 }
@@ -234,7 +232,6 @@ class MistralModel(Model):
 
         return formatted_messages
 
-    @override
     def format_request(
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
     ) -> dict[str, Any]:
@@ -252,7 +249,7 @@ class MistralModel(Model):
             TypeError: If a message contains a content block type that cannot be converted to a Mistral-compatible
                 format.
         """
-        request: Dict[str, Any] = {
+        request: dict[str, Any] = {
             "model": self.config["model_id"],
             "messages": self._format_request_messages(messages, system_prompt),
         }
@@ -281,7 +278,6 @@ class MistralModel(Model):
 
         return request
 
-    @override
     def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
         """Format the Mistral response events into standardized message chunks.
 
@@ -393,92 +389,119 @@ class MistralModel(Model):
             yield {"chunk_type": "metadata", "data": response.usage}
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
-        """Send the request to the Mistral model and get the streaming response.
+    async def stream(
+        self,
+        messages: Messages,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        system_prompt: Optional[str] = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream conversation with the Mistral model.
 
         Args:
-            request: The formatted request to send to the Mistral model.
+            messages: List of message objects to be processed by the model.
+            tool_specs: List of tool specifications to make available to the model.
+            system_prompt: System prompt to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
-        Returns:
-            An iterable of response events from the Mistral model.
+        Yields:
+            Formatted message chunks from the model.
 
         Raises:
             ModelThrottledException: When the model service is throttling requests.
         """
+        logger.debug("formatting request")
+        request = self.format_request(messages, tool_specs, system_prompt)
+        logger.debug("request=<%s>", request)
+
+        logger.debug("invoking model")
         try:
-            if self.config.get("stream", True) is False:
+            logger.debug("got response from model")
+            if not self.config.get("stream", True):
                 # Use non-streaming API
-                response = self.client.chat.complete(**request)
-                yield from self._handle_non_streaming_response(response)
+                async with mistralai.Mistral(**self.client_args) as client:
+                    response = await client.chat.complete_async(**request)
+                    for event in self._handle_non_streaming_response(response):
+                        yield self.format_chunk(event)
+
                 return
 
             # Use the streaming API
-            stream_response = self.client.chat.stream(**request)
+            async with mistralai.Mistral(**self.client_args) as client:
+                stream_response = await client.chat.stream_async(**request)
 
-            yield {"chunk_type": "message_start"}
+                yield self.format_chunk({"chunk_type": "message_start"})
 
-            content_started = False
-            current_tool_calls: Dict[str, Dict[str, str]] = {}
-            accumulated_text = ""
+                content_started = False
+                tool_calls: dict[str, list[Any]] = {}
+                accumulated_text = ""
 
-            for chunk in stream_response:
-                if hasattr(chunk, "data") and hasattr(chunk.data, "choices") and chunk.data.choices:
-                    choice = chunk.data.choices[0]
+                async for chunk in stream_response:
+                    if hasattr(chunk, "data") and hasattr(chunk.data, "choices") and chunk.data.choices:
+                        choice = chunk.data.choices[0]
 
-                    if hasattr(choice, "delta"):
-                        delta = choice.delta
+                        if hasattr(choice, "delta"):
+                            delta = choice.delta
 
-                        if hasattr(delta, "content") and delta.content:
-                            if not content_started:
-                                yield {"chunk_type": "content_start", "data_type": "text"}
-                                content_started = True
+                            if hasattr(delta, "content") and delta.content:
+                                if not content_started:
+                                    yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
+                                    content_started = True
 
-                            yield {"chunk_type": "content_delta", "data_type": "text", "data": delta.content}
-                            accumulated_text += delta.content
+                                yield self.format_chunk(
+                                    {"chunk_type": "content_delta", "data_type": "text", "data": delta.content}
+                                )
+                                accumulated_text += delta.content
 
-                        if hasattr(delta, "tool_calls") and delta.tool_calls:
-                            for tool_call in delta.tool_calls:
-                                tool_id = tool_call.id
+                            if hasattr(delta, "tool_calls") and delta.tool_calls:
+                                for tool_call in delta.tool_calls:
+                                    tool_id = tool_call.id
+                                    tool_calls.setdefault(tool_id, []).append(tool_call)
 
-                                if tool_id not in current_tool_calls:
-                                    yield {"chunk_type": "content_start", "data_type": "tool", "data": tool_call}
-                                    current_tool_calls[tool_id] = {"name": tool_call.function.name, "arguments": ""}
+                        if hasattr(choice, "finish_reason") and choice.finish_reason:
+                            if content_started:
+                                yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
 
-                                if hasattr(tool_call.function, "arguments"):
-                                    current_tool_calls[tool_id]["arguments"] += tool_call.function.arguments
-                                    yield {
-                                        "chunk_type": "content_delta",
-                                        "data_type": "tool",
-                                        "data": tool_call.function.arguments,
-                                    }
+                            for tool_deltas in tool_calls.values():
+                                yield self.format_chunk(
+                                    {"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]}
+                                )
 
-                    if hasattr(choice, "finish_reason") and choice.finish_reason:
-                        if content_started:
-                            yield {"chunk_type": "content_stop", "data_type": "text"}
+                                for tool_delta in tool_deltas:
+                                    if hasattr(tool_delta.function, "arguments"):
+                                        yield self.format_chunk(
+                                            {
+                                                "chunk_type": "content_delta",
+                                                "data_type": "tool",
+                                                "data": tool_delta.function.arguments,
+                                            }
+                                        )
 
-                        for _ in current_tool_calls:
-                            yield {"chunk_type": "content_stop", "data_type": "tool"}
+                                yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
 
-                        yield {"chunk_type": "message_stop", "data": choice.finish_reason}
+                            yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
 
-                        if hasattr(chunk, "usage"):
-                            yield {"chunk_type": "metadata", "data": chunk.usage}
+                            if hasattr(chunk, "usage"):
+                                yield self.format_chunk({"chunk_type": "metadata", "data": chunk.usage})
 
         except Exception as e:
             if "rate" in str(e).lower() or "429" in str(e):
                 raise ModelThrottledException(str(e)) from e
             raise
 
+        logger.debug("finished streaming response from model")
+
     @override
-    def structured_output(
-        self, output_model: Type[T], prompt: Messages, callback_handler: Optional[Callable] = None
-    ) -> Generator[dict[str, Union[T, Any]], None, None]:
+    async def structured_output(
+        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
         Args:
             output_model: The output model to use for the agent.
             prompt: The prompt messages to use for the agent.
-            callback_handler: Optional callback handler for processing events.
+            system_prompt: System prompt to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             An instance of the output model with the generated data.
@@ -492,12 +515,13 @@ class MistralModel(Model):
             "inputSchema": {"json": output_model.model_json_schema()},
         }
 
-        formatted_request = self.format_request(messages=prompt, tool_specs=[tool_spec])
+        formatted_request = self.format_request(messages=prompt, tool_specs=[tool_spec], system_prompt=system_prompt)
 
         formatted_request["tool_choice"] = "any"
         formatted_request["parallel_tool_calls"] = False
 
-        response = self.client.chat.complete(**formatted_request)
+        async with mistralai.Mistral(**self.client_args) as client:
+            response = await client.chat.complete_async(**formatted_request)
 
         if response.choices and response.choices[0].message.tool_calls:
             tool_call = response.choices[0].message.tool_calls[0]

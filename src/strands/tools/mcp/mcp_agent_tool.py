@@ -9,8 +9,9 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from mcp.types import Tool as MCPTool
+from typing_extensions import override
 
-from ...types.tools import AgentTool, ToolResult, ToolSpec, ToolUse
+from ...types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
 
 if TYPE_CHECKING:
     from .mcp_client import MCPClient
@@ -73,13 +74,26 @@ class MCPAgentTool(AgentTool):
         """
         return "python"
 
-    def invoke(self, tool: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolResult:
-        """Invoke the MCP tool.
+    @override
+    async def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:
+        """Stream the MCP tool.
 
-        This method delegates the tool invocation to the MCP server connection,
-        passing the tool use ID, tool name, and input arguments.
+        This method delegates the tool stream to the MCP server connection, passing the tool use ID, tool name, and
+        input arguments.
+
+        Args:
+            tool_use: The tool use request containing tool ID and parameters.
+            invocation_state: Context for the tool invocation, including agent state.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Yields:
+            Tool events with the last being the tool result.
         """
-        logger.debug("invoking MCP tool '%s' with tool_use_id=%s", self.tool_name, tool["toolUseId"])
-        return self.mcp_client.call_tool_sync(
-            tool_use_id=tool["toolUseId"], name=self.tool_name, arguments=tool["input"]
+        logger.debug("tool_name=<%s>, tool_use_id=<%s> | streaming", self.tool_name, tool_use["toolUseId"])
+
+        result = await self.mcp_client.call_tool_async(
+            tool_use_id=tool_use["toolUseId"],
+            name=self.tool_name,
+            arguments=tool_use["input"],
         )
+        yield result

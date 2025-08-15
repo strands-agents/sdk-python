@@ -1,7 +1,7 @@
 <div align="center">
   <div>
     <a href="https://strandsagents.com">
-      <img src="https://strandsagents.com/latest/assets/logo-auto.svg" alt="Strands Agents" width="55px" height="105px">
+      <img src="https://strandsagents.com/latest/assets/logo-github.svg" alt="Strands Agents" width="55px" height="105px">
     </a>
   </div>
 
@@ -37,7 +37,7 @@ Strands Agents is a simple yet powerful SDK that takes a model-driven approach t
 ## Feature Overview
 
 - **Lightweight & Flexible**: Simple agent loop that just works and is fully customizable
-- **Model Agnostic**: Support for Amazon Bedrock, Anthropic, LiteLLM, Llama, Ollama, OpenAI, and custom providers
+- **Model Agnostic**: Support for Amazon Bedrock, Anthropic, LiteLLM, Llama, Ollama, OpenAI, Writer, and custom providers
 - **Advanced Capabilities**: Multi-agent systems, autonomous agents, and streaming support
 - **Built-in MCP**: Native support for Model Context Protocol (MCP) servers, enabling access to thousands of pre-built tools
 
@@ -55,7 +55,7 @@ agent = Agent(tools=[calculator])
 agent("What is the square root of 1764")
 ```
 
-> **Note**: For the default Amazon Bedrock model provider, you'll need AWS credentials configured and model access enabled for Claude 3.7 Sonnet in the us-west-2 region. See the [Quickstart Guide](https://strandsagents.com/) for details on configuring other model providers.
+> **Note**: For the default Amazon Bedrock model provider, you'll need AWS credentials configured and model access enabled for Claude 4 Sonnet in the us-west-2 region. See the [Quickstart Guide](https://strandsagents.com/) for details on configuring other model providers.
 
 ## Installation
 
@@ -89,6 +89,17 @@ def word_count(text: str) -> int:
 
 agent = Agent(tools=[word_count])
 response = agent("How many words are in this sentence?")
+```
+
+**Hot Reloading from Directory:**
+Enable automatic tool loading and reloading from the `./tools/` directory:
+
+```python
+from strands import Agent
+
+# Agent will watch ./tools/ directory for changes
+agent = Agent(load_tools_from_directory=True)
+response = agent("Use any tools you find in the tools directory")
 ```
 
 ### MCP Support
@@ -151,6 +162,7 @@ Built-in providers:
  - [LlamaAPI](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamaapi/)
  - [Ollama](https://strandsagents.com/latest/user-guide/concepts/model-providers/ollama/)
  - [OpenAI](https://strandsagents.com/latest/user-guide/concepts/model-providers/openai/)
+ - [Writer](https://strandsagents.com/latest/documentation/docs/user-guide/concepts/model-providers/writer/)
 
 Custom providers can be implemented using [Custom Providers](https://strandsagents.com/latest/user-guide/concepts/model-providers/custom_model_provider/)
 
@@ -195,8 +207,3 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
 
-## ⚠️ Preview Status
-
-Strands Agents is currently in public preview. During this period:
-- APIs may change as we refine the SDK
-- We welcome feedback and contributions

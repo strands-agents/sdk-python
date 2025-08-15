@@ -526,29 +526,32 @@ def test_extract_usage_metrics():
         ),
     ],
 )
-def test_process_stream(response, exp_events):
-    messages = [{"role": "user", "content": [{"text": "Some input!"}]}]
-    stream = strands.event_loop.streaming.process_stream(response, messages)
+@pytest.mark.asyncio
+async def test_process_stream(response, exp_events, agenerator, alist):
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
 
-    tru_events = list(stream)
+    tru_events = await alist(stream)
     assert tru_events == exp_events
 
 
-def test_stream_messages():
+@pytest.mark.asyncio
+async def test_stream_messages(agenerator, alist):
     mock_model = unittest.mock.MagicMock()
-    mock_model.converse.return_value = [
-        {"contentBlockDelta": {"delta": {"text": "test"}}},
-        {"contentBlockStop": {}},
-    ]
+    mock_model.stream.return_value = agenerator(
+        [
+            {"contentBlockDelta": {"delta": {"text": "test"}}},
+            {"contentBlockStop": {}},
+        ]
+    )
 
     stream = strands.event_loop.streaming.stream_messages(
         mock_model,
         system_prompt="test prompt",
         messages=[{"role": "assistant", "content": [{"text": "a"}, {"text": " \n"}]}],
-        tool_config=None,
+        tool_specs=None,
     )
 
-    tru_events = list(stream)
+    tru_events = await alist(stream)
     exp_events = [
         {
             "callback": {
@@ -587,7 +590,7 @@ def test_stream_messages():
     ]
     assert tru_events == exp_events
 
-    mock_model.converse.assert_called_with(
+    mock_model.stream.assert_called_with(
         [{"role": "assistant", "content": [{"text": "a"}, {"text": "[blank text]"}]}],
         None,
         "test prompt",

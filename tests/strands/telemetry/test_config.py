@@ -34,6 +34,18 @@ def mock_set_tracer_provider():
 
 
 @pytest.fixture
+def mock_meter_provider():
+    with mock.patch("strands.telemetry.config.metrics_sdk.MeterProvider") as mock_meter_provider:
+        yield mock_meter_provider
+
+
+@pytest.fixture
+def mock_metrics_api():
+    with mock.patch("strands.telemetry.config.metrics_api") as mock_metrics_api:
+        yield mock_metrics_api
+
+
+@pytest.fixture
 def mock_set_global_textmap():
     with mock.patch("strands.telemetry.config.propagate.set_global_textmap") as mock_set_global_textmap:
         yield mock_set_global_textmap
@@ -43,6 +55,26 @@ def mock_set_global_textmap():
 def mock_console_exporter():
     with mock.patch("strands.telemetry.config.ConsoleSpanExporter") as mock_console_exporter:
         yield mock_console_exporter
+
+
+@pytest.fixture
+def mock_reader():
+    with mock.patch("strands.telemetry.config.PeriodicExportingMetricReader") as mock_reader:
+        yield mock_reader
+
+
+@pytest.fixture
+def mock_console_metrics_exporter():
+    with mock.patch("strands.telemetry.config.ConsoleMetricExporter") as mock_console_metrics_exporter:
+        yield mock_console_metrics_exporter
+
+
+@pytest.fixture
+def mock_otlp_metrics_exporter():
+    with mock.patch(
+        "opentelemetry.exporter.otlp.proto.http.metric_exporter.OTLPMetricExporter"
+    ) as mock_otlp_metrics_exporter:
+        yield mock_otlp_metrics_exporter
 
 
 @pytest.fixture
@@ -88,15 +120,57 @@ def test_init_default(mock_resource, mock_tracer_provider, mock_set_tracer_provi
     mock_set_global_textmap.assert_called()
 
 
+def test_setup_meter_with_console_exporter(
+    mock_resource,
+    mock_reader,
+    mock_console_metrics_exporter,
+    mock_otlp_metrics_exporter,
+    mock_metrics_api,
+    mock_meter_provider,
+):
+    """Test add console metrics exporter"""
+    mock_metrics_api.MeterProvider.return_value = mock_meter_provider
+
+    telemetry = StrandsTelemetry()
+    telemetry.setup_meter(enable_console_exporter=True)
+
+    mock_console_metrics_exporter.assert_called_once()
+    mock_reader.assert_called_once_with(mock_console_metrics_exporter.return_value)
+    mock_otlp_metrics_exporter.assert_not_called()
+
+    mock_metrics_api.set_meter_provider.assert_called_once()
+
+
+def test_setup_meter_with_console_and_otlp_exporter(
+    mock_resource,
+    mock_reader,
+    mock_console_metrics_exporter,
+    mock_otlp_metrics_exporter,
+    mock_metrics_api,
+    mock_meter_provider,
+):
+    """Test add console and otlp metrics exporter"""
+    mock_metrics_api.MeterProvider.return_value = mock_meter_provider
+
+    telemetry = StrandsTelemetry()
+    telemetry.setup_meter(enable_console_exporter=True, enable_otlp_exporter=True)
+
+    mock_console_metrics_exporter.assert_called_once()
+    mock_otlp_metrics_exporter.assert_called_once()
+    assert mock_reader.call_count == 2
+
+    mock_metrics_api.set_meter_provider.assert_called_once()
+
+
 def test_setup_console_exporter(mock_resource, mock_tracer_provider, mock_console_exporter, mock_simple_processor):
     """Test add console exporter"""
 
     telemetry = StrandsTelemetry()
     # Set the tracer_provider directly
     telemetry.tracer_provider = mock_tracer_provider.return_value
-    telemetry.setup_console_exporter()
+    telemetry.setup_console_exporter(foo="bar")
 
-    mock_console_exporter.assert_called_once()
+    mock_console_exporter.assert_called_once_with(foo="bar")
     mock_simple_processor.assert_called_once_with(mock_console_exporter.return_value)
 
     mock_tracer_provider.return_value.add_span_processor.assert_called()
@@ -108,9 +182,9 @@ def test_setup_otlp_exporter(mock_resource, mock_tracer_provider, mock_otlp_expo
     telemetry = StrandsTelemetry()
     # Set the tracer_provider directly
     telemetry.tracer_provider = mock_tracer_provider.return_value
-    telemetry.setup_otlp_exporter()
+    telemetry.setup_otlp_exporter(foo="bar")
 
-    mock_otlp_exporter.assert_called_once()
+    mock_otlp_exporter.assert_called_once_with(foo="bar")
     mock_batch_processor.assert_called_once_with(mock_otlp_exporter.return_value)
 
     mock_tracer_provider.return_value.add_span_processor.assert_called()

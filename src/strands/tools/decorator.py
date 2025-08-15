@@ -40,20 +40,19 @@ Example:
     ```
 """
 
+import asyncio
 import functools
 import inspect
 import logging
 from typing import (
     Any,
     Callable,
-    Dict,
     Generic,
     Optional,
     ParamSpec,
     Type,
     TypeVar,
     Union,
-    cast,
     get_type_hints,
     overload,
 )
@@ -62,7 +61,7 @@ import docstring_parser
 from pydantic import BaseModel, Field, create_model
 from typing_extensions import override
 
-from ..types.tools import AgentTool, JSONSchema, ToolResult, ToolSpec, ToolUse
+from ..types.tools import AgentTool, JSONSchema, ToolContext, ToolGenerator, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -85,16 +84,18 @@ class FunctionToolMetadata:
     validate tool usage.
     """
 
-    def __init__(self, func: Callable[..., Any]) -> None:
+    def __init__(self, func: Callable[..., Any], context_param: str | None = None) -> None:
         """Initialize with the function to process.
 
         Args:
             func: The function to extract metadata from.
                  Can be a standalone function or a class method.
+            context_param: Name of the context parameter to inject, if any.
         """
         self.func = func
         self.signature = inspect.signature(func)
         self.type_hints = get_type_hints(func)
+        self._context_param = context_param
 
         # Parse the docstring with docstring_parser
         doc_str = inspect.getdoc(func) or ""
@@ -114,16 +115,16 @@ class FunctionToolMetadata:
         This method analyzes the function's signature, type hints, and docstring to create a Pydantic model that can
         validate input data before passing it to the function.
 
-        Special parameters like 'self', 'cls', and 'agent' are excluded from the model.
+        Special parameters that can be automatically injected are excluded from the model.
 
         Returns:
             A Pydantic BaseModel class customized for the function's parameters.
         """
-        field_definitions: Dict[str, Any] = {}
+        field_definitions: dict[str, Any] = {}
 
         for name, param in self.signature.parameters.items():
-            # Skip special parameters
-            if name in ("self", "cls", "agent"):
+            # Skip parameters that will be automatically injected
+            if self._is_special_parameter(name):
                 continue
 
             # Get parameter type and default
@@ -179,7 +180,7 @@ class FunctionToolMetadata:
 
         return tool_spec
 
-    def _clean_pydantic_schema(self, schema: Dict[str, Any]) -> None:
+    def _clean_pydantic_schema(self, schema: dict[str, Any]) -> None:
         """Clean up Pydantic schema to match Strands' expected format.
 
         Pydantic's JSON schema output includes several elements that aren't needed for Strands Agent tools and could
@@ -227,7 +228,7 @@ class FunctionToolMetadata:
                     if key in prop_schema:
                         del prop_schema[key]
 
-    def validate_input(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_input(self, input_data: dict[str, Any]) -> dict[str, Any]:
         """Validate input data using the Pydantic model.
 
         This method ensures that the input data meets the expected schema before it's passed to the actual function. It
@@ -253,6 +254,49 @@ class FunctionToolMetadata:
             error_msg = str(e)
             raise ValueError(f"Validation failed for input parameters: {error_msg}") from e
 
+    def inject_special_parameters(
+        self, validated_input: dict[str, Any], tool_use: ToolUse, invocation_state: dict[str, Any]
+    ) -> None:
+        """Inject special framework-provided parameters into the validated input.
+
+        This method automatically provides framework-level context to tools that request it
+        through their function signature.
+
+        Args:
+            validated_input: The validated input parameters (modified in place).
+            tool_use: The tool use request containing tool invocation details.
+            invocation_state: Context for the tool invocation, including agent state.
+        """
+        if self._context_param and self._context_param in self.signature.parameters:
+            tool_context = ToolContext(tool_use=tool_use, agent=invocation_state["agent"])
+            validated_input[self._context_param] = tool_context
+
+        # Inject agent if requested (backward compatibility)
+        if "agent" in self.signature.parameters and "agent" in invocation_state:
+            validated_input["agent"] = invocation_state["agent"]
+
+    def _is_special_parameter(self, param_name: str) -> bool:
+        """Check if a parameter should be automatically injected by the framework or is a standard Python method param.
+
+        Special parameters include:
+        - Standard Python method parameters: self, cls
+        - Framework-provided context parameters: agent, and configurable context parameter (defaults to tool_context)
+
+        Args:
+            param_name: The name of the parameter to check.
+
+        Returns:
+            True if the parameter should be excluded from input validation and
+            handled specially during tool execution.
+        """
+        special_params = {"self", "cls", "agent"}
+
+        # Add context parameter if configured
+        if self._context_param:
+            special_params.add(self._context_param)
+
+        return param_name in special_params
+
 
 P = ParamSpec("P")  # Captures all parameters
 R = TypeVar("R")  # Return type
@@ -270,32 +314,32 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
 
     _tool_name: str
     _tool_spec: ToolSpec
+    _tool_func: Callable[P, R]
     _metadata: FunctionToolMetadata
-    original_function: Callable[P, R]
 
     def __init__(
         self,
-        function: Callable[P, R],
         tool_name: str,
         tool_spec: ToolSpec,
+        tool_func: Callable[P, R],
         metadata: FunctionToolMetadata,
     ):
         """Initialize the decorated function tool.
 
         Args:
-            function: The original function being decorated.
             tool_name: The name to use for the tool (usually the function name).
             tool_spec: The tool specification containing metadata for Agent integration.
+            tool_func: The original function being decorated.
             metadata: The FunctionToolMetadata object with extracted function information.
         """
         super().__init__()
 
-        self.original_function = function
-        self._tool_spec = tool_spec
-        self._metadata = metadata
         self._tool_name = tool_name
+        self._tool_spec = tool_spec
+        self._tool_func = tool_func
+        self._metadata = metadata
 
-        functools.update_wrapper(wrapper=self, wrapped=self.original_function)
+        functools.update_wrapper(wrapper=self, wrapped=self._tool_func)
 
     def __get__(self, instance: Any, obj_type: Optional[Type] = None) -> "DecoratedFunctionTool[P, R]":
         """Descriptor protocol implementation for proper method binding.
@@ -323,12 +367,10 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             tool = instance.my_tool
             ```
         """
-        if instance is not None and not inspect.ismethod(self.original_function):
+        if instance is not None and not inspect.ismethod(self._tool_func):
             # Create a bound method
-            new_callback = self.original_function.__get__(instance, instance.__class__)
-            return DecoratedFunctionTool(
-                function=new_callback, tool_name=self.tool_name, tool_spec=self.tool_spec, metadata=self._metadata
-            )
+            tool_func = self._tool_func.__get__(instance, instance.__class__)
+            return DecoratedFunctionTool(self._tool_name, self._tool_spec, tool_func, self._metadata)
 
         return self
 
@@ -345,22 +387,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         Returns:
             The result of the original function call.
         """
-        if (
-            len(args) > 0
-            and isinstance(args[0], dict)
-            and (not args[0] or "toolUseId" in args[0] or "input" in args[0])
-        ):
-            # This block is only for backwards compatability so we cast as any for now
-            logger.warning(
-                "issue=<%s> | "
-                "passing tool use into a function instead of using .invoke will be removed in a future release",
-                "https://github.com/strands-agents/sdk-python/pull/258",
-            )
-            tool_use = cast(Any, args[0])
-
-            return cast(R, self.invoke(tool_use, **kwargs))
-
-        return self.original_function(*args, **kwargs)
+        return self._tool_func(*args, **kwargs)
 
     @property
     def tool_name(self) -> str:
@@ -389,10 +416,11 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         """
         return "function"
 
-    def invoke(self, tool: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolResult:
-        """Invoke the tool with a tool use specification.
+    @override
+    async def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:
+        """Stream the tool with a tool use specification.
 
-        This method handles tool use invocations from a Strands Agent. It validates the input,
+        This method handles tool use streams from a Strands Agent. It validates the input,
         calls the function, and formats the result according to the expected tool result format.
 
         Key operations:
@@ -404,15 +432,14 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         5. Handle and format any errors that occur
 
         Args:
-            tool: The tool use specification from the Agent.
-            *args: Additional positional arguments (not typically used).
-            **kwargs: Additional keyword arguments, may include 'agent' reference.
+            tool_use: The tool use specification from the Agent.
+            invocation_state: Context for the tool invocation, including agent state.
+            **kwargs: Additional keyword arguments for future extensibility.
 
-        Returns:
-            A standardized tool result dictionary with status and content.
+        Yields:
+            Tool events with the last being the tool result.
         """
         # This is a tool use call - process accordingly
-        tool_use = tool
         tool_use_id = tool_use.get("toolUseId", "unknown")
         tool_input = tool_use.get("input", {})
 
@@ -420,22 +447,24 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             # Validate input against the Pydantic model
             validated_input = self._metadata.validate_input(tool_input)
 
-            # Pass along the agent if provided and expected by the function
-            if "agent" in kwargs and "agent" in self._metadata.signature.parameters:
-                validated_input["agent"] = kwargs.get("agent")
+            # Inject special framework-provided parameters
+            self._metadata.inject_special_parameters(validated_input, tool_use, invocation_state)
 
-            # We get "too few arguments here" but because that's because fof the way we're calling it
-            result = self.original_function(**validated_input)  # type: ignore
+            # "Too few arguments" expected, hence the type ignore
+            if inspect.iscoroutinefunction(self._tool_func):
+                result = await self._tool_func(**validated_input)  # type: ignore
+            else:
+                result = await asyncio.to_thread(self._tool_func, **validated_input)  # type: ignore
 
             # FORMAT THE RESULT for Strands Agent
             if isinstance(result, dict) and "status" in result and "content" in result:
                 # Result is already in the expected format, just add toolUseId
                 result["toolUseId"] = tool_use_id
-                return cast(ToolResult, result)
+                yield result
             else:
                 # Wrap any other return value in the standard format
                 # Always include at least one content item for consistency
-                return {
+                yield {
                     "toolUseId": tool_use_id,
                     "status": "success",
                     "content": [{"text": str(result)}],
@@ -444,7 +473,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         except ValueError as e:
             # Special handling for validation errors
             error_msg = str(e)
-            return {
+            yield {
                 "toolUseId": tool_use_id,
                 "status": "error",
                 "content": [{"text": f"Error: {error_msg}"}],
@@ -453,7 +482,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             # Return error result with exception details for any other error
             error_type = type(e).__name__
             error_msg = str(e)
-            return {
+            yield {
                 "toolUseId": tool_use_id,
                 "status": "error",
                 "content": [{"text": f"Error: {error_type} - {error_msg}"}],
@@ -476,7 +505,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             Function properties (e.g., function name).
         """
         properties = super().get_display_properties()
-        properties["Function"] = self.original_function.__name__
+        properties["Function"] = self._tool_func.__name__
         return properties
 
 
@@ -489,6 +518,7 @@ def tool(
     description: Optional[str] = None,
     inputSchema: Optional[JSONSchema] = None,
     name: Optional[str] = None,
+    context: bool | str = False,
 ) -> Callable[[Callable[P, R]], DecoratedFunctionTool[P, R]]: ...
 # Suppressing the type error because we want callers to be able to use both `tool` and `tool()` at the
 # call site, but the actual implementation handles that and it's not representable via the type-system
@@ -497,6 +527,7 @@ def tool(  # type: ignore
     description: Optional[str] = None,
     inputSchema: Optional[JSONSchema] = None,
     name: Optional[str] = None,
+    context: bool | str = False,
 ) -> Union[DecoratedFunctionTool[P, R], Callable[[Callable[P, R]], DecoratedFunctionTool[P, R]]]:
     """Decorator that transforms a Python function into a Strands tool.
 
@@ -522,6 +553,9 @@ def tool(  # type: ignore
         description: Optional custom description to override the function's docstring.
         inputSchema: Optional custom JSON schema to override the automatically generated schema.
         name: Optional custom name to override the function's name.
+        context: When provided, places an object in the designated parameter. If True, the param name
+            defaults to 'tool_context', or if an override is needed, set context equal to a string to designate
+            the param name.
 
     Returns:
         An AgentTool that also mimics the original function when invoked
@@ -551,15 +585,24 @@ def tool(  # type: ignore
 
     Example with parameters:
         ```python
-        @tool(name="custom_tool", description="A tool with a custom name and description")
-        def my_tool(name: str, count: int = 1) -> str:
-            return f"Processed {name} {count} times"
+        @tool(name="custom_tool", description="A tool with a custom name and description", context=True)
+        def my_tool(name: str, count: int = 1, tool_context: ToolContext) -> str:
+            tool_id = tool_context["tool_use"]["toolUseId"]
+            return f"Processed {name} {count} times with tool ID {tool_id}"
         ```
     """
 
     def decorator(f: T) -> "DecoratedFunctionTool[P, R]":
+        # Resolve context parameter name
+        if isinstance(context, bool):
+            context_param = "tool_context" if context else None
+        else:
+            context_param = context.strip()
+            if not context_param:
+                raise ValueError("Context parameter name cannot be empty")
+
         # Create function tool metadata
-        tool_meta = FunctionToolMetadata(f)
+        tool_meta = FunctionToolMetadata(f, context_param)
         tool_spec = tool_meta.extract_metadata()
         if name is not None:
             tool_spec["name"] = name
@@ -573,7 +616,7 @@ def tool(  # type: ignore
         if not isinstance(tool_name, str):
             raise ValueError(f"Tool name must be a string, got {type(tool_name)}")
 
-        return DecoratedFunctionTool(function=f, tool_name=tool_name, tool_spec=tool_spec, metadata=tool_meta)
+        return DecoratedFunctionTool(tool_name, tool_spec, f, tool_meta)
 
     # Handle both @tool and @tool() syntax
     if func is None:

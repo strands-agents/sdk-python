@@ -1,24 +1,9 @@
 import pytest
 
-import strands
 from strands.agent.agent import Agent
+from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
+from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.types.exceptions import ContextWindowOverflowException
-
-
-@pytest.mark.parametrize(("role", "exp_result"), [("user", True), ("assistant", False)])
-def test_is_user_message(role, exp_result):
-    from strands.agent.conversation_manager.sliding_window_conversation_manager import is_user_message
-
-    tru_result = is_user_message({"role": role})
-    assert tru_result == exp_result
-
-
-@pytest.mark.parametrize(("role", "exp_result"), [("user", False), ("assistant", True)])
-def test_is_assistant_message(role, exp_result):
-    from strands.agent.conversation_manager.sliding_window_conversation_manager import is_assistant_message
-
-    tru_result = is_assistant_message({"role": role})
-    assert tru_result == exp_result
 
 
 @pytest.fixture
@@ -30,7 +15,7 @@ def conversation_manager(request):
     if hasattr(request, "param"):
         params.update(request.param)
 
-    return strands.agent.conversation_manager.SlidingWindowConversationManager(**params)
+    return SlidingWindowConversationManager(**params)
 
 
 @pytest.mark.parametrize(
@@ -58,21 +43,21 @@ def conversation_manager(request):
                 {"role": "user", "content": [{"toolResult": {"toolUseId": "123", "content": [], "status": "success"}}]},
             ],
         ),
-        # 2 - Remove dangling user message with no tool result
+        # 2 - Keep user message
         (
             {"window_size": 2},
             [
                 {"role": "user", "content": [{"text": "Hello"}]},
             ],
-            [],
+            [{"role": "user", "content": [{"text": "Hello"}]}],
         ),
-        # 3 - Remove dangling assistant message with tool use
+        # 3 - Keep dangling assistant message with tool use
         (
             {"window_size": 3},
             [
                 {"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]},
             ],
-            [],
+            [{"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]}],
         ),
         # 4 - Remove dangling assistant message with tool use - User tool result remains
         (
@@ -83,6 +68,7 @@ def conversation_manager(request):
             ],
             [
                 {"role": "user", "content": [{"toolResult": {"toolUseId": "123", "content": [], "status": "success"}}]},
+                {"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]},
             ],
         ),
         # 5 - Remove dangling assistant message with tool use and user message without tool result
@@ -95,8 +81,9 @@ def conversation_manager(request):
                 {"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]},
             ],
             [
-                {"role": "user", "content": [{"text": "First"}]},
                 {"role": "assistant", "content": [{"text": "First response"}]},
+                {"role": "user", "content": [{"text": "Use a tool"}]},
+                {"role": "assistant", "content": [{"toolUse": {"toolUseId": "123", "name": "tool1", "input": {}}}]},
             ],
         ),
         # 6 - Message count above max window size - Basic drop
@@ -169,7 +156,7 @@ def test_apply_management(conversation_manager, messages, expected_messages):
 
 
 def test_sliding_window_conversation_manager_with_untrimmable_history_raises_context_window_overflow_exception():
-    manager = strands.agent.conversation_manager.SlidingWindowConversationManager(1, False)
+    manager = SlidingWindowConversationManager(1, False)
     messages = [
         {"role": "assistant", "content": [{"toolUse": {"toolUseId": "456", "name": "tool1", "input": {}}}]},
         {"role": "user", "content": [{"toolResult": {"toolUseId": "789", "content": [], "status": "success"}}]},
@@ -184,7 +171,7 @@ def test_sliding_window_conversation_manager_with_untrimmable_history_raises_con
 
 
 def test_sliding_window_conversation_manager_with_tool_results_truncated():
-    manager = strands.agent.conversation_manager.SlidingWindowConversationManager(1)
+    manager = SlidingWindowConversationManager(1)
     messages = [
         {"role": "assistant", "content": [{"toolUse": {"toolUseId": "456", "name": "tool1", "input": {}}}]},
         {
@@ -219,7 +206,7 @@ def test_sliding_window_conversation_manager_with_tool_results_truncated():
 
 def test_null_conversation_manager_reduce_context_raises_context_window_overflow_exception():
     """Test that NullConversationManager doesn't modify messages."""
-    manager = strands.agent.conversation_manager.NullConversationManager()
+    manager = NullConversationManager()
     messages = [
         {"role": "user", "content": [{"text": "Hello"}]},
         {"role": "assistant", "content": [{"text": "Hi there"}]},
@@ -237,7 +224,7 @@ def test_null_conversation_manager_reduce_context_raises_context_window_overflow
 
 def test_null_conversation_manager_reduce_context_with_exception_raises_same_exception():
     """Test that NullConversationManager doesn't modify messages."""
-    manager = strands.agent.conversation_manager.NullConversationManager()
+    manager = NullConversationManager()
     messages = [
         {"role": "user", "content": [{"text": "Hello"}]},
         {"role": "assistant", "content": [{"text": "Hi there"}]},
@@ -251,3 +238,11 @@ def test_null_conversation_manager_reduce_context_with_exception_raises_same_exc
         manager.reduce_context(messages, RuntimeError("test"))
 
     assert messages == original_messages
+
+
+def test_null_conversation_does_not_restore_with_incorrect_state():
+    """Test that NullConversationManager doesn't modify messages."""
+    manager = NullConversationManager()
+
+    with pytest.raises(ValueError):
+        manager.restore_from_session({})
