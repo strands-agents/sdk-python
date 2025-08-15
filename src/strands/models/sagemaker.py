@@ -1,10 +1,13 @@
 """Amazon SageMaker model provider."""
 
+import base64
 import json
 import logging
+import mimetypes
 import os
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Literal, Optional, Type, TypedDict, TypeVar, Union, cast
+from enum import Enum
+from typing import Any, AsyncGenerator, Callable, Literal, Optional, Type, TypedDict, TypeVar, Union, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -14,12 +17,21 @@ from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
 from ..types.streaming import StreamEvent
-from ..types.tools import ToolResult, ToolSpec
-from .openai import OpenAIModel
+from ..types.tools import ToolResult, ToolSpec, ToolUse
+from .model import Model
 
 T = TypeVar("T", bound=BaseModel)
 
 logger = logging.getLogger(__name__)
+
+
+class ModelProvider(Enum):
+    """Supported model providers for prompt formatting."""
+
+    OPENAI = "openai"
+    MISTRAL = "mistral"
+    LLAMA = "llama"
+    # CUSTOM = "custom"
 
 
 @dataclass
@@ -86,10 +98,10 @@ class ToolCall:
         self.function = FunctionCall(**kwargs.get("function", {"name": "", "arguments": ""}))
 
 
-class SageMakerAIModel(OpenAIModel):
+class SageMakerAIModel(Model):
     """Amazon SageMaker model provider implementation."""
 
-    client: SageMakerRuntimeClient  # type: ignore[assignment]
+    client: SageMakerRuntimeClient
 
     class SageMakerAIPayloadSchema(TypedDict, total=False):
         """Payload schema for the Amazon SageMaker AI model.
@@ -120,7 +132,8 @@ class SageMakerAIModel(OpenAIModel):
         Attributes:
             endpoint_name: The name of the SageMaker endpoint to invoke
             inference_component_name: The name of the inference component to use
-
+            model_provider: The model provider format to use for prompt formatting (defaults to openai)
+            custom_formatter: Custom formatter function when model_provider is CUSTOM
             additional_args: Other request parameters, as supported by https://bit.ly/sagemaker-invoke-endpoint-params
         """
 
@@ -129,6 +142,8 @@ class SageMakerAIModel(OpenAIModel):
         inference_component_name: Union[str, None]
         target_model: Union[Optional[str], None]
         target_variant: Union[Optional[str], None]
+        model_provider: Optional[Union[ModelProvider, str]]
+        custom_formatter: Optional[Callable[[Messages, Optional[str]], list[dict[str, Any]]]]
         additional_args: Optional[dict[str, Any]]
 
     def __init__(
@@ -150,9 +165,21 @@ class SageMakerAIModel(OpenAIModel):
         payload_config.setdefault("tool_results_as_user_messages", False)
         self.endpoint_config = dict(endpoint_config)
         self.payload_config = dict(payload_config)
-        logger.debug(
-            "endpoint_config=<%s> payload_config=<%s> | initializing", self.endpoint_config, self.payload_config
-        )
+
+        # Set default model provider if not specified
+        if "model_provider" not in self.endpoint_config or self.endpoint_config["model_provider"] is None:
+            self.endpoint_config["model_provider"] = ModelProvider.OPENAI
+        elif isinstance(self.endpoint_config["model_provider"], str):
+            self.endpoint_config["model_provider"] = ModelProvider(self.endpoint_config["model_provider"])
+
+        # Validate custom formatter if using CUSTOM provider
+        # if self.endpoint_config["model_provider"] == ModelProvider.CUSTOM and not self.endpoint_config.get(
+        #     "custom_formatter"
+        # ):
+        #     raise ValueError("custom_formatter is required when model_provider is CUSTOM")
+        # logger.debug(
+        #     "endpoint_config=<%s> payload_config=<%s> | initializing", self.endpoint_config, self.payload_config
+        # )
 
         region = self.endpoint_config.get("region_name") or os.getenv("AWS_REGION") or "us-west-2"
         session = boto_session or boto3.Session(region_name=str(region))
@@ -183,7 +210,7 @@ class SageMakerAIModel(OpenAIModel):
         self.endpoint_config.update(endpoint_config)
 
     @override
-    def get_config(self) -> "SageMakerAIModel.SageMakerAIEndpointConfig":  # type: ignore[override]
+    def get_config(self) -> "SageMakerAIModel.SageMakerAIEndpointConfig":
         """Get the Amazon SageMaker model configuration.
 
         Returns:
@@ -191,7 +218,6 @@ class SageMakerAIModel(OpenAIModel):
         """
         return cast(SageMakerAIModel.SageMakerAIEndpointConfig, self.endpoint_config)
 
-    @override
     def format_request(
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
     ) -> dict[str, Any]:
@@ -205,7 +231,8 @@ class SageMakerAIModel(OpenAIModel):
         Returns:
             An Amazon SageMaker chat streaming request.
         """
-        formatted_messages = self.format_request_messages(messages, system_prompt)
+        # formatted_messages = self._format_messages_for_provider(messages, tool_specs, system_prompt)
+        formatted_messages = self._format_request_messages(messages, system_prompt)
 
         payload = {
             "messages": formatted_messages,
@@ -275,6 +302,245 @@ class SageMakerAIModel(OpenAIModel):
             request.update(self.endpoint_config["additional_args"].__dict__)
 
         return request
+
+    def _format_request_messages(self, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+        """Format messages based on the selected model provider.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            system_prompt: System prompt to provide context to the model.
+
+        Returns:
+            Formatted messages array for the specified provider.
+        """
+        provider = self.endpoint_config["model_provider"]
+
+        if provider == ModelProvider.OPENAI:
+            return SageMakerAIModel._format_openai_messages(messages, system_prompt)
+        elif provider == ModelProvider.MISTRAL:
+            return SageMakerAIModel._format_mistral_messages(messages, system_prompt)
+        elif provider == ModelProvider.LLAMA:
+            return SageMakerAIModel._format_llama_messages(messages, system_prompt)
+        # elif provider == ModelProvider.CUSTOM:
+        #     custom_formatter = self.endpoint_config["custom_formatter"]
+        #     if custom_formatter is None:
+        #         raise ValueError("custom_formatter is required when model_provider is CUSTOM")
+        #     return custom_formatter(messages, system_prompt)
+        else:
+            # Default to OpenAI format
+            return SageMakerAIModel._format_openai_messages(messages, system_prompt)
+
+    @staticmethod
+    def _format_openai_messages(messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+        """Format messages for OpenAI-compatible models."""
+        from strands.models.openai import OpenAIModel
+
+        return OpenAIModel.format_request_messages(messages, system_prompt)
+
+    @staticmethod
+    def _format_mistral_messages(messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+        """Format messages for Mistral models."""
+        from strands.models.mistral import MistralModel
+
+        return MistralModel.format_request_messages(messages, system_prompt)
+
+    @staticmethod
+    def _format_llama_messages(messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+        """Format messages for Llama models."""
+        from strands.models.llamaapi import LlamaAPIModel
+
+        return LlamaAPIModel.format_request_messages(messages, system_prompt)
+
+    @classmethod
+    def format_request_message_content(cls, content: ContentBlock) -> dict[str, Any]:
+        """Format a content block.
+
+        Args:
+            content: Message content.
+
+        Returns:
+            Formatted content block.
+
+        Raises:
+            TypeError: If the content block type cannot be converted to a SageMaker-compatible format.
+        """
+        if "reasoningContent" in content and content["reasoningContent"]:
+            return {
+                "signature": content["reasoningContent"].get("reasoningText", {}).get("signature", ""),
+                "thinking": content["reasoningContent"].get("reasoningText", {}).get("text", ""),
+                "type": "thinking",
+            }
+        elif not content.get("reasoningContent", None):
+            content.pop("reasoningContent", None)
+
+        if "video" in content:
+            return {
+                "type": "video_url",
+                "video_url": {
+                    "detail": "auto",
+                    "url": content["video"]["source"]["bytes"],
+                },
+            }
+
+        if "document" in content:
+            mime_type = mimetypes.types_map.get(f".{content['document']['format']}", "application/octet-stream")
+            file_data = base64.b64encode(content["document"]["source"]["bytes"]).decode("utf-8")
+            return {
+                "file": {
+                    "file_data": f"data:{mime_type};base64,{file_data}",
+                    "filename": content["document"]["name"],
+                },
+                "type": "file",
+            }
+
+        if "image" in content:
+            mime_type = mimetypes.types_map.get(f".{content['image']['format']}", "application/octet-stream")
+            image_data = base64.b64encode(content["image"]["source"]["bytes"]).decode("utf-8")
+
+            return {
+                "image_url": {
+                    "detail": "auto",
+                    "format": mime_type,
+                    "url": f"data:{mime_type};base64,{image_data}",
+                },
+                "type": "image_url",
+            }
+
+        if "text" in content:
+            return {"text": content["text"], "type": "text"}
+
+        raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
+
+    @classmethod
+    def format_request_message_tool_call(cls, tool_use: ToolUse) -> dict[str, Any]:
+        """Format a tool call.
+
+        Args:
+            tool_use: Tool use requested by the model.
+
+        Returns:
+            Formatted tool call.
+        """
+        return {
+            "function": {
+                "arguments": json.dumps(tool_use["input"]),
+                "name": tool_use["name"],
+            },
+            "id": tool_use["toolUseId"],
+            "type": "function",
+        }
+
+    @classmethod
+    def format_request_messages(cls, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+        """Format messages array.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            system_prompt: System prompt to provide context to the model.
+
+        Returns:
+            Formatted messages array.
+        """
+        formatted_messages: list[dict[str, Any]]
+        formatted_messages = [{"role": "system", "content": system_prompt}] if system_prompt else []
+
+        for message in messages:
+            contents = message["content"]
+
+            formatted_contents = [
+                cls.format_request_message_content(content)
+                for content in contents
+                if not any(block_type in content for block_type in ["toolResult", "toolUse"])
+            ]
+            formatted_tool_calls = [
+                cls.format_request_message_tool_call(content["toolUse"]) for content in contents if "toolUse" in content
+            ]
+            formatted_tool_messages = [
+                cls.format_request_tool_message(content["toolResult"])
+                for content in contents
+                if "toolResult" in content
+            ]
+
+            formatted_message = {
+                "role": message["role"],
+                "content": formatted_contents,
+                **({"tool_calls": formatted_tool_calls} if formatted_tool_calls else {}),
+            }
+            formatted_messages.append(formatted_message)
+            formatted_messages.extend(formatted_tool_messages)
+
+        return [message for message in formatted_messages if message["content"] or "tool_calls" in message]
+
+    def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
+        """Format a response event into a standardized message chunk.
+
+        Args:
+            event: A response event from the model.
+
+        Returns:
+            The formatted chunk.
+
+        Raises:
+            RuntimeError: If chunk_type is not recognized.
+        """
+        match event["chunk_type"]:
+            case "message_start":
+                return {"messageStart": {"role": "assistant"}}
+
+            case "content_start":
+                if event["data_type"] == "tool":
+                    return {
+                        "contentBlockStart": {
+                            "start": {
+                                "toolUse": {
+                                    "name": event["data"].function.name,
+                                    "toolUseId": event["data"].id,
+                                }
+                            }
+                        }
+                    }
+
+                return {"contentBlockStart": {"start": {}}}
+
+            case "content_delta":
+                if event["data_type"] == "tool":
+                    return {
+                        "contentBlockDelta": {"delta": {"toolUse": {"input": event["data"].function.arguments or ""}}}
+                    }
+
+                if event["data_type"] == "reasoning_content":
+                    return {"contentBlockDelta": {"delta": {"reasoningContent": {"text": event["data"]}}}}
+
+                return {"contentBlockDelta": {"delta": {"text": event["data"]}}}
+
+            case "content_stop":
+                return {"contentBlockStop": {}}
+
+            case "message_stop":
+                match event["data"]:
+                    case "tool_calls":
+                        return {"messageStop": {"stopReason": "tool_use"}}
+                    case "length":
+                        return {"messageStop": {"stopReason": "max_tokens"}}
+                    case _:
+                        return {"messageStop": {"stopReason": "end_turn"}}
+
+            case "metadata":
+                return {
+                    "metadata": {
+                        "usage": {
+                            "inputTokens": event["data"].prompt_tokens,
+                            "outputTokens": event["data"].completion_tokens,
+                            "totalTokens": event["data"].total_tokens,
+                        },
+                        "metrics": {
+                            "latencyMs": 0,  # TODO
+                        },
+                    },
+                }
+
+            case _:
+                raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
     @override
     async def stream(
@@ -474,7 +740,6 @@ class SageMakerAIModel(OpenAIModel):
 
         logger.debug("finished streaming response from model")
 
-    @override
     @classmethod
     def format_request_tool_message(cls, tool_result: ToolResult) -> dict[str, Any]:
         """Format a SageMaker compatible tool message.
@@ -503,43 +768,6 @@ class SageMakerAIModel(OpenAIModel):
             "tool_call_id": tool_result["toolUseId"],
             "content": content_string,  # String instead of list
         }
-
-    @override
-    @classmethod
-    def format_request_message_content(cls, content: ContentBlock) -> dict[str, Any]:
-        """Format a content block.
-
-        Args:
-            content: Message content.
-
-        Returns:
-            Formatted content block.
-
-        Raises:
-            TypeError: If the content block type cannot be converted to a SageMaker-compatible format.
-        """
-        # if "text" in content and not isinstance(content["text"], str):
-        #     return {"type": "text", "text": str(content["text"])}
-
-        if "reasoningContent" in content and content["reasoningContent"]:
-            return {
-                "signature": content["reasoningContent"].get("reasoningText", {}).get("signature", ""),
-                "thinking": content["reasoningContent"].get("reasoningText", {}).get("text", ""),
-                "type": "thinking",
-            }
-        elif not content.get("reasoningContent", None):
-            content.pop("reasoningContent", None)
-
-        if "video" in content:
-            return {
-                "type": "video_url",
-                "video_url": {
-                    "detail": "auto",
-                    "url": content["video"]["source"]["bytes"],
-                },
-            }
-
-        return super().format_request_message_content(content)
 
     @override
     async def structured_output(
