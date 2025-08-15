@@ -31,7 +31,6 @@ class ModelProvider(Enum):
     OPENAI = "openai"
     MISTRAL = "mistral"
     LLAMA = "llama"
-    ANTHROPIC = "anthropic"
     CUSTOM = "custom"
 
 
@@ -219,7 +218,6 @@ class SageMakerAIModel(Model):
         """
         return cast(SageMakerAIModel.SageMakerAIEndpointConfig, self.endpoint_config)
 
-    # @override
     def format_request(
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
     ) -> dict[str, Any]:
@@ -233,7 +231,8 @@ class SageMakerAIModel(Model):
         Returns:
             An Amazon SageMaker chat streaming request.
         """
-        formatted_messages = self._format_messages_for_provider(messages, system_prompt)
+        # formatted_messages = self._format_messages_for_provider(messages, tool_specs, system_prompt)
+        formatted_messages = self._format_request_messages(messages, system_prompt)
 
         payload = {
             "messages": formatted_messages,
@@ -304,9 +303,7 @@ class SageMakerAIModel(Model):
 
         return request
 
-    def _format_messages_for_provider(
-        self, messages: Messages, system_prompt: Optional[str] = None
-    ) -> list[dict[str, Any]]:
+    def _format_request_messages(self, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
         """Format messages based on the selected model provider.
 
         Args:
@@ -319,13 +316,11 @@ class SageMakerAIModel(Model):
         provider = self.endpoint_config["model_provider"]
 
         if provider == ModelProvider.OPENAI:
-            return self._format_openai_messages(messages, system_prompt)
+            return SageMakerAIModel._format_openai_messages(messages, system_prompt)
         elif provider == ModelProvider.MISTRAL:
             return self._format_mistral_messages(messages, system_prompt)
         elif provider == ModelProvider.LLAMA:
             return self._format_llama_messages(messages, system_prompt)
-        elif provider == ModelProvider.ANTHROPIC:
-            return self._format_anthropic_messages(messages, system_prompt)
         elif provider == ModelProvider.CUSTOM:
             custom_formatter = self.endpoint_config["custom_formatter"]
             return custom_formatter(messages, system_prompt)
@@ -333,88 +328,26 @@ class SageMakerAIModel(Model):
             # Default to OpenAI format
             return self._format_openai_messages(messages, system_prompt)
 
-    def _format_openai_messages(self, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+    @staticmethod
+    def _format_openai_messages(messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
         """Format messages for OpenAI-compatible models."""
-        return self.format_request_messages(messages, system_prompt)
+        from strands.models.openai import OpenAIModel
 
-    def _format_mistral_messages(self, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+        return OpenAIModel.format_request_messages(messages, system_prompt)
+
+    @staticmethod
+    def _format_mistral_messages(messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
         """Format messages for Mistral models."""
-        # Mistral uses similar format to OpenAI but with some differences
-        formatted_messages = self.format_request_messages(messages, system_prompt)
-        # Add Mistral-specific formatting here if needed
-        return formatted_messages
+        from strands.models.mistral import MistralModel
 
-    def _format_llama_messages(self, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+        return MistralModel.format_request_messages(messages, system_prompt)
+
+    @staticmethod
+    def _format_llama_messages(messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
         """Format messages for Llama models."""
-        # Llama often uses a different conversation format
-        formatted_messages = []
+        from strands.models.llamaapi import LlamaAPIModel
 
-        # Add system prompt if provided
-        if system_prompt:
-            formatted_messages.append({"role": "system", "content": system_prompt})
-
-        # Process messages with Llama-specific formatting
-        for message in messages:
-            formatted_message = {"role": message["role"], "content": self._format_content_for_llama(message["content"])}
-            formatted_messages.append(formatted_message)
-
-        return formatted_messages
-
-    def _format_anthropic_messages(
-        self, messages: Messages, system_prompt: Optional[str] = None
-    ) -> list[dict[str, Any]]:
-        """Format messages for Anthropic Claude models."""
-        # Anthropic has specific requirements for message formatting
-        formatted_messages = []
-
-        # System prompt is handled separately in Anthropic
-        for message in messages:
-            formatted_message = {
-                "role": message["role"],
-                "content": self._format_content_for_anthropic(message["content"]),
-            }
-            formatted_messages.append(formatted_message)
-
-        return formatted_messages
-
-    def _format_content_for_llama(self, content: list[ContentBlock]) -> str:
-        """Format content blocks for Llama models (typically expects string content)."""
-        text_parts = []
-        for block in content:
-            if "text" in block:
-                text_parts.append(block["text"])
-            elif "toolUse" in block:
-                # Handle tool use for Llama
-                tool_use = block["toolUse"]
-                text_parts.append(f"[TOOL_CALL: {tool_use['name']}({json.dumps(tool_use['input'])})]")
-            elif "toolResult" in block:
-                # Handle tool results for Llama
-                tool_result = block["toolResult"]
-                result_text = " ".join([c.get("text", str(c)) for c in tool_result["content"]])
-                text_parts.append(f"[TOOL_RESULT: {result_text}]")
-        return " ".join(text_parts)
-
-    def _format_content_for_anthropic(self, content: list[ContentBlock]) -> list[dict[str, Any]]:
-        """Format content blocks for Anthropic models."""
-        formatted_content = []
-        for block in content:
-            if "text" in block:
-                formatted_content.append({"type": "text", "text": block["text"]})
-            elif "image" in block:
-                # Anthropic image format
-                image_data = base64.b64encode(block["image"]["source"]["bytes"]).decode("utf-8")
-                formatted_content.append(
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": f"image/{block['image']['format']}",
-                            "data": image_data,
-                        },
-                    }
-                )
-            # Add other content types as needed
-        return formatted_content
+        return LlamaAPIModel.format_request_messages(messages, system_prompt)
 
     @classmethod
     def format_request_message_content(cls, content: ContentBlock) -> dict[str, Any]:

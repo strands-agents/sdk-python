@@ -1064,7 +1064,7 @@ async def _run_context_injection_test(context_tool: AgentTool):
         "content": [
             {"text": "Tool 'context_tool' (ID: test-id)"},
             {"text": "injected agent 'test_agent' processed: some_message"},
-            {"text": "context agent 'test_agent'"}
+            {"text": "context agent 'test_agent'"},
         ],
         "toolUseId": "test-id",
     }
@@ -1151,7 +1151,7 @@ async def test_tool_context_injection_disabled_missing_parameter():
 
     assert len(tool_results) == 1
     tool_result = tool_results[0]
-    
+
     # Should get a validation error because tool_context is required but not provided
     assert tool_result["status"] == "error"
     assert "tool_context" in tool_result["content"][0]["text"].lower()
@@ -1173,10 +1173,7 @@ async def test_tool_context_injection_disabled_string_parameter():
         tool_use={
             "toolUseId": "test-id-2",
             "name": "context_tool",
-            "input": {
-                "message": "some_message",
-                "tool_context": "my_custom_context_string"
-            },
+            "input": {"message": "some_message", "tool_context": "my_custom_context_string"},
         },
         invocation_state={
             "agent": Agent(name="test_agent"),

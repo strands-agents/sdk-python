@@ -112,7 +112,8 @@ class MistralModel(Model):
         """
         return self.config
 
-    def _format_request_message_content(self, content: ContentBlock) -> Union[str, dict[str, Any]]:
+    @staticmethod
+    def _format_request_message_content(content: ContentBlock) -> Union[str, dict[str, Any]]:
         """Format a Mistral content block.
 
         Args:
@@ -141,7 +142,8 @@ class MistralModel(Model):
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
-    def _format_request_message_tool_call(self, tool_use: ToolUse) -> dict[str, Any]:
+    @staticmethod
+    def _format_request_message_tool_call(tool_use: ToolUse) -> dict[str, Any]:
         """Format a Mistral tool call.
 
         Args:
@@ -159,7 +161,8 @@ class MistralModel(Model):
             "type": "function",
         }
 
-    def _format_request_tool_message(self, tool_result: ToolResult) -> dict[str, Any]:
+    @staticmethod
+    def _format_request_tool_message(tool_result: ToolResult) -> dict[str, Any]:
         """Format a Mistral tool message.
 
         Args:
@@ -184,7 +187,8 @@ class MistralModel(Model):
             "tool_call_id": tool_result["toolUseId"],
         }
 
-    def _format_request_messages(self, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+    @classmethod
+    def format_request_messages(cls, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
         """Format a Mistral compatible messages array.
 
         Args:
@@ -209,13 +213,13 @@ class MistralModel(Model):
 
             for content in contents:
                 if "text" in content:
-                    formatted_content = self._format_request_message_content(content)
+                    formatted_content = cls._format_request_message_content(content)
                     if isinstance(formatted_content, str):
                         text_contents.append(formatted_content)
                 elif "toolUse" in content:
-                    tool_calls.append(self._format_request_message_tool_call(content["toolUse"]))
+                    tool_calls.append(cls._format_request_message_tool_call(content["toolUse"]))
                 elif "toolResult" in content:
-                    tool_messages.append(self._format_request_tool_message(content["toolResult"]))
+                    tool_messages.append(cls._format_request_tool_message(content["toolResult"]))
 
             if text_contents or tool_calls:
                 formatted_message: dict[str, Any] = {
@@ -251,7 +255,7 @@ class MistralModel(Model):
         """
         request: dict[str, Any] = {
             "model": self.config["model_id"],
-            "messages": self._format_request_messages(messages, system_prompt),
+            "messages": self.format_request_messages(messages, system_prompt),
         }
 
         if "max_tokens" in self.config:

@@ -86,7 +86,8 @@ class LlamaAPIModel(Model):
         """
         return self.config
 
-    def _format_request_message_content(self, content: ContentBlock) -> dict[str, Any]:
+    @staticmethod
+    def _format_request_message_content(content: ContentBlock) -> dict[str, Any]:
         """Format a LlamaAPI content block.
 
         - NOTE: "reasoningContent" and "video" are not supported currently.
@@ -116,7 +117,8 @@ class LlamaAPIModel(Model):
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
-    def _format_request_message_tool_call(self, tool_use: ToolUse) -> dict[str, Any]:
+    @staticmethod
+    def _format_request_message_tool_call(tool_use: ToolUse) -> dict[str, Any]:
         """Format a Llama API tool call.
 
         Args:
@@ -133,7 +135,8 @@ class LlamaAPIModel(Model):
             "id": tool_use["toolUseId"],
         }
 
-    def _format_request_tool_message(self, tool_result: ToolResult) -> dict[str, Any]:
+    @staticmethod
+    def _format_request_tool_message(tool_result: ToolResult) -> dict[str, Any]:
         """Format a Llama API tool message.
 
         Args:
@@ -153,10 +156,11 @@ class LlamaAPIModel(Model):
         return {
             "role": "tool",
             "tool_call_id": tool_result["toolUseId"],
-            "content": [self._format_request_message_content(content) for content in contents],
+            "content": [LlamaAPIModel._format_request_message_content(content) for content in contents],
         }
 
-    def _format_request_messages(self, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+    @classmethod
+    def format_request_messages(cls, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
         """Format a LlamaAPI compatible messages array.
 
         Args:
@@ -174,17 +178,17 @@ class LlamaAPIModel(Model):
 
             formatted_contents: list[dict[str, Any]] | dict[str, Any] | str = ""
             formatted_contents = [
-                self._format_request_message_content(content)
+                cls._format_request_message_content(content=content)
                 for content in contents
                 if not any(block_type in content for block_type in ["toolResult", "toolUse"])
             ]
             formatted_tool_calls = [
-                self._format_request_message_tool_call(content["toolUse"])
+                cls._format_request_message_tool_call(tool_use=content["toolUse"])
                 for content in contents
                 if "toolUse" in content
             ]
             formatted_tool_messages = [
-                self._format_request_tool_message(content["toolResult"])
+                cls._format_request_tool_message(tool_result=content["toolResult"])
                 for content in contents
                 if "toolResult" in content
             ]
@@ -220,7 +224,7 @@ class LlamaAPIModel(Model):
                 format.
         """
         request = {
-            "messages": self._format_request_messages(messages, system_prompt),
+            "messages": self.format_request_messages(messages, system_prompt),
             "model": self.config["model_id"],
             "stream": True,
             "tools": [
