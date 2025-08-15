@@ -250,6 +250,18 @@ def test_agent__init__deeply_nested_tools(tool_decorated, tool_module, tool_impo
     assert tru_tool_names == exp_tool_names
 
 
+@pytest.mark.parametrize(
+    "agent_id",
+    [
+        "a/../b",
+        "a/b",
+    ],
+)
+def test_agent__init__invalid_id(agent_id):
+    with pytest.raises(ValueError):
+        Agent(agent_id=agent_id)
+
+
 def test_agent__call__(
     mock_model,
     system_prompt,

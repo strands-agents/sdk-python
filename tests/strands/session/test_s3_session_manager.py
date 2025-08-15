@@ -332,3 +332,27 @@ def test_update_nonexistent_message(s3_manager, sample_session, sample_agent, sa
     # Update message
     with pytest.raises(SessionException):
         s3_manager.update_message(sample_session.session_id, sample_agent.agent_id, sample_message)
+
+
+@pytest.mark.parametrize(
+    "session_id",
+    [
+        "a/../b",
+        "a/b",
+    ],
+)
+def test__get_session_path_invalid_session_id(session_id, s3_manager):
+    with pytest.raises(ValueError, match="session id cannot contain path separators"):
+        s3_manager._get_session_path(session_id)
+
+
+@pytest.mark.parametrize(
+    "agent_id",
+    [
+        "a/../b",
+        "a/b",
+    ],
+)
+def test__get_agent_path_invalid_agent_id(agent_id, s3_manager):
+    with pytest.raises(ValueError, match="agent id cannot contain path separators"):
+        s3_manager._get_agent_path("session1", agent_id)

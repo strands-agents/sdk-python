@@ -8,8 +8,10 @@ import boto3
 from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError
 
+from ..agent.identifier import validate as validate_agent_id
 from ..types.exceptions import SessionException
 from ..types.session import Session, SessionAgent, SessionMessage
+from .identifier import validate as validate_session_id
 from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
 
@@ -51,6 +53,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
 
         Args:
             session_id: ID for the session
+                ID is not allowed to contain path separators (e.g., a/b).
             bucket: S3 bucket name (required)
             prefix: S3 key prefix for storage organization
             boto_session: Optional boto3 session
@@ -79,12 +82,29 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         super().__init__(session_id=session_id, session_repository=self)
 
     def _get_session_path(self, session_id: str) -> str:
-        """Get session S3 prefix."""
+        """Get session S3 prefix.
+
+        Args:
+            session_id: ID for the session.
+
+        Raises:
+            ValueError: If session id contains a path separator.
+        """
+        session_id = validate_session_id(session_id)
         return f"{self.prefix}/{SESSION_PREFIX}{session_id}/"
 
     def _get_agent_path(self, session_id: str, agent_id: str) -> str:
-        """Get agent S3 prefix."""
+        """Get agent S3 prefix.
+
+        Args:
+            session_id: ID for the session.
+            agent_id: ID for the agent.
+
+        Raises:
+            ValueError: If session id or agent id contains a path separator.
+        """
         session_path = self._get_session_path(session_id)
+        agent_id = validate_agent_id(agent_id)
         return f"{session_path}agents/{AGENT_PREFIX}{agent_id}/"
 
     def _get_message_path(self, session_id: str, agent_id: str, message_id: int) -> str:

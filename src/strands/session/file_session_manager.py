@@ -7,8 +7,10 @@ import shutil
 import tempfile
 from typing import Any, Optional, cast
 
+from ..agent.identifier import validate as validate_agent_id
 from ..types.exceptions import SessionException
 from ..types.session import Session, SessionAgent, SessionMessage
+from .identifier import validate as validate_session_id
 from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
 
@@ -40,8 +42,9 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         """Initialize FileSession with filesystem storage.
 
         Args:
-            session_id: ID for the session
-            storage_dir: Directory for local filesystem storage (defaults to temp dir)
+            session_id: ID for the session.
+                ID is not allowed to contain path separators (e.g., a/b).
+            storage_dir: Directory for local filesystem storage (defaults to temp dir).
             **kwargs: Additional keyword arguments for future extensibility.
         """
         self.storage_dir = storage_dir or os.path.join(tempfile.gettempdir(), "strands/sessions")
@@ -50,12 +53,29 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         super().__init__(session_id=session_id, session_repository=self)
 
     def _get_session_path(self, session_id: str) -> str:
-        """Get session directory path."""
+        """Get session directory path.
+
+        Args:
+            session_id: ID for the session.
+
+        Raises:
+            ValueError: If session id contains a path separator.
+        """
+        session_id = validate_session_id(session_id)
         return os.path.join(self.storage_dir, f"{SESSION_PREFIX}{session_id}")
 
     def _get_agent_path(self, session_id: str, agent_id: str) -> str:
-        """Get agent directory path."""
+        """Get agent directory path.
+
+        Args:
+            session_id: ID for the session.
+            agent_id: ID for the agent.
+
+        Raises:
+            ValueError: If session id or agent id contains a path separator.
+        """
         session_path = self._get_session_path(session_id)
+        agent_id = validate_agent_id(agent_id)
         return os.path.join(session_path, "agents", f"{AGENT_PREFIX}{agent_id}")
 
     def _get_message_path(self, session_id: str, agent_id: str, message_id: int) -> str:

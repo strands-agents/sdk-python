@@ -40,6 +40,7 @@ from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
+from . import identifier
 from .agent_result import AgentResult
 from .conversation_manager import (
     ConversationManager,
@@ -249,12 +250,15 @@ class Agent:
                 Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
+
+        Raises:
+            ValueError: If agent id contains path separators.
         """
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
 
         self.system_prompt = system_prompt
-        self.agent_id = agent_id or _DEFAULT_AGENT_ID
+        self.agent_id = identifier.validate(agent_id or _DEFAULT_AGENT_ID)
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
 
