@@ -418,14 +418,14 @@ class BedrockModel(Model):
             ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: If the model service is throttling requests.
         """
-        logger.debug("formatting request")
-        request = self.format_request(messages, tool_specs, system_prompt)
-        logger.debug("request=<%s>", request)
-
-        logger.debug("invoking model")
-        streaming = self.config.get("streaming", True)
-
         try:
+            logger.debug("formatting request")
+            request = self.format_request(messages, tool_specs, system_prompt)
+            logger.debug("request=<%s>", request)
+
+            logger.debug("invoking model")
+            streaming = self.config.get("streaming", True)
+
             logger.debug("got response from model")
             if streaming:
                 response = self.client.converse_stream(**request)
