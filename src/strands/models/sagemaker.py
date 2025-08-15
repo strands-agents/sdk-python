@@ -31,7 +31,7 @@ class ModelProvider(Enum):
     OPENAI = "openai"
     MISTRAL = "mistral"
     LLAMA = "llama"
-    CUSTOM = "custom"
+    # CUSTOM = "custom"
 
 
 @dataclass
@@ -101,7 +101,7 @@ class ToolCall:
 class SageMakerAIModel(Model):
     """Amazon SageMaker model provider implementation."""
 
-    client: SageMakerRuntimeClient  # type: ignore[assignment]
+    client: SageMakerRuntimeClient
 
     class SageMakerAIPayloadSchema(TypedDict, total=False):
         """Payload schema for the Amazon SageMaker AI model.
@@ -173,13 +173,13 @@ class SageMakerAIModel(Model):
             self.endpoint_config["model_provider"] = ModelProvider(self.endpoint_config["model_provider"])
 
         # Validate custom formatter if using CUSTOM provider
-        if self.endpoint_config["model_provider"] == ModelProvider.CUSTOM and not self.endpoint_config.get(
-            "custom_formatter"
-        ):
-            raise ValueError("custom_formatter is required when model_provider is CUSTOM")
-        logger.debug(
-            "endpoint_config=<%s> payload_config=<%s> | initializing", self.endpoint_config, self.payload_config
-        )
+        # if self.endpoint_config["model_provider"] == ModelProvider.CUSTOM and not self.endpoint_config.get(
+        #     "custom_formatter"
+        # ):
+        #     raise ValueError("custom_formatter is required when model_provider is CUSTOM")
+        # logger.debug(
+        #     "endpoint_config=<%s> payload_config=<%s> | initializing", self.endpoint_config, self.payload_config
+        # )
 
         region = self.endpoint_config.get("region_name") or os.getenv("AWS_REGION") or "us-west-2"
         session = boto_session or boto3.Session(region_name=str(region))
@@ -210,7 +210,7 @@ class SageMakerAIModel(Model):
         self.endpoint_config.update(endpoint_config)
 
     @override
-    def get_config(self) -> "SageMakerAIModel.SageMakerAIEndpointConfig":  # type: ignore[override]
+    def get_config(self) -> "SageMakerAIModel.SageMakerAIEndpointConfig":
         """Get the Amazon SageMaker model configuration.
 
         Returns:
@@ -318,15 +318,17 @@ class SageMakerAIModel(Model):
         if provider == ModelProvider.OPENAI:
             return SageMakerAIModel._format_openai_messages(messages, system_prompt)
         elif provider == ModelProvider.MISTRAL:
-            return self._format_mistral_messages(messages, system_prompt)
+            return SageMakerAIModel._format_mistral_messages(messages, system_prompt)
         elif provider == ModelProvider.LLAMA:
-            return self._format_llama_messages(messages, system_prompt)
-        elif provider == ModelProvider.CUSTOM:
-            custom_formatter = self.endpoint_config["custom_formatter"]
-            return custom_formatter(messages, system_prompt)
+            return SageMakerAIModel._format_llama_messages(messages, system_prompt)
+        # elif provider == ModelProvider.CUSTOM:
+        #     custom_formatter = self.endpoint_config["custom_formatter"]
+        #     if custom_formatter is None:
+        #         raise ValueError("custom_formatter is required when model_provider is CUSTOM")
+        #     return custom_formatter(messages, system_prompt)
         else:
             # Default to OpenAI format
-            return self._format_openai_messages(messages, system_prompt)
+            return SageMakerAIModel._format_openai_messages(messages, system_prompt)
 
     @staticmethod
     def _format_openai_messages(messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:

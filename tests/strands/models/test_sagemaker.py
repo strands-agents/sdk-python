@@ -671,49 +671,52 @@ class TestModelProvider:
         }
         assert tru_request == exp_request
 
-    def test_format_messages_custom_provider(self, boto_session, messages, system_prompt):
-        """Test message formatting with custom provider."""
-
-        def custom_formatter(msgs, sys_prompt=None):
-            result = [{"custom_format": True}]
-            if sys_prompt:
-                result.append({"system": sys_prompt})
-            for msg in msgs:
-                result.append({"speaker": msg["role"], "text": msg["content"][0]["text"]})
-            return result
-
-        endpoint_config = SageMakerAIModel.SageMakerAIEndpointConfig(
-            endpoint_name="test-endpoint",
-            region_name="us-east-1",
-            model_provider=ModelProvider.CUSTOM,
-            custom_formatter=custom_formatter,
-        )
-        payload_config = SageMakerAIModel.SageMakerAIPayloadSchema(max_tokens=1024)
-
-        model = SageMakerAIModel(
-            endpoint_config=endpoint_config, payload_config=payload_config, boto_session=boto_session
-        )
-
-        tru_request = model.format_request(messages)
-        exp_request = {
-            "EndpointName": "test-endpoint",
-            "Body": '{"messages": [{"custom_format": true}, '
-            '{"speaker": "user", "text": "What is the capital of France?"}], '
-            '"max_tokens": 1024, "stream": true}',
-            "ContentType": "application/json",
-            "Accept": "application/json",
-        }
-        assert tru_request == exp_request
-
-    def test_custom_formatter_required(self, boto_session):
-        """Test that custom formatter is required when using CUSTOM provider."""
-        endpoint_config = SageMakerAIModel.SageMakerAIEndpointConfig(
-            endpoint_name="test-endpoint", region_name="us-east-1", model_provider=ModelProvider.CUSTOM
-        )
-        payload_config = SageMakerAIModel.SageMakerAIPayloadSchema(max_tokens=1024)
-
-        with pytest.raises(ValueError, match="custom_formatter is required when model_provider is CUSTOM"):
-            SageMakerAIModel(endpoint_config=endpoint_config, payload_config=payload_config, boto_session=boto_session)
+    # def test_format_messages_custom_provider(self, boto_session, messages, system_prompt):
+    #     """Test message formatting with custom provider."""
+    #
+    #     def custom_formatter(msgs, sys_prompt=None):
+    #         result = [{"custom_format": True}]
+    #         if sys_prompt:
+    #             result.append({"system": sys_prompt})
+    #         for msg in msgs:
+    #             result.append({"speaker": msg["role"], "text": msg["content"][0]["text"]})
+    #         return result
+    #
+    #     endpoint_config = SageMakerAIModel.SageMakerAIEndpointConfig(
+    #         endpoint_name="test-endpoint",
+    #         region_name="us-east-1",
+    #         model_provider=ModelProvider.CUSTOM,
+    #         custom_formatter=custom_formatter,
+    #     )
+    #     payload_config = SageMakerAIModel.SageMakerAIPayloadSchema(max_tokens=1024)
+    #
+    #     model = SageMakerAIModel(
+    #         endpoint_config=endpoint_config, payload_config=payload_config, boto_session=boto_session
+    #     )
+    #
+    #     tru_request = model.format_request(messages)
+    #     exp_request = {
+    #         "EndpointName": "test-endpoint",
+    #         "Body": '{"messages": [{"custom_format": true}, '
+    #         '{"speaker": "user", "text": "What is the capital of France?"}], '
+    #         '"max_tokens": 1024, "stream": true}',
+    #         "ContentType": "application/json",
+    #         "Accept": "application/json",
+    #     }
+    #     assert tru_request == exp_request
+    #
+    # def test_custom_formatter_required(self, boto_session):
+    #     """Test that custom formatter is required when using CUSTOM provider."""
+    #     endpoint_config = SageMakerAIModel.SageMakerAIEndpointConfig(
+    #         endpoint_name="test-endpoint", region_name="us-east-1", model_provider=ModelProvider.CUSTOM
+    #     )
+    #     payload_config = SageMakerAIModel.SageMakerAIPayloadSchema(max_tokens=1024)
+    #
+    #     with pytest.raises(ValueError, match="custom_formatter is required when model_provider is CUSTOM"):
+    #         SageMakerAIModel(
+    #         endpoint_config=endpoint_config,
+    #         payload_config=payload_config,
+    #         boto_session=boto_session)
 
 
 class TestDataClasses:
@@ -776,14 +779,14 @@ class TestModelProviderEnum:
         assert ModelProvider.OPENAI.value == "openai"
         assert ModelProvider.MISTRAL.value == "mistral"
         assert ModelProvider.LLAMA.value == "llama"
-        assert ModelProvider.CUSTOM.value == "custom"
+        # assert ModelProvider.CUSTOM.value == "custom"
 
     def test_model_provider_from_string(self):
         """Test creating ModelProvider from string."""
         assert ModelProvider("openai") == ModelProvider.OPENAI
         assert ModelProvider("mistral") == ModelProvider.MISTRAL
         assert ModelProvider("llama") == ModelProvider.LLAMA
-        assert ModelProvider("custom") == ModelProvider.CUSTOM
+        # assert ModelProvider("custom") == ModelProvider.CUSTOM
 
     def test_invalid_model_provider(self):
         """Test invalid model provider string raises ValueError."""
