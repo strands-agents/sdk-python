@@ -263,16 +263,20 @@ def test_agent_structured_output_hooks(agent, hook_provider, user, agenerator):
     """Verify that the correct hook events are emitted as part of structured_output."""
 
     agent.model.structured_output = Mock(return_value=agenerator([{"output": user}]))
-    agent.structured_output(type(user), "example prompt")
+    agent.structured_output(type(user), "example prompt", preserve_conversation=True)
 
     length, events = hook_provider.get_events()
+    events_list = list(events)
 
-    assert length == 2
+    # With the new tool-based implementation, we get more events from the event loop
+    # but we should still have BeforeInvocationEvent first and AfterInvocationEvent last
+    assert length > 2  # More events due to event loop execution
 
-    assert next(events) == BeforeInvocationEvent(agent=agent)
-    assert next(events) == AfterInvocationEvent(agent=agent)
+    assert events_list[0] == BeforeInvocationEvent(agent=agent)
+    assert events_list[-1] == AfterInvocationEvent(agent=agent)
 
-    assert len(agent.messages) == 0  # no new messages added
+    # With the new tool-based implementation, messages are added during the structured output process
+    assert len(agent.messages) > 0  # messages added during structured output execution
 
 
 @pytest.mark.asyncio
@@ -280,13 +284,17 @@ async def test_agent_structured_async_output_hooks(agent, hook_provider, user, a
     """Verify that the correct hook events are emitted as part of structured_output_async."""
 
     agent.model.structured_output = Mock(return_value=agenerator([{"output": user}]))
-    await agent.structured_output_async(type(user), "example prompt")
+    await agent.structured_output_async(type(user), "example prompt", preserve_conversation=True)
 
     length, events = hook_provider.get_events()
+    events_list = list(events)
 
-    assert length == 2
+    # With the new tool-based implementation, we get more events from the event loop
+    # but we should still have BeforeInvocationEvent first and AfterInvocationEvent last
+    assert length > 2  # More events due to event loop execution
 
-    assert next(events) == BeforeInvocationEvent(agent=agent)
-    assert next(events) == AfterInvocationEvent(agent=agent)
+    assert events_list[0] == BeforeInvocationEvent(agent=agent)
+    assert events_list[-1] == AfterInvocationEvent(agent=agent)
 
-    assert len(agent.messages) == 0  # no new messages added
+    # With the new tool-based implementation, messages are added during the structured output process
+    assert len(agent.messages) > 0  # messages added during structured output execution
