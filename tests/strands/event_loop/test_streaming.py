@@ -216,6 +216,21 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "signature": "123",
             },
         ),
+        # Reasoning without signature
+        (
+            {
+                "content": [],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "test",
+            },
+            {
+                "content": [{"reasoningContent": {"reasoningText": {"text": "test"}}}],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+            },
+        ),
         # Empty
         (
             {
