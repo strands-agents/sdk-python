@@ -510,101 +510,84 @@ class Agent:
                         if tool_input:
                             captured_result = output_model(**tool_input)
 
-        # Add the callback temporarily (use add_callback, not add_hook)
         self.hooks.add_callback(AfterToolInvocationEvent, capture_structured_output_hook)
         added_callback = capture_structured_output_hook
 
+        # Create message for tracing
+        message: Message
+        if prompt:
+            content: list[ContentBlock] = [{"text": prompt}] if isinstance(prompt, str) else prompt
+            message = {"role": "user", "content": content}
+        else:
+            # Use existing conversation history
+            message = {
+                "role": "user",
+                "content": [
+                    {"text": "Please provide the information from our conversation in the requested structured format."}
+                ],
+            }
+
+        # Start agent trace span (same as stream_async)
+        self.trace_span = self._start_agent_trace_span(message)
+
         try:
-            with self.tracer.tracer.start_as_current_span(
-                "execute_structured_output", kind=trace_api.SpanKind.CLIENT
-            ) as structured_output_span:
-                try:
-                    if not self.messages and not prompt:
-                        raise ValueError("No conversation history or prompt provided")
+            with trace_api.use_span(self.trace_span):
+                if not self.messages and not prompt:
+                    raise ValueError("No conversation history or prompt provided")
 
-                    # Create temporary messages array if prompt is provided
-                    message: Message
-                    if prompt:
-                        content: list[ContentBlock] = [{"text": prompt}] if isinstance(prompt, str) else prompt
-                        message = {"role": "user", "content": content}
-                    else:
-                        # Use existing conversation history
-                        message = {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "text": "Please provide the information from our conversation in the requested "
-                                    "structured format."
-                                }
-                            ],
-                        }
+                invocation_state = {
+                    "structured_output_mode": True,
+                    "structured_output_model": output_model,
+                }
 
-                    structured_output_span.set_attributes(
-                        {
-                            "gen_ai.system": "strands-agents",
-                            "gen_ai.agent.name": self.name,
-                            "gen_ai.agent.id": self.agent_id,
-                            "gen_ai.operation.name": "execute_structured_output",
-                        }
+                # Run the event loop
+                async for event in self._run_loop(message=message, invocation_state=invocation_state):
+                    if "stop" in event:
+                        break
+
+                # Return the captured structured result if we got it from the tool
+                if captured_result:
+                    self._end_agent_trace_span(
+                        response=AgentResult(
+                            message={"role": "assistant", "content": [{"text": str(captured_result)}]},
+                            stop_reason="end_turn",
+                            metrics=self.event_loop_metrics,
+                            state={},
+                        )
                     )
+                    return captured_result
 
-                    # Add tracing for messages
-                    messages_to_trace = self.messages if not prompt else self.messages + [message]
-                    for msg in messages_to_trace:
-                        structured_output_span.add_event(
-                            f"gen_ai.{msg['role']}.message",
-                            attributes={"role": msg["role"], "content": serialize(msg["content"])},
-                        )
+                # Fallback: Use the original model.structured_output approach
+                # This maintains backward compatibility with existing tests and implementations
+                # Use original_messages to get clean message state, or self.messages if preserve_conversation=True
+                base_messages = original_messages if original_messages is not None else self.messages
+                temp_messages = base_messages if not prompt else base_messages + [message]
 
-                    if self.system_prompt:
-                        structured_output_span.add_event(
-                            "gen_ai.system.message",
-                            attributes={"role": "system", "content": serialize([{"text": self.system_prompt}])},
-                        )
+                events = self.model.structured_output(output_model, temp_messages, system_prompt=self.system_prompt)
+                async for event in events:
+                    if "callback" in event:
+                        self.callback_handler(**cast(dict, event["callback"]))
 
-                    invocation_state = {
-                        "structured_output_mode": True,
-                        "structured_output_model": output_model,
-                    }
-
-                    # Run the event loop
-                    async for event in self._run_loop(message=message, invocation_state=invocation_state):
-                        if "stop" in event:
-                            break
-
-                    # Return the captured structured result if we got it from the tool
-                    if captured_result:
-                        structured_output_span.add_event(
-                            "gen_ai.choice", attributes={"message": serialize(captured_result.model_dump())}
-                        )
-                        return captured_result
-
-                    # Fallback: Use the original model.structured_output approach
-                    # This maintains backward compatibility with existing tests and implementations
-                    # Use original_messages to get clean message state, or self.messages if preserve_conversation=True
-                    base_messages = original_messages if original_messages is not None else self.messages
-                    temp_messages = base_messages if not prompt else base_messages + [message]
-
-                    events = self.model.structured_output(output_model, temp_messages, system_prompt=self.system_prompt)
-                    async for event in events:
-                        if "callback" in event:
-                            self.callback_handler(**cast(dict, event["callback"]))
-
-                    structured_output_span.add_event(
-                        "gen_ai.choice", attributes={"message": serialize(event["output"].model_dump())}
+                self._end_agent_trace_span(
+                    response=AgentResult(
+                        message={"role": "assistant", "content": [{"text": str(event["output"])}]},
+                        stop_reason="end_turn",
+                        metrics=self.event_loop_metrics,
+                        state={},
                     )
-                    return cast(T, event["output"])
+                )
+                return cast(T, event["output"])
 
-                except Exception as e:
-                    structured_output_span.record_exception(e)
-                    raise
-
+        except Exception as e:
+            self._end_agent_trace_span(error=e)
+            raise
         finally:
             # Clean up what we added - remove the callback
-            if added_callback is not None and AfterToolInvocationEvent in self.hooks._registered_callbacks:
-                callbacks = self.hooks._registered_callbacks[AfterToolInvocationEvent]
-                if added_callback in callbacks:
-                    callbacks.remove(added_callback)
+            if added_callback is not None:
+                with suppress(ValueError, KeyError):
+                    callbacks = self.hooks._registered_callbacks.get(AfterToolInvocationEvent, [])
+                    if added_callback in callbacks:
+                        callbacks.remove(added_callback)
 
             # Remove the tool we added
             if added_tool_name:

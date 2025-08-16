@@ -992,13 +992,12 @@ def test_agent_callback_handler_custom_handler_used():
 
 
 def test_agent_structured_output(agent, system_prompt, user, agenerator):
-    # Setup mock tracer and span
-    mock_strands_tracer = unittest.mock.MagicMock()
-    mock_otel_tracer = unittest.mock.MagicMock()
+    # Mock the agent tracing methods instead of direct OpenTelemetry calls
+    agent._start_agent_trace_span = unittest.mock.Mock()
+    agent._end_agent_trace_span = unittest.mock.Mock()
     mock_span = unittest.mock.MagicMock()
-    mock_strands_tracer.tracer = mock_otel_tracer
-    mock_otel_tracer.start_as_current_span.return_value.__enter__.return_value = mock_span
-    agent.tracer = mock_strands_tracer
+    agent._start_agent_trace_span.return_value = mock_span
+    agent.trace_span = mock_span
 
     agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": user}]))
 
@@ -1019,34 +1018,19 @@ def test_agent_structured_output(agent, system_prompt, user, agenerator):
         type(user), [{"role": "user", "content": [{"text": prompt}]}], system_prompt=system_prompt
     )
 
-    mock_span.set_attributes.assert_called_once_with(
-        {
-            "gen_ai.system": "strands-agents",
-            "gen_ai.agent.name": "Strands Agents",
-            "gen_ai.agent.id": "default",
-            "gen_ai.operation.name": "execute_structured_output",
-        }
-    )
-
-    mock_span.add_event.assert_any_call(
-        "gen_ai.user.message",
-        attributes={"role": "user", "content": '[{"text": "Jane Doe is 30 years old and her email is jane@doe.com"}]'},
-    )
-
-    mock_span.add_event.assert_called_with(
-        "gen_ai.choice",
-        attributes={"message": json.dumps(user.model_dump())},
-    )
+    # Verify agent-level tracing was called
+    agent._start_agent_trace_span.assert_called_once()
+    agent._end_agent_trace_span.assert_called_once()
 
 
 def test_agent_structured_output_multi_modal_input(agent, system_prompt, user, agenerator):
-    # Setup mock tracer and span
-    mock_strands_tracer = unittest.mock.MagicMock()
-    mock_otel_tracer = unittest.mock.MagicMock()
+    # Mock the agent tracing methods instead of direct OpenTelemetry calls
+    agent._start_agent_trace_span = unittest.mock.Mock()
+    agent._end_agent_trace_span = unittest.mock.Mock()
     mock_span = unittest.mock.MagicMock()
-    mock_strands_tracer.tracer = mock_otel_tracer
-    mock_otel_tracer.start_as_current_span.return_value.__enter__.return_value = mock_span
-    agent.tracer = mock_strands_tracer
+    agent._start_agent_trace_span.return_value = mock_span
+    agent.trace_span = mock_span
+
     agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": user}]))
 
     prompt = [
@@ -1076,10 +1060,9 @@ def test_agent_structured_output_multi_modal_input(agent, system_prompt, user, a
         type(user), [{"role": "user", "content": prompt}], system_prompt=system_prompt
     )
 
-    mock_span.add_event.assert_called_with(
-        "gen_ai.choice",
-        attributes={"message": json.dumps(user.model_dump())},
-    )
+    # Verify agent-level tracing was called
+    agent._start_agent_trace_span.assert_called_once()
+    agent._end_agent_trace_span.assert_called_once()
 
 
 @pytest.mark.asyncio
