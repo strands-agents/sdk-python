@@ -276,10 +276,19 @@ class BedrockModel(Model):
                     # Create a new content block with only the cleaned toolResult
                     tool_result: ToolResult = content_block["toolResult"]
 
-                    # Keep only the required fields for Bedrock
-                    cleaned_tool_result = ToolResult(
-                        content=tool_result["content"], toolUseId=tool_result["toolUseId"], status=tool_result["status"]
-                    )
+                    model_id = self.config.get("model_id")
+                    if "claude-3" in model_id:
+                        # Keep the status field for Claude models
+                        cleaned_tool_result = ToolResult(
+                            content=tool_result["content"],
+                            toolUseId=tool_result["toolUseId"],
+                            status=tool_result["status"],
+                        )
+                    else:
+                        # For non-Claude models, use ToolResult without status
+                        cleaned_tool_result = ToolResult(
+                            toolUseId=tool_result["toolUseId"], content=tool_result["content"]
+                        )
 
                     cleaned_block: ContentBlock = {"toolResult": cleaned_tool_result}
                     cleaned_content.append(cleaned_block)

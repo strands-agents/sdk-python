@@ -7,7 +7,7 @@ These types are modeled after the Bedrock API.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Literal, Optional, Protocol, Union
 
 from typing_extensions import TypedDict
 
@@ -91,7 +91,7 @@ class ToolResult(TypedDict):
     """
 
     content: list[ToolResultContent]
-    status: ToolResultStatus
+    status: Optional[ToolResultStatus]
     toolUseId: str
 
 
