@@ -350,9 +350,9 @@ def _metrics_summary_to_lines(event_loop_metrics: EventLoopMetrics, allowed_name
 
     # Add cached token info if present
     if summary["accumulated_usage"].get("cacheReadInputTokens"):
-        token_parts.append(f"cache_read={summary['accumulated_usage']['cacheReadInputTokens']}")
+        token_parts.append(f"cache_read_input_tokens={summary['accumulated_usage']['cacheReadInputTokens']}")
     if summary["accumulated_usage"].get("cacheWriteInputTokens"):
-        token_parts.append(f"cache_write={summary['accumulated_usage']['cacheWriteInputTokens']}")
+        token_parts.append(f"cache_write_input_tokens={summary['accumulated_usage']['cacheWriteInputTokens']}")
 
     yield f"├─ Tokens: {', '.join(token_parts)}"
     yield f"├─ Bedrock Latency: {summary['accumulated_metrics']['latencyMs']}ms"
