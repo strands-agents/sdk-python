@@ -1233,7 +1233,7 @@ def test_format_request_cleans_tool_result_content_blocks(model, model_id):
 
     # Verify toolResult only contains allowed fields in the formatted request
     tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
-    expected = {"content": [{"text": "Tool output"}], "toolUseId": "tool123", "status": "success"}
+    expected = {"content": [{"text": "Tool output"}], "toolUseId": "tool123"}
     assert tool_result == expected
     assert "extraField" not in tool_result
     assert "mcpMetadata" not in tool_result
