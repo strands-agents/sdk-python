@@ -222,9 +222,14 @@ class StrandsA2AExecutor(AgentExecutor):
         extensions = mimetypes.guess_all_extensions(mime_type)
 
         if extensions:
-            # Get the most common extension (first one) and remove the dot
-            extension = extensions[0][1:]  # Remove the leading dot
+            # Prioritize extensions that have explicit format mappings
+            for ext in extensions:
+                extension = ext[1:]  # Remove the leading dot
+                if extension in self.FORMAT_MAPPINGS:
+                    return self.FORMAT_MAPPINGS[extension]
 
+            # Fall back to first extension if no mapping found
+            extension = extensions[0][1:]  # Remove the leading dot
             return self.FORMAT_MAPPINGS.get(extension, extension)
 
         # Fallback to defaults for unknown MIME types
