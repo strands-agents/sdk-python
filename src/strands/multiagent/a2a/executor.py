@@ -10,6 +10,7 @@ streamed requests to the A2AServer.
 
 import json
 import logging
+import mimetypes
 from typing import Any, Literal
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
@@ -41,25 +42,18 @@ class StrandsA2AExecutor(AgentExecutor):
     and converts Strands Agent responses to A2A protocol events.
     """
 
-    # File format mappings for different content types
-    IMAGE_FORMAT_MAPPINGS = {"jpeg": "jpeg", "jpg": "jpeg", "png": "png", "gif": "gif", "webp": "webp"}
-
-    VIDEO_FORMAT_MAPPINGS = {
-        "mp4": "mp4",
-        "mpeg": "mpeg",
-        "mpg": "mpg",
-        "webm": "webm",
-        "mov": "mov",
-        "mkv": "mkv",
-        "flv": "flv",
-        "wmv": "wmv",
-        "3gpp": "three_gp",
-    }
-
-    DOCUMENT_FORMAT_MAPPINGS = {"pdf": "pdf", "csv": "csv", "html": "html", "plain": "txt", "markdown": "md"}
-
-    # Default formats for each file type when MIME type is unavailable
+    # Default formats for each file type when MIME type is unavailable or unrecognized
     DEFAULT_FORMATS = {"document": "txt", "image": "png", "video": "mp4", "unknown": "txt"}
+
+    # Handle special cases where format differs from extension
+    FORMAT_MAPPINGS = {
+        "jpeg": "jpeg",
+        "jpg": "jpeg",
+        "htm": "html",
+        "3gp": "three_gp",
+        "3gpp": "three_gp",
+        "3g2": "three_gp"
+    }
 
     def __init__(self, agent: SAAgent):
         """Initialize a StrandsA2AExecutor.
@@ -210,7 +204,7 @@ class StrandsA2AExecutor(AgentExecutor):
             return "unknown"
 
     def _get_file_format_from_mime_type(self, mime_type: str | None, file_type: str) -> str:
-        """Extract file format from MIME type.
+        """Extract file format from MIME type using Python's mimetypes library.
 
         Args:
             mime_type: The MIME type of the file
@@ -224,19 +218,16 @@ class StrandsA2AExecutor(AgentExecutor):
 
         mime_type = mime_type.lower()
 
-        # Extract format from MIME type
-        if "/" in mime_type:
-            format_part = mime_type.split("/")[1]
+        # Use mimetypes library to find extensions for the MIME type
+        extensions = mimetypes.guess_all_extensions(mime_type)
 
-            # Handle common MIME type mappings with validation
-            if file_type == "image":
-                return self.IMAGE_FORMAT_MAPPINGS.get(format_part, "png")
-            elif file_type == "video":
-                return self.VIDEO_FORMAT_MAPPINGS.get(format_part, "mp4")
-            else:  # document
-                return self.DOCUMENT_FORMAT_MAPPINGS.get(format_part, "txt")
+        if extensions:
+            # Get the most common extension (first one) and remove the dot
+            extension = extensions[0][1:]  # Remove the leading dot
 
-        # Fallback defaults
+            return self.FORMAT_MAPPINGS.get(extension, extension)
+
+        # Fallback to defaults for unknown MIME types
         return self.DEFAULT_FORMATS.get(file_type, "txt")
 
     def _strip_file_extension(self, file_name: str) -> str:

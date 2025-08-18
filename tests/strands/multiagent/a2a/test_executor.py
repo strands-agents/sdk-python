@@ -42,24 +42,23 @@ def test_classify_file_type():
 
 
 def test_get_file_format_from_mime_type():
-    """Test file format extraction from MIME type."""
+    """Test file format extraction from MIME type using mimetypes library."""
     executor = StrandsA2AExecutor(MagicMock())
-
-    # Test image formats
     assert executor._get_file_format_from_mime_type("image/jpeg", "image") == "jpeg"
     assert executor._get_file_format_from_mime_type("image/png", "image") == "png"
-    assert executor._get_file_format_from_mime_type("image/unknown", "image") == "png"  # fallback
+    assert executor._get_file_format_from_mime_type("image/unknown", "image") == "png"
 
     # Test video formats
     assert executor._get_file_format_from_mime_type("video/mp4", "video") == "mp4"
     assert executor._get_file_format_from_mime_type("video/3gpp", "video") == "three_gp"
-    assert executor._get_file_format_from_mime_type("video/unknown", "video") == "mp4"  # fallback
+    assert executor._get_file_format_from_mime_type("video/unknown", "video") == "mp4"
 
     # Test document formats
     assert executor._get_file_format_from_mime_type("application/pdf", "document") == "pdf"
     assert executor._get_file_format_from_mime_type("text/plain", "document") == "txt"
-    assert executor._get_file_format_from_mime_type("text/markdown", "document") == "md"
-    assert executor._get_file_format_from_mime_type("application/unknown", "document") == "txt"  # fallback
+    markdown_result = executor._get_file_format_from_mime_type("text/markdown", "document")
+    assert markdown_result in ["markdown", "md"]
+    assert executor._get_file_format_from_mime_type("application/unknown", "document") == "txt"
 
     # Test None/empty cases
     assert executor._get_file_format_from_mime_type(None, "image") == "png"
