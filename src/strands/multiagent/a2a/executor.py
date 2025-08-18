@@ -55,6 +55,8 @@ class StrandsA2AExecutor(AgentExecutor):
         "3g2": "three_gp"
     }
 
+
+
     def __init__(self, agent: SAAgent):
         """Initialize a StrandsA2AExecutor.
 
@@ -217,6 +219,12 @@ class StrandsA2AExecutor(AgentExecutor):
             return self.DEFAULT_FORMATS.get(file_type, "txt")
 
         mime_type = mime_type.lower()
+
+        # Extract subtype from MIME type and check existing format mappings
+        if '/' in mime_type:
+            subtype = mime_type.split('/')[-1]
+            if subtype in self.FORMAT_MAPPINGS:
+                return self.FORMAT_MAPPINGS[subtype]
 
         # Use mimetypes library to find extensions for the MIME type
         extensions = mimetypes.guess_all_extensions(mime_type)
