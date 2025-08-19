@@ -47,15 +47,12 @@ class StrandsA2AExecutor(AgentExecutor):
 
     # Handle special cases where format differs from extension
     FORMAT_MAPPINGS = {
-        "jpeg": "jpeg",
         "jpg": "jpeg",
         "htm": "html",
         "3gp": "three_gp",
         "3gpp": "three_gp",
         "3g2": "three_gp"
     }
-
-
 
     def __init__(self, agent: SAAgent):
         """Initialize a StrandsA2AExecutor.
@@ -230,13 +227,6 @@ class StrandsA2AExecutor(AgentExecutor):
         extensions = mimetypes.guess_all_extensions(mime_type)
 
         if extensions:
-            # Prioritize extensions that have explicit format mappings
-            for ext in extensions:
-                extension = ext[1:]  # Remove the leading dot
-                if extension in self.FORMAT_MAPPINGS:
-                    return self.FORMAT_MAPPINGS[extension]
-
-            # Fall back to first extension if no mapping found
             extension = extensions[0][1:]  # Remove the leading dot
             return self.FORMAT_MAPPINGS.get(extension, extension)
 
