@@ -451,7 +451,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             # Inject special framework-provided parameters
             self._metadata.inject_special_parameters(validated_input, tool_use, invocation_state)
 
-            result = await self._stream(validated_input, invocation_state)
+            result = await self._stream(validated_input, **kwargs)
 
             # FORMAT THE RESULT for Strands Agent
             if isinstance(result, dict) and "status" in result and "content" in result:
@@ -485,12 +485,12 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
                 "content": [{"text": f"Error: {error_type} - {error_msg}"}],
             }
 
-    async def _stream(self, validated_input: dict[str, Any], invocation_state: dict[str, Any]) -> Any:
+    async def _stream(self, validated_input: dict[str, Any], **kwargs: Any) -> Any:
         """Execute the tool function based on type.
 
         Args:
             validated_input: Validated input parameters for the tool function.
-            invocation_state: Context for the tool invocation.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             The result of the tool function execution.
@@ -500,7 +500,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         if inspect.iscoroutinefunction(self._tool_func):
             return await self._tool_func(**validated_input)  # type: ignore
 
-        thread_pool = invocation_state.get("thread_pool")
+        thread_pool = kwargs.get("thread_pool")
 
         if isinstance(thread_pool, ThreadPoolExecutor):
             return await asyncio.get_event_loop().run_in_executor(

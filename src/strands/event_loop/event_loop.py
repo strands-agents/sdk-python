@@ -342,14 +342,9 @@ async def _handle_tool_execution(
         yield {"stop": (stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])}
         return
 
-    invocation_state.update(
-        {
-            "event_loop_cycle_trace": cycle_trace,
-            "event_loop_cycle_span": cycle_span,
-        }
+    tool_events = agent.tool_executor._execute(
+        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state
     )
-
-    tool_events = agent.tool_executor.execute(agent, tool_uses, tool_results, invocation_state)
     async for tool_event in tool_events:
         yield tool_event
 

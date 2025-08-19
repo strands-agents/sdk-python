@@ -1,18 +1,18 @@
 import unittest.mock
-from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
 import strands
 from strands.experimental.hooks import AfterToolInvocationEvent as SAAfterToolInvocationEvent
 from strands.experimental.hooks import BeforeToolInvocationEvent as SABeforeToolInvocationEvent
-from strands.experimental.tools.executors import Executor as SAToolExecutor
+from strands.telemetry.metrics import Trace as SATrace
+from strands.tools.executors._executor import Executor as SAToolExecutor
 
 
 @pytest.fixture
 def executor_cls():
     class ClsExecutor(SAToolExecutor):
-        def execute(self, _agent, _tool_uses, _tool_results, _invocation_state):
+        def _execute(self, _agent, _tool_uses, _tool_results, _invocation_state):
             raise NotImplementedError
 
     return ClsExecutor
@@ -25,7 +25,7 @@ def executor(executor_cls):
 
 @pytest.fixture
 def tracer():
-    with unittest.mock.patch.object(strands.experimental.tools.executors.executor, "get_tracer") as mock_get_tracer:
+    with unittest.mock.patch.object(strands.tools.executors._executor, "get_tracer") as mock_get_tracer:
         yield mock_get_tracer.return_value
 
 
@@ -34,7 +34,7 @@ async def test_executor_stream_yields_result(
     executor, agent, tool_results, invocation_state, hook_events, weather_tool, alist
 ):
     tool_use = {"name": "weather_tool", "toolUseId": "1", "input": {}}
-    stream = executor.stream(agent, tool_use, tool_results, invocation_state)
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
 
     tru_events = await alist(stream)
     exp_events = [
@@ -71,7 +71,7 @@ async def test_executor_stream_yields_tool_error(
     executor, agent, tool_results, invocation_state, hook_events, exception_tool, alist
 ):
     tool_use = {"name": "exception_tool", "toolUseId": "1", "input": {}}
-    stream = executor.stream(agent, tool_use, tool_results, invocation_state)
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
 
     tru_events = await alist(stream)
     exp_events = [{"toolUseId": "1", "status": "error", "content": [{"text": "Error: Tool error"}]}]
@@ -96,7 +96,7 @@ async def test_executor_stream_yields_tool_error(
 @pytest.mark.asyncio
 async def test_executor_stream_yields_unknown_tool(executor, agent, tool_results, invocation_state, hook_events, alist):
     tool_use = {"name": "unknown_tool", "toolUseId": "1", "input": {}}
-    stream = executor.stream(agent, tool_use, tool_results, invocation_state)
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
 
     tru_events = await alist(stream)
     exp_events = [{"toolUseId": "1", "status": "error", "content": [{"text": "Unknown tool: unknown_tool"}]}]
@@ -118,28 +118,28 @@ async def test_executor_stream_yields_unknown_tool(executor, agent, tool_results
 
 
 @pytest.mark.asyncio
-async def test_executor_stream_span(executor, tracer, agent, tool_results, invocation_state, alist):
+async def test_executor_stream_with_trace(
+    executor, tracer, agent, tool_results, cycle_trace, cycle_span, invocation_state, alist
+):
     tool_use = {"name": "weather_tool", "toolUseId": "1", "input": {}}
-    stream = executor.stream(agent, tool_use, tool_results, invocation_state)
+    stream = executor._stream_with_trace(agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state)
 
-    await alist(stream)
+    tru_events = await alist(stream)
+    exp_events = [
+        {"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]},
+        {"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]},
+    ]
+    assert tru_events == exp_events
 
-    tracer.start_tool_call_span.assert_called_once_with(tool_use, invocation_state["event_loop_cycle_span"])
+    tru_results = tool_results
+    exp_results = [exp_events[-1]]
+    assert tru_results == exp_results
+
+    tracer.start_tool_call_span.assert_called_once_with(tool_use, cycle_span)
     tracer.end_tool_call_span.assert_called_once_with(
         tracer.start_tool_call_span.return_value,
         {"content": [{"text": "sunny"}], "status": "success", "toolUseId": "1"},
     )
 
-
-@pytest.mark.asyncio
-async def test_executor_stream_threaded(executor_cls, agent, tool_results, invocation_state, tool_events, alist):
-    tool_use = {"name": "thread_tool", "toolUseId": "1", "input": {}}
-
-    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="test_thread_pool") as thread_pool:
-        executor = executor_cls(thread_pool)
-        stream = executor.stream(agent, tool_use, tool_results, invocation_state)
-
-        await alist(stream)
-
-        thread_name = tool_events[0]["thread_name"]
-        assert thread_name.startswith("test_thread_pool")
+    cycle_trace.add_child.assert_called_once()
+    assert isinstance(cycle_trace.add_child.call_args[0][0], SATrace)

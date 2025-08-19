@@ -21,7 +21,6 @@ from pydantic import BaseModel
 
 from .. import _identifier
 from ..event_loop.event_loop import event_loop_cycle
-from ..experimental.tools.executors import Executor as ToolExecutor
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
     AfterInvocationEvent,
@@ -36,7 +35,8 @@ from ..models.model import Model
 from ..session.session_manager import SessionManager
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer, serialize
-from ..tools import executors as tool_executors
+from ..tools.executors import ConcurrentToolExecutor
+from ..tools.executors._executor import Executor as ToolExecutor
 from ..tools.registry import ToolRegistry
 from ..tools.watcher import ToolWatcher
 from ..types.content import ContentBlock, Message, Messages
@@ -141,10 +141,8 @@ class Agent:
                 tool_results: list[ToolResult] = []
                 invocation_state = kwargs
 
-                tool_executor = tool_executors.sequential.Executor(skip_tracing=True)
-
                 async def acall() -> ToolResult:
-                    async for event in tool_executor.stream(self._agent, tool_use, tool_results, invocation_state):
+                    async for event in ToolExecutor._stream(self._agent, tool_use, tool_results, invocation_state):
                         _ = event
 
                     return tool_results[0]
@@ -331,7 +329,7 @@ class Agent:
         if self._session_manager:
             self.hooks.add_hook(self._session_manager)
 
-        self.tool_executor = tool_executor or tool_executors.concurrent.Executor()
+        self.tool_executor = tool_executor or ConcurrentToolExecutor()
 
         if hooks:
             for hook in hooks:

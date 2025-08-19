@@ -5,5 +5,12 @@ how tools are executed (e.g., concurrent, sequential, with custom thread pools, 
 """
 
 from . import concurrent, sequential
+from .concurrent import Executor as ConcurrentToolExecutor
+from .sequential import Executor as SequentialToolExecutor
 
-__all__ = ["concurrent", "sequential"]
+__all__ = [
+    "ConcurrentToolExecutor",
+    "SequentialToolExecutor",
+    "concurrent",
+    "sequential",
+]

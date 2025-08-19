@@ -103,8 +103,15 @@ def tool_results():
 
 
 @pytest.fixture
+def cycle_trace():
+    return unittest.mock.Mock()
+
+
+@pytest.fixture
+def cycle_span():
+    return unittest.mock.Mock()
+
+
+@pytest.fixture
 def invocation_state():
-    return {
-        "event_loop_cycle_span": unittest.mock.Mock(),
-        "event_loop_cycle_trace": unittest.mock.Mock(),
-    }
+    return {}

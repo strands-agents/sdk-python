@@ -4,12 +4,12 @@ import pytest
 
 import strands
 from strands import Agent
-from strands.tools import executors as tool_executors
+from strands.tools.executors import SequentialToolExecutor
 
 
 @pytest.fixture
 def tool_executor():
-    return tool_executors.sequential.Executor()
+    return SequentialToolExecutor()
 
 
 @pytest.fixture
