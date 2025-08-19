@@ -68,7 +68,9 @@ docs = [
     "sphinx-autodoc-typehints>=1.12.0,<2.0.0",
 ]
 litellm = [
-    "litellm>=1.72.6,<1.73.0",
+    "litellm>=1.73.1,<2.0.0",
+    # https://github.com/BerriAI/litellm/issues/13711
+    "openai<1.100.0",
 ]
 llamaapi = [
     "llama-api-client>=0.1.0,<1.0.0",
@@ -92,7 +94,9 @@ writer = [
 sagemaker = [
     "boto3>=1.26.0,<2.0.0",
     "botocore>=1.29.0,<2.0.0",
-    "boto3-stubs[sagemaker-runtime]>=1.26.0,<2.0.0"
+    "boto3-stubs[sagemaker-runtime]>=1.26.0,<2.0.0",
+    # uses OpenAI as part of the implementation
+    "openai>=1.68.0,<2.0.0",
 ]
 
 a2a = [
@@ -104,50 +108,7 @@ a2a = [
     "starlette>=0.46.2,<1.0.0",
 ]
 all = [
-    # anthropic
-    "anthropic>=0.21.0,<1.0.0",
-
-    # dev
-    "commitizen>=4.4.0,<5.0.0",
-    "hatch>=1.0.0,<2.0.0",
-    "moto>=5.1.0,<6.0.0",
-    "mypy>=1.15.0,<2.0.0",
-    "pre-commit>=3.2.0,<4.2.0",
-    "pytest>=8.0.0,<9.0.0",
-    "pytest-asyncio>=0.26.0,<0.27.0",
-    "pytest-cov>=4.1.0,<5.0.0",
-    "pytest-xdist>=3.0.0,<4.0.0",
-    "ruff>=0.4.4,<0.5.0",
-
-    # docs
-    "sphinx>=5.0.0,<6.0.0",
-    "sphinx-rtd-theme>=1.0.0,<2.0.0",
-    "sphinx-autodoc-typehints>=1.12.0,<2.0.0",
-
-    # litellm
-    "litellm>=1.72.6,<1.73.0",
-
-    # llama
-    "llama-api-client>=0.1.0,<1.0.0",
-
-    # mistral
-    "mistralai>=1.8.2",
-
-    # ollama
-    "ollama>=0.4.8,<1.0.0",
-
-    # openai
-    "openai>=1.68.0,<2.0.0",
-
-    # otel
-    "opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0",
-
-    # a2a
-    "a2a-sdk[sql]>=0.3.0,<0.4.0",
-    "uvicorn>=0.34.2,<1.0.0",
-    "httpx>=0.28.1,<1.0.0",
-    "fastapi>=0.115.12,<1.0.0",
-    "starlette>=0.46.2,<1.0.0",
+    "strands-agents[a2a,anthropic,dev,docs,litellm,llamaapi,mistral,ollama,openai,otel]",
 ]
 
 [tool.hatch.version]
@@ -159,7 +120,7 @@ features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mis
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
   "ruff>=0.11.6,<0.12.0",
-  "strands-agents @ {root:uri}"
+  "strands-agents @ {root:uri}",
 ]
 
 [tool.hatch.envs.hatch-static-analysis.scripts]
@@ -234,8 +195,8 @@ test-integ = [
     "hatch test tests_integ {args}"
 ]
 prepare = [
-    "hatch fmt --linter",
     "hatch fmt --formatter",
+    "hatch fmt --linter",
     "hatch run test-lint",
     "hatch test --all"
 ]

@@ -19,6 +19,7 @@ from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Option
 from opentelemetry import trace as trace_api
 from pydantic import BaseModel
 
+from .. import _identifier
 from ..event_loop.event_loop import event_loop_cycle
 from ..experimental.tools.executors import Executor as ToolExecutor
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
@@ -34,7 +35,7 @@ from ..models.bedrock import BedrockModel
 from ..models.model import Model
 from ..session.session_manager import SessionManager
 from ..telemetry.metrics import EventLoopMetrics
-from ..telemetry.tracer import get_tracer
+from ..telemetry.tracer import get_tracer, serialize
 from ..tools import executors as tool_executors
 from ..tools.registry import ToolRegistry
 from ..tools.watcher import ToolWatcher
@@ -256,12 +257,15 @@ class Agent:
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
             tool_executor: Definition of tool execution stragety (e.g., sequential, concurrent, etc.).
+
+        Raises:
+            ValueError: If agent id contains path separators.
         """
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
 
         self.system_prompt = system_prompt
-        self.agent_id = agent_id or _DEFAULT_AGENT_ID
+        self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
 
@@ -454,27 +458,48 @@ class Agent:
             ValueError: If no conversation history or prompt is provided.
         """
         self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
+        with self.tracer.tracer.start_as_current_span(
+            "execute_structured_output", kind=trace_api.SpanKind.CLIENT
+        ) as structured_output_span:
+            try:
+                if not self.messages and not prompt:
+                    raise ValueError("No conversation history or prompt provided")
+                # Create temporary messages array if prompt is provided
+                if prompt:
+                    content: list[ContentBlock] = [{"text": prompt}] if isinstance(prompt, str) else prompt
+                    temp_messages = self.messages + [{"role": "user", "content": content}]
+                else:
+                    temp_messages = self.messages
 
-        try:
-            if not self.messages and not prompt:
-                raise ValueError("No conversation history or prompt provided")
+                structured_output_span.set_attributes(
+                    {
+                        "gen_ai.system": "strands-agents",
+                        "gen_ai.agent.name": self.name,
+                        "gen_ai.agent.id": self.agent_id,
+                        "gen_ai.operation.name": "execute_structured_output",
+                    }
+                )
+                for message in temp_messages:
+                    structured_output_span.add_event(
+                        f"gen_ai.{message['role']}.message",
+                        attributes={"role": message["role"], "content": serialize(message["content"])},
+                    )
+                if self.system_prompt:
+                    structured_output_span.add_event(
+                        "gen_ai.system.message",
+                        attributes={"role": "system", "content": serialize([{"text": self.system_prompt}])},
+                    )
+                events = self.model.structured_output(output_model, temp_messages, system_prompt=self.system_prompt)
+                async for event in events:
+                    if "callback" in event:
+                        self.callback_handler(**cast(dict, event["callback"]))
+                structured_output_span.add_event(
+                    "gen_ai.choice", attributes={"message": serialize(event["output"].model_dump())}
+                )
+                return event["output"]
 
-            # Create temporary messages array if prompt is provided
-            if prompt:
-                content: list[ContentBlock] = [{"text": prompt}] if isinstance(prompt, str) else prompt
-                temp_messages = self.messages + [{"role": "user", "content": content}]
-            else:
-                temp_messages = self.messages
-
-            events = self.model.structured_output(output_model, temp_messages, system_prompt=self.system_prompt)
-            async for event in events:
-                if "callback" in event:
-                    self.callback_handler(**cast(dict, event["callback"]))
-
-            return event["output"]
-
-        finally:
-            self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
+            finally:
+                self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
     async def stream_async(self, prompt: Union[str, list[ContentBlock]], **kwargs: Any) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
@@ -626,8 +651,11 @@ class Agent:
             tool_result: The result returned by the tool.
             user_message_override: Optional custom message to include.
         """
+        # Filter tool input parameters to only include those defined in tool spec
+        filtered_input = self._filter_tool_parameters_for_recording(tool["name"], tool["input"])
+
         # Create user message describing the tool call
-        input_parameters = json.dumps(tool["input"], default=lambda o: f"<<non-serializable: {type(o).__qualname__}>>")
+        input_parameters = json.dumps(filtered_input, default=lambda o: f"<<non-serializable: {type(o).__qualname__}>>")
 
         user_msg_content: list[ContentBlock] = [
             {"text": (f"agent.tool.{tool['name']} direct tool call.\nInput parameters: {input_parameters}\n")}
@@ -637,6 +665,13 @@ class Agent:
         if user_message_override:
             user_msg_content.insert(0, {"text": f"{user_message_override}\n"})
 
+        # Create filtered tool use for message history
+        filtered_tool: ToolUse = {
+            "toolUseId": tool["toolUseId"],
+            "name": tool["name"],
+            "input": filtered_input,
+        }
+
         # Create the message sequence
         user_msg: Message = {
             "role": "user",
@@ -644,7 +679,7 @@ class Agent:
         }
         tool_use_msg: Message = {
             "role": "assistant",
-            "content": [{"toolUse": tool}],
+            "content": [{"toolUse": filtered_tool}],
         }
         tool_result_msg: Message = {
             "role": "user",
@@ -700,6 +735,25 @@ class Agent:
                 trace_attributes["error"] = error
 
             self.tracer.end_agent_span(**trace_attributes)
+
+    def _filter_tool_parameters_for_recording(self, tool_name: str, input_params: dict[str, Any]) -> dict[str, Any]:
+        """Filter input parameters to only include those defined in the tool specification.
+
+        Args:
+            tool_name: Name of the tool to get specification for
+            input_params: Original input parameters
+
+        Returns:
+            Filtered parameters containing only those defined in tool spec
+        """
+        all_tools_config = self.tool_registry.get_all_tools_config()
+        tool_spec = all_tools_config.get(tool_name)
+
+        if not tool_spec or "inputSchema" not in tool_spec:
+            return input_params.copy()
+
+        properties = tool_spec["inputSchema"]["json"]["properties"]
+        return {k: v for k, v in input_params.items() if k in properties}
 
     def _append_message(self, message: Message) -> None:
         """Appends a message to the agent's list of messages and invokes the callbacks for the MessageCreatedEvent."""
