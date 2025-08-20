@@ -58,7 +58,7 @@ dev = [
     "pre-commit>=3.2.0,<4.2.0",
     "pytest>=8.0.0,<9.0.0",
     "pytest-asyncio>=0.26.0,<0.27.0",
-    "pytest-cov>=4.1.0,<7.0.0",
+    "pytest-cov>=6.0.0,<7.0.0",
     "pytest-xdist>=3.0.0,<4.0.0",
     "ruff>=0.4.4,<0.5.0",
 ]
@@ -144,7 +144,7 @@ extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
     "pytest-asyncio>=0.26.0,<0.27.0",
-    "pytest-cov>=4.1.0,<7.0.0",
+    "pytest-cov>=6.0.0,<7.0.0",
     "pytest-xdist>=3.0.0,<4.0.0",
 ]
 extra-args = [
