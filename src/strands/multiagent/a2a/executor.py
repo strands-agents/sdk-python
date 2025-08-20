@@ -46,13 +46,7 @@ class StrandsA2AExecutor(AgentExecutor):
     DEFAULT_FORMATS = {"document": "txt", "image": "png", "video": "mp4", "unknown": "txt"}
 
     # Handle special cases where format differs from extension
-    FORMAT_MAPPINGS = {
-        "jpg": "jpeg",
-        "htm": "html",
-        "3gp": "three_gp",
-        "3gpp": "three_gp",
-        "3g2": "three_gp"
-    }
+    FORMAT_MAPPINGS = {"jpg": "jpeg", "htm": "html", "3gp": "three_gp", "3gpp": "three_gp", "3g2": "three_gp"}
 
     def __init__(self, agent: SAAgent):
         """Initialize a StrandsA2AExecutor.
@@ -219,8 +213,8 @@ class StrandsA2AExecutor(AgentExecutor):
         mime_type = mime_type.lower()
 
         # Extract subtype from MIME type and check existing format mappings
-        if '/' in mime_type:
-            subtype = mime_type.split('/')[-1]
+        if "/" in mime_type:
+            subtype = mime_type.split("/")[-1]
             if subtype in self.FORMAT_MAPPINGS:
                 return self.FORMAT_MAPPINGS[subtype]
 

@@ -813,7 +813,9 @@ def test_convert_a2a_parts_to_content_blocks_data_part_serialization_error():
 
 
 @pytest.mark.asyncio
-async def test_execute_streaming_mode_raises_error_for_empty_content_blocks(mock_strands_agent, mock_event_queue, mock_request_context):
+async def test_execute_streaming_mode_raises_error_for_empty_content_blocks(
+    mock_strands_agent, mock_event_queue, mock_request_context
+):
     """Test that execute raises ServerError when content blocks are empty after conversion."""
     executor = StrandsA2AExecutor(mock_strands_agent)
 
@@ -824,7 +826,7 @@ async def test_execute_streaming_mode_raises_error_for_empty_content_blocks(mock
     mock_request_context.message = mock_message
 
     # Mock the conversion to return empty list
-    with patch.object(executor, '_convert_a2a_parts_to_content_blocks', return_value=[]):
+    with patch.object(executor, "_convert_a2a_parts_to_content_blocks", return_value=[]):
         with pytest.raises(ServerError) as excinfo:
             await executor.execute(mock_request_context, mock_event_queue)
 
