@@ -11,7 +11,7 @@ from opentelemetry.metrics import Counter, Histogram, Meter
 
 from ..telemetry import metrics_constants as constants
 from ..types.content import Message
-from ..types.streaming import Metrics, Usage
+from ..types.event_loop import Metrics, Usage
 from ..types.tools import ToolUse
 
 logger = logging.getLogger(__name__)
@@ -264,6 +264,21 @@ class EventLoopMetrics:
         self.accumulated_usage["outputTokens"] += usage["outputTokens"]
         self.accumulated_usage["totalTokens"] += usage["totalTokens"]
 
+        # Handle optional cached token metrics
+        if "cacheReadInputTokens" in usage:
+            cache_read_tokens = usage["cacheReadInputTokens"]
+            self._metrics_client.event_loop_cache_read_input_tokens.record(cache_read_tokens)
+            self.accumulated_usage["cacheReadInputTokens"] = (
+                self.accumulated_usage.get("cacheReadInputTokens", 0) + cache_read_tokens
+            )
+
+        if "cacheWriteInputTokens" in usage:
+            cache_write_tokens = usage["cacheWriteInputTokens"]
+            self._metrics_client.event_loop_cache_write_input_tokens.record(cache_write_tokens)
+            self.accumulated_usage["cacheWriteInputTokens"] = (
+                self.accumulated_usage.get("cacheWriteInputTokens", 0) + cache_write_tokens
+            )
+
     def update_metrics(self, metrics: Metrics) -> None:
         """Update the accumulated performance metrics with new metrics data.
 
@@ -325,11 +340,21 @@ def _metrics_summary_to_lines(event_loop_metrics: EventLoopMetrics, allowed_name
         f"├─ Cycles: total={summary['total_cycles']}, avg_time={summary['average_cycle_time']:.3f}s, "
         f"total_time={summary['total_duration']:.3f}s"
     )
-    yield (
-        f"├─ Tokens: in={summary['accumulated_usage']['inputTokens']}, "
-        f"out={summary['accumulated_usage']['outputTokens']}, "
-        f"total={summary['accumulated_usage']['totalTokens']}"
-    )
+
+    # Build token display with optional cached tokens
+    token_parts = [
+        f"in={summary['accumulated_usage']['inputTokens']}",
+        f"out={summary['accumulated_usage']['outputTokens']}",
+        f"total={summary['accumulated_usage']['totalTokens']}",
+    ]
+
+    # Add cached token info if present
+    if summary["accumulated_usage"].get("cacheReadInputTokens"):
+        token_parts.append(f"cache_read_input_tokens={summary['accumulated_usage']['cacheReadInputTokens']}")
+    if summary["accumulated_usage"].get("cacheWriteInputTokens"):
+        token_parts.append(f"cache_write_input_tokens={summary['accumulated_usage']['cacheWriteInputTokens']}")
+
+    yield f"├─ Tokens: {', '.join(token_parts)}"
     yield f"├─ Bedrock Latency: {summary['accumulated_metrics']['latencyMs']}ms"
 
     yield "├─ Tool Usage:"
@@ -421,6 +446,8 @@ class MetricsClient:
     event_loop_latency: Histogram
     event_loop_input_tokens: Histogram
     event_loop_output_tokens: Histogram
+    event_loop_cache_read_input_tokens: Histogram
+    event_loop_cache_write_input_tokens: Histogram
 
     tool_call_count: Counter
     tool_success_count: Counter
@@ -473,4 +500,10 @@ class MetricsClient:
         )
         self.event_loop_output_tokens = self.meter.create_histogram(
             name=constants.STRANDS_EVENT_LOOP_OUTPUT_TOKENS, unit="token"
+        )
+        self.event_loop_cache_read_input_tokens = self.meter.create_histogram(
+            name=constants.STRANDS_EVENT_LOOP_CACHE_READ_INPUT_TOKENS, unit="token"
+        )
+        self.event_loop_cache_write_input_tokens = self.meter.create_histogram(
+            name=constants.STRANDS_EVENT_LOOP_CACHE_WRITE_INPUT_TOKENS, unit="token"
         )
