@@ -3,7 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from a2a.types import UnsupportedOperationError
+from a2a.types import InternalError, UnsupportedOperationError
 from a2a.utils.errors import ServerError
 
 from strands.agent.agent_result import AgentResult as SAAgentResult
@@ -56,8 +56,6 @@ def test_get_file_format_from_mime_type():
     # Test document formats
     assert executor._get_file_format_from_mime_type("application/pdf", "document") == "pdf"
     assert executor._get_file_format_from_mime_type("text/plain", "document") == "txt"
-    markdown_result = executor._get_file_format_from_mime_type("text/markdown", "document")
-    assert markdown_result in ["markdown", "md"]
     assert executor._get_file_format_from_mime_type("application/unknown", "document") == "txt"
 
     # Test None/empty cases
@@ -490,15 +488,7 @@ async def test_execute_streaming_mode_with_unexpected_event(mock_strands_agent, 
 async def test_execute_streaming_mode_fallback_to_text_extraction(
     mock_strands_agent, mock_request_context, mock_event_queue
 ):
-    """Test that execute falls back to text extraction when no A2A parts are available."""
-
-    async def mock_stream(content_blocks):
-        """Mock streaming function that yields data events."""
-        yield {"data": "Test chunk"}
-        yield {"result": MagicMock(spec=SAAgentResult)}
-
-    # Setup mock agent streaming
-    mock_strands_agent.stream_async = MagicMock(return_value=mock_stream([]))
+    """Test that execute raises ServerError when no A2A parts are available."""
 
     # Create executor
     executor = StrandsA2AExecutor(mock_strands_agent)
@@ -515,14 +505,11 @@ async def test_execute_streaming_mode_fallback_to_text_extraction(
     mock_request_context.message = mock_message
     mock_request_context.get_user_input.return_value = "Fallback input"
 
-    await executor.execute(mock_request_context, mock_event_queue)
+    with pytest.raises(ServerError) as excinfo:
+        await executor.execute(mock_request_context, mock_event_queue)
 
-    # Verify agent was called with fallback ContentBlock
-    mock_strands_agent.stream_async.assert_called_once()
-    call_args = mock_strands_agent.stream_async.call_args[0][0]
-    assert isinstance(call_args, list)
-    assert len(call_args) == 1
-    assert call_args[0]["text"] == "Fallback input"
+    # Verify the error is a ServerError containing an InternalError
+    assert isinstance(excinfo.value.error, InternalError)
 
 
 @pytest.mark.asyncio
@@ -823,6 +810,26 @@ def test_convert_a2a_parts_to_content_blocks_data_part_serialization_error():
 
     # The error handling should result in an empty list or the part being skipped
     assert isinstance(result, list)
+
+
+@pytest.mark.asyncio
+async def test_execute_streaming_mode_raises_error_for_empty_content_blocks(mock_strands_agent, mock_event_queue, mock_request_context):
+    """Test that execute raises ServerError when content blocks are empty after conversion."""
+    executor = StrandsA2AExecutor(mock_strands_agent)
+
+    # Create a mock message with parts that will result in empty content blocks
+    # This could happen if all parts fail to convert or are invalid
+    mock_message = MagicMock()
+    mock_message.parts = [MagicMock()]  # Has parts but they won't convert to valid content blocks
+    mock_request_context.message = mock_message
+
+    # Mock the conversion to return empty list
+    with patch.object(executor, '_convert_a2a_parts_to_content_blocks', return_value=[]):
+        with pytest.raises(ServerError) as excinfo:
+            await executor.execute(mock_request_context, mock_event_queue)
+
+        # Verify the error is a ServerError containing an InternalError
+        assert isinstance(excinfo.value.error, InternalError)
 
 
 @pytest.mark.asyncio

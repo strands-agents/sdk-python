@@ -104,10 +104,11 @@ class StrandsA2AExecutor(AgentExecutor):
         # Convert A2A message parts to Strands ContentBlocks
         if context.message and hasattr(context.message, "parts"):
             content_blocks = self._convert_a2a_parts_to_content_blocks(context.message.parts)
+            if not content_blocks:
+                raise ValueError("No content blocks available")
         else:
-            # Fallback to original text extraction if no parts available
-            user_input = context.get_user_input()
-            content_blocks = [ContentBlock(text=user_input)]
+            raise ValueError("No content blocks available")
+
         try:
             async for event in self.agent.stream_async(content_blocks):
                 await self._handle_streaming_event(event, updater)
