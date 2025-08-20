@@ -24,7 +24,7 @@ from ..hooks import (
 )
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import get_tracer
-from ..tools.validator import validate_and_prepare_tools
+from ..tools._validator import validate_and_prepare_tools
 from ..types.content import Message
 from ..types.exceptions import (
     ContextWindowOverflowException,

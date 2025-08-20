@@ -1,4 +1,4 @@
-from strands.tools import validator as sa_tool_validator
+from strands.tools import _validator as sa_tool_validator
 from strands.types.content import Message as SAMessage
 
 
