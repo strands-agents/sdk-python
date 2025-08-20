@@ -277,7 +277,7 @@ class BedrockModel(Model):
                     tool_result: ToolResult = content_block["toolResult"]
 
                     model_id = self.config.get("model_id")
-                    if model_id and "claude" in model_id:
+                    if model_id and "anthropic.claude" in model_id:
                         # Keep the status field for Claude models
                         cleaned_tool_result = ToolResult(
                             content=tool_result["content"],

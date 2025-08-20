@@ -91,7 +91,7 @@ class ToolResult(TypedDict):
     """
 
     content: list[ToolResultContent]
-    status: NotRequired[Optional[ToolResultStatus]]
+    status: NotRequired[ToolResultStatus]
     toolUseId: str
 
 
