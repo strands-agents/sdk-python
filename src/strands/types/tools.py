@@ -6,11 +6,15 @@ These types are modeled after the Bedrock API.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
 
 from typing_extensions import TypedDict
 
 from .media import DocumentContent, ImageContent
+
+if TYPE_CHECKING:
+    from .. import Agent
 
 JSONSchema = dict
 """Type alias for JSON Schema dictionaries."""
@@ -115,6 +119,27 @@ class ToolChoiceTool(TypedDict):
     """
 
     name: str
+
+
+@dataclass
+class ToolContext:
+    """Context object containing framework-provided data for decorated tools.
+
+    This object provides access to framework-level information that may be useful
+    for tool implementations.
+
+    Attributes:
+        tool_use: The complete ToolUse object containing tool invocation details.
+        agent: The Agent instance executing this tool, providing access to conversation history,
+               model configuration, and other agent state.
+
+    Note:
+        This class is intended to be instantiated by the SDK. Direct construction by users
+        is not supported and may break in future versions as new fields are added.
+    """
+
+    tool_use: ToolUse
+    agent: "Agent"
 
 
 ToolChoice = Union[

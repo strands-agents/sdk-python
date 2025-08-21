@@ -90,6 +90,7 @@ def usage(request):
         "inputTokens": 1,
         "outputTokens": 2,
         "totalTokens": 3,
+        "cacheWriteInputTokens": 2,
     }
     if hasattr(request, "param"):
         params.update(request.param)
@@ -315,17 +316,14 @@ def test_event_loop_metrics_update_usage(usage, event_loop_metrics, mock_get_met
         event_loop_metrics.update_usage(usage)
 
     tru_usage = event_loop_metrics.accumulated_usage
-    exp_usage = Usage(
-        inputTokens=3,
-        outputTokens=6,
-        totalTokens=9,
-    )
+    exp_usage = Usage(inputTokens=3, outputTokens=6, totalTokens=9, cacheWriteInputTokens=6)
 
     assert tru_usage == exp_usage
     mock_get_meter_provider.return_value.get_meter.assert_called()
     metrics_client = event_loop_metrics._metrics_client
     metrics_client.event_loop_input_tokens.record.assert_called()
     metrics_client.event_loop_output_tokens.record.assert_called()
+    metrics_client.event_loop_cache_write_input_tokens.record.assert_called()
 
 
 def test_event_loop_metrics_update_metrics(metrics, event_loop_metrics, mock_get_meter_provider):

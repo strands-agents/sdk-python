@@ -420,6 +420,15 @@ async def test_stream_throttling_exception_from_event_stream_error(bedrock_clien
 
 
 @pytest.mark.asyncio
+async def test_stream_with_invalid_content_throws(bedrock_client, model, alist):
+    # We used to hang on None, so ensure we don't regress: https://github.com/strands-agents/sdk-python/issues/642
+    messages = [{"role": "user", "content": None}]
+
+    with pytest.raises(TypeError):
+        await alist(model.stream(messages))
+
+
+@pytest.mark.asyncio
 async def test_stream_throttling_exception_from_general_exception(bedrock_client, model, messages, alist):
     error_message = "ThrottlingException: Rate exceeded for ConverseStream"
     bedrock_client.converse_stream.side_effect = ClientError(

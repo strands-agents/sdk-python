@@ -40,10 +40,12 @@ def remove_blank_messages_content_text(messages: Messages) -> Messages:
         # only modify assistant messages
         if "role" in message and message["role"] != "assistant":
             continue
-
         if "content" in message:
             content = message["content"]
             has_tool_use = any("toolUse" in item for item in content)
+            if len(content) == 0:
+                content.append({"text": "[blank text]"})
+                continue
 
             if has_tool_use:
                 # Remove blank 'text' items for assistant messages
@@ -194,16 +196,18 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
         state["text"] = ""
 
     elif reasoning_text:
-        content.append(
-            {
-                "reasoningContent": {
-                    "reasoningText": {
-                        "text": state["reasoningText"],
-                        "signature": state["signature"],
-                    }
+        content_block: ContentBlock = {
+            "reasoningContent": {
+                "reasoningText": {
+                    "text": state["reasoningText"],
                 }
             }
-        )
+        }
+
+        if "signature" in state:
+            content_block["reasoningContent"]["reasoningText"]["signature"] = state["signature"]
+
+        content.append(content_block)
         state["reasoningText"] = ""
 
     return state
@@ -263,7 +267,6 @@ async def process_stream(chunks: AsyncIterable[StreamEvent]) -> AsyncGenerator[d
         "text": "",
         "current_tool_use": {},
         "reasoningText": "",
-        "signature": "",
     }
     state["content"] = state["message"]["content"]
 
@@ -272,7 +275,6 @@ async def process_stream(chunks: AsyncIterable[StreamEvent]) -> AsyncGenerator[d
 
     async for chunk in chunks:
         yield {"callback": {"event": chunk}}
-
         if "messageStart" in chunk:
             state["message"] = handle_message_start(chunk["messageStart"], state["message"])
         elif "contentBlockStart" in chunk:
@@ -312,7 +314,6 @@ async def stream_messages(
     logger.debug("model=<%s> | streaming messages", model)
 
     messages = remove_blank_messages_content_text(messages)
-
     chunks = model.stream(messages, tool_specs if tool_specs else None, system_prompt)
 
     async for event in process_stream(chunks):
