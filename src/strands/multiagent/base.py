@@ -27,13 +27,13 @@ class Status(Enum):
 @dataclass
 class MultiAgentNode:
     """Base class for nodes in multi-agent systems."""
-    
+
     node_id: str
-    
+
     def __hash__(self) -> int:
         """Return hash for MultiAgentNode based on node_id."""
         return hash(self.node_id)
-    
+
     def __eq__(self, other: Any) -> bool:
         """Return equality for MultiAgentNode based on node_id."""
         if not isinstance(other, MultiAgentNode):
@@ -44,7 +44,7 @@ class MultiAgentNode:
 @dataclass
 class SharedContext:
     """Shared context between multi-agent nodes.
-    
+
     This class provides a key-value store for sharing information across nodes
     in multi-agent systems like Graph and Swarm. It validates that all values
     are JSON serializable to ensure compatibility.
@@ -54,12 +54,12 @@ class SharedContext:
 
     def add_context(self, node: MultiAgentNode, key: str, value: Any) -> None:
         """Add context for a specific node.
-        
+
         Args:
             node: The node object to add context for
             key: The key to store the value under
             value: The value to store (must be JSON serializable)
-            
+
         Raises:
             ValueError: If key is invalid or value is not JSON serializable
         """
@@ -72,17 +72,17 @@ class SharedContext:
 
     def get_context(self, node: MultiAgentNode, key: str | None = None) -> Any:
         """Get context for a specific node.
-        
+
         Args:
             node: The node object to get context for
             key: The specific key to retrieve (if None, returns all context for the node)
-            
+
         Returns:
             The stored value, entire context dict for the node, or None if not found
         """
         if node.node_id not in self.context:
             return None if key else {}
-        
+
         if key is None:
             return copy.deepcopy(self.context[node.node_id])
         else:

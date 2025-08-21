@@ -395,11 +395,11 @@ class Graph(MultiAgentBase):
     @property
     def shared_context(self) -> SharedContext:
         """Access to the shared context for storing user-defined state across graph nodes.
-        
+
         Returns:
             The SharedContext instance that can be used to store and retrieve
             information that should be accessible to all nodes in the graph.
-            
+
         Example:
             ```python
             graph = Graph(...)
