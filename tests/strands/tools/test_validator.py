@@ -1,9 +1,9 @@
-from strands.tools import _validator as sa_tool_validator
-from strands.types.content import Message as SAMessage
+from strands.tools import _validator
+from strands.types.content import Message
 
 
 def test_validate_and_prepare_tools():
-    message: SAMessage = {
+    message: Message = {
         "role": "assistant",
         "content": [
             {"text": "value"},
@@ -16,7 +16,7 @@ def test_validate_and_prepare_tools():
     tool_results = []
     invalid_tool_use_ids = []
 
-    sa_tool_validator.validate_and_prepare_tools(message, tool_uses, tool_results, invalid_tool_use_ids)
+    _validator.validate_and_prepare_tools(message, tool_uses, tool_results, invalid_tool_use_ids)
 
     tru_tool_uses, tru_tool_results, tru_invalid_tool_use_ids = tool_uses, tool_results, invalid_tool_use_ids
     exp_tool_uses = [

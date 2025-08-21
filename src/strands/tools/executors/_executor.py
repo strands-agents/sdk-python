@@ -23,7 +23,7 @@ if TYPE_CHECKING:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
-class Executor(abc.ABC):
+class ToolExecutor(abc.ABC):
     """Abstract base class for tool executors."""
 
     @staticmethod
@@ -187,7 +187,7 @@ class Executor(abc.ABC):
         tool_start_time = time.time()
 
         with trace_api.use_span(tool_call_span):
-            async for event in Executor._stream(agent, tool_use, tool_results, invocation_state, **kwargs):
+            async for event in ToolExecutor._stream(agent, tool_use, tool_results, invocation_state, **kwargs):
                 yield event
 
             result = cast(ToolResult, event)

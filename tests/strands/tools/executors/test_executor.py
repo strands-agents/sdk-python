@@ -3,15 +3,14 @@ import unittest.mock
 import pytest
 
 import strands
-from strands.experimental.hooks import AfterToolInvocationEvent as SAAfterToolInvocationEvent
-from strands.experimental.hooks import BeforeToolInvocationEvent as SABeforeToolInvocationEvent
-from strands.telemetry.metrics import Trace as SATrace
-from strands.tools.executors._executor import Executor as SAToolExecutor
+from strands.experimental.hooks import AfterToolInvocationEvent, BeforeToolInvocationEvent
+from strands.telemetry.metrics import Trace
+from strands.tools.executors._executor import ToolExecutor
 
 
 @pytest.fixture
 def executor_cls():
-    class ClsExecutor(SAToolExecutor):
+    class ClsExecutor(ToolExecutor):
         def _execute(self, _agent, _tool_uses, _tool_results, _invocation_state):
             raise NotImplementedError
 
@@ -49,13 +48,13 @@ async def test_executor_stream_yields_result(
 
     tru_hook_events = hook_events
     exp_hook_events = [
-        SABeforeToolInvocationEvent(
+        BeforeToolInvocationEvent(
             agent=agent,
             selected_tool=weather_tool,
             tool_use=tool_use,
             invocation_state=invocation_state,
         ),
-        SAAfterToolInvocationEvent(
+        AfterToolInvocationEvent(
             agent=agent,
             selected_tool=weather_tool,
             tool_use=tool_use,
@@ -82,7 +81,7 @@ async def test_executor_stream_yields_tool_error(
     assert tru_results == exp_results
 
     tru_hook_after_event = hook_events[-1]
-    exp_hook_after_event = SAAfterToolInvocationEvent(
+    exp_hook_after_event = AfterToolInvocationEvent(
         agent=agent,
         selected_tool=exception_tool,
         tool_use=tool_use,
@@ -107,7 +106,7 @@ async def test_executor_stream_yields_unknown_tool(executor, agent, tool_results
     assert tru_results == exp_results
 
     tru_hook_after_event = hook_events[-1]
-    exp_hook_after_event = SAAfterToolInvocationEvent(
+    exp_hook_after_event = AfterToolInvocationEvent(
         agent=agent,
         selected_tool=None,
         tool_use=tool_use,
@@ -142,4 +141,4 @@ async def test_executor_stream_with_trace(
     )
 
     cycle_trace.add_child.assert_called_once()
-    assert isinstance(cycle_trace.add_child.call_args[0][0], SATrace)
+    assert isinstance(cycle_trace.add_child.call_args[0][0], Trace)

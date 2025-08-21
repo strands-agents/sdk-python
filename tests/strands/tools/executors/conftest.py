@@ -3,11 +3,10 @@ import unittest.mock
 
 import pytest
 
-from strands import tool as sa_tool
-from strands.experimental.hooks import AfterToolInvocationEvent as SAAfterToolInvocationEvent
-from strands.experimental.hooks import BeforeToolInvocationEvent as SABeforeToolInvocationEvent
-from strands.hooks import HookRegistry as SAHookRegistry
-from strands.tools.registry import ToolRegistry as SAToolRegistry
+import strands
+from strands.experimental.hooks import AfterToolInvocationEvent, BeforeToolInvocationEvent
+from strands.hooks import HookRegistry
+from strands.tools.registry import ToolRegistry
 
 
 @pytest.fixture
@@ -26,9 +25,9 @@ def tool_hook(hook_events):
 
 @pytest.fixture
 def hook_registry(tool_hook):
-    registry = SAHookRegistry()
-    registry.add_callback(SABeforeToolInvocationEvent, tool_hook)
-    registry.add_callback(SAAfterToolInvocationEvent, tool_hook)
+    registry = HookRegistry()
+    registry.add_callback(BeforeToolInvocationEvent, tool_hook)
+    registry.add_callback(AfterToolInvocationEvent, tool_hook)
     return registry
 
 
@@ -39,7 +38,7 @@ def tool_events():
 
 @pytest.fixture
 def weather_tool():
-    @sa_tool(name="weather_tool")
+    @strands.tool(name="weather_tool")
     def func():
         return "sunny"
 
@@ -48,7 +47,7 @@ def weather_tool():
 
 @pytest.fixture
 def temperature_tool():
-    @sa_tool(name="temperature_tool")
+    @strands.tool(name="temperature_tool")
     def func():
         return "75F"
 
@@ -57,7 +56,7 @@ def temperature_tool():
 
 @pytest.fixture
 def exception_tool():
-    @sa_tool(name="exception_tool")
+    @strands.tool(name="exception_tool")
     def func():
         pass
 
@@ -71,7 +70,7 @@ def exception_tool():
 
 @pytest.fixture
 def thread_tool(tool_events):
-    @sa_tool(name="thread_tool")
+    @strands.tool(name="thread_tool")
     def func():
         tool_events.append({"thread_name": threading.current_thread().name})
         return "threaded"
@@ -81,7 +80,7 @@ def thread_tool(tool_events):
 
 @pytest.fixture
 def tool_registry(weather_tool, temperature_tool, exception_tool, thread_tool):
-    registry = SAToolRegistry()
+    registry = ToolRegistry()
     registry.register_tool(weather_tool)
     registry.register_tool(temperature_tool)
     registry.register_tool(exception_tool)

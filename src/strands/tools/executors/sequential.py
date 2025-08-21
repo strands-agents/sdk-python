@@ -7,13 +7,13 @@ from typing_extensions import override
 
 from ...telemetry.metrics import Trace
 from ...types.tools import ToolGenerator, ToolResult, ToolUse
-from ._executor import Executor as SAExecutor
+from ._executor import ToolExecutor
 
 if TYPE_CHECKING:  # pragma: no cover
     from ...agent import Agent
 
 
-class Executor(SAExecutor):
+class SequentialToolExecutor(ToolExecutor):
     """Sequential tool executor."""
 
     def __init__(self, thread_pool: ThreadPoolExecutor | Literal["asyncio"] | None = "asyncio"):
@@ -52,7 +52,7 @@ class Executor(SAExecutor):
             Events from the tool execution stream.
         """
         for tool_use in tool_uses:
-            events = SAExecutor._stream_with_trace(
+            events = ToolExecutor._stream_with_trace(
                 agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state, thread_pool=self._thread_pool
             )
             async for event in events:

@@ -2,12 +2,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from strands.tools.executors.concurrent import Executor as SAToolExecutor
+from strands.tools.executors import ConcurrentToolExecutor
 
 
 @pytest.fixture
 def executor():
-    return SAToolExecutor()
+    return ConcurrentToolExecutor()
 
 
 @pytest.mark.asyncio
@@ -41,7 +41,7 @@ async def test_concurrent_executor_execute_threaded(
     tool_uses = [{"name": "thread_tool", "toolUseId": "1", "input": {}}]
 
     with ThreadPoolExecutor(max_workers=1, thread_name_prefix="test_thread_pool") as thread_pool:
-        executor = SAToolExecutor(thread_pool)
+        executor = ConcurrentToolExecutor(thread_pool)
         stream = executor._execute(agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state)
 
         await alist(stream)

@@ -14,7 +14,7 @@ from strands.experimental.hooks import (
 )
 from strands.hooks import HookRegistry
 from strands.telemetry.metrics import EventLoopMetrics
-from strands.tools import executors as tool_executors
+from strands.tools.executors import SequentialToolExecutor
 from strands.tools.registry import ToolRegistry
 from strands.types.exceptions import (
     ContextWindowOverflowException,
@@ -129,7 +129,7 @@ def hook_provider(hook_registry):
 
 @pytest.fixture
 def tool_executor():
-    return tool_executors.sequential.Executor()
+    return SequentialToolExecutor()
 
 
 @pytest.fixture
