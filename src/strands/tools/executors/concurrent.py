@@ -2,7 +2,7 @@
 
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from typing_extensions import override
 
@@ -17,7 +17,7 @@ if TYPE_CHECKING:  # pragma: no cover
 class Executor(SAExecutor):
     """Concurrent tool executor."""
 
-    def __init__(self, thread_pool: ThreadPoolExecutor | str | None = "asyncio"):
+    def __init__(self, thread_pool: ThreadPoolExecutor | Literal["asyncio"] | None = "asyncio"):
         """Initialize the executor.
 
         Args:
