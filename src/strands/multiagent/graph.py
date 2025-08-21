@@ -29,7 +29,7 @@ from ..agent.state import AgentState
 from ..telemetry import get_tracer
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
-from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status, SharedContext, MultiAgentNode
+from .base import MultiAgentBase, MultiAgentNode, MultiAgentResult, NodeResult, SharedContext, Status
 
 logger = logging.getLogger(__name__)
 

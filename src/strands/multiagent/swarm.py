@@ -28,7 +28,7 @@ from ..telemetry import get_tracer
 from ..tools.decorator import tool
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
-from .base import MultiAgentBase, MultiAgentResult, NodeResult, SharedContext, Status, MultiAgentNode
+from .base import MultiAgentBase, MultiAgentNode, MultiAgentResult, NodeResult, SharedContext, Status
 
 logger = logging.getLogger(__name__)
 
