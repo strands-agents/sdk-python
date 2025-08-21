@@ -826,23 +826,28 @@ def test_graph_shared_context():
     assert hasattr(graph, "shared_context")
     assert graph.shared_context is not None
 
+    # Get node objects
+    node_a = graph.nodes["node_a"]
+    node_b = graph.nodes["node_b"]
+    
     # Test adding context
-    graph.shared_context.add_context("node_a", "file_reference", "/path/to/file")
-    graph.shared_context.add_context("node_a", "data", {"key": "value"})
+    graph.shared_context.add_context(node_a, "file_reference", "/path/to/file")
+    graph.shared_context.add_context(node_a, "data", {"key": "value"})
 
     # Test getting context
-    assert graph.shared_context.get_context("node_a", "file_reference") == "/path/to/file"
-    assert graph.shared_context.get_context("node_a", "data") == {"key": "value"}
-    assert graph.shared_context.get_context("node_a") == {"file_reference": "/path/to/file", "data": {"key": "value"}}
+    assert graph.shared_context.get_context(node_a, "file_reference") == "/path/to/file"
+    assert graph.shared_context.get_context(node_a, "data") == {"key": "value"}
+    assert graph.shared_context.get_context(node_a) == {"file_reference": "/path/to/file", "data": {"key": "value"}}
 
     # Test getting context for non-existent node
-    assert graph.shared_context.get_context("non_existent_node") == {}
-    assert graph.shared_context.get_context("non_existent_node", "key") is None
+    non_existent_node = type('MockNode', (), {'node_id': 'non_existent_node'})()
+    assert graph.shared_context.get_context(non_existent_node) == {}
+    assert graph.shared_context.get_context(non_existent_node, "key") is None
 
     # Test that context is shared across nodes
-    graph.shared_context.add_context("node_b", "shared_data", "accessible_to_all")
-    assert graph.shared_context.get_context("node_a", "shared_data") is None  # Different node
-    assert graph.shared_context.get_context("node_b", "shared_data") == "accessible_to_all"
+    graph.shared_context.add_context(node_b, "shared_data", "accessible_to_all")
+    assert graph.shared_context.get_context(node_a, "shared_data") is None  # Different node
+    assert graph.shared_context.get_context(node_b, "shared_data") == "accessible_to_all"
 
 
 def test_graph_shared_context_validation():
@@ -855,30 +860,33 @@ def test_graph_shared_context_validation():
 
     graph = builder.build()
 
+    # Get node object
+    node = graph.nodes["node"]
+    
     # Test invalid key validation
     with pytest.raises(ValueError, match="Key cannot be None"):
-        graph.shared_context.add_context("node", None, "value")
+        graph.shared_context.add_context(node, None, "value")
 
     with pytest.raises(ValueError, match="Key must be a string"):
-        graph.shared_context.add_context("node", 123, "value")
+        graph.shared_context.add_context(node, 123, "value")
 
     with pytest.raises(ValueError, match="Key cannot be empty"):
-        graph.shared_context.add_context("node", "", "value")
+        graph.shared_context.add_context(node, "", "value")
 
     with pytest.raises(ValueError, match="Key cannot be empty"):
-        graph.shared_context.add_context("node", "   ", "value")
+        graph.shared_context.add_context(node, "   ", "value")
 
     # Test JSON serialization validation
     with pytest.raises(ValueError, match="Value is not JSON serializable"):
-        graph.shared_context.add_context("node", "key", lambda x: x)  # Function not serializable
+        graph.shared_context.add_context(node, "key", lambda x: x)  # Function not serializable
 
     # Test valid values
-    graph.shared_context.add_context("node", "string", "hello")
-    graph.shared_context.add_context("node", "number", 42)
-    graph.shared_context.add_context("node", "boolean", True)
-    graph.shared_context.add_context("node", "list", [1, 2, 3])
-    graph.shared_context.add_context("node", "dict", {"nested": "value"})
-    graph.shared_context.add_context("node", "none", None)
+    graph.shared_context.add_context(node, "string", "hello")
+    graph.shared_context.add_context(node, "number", 42)
+    graph.shared_context.add_context(node, "boolean", True)
+    graph.shared_context.add_context(node, "list", [1, 2, 3])
+    graph.shared_context.add_context(node, "dict", {"nested": "value"})
+    graph.shared_context.add_context(node, "none", None)
 
 
 def test_graph_synchronous_execution(mock_strands_tracer, mock_use_span, mock_agents):
