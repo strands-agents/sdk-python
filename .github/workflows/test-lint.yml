@@ -51,7 +51,7 @@ jobs:
       LOG_LEVEL: DEBUG
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref }}  # Explicitly define which commit to check out
           persist-credentials: false  # Don't persist credentials for subsequent actions
@@ -73,7 +73,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
