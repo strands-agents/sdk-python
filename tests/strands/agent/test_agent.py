@@ -18,6 +18,7 @@ from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
+from strands.telemetry.tracer import serialize
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
@@ -1027,6 +1028,23 @@ def test_agent_structured_output(agent, system_prompt, user, agenerator):
             "gen_ai.operation.name": "execute_structured_output",
         }
     )
+
+    if system_prompt:
+        mock_span.add_event.assert_any_call(
+            "gen_ai.system.message",
+            attributes={"role": "system", "content": serialize([{"text": system_prompt}])},
+        )
+
+        calls = mock_span.add_event.call_args_list
+        system_call_index = None
+        user_call_index = None
+
+        for i, call in enumerate(calls):
+            if call[0][0] == "gen_ai.system.message":
+                system_call_index = i
+            elif call[0][0] == "gen_ai.user.message" and user_call_index is None:
+                user_call_index = i
+        assert system_call_index < user_call_index, "gen_ai.system.message should come before gen_ai.user.message"
 
     mock_span.add_event.assert_any_call(
         "gen_ai.user.message",
