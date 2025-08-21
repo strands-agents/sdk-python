@@ -1029,32 +1029,23 @@ def test_agent_structured_output(agent, system_prompt, user, agenerator):
         }
     )
 
-    if system_prompt:
-        mock_span.add_event.assert_any_call(
-            "gen_ai.system.message",
-            attributes={"role": "system", "content": serialize([{"text": system_prompt}])},
-        )
+    # ensure correct otel event messages are emitted
+    act_event_names = mock_span.add_event.call_args_list
+    exp_event_names = [
+        unittest.mock.call(
+            "gen_ai.system.message", attributes={"role": "system", "content": serialize([{"text": system_prompt}])}
+        ),
+        unittest.mock.call(
+            "gen_ai.user.message",
+            attributes={
+                "role": "user",
+                "content": '[{"text": "Jane Doe is 30 years old and her email is jane@doe.com"}]',
+            },
+        ),
+        unittest.mock.call("gen_ai.choice", attributes={"message": json.dumps(user.model_dump())}),
+    ]
 
-        calls = mock_span.add_event.call_args_list
-        system_call_index = None
-        user_call_index = None
-
-        for i, call in enumerate(calls):
-            if call[0][0] == "gen_ai.system.message":
-                system_call_index = i
-            elif call[0][0] == "gen_ai.user.message" and user_call_index is None:
-                user_call_index = i
-        assert system_call_index < user_call_index, "gen_ai.system.message should come before gen_ai.user.message"
-
-    mock_span.add_event.assert_any_call(
-        "gen_ai.user.message",
-        attributes={"role": "user", "content": '[{"text": "Jane Doe is 30 years old and her email is jane@doe.com"}]'},
-    )
-
-    mock_span.add_event.assert_called_with(
-        "gen_ai.choice",
-        attributes={"message": json.dumps(user.model_dump())},
-    )
+    assert act_event_names == exp_event_names
 
 
 def test_agent_structured_output_multi_modal_input(agent, system_prompt, user, agenerator):
