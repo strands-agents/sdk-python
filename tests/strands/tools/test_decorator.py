@@ -2,7 +2,6 @@
 Tests for the function-based tool decorator pattern.
 """
 
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Optional, Union
 from unittest.mock import MagicMock
 
@@ -29,15 +28,6 @@ def identity_invoke_async():
         return a
 
     return identity
-
-
-@pytest.fixture
-def weather_tool():
-    @strands.tool
-    def weather():
-        return "sunny"
-
-    return weather
 
 
 @pytest.fixture
@@ -141,27 +131,6 @@ async def test_stream_with_agent(alist):
 
     tru_events = await alist(stream)
     exp_events = [{"toolUseId": "unknown", "status": "success", "content": [{"text": "(2, {'state': 1})"}]}]
-    assert tru_events == exp_events
-
-
-@pytest.mark.asyncio
-async def test_stream_with_thread_pool_executor(weather_tool, alist):
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        stream = weather_tool.stream({"toolUseId": "t1", "input": {}}, invocation_state={}, thread_pool=executor)
-
-        tru_events = await alist(stream)
-        exp_events = [{"toolUseId": "t1", "status": "success", "content": [{"text": "sunny"}]}]
-
-        assert tru_events == exp_events
-
-
-@pytest.mark.asyncio
-async def test_stream_with_asyncio_thread_pool(weather_tool, alist):
-    stream = weather_tool.stream({"toolUseId": "t1", "input": {}}, invocation_state={}, thread_pool="asyncio")
-
-    tru_events = await alist(stream)
-    exp_events = [{"toolUseId": "t1", "status": "success", "content": [{"text": "sunny"}]}]
-
     assert tru_events == exp_events
 
 

@@ -1,5 +1,3 @@
-from concurrent.futures import ThreadPoolExecutor
-
 import pytest
 
 import strands
@@ -509,27 +507,4 @@ async def test_stream(identity_tool, alist):
 
     tru_events = await alist(stream)
     exp_events = [({"tool_use": 1}, 2)]
-    assert tru_events == exp_events
-
-
-@pytest.mark.parametrize("identity_tool", ["identity_invoke"], indirect=True)
-@pytest.mark.asyncio
-async def test_stream_with_thread_pool_executor(identity_tool, alist):
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        stream = identity_tool.stream({"tool_use": 1}, {"a": 2}, thread_pool=executor)
-
-        tru_events = await alist(stream)
-        exp_events = [({"tool_use": 1}, 2)]
-
-        assert tru_events == exp_events
-
-
-@pytest.mark.parametrize("identity_tool", ["identity_invoke"], indirect=True)
-@pytest.mark.asyncio
-async def test_stream_with_asyncio_thread_pool(identity_tool, alist):
-    stream = identity_tool.stream({"tool_use": 1}, {"a": 2}, thread_pool="asyncio")
-
-    tru_events = await alist(stream)
-    exp_events = [({"tool_use": 1}, 2)]
-
     assert tru_events == exp_events

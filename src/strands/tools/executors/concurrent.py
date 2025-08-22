@@ -1,8 +1,7 @@
 """Concurrent tool executor implementation."""
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from typing_extensions import override
 
@@ -16,18 +15,6 @@ if TYPE_CHECKING:  # pragma: no cover
 
 class ConcurrentToolExecutor(ToolExecutor):
     """Concurrent tool executor."""
-
-    def __init__(self, thread_pool: ThreadPoolExecutor | Literal["asyncio"] | None = "asyncio"):
-        """Initialize the executor.
-
-        Args:
-            thread_pool: Thread pool configuration for synchronous tools.
-
-                - "asyncio" (default): Use the asyncio thread pool
-                - ThreadPoolExecutor: Use the provided custom thread pool
-                - None: Run sync tools in the main thread (i.e., blocking)
-        """
-        self._thread_pool = thread_pool
 
     @override
     async def _execute(
@@ -115,7 +102,7 @@ class ConcurrentToolExecutor(ToolExecutor):
         """
         try:
             events = ToolExecutor._stream_with_trace(
-                agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state, thread_pool=self._thread_pool
+                agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state
             )
             async for event in events:
                 task_queue.put_nowait((task_id, event))

@@ -8,7 +8,6 @@ import asyncio
 import inspect
 import logging
 import re
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from typing_extensions import override
@@ -210,31 +209,9 @@ class PythonAgentTool(AgentTool):
         Yields:
             Tool events with the last being the tool result.
         """
-        yield await self._stream(tool_use, invocation_state, **kwargs)
-
-    async def _stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> Any:
-        """Execute the tool function based on type.
-
-        Args:
-            tool_use: The tool use request.
-            invocation_state: Context for the tool invocation, including agent state.
-            **kwargs: Additional keyword arguments for future extensibility.
-
-        Returns:
-            The result of the tool function execution.
-        """
         if inspect.iscoroutinefunction(self._tool_func):
-            return await self._tool_func(tool_use, **invocation_state)
+            result = await self._tool_func(tool_use, **invocation_state)
+        else:
+            result = await asyncio.to_thread(self._tool_func, tool_use, **invocation_state)
 
-        thread_pool = kwargs.get("thread_pool")
-
-        if isinstance(thread_pool, ThreadPoolExecutor):
-            return await asyncio.get_event_loop().run_in_executor(
-                thread_pool,
-                lambda: self._tool_func(tool_use, **invocation_state),
-            )
-
-        if thread_pool == "asyncio":
-            return await asyncio.to_thread(self._tool_func, tool_use, **invocation_state)
-
-        return self._tool_func(tool_use, **invocation_state)
+        yield result
