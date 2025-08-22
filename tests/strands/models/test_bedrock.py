@@ -1233,16 +1233,16 @@ def test_format_request_cleans_tool_result_content_blocks(model, model_id):
 
     # Verify toolResult only contains allowed fields in the formatted request
     tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
-    expected = {"content": [{"text": "Tool output"}], "toolUseId": "tool123"}
+    expected = {"content": [{"text": "Tool output"}], "toolUseId": "tool123", "status": "success"}
     assert tool_result == expected
     assert "extraField" not in tool_result
     assert "mcpMetadata" not in tool_result
 
 
-def test_format_request_removes_status_field_for_non_claude_models(model, model_id):
-    """Test that format_request removes status field for non-Claude models."""
-    # Update model to use a non-Claude model
-    model.update_config(model_id="us.writer.palmyra-x4-v1:0")
+def test_format_request_removes_status_field_when_configured(model, model_id):
+    """Test that format_request removes status field when remove_tool_result_status=True."""
+    # Configure model to remove status field
+    model.update_config(remove_tool_result_status=True)
 
     messages = [
         {
@@ -1261,18 +1261,15 @@ def test_format_request_removes_status_field_for_non_claude_models(model, model_
 
     formatted_request = model.format_request(messages)
 
-    # Verify toolResult does not contain status field for non-Claude models
+    # Verify toolResult does not contain status field when configured to remove
     tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
     expected = {"toolUseId": "tool123", "content": [{"text": "Tool output"}]}
     assert tool_result == expected
     assert "status" not in tool_result
 
 
-def test_format_request_keeps_status_field_for_claude_models(model, model_id):
-    """Test that format_request keeps status field for Claude models."""
-    # Update model to use a Claude model
-    model.update_config(model_id="anthropic.claude-3-sonnet-20240229-v1:0")
-
+def test_format_request_keeps_status_field_by_default(model, model_id):
+    """Test that format_request keeps status field by default."""
     messages = [
         {
             "role": "user",
@@ -1290,7 +1287,7 @@ def test_format_request_keeps_status_field_for_claude_models(model, model_id):
 
     formatted_request = model.format_request(messages)
 
-    # Verify toolResult contains status field for Claude models
+    # Verify toolResult contains status field by default
     tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
     expected = {"content": [{"text": "Tool output"}], "toolUseId": "tool123", "status": "success"}
     assert tool_result == expected
