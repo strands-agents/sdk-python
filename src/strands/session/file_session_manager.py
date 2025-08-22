@@ -86,9 +86,16 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
             message_id: Index of the message
         Returns:
             The filename for the message
+        
+        Raises:
+            ValueError: If message id contains path separators.
         """
+        # Validate message_id to prevent path traversal
+        message_id_str = str(message_id)
+        message_id_str = _identifier.validate(message_id_str, _identifier.Identifier.MESSAGE)
+        
         agent_path = self._get_agent_path(session_id, agent_id)
-        return os.path.join(agent_path, "messages", f"{MESSAGE_PREFIX}{message_id}.json")
+        return os.path.join(agent_path, "messages", f"{MESSAGE_PREFIX}{message_id_str}.json")
 
     def _read_file(self, path: str) -> dict[str, Any]:
         """Read JSON file."""

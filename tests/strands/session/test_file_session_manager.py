@@ -390,3 +390,18 @@ def test__get_session_path_invalid_session_id(session_id, file_manager):
 def test__get_agent_path_invalid_agent_id(agent_id, file_manager):
     with pytest.raises(ValueError, match=f"agent_id={agent_id} | id cannot contain path separators"):
         file_manager._get_agent_path("session1", agent_id)
+
+
+@pytest.mark.parametrize(
+    "message_id",
+    [
+        "../../../secret",
+        "../../attack",
+        "../escape",
+        "path/traversal",
+    ],
+)
+def test__get_message_path_invalid_message_id(message_id, file_manager):
+    """Test that message_id with path traversal sequences raises ValueError."""
+    with pytest.raises(ValueError, match=f"message_id={message_id} | id cannot contain path separators"):
+        file_manager._get_message_path("session1", "agent1", message_id)
