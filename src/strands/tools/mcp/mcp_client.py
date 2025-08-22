@@ -526,7 +526,15 @@ class MCPClient:
 
                 self._log_debug_with_thread("embedded resource blob with non-textual/unknown mimeType - dropping")
                 return None
-        # -------------------------------------------------
+            
+            # Handle URI-only resources
+            uri = _get("uri")
+            if uri:
+                return {"text": f"[embedded resource] {uri} ({mime_type or 'unknown mime'})"}
+
+            # Make sure we return in all paths
+            self._log_debug_with_thread("embedded resource had no usable text/blob/uri; dropping")
+            return None
         else:
             self._log_debug_with_thread("unhandled content type: %s - dropping content", content.__class__.__name__)
             return None
