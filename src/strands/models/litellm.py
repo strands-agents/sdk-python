@@ -103,6 +103,127 @@ class LiteLLMModel(OpenAIModel):
 
         return super().format_request_message_content(content)
 
+    def _format_request_message_contents(self, role: str, content: ContentBlock) -> list[dict[str, Any]]:
+        """Format LiteLLM compatible message contents.
+
+        LiteLLM expects content to be a string for simple text messages, not a list of content blocks.
+        This method flattens the content structure to be compatible with LiteLLM providers like Cerebras and Groq.
+
+        Args:
+            role: The role of the message (e.g., "user", "assistant").
+            content: Content block to format.
+
+        Returns:
+            LiteLLM formatted message contents.
+
+        Raises:
+            TypeError: If the content block type cannot be converted to a LiteLLM-compatible format.
+        """
+        if "text" in content:
+            return [{"role": role, "content": content["text"]}]
+
+        if "image" in content:
+            return [
+                {
+                    "role": role,
+                    "content": [{"type": "image_url", "image_url": {"url": content["image"]["source"]["bytes"]}}],
+                }
+            ]
+
+        if "toolUse" in content:
+            return [
+                {
+                    "role": role,
+                    "tool_calls": [
+                        {
+                            "id": content["toolUse"]["toolUseId"],
+                            "type": "function",
+                            "function": {
+                                "name": content["toolUse"]["name"],
+                                "arguments": json.dumps(content["toolUse"]["input"]),
+                            },
+                        }
+                    ],
+                }
+            ]
+
+        if "toolResult" in content:
+            return [
+                formatted_tool_result_content
+                for tool_result_content in content["toolResult"]["content"]
+                for formatted_tool_result_content in self._format_request_message_contents(
+                    "tool",
+                    (
+                        {"text": json.dumps(tool_result_content["json"])}
+                        if "json" in tool_result_content
+                        else cast(ContentBlock, tool_result_content)
+                    ),
+                )
+            ]
+
+        # For other content types, use the parent class method
+        formatted_content = self.format_request_message_content(content)
+        return [{"role": role, "content": [formatted_content]}]
+
+    def _format_request_messages(self, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+        """Format a LiteLLM compatible messages array.
+
+        This method overrides the parent OpenAIModel's format_request_messages to ensure
+        compatibility with LiteLLM providers like Cerebras and Groq that expect content
+        to be a string for simple text messages.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            system_prompt: System prompt to provide context to the model.
+
+        Returns:
+            A LiteLLM compatible messages array.
+        """
+        system_message = [{"role": "system", "content": system_prompt}] if system_prompt else []
+
+        return system_message + [
+            formatted_message
+            for message in messages
+            for content in message["content"]
+            for formatted_message in self._format_request_message_contents(message["role"], content)
+        ]
+
+    def format_request(
+        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Format a LiteLLM compatible chat streaming request.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            tool_specs: List of tool specifications to make available to the model.
+            system_prompt: System prompt to provide context to the model.
+
+        Returns:
+            A LiteLLM compatible chat streaming request.
+
+        Raises:
+            TypeError: If a message contains a content block type that cannot be converted to a LiteLLM-compatible
+                format.
+        """
+        return {
+            "messages": self._format_request_messages(messages, system_prompt),
+            "model": self.config["model_id"],
+            "stream": True,
+            "stream_options": {"include_usage": True},
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool_spec["name"],
+                        "description": tool_spec["description"],
+                        "parameters": tool_spec["inputSchema"]["json"],
+                    },
+                }
+                for tool_spec in tool_specs or []
+            ],
+            **cast(dict[str, Any], self.config.get("params", {})),
+        }
+
     @override
     async def stream(
         self,
@@ -200,7 +321,7 @@ class LiteLLMModel(OpenAIModel):
         response = await litellm.acompletion(
             **self.client_args,
             model=self.get_config()["model_id"],
-            messages=self.format_request(prompt, system_prompt=system_prompt)["messages"],
+            messages=self._format_request_messages(prompt, system_prompt),
             response_format=output_model,
         )
 

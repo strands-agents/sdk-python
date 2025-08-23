@@ -189,7 +189,7 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
     expected_request = {
         "api_key": api_key,
         "model": model_id,
-        "messages": [{"role": "user", "content": [{"text": "calculate 2+2", "type": "text"}]}],
+        "messages": [{"role": "user", "content": "calculate 2+2"}],
         "stream": True,
         "stream_options": {"include_usage": True},
         "tools": [],
