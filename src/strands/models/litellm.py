@@ -209,17 +209,15 @@ class LiteLLMModel(OpenAIModel):
         if len(response.choices) > 1:
             raise ValueError("Multiple choices found in the response.")
 
-        # Find the first choice with tool_calls
         for choice in response.choices:
-            if choice.finish_reason == "tool_calls":
-                try:
-                    # Parse the tool call content as JSON
-                    tool_call_data = json.loads(choice.message.content)
-                    # Instantiate the output model with the parsed data
-                    yield {"output": output_model(**tool_call_data)}
-                    return
-                except (json.JSONDecodeError, TypeError, ValueError) as e:
-                    raise ValueError(f"Failed to parse or load content into model: {e}") from e
+            try:
+                # Parse the message content as JSON
+                output_data = json.loads(choice.message.content)
+                # Instantiate the output model with the parsed data
+                yield {"output": output_model(**output_data)}
+                return
+            except (json.JSONDecodeError, TypeError, ValueError) as e:
+                raise ValueError(f"Failed to parse or load content into model: {e}") from e
 
-        # If no tool_calls found, raise an error
-        raise ValueError("No tool_calls found in response")
+        # If no choices found, raise an error
+        raise ValueError("No choices found in response")
