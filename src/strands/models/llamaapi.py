@@ -12,6 +12,7 @@ from typing import Any, AsyncGenerator, Optional, Type, TypeVar, Union, cast
 
 import llama_api_client
 from llama_api_client import LlamaAPIClient
+from llama_api_client.types.chat.completion_create_params import ResponseFormat
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
@@ -406,7 +407,7 @@ class LlamaAPIModel(Model):
         logger.debug("finished streaming response from model")
 
     @override
-    def structured_output(
+    async def structured_output(
         self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
     ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
@@ -419,20 +420,30 @@ class LlamaAPIModel(Model):
 
         Yields:
             Model events with the last being the structured output.
-
-        Raises:
-            NotImplementedError: Structured output is not currently supported for LlamaAPI models.
         """
-        # response_format: ResponseFormat = {
-        #     "type": "json_schema",
-        #     "json_schema": {
-        #         "name": output_model.__name__,
-        #         "schema": output_model.model_json_schema(),
-        #     },
-        # }
-        # response = self.client.chat.completions.create(
-        #     model=self.config["model_id"],
-        #     messages=self.format_request(prompt)["messages"],
-        #     response_format=response_format,
-        # )
-        raise NotImplementedError("Strands sdk-python does not implement this in the Llama API Preview.")
+        response_format: ResponseFormat = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": output_model.__name__,
+                "schema": output_model.model_json_schema(),
+            },
+        }
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.config["model_id"],
+                messages=self.format_request(prompt)["messages"],
+                response_format=response_format,
+            )
+
+            content = response.completion_message.content
+            if content is None:
+                raise ValueError("No content found in Llama API response")
+            elif not isinstance(content, str):
+                content = content.text
+
+            output_response = json.loads(content)
+            yield {"output": output_model(**output_response)}
+
+        except Exception as e:
+            raise ValueError(f"Llama API structured output error: {e}") from e
