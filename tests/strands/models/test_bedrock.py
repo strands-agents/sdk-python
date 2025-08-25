@@ -1237,3 +1237,58 @@ def test_format_request_cleans_tool_result_content_blocks(model, model_id):
     assert tool_result == expected
     assert "extraField" not in tool_result
     assert "mcpMetadata" not in tool_result
+
+
+def test_format_request_removes_status_field_when_configured(model, model_id):
+    """Test that format_request removes status field when remove_tool_result_status=True."""
+    # Configure model to remove status field
+    model.update_config(remove_tool_result_status=True)
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [{"text": "Tool output"}],
+                        "toolUseId": "tool123",
+                        "status": "success",
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    # Verify toolResult does not contain status field when configured to remove
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+    expected = {"toolUseId": "tool123", "content": [{"text": "Tool output"}]}
+    assert tool_result == expected
+    assert "status" not in tool_result
+
+
+def test_format_request_keeps_status_field_by_default(model, model_id):
+    """Test that format_request keeps status field by default."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [{"text": "Tool output"}],
+                        "toolUseId": "tool123",
+                        "status": "success",
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    # Verify toolResult contains status field by default
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+    expected = {"content": [{"text": "Tool output"}], "toolUseId": "tool123", "status": "success"}
+    assert tool_result == expected
+    assert "status" in tool_result
