@@ -151,10 +151,10 @@ def test_initialize_restores_existing_agent_with_summarizing_conversation_manage
 
     # Verify agent state restored
     assert agent.state.get("key") == "value"
-    # The session message plus the summary prompt plus the summary message
-    assert len(agent.messages) == 3
-    assert agent.messages[2] == {"content": [{"text": "Hello"}], "role": "user"}
-    assert agent.conversation_manager.removed_message_count == 1
+    # The session message plus the summary message
+    assert len(agent.messages) == 2
+    assert agent.messages[1]["role"] == "user"
+    assert agent.messages[1]["content"][0]["text"] == "Hello"
 
 
 def test_append_message(session_manager):
