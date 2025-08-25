@@ -14,7 +14,19 @@ import json
 import logging
 import random
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Optional, Type, TypeVar, Union, cast
+from typing import (
+    Any,
+    AsyncGenerator,
+    AsyncIterator,
+    Callable,
+    Mapping,
+    Optional,
+    Type,
+    TypeAlias,
+    TypeVar,
+    Union,
+    cast,
+)
 
 from opentelemetry import trace as trace_api
 from pydantic import BaseModel
@@ -54,6 +66,8 @@ logger = logging.getLogger(__name__)
 
 # TypeVar for generic structured output
 T = TypeVar("T", bound=BaseModel)
+
+AgentInput: TypeAlias = str | list[ContentBlock] | Messages | None
 
 
 # Sentinel class and object to distinguish between explicit None and default parameter value
@@ -361,7 +375,7 @@ class Agent:
         all_tools = self.tool_registry.get_all_tools_config()
         return list(all_tools.keys())
 
-    def __call__(self, prompt: str | list[ContentBlock] | Messages | None = None, **kwargs: Any) -> AgentResult:
+    def __call__(self, prompt: AgentInput = None, **kwargs: Any) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
         This method implements the conversational interface with multiple input patterns:
@@ -394,9 +408,7 @@ class Agent:
             future = executor.submit(execute)
             return future.result()
 
-    async def invoke_async(
-        self, prompt: str | list[ContentBlock] | Messages | None = None, **kwargs: Any
-    ) -> AgentResult:
+    async def invoke_async(self, prompt: AgentInput = None, **kwargs: Any) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
         This method implements the conversational interface with multiple input patterns:
@@ -427,7 +439,7 @@ class Agent:
 
         return cast(AgentResult, event["result"])
 
-    def structured_output(self, output_model: Type[T], prompt: str | list[ContentBlock] | Messages | None = None) -> T:
+    def structured_output(self, output_model: Type[T], prompt: AgentInput = None) -> T:
         """This method allows you to get structured output from the agent.
 
         If you pass in a prompt, it will be used temporarily without adding it to the conversation history.
@@ -456,9 +468,7 @@ class Agent:
             future = executor.submit(execute)
             return future.result()
 
-    async def structured_output_async(
-        self, output_model: Type[T], prompt: str | list[ContentBlock] | Messages | None = None
-    ) -> T:
+    async def structured_output_async(self, output_model: Type[T], prompt: AgentInput = None) -> T:
         """This method allows you to get structured output from the agent.
 
         If you pass in a prompt, it will be used temporarily without adding it to the conversation history.
@@ -517,7 +527,7 @@ class Agent:
 
     async def stream_async(
         self,
-        prompt: str | list[ContentBlock] | Messages | None = None,
+        prompt: AgentInput = None,
         **kwargs: Any,
     ) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
@@ -657,7 +667,7 @@ class Agent:
             async for event in events:
                 yield event
 
-    def _convert_prompt_to_messages(self, prompt: str | list[ContentBlock] | Messages | None) -> Messages:
+    def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
         messages: Messages | None = None
         if prompt is not None:
             if isinstance(prompt, str):

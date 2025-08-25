@@ -1830,6 +1830,7 @@ def test_agent_with_list_of_message_and_content_block():
     with pytest.raises(ValueError, match="Input prompt must be of type: `str | list[Contentblock] | Messages | None`."):
         agent([{"role": "user", "content": [{"text": "hello"}]}, {"text", "hello"}])
 
+
 def test_agent_tool_call_parameter_filtering_integration(mock_randint):
     """Test that tool calls properly filter parameters in message recording."""
     mock_randint.return_value = 42
@@ -1861,4 +1862,3 @@ def test_agent_tool_call_parameter_filtering_integration(mock_randint):
     assert '"action": "test_value"' in tool_call_text
     assert '"agent"' not in tool_call_text
     assert '"extra_param"' not in tool_call_text
-

@@ -116,13 +116,13 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
 
         Returns:
             The key for the message
-            
+
         Raises:
             ValueError: If message_id is not an integer.
         """
         if not isinstance(message_id, int):
             raise ValueError(f"message_id=<{message_id}> | message id must be an integer")
-            
+
         agent_path = self._get_agent_path(session_id, agent_id)
         return f"{agent_path}messages/{MESSAGE_PREFIX}{message_id}.json"
 

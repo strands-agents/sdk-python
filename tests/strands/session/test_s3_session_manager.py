@@ -362,7 +362,7 @@ def test__get_agent_path_invalid_agent_id(agent_id, s3_manager):
     "message_id",
     [
         "../../../secret",
-        "../../attack", 
+        "../../attack",
         "../escape",
         "path/traversal",
         "not_an_int",
