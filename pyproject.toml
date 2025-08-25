@@ -68,9 +68,8 @@ docs = [
     "sphinx-autodoc-typehints>=1.12.0,<2.0.0",
 ]
 litellm = [
-    "litellm>=1.73.1,<2.0.0",
-    # https://github.com/BerriAI/litellm/issues/13711
-    "openai<1.100.0",
+    "litellm>=1.75.9,<2.0.0",
+    "openai>=1.68.0,<1.102.0",
 ]
 llamaapi = [
     "llama-api-client>=0.1.0,<1.0.0",
