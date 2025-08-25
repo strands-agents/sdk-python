@@ -269,6 +269,9 @@ class BedrockModel(Model):
         cleaned_messages = []
 
         for message in messages:
+            if not message["content"]:
+                continue
+
             cleaned_content: list[ContentBlock] = []
 
             for content_block in message["content"]:
