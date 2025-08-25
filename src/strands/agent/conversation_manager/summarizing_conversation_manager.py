@@ -81,6 +81,7 @@ class SummarizingConversationManager(ConversationManager):
         self.summarization_agent = summarization_agent
         self.summarization_system_prompt = summarization_system_prompt
         self._summary_message: Optional[Message] = None
+        self._summary_prompt: Message = {"content": [{"text": "Please summarize this conversation"}], "role": "user"}
 
     @override
     def restore_from_session(self, state: dict[str, Any]) -> Optional[list[Message]]:
@@ -94,7 +95,7 @@ class SummarizingConversationManager(ConversationManager):
         """
         super().restore_from_session(state)
         self._summary_message = state.get("summary_message")
-        return [self._summary_message] if self._summary_message else None
+        return [self._summary_prompt, self._summary_message] if self._summary_message else None
 
     def get_state(self) -> dict[str, Any]:
         """Returns a dictionary representation of the state for the Summarizing Conversation Manager."""
@@ -152,15 +153,15 @@ class SummarizingConversationManager(ConversationManager):
 
             # Keep track of the number of messages that have been summarized thus far.
             self.removed_message_count += len(messages_to_summarize)
-            # If there is a summary message, don't count it in the removed_message_count.
+            # If there is a summary message, don't count it or the summary prompt in the removed_message_count.
             if self._summary_message:
-                self.removed_message_count -= 1
+                self.removed_message_count -= 2
 
             # Generate summary
             self._summary_message = self._generate_summary(messages_to_summarize, agent)
 
             # Replace the summarized messages with the summary
-            agent.messages[:] = [self._summary_message] + remaining_messages
+            agent.messages[:] = [self._summary_prompt, self._summary_message] + remaining_messages
 
         except Exception as summarization_error:
             logger.error("Summarization failed: %s", summarization_error)
@@ -200,8 +201,7 @@ class SummarizingConversationManager(ConversationManager):
             summarization_agent.messages = messages
 
             # Use the agent to generate summary with rich content (can use tools if needed)
-            result = summarization_agent("Please summarize this conversation.")
-
+            result = summarization_agent(self._summary_prompt["content"])
             return result.message
 
         finally:

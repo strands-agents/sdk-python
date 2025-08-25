@@ -95,13 +95,16 @@ def test_reduce_context_with_summarization(summarizing_manager, mock_agent):
 
     summarizing_manager.reduce_context(mock_agent)
 
-    # Should have: 1 summary message + 2 preserved recent messages + remaining from summarization
-    assert len(mock_agent.messages) == 4
+    # Should have: 1 summary prompt + 1 summary message + 2 preserved recent messages + remaining from summarization
+    assert len(mock_agent.messages) == 5
 
-    # First message should be the summary
-    assert mock_agent.messages[0]["role"] == "assistant"
-    first_content = mock_agent.messages[0]["content"][0]
-    assert "text" in first_content and "This is a summary of the conversation." in first_content["text"]
+    # First message should be the summary prompt
+    assert mock_agent.messages[0] == {"content": [{"text": "Please summarize this conversation"}], "role": "user"}
+    # Second message should be the summary
+    assert mock_agent.messages[1] == {
+        "content": [{"text": "This is a summary of the conversation."}],
+        "role": "assistant",
+    }
 
     # Recent messages should be preserved
     assert "Message 3" in str(mock_agent.messages[-2]["content"])
@@ -434,17 +437,18 @@ def test_reduce_context_tool_pair_adjustment_works_with_forward_search():
     # messages_to_summarize_count = (3 - 1) * 0.5 = 1
     # But split point adjustment will move forward from the toolUse, potentially increasing count
     manager.reduce_context(mock_agent)
-    # Should have summary + remaining messages
-    assert len(mock_agent.messages) == 2
+    # Should have summary prompt + summary + remaining messages
+    assert len(mock_agent.messages) == 3
 
-    # First message should be the summary
-    assert mock_agent.messages[0]["role"] == "assistant"
-    summary_content = mock_agent.messages[0]["content"][0]
-    assert "text" in summary_content and "This is a summary of the conversation." in summary_content["text"]
-
+    # First message should be the summary prompt
+    assert mock_agent.messages[0] == {"content": [{"text": "Please summarize this conversation"}], "role": "user"}
+    # Second message should be the summary
+    assert mock_agent.messages[1] == {
+        "content": [{"text": "This is a summary of the conversation."}],
+        "role": "assistant",
+    }
     # Last message should be the preserved recent message
-    assert mock_agent.messages[1]["role"] == "user"
-    assert mock_agent.messages[1]["content"][0]["text"] == "Latest message"
+    assert mock_agent.messages[2] == {"content": [{"text": "Latest message"}], "role": "user"}
 
 
 def test_adjust_split_point_exceeds_message_length(summarizing_manager):
@@ -590,21 +594,19 @@ def test_summarizing_conversation_manager_properly_records_removed_message_count
     assert manager.removed_message_count == 0
 
     manager.reduce_context(agent)
-    # Assert the oldest message is the sumamry message
     assert manager._summary_message["content"][0]["text"] == "Summary"
     # There are 8 messages in the agent messages array, since half will be summarized,
-    # 4 will remain plus 1 summary message = 5
-    assert (len(agent.messages)) == 5
+    # 4 will remain plus 1 summary prompt and 1 summary message = 6
+    assert len(agent.messages) == 6
     # Half of the messages were summarized and removed: 8/2 = 4
     assert manager.removed_message_count == 4
 
     manager.reduce_context(agent)
     assert manager._summary_message["content"][0]["text"] == "Summary"
-    # After the first summary, 5 messages remain. Summarizing again will lead to:
-    # 5 - (int(5/2)) (messages to be sumamrized) + 1 (new summary message) = 5 - 2 + 1 = 4
-    assert (len(agent.messages)) == 4
-    # Half of the messages were summarized and removed: int(5/2) = 2
-    # However, one of the messages that was summarized was the previous summary message,
-    # so we dont count this toward the total:
-    # 4 (Previously removed messages) + 2 (removed messages) - 1 (Previous summary message) = 5
+    # After the first summary, 6 messages remain. Summarizing again will lead to:
+    # 6 - (6/2) (messages to be sumamrized) + 1 (summary prompt) + 1 (new summary message) = 6 - 3 + 1 + 1 = 5
+    assert len(agent.messages) == 5
+    # Half of the messages were summarized and removed: (6/2) = 3
+    # However, the summary prompt and previous summary were also summarized but we don't count this in the total:
+    # 4 (Previously removed messages) + 3 (removed messages) - 1 (summary prompt) - 1 (Previous summary message) = 5
     assert manager.removed_message_count == 5
