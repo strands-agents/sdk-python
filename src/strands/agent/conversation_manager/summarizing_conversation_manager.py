@@ -200,7 +200,7 @@ class SummarizingConversationManager(ConversationManager):
             summarization_agent.messages = messages
 
             # Use the agent to generate summary with rich content (can use tools if needed)
-            result = summarization_agent("Please summarize this conversation")
+            result = summarization_agent("Please summarize this conversation.")
             return cast(Message, {**result.message, "role": "user"})
 
         finally:
