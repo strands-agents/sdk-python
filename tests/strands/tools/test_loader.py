@@ -235,3 +235,32 @@ def test_load_tool_invalid_ext(tmp_path):
 def test_load_tool_no_spec(tool_path):
     with pytest.raises(AttributeError, match="Tool no_spec missing TOOL_SPEC"):
         ToolLoader.load_tool(tool_path, "no_spec")
+
+
+@pytest.mark.parametrize(
+    "tool_path",
+    [
+        textwrap.dedent(
+            """
+            import strands
+
+            @strands.tools.tool
+            def alpha():
+                return "alpha"
+
+            @strands.tools.tool
+            def bravo():
+                return "bravo"
+            """
+        )
+    ],
+    indirect=True,
+)
+def test_load_python_tool_path_multiple_function_based(tool_path):
+    # load_python_tool returns a list when multiple decorated tools are present
+    loaded = ToolLoader.load_python_tool(tool_path, "alpha")
+    assert isinstance(loaded, list)
+    assert len(loaded) == 2
+    assert all(isinstance(t, DecoratedFunctionTool) for t in loaded)
+    names = {getattr(t, "tool_name", getattr(t, "name", None)) for t in loaded}
+    assert "alpha" in names and "bravo" in names
