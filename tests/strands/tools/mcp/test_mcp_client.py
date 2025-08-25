@@ -1,4 +1,5 @@
 import time
+import base64
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -466,3 +467,52 @@ def test_get_prompt_sync_session_not_active():
 
     with pytest.raises(MCPClientInitializationError, match="client session is not running"):
         client.get_prompt_sync("test_prompt_id", {})
+
+
+def test_call_tool_sync_embedded_nested_text(mock_transport, mock_session):
+    """EmbeddedResource.resource (uri + text) should map to plain text content."""
+    er = {
+        "type": "resource",  # required literal
+        "resource": {
+            "uri": "mcp://resource/embedded-text-1",
+            "text": "inner text",
+            "mimeType": "text/plain",
+        },
+    }
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[er])
+
+    from strands.tools.mcp import MCPClient
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="er-text", name="get_file_contents", arguments={})
+
+        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None)
+        assert result["status"] == "success"
+        assert len(result["content"]) == 1
+        assert result["content"][0]["text"] == "inner text"
+
+
+def test_call_tool_sync_embedded_nested_base64_textual_mime(mock_transport, mock_session):
+    """EmbeddedResource.resource (uri + blob with textual MIME) should decode to text."""
+    import base64
+    from mcp.types import CallToolResult as MCPCallToolResult
+    payload = base64.b64encode(b'{"k":"v"}').decode()
+
+    er = {
+        "type": "resource",
+        "resource": {
+            "uri": "mcp://resource/embedded-blob-1",
+            # NOTE: blob is a STRING, mimeType is sibling
+            "blob": payload,
+            "mimeType": "application/json",
+        },
+    }
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[er])
+
+    from strands.tools.mcp import MCPClient
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="er-blob", name="get_file_contents", arguments={})
+
+        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None)
+        assert result["status"] == "success"
+        assert len(result["content"]) == 1
+        assert result["content"][0]["text"] == '{"k":"v"}'
