@@ -396,12 +396,15 @@ def test__get_agent_path_invalid_agent_id(agent_id, file_manager):
     "message_id",
     [
         "../../../secret",
-        "../../attack",
+        "../../attack", 
         "../escape",
         "path/traversal",
+        "not_an_int",
+        None,
+        [],
     ],
 )
 def test__get_message_path_invalid_message_id(message_id, file_manager):
-    """Test that message_id with path traversal sequences raises ValueError."""
-    with pytest.raises(ValueError, match=f"message_id={message_id} | id cannot contain path separators"):
+    """Test that message_id that is not an integer raises ValueError."""
+    with pytest.raises(ValueError, match=r"message_id=<.*> \| message id must be an integer"):
         file_manager._get_message_path("session1", "agent1", message_id)
