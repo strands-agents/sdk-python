@@ -224,14 +224,14 @@ def test_read_messages_with_new_agent(file_manager, sample_session, sample_agent
     file_manager.create_session(sample_session)
     file_manager.create_agent(sample_session.session_id, sample_agent)
 
-    result = file_manager.read_message(sample_session.session_id, sample_agent.agent_id, "nonexistent_message")
+    result = file_manager.read_message(sample_session.session_id, sample_agent.agent_id, 999)
 
     assert result is None
 
 
 def test_read_nonexistent_message(file_manager, sample_session, sample_agent):
     """Test reading a message that doesnt exist."""
-    result = file_manager.read_message(sample_session.session_id, sample_agent.agent_id, "nonexistent_message")
+    result = file_manager.read_message(sample_session.session_id, sample_agent.agent_id, 999)
     assert result is None
 
 
