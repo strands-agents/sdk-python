@@ -18,6 +18,7 @@ from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
+from strands.telemetry.tracer import serialize
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
@@ -1028,15 +1029,23 @@ def test_agent_structured_output(agent, system_prompt, user, agenerator):
         }
     )
 
-    mock_span.add_event.assert_any_call(
-        "gen_ai.user.message",
-        attributes={"role": "user", "content": '[{"text": "Jane Doe is 30 years old and her email is jane@doe.com"}]'},
-    )
+    # ensure correct otel event messages are emitted
+    act_event_names = mock_span.add_event.call_args_list
+    exp_event_names = [
+        unittest.mock.call(
+            "gen_ai.system.message", attributes={"role": "system", "content": serialize([{"text": system_prompt}])}
+        ),
+        unittest.mock.call(
+            "gen_ai.user.message",
+            attributes={
+                "role": "user",
+                "content": '[{"text": "Jane Doe is 30 years old and her email is jane@doe.com"}]',
+            },
+        ),
+        unittest.mock.call("gen_ai.choice", attributes={"message": json.dumps(user.model_dump())}),
+    ]
 
-    mock_span.add_event.assert_called_with(
-        "gen_ai.choice",
-        attributes={"message": json.dumps(user.model_dump())},
-    )
+    assert act_event_names == exp_event_names
 
 
 def test_agent_structured_output_multi_modal_input(agent, system_prompt, user, agenerator):
