@@ -18,6 +18,7 @@ from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
+from strands.telemetry.tracer import serialize
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
@@ -69,12 +70,6 @@ def messages(request):
 @pytest.fixture
 def mock_event_loop_cycle():
     with unittest.mock.patch("strands.agent.agent.event_loop_cycle") as mock:
-        yield mock
-
-
-@pytest.fixture
-def mock_run_tool():
-    with unittest.mock.patch("strands.agent.agent.run_tool") as mock:
         yield mock
 
 
@@ -887,9 +882,7 @@ def test_agent_init_with_no_model_or_model_id():
     assert agent.model.get_config().get("model_id") == DEFAULT_BEDROCK_MODEL_ID
 
 
-def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint, mock_run_tool, agenerator):
-    mock_run_tool.return_value = agenerator([{}])
-
+def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint, agenerator):
     @strands.tools.tool(name="system_prompter")
     def function(system_prompt: str) -> str:
         return system_prompt
@@ -898,22 +891,12 @@ def test_agent_tool_no_parameter_conflict(agent, tool_registry, mock_randint, mo
 
     mock_randint.return_value = 1
 
-    agent.tool.system_prompter(system_prompt="tool prompt")
-
-    mock_run_tool.assert_called_with(
-        agent,
-        {
-            "toolUseId": "tooluse_system_prompter_1",
-            "name": "system_prompter",
-            "input": {"system_prompt": "tool prompt"},
-        },
-        {"system_prompt": "tool prompt"},
-    )
+    tru_result = agent.tool.system_prompter(system_prompt="tool prompt")
+    exp_result = {"toolUseId": "tooluse_system_prompter_1", "status": "success", "content": [{"text": "tool prompt"}]}
+    assert tru_result == exp_result
 
 
-def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint, mock_run_tool, agenerator):
-    mock_run_tool.return_value = agenerator([{}])
-
+def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint, agenerator):
     tool_name = "system-prompter"
 
     @strands.tools.tool(name=tool_name)
@@ -924,19 +907,9 @@ def test_agent_tool_with_name_normalization(agent, tool_registry, mock_randint, 
 
     mock_randint.return_value = 1
 
-    agent.tool.system_prompter(system_prompt="tool prompt")
-
-    # Verify the correct tool was invoked
-    assert mock_run_tool.call_count == 1
-    tru_tool_use = mock_run_tool.call_args.args[1]
-    exp_tool_use = {
-        # Note that the tool-use uses the "python safe" name
-        "toolUseId": "tooluse_system_prompter_1",
-        # But the name of the tool is the one in the registry
-        "name": tool_name,
-        "input": {"system_prompt": "tool prompt"},
-    }
-    assert tru_tool_use == exp_tool_use
+    tru_result = agent.tool.system_prompter(system_prompt="tool prompt")
+    exp_result = {"toolUseId": "tooluse_system_prompter_1", "status": "success", "content": [{"text": "tool prompt"}]}
+    assert tru_result == exp_result
 
 
 def test_agent_tool_with_no_normalized_match(agent, tool_registry, mock_randint):
@@ -1028,15 +1001,23 @@ def test_agent_structured_output(agent, system_prompt, user, agenerator):
         }
     )
 
-    mock_span.add_event.assert_any_call(
-        "gen_ai.user.message",
-        attributes={"role": "user", "content": '[{"text": "Jane Doe is 30 years old and her email is jane@doe.com"}]'},
-    )
+    # ensure correct otel event messages are emitted
+    act_event_names = mock_span.add_event.call_args_list
+    exp_event_names = [
+        unittest.mock.call(
+            "gen_ai.system.message", attributes={"role": "system", "content": serialize([{"text": system_prompt}])}
+        ),
+        unittest.mock.call(
+            "gen_ai.user.message",
+            attributes={
+                "role": "user",
+                "content": '[{"text": "Jane Doe is 30 years old and her email is jane@doe.com"}]',
+            },
+        ),
+        unittest.mock.call("gen_ai.choice", attributes={"message": json.dumps(user.model_dump())}),
+    ]
 
-    mock_span.add_event.assert_called_with(
-        "gen_ai.choice",
-        attributes={"message": json.dumps(user.model_dump())},
-    )
+    assert act_event_names == exp_event_names
 
 
 def test_agent_structured_output_multi_modal_input(agent, system_prompt, user, agenerator):
@@ -1351,12 +1332,12 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
+        messages=[{"content": [{"text": "test prompt"}], "role": "user"}],
         agent_name="Strands Agents",
-        custom_trace_attributes=agent.trace_attributes,
-        message={"content": [{"text": "test prompt"}], "role": "user"},
         model_id=unittest.mock.ANY,
-        system_prompt=agent.system_prompt,
         tools=agent.tool_names,
+        system_prompt=agent.system_prompt,
+        custom_trace_attributes=agent.trace_attributes,
     )
 
     # Verify span was ended with the result
@@ -1385,12 +1366,12 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
-        custom_trace_attributes=agent.trace_attributes,
+        messages=[{"content": [{"text": "test prompt"}], "role": "user"}],
         agent_name="Strands Agents",
-        message={"content": [{"text": "test prompt"}], "role": "user"},
         model_id=unittest.mock.ANY,
-        system_prompt=agent.system_prompt,
         tools=agent.tool_names,
+        system_prompt=agent.system_prompt,
+        custom_trace_attributes=agent.trace_attributes,
     )
 
     expected_response = AgentResult(
@@ -1423,12 +1404,12 @@ def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_mod
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
-        custom_trace_attributes=agent.trace_attributes,
+        messages=[{"content": [{"text": "test prompt"}], "role": "user"}],
         agent_name="Strands Agents",
-        message={"content": [{"text": "test prompt"}], "role": "user"},
         model_id=unittest.mock.ANY,
-        system_prompt=agent.system_prompt,
         tools=agent.tool_names,
+        system_prompt=agent.system_prompt,
+        custom_trace_attributes=agent.trace_attributes,
     )
 
     # Verify span was ended with the exception
@@ -1459,12 +1440,12 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
 
     # Verify span was created
     mock_tracer.start_agent_span.assert_called_once_with(
+        messages=[{"content": [{"text": "test prompt"}], "role": "user"}],
         agent_name="Strands Agents",
-        custom_trace_attributes=agent.trace_attributes,
-        message={"content": [{"text": "test prompt"}], "role": "user"},
         model_id=unittest.mock.ANY,
-        system_prompt=agent.system_prompt,
         tools=agent.tool_names,
+        system_prompt=agent.system_prompt,
+        custom_trace_attributes=agent.trace_attributes,
     )
 
     # Verify span was ended with the exception
@@ -1790,6 +1771,64 @@ def test_agent_tool_record_direct_tool_call_disabled_with_non_serializable(agent
 
     # Verify no messages were recorded
     assert len(agent.messages) == 0
+
+
+def test_agent_empty_invoke():
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
+    agent = Agent(model=model, messages=[{"role": "user", "content": [{"text": "hello!"}]}])
+    result = agent()
+    assert str(result) == "hello!\n"
+    assert len(agent.messages) == 2
+
+
+def test_agent_empty_list_invoke():
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
+    agent = Agent(model=model, messages=[{"role": "user", "content": [{"text": "hello!"}]}])
+    result = agent([])
+    assert str(result) == "hello!\n"
+    assert len(agent.messages) == 2
+
+
+def test_agent_with_assistant_role_message():
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "world!"}]}])
+    agent = Agent(model=model)
+    assistant_message = [{"role": "assistant", "content": [{"text": "hello..."}]}]
+    result = agent(assistant_message)
+    assert str(result) == "world!\n"
+    assert len(agent.messages) == 2
+
+
+def test_agent_with_multiple_messages_on_invoke():
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "world!"}]}])
+    agent = Agent(model=model)
+    input_messages = [
+        {"role": "user", "content": [{"text": "hello"}]},
+        {"role": "assistant", "content": [{"text": "..."}]},
+    ]
+    result = agent(input_messages)
+    assert str(result) == "world!\n"
+    assert len(agent.messages) == 3
+
+
+def test_agent_with_invalid_input():
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "world!"}]}])
+    agent = Agent(model=model)
+    with pytest.raises(ValueError, match="Input prompt must be of type: `str | list[Contentblock] | Messages | None`."):
+        agent({"invalid": "input"})
+
+
+def test_agent_with_invalid_input_list():
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "world!"}]}])
+    agent = Agent(model=model)
+    with pytest.raises(ValueError, match="Input prompt must be of type: `str | list[Contentblock] | Messages | None`."):
+        agent([{"invalid": "input"}])
+
+
+def test_agent_with_list_of_message_and_content_block():
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "world!"}]}])
+    agent = Agent(model=model)
+    with pytest.raises(ValueError, match="Input prompt must be of type: `str | list[Contentblock] | Messages | None`."):
+        agent([{"role": "user", "content": [{"text": "hello"}]}, {"text", "hello"}])
 
 
 def test_agent_tool_call_parameter_filtering_integration(mock_randint):

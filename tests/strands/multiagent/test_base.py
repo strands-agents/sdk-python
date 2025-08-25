@@ -141,9 +141,35 @@ def test_multi_agent_base_abstract_behavior():
         async def invoke_async(self, task: str) -> MultiAgentResult:
             return MultiAgentResult(results={})
 
-        def __call__(self, task: str) -> MultiAgentResult:
-            return MultiAgentResult(results={})
-
-    # Should not raise an exception
+    # Should not raise an exception - __call__ is provided by base class
     agent = CompleteMultiAgent()
     assert isinstance(agent, MultiAgentBase)
+
+
+def test_multi_agent_base_call_method():
+    """Test that __call__ method properly delegates to invoke_async."""
+
+    class TestMultiAgent(MultiAgentBase):
+        def __init__(self):
+            self.invoke_async_called = False
+            self.received_task = None
+            self.received_kwargs = None
+
+        async def invoke_async(self, task, **kwargs):
+            self.invoke_async_called = True
+            self.received_task = task
+            self.received_kwargs = kwargs
+            return MultiAgentResult(
+                status=Status.COMPLETED, results={"test": NodeResult(result=Exception("test"), status=Status.COMPLETED)}
+            )
+
+    agent = TestMultiAgent()
+
+    # Test with string task
+    result = agent("test task", param1="value1", param2="value2")
+
+    assert agent.invoke_async_called
+    assert agent.received_task == "test task"
+    assert agent.received_kwargs == {"param1": "value1", "param2": "value2"}
+    assert isinstance(result, MultiAgentResult)
+    assert result.status == Status.COMPLETED
