@@ -23,7 +23,7 @@ from mcp.types import CallToolResult as MCPCallToolResult
 from mcp.types import GetPromptResult, ListPromptsResult
 from mcp.types import ImageContent as MCPImageContent
 from mcp.types import TextContent as MCPTextContent
-from mcp.types import EmbeddedResource as MCPEmbeddedResource  # <-- minimal add
+from mcp.types import EmbeddedResource as MCPEmbeddedResource
 
 from ...types import PaginatedList
 from ...types.exceptions import MCPClientInitializationError
@@ -429,7 +429,7 @@ class MCPClient:
 
     def _map_mcp_content_to_tool_result_content(
         self,
-        content: MCPTextContent | MCPImageContent | Any,
+        content: MCPTextContent | MCPImageContent | MCPEmbeddedResource | Any,
     ) -> Union[ToolResultContent, None]:
         """Maps MCP content types to tool result content types.
 
@@ -453,7 +453,6 @@ class MCPClient:
                     "source": {"bytes": base64.b64decode(content.data)},
                 }
             }
-        # If EmbeddedResource
         elif isinstance(content, MCPEmbeddedResource):
             self._log_debug_with_thread("mapping MCP embedded resource content")
             res = getattr(content, "resource", None)
@@ -530,7 +529,12 @@ class MCPClient:
             # Handle URI-only resources
             uri = _get("uri")
             if uri:
-                return {"text": f"[embedded resource] {uri} ({mime_type or 'unknown mime'})"}
+                return {
+                    "json": {
+                        "uri": uri,
+                        "mime_type": mime_type
+                    }
+                }
 
             # Make sure we return in all paths
             self._log_debug_with_thread("embedded resource had no usable text/blob/uri; dropping")
