@@ -455,17 +455,17 @@ class MCPClient:
             }
         elif isinstance(content, MCPEmbeddedResource):
             self._log_debug_with_thread("mapping MCP embedded resource content")
-            res = getattr(content, "resource", None)
-            if res is None:
+            resource = getattr(content, "resource", None)
+            if resource is None:
                 self._log_debug_with_thread("embedded resource has no 'resource' field - dropping")
                 return None
 
             # Support both pydantic model and dict access
             def _get(attr: str) -> Any:
-                if hasattr(res, attr):
-                    return getattr(res, attr)
-                if isinstance(res, dict):
-                    return res.get(attr)
+                if hasattr(resource, attr):
+                    return getattr(resource, attr)
+                if isinstance(resource, dict):
+                    return resource.get(attr)
                 return None
 
             text_val = _get("text")
