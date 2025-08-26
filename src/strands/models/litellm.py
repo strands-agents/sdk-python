@@ -211,15 +211,61 @@ class LiteLLMModel(OpenAIModel):
 
         # Find the first choice with tool_calls
         for choice in response.choices:
-            if choice.finish_reason == "tool_calls":
-                try:
-                    # Parse the tool call content as JSON
-                    tool_call_data = json.loads(choice.message.content)
-                    # Instantiate the output model with the parsed data
-                    yield {"output": output_model(**tool_call_data)}
-                    return
-                except (json.JSONDecodeError, TypeError, ValueError) as e:
-                    raise ValueError(f"Failed to parse or load content into model: {e}") from e
+            # Try to extract structured output from this choice
+            structured_data = self._extract_structured_data(choice, output_model)
+            if structured_data is not None:
+                yield {"output": structured_data}
+                return
 
-        # If no tool_calls found, raise an error
-        raise ValueError("No tool_calls found in response")
+        # If no structured output found, raise an error
+        raise ValueError("No structured output found in response")
+
+    def _extract_structured_data(self, choice: Any, output_model: Type[T]) -> Optional[T]:
+        """Extract structured data from a choice message."""
+        # Check for tool_calls/tool_use finish reasons
+        if choice.finish_reason == "tool_calls" or choice.finish_reason == "tool_use":
+            if hasattr(choice.message, "content") and choice.message.content:
+                try:
+                    tool_call_data = json.loads(choice.message.content)
+                    return output_model(**tool_call_data)
+                except (json.JSONDecodeError, TypeError, ValueError) as e:
+                    raise ValueError("Failed to parse or load content into model: %s" % e) from e
+
+        # Check for tool_use in content array
+        if hasattr(choice.message, "content") and isinstance(choice.message.content, list):
+            for content_item in choice.message.content:
+                if hasattr(content_item, "type") and content_item.type == "tool_use":
+                    if hasattr(content_item, "input") and content_item.input:
+                        try:
+                            return output_model(**content_item.input)
+                        except (TypeError, ValueError) as e:
+                            raise ValueError("Failed to load tool input into model: %s" % e) from e
+
+        # Check for stop_reason (LiteLLM specific)
+        if hasattr(choice, "stop_reason") and choice.stop_reason == "tool_use":
+            if hasattr(choice.message, "content") and isinstance(choice.message.content, list):
+                for content_item in choice.message.content:
+                    if hasattr(content_item, "type") and content_item.type == "tool_use":
+                        if hasattr(content_item, "input") and content_item.input:
+                            try:
+                                return output_model(**content_item.input)
+                            except (TypeError, ValueError) as e:
+                                raise ValueError("Failed to load tool input into model: %s" % e) from e
+
+        # Handle case where finish_reason is "stop" but content contains structured data
+        if choice.finish_reason == "stop" and hasattr(choice.message, "content") and choice.message.content:
+            try:
+                content_data = json.loads(choice.message.content)
+                if isinstance(content_data, dict) and all(isinstance(k, str) for k in content_data.keys()):
+                    try:
+                        return output_model(**content_data)
+                    except (TypeError, ValueError) as model_error:
+                        # Log the model instantiation error for debugging
+                        logger.debug("Failed to instantiate %s with data: %s", output_model.__name__, model_error)
+                        # Continue to next choice
+                        pass
+            except (json.JSONDecodeError, TypeError, ValueError):
+                # Continue to next choice
+                pass
+
+        return None
