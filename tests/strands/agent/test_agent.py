@@ -19,6 +19,7 @@ from strands.handlers.callback_handler import PrintingCallbackHandler, null_call
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
 from strands.telemetry.tracer import serialize
+from strands.types._events import EventLoopStopEvent, ModelStreamEvent
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
@@ -406,7 +407,7 @@ def test_agent__call__passes_invocation_state(mock_model, agent, tool, mock_even
         assert invocation_state["agent"] == agent
 
         # Return expected values from event_loop_cycle
-        yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
 
     mock_event_loop_cycle.side_effect = check_invocation_state
 
@@ -1144,12 +1145,12 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle, alist):
 
     # Define the side effect to simulate callback handler being called multiple times
     async def test_event_loop(*args, **kwargs):
-        yield {"callback": {"data": "First chunk"}}
-        yield {"callback": {"data": "Second chunk"}}
-        yield {"callback": {"data": "Final chunk", "complete": True}}
+        yield ModelStreamEvent({"data": "First chunk"})
+        yield ModelStreamEvent({"data": "Second chunk"})
+        yield ModelStreamEvent({"data": "Final chunk", "complete": True})
 
         # Return expected values from event_loop_cycle
-        yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
 
     mock_event_loop_cycle.side_effect = test_event_loop
     mock_callback = unittest.mock.Mock()
@@ -1234,7 +1235,7 @@ async def test_stream_async_passes_invocation_state(agent, mock_model, mock_even
         invocation_state = kwargs["invocation_state"]
         assert invocation_state["some_value"] == "a_value"
         # Return expected values from event_loop_cycle
-        yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
 
     mock_event_loop_cycle.side_effect = check_invocation_state
 
@@ -1366,7 +1367,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
     mock_get_tracer.return_value = mock_tracer
 
     async def test_event_loop(*args, **kwargs):
-        yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Agent Response"}]}, {}, {})}
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Agent Response"}]}, {}, {})
 
     mock_event_loop_cycle.side_effect = test_event_loop
 

@@ -30,9 +30,11 @@ from ..types._events import (
     EventLoopThrottleEvent,
     ForceStopEvent,
     ModelMessageEvent,
+    ModelStopReason,
     StartEvent,
     StartEventLoopEvent,
     ToolResultMessageEvent,
+    TypedEvent,
 )
 from ..types.content import Message
 from ..types.exceptions import (
@@ -56,7 +58,7 @@ INITIAL_DELAY = 4
 MAX_DELAY = 240  # 4 minutes
 
 
-async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
+async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
     """Execute a single cycle of the event loop.
 
     This core function processes a single conversation turn, handling model inference, tool execution, and error
@@ -139,17 +141,9 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
             )
 
             try:
-                # TODO: To maintain backwards compatibility, we need to combine the stream event with invocation_state
-                #       before yielding to the callback handler. This will be revisited when migrating to strongly
-                #       typed events.
                 async for event in stream_messages(agent.model, agent.system_prompt, agent.messages, tool_specs):
-                    if "callback" in event:
-                        yield {
-                            "callback": {
-                                **event["callback"],
-                                **(invocation_state if "delta" in event["callback"] else {}),
-                            }
-                        }
+                    if not isinstance(event, ModelStopReason):
+                        yield event
 
                 stop_reason, message, usage, metrics = event["stop"]
                 invocation_state.setdefault("request_state", {})
@@ -198,7 +192,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
                     time.sleep(current_delay)
                     current_delay = min(current_delay * 2, MAX_DELAY)
 
-                    yield EventLoopThrottleEvent(delay=current_delay, invocation_state=invocation_state)
+                    yield EventLoopThrottleEvent(delay=current_delay)
                 else:
                     raise e
 
@@ -280,7 +274,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
     yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
 
 
-async def recurse_event_loop(agent: "Agent", invocation_state: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
+async def recurse_event_loop(agent: "Agent", invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
     """Make a recursive call to event_loop_cycle with the current state.
 
     This function is used when the event loop needs to continue processing after tool execution.
@@ -321,7 +315,7 @@ async def _handle_tool_execution(
     cycle_span: Any,
     cycle_start_time: float,
     invocation_state: dict[str, Any],
-) -> AsyncGenerator[dict[str, Any], None]:
+) -> AsyncGenerator[TypedEvent, None]:
     """Handles the execution of tools requested by the model during an event loop cycle.
 
     Args:

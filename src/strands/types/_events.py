@@ -7,12 +7,17 @@ agent lifecycle.
 
 from typing import TYPE_CHECKING, Any
 
+from typing_extensions import override
+
 from ..telemetry import EventLoopMetrics
 from .content import Message
 from .event_loop import Metrics, StopReason, Usage
 from .streaming import ContentBlockDelta, StreamEvent
+from .tools import ToolResult, ToolUse
 
 if TYPE_CHECKING:
+    from ..agent import AgentResult
+
     pass
 
 
@@ -27,6 +32,23 @@ class TypedEvent(dict):
         """
         super().__init__(data or {})
 
+    @property
+    def is_callback_event(self) -> bool:
+        """True if this event should trigger the callback_handler to fire."""
+        return True
+
+    def as_dict(self) -> dict:
+        """Convert this event to a raw dictionary for emitting purposes."""
+        return {**self}
+
+    def prepare(self, invocation_state: dict) -> None:
+        """Prepare the event for emission by adding invocation state.
+
+        This allows a subset of events to merge with the invocation_state without needing to
+        pass around the invocation_state throughout the system.
+        """
+        ...
+
 
 class InitEventLoopEvent(TypedEvent):
     """Event emitted at the very beginning of agent execution.
@@ -38,9 +60,13 @@ class InitEventLoopEvent(TypedEvent):
             invocation_state: The invocation state passed into the request
     """
 
-    def __init__(self, invocation_state: dict) -> None:
+    def __init__(self) -> None:
         """Initialize the event loop initialization event."""
-        super().__init__({"callback": {"init_event_loop": True, **invocation_state}})
+        super().__init__({"init_event_loop": True})
+
+    @override
+    def prepare(self, invocation_state: dict) -> None:
+        self.update(**invocation_state)
 
 
 class StartEvent(TypedEvent):
@@ -55,7 +81,7 @@ class StartEvent(TypedEvent):
 
     def __init__(self) -> None:
         """Initialize the event loop start event."""
-        super().__init__({"callback": {"start": True}})
+        super().__init__({"start": True})
 
 
 class StartEventLoopEvent(TypedEvent):
@@ -67,7 +93,7 @@ class StartEventLoopEvent(TypedEvent):
 
     def __init__(self) -> None:
         """Initialize the event loop processing start event."""
-        super().__init__({"callback": {"start_event_loop": True}})
+        super().__init__({"start_event_loop": True})
 
 
 class ModelStreamChunkEvent(TypedEvent):
@@ -79,7 +105,11 @@ class ModelStreamChunkEvent(TypedEvent):
         Args:
             chunk: Incremental streaming data from the model response
         """
-        super().__init__({"callback": {"event": chunk}})
+        super().__init__({"event": chunk})
+
+    @property
+    def chunk(self) -> StreamEvent:
+        return self.get("event")  # type: ignore
 
 
 class ModelStreamEvent(TypedEvent):
@@ -97,13 +127,23 @@ class ModelStreamEvent(TypedEvent):
         """
         super().__init__(delta_data)
 
+    @property
+    def is_callback_event(self) -> bool:
+        # Only invoke a callback if we're non-empty
+        return len(self.keys()) > 0
+
+    @override
+    def prepare(self, invocation_state: dict) -> None:
+        if "delta" in self:
+            self.update(**invocation_state)
+
 
 class ToolUseStreamEvent(ModelStreamEvent):
     """Event emitted during tool use input streaming."""
 
     def __init__(self, delta: ContentBlockDelta, current_tool_use: dict[str, Any]) -> None:
         """Initialize with delta and current tool use state."""
-        super().__init__({"callback": {"delta": delta, "current_tool_use": current_tool_use}})
+        super().__init__({"delta": delta, "current_tool_use": current_tool_use})
 
 
 class TextStreamEvent(ModelStreamEvent):
@@ -111,7 +151,7 @@ class TextStreamEvent(ModelStreamEvent):
 
     def __init__(self, delta: ContentBlockDelta, text: str) -> None:
         """Initialize with delta and text content."""
-        super().__init__({"callback": {"data": text, "delta": delta}})
+        super().__init__({"data": text, "delta": delta})
 
 
 class ReasoningTextStreamEvent(ModelStreamEvent):
@@ -119,7 +159,7 @@ class ReasoningTextStreamEvent(ModelStreamEvent):
 
     def __init__(self, delta: ContentBlockDelta, reasoning_text: str | None) -> None:
         """Initialize with delta and reasoning text."""
-        super().__init__({"callback": {"reasoningText": reasoning_text, "delta": delta, "reasoning": True}})
+        super().__init__({"reasoningText": reasoning_text, "delta": delta, "reasoning": True})
 
 
 class ReasoningSignatureStreamEvent(ModelStreamEvent):
@@ -127,7 +167,7 @@ class ReasoningSignatureStreamEvent(ModelStreamEvent):
 
     def __init__(self, delta: ContentBlockDelta, reasoning_signature: str | None) -> None:
         """Initialize with delta and reasoning signature."""
-        super().__init__({"callback": {"reasoning_signature": reasoning_signature, "delta": delta, "reasoning": True}})
+        super().__init__({"reasoning_signature": reasoning_signature, "delta": delta, "reasoning": True})
 
 
 class ModelStopReason(TypedEvent):
@@ -150,6 +190,11 @@ class ModelStopReason(TypedEvent):
         """
         super().__init__({"stop": (stop_reason, message, usage, metrics)})
 
+    @property
+    @override
+    def is_callback_event(self) -> bool:
+        return False
+
 
 class EventLoopStopEvent(TypedEvent):
     """Event emitted when the agent execution completes normally."""
@@ -171,18 +216,76 @@ class EventLoopStopEvent(TypedEvent):
         """
         super().__init__({"stop": (stop_reason, message, metrics, request_state)})
 
+    @property
+    @override
+    def is_callback_event(self) -> bool:
+        return False
+
 
 class EventLoopThrottleEvent(TypedEvent):
     """Event emitted when the event loop is throttled due to rate limiting."""
 
-    def __init__(self, delay: int, invocation_state: dict[str, Any]) -> None:
+    def __init__(self, delay: int) -> None:
         """Initialize with the throttle delay duration.
 
         Args:
             delay: Delay in seconds before the next retry attempt
-            invocation_state: The invocation state passed into the request
         """
-        super().__init__({"callback": {"event_loop_throttled_delay": delay, **invocation_state}})
+        super().__init__({"event_loop_throttled_delay": delay})
+
+    @override
+    def prepare(self, invocation_state: dict) -> None:
+        self.update(**invocation_state)
+
+
+class ToolResultEvent(TypedEvent):
+    """Event emitted when a tool execution completes."""
+
+    def __init__(self, tool_result: ToolResult) -> None:
+        """Initialize with the completed tool result.
+
+        Args:
+            tool_result: Final result from the tool execution
+        """
+        super().__init__({"tool_result": tool_result})
+
+    @property
+    def tool_use_id(self) -> str:
+        """The toolUseId associated with this result."""
+        return self.get("tool_result").get("toolUseId")  # type: ignore
+
+    @property
+    def tool_result(self) -> ToolResult:
+        """Final result from the completed tool execution."""
+        return self.get("tool_result")  # type: ignore
+
+    @property
+    @override
+    def is_callback_event(self) -> bool:
+        return False
+
+
+class ToolStreamEvent(TypedEvent):
+    """Event emitted when a tool yields sub-events as part of tool execution."""
+
+    def __init__(self, tool_use: ToolUse, tool_sub_event: Any) -> None:
+        """Initialize with tool streaming data.
+
+        Args:
+            tool_use: The tool invocation producing the stream
+            tool_sub_event: The yielded event from the tool execution
+        """
+        super().__init__({"tool_stream_tool_use": tool_use, "tool_stream_event": tool_sub_event})
+
+    @property
+    def tool_use_id(self) -> str:
+        """The toolUseId associated with this stream."""
+        return self.get("tool_stream_tool_use").get("toolUseId")  # type: ignore
+
+    @property
+    @override
+    def is_callback_event(self) -> bool:
+        return False
 
 
 class ModelMessageEvent(TypedEvent):
@@ -198,7 +301,7 @@ class ModelMessageEvent(TypedEvent):
         Args:
             message: The response message from the model
         """
-        super().__init__({"callback": {"message": message}})
+        super().__init__({"message": message})
 
 
 class ToolResultMessageEvent(TypedEvent):
@@ -215,7 +318,7 @@ class ToolResultMessageEvent(TypedEvent):
         Args:
             message: Message containing tool results for conversation history
         """
-        super().__init__({"callback": {"message": message}})
+        super().__init__({"message": message})
 
 
 class ForceStopEvent(TypedEvent):
@@ -229,10 +332,13 @@ class ForceStopEvent(TypedEvent):
         """
         super().__init__(
             {
-                "callback": {
-                    "force_stop": True,
-                    "force_stop_reason": str(reason),
-                    # "force_stop_reason_exception": reason if reason and isinstance(reason, Exception) else MISSING,
-                }
+                "force_stop": True,
+                "force_stop_reason": str(reason),
+                # "force_stop_reason_exception": reason if reason and isinstance(reason, Exception) else MISSING,
             }
         )
+
+
+class AgentResultEvent(TypedEvent):
+    def __init__(self, result: "AgentResult"):
+        super().__init__({"result": result})
