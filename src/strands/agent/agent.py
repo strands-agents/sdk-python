@@ -22,7 +22,6 @@ from typing import (
     Mapping,
     Optional,
     Type,
-    TypeAlias,
     TypeVar,
     Union,
     cast,
@@ -51,6 +50,7 @@ from ..tools.executors import ConcurrentToolExecutor
 from ..tools.executors._executor import ToolExecutor
 from ..tools.registry import ToolRegistry
 from ..tools.watcher import ToolWatcher
+from ..types.agent import AgentInput
 from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.tools import ToolResult, ToolUse
@@ -66,8 +66,6 @@ logger = logging.getLogger(__name__)
 
 # TypeVar for generic structured output
 T = TypeVar("T", bound=BaseModel)
-
-AgentInput: TypeAlias = str | list[ContentBlock] | Messages | None
 
 
 # Sentinel class and object to distinguish between explicit None and default parameter value
