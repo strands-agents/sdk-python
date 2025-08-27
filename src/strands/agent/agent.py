@@ -50,6 +50,7 @@ from ..tools.executors import ConcurrentToolExecutor
 from ..tools.executors._executor import ToolExecutor
 from ..tools.registry import ToolRegistry
 from ..tools.watcher import ToolWatcher
+from ..types._events import InitEventLoopEvent
 from ..types.agent import AgentInput
 from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
@@ -604,7 +605,7 @@ class Agent:
         self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
 
         try:
-            yield {"callback": {"init_event_loop": True, **invocation_state}}
+            yield InitEventLoopEvent(invocation_state)
 
             for message in messages:
                 self._append_message(message)

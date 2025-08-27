@@ -4,6 +4,7 @@ import pytest
 
 import strands
 import strands.event_loop
+from strands.types._events import TypedEvent
 from strands.types.streaming import (
     ContentBlockDeltaEvent,
     ContentBlockStartEvent,
@@ -562,6 +563,10 @@ async def test_process_stream(response, exp_events, agenerator, alist):
     tru_events = await alist(stream)
     assert tru_events == exp_events
 
+    # Ensure that we're getting typed events coming out of process_stream
+    non_typed_events = [event for event in tru_events if not isinstance(event, TypedEvent)]
+    assert non_typed_events == []
+
 
 @pytest.mark.asyncio
 async def test_stream_messages(agenerator, alist):
@@ -624,3 +629,7 @@ async def test_stream_messages(agenerator, alist):
         None,
         "test prompt",
     )
+
+    # Ensure that we're getting typed events coming out of process_stream
+    non_typed_events = [event for event in tru_events if not isinstance(event, TypedEvent)]
+    assert non_typed_events == []
