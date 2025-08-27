@@ -16,7 +16,7 @@ from typing_extensions import Unpack, override
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StreamEvent
-from ..types.tools import ToolResult, ToolSpec, ToolUse
+from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -352,6 +352,7 @@ class WriterModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        tool_choice: Optional[ToolChoice] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Writer model.
@@ -360,6 +361,8 @@ class WriterModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation. **Note: This parameter is accepted for
+                interface consistency but is currently ignored for this model provider.**
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
