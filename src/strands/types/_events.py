@@ -5,7 +5,7 @@ providing a structured way to observe to different events of the event loop and
 agent lifecycle.
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from typing_extensions import override
 
@@ -17,8 +17,6 @@ from .tools import ToolResult, ToolUse
 
 if TYPE_CHECKING:
     from ..agent import AgentResult
-
-    pass
 
 
 class TypedEvent(dict):
@@ -66,7 +64,7 @@ class InitEventLoopEvent(TypedEvent):
 
     @override
     def prepare(self, invocation_state: dict) -> None:
-        self.update(**invocation_state)
+        self.update(invocation_state)
 
 
 class StartEvent(TypedEvent):
@@ -109,7 +107,7 @@ class ModelStreamChunkEvent(TypedEvent):
 
     @property
     def chunk(self) -> StreamEvent:
-        return self.get("event")  # type: ignore
+        return cast(StreamEvent, self.get("event"))
 
 
 class ModelStreamEvent(TypedEvent):
@@ -135,7 +133,7 @@ class ModelStreamEvent(TypedEvent):
     @override
     def prepare(self, invocation_state: dict) -> None:
         if "delta" in self:
-            self.update(**invocation_state)
+            self.update(invocation_state)
 
 
 class ToolUseStreamEvent(ModelStreamEvent):
@@ -235,7 +233,7 @@ class EventLoopThrottleEvent(TypedEvent):
 
     @override
     def prepare(self, invocation_state: dict) -> None:
-        self.update(**invocation_state)
+        self.update(invocation_state)
 
 
 class ToolResultEvent(TypedEvent):
@@ -252,12 +250,12 @@ class ToolResultEvent(TypedEvent):
     @property
     def tool_use_id(self) -> str:
         """The toolUseId associated with this result."""
-        return self.get("tool_result").get("toolUseId")  # type: ignore
+        return cast(str, cast(ToolResult, self.get("tool_result")).get("toolUseId"))
 
     @property
     def tool_result(self) -> ToolResult:
         """Final result from the completed tool execution."""
-        return self.get("tool_result")  # type: ignore
+        return cast(ToolResult, self.get("tool_result"))
 
     @property
     @override
@@ -280,7 +278,7 @@ class ToolStreamEvent(TypedEvent):
     @property
     def tool_use_id(self) -> str:
         """The toolUseId associated with this stream."""
-        return self.get("tool_stream_tool_use").get("toolUseId")  # type: ignore
+        return cast(str, cast(ToolUse, self.get("tool_stream_tool_use")).get("toolUseId"))
 
     @property
     @override
@@ -334,7 +332,6 @@ class ForceStopEvent(TypedEvent):
             {
                 "force_stop": True,
                 "force_stop_reason": str(reason),
-                # "force_stop_reason_exception": reason if reason and isinstance(reason, Exception) else MISSING,
             }
         )
 
