@@ -68,7 +68,8 @@ class BedrockModel(Model):
             guardrail_redact_output_message: If a Bedrock Output guardrail triggers, replace output with this message.
             max_tokens: Maximum number of tokens to generate in the response
             model_id: The Bedrock model ID (e.g., "us.anthropic.claude-sonnet-4-20250514-v1:0")
-            remove_tool_result_status: Flag to remove status field from tool results. True removes status, False keeps status, "auto" keeps status. Defaults to None.
+            remove_tool_result_status: Flag to remove status field from tool results.
+                True removes status, False keeps status, "auto" keeps status. Defaults to None.
             stop_sequences: List of sequences that will stop generation when encountered
             streaming: Flag to enable/disable streaming. Defaults to True.
             temperature: Controls randomness in generation (higher = more random)
