@@ -7,15 +7,16 @@ thread pools, etc.).
 import abc
 import logging
 import time
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, AsyncGenerator, cast
 
 from opentelemetry import trace as trace_api
 
 from ...experimental.hooks import AfterToolInvocationEvent, BeforeToolInvocationEvent
 from ...telemetry.metrics import Trace
 from ...telemetry.tracer import get_tracer
+from ...types._events import ToolResultEvent, ToolStreamEvent, TypedEvent
 from ...types.content import Message
-from ...types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolGenerator, ToolResult, ToolUse
+from ...types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolResult, ToolUse
 
 if TYPE_CHECKING:  # pragma: no cover
     from ...agent import Agent
@@ -33,7 +34,7 @@ class ToolExecutor(abc.ABC):
         tool_results: list[ToolResult],
         invocation_state: dict[str, Any],
         **kwargs: Any,
-    ) -> ToolGenerator:
+    ) -> AsyncGenerator[TypedEvent, None]:
         """Stream tool events.
 
         This method adds additional logic to the stream invocation including:
@@ -113,12 +114,12 @@ class ToolExecutor(abc.ABC):
                         result=result,
                     )
                 )
-                yield after_event.result
+                yield ToolResultEvent(after_event.result)
                 tool_results.append(after_event.result)
                 return
 
             async for event in selected_tool.stream(tool_use, invocation_state, **kwargs):
-                yield event
+                yield ToolStreamEvent(tool_use, event)
 
             result = cast(ToolResult, event)
 
@@ -131,7 +132,8 @@ class ToolExecutor(abc.ABC):
                     result=result,
                 )
             )
-            yield after_event.result
+
+            yield ToolResultEvent(after_event.result)
             tool_results.append(after_event.result)
 
         except Exception as e:
@@ -151,7 +153,7 @@ class ToolExecutor(abc.ABC):
                     exception=e,
                 )
             )
-            yield after_event.result
+            yield ToolResultEvent(after_event.result)
             tool_results.append(after_event.result)
 
     @staticmethod
@@ -163,7 +165,7 @@ class ToolExecutor(abc.ABC):
         cycle_span: Any,
         invocation_state: dict[str, Any],
         **kwargs: Any,
-    ) -> ToolGenerator:
+    ) -> AsyncGenerator[TypedEvent, None]:
         """Execute tool with tracing and metrics collection.
 
         Args:
@@ -190,7 +192,8 @@ class ToolExecutor(abc.ABC):
             async for event in ToolExecutor._stream(agent, tool_use, tool_results, invocation_state, **kwargs):
                 yield event
 
-            result = cast(ToolResult, event)
+            result_event = cast(ToolResultEvent, event)
+            result = result_event.tool_result
 
             tool_success = result.get("status") == "success"
             tool_duration = time.time() - tool_start_time
@@ -210,7 +213,7 @@ class ToolExecutor(abc.ABC):
         cycle_trace: Trace,
         cycle_span: Any,
         invocation_state: dict[str, Any],
-    ) -> ToolGenerator:
+    ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the given tools according to this executor's strategy.
 
         Args:

@@ -2,8 +2,8 @@ import logging
 
 import pytest
 
-from src.strands.agent import AgentResult
 from strands import Agent, tool
+from strands.agent import AgentResult
 from strands.models.bedrock import BedrockModel
 from strands.types.exceptions import MaxTokensReachedException
 

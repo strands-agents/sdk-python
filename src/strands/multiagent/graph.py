@@ -201,10 +201,6 @@ def _validate_node_executor(
         if executor._session_manager is not None:
             raise ValueError("Session persistence is not supported for Graph agents yet.")
 
-        # Check for callbacks
-        if executor.hooks.has_callbacks():
-            raise ValueError("Agent callbacks are not supported for Graph agents yet.")
-
 
 class GraphBuilder:
     """Builder pattern for constructing graphs."""

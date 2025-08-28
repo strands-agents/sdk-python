@@ -7,7 +7,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union
+from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -18,8 +18,11 @@ from typing_extensions import TypedDict, Unpack, override
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Message, Messages
-from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
-from ..types.streaming import StreamEvent
+from ..types.exceptions import (
+    ContextWindowOverflowException,
+    ModelThrottledException,
+)
+from ..types.streaming import CitationsDelta, StreamEvent
 from ..types.tools import ToolResult, ToolSpec
 from .model import Model
 
@@ -523,7 +526,7 @@ class BedrockModel(Model):
         yield {"messageStart": {"role": response["output"]["message"]["role"]}}
 
         # Process content blocks
-        for content in response["output"]["message"]["content"]:
+        for content in cast(list[ContentBlock], response["output"]["message"]["content"]):
             # Yield contentBlockStart event if needed
             if "toolUse" in content:
                 yield {
@@ -566,6 +569,24 @@ class BedrockModel(Model):
                             }
                         }
                     }
+            elif "citationsContent" in content:
+                # For non-streaming citations, emit text and metadata deltas in sequence
+                # to match streaming behavior where they flow naturally
+                if "content" in content["citationsContent"]:
+                    text_content = "".join([content["text"] for content in content["citationsContent"]["content"]])
+                    yield {
+                        "contentBlockDelta": {"delta": {"text": text_content}},
+                    }
+
+                for citation in content["citationsContent"]["citations"]:
+                    # Then emit citation metadata (for structure)
+
+                    citation_metadata: CitationsDelta = {
+                        "title": citation["title"],
+                        "location": citation["location"],
+                        "sourceContent": citation["sourceContent"],
+                    }
+                    yield {"contentBlockDelta": {"delta": {"citation": citation_metadata}}}
 
             # Yield contentBlockStop event
             yield {"contentBlockStop": {}}

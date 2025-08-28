@@ -19,6 +19,7 @@ from strands.handlers.callback_handler import PrintingCallbackHandler, null_call
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
 from strands.telemetry.tracer import serialize
+from strands.types._events import EventLoopStopEvent, ModelStreamEvent
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
@@ -406,7 +407,7 @@ def test_agent__call__passes_invocation_state(mock_model, agent, tool, mock_even
         assert invocation_state["agent"] == agent
 
         # Return expected values from event_loop_cycle
-        yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
 
     mock_event_loop_cycle.side_effect = check_invocation_state
 
@@ -668,62 +669,71 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
     )
 
     agent("test")
-    callback_handler.assert_has_calls(
-        [
-            unittest.mock.call(init_event_loop=True),
-            unittest.mock.call(start=True),
-            unittest.mock.call(start_event_loop=True),
-            unittest.mock.call(
-                event={"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "test"}}}}
-            ),
-            unittest.mock.call(event={"contentBlockDelta": {"delta": {"toolUse": {"input": '{"value"}'}}}}),
-            unittest.mock.call(
-                agent=agent,
-                current_tool_use={"toolUseId": "123", "name": "test", "input": {}},
-                delta={"toolUse": {"input": '{"value"}'}},
-                event_loop_cycle_id=unittest.mock.ANY,
-                event_loop_cycle_span=unittest.mock.ANY,
-                event_loop_cycle_trace=unittest.mock.ANY,
-                request_state={},
-            ),
-            unittest.mock.call(event={"contentBlockStop": {}}),
-            unittest.mock.call(event={"contentBlockStart": {"start": {}}}),
-            unittest.mock.call(event={"contentBlockDelta": {"delta": {"reasoningContent": {"text": "value"}}}}),
-            unittest.mock.call(
-                agent=agent,
-                delta={"reasoningContent": {"text": "value"}},
-                event_loop_cycle_id=unittest.mock.ANY,
-                event_loop_cycle_span=unittest.mock.ANY,
-                event_loop_cycle_trace=unittest.mock.ANY,
-                reasoning=True,
-                reasoningText="value",
-                request_state={},
-            ),
-            unittest.mock.call(event={"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "value"}}}}),
-            unittest.mock.call(
-                agent=agent,
-                delta={"reasoningContent": {"signature": "value"}},
-                event_loop_cycle_id=unittest.mock.ANY,
-                event_loop_cycle_span=unittest.mock.ANY,
-                event_loop_cycle_trace=unittest.mock.ANY,
-                reasoning=True,
-                reasoning_signature="value",
-                request_state={},
-            ),
-            unittest.mock.call(event={"contentBlockStop": {}}),
-            unittest.mock.call(event={"contentBlockStart": {"start": {}}}),
-            unittest.mock.call(event={"contentBlockDelta": {"delta": {"text": "value"}}}),
-            unittest.mock.call(
-                agent=agent,
-                data="value",
-                delta={"text": "value"},
-                event_loop_cycle_id=unittest.mock.ANY,
-                event_loop_cycle_span=unittest.mock.ANY,
-                event_loop_cycle_trace=unittest.mock.ANY,
-                request_state={},
-            ),
-            unittest.mock.call(event={"contentBlockStop": {}}),
-            unittest.mock.call(
+    assert callback_handler.call_args_list == [
+        unittest.mock.call(init_event_loop=True),
+        unittest.mock.call(start=True),
+        unittest.mock.call(start_event_loop=True),
+        unittest.mock.call(event={"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "test"}}}}),
+        unittest.mock.call(event={"contentBlockDelta": {"delta": {"toolUse": {"input": '{"value"}'}}}}),
+        unittest.mock.call(
+            agent=agent,
+            current_tool_use={"toolUseId": "123", "name": "test", "input": {}},
+            delta={"toolUse": {"input": '{"value"}'}},
+            event_loop_cycle_id=unittest.mock.ANY,
+            event_loop_cycle_span=unittest.mock.ANY,
+            event_loop_cycle_trace=unittest.mock.ANY,
+            request_state={},
+        ),
+        unittest.mock.call(event={"contentBlockStop": {}}),
+        unittest.mock.call(event={"contentBlockStart": {"start": {}}}),
+        unittest.mock.call(event={"contentBlockDelta": {"delta": {"reasoningContent": {"text": "value"}}}}),
+        unittest.mock.call(
+            agent=agent,
+            delta={"reasoningContent": {"text": "value"}},
+            event_loop_cycle_id=unittest.mock.ANY,
+            event_loop_cycle_span=unittest.mock.ANY,
+            event_loop_cycle_trace=unittest.mock.ANY,
+            reasoning=True,
+            reasoningText="value",
+            request_state={},
+        ),
+        unittest.mock.call(event={"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "value"}}}}),
+        unittest.mock.call(
+            agent=agent,
+            delta={"reasoningContent": {"signature": "value"}},
+            event_loop_cycle_id=unittest.mock.ANY,
+            event_loop_cycle_span=unittest.mock.ANY,
+            event_loop_cycle_trace=unittest.mock.ANY,
+            reasoning=True,
+            reasoning_signature="value",
+            request_state={},
+        ),
+        unittest.mock.call(event={"contentBlockStop": {}}),
+        unittest.mock.call(event={"contentBlockStart": {"start": {}}}),
+        unittest.mock.call(event={"contentBlockDelta": {"delta": {"text": "value"}}}),
+        unittest.mock.call(
+            agent=agent,
+            data="value",
+            delta={"text": "value"},
+            event_loop_cycle_id=unittest.mock.ANY,
+            event_loop_cycle_span=unittest.mock.ANY,
+            event_loop_cycle_trace=unittest.mock.ANY,
+            request_state={},
+        ),
+        unittest.mock.call(event={"contentBlockStop": {}}),
+        unittest.mock.call(
+            message={
+                "role": "assistant",
+                "content": [
+                    {"toolUse": {"toolUseId": "123", "name": "test", "input": {}}},
+                    {"reasoningContent": {"reasoningText": {"text": "value", "signature": "value"}}},
+                    {"text": "value"},
+                ],
+            },
+        ),
+        unittest.mock.call(
+            result=AgentResult(
+                stop_reason="end_turn",
                 message={
                     "role": "assistant",
                     "content": [
@@ -732,9 +742,11 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
                         {"text": "value"},
                     ],
                 },
-            ),
-        ],
-    )
+                metrics=unittest.mock.ANY,
+                state={},
+            )
+        ),
+    ]
 
 
 @pytest.mark.asyncio
@@ -1133,12 +1145,12 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle, alist):
 
     # Define the side effect to simulate callback handler being called multiple times
     async def test_event_loop(*args, **kwargs):
-        yield {"callback": {"data": "First chunk"}}
-        yield {"callback": {"data": "Second chunk"}}
-        yield {"callback": {"data": "Final chunk", "complete": True}}
+        yield ModelStreamEvent({"data": "First chunk"})
+        yield ModelStreamEvent({"data": "Second chunk"})
+        yield ModelStreamEvent({"data": "Final chunk", "complete": True})
 
         # Return expected values from event_loop_cycle
-        yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
 
     mock_event_loop_cycle.side_effect = test_event_loop
     mock_callback = unittest.mock.Mock()
@@ -1223,7 +1235,7 @@ async def test_stream_async_passes_invocation_state(agent, mock_model, mock_even
         invocation_state = kwargs["invocation_state"]
         assert invocation_state["some_value"] == "a_value"
         # Return expected values from event_loop_cycle
-        yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})}
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
 
     mock_event_loop_cycle.side_effect = check_invocation_state
 
@@ -1355,7 +1367,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
     mock_get_tracer.return_value = mock_tracer
 
     async def test_event_loop(*args, **kwargs):
-        yield {"stop": ("stop", {"role": "assistant", "content": [{"text": "Agent Response"}]}, {}, {})}
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Agent Response"}]}, {}, {})
 
     mock_event_loop_cycle.side_effect = test_event_loop
 

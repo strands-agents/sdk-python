@@ -1,7 +1,7 @@
 """Summarizing conversation history management with configurable options."""
 
 import logging
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional, cast
 
 from typing_extensions import override
 
@@ -201,8 +201,7 @@ class SummarizingConversationManager(ConversationManager):
 
             # Use the agent to generate summary with rich content (can use tools if needed)
             result = summarization_agent("Please summarize this conversation.")
-
-            return result.message
+            return cast(Message, {**result.message, "role": "user"})
 
         finally:
             # Restore original agent state

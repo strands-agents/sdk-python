@@ -486,7 +486,7 @@ async def test_cycle_exception(
     ]
 
     tru_stop_event = None
-    exp_stop_event = {"callback": {"force_stop": True, "force_stop_reason": "Invalid error presented"}}
+    exp_stop_event = {"force_stop": True, "force_stop_reason": "Invalid error presented"}
 
     with pytest.raises(EventLoopException):
         stream = strands.event_loop.event_loop.event_loop_cycle(
