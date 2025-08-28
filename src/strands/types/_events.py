@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, cast
 from typing_extensions import override
 
 from ..telemetry import EventLoopMetrics
+from .citations import Citation
 from .content import Message
 from .event_loop import Metrics, StopReason, Usage
 from .streaming import ContentBlockDelta, StreamEvent
@@ -150,6 +151,14 @@ class TextStreamEvent(ModelStreamEvent):
     def __init__(self, delta: ContentBlockDelta, text: str) -> None:
         """Initialize with delta and text content."""
         super().__init__({"data": text, "delta": delta})
+
+
+class CitationStreamEvent(ModelStreamEvent):
+    """Event emitted during citation streaming."""
+
+    def __init__(self, delta: ContentBlockDelta, citation: Citation) -> None:
+        """Initialize with delta and citation content."""
+        super().__init__({"callback": {"citation": citation, "delta": delta}})
 
 
 class ReasoningTextStreamEvent(ModelStreamEvent):
