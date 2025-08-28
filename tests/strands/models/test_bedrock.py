@@ -1268,7 +1268,35 @@ def test_format_request_removes_status_field_when_configured(model, model_id):
     assert "status" not in tool_result
 
 
-def test_format_request_keeps_status_field_by_default(model, model_id):
+def test_format_request_keeps_status_field_with_auto(model, model_id):
+    """Test that format_request keeps status field when remove_tool_result_status="auto"."""
+    # Configure model with auto setting
+    model.update_config(remove_tool_result_status="auto")
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [{"text": "Tool output"}],
+                        "toolUseId": "tool123",
+                        "status": "success",
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    # Verify toolResult contains status field with auto setting
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+    expected = {"content": [{"text": "Tool output"}], "toolUseId": "tool123", "status": "success"}
+    assert tool_result == expected
+    assert "status" in tool_result
+
+
     """Test that format_request keeps status field by default."""
     messages = [
         {

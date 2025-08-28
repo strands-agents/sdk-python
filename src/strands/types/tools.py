@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
 
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import TypedDict
 
 from .media import DocumentContent, ImageContent
 
@@ -91,7 +91,7 @@ class ToolResult(TypedDict):
     """
 
     content: list[ToolResultContent]
-    status: NotRequired[ToolResultStatus]
+    status: ToolResultStatus
     toolUseId: str
 
 
