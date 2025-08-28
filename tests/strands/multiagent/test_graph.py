@@ -873,30 +873,12 @@ def test_graph_validate_unsupported_features():
         def register_hooks(self, registry, **kwargs):
             registry.add_callback(AgentInitializedEvent, lambda e: None)
 
-    agent_with_hooks = create_mock_agent("agent_with_hooks")
-    agent_with_hooks._session_manager = None
-    agent_with_hooks.hooks = HookRegistry()
-    agent_with_hooks.hooks.add_hook(TestHookProvider())
-
-    builder = GraphBuilder()
-    with pytest.raises(ValueError, match="Agent callbacks are not supported for Graph agents yet"):
-        builder.add_node(agent_with_hooks)
-
     # Test validation in Graph constructor (when nodes are passed directly)
     # Test with session manager in Graph constructor
     node_with_session = GraphNode("node_with_session", agent_with_session)
     with pytest.raises(ValueError, match="Session persistence is not supported for Graph agents yet"):
         Graph(
             nodes={"node_with_session": node_with_session},
-            edges=set(),
-            entry_points=set(),
-        )
-
-    # Test with callbacks in Graph constructor
-    node_with_hooks = GraphNode("node_with_hooks", agent_with_hooks)
-    with pytest.raises(ValueError, match="Agent callbacks are not supported for Graph agents yet"):
-        Graph(
-            nodes={"node_with_hooks": node_with_hooks},
             edges=set(),
             entry_points=set(),
         )
