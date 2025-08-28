@@ -115,7 +115,6 @@ class BedrockModel(Model):
                 Defaults to the AWS_REGION environment variable if set, or "us-west-2" if not set.
             endpoint_url: Custom endpoint URL for VPC endpoints (PrivateLink)
             **model_config: Configuration options for the Bedrock model.
-                Use endpoint_url for VPC endpoint connectivity.
         """
         if region_name and boto_session:
             raise ValueError("Cannot specify both `region_name` and `boto_session`.")
