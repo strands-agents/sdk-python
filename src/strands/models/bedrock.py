@@ -281,7 +281,7 @@ class BedrockModel(Model):
 
                     if self.config.get("remove_tool_result_status") is True:
                         # Remove status field when explicitly configured
-                        cleaned_tool_result = ToolResult(
+                        cleaned_tool_result = ToolResult(  # type: ignore[typeddict-item]
                             toolUseId=tool_result["toolUseId"], content=tool_result["content"]
                         )
                     else:
