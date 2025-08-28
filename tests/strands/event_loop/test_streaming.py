@@ -146,7 +146,7 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
     ],
 )
 def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_updated_state, callback_args):
-    exp_callback_event = {"callback": {**callback_args, "delta": event["delta"]}} if callback_args else {}
+    exp_callback_event = {**callback_args, "delta": event["delta"]} if callback_args else {}
 
     tru_updated_state, tru_callback_event = strands.event_loop.streaming.handle_content_block_delta(event, state)
 
@@ -316,85 +316,71 @@ def test_extract_usage_metrics_with_cache_tokens():
             ],
             [
                 {
-                    "callback": {
-                        "event": {
-                            "messageStart": {
-                                "role": "assistant",
-                            },
+                    "event": {
+                        "messageStart": {
+                            "role": "assistant",
                         },
                     },
                 },
                 {
-                    "callback": {
-                        "event": {
-                            "contentBlockStart": {
-                                "start": {
-                                    "toolUse": {
-                                        "name": "test",
-                                        "toolUseId": "123",
-                                    },
+                    "event": {
+                        "contentBlockStart": {
+                            "start": {
+                                "toolUse": {
+                                    "name": "test",
+                                    "toolUseId": "123",
                                 },
                             },
                         },
                     },
                 },
                 {
-                    "callback": {
-                        "event": {
-                            "contentBlockDelta": {
-                                "delta": {
-                                    "toolUse": {
-                                        "input": '{"key": "value"}',
-                                    },
+                    "event": {
+                        "contentBlockDelta": {
+                            "delta": {
+                                "toolUse": {
+                                    "input": '{"key": "value"}',
                                 },
                             },
                         },
                     },
                 },
                 {
-                    "callback": {
-                        "current_tool_use": {
-                            "input": {
-                                "key": "value",
-                            },
-                            "name": "test",
-                            "toolUseId": "123",
+                    "current_tool_use": {
+                        "input": {
+                            "key": "value",
                         },
-                        "delta": {
-                            "toolUse": {
-                                "input": '{"key": "value"}',
-                            },
+                        "name": "test",
+                        "toolUseId": "123",
+                    },
+                    "delta": {
+                        "toolUse": {
+                            "input": '{"key": "value"}',
                         },
                     },
                 },
                 {
-                    "callback": {
-                        "event": {
-                            "contentBlockStop": {},
+                    "event": {
+                        "contentBlockStop": {},
+                    },
+                },
+                {
+                    "event": {
+                        "messageStop": {
+                            "stopReason": "tool_use",
                         },
                     },
                 },
                 {
-                    "callback": {
-                        "event": {
-                            "messageStop": {
-                                "stopReason": "tool_use",
+                    "event": {
+                        "metadata": {
+                            "metrics": {
+                                "latencyMs": 1,
                             },
-                        },
-                    },
-                },
-                {
-                    "callback": {
-                        "event": {
-                            "metadata": {
-                                "metrics": {
-                                    "latencyMs": 1,
-                                },
-                                "usage": {
-                                    "inputTokens": 1,
-                                    "outputTokens": 1,
-                                    "totalTokens": 1,
-                                },
+                            "usage": {
+                                "inputTokens": 1,
+                                "outputTokens": 1,
+                                "totalTokens": 1,
                             },
                         },
                     },
@@ -417,9 +403,7 @@ def test_extract_usage_metrics_with_cache_tokens():
             [{}],
             [
                 {
-                    "callback": {
-                        "event": {},
-                    },
+                    "event": {},
                 },
                 {
                     "stop": (
@@ -463,80 +447,64 @@ def test_extract_usage_metrics_with_cache_tokens():
             ],
             [
                 {
-                    "callback": {
-                        "event": {
-                            "messageStart": {
-                                "role": "assistant",
+                    "event": {
+                        "messageStart": {
+                            "role": "assistant",
+                        },
+                    },
+                },
+                {
+                    "event": {
+                        "contentBlockStart": {
+                            "start": {},
+                        },
+                    },
+                },
+                {
+                    "event": {
+                        "contentBlockDelta": {
+                            "delta": {
+                                "text": "Hello!",
                             },
                         },
                     },
                 },
                 {
-                    "callback": {
-                        "event": {
-                            "contentBlockStart": {
-                                "start": {},
+                    "data": "Hello!",
+                    "delta": {
+                        "text": "Hello!",
+                    },
+                },
+                {
+                    "event": {
+                        "contentBlockStop": {},
+                    },
+                },
+                {
+                    "event": {
+                        "messageStop": {
+                            "stopReason": "guardrail_intervened",
+                        },
+                    },
+                },
+                {
+                    "event": {
+                        "redactContent": {
+                            "redactAssistantContentMessage": "REDACTED.",
+                            "redactUserContentMessage": "REDACTED",
+                        },
+                    },
+                },
+                {
+                    "event": {
+                        "metadata": {
+                            "metrics": {
+                                "latencyMs": 1,
                             },
-                        },
-                    },
-                },
-                {
-                    "callback": {
-                        "event": {
-                            "contentBlockDelta": {
-                                "delta": {
-                                    "text": "Hello!",
-                                },
-                            },
-                        },
-                    },
-                },
-                {
-                    "callback": {
-                        "data": "Hello!",
-                        "delta": {
-                            "text": "Hello!",
-                        },
-                    },
-                },
-                {
-                    "callback": {
-                        "event": {
-                            "contentBlockStop": {},
-                        },
-                    },
-                },
-                {
-                    "callback": {
-                        "event": {
-                            "messageStop": {
-                                "stopReason": "guardrail_intervened",
-                            },
-                        },
-                    },
-                },
-                {
-                    "callback": {
-                        "event": {
-                            "redactContent": {
-                                "redactAssistantContentMessage": "REDACTED.",
-                                "redactUserContentMessage": "REDACTED",
-                            },
-                        },
-                    },
-                },
-                {
-                    "callback": {
-                        "event": {
-                            "metadata": {
-                                "metrics": {
-                                    "latencyMs": 1,
-                                },
-                                "usage": {
-                                    "inputTokens": 1,
-                                    "outputTokens": 1,
-                                    "totalTokens": 1,
-                                },
+                            "usage": {
+                                "inputTokens": 1,
+                                "outputTokens": 1,
+                                "totalTokens": 1,
                             },
                         },
                     },
@@ -588,29 +556,23 @@ async def test_stream_messages(agenerator, alist):
     tru_events = await alist(stream)
     exp_events = [
         {
-            "callback": {
-                "event": {
-                    "contentBlockDelta": {
-                        "delta": {
-                            "text": "test",
-                        },
+            "event": {
+                "contentBlockDelta": {
+                    "delta": {
+                        "text": "test",
                     },
                 },
             },
         },
         {
-            "callback": {
-                "data": "test",
-                "delta": {
-                    "text": "test",
-                },
+            "data": "test",
+            "delta": {
+                "text": "test",
             },
         },
         {
-            "callback": {
-                "event": {
-                    "contentBlockStop": {},
-                },
+            "event": {
+                "contentBlockStop": {},
             },
         },
         {

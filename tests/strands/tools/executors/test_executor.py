@@ -6,6 +6,8 @@ import strands
 from strands.experimental.hooks import AfterToolInvocationEvent, BeforeToolInvocationEvent
 from strands.telemetry.metrics import Trace
 from strands.tools.executors._executor import ToolExecutor
+from strands.types._events import ToolResultEvent, ToolStreamEvent
+from strands.types.tools import ToolUse
 
 
 @pytest.fixture
@@ -32,18 +34,18 @@ def tracer():
 async def test_executor_stream_yields_result(
     executor, agent, tool_results, invocation_state, hook_events, weather_tool, alist
 ):
-    tool_use = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+    tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
     stream = executor._stream(agent, tool_use, tool_results, invocation_state)
 
     tru_events = await alist(stream)
     exp_events = [
-        {"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]},
-        {"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]},
+        ToolStreamEvent(tool_use, {"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]}),
+        ToolResultEvent({"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]}),
     ]
     assert tru_events == exp_events
 
     tru_results = tool_results
-    exp_results = [exp_events[-1]]
+    exp_results = [exp_events[-1].tool_result]
     assert tru_results == exp_results
 
     tru_hook_events = hook_events
@@ -73,11 +75,11 @@ async def test_executor_stream_yields_tool_error(
     stream = executor._stream(agent, tool_use, tool_results, invocation_state)
 
     tru_events = await alist(stream)
-    exp_events = [{"toolUseId": "1", "status": "error", "content": [{"text": "Error: Tool error"}]}]
+    exp_events = [ToolResultEvent({"toolUseId": "1", "status": "error", "content": [{"text": "Error: Tool error"}]})]
     assert tru_events == exp_events
 
     tru_results = tool_results
-    exp_results = [exp_events[-1]]
+    exp_results = [exp_events[-1].tool_result]
     assert tru_results == exp_results
 
     tru_hook_after_event = hook_events[-1]
@@ -98,11 +100,13 @@ async def test_executor_stream_yields_unknown_tool(executor, agent, tool_results
     stream = executor._stream(agent, tool_use, tool_results, invocation_state)
 
     tru_events = await alist(stream)
-    exp_events = [{"toolUseId": "1", "status": "error", "content": [{"text": "Unknown tool: unknown_tool"}]}]
+    exp_events = [
+        ToolResultEvent({"toolUseId": "1", "status": "error", "content": [{"text": "Unknown tool: unknown_tool"}]})
+    ]
     assert tru_events == exp_events
 
     tru_results = tool_results
-    exp_results = [exp_events[-1]]
+    exp_results = [exp_events[-1].tool_result]
     assert tru_results == exp_results
 
     tru_hook_after_event = hook_events[-1]
@@ -120,18 +124,18 @@ async def test_executor_stream_yields_unknown_tool(executor, agent, tool_results
 async def test_executor_stream_with_trace(
     executor, tracer, agent, tool_results, cycle_trace, cycle_span, invocation_state, alist
 ):
-    tool_use = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+    tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
     stream = executor._stream_with_trace(agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state)
 
     tru_events = await alist(stream)
     exp_events = [
-        {"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]},
-        {"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]},
+        ToolStreamEvent(tool_use, {"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]}),
+        ToolResultEvent({"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]}),
     ]
     assert tru_events == exp_events
 
     tru_results = tool_results
-    exp_results = [exp_events[-1]]
+    exp_results = [exp_events[-1].tool_result]
     assert tru_results == exp_results
 
     tracer.start_tool_call_span.assert_called_once_with(tool_use, cycle_span)

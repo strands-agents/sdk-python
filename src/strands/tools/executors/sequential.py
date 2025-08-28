@@ -1,11 +1,12 @@
 """Sequential tool executor implementation."""
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from typing_extensions import override
 
 from ...telemetry.metrics import Trace
-from ...types.tools import ToolGenerator, ToolResult, ToolUse
+from ...types._events import TypedEvent
+from ...types.tools import ToolResult, ToolUse
 from ._executor import ToolExecutor
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -24,7 +25,7 @@ class SequentialToolExecutor(ToolExecutor):
         cycle_trace: Trace,
         cycle_span: Any,
         invocation_state: dict[str, Any],
-    ) -> ToolGenerator:
+    ) -> AsyncGenerator[TypedEvent, None]:
         """Execute tools sequentially.
 
         Args:

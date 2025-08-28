@@ -50,7 +50,7 @@ from ..tools.executors import ConcurrentToolExecutor
 from ..tools.executors._executor import ToolExecutor
 from ..tools.registry import ToolRegistry
 from ..tools.watcher import ToolWatcher
-from ..types._events import InitEventLoopEvent
+from ..types._events import AgentResultEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
 from ..types.agent import AgentInput
 from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
@@ -576,13 +576,16 @@ class Agent:
                 events = self._run_loop(messages, invocation_state=kwargs)
 
                 async for event in events:
-                    if "callback" in event:
-                        callback_handler(**event["callback"])
-                        yield event["callback"]
+                    event.prepare(invocation_state=kwargs)
+
+                    if event.is_callback_event:
+                        as_dict = event.as_dict()
+                        callback_handler(**as_dict)
+                        yield as_dict
 
                 result = AgentResult(*event["stop"])
                 callback_handler(result=result)
-                yield {"result": result}
+                yield AgentResultEvent(result=result).as_dict()
 
                 self._end_agent_trace_span(response=result)
 
@@ -590,9 +593,7 @@ class Agent:
                 self._end_agent_trace_span(error=e)
                 raise
 
-    async def _run_loop(
-        self, messages: Messages, invocation_state: dict[str, Any]
-    ) -> AsyncGenerator[dict[str, Any], None]:
+    async def _run_loop(self, messages: Messages, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
         """Execute the agent's event loop with the given message and parameters.
 
         Args:
@@ -605,7 +606,7 @@ class Agent:
         self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
 
         try:
-            yield InitEventLoopEvent(invocation_state)
+            yield InitEventLoopEvent()
 
             for message in messages:
                 self._append_message(message)
@@ -616,13 +617,13 @@ class Agent:
                 # Signal from the model provider that the message sent by the user should be redacted,
                 # likely due to a guardrail.
                 if (
-                    event.get("callback")
-                    and event["callback"].get("event")
-                    and event["callback"]["event"].get("redactContent")
-                    and event["callback"]["event"]["redactContent"].get("redactUserContentMessage")
+                    isinstance(event, ModelStreamChunkEvent)
+                    and event.chunk
+                    and event.chunk.get("redactContent")
+                    and event.chunk["redactContent"].get("redactUserContentMessage")
                 ):
                     self.messages[-1]["content"] = [
-                        {"text": event["callback"]["event"]["redactContent"]["redactUserContentMessage"]}
+                        {"text": str(event.chunk["redactContent"]["redactUserContentMessage"])}
                     ]
                     if self._session_manager:
                         self._session_manager.redact_latest_message(self.messages[-1], self)
@@ -632,7 +633,7 @@ class Agent:
             self.conversation_manager.apply_management(self)
             self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
-    async def _execute_event_loop_cycle(self, invocation_state: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
+    async def _execute_event_loop_cycle(self, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
         """Execute the event loop cycle with retry logic for context window limits.
 
         This internal method handles the execution of the event loop cycle and implements
