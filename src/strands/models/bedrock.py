@@ -28,8 +28,8 @@ from .model import Model
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
 DEFAULT_BEDROCK_REGION = "us-west-2"
+DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
 
 BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
     "Input is too long for requested model",
@@ -133,8 +133,13 @@ class BedrockModel(Model):
 
         session = boto_session or boto3.Session()
         resolved_region = region_name or session.region_name or os.environ.get("AWS_REGION") or DEFAULT_BEDROCK_REGION
-        self.config = BedrockModel.BedrockConfig(model_id=self._get_default_model_for_region(resolved_region))
 
+        # get default model id based on resolved region
+        resolved_model_id = self._get_default_model_for_region(resolved_region)
+        if resolved_model_id == "":
+            raise ValueError("default model {} is not available in {} region. Specify another model".format(DEFAULT_BEDROCK_MODEL_ID, resolved_region))
+
+        self.config = BedrockModel.BedrockConfig(model_id=resolved_model_id)
         self.update_config(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -352,18 +357,15 @@ class BedrockModel(Model):
         return events
 
     def _get_default_model_for_region(self, region: str) -> str:
-        priorities = [
-            "sonnet-4",
-            "3-7-sonnet",  # Claude 3.7 sonnet as a fallback
-        ]
         client = boto3.client("bedrock", region_name=region)
         response = client.list_inference_profiles()
         inferenceProfileSummary = response["inferenceProfileSummaries"]
-        for priority in priorities:
-            for profile in inferenceProfileSummary:
-                if priority in profile["inferenceProfileId"]:
-                    return profile["inferenceProfileId"]
-        return None
+        
+        for profile in inferenceProfileSummary:
+            if DEFAULT_BEDROCK_MODEL_ID in profile["inferenceProfileId"]:
+                return profile["inferenceProfileId"]
+
+        return ""
 
     @override
     async def stream(
