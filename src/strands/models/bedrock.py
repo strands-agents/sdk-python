@@ -432,6 +432,8 @@ class BedrockModel(Model):
             logger.debug("got response from model")
             if streaming:
                 response = self.client.converse_stream(**request)
+                # Track tool use events to fix stopReason for streaming responses
+                has_tool_use = False
                 for chunk in response["stream"]:
                     if (
                         "metadata" in chunk
@@ -443,7 +445,24 @@ class BedrockModel(Model):
                             for event in self._generate_redaction_events():
                                 callback(event)
 
-                    callback(chunk)
+                    # Track if we see tool use events
+                    if "contentBlockStart" in chunk and chunk["contentBlockStart"].get("start", {}).get("toolUse"):
+                        has_tool_use = True
+
+                    # Fix stopReason for streaming responses that contain tool use
+                    if "messageStop" in chunk and has_tool_use:
+                        message_stop = chunk["messageStop"]
+                        if message_stop.get("stopReason") == "end_turn":
+                            # Create corrected chunk with tool_use stopReason
+                            modified_chunk = chunk.copy()
+                            modified_chunk["messageStop"] = message_stop.copy()
+                            modified_chunk["messageStop"]["stopReason"] = "tool_use"
+                            logger.info("Override stop reason from end_turn to tool_use")
+                            callback(modified_chunk)
+                        else:
+                            callback(chunk)
+                    else:
+                        callback(chunk)
 
             else:
                 response = self.client.converse(**request)
@@ -579,9 +598,17 @@ class BedrockModel(Model):
             yield {"contentBlockStop": {}}
 
         # Yield messageStop event
+        # Fix stopReason for models that return end_turn when they should return tool_use on non-streaming side
+        current_stop_reason = response["stopReason"]
+        if current_stop_reason == "end_turn":
+            message_content = response["output"]["message"]["content"]
+            if any("toolUse" in content for content in message_content):
+                current_stop_reason = "tool_use"
+                logger.info("Override stop reason from end_turn to tool_use")
+
         yield {
             "messageStop": {
-                "stopReason": response["stopReason"],
+                "stopReason": current_stop_reason,
                 "additionalModelResponseFields": response.get("additionalModelResponseFields"),
             }
         }
