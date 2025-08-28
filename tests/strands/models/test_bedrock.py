@@ -117,7 +117,7 @@ def test__init__default_model_id(bedrock_client):
     """Test that BedrockModel uses DEFAULT_MODEL_ID when no model_id is provided."""
     _ = bedrock_client
     model = BedrockModel()
-
+    
     tru_model_id = model.get_config().get("model_id")
     exp_model_id = DEFAULT_BEDROCK_MODEL_ID
 
