@@ -140,7 +140,7 @@ def test__init__with_default_region(session_cls, mock_client_method, mock_bedroc
     with unittest.mock.patch.object(os, "environ", {}):
         BedrockModel()
         session_cls.return_value.client.assert_called_with(
-            region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY
+            region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY, endpoint_url=None
         )
 
 
@@ -150,14 +150,14 @@ def test__init__with_session_region(session_cls, mock_client_method, mock_bedroc
 
     BedrockModel()
 
-    mock_client_method.assert_called_with(region_name="eu-blah-1", config=ANY, service_name=ANY)
+    mock_client_method.assert_called_with(region_name="eu-blah-1", config=ANY, service_name=ANY, endpoint_url=None)
 
 
 def test__init__with_custom_region(mock_client_method, mock_bedrock_inference_profiles):
     """Test that BedrockModel uses the provided region."""
     custom_region = "us-east-1"
     BedrockModel(region_name=custom_region)
-    mock_client_method.assert_called_with(region_name=custom_region, config=ANY, service_name=ANY)
+    mock_client_method.assert_called_with(region_name=custom_region, config=ANY, service_name=ANY, endpoint_url=None)
 
 
 def test__init__with_default_environment_variable_region(mock_client_method, mock_bedrock_inference_profiles):
@@ -165,7 +165,7 @@ def test__init__with_default_environment_variable_region(mock_client_method, moc
     with unittest.mock.patch.object(os, "environ", {"AWS_REGION": "eu-west-2"}):
         BedrockModel()
 
-    mock_client_method.assert_called_with(region_name="eu-west-2", config=ANY, service_name=ANY)
+    mock_client_method.assert_called_with(region_name="eu-west-2", config=ANY, service_name=ANY, endpoint_url=None)
 
 
 def test__init__region_precedence(mock_client_method, session_cls, mock_bedrock_inference_profiles):
@@ -175,21 +175,38 @@ def test__init__region_precedence(mock_client_method, session_cls, mock_bedrock_
 
         # specifying a region always wins out
         BedrockModel(region_name="us-specified-1")
-        mock_client_method.assert_called_with(region_name="us-specified-1", config=ANY, service_name=ANY)
+        mock_client_method.assert_called_with(
+            region_name="us-specified-1", config=ANY, service_name=ANY, endpoint_url=None
+        )
 
         # other-wise uses the session's
         BedrockModel()
-        mock_client_method.assert_called_with(region_name="us-session-1", config=ANY, service_name=ANY)
+        mock_client_method.assert_called_with(
+            region_name="us-session-1", config=ANY, service_name=ANY, endpoint_url=None
+        )
 
         # environment variable next
         session_cls.return_value.region_name = None
         BedrockModel()
-        mock_client_method.assert_called_with(region_name="us-environment-1", config=ANY, service_name=ANY)
+        mock_client_method.assert_called_with(
+            region_name="us-environment-1", config=ANY, service_name=ANY, endpoint_url=None
+        )
 
         mock_os_environ.pop("AWS_REGION")
         session_cls.return_value.region_name = None  # No session region
         BedrockModel()
-        mock_client_method.assert_called_with(region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY)
+        mock_client_method.assert_called_with(
+            region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY, endpoint_url=None
+        )
+
+
+def test__init__with_endpoint_url(mock_client_method):
+    """Test that BedrockModel uses the provided endpoint_url for VPC endpoints."""
+    custom_endpoint = "https://vpce-12345-abcde.bedrock-runtime.us-west-2.vpce.amazonaws.com"
+    BedrockModel(endpoint_url=custom_endpoint)
+    mock_client_method.assert_called_with(
+        region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY, endpoint_url=custom_endpoint
+    )
 
 
 def test__init__with_region_and_session_raises_value_error():
