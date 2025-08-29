@@ -71,6 +71,8 @@ class BedrockModel(Model):
             guardrail_redact_output_message: If a Bedrock Output guardrail triggers, replace output with this message.
             max_tokens: Maximum number of tokens to generate in the response
             model_id: The Bedrock model ID (e.g., "us.anthropic.claude-sonnet-4-20250514-v1:0")
+            remove_tool_result_status: Flag to remove status field from tool results.
+                True removes status, False keeps status, "auto" keeps status. Defaults to None.
             stop_sequences: List of sequences that will stop generation when encountered
             streaming: Flag to enable/disable streaming. Defaults to True.
             temperature: Controls randomness in generation (higher = more random)
@@ -92,6 +94,7 @@ class BedrockModel(Model):
         guardrail_redact_output_message: Optional[str]
         max_tokens: Optional[int]
         model_id: str
+        remove_tool_result_status: Optional[Literal["auto"] | bool]
         stop_sequences: Optional[list[str]]
         streaming: Optional[bool]
         temperature: Optional[float]
@@ -282,10 +285,18 @@ class BedrockModel(Model):
                     # Create a new content block with only the cleaned toolResult
                     tool_result: ToolResult = content_block["toolResult"]
 
-                    # Keep only the required fields for Bedrock
-                    cleaned_tool_result = ToolResult(
-                        content=tool_result["content"], toolUseId=tool_result["toolUseId"], status=tool_result["status"]
-                    )
+                    if self.config.get("remove_tool_result_status") is True:
+                        # Remove status field when explicitly configured
+                        cleaned_tool_result = ToolResult(  # type: ignore[typeddict-item]
+                            toolUseId=tool_result["toolUseId"], content=tool_result["content"]
+                        )
+                    else:
+                        # Keep status field by default
+                        cleaned_tool_result = ToolResult(
+                            content=tool_result["content"],
+                            toolUseId=tool_result["toolUseId"],
+                            status=tool_result["status"],
+                        )
 
                     cleaned_block: ContentBlock = {"toolResult": cleaned_tool_result}
                     cleaned_content.append(cleaned_block)
