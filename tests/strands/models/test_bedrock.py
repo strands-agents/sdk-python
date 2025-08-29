@@ -1227,6 +1227,53 @@ async def test_stream_logging(bedrock_client, model, messages, caplog, alist):
     assert "finished streaming response from model" in log_text
 
 
+@pytest.mark.asyncio
+async def test_stream_stop_reason_override_streaming(bedrock_client, model, messages, alist):
+    """Test that stopReason is overridden from end_turn to tool_use in streaming mode when tool use is detected."""
+    bedrock_client.converse_stream.return_value = {
+        "stream": [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "test_tool"}}}},
+            {"contentBlockDelta": {"delta": {"test": {"input": '{"param": "value"}'}}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    }
+
+    response = model.stream(messages)
+    events = await alist(response)
+
+    # Find the messageStop event
+    message_stop_event = next(event for event in events if "messageStop" in event)
+
+    # Verify stopReason was overridden to tool_use
+    assert message_stop_event["messageStop"]["stopReason"] == "tool_use"
+
+
+@pytest.mark.asyncio
+async def test_stream_stop_reason_override_non_streaming(bedrock_client, alist, messages):
+    """Test that stopReason is overridden from end_turn to tool_use in non-streaming mode when tool use is detected."""
+    bedrock_client.converse.return_value = {
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [{"toolUse": {"toolUseId": "123", "name": "test_tool", "input": {"param": "value"}}}],
+            }
+        },
+        "stopReason": "end_turn",
+    }
+
+    model = BedrockModel(model_id="test-model", streaming=False)
+    response = model.stream(messages)
+    events = await alist(response)
+
+    # Find the messageStop event
+    message_stop_event = next(event for event in events if "messageStop" in event)
+
+    # Verify stopReason was overridden to tool_use
+    assert message_stop_event["messageStop"]["stopReason"] == "tool_use"
+
+
 def test_format_request_cleans_tool_result_content_blocks(model, model_id):
     """Test that format_request cleans toolResult blocks by removing extra fields."""
     messages = [
