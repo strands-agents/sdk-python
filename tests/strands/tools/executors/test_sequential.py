@@ -1,7 +1,7 @@
 import pytest
 
 from strands.tools.executors import SequentialToolExecutor
-from strands.types._events import ToolResultEvent, ToolStreamEvent
+from strands.types._events import ToolResultEvent
 
 
 @pytest.fixture
@@ -21,13 +21,11 @@ async def test_sequential_executor_execute(
 
     tru_events = await alist(stream)
     exp_events = [
-        ToolStreamEvent(tool_uses[0], {"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]}),
         ToolResultEvent({"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]}),
-        ToolStreamEvent(tool_uses[1], {"toolUseId": "2", "status": "success", "content": [{"text": "75F"}]}),
         ToolResultEvent({"toolUseId": "2", "status": "success", "content": [{"text": "75F"}]}),
     ]
     assert tru_events == exp_events
 
     tru_results = tool_results
-    exp_results = [exp_events[1].tool_result, exp_events[3].tool_result]
+    exp_results = [exp_events[0].tool_result, exp_events[1].tool_result]
     assert tru_results == exp_results

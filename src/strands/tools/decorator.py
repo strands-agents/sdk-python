@@ -53,6 +53,7 @@ from typing import (
     Type,
     TypeVar,
     Union,
+    cast,
     get_type_hints,
     overload,
 )
@@ -61,7 +62,8 @@ import docstring_parser
 from pydantic import BaseModel, Field, create_model
 from typing_extensions import override
 
-from ..types.tools import AgentTool, JSONSchema, ToolContext, ToolGenerator, ToolSpec, ToolUse
+from ..types._events import ToolResultEvent, ToolStreamEvent
+from ..types.tools import AgentTool, JSONSchema, ToolContext, ToolGenerator, ToolResult, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
 
@@ -454,43 +456,67 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             # Inject special framework-provided parameters
             self._metadata.inject_special_parameters(validated_input, tool_use, invocation_state)
 
-            # "Too few arguments" expected, hence the type ignore
-            if inspect.iscoroutinefunction(self._tool_func):
+            # Note: "Too few arguments" expected for the _tool_func calls, hence the type ignore
+
+            # Async-generators, yield streaming events and final tool result
+            if inspect.isasyncgenfunction(self._tool_func):
+                sub_events = self._tool_func(**validated_input)  # type: ignore
+                async for sub_event in sub_events:
+                    yield ToolStreamEvent(tool_use, sub_event)
+
+                # The last event is the result
+                yield self._wrap_tool_result(tool_use_id, sub_event)
+
+            # Async functions, yield only the result
+            elif inspect.iscoroutinefunction(self._tool_func):
                 result = await self._tool_func(**validated_input)  # type: ignore
+                yield self._wrap_tool_result(tool_use_id, result)
+
+            # Other functions, yield only the result
             else:
                 result = await asyncio.to_thread(self._tool_func, **validated_input)  # type: ignore
-
-            # FORMAT THE RESULT for Strands Agent
-            if isinstance(result, dict) and "status" in result and "content" in result:
-                # Result is already in the expected format, just add toolUseId
-                result["toolUseId"] = tool_use_id
-                yield result
-            else:
-                # Wrap any other return value in the standard format
-                # Always include at least one content item for consistency
-                yield {
-                    "toolUseId": tool_use_id,
-                    "status": "success",
-                    "content": [{"text": str(result)}],
-                }
+                yield self._wrap_tool_result(tool_use_id, result)
 
         except ValueError as e:
             # Special handling for validation errors
             error_msg = str(e)
-            yield {
-                "toolUseId": tool_use_id,
-                "status": "error",
-                "content": [{"text": f"Error: {error_msg}"}],
-            }
+            yield self._wrap_tool_result(
+                tool_use_id,
+                {
+                    "toolUseId": tool_use_id,
+                    "status": "error",
+                    "content": [{"text": f"Error: {error_msg}"}],
+                },
+            )
         except Exception as e:
             # Return error result with exception details for any other error
             error_type = type(e).__name__
             error_msg = str(e)
-            yield {
-                "toolUseId": tool_use_id,
-                "status": "error",
-                "content": [{"text": f"Error: {error_type} - {error_msg}"}],
-            }
+            yield self._wrap_tool_result(
+                tool_use_id,
+                {
+                    "toolUseId": tool_use_id,
+                    "status": "error",
+                    "content": [{"text": f"Error: {error_type} - {error_msg}"}],
+                },
+            )
+
+    def _wrap_tool_result(self, tool_use_d: str, result: Any) -> ToolResultEvent:
+        # FORMAT THE RESULT for Strands Agent
+        if isinstance(result, dict) and "status" in result and "content" in result:
+            # Result is already in the expected format, just add toolUseId
+            result["toolUseId"] = tool_use_d
+            return ToolResultEvent(cast(ToolResult, result))
+        else:
+            # Wrap any other return value in the standard format
+            # Always include at least one content item for consistency
+            return ToolResultEvent(
+                {
+                    "toolUseId": tool_use_d,
+                    "status": "success",
+                    "content": [{"text": str(result)}],
+                }
+            )
 
     @property
     def supports_hot_reload(self) -> bool:

@@ -1,4 +1,5 @@
 import unittest.mock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -39,7 +40,6 @@ async def test_executor_stream_yields_result(
 
     tru_events = await alist(stream)
     exp_events = [
-        ToolStreamEvent(tool_use, {"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]}),
         ToolResultEvent({"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]}),
     ]
     assert tru_events == exp_events
@@ -65,6 +65,76 @@ async def test_executor_stream_yields_result(
         ),
     ]
     assert tru_hook_events == exp_hook_events
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_wraps_results(
+    executor, agent, tool_results, invocation_state, hook_events, weather_tool, alist, agenerator
+):
+    tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+
+    weather_tool.stream = MagicMock()
+    weather_tool.stream.return_value = agenerator(
+        ["value 1", {"nested": True}, {"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]}]
+    )
+
+    tru_events = await alist(stream)
+    exp_events = [
+        ToolStreamEvent(tool_use, "value 1"),
+        ToolStreamEvent(tool_use, {"nested": True}),
+        ToolStreamEvent(tool_use, {"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]}),
+        ToolResultEvent({"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]}),
+    ]
+    assert tru_events == exp_events
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_passes_through_typed_events(
+    executor, agent, tool_results, invocation_state, hook_events, weather_tool, alist, agenerator
+):
+    tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+
+    weather_tool.stream = MagicMock()
+    event_1 = ToolStreamEvent(tool_use, "value 1")
+    event_2 = ToolStreamEvent(tool_use, {"nested": True})
+    event_3 = ToolResultEvent({"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]})
+    weather_tool.stream.return_value = agenerator(
+        [
+            event_1,
+            event_2,
+            event_3,
+        ]
+    )
+
+    tru_events = await alist(stream)
+    assert tru_events[0] is event_1
+    assert tru_events[1] is event_2
+
+    # ToolResults are not passed through directly, they're unwrapped then wraped again
+    assert tru_events[2] == event_3
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_wraps_stream_events_if_no_result(
+    executor, agent, tool_results, invocation_state, hook_events, weather_tool, alist, agenerator
+):
+    tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+
+    weather_tool.stream = MagicMock()
+    last_event = ToolStreamEvent(tool_use, "value 1")
+    # Only ToolResultEvent can be the last value; all others are wrapped in ToolResultEvent
+    weather_tool.stream.return_value = agenerator(
+        [
+            last_event,
+        ]
+    )
+
+    tru_events = await alist(stream)
+    exp_events = [last_event, ToolResultEvent(last_event)]
+    assert tru_events == exp_events
 
 
 @pytest.mark.asyncio
@@ -129,7 +199,6 @@ async def test_executor_stream_with_trace(
 
     tru_events = await alist(stream)
     exp_events = [
-        ToolStreamEvent(tool_use, {"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]}),
         ToolResultEvent({"toolUseId": "1", "status": "success", "content": [{"text": "sunny"}]}),
     ]
     assert tru_events == exp_events
