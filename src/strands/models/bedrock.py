@@ -103,6 +103,7 @@ class BedrockModel(Model):
         boto_session: Optional[boto3.Session] = None,
         boto_client_config: Optional[BotocoreConfig] = None,
         region_name: Optional[str] = None,
+        endpoint_url: Optional[str] = None,
         **model_config: Unpack[BedrockConfig],
     ):
         """Initialize provider instance.
@@ -112,6 +113,7 @@ class BedrockModel(Model):
             boto_client_config: Configuration to use when creating the Bedrock-Runtime Boto Client.
             region_name: AWS region to use for the Bedrock service.
                 Defaults to the AWS_REGION environment variable if set, or "us-west-2" if not set.
+            endpoint_url: Custom endpoint URL for VPC endpoints (PrivateLink)
             **model_config: Configuration options for the Bedrock model.
         """
         if region_name and boto_session:
@@ -143,6 +145,7 @@ class BedrockModel(Model):
         self.client = session.client(
             service_name="bedrock-runtime",
             config=client_config,
+            endpoint_url=endpoint_url,
             region_name=resolved_region,
         )
 
