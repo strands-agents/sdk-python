@@ -453,17 +453,17 @@ class BedrockModel(Model):
                         has_tool_use = True
 
                     # Fix stopReason for streaming responses that contain tool use
-                    if "messageStop" in chunk and has_tool_use:
-                        message_stop = chunk["messageStop"]
-                        if message_stop.get("stopReason") == "end_turn":
-                            # Create corrected chunk with tool_use stopReason
-                            modified_chunk = chunk.copy()
-                            modified_chunk["messageStop"] = message_stop.copy()
-                            modified_chunk["messageStop"]["stopReason"] = "tool_use"
-                            logger.info("Override stop reason from end_turn to tool_use")
-                            callback(modified_chunk)
-                        else:
-                            callback(chunk)
+                    if (
+                        has_tool_use
+                        and "messageStop" in chunk
+                        and (message_stop := chunk["messageStop"]).get("stopReason") == "end_turn"
+                    ):
+                        # Create corrected chunk with tool_use stopReason
+                        modified_chunk = chunk.copy()
+                        modified_chunk["messageStop"] = message_stop.copy()
+                        modified_chunk["messageStop"]["stopReason"] = "tool_use"
+                        logger.warning("Override stop reason from end_turn to tool_use")
+                        callback(modified_chunk)
                     else:
                         callback(chunk)
 
@@ -607,7 +607,7 @@ class BedrockModel(Model):
             message_content = response["output"]["message"]["content"]
             if any("toolUse" in content for content in message_content):
                 current_stop_reason = "tool_use"
-                logger.info("Override stop reason from end_turn to tool_use")
+                logger.warning("Override stop reason from end_turn to tool_use")
 
         yield {
             "messageStop": {
