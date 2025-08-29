@@ -2,6 +2,7 @@
 Tests for the function-based tool decorator pattern.
 """
 
+from asyncio import Queue
 from typing import Any, Dict, Optional, Union
 from unittest.mock import MagicMock
 
@@ -1039,7 +1040,7 @@ async def test_tool_with_complex_anyof_schema(alist):
     assert "NoneType: None" in result["content"][0]["text"]
 
 
-async def _run_context_injection_test(context_tool: AgentTool):
+async def _run_context_injection_test(context_tool: AgentTool, additional_context=None):
     """Common test logic for context injection tests."""
     tool: AgentTool = context_tool
     generator = tool.stream(
@@ -1052,6 +1053,7 @@ async def _run_context_injection_test(context_tool: AgentTool):
         },
         invocation_state={
             "agent": Agent(name="test_agent"),
+            **(additional_context or {}),
         },
     )
     tool_results = [value async for value in generator]
@@ -1074,12 +1076,16 @@ async def _run_context_injection_test(context_tool: AgentTool):
 async def test_tool_context_injection_default():
     """Test that ToolContext is properly injected with default parameter name (tool_context)."""
 
+    value_to_pass = Queue()  # a complex value that is not serializable
+
     @strands.tool(context=True)
     def context_tool(message: str, agent: Agent, tool_context: ToolContext) -> dict:
         """Tool that uses ToolContext to access tool_use_id."""
         tool_use_id = tool_context.tool_use["toolUseId"]
         tool_name = tool_context.tool_use["name"]
         agent_from_tool_context = tool_context.agent
+
+        assert tool_context.invocation_state["test_reference"] is value_to_pass
 
         return {
             "status": "success",
@@ -1090,7 +1096,12 @@ async def test_tool_context_injection_default():
             ],
         }
 
-    await _run_context_injection_test(context_tool)
+    await _run_context_injection_test(
+        context_tool,
+        {
+            "test_reference": value_to_pass,
+        },
+    )
 
 
 @pytest.mark.asyncio
