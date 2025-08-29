@@ -266,5 +266,128 @@ def test_streamable_http_mcp_client():
         assert "Hello, Charlie!" in prompt_text
 
 
+def test_mcp_client_embedded_resources():
+    """Test that MCP client properly handles EmbeddedResource content types."""
+    embedded_resource_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/embedded_resource_server.py"]))
+    )
+
+    with embedded_resource_mcp_client:
+        # Test text embedded resource
+        text_result = embedded_resource_mcp_client.call_tool_sync(
+            tool_use_id="test-embedded-text",
+            name="get_text_file_content",
+            arguments={},
+        )
+        assert text_result["status"] == "success"
+        assert len(text_result["content"]) == 1
+        assert text_result["content"][0]["text"] == "Hello, this is embedded text content!"
+
+        # Test JSON embedded resource (blob with textual MIME type)
+        json_result = embedded_resource_mcp_client.call_tool_sync(
+            tool_use_id="test-embedded-json",
+            name="get_json_file_content",
+            arguments={},
+        )
+        assert json_result["status"] == "success"
+        assert len(json_result["content"]) == 1
+        json_content = json_result["content"][0]["text"]
+        assert "Hello from embedded JSON!" in json_content
+        assert "test" in json_content
+
+        # Test YAML embedded resource (blob with textual MIME type)
+        yaml_result = embedded_resource_mcp_client.call_tool_sync(
+            tool_use_id="test-embedded-yaml",
+            name="get_yaml_file_content",
+            arguments={},
+        )
+        assert yaml_result["status"] == "success"
+        assert len(yaml_result["content"]) == 1
+        yaml_content = yaml_result["content"][0]["text"]
+        assert "Hello from embedded YAML!" in yaml_content
+        assert "item1" in yaml_content
+
+        # Test image embedded resource
+        image_result = embedded_resource_mcp_client.call_tool_sync(
+            tool_use_id="test-embedded-image",
+            name="get_image_content",
+            arguments={},
+        )
+        assert image_result["status"] == "success"
+        assert len(image_result["content"]) == 1
+        assert "image" in image_result["content"][0]
+        assert image_result["content"][0]["image"]["format"] == "png"
+        assert "bytes" in image_result["content"][0]["image"]["source"]
+
+        # Test binary embedded resource (should be dropped due to non-textual MIME type)
+        binary_result = embedded_resource_mcp_client.call_tool_sync(
+            tool_use_id="test-embedded-binary",
+            name="get_binary_content",
+            arguments={},
+        )
+        assert binary_result["status"] == "success"
+        # Binary content should be dropped, so no content returned
+        assert len(binary_result["content"]) == 0
+
+
+@pytest.mark.asyncio
+async def test_mcp_client_embedded_resources_async():
+    """Test that async MCP client properly handles EmbeddedResource content types."""
+    embedded_resource_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/embedded_resource_server.py"]))
+    )
+
+    with embedded_resource_mcp_client:
+        # Test text embedded resource async
+        text_result = await embedded_resource_mcp_client.call_tool_async(
+            tool_use_id="test-embedded-text-async",
+            name="get_text_file_content",
+            arguments={},
+        )
+        assert text_result["status"] == "success"
+        assert len(text_result["content"]) == 1
+        assert text_result["content"][0]["text"] == "Hello, this is embedded text content!"
+
+        # Test JSON embedded resource async
+        json_result = await embedded_resource_mcp_client.call_tool_async(
+            tool_use_id="test-embedded-json-async",
+            name="get_json_file_content",
+            arguments={},
+        )
+        assert json_result["status"] == "success"
+        assert len(json_result["content"]) == 1
+        json_content = json_result["content"][0]["text"]
+        assert "Hello from embedded JSON!" in json_content
+
+
+def test_mcp_client_embedded_resources_with_agent():
+    """Test that embedded resources work correctly when used with Agent."""
+    embedded_resource_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/embedded_resource_server.py"]))
+    )
+
+    with embedded_resource_mcp_client:
+        tools = embedded_resource_mcp_client.list_tools_sync()
+        agent = Agent(tools=tools)
+        
+        # Test that agent can successfully use tools that return embedded resources
+        result = agent("Get the text file content and tell me what it says")
+        
+        # Check that the agent successfully processed the embedded resource
+        assert result.message is not None
+        response_text = " ".join([
+            block["text"] 
+            for block in result.message["content"] 
+            if "text" in block
+        ]).lower()
+        
+        # The agent should have received and processed the embedded text content
+        assert any([
+            "hello" in response_text,
+            "embedded text content" in response_text,
+            "text content" in response_text
+        ])
+
+
 def _messages_to_content_blocks(messages: List[Message]) -> List[ToolUse]:
     return [block["toolUse"] for message in messages for block in message["content"] if "toolUse" in block]
