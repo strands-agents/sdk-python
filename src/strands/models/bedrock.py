@@ -28,8 +28,8 @@ from .model import Model
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
 DEFAULT_BEDROCK_REGION = "us-west-2"
+DEFAULT_BEDROCK_MODEL_ID = "anthropic.claude-sonnet-4-20250514-v1:0"
 
 BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
     "Input is too long for requested model",
@@ -119,13 +119,6 @@ class BedrockModel(Model):
         if region_name and boto_session:
             raise ValueError("Cannot specify both `region_name` and `boto_session`.")
 
-        self.config = BedrockModel.BedrockConfig(model_id=DEFAULT_BEDROCK_MODEL_ID)
-        self.update_config(**model_config)
-
-        logger.debug("config=<%s> | initializing", self.config)
-
-        session = boto_session or boto3.Session()
-
         # Add strands-agents to the request user agent
         if boto_client_config:
             existing_user_agent = getattr(boto_client_config, "user_agent_extra", None)
@@ -140,7 +133,22 @@ class BedrockModel(Model):
         else:
             client_config = BotocoreConfig(user_agent_extra="strands-agents")
 
+        session = boto_session or boto3.Session()
         resolved_region = region_name or session.region_name or os.environ.get("AWS_REGION") or DEFAULT_BEDROCK_REGION
+
+        # get default model id based on resolved region
+        resolved_model_id = self._get_default_model_for_region(resolved_region)
+        if resolved_model_id == "":
+            raise ValueError(
+                "default model {} is not available in {} region. Specify another model".format(
+                    DEFAULT_BEDROCK_MODEL_ID, resolved_region
+                )
+            )
+
+        self.config = BedrockModel.BedrockConfig(model_id=resolved_model_id)
+        self.update_config(**model_config)
+
+        logger.debug("config=<%s> | initializing", self.config)
 
         self.client = session.client(
             service_name="bedrock-runtime",
@@ -354,6 +362,20 @@ class BedrockModel(Model):
             )
 
         return events
+
+    def _get_default_model_for_region(self, region: str) -> str:
+        try:
+            client = boto3.client("bedrock", region_name=region)
+            response = client.list_inference_profiles()
+            inference_profile_summary = response["inferenceProfileSummaries"]
+
+            for profile in inference_profile_summary:
+                if DEFAULT_BEDROCK_MODEL_ID in profile["inferenceProfileId"]:
+                    return str(profile["inferenceProfileId"])
+
+            return ""
+        except ClientError as e:
+            raise e
 
     @override
     async def stream(
