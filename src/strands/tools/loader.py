@@ -4,8 +4,9 @@ import importlib
 import logging
 import os
 import sys
+import warnings
 from pathlib import Path
-from typing import List, Union, cast
+from typing import List, cast
 
 from ..types.tools import AgentTool
 from .decorator import DecoratedFunctionTool
@@ -18,62 +19,42 @@ class ToolLoader:
     """Handles loading of tools from different sources."""
 
     @staticmethod
-    def load_python_tool(tool_path: str, tool_name: str) -> Union[AgentTool, List[AgentTool]]:
-        """Load a Python tool module.
+    def load_python_tools(tool_path: str, tool_name: str) -> List[AgentTool]:
+        """Load a Python tool module and return all discovered function-based tools as a list.
 
-        Args:
-            tool_path: Path to the Python tool file.
-            tool_name: Name of the tool.
-
-        Returns:
-            A single AgentTool or a list of AgentTool instances when multiple function-based tools
-            are defined in the module.
-
-
-        Raises:
-            AttributeError: If required attributes are missing from the tool module.
-            ImportError: If there are issues importing the tool module.
-            TypeError: If the tool function is not callable.
-            ValueError: If function in module is not a valid tool.
-            Exception: For other errors during tool loading.
+        This method always returns a list of AgentTool (possibly length 1). It is the
+        canonical API for retrieving multiple tools from a single Python file.
         """
         try:
-            # Check if tool_path is in the format "package.module:function"; but keep in mind windows whose file path
-            # could have a ':' so also ensure that it's not a file
+            # Support module:function style (e.g. package.module:function)
             if not os.path.exists(tool_path) and ":" in tool_path:
                 module_path, function_name = tool_path.rsplit(":", 1)
                 logger.debug("tool_name=<%s>, module_path=<%s> | importing tool from path", function_name, module_path)
 
                 try:
-                    # Import the module
                     module = __import__(module_path, fromlist=["*"])
-
-                    # Get the function
-                    if not hasattr(module, function_name):
-                        raise AttributeError(f"Module {module_path} has no function named {function_name}")
-
-                    func = getattr(module, function_name)
-
-                    if isinstance(func, DecoratedFunctionTool):
-                        logger.debug(
-                            "tool_name=<%s>, module_path=<%s> | found function-based tool", function_name, module_path
-                        )
-                        # mypy has problems converting between DecoratedFunctionTool <-> AgentTool
-                        return cast(AgentTool, func)
-                    else:
-                        raise ValueError(
-                            f"Function {function_name} in {module_path} is not a valid tool (missing @tool decorator)"
-                        )
-
                 except ImportError as e:
                     raise ImportError(f"Failed to import module {module_path}: {str(e)}") from e
 
+                if not hasattr(module, function_name):
+                    raise AttributeError(f"Module {module_path} has no function named {function_name}")
+
+                func = getattr(module, function_name)
+                if isinstance(func, DecoratedFunctionTool):
+                    logger.debug(
+                        "tool_name=<%s>, module_path=<%s> | found function-based tool", function_name, module_path
+                    )
+                    return [cast(AgentTool, func)]
+                else:
+                    raise ValueError(
+                        f"Function {function_name} in {module_path} is not a valid tool (missing @tool decorator)"
+                    )
+
             # Normal file-based tool loading
             abs_path = str(Path(tool_path).resolve())
-
             logger.debug("tool_path=<%s> | loading python tool from path", abs_path)
 
-            # First load the module to get TOOL_SPEC and check for Lambda deployment
+            # Load the module by spec
             spec = importlib.util.spec_from_file_location(tool_name, abs_path)
             if not spec:
                 raise ImportError(f"Could not create spec for {tool_name}")
@@ -84,7 +65,7 @@ class ToolLoader:
             sys.modules[tool_name] = module
             spec.loader.exec_module(module)
 
-            # First, check for function-based tools with @tool decorator
+            # Collect function-based tools decorated with @tool
             function_tools: List[AgentTool] = []
             for attr_name in dir(module):
                 attr = getattr(module, attr_name)
@@ -92,24 +73,18 @@ class ToolLoader:
                     logger.debug(
                         "tool_name=<%s>, tool_path=<%s> | found function-based tool in path", attr_name, tool_path
                     )
-                    # Cast as AgentTool for mypy
                     function_tools.append(cast(AgentTool, attr))
 
-            # If any function-based tools found, return them.
             if function_tools:
-                # Backwards compatibility: return single tool if only one found
-                if len(function_tools) == 1:
-                    return function_tools[0]
                 return function_tools
 
-            # If no function-based tools found, fall back to traditional module-level tool
+            # Fall back to module-level TOOL_SPEC + function
             tool_spec = getattr(module, "TOOL_SPEC", None)
             if not tool_spec:
                 raise AttributeError(
                     f"Tool {tool_name} missing TOOL_SPEC (neither at module level nor as a decorated function)"
                 )
 
-            # Standard local tool loading
             tool_func_name = tool_name
             if not hasattr(module, tool_func_name):
                 raise AttributeError(f"Tool {tool_name} missing function {tool_func_name}")
@@ -118,14 +93,33 @@ class ToolLoader:
             if not callable(tool_func):
                 raise TypeError(f"Tool {tool_name} function is not callable")
 
-            return PythonAgentTool(tool_name, tool_spec, tool_func)
+            return [PythonAgentTool(tool_name, tool_spec, tool_func)]
 
         except Exception:
-            logger.exception("tool_name=<%s>, sys_path=<%s> | failed to load python tool", tool_name, sys.path)
+            logger.exception("tool_name=<%s>, sys_path=<%s> | failed to load python tool(s)", tool_name, sys.path)
             raise
 
+    @staticmethod
+    def load_python_tool(tool_path: str, tool_name: str) -> AgentTool:
+        """DEPRECATED: Load a Python tool module and return a single AgentTool for backwards compatibility.
+
+        Use `load_python_tools` to retrieve all tools defined in a .py file (returns a list).
+        This function will emit a `DeprecationWarning` and return the first discovered tool.
+        """
+        warnings.warn(
+            "ToolLoader.load_python_tool is deprecated and will be removed in Strands SDK 2.0. "
+            "Use ToolLoader.load_python_tools(...) which always returns a list of AgentTool.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+        tools = ToolLoader.load_python_tools(tool_path, tool_name)
+        if not tools:
+            raise RuntimeError(f"No tools found in {tool_path} for {tool_name}")
+        return tools[0]
+
     @classmethod
-    def load_tool(cls, tool_path: str, tool_name: str) -> Union[AgentTool, List[AgentTool]]:
+    def load_tool(cls, tool_path: str, tool_name: str) -> AgentTool:
         """Load a tool based on its file extension.
 
         Args:
@@ -133,7 +127,7 @@ class ToolLoader:
             tool_name: Name of the tool.
 
         Returns:
-            A single Tool instance or a list of Tool instances.
+            A single Tool instance.
 
         Raises:
             FileNotFoundError: If the tool file does not exist.

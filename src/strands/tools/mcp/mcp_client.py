@@ -24,10 +24,11 @@ from mcp.types import GetPromptResult, ListPromptsResult
 from mcp.types import ImageContent as MCPImageContent
 from mcp.types import TextContent as MCPTextContent
 
+from strands.types.tools import ToolResultContent, ToolResultStatus
+
 from ...types import PaginatedList
 from ...types.exceptions import MCPClientInitializationError
 from ...types.media import ImageFormat
-from ...types.tools import ToolResultContent, ToolResultStatus
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_instrumentation import mcp_instrumentation
 from .mcp_types import MCPToolResult, MCPTransport
@@ -318,10 +319,12 @@ class MCPClient:
         """
         self._log_debug_with_thread("received tool result with %d content items", len(call_tool_result.content))
 
-        mapped_content = [
-            mapped_content
+        # Build a typed list of ToolResultContent. Use a clearer local name to avoid shadowing
+        # and annotate the result for mypy so it knows the intended element type.
+        mapped_contents: list[ToolResultContent] = [
+            mc
             for content in call_tool_result.content
-            if (mapped_content := self._map_mcp_content_to_tool_result_content(content)) is not None
+            if (mc := self._map_mcp_content_to_tool_result_content(content)) is not None
         ]
 
         status: ToolResultStatus = "error" if call_tool_result.isError else "success"
@@ -329,8 +332,9 @@ class MCPClient:
         result = MCPToolResult(
             status=status,
             toolUseId=tool_use_id,
-            content=mapped_content,
+            content=mapped_contents,
         )
+
         if call_tool_result.structuredContent:
             result["structuredContent"] = call_tool_result.structuredContent
 
