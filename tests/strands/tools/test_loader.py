@@ -258,7 +258,7 @@ def test_load_tool_no_spec(tool_path):
 )
 def test_load_python_tool_path_multiple_function_based(tool_path):
     # load_python_tool returns a list when multiple decorated tools are present
-    loaded = ToolLoader.load_python_tool(tool_path, "alpha")
+    loaded = ToolLoader.load_python_tools(tool_path, "alpha")
     assert isinstance(loaded, list)
     assert len(loaded) == 2
     assert all(isinstance(t, DecoratedFunctionTool) for t in loaded)
