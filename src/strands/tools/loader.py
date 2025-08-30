@@ -5,7 +5,7 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import cast
+from typing import List, Union, cast
 
 from ..types.tools import AgentTool
 from .decorator import DecoratedFunctionTool
@@ -18,7 +18,7 @@ class ToolLoader:
     """Handles loading of tools from different sources."""
 
     @staticmethod
-    def load_python_tool(tool_path: str, tool_name: str) -> AgentTool:
+    def load_python_tool(tool_path: str, tool_name: str) -> Union[AgentTool, List[AgentTool]]:
         """Load a Python tool module.
 
         Args:
@@ -26,7 +26,9 @@ class ToolLoader:
             tool_name: Name of the tool.
 
         Returns:
-            Tool instance.
+            A single AgentTool or a list of AgentTool instances when multiple function-based tools
+            are defined in the module.
+
 
         Raises:
             AttributeError: If required attributes are missing from the tool module.
@@ -37,7 +39,7 @@ class ToolLoader:
         """
         try:
             # Check if tool_path is in the format "package.module:function"; but keep in mind windows whose file path
-            # could have a colon so also ensure that it's not a file
+            # could have a ':' so also ensure that it's not a file
             if not os.path.exists(tool_path) and ":" in tool_path:
                 module_path, function_name = tool_path.rsplit(":", 1)
                 logger.debug("tool_name=<%s>, module_path=<%s> | importing tool from path", function_name, module_path)
@@ -83,14 +85,22 @@ class ToolLoader:
             spec.loader.exec_module(module)
 
             # First, check for function-based tools with @tool decorator
+            function_tools: List[AgentTool] = []
             for attr_name in dir(module):
                 attr = getattr(module, attr_name)
                 if isinstance(attr, DecoratedFunctionTool):
                     logger.debug(
                         "tool_name=<%s>, tool_path=<%s> | found function-based tool in path", attr_name, tool_path
                     )
-                    # mypy has problems converting between DecoratedFunctionTool <-> AgentTool
-                    return cast(AgentTool, attr)
+                    # Cast as AgentTool for mypy
+                    function_tools.append(cast(AgentTool, attr))
+
+            # If any function-based tools found, return them.
+            if function_tools:
+                # Backwards compatibility: return single tool if only one found
+                if len(function_tools) == 1:
+                    return function_tools[0]
+                return function_tools
 
             # If no function-based tools found, fall back to traditional module-level tool
             tool_spec = getattr(module, "TOOL_SPEC", None)
@@ -115,7 +125,7 @@ class ToolLoader:
             raise
 
     @classmethod
-    def load_tool(cls, tool_path: str, tool_name: str) -> AgentTool:
+    def load_tool(cls, tool_path: str, tool_name: str) -> Union[AgentTool, List[AgentTool]]:
         """Load a tool based on its file extension.
 
         Args:
@@ -123,7 +133,7 @@ class ToolLoader:
             tool_name: Name of the tool.
 
         Returns:
-            Tool instance.
+            A single Tool instance or a list of Tool instances.
 
         Raises:
             FileNotFoundError: If the tool file does not exist.
