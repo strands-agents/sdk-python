@@ -351,6 +351,7 @@ class OpenAIModel(Model):
         yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
         tool_calls: dict[int, list[Any]] = {}
+        choice = None
 
         async for event in response:
             # Defensive: skip events with empty or missing choices
@@ -388,7 +389,8 @@ class OpenAIModel(Model):
 
             yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
 
-        yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
+        if choice and choice.finish_reason:
+            yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
 
         # Skip remaining events as we don't have use for anything except the final usage payload
         async for event in response:
