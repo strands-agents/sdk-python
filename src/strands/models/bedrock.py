@@ -316,7 +316,8 @@ class BedrockModel(Model):
                     filtered_unknown_members = True
                     continue
                 # DeepSeek models have issues with reasoningContent
-                if is_deepseek and "reasoningContent" in content_block:
+                # TODO: Replace with systematic model configuration registry (https://github.com/strands-agents/sdk-python/issues/780)
+                if "deepseek" in self.config["model_id"].lower() and "reasoningContent" in content_block:
                     continue
 
                 if "toolResult" in content_block:
