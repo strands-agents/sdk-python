@@ -26,7 +26,7 @@ def model():
 @pytest.fixture
 def tools():
     @strands.tool
-    def tool_time() -> str:
+    def tool_time(timezone: str) -> str:
         return "12:00"
 
     @strands.tool
@@ -73,7 +73,7 @@ def yellow_color():
 
 
 def test_agent_invoke(agent):
-    result = agent("What is the current time and weather?")
+    result = agent("What is the current time and weather? My timezeone is EST")
     text = result.message["content"][0]["text"].lower()
 
     assert all(string in text for string in ["12:00", "sunny"])
@@ -81,7 +81,7 @@ def test_agent_invoke(agent):
 
 @pytest.mark.asyncio
 async def test_agent_invoke_async(agent):
-    result = await agent.invoke_async("What is the current time and weather?")
+    result = await agent.invoke_async("What is the current time and weather? My timezone is EST")
     text = result.message["content"][0]["text"].lower()
 
     assert all(string in text for string in ["12:00", "sunny"])
@@ -89,7 +89,7 @@ async def test_agent_invoke_async(agent):
 
 @pytest.mark.asyncio
 async def test_agent_stream_async(agent):
-    stream = agent.stream_async("What is the current time and weather?")
+    stream = agent.stream_async("What is the current time and weather? My timezone is EST")
     async for event in stream:
         _ = event
 

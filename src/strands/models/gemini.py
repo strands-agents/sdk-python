@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
+from ..types.event_loop import StopReason
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolResult, ToolSpec, ToolUse
@@ -30,15 +31,30 @@ T = TypeVar("T", bound=BaseModel)
 class GeminiModel(Model):
     """Google Gemini model provider implementation."""
 
-    SAFETY_MESSAGES = {"safety", "harmful", "content policy", "blocked due to safety"}
+    # Safety-related finish reasons that indicate content was blocked
+    # These map to the values defined in the Gemini API: https://ai.google.dev/api/generate-content#FinishReason
+    SAFETY_FINISH_REASONS = {
+        types.FinishReason.SAFETY,
+        types.FinishReason.RECITATION,
+        types.FinishReason.BLOCKLIST,
+        types.FinishReason.PROHIBITED_CONTENT,
+        types.FinishReason.IMAGE_SAFETY,
+        types.FinishReason.SPII,
+    }
 
-    QUOTA_MESSAGES = {"quota", "limit", "rate limit", "exceeded"}
+    FINISH_REASON_MAP = {
+        **{reason: "content_filtered" for reason in SAFETY_FINISH_REASONS},
+        types.FinishReason.MAX_TOKENS: "max_tokens",
+        types.FinishReason.STOP: "end_turn",
+    }
 
     class GeminiConfig(TypedDict, total=False):
         """Configuration options for Gemini models."""
 
         model_id: str
         params: Optional[dict[str, Any]]
+        response_schema: Optional[dict[str, Any]]
+        response_mime_type: Optional[str]
 
     def __init__(
         self,
@@ -53,6 +69,8 @@ class GeminiModel(Model):
             api_key: Google AI API key. If not provided, will use GOOGLE_API_KEY env var.
             client_args: Additional arguments for the Gemini client configuration.
             **model_config: Configuration options for the Gemini model.
+
+        GenerationConfig params: https://ai.google.dev/api/generate-content#generationconfig
         """
         self.config = GeminiModel.GeminiConfig(**model_config)
 
@@ -81,7 +99,22 @@ class GeminiModel(Model):
         return self.config
 
     def _format_inline_data_part(self, data: dict[str, Any], default_mime: str) -> dict[str, Any]:
-        """Formats an inline data part (image or document)."""
+        """Formats an inline data part (image or document).
+
+        Converts Strands content format to Gemini's inlineData format with base64 encoding.
+        Automatically detects MIME type based on file format extension.
+
+        Args:
+            data: Content data containing format and source with bytes.
+            default_mime: Default MIME type to use if format detection fails.
+
+        Returns:
+            Gemini formatted inline data with mimeType and base64 encoded data.
+
+        Examples:
+            Image data: {"format": "png", "source": {"bytes": b"..."}}
+            Document data: {"format": "pdf", "source": {"bytes": b"..."}}
+        """
         file_format = data["format"]
         source_bytes = data["source"]["bytes"]
         mime_type = mimetypes.types_map.get(f".{file_format}", default_mime)
@@ -119,6 +152,8 @@ class GeminiModel(Model):
 
         Returns:
             Gemini formatted function call.
+
+        Gemini function calling: https://ai.google.dev/gemini-api/docs/function-calling
         """
         return {"functionCall": {"name": tool_use["name"], "args": tool_use["input"]}}
 
@@ -130,6 +165,12 @@ class GeminiModel(Model):
 
         Returns:
             Gemini formatted function response.
+
+        Note:
+            Based on API testing, Gemini function responses support inlineData format
+            for images and other media. The model can actually process visual content.
+
+        Gemini function calling: https://ai.google.dev/gemini-api/docs/function-calling
         """
         response_parts = []
         for content in tool_result["content"]:
@@ -137,6 +178,18 @@ class GeminiModel(Model):
                 response_parts.append(json.dumps(content["json"]))
             elif "text" in content:
                 response_parts.append(content["text"])
+            elif "image" in content:
+                image_data = content["image"]
+                formatted_image = self._format_inline_data_part(cast(dict[str, Any], image_data), "image/png")
+                return {"functionResponse": {"name": tool_result["toolUseId"], "response": {"image": formatted_image}}}
+            elif "document" in content:
+                document_data = content["document"]
+                formatted_doc = self._format_inline_data_part(cast(dict[str, Any], document_data), "application/pdf")
+                return {"functionResponse": {"name": tool_result["toolUseId"], "response": {"document": formatted_doc}}}
+            else:
+                # Handle other types as text descriptions
+                content_type = next(iter(content.keys()), "unknown")
+                response_parts.append(f"[{content_type.upper()}: content returned]")
 
         return {
             "functionResponse": {"name": tool_result["toolUseId"], "response": {"content": "\n".join(response_parts)}}
@@ -150,6 +203,8 @@ class GeminiModel(Model):
 
         Returns:
             Gemini formatted messages array.
+
+        Gemini StreamGenerateContent Request Body: https://ai.google.dev/api/generate-content#request-body_1
         """
         formatted_messages = []
 
@@ -189,103 +244,62 @@ class GeminiModel(Model):
 
     async def _process_chunk(
         self, chunk: Any, output_text_buffer: list[str], tool_calls: dict[str, str]
-    ) -> AsyncGenerator[Union[StreamEvent, bool], None]:
-        """Process a single chunk from the streaming response."""
+    ) -> AsyncGenerator[Union[StreamEvent, bool, types.FinishReason], None]:
+        """Process a streaming response chunk from Gemini API.
+
+        Extracts text content, function calls, and finish reasons from response chunks.
+        Generates appropriate stream events and tracks tool usage.
+
+        Args:
+            chunk: Raw response chunk from Gemini streaming API.
+            output_text_buffer: Buffer to accumulate text content across chunks.
+            tool_calls: Dictionary tracking tool use instances by unique IDs.
+
+        Yields:
+            StreamEvent: Standard format events (content_block_start, content_block_delta, etc.)
+            bool: True if chunk contains function calls, False otherwise.
+            types.FinishReason: Gemini finish reason if chunk indicates completion.
+        """
         has_function_call = False
+        finish_reason = None
 
-        if hasattr(chunk, "candidates") and chunk.candidates:
-            for candidate in chunk.candidates:
-                if not hasattr(candidate, "content") or not candidate.content:
-                    continue
+        if chunk.candidates:
+            candidate = chunk.candidates[0]
 
+            if candidate.finish_reason:
+                finish_reason = candidate.finish_reason
+
+            # Process content parts
+            if candidate.content and candidate.content.parts:
                 for part in candidate.content.parts:
+                    # Handle text content
                     if part.text:
                         output_text_buffer.append(part.text)
-                        yield self.format_event("content_block_delta", part.text)
+                        yield self._format_event("content_block_delta", part.text)
 
                     # Handle function calls
                     elif hasattr(part, "function_call") and part.function_call:
                         function_call = part.function_call
                         has_function_call = True
 
-                        if function_call.name not in tool_calls:
-                            yield self.format_event("content_block_stop")
+                        # Generate and store a unique tool ID for this specific tool use instance
+                        tool_id = f"tool_{len(tool_calls) + 1}_{function_call.name}"
+                        tool_calls[tool_id] = function_call.name
 
-                            tool_id = f"tool_{len(tool_calls) + 1}"
-                            tool_calls[function_call.name] = tool_id
+                        # Emit content_block_start for each new tool use
+                        yield self._format_event(
+                            "content_block_start", {"function_call": function_call, "tool_id": tool_id}
+                        )
 
-                            yield self.format_event(
-                                "content_block_start", {"function_call": function_call, "tool_id": tool_id}
+                        # If there are args, emit the delta event with tool input
+                        if function_call.args:
+                            yield self._format_event(
+                                "content_block_delta", {"function_call": function_call, "args": function_call.args}
                             )
-
-                        if hasattr(function_call, "args") and function_call.args:
-                            args = self._extract_function_args(function_call)
-                            yield self.format_event(
-                                "content_block_delta", {"function_call": function_call, "args": args}
-                            )
-
-        elif hasattr(chunk, "text") and chunk.text:
-            output_text_buffer.append(chunk.text)
-            yield self.format_event("content_block_delta", chunk.text)
 
         yield has_function_call
-
-    def _extract_function_args(self, function_call: Any) -> dict[str, Any]:
-        """Extract function arguments from various formats."""
-        if not hasattr(function_call, "args"):
-            return {}
-
-        args = function_call.args
-
-        # Handle Struct type (protobuf)
-        if hasattr(args, "fields"):
-            return self._struct_to_dict(args)
-
-        # Handle JSON string
-        if isinstance(args, str):
-            try:
-                parsed = json.loads(args)
-                if isinstance(parsed, dict):
-                    return parsed
-                return {"value": args}
-            except json.JSONDecodeError:
-                return {"value": args}
-
-        if isinstance(args, dict):
-            return dict(args)
-
-        return {}
-
-    def _struct_to_dict(self, struct_value: Any) -> dict[str, Any]:
-        """Convert protobuf Struct to dict."""
-        result = {}
-        for key, value in struct_value.fields.items():
-            if hasattr(value, "string_value"):
-                result[key] = value.string_value
-            elif hasattr(value, "number_value"):
-                result[key] = value.number_value
-            elif hasattr(value, "bool_value"):
-                result[key] = value.bool_value
-            elif hasattr(value, "list_value"):
-                result[key] = [self._value_to_python(v) for v in value.list_value.values]
-            elif hasattr(value, "struct_value"):
-                result[key] = self._struct_to_dict(value.struct_value)
-            else:
-                result[key] = str(value)
-        return result
-
-    def _value_to_python(self, value: Any) -> Any:
-        """Convert protobuf Value to Python type."""
-        if hasattr(value, "string_value"):
-            return value.string_value
-        elif hasattr(value, "number_value"):
-            return value.number_value
-        elif hasattr(value, "bool_value"):
-            return value.bool_value
-        elif hasattr(value, "struct_value"):
-            return self._struct_to_dict(value.struct_value)
-        else:
-            return str(value)
+        if finish_reason:
+            yield finish_reason
 
     async def _count_tokens_safely(self, model_id: str, contents: list[dict[str, Any]]) -> int:
         """Safely count tokens with fallback to 0 on error.
@@ -296,14 +310,15 @@ class GeminiModel(Model):
 
         Returns:
             Token count, or 0 if counting fails
+
+        Gemini Token Counting: https://ai.google.dev/api/tokens
         """
         try:
             token_count = await self.client.aio.models.count_tokens(model=model_id, contents=contents)
             if hasattr(token_count, "total_tokens"):
                 return int(token_count.total_tokens or 0)
             return 0
-        except Exception as e:
-            logger.debug("Could not count tokens: %s", str(e))
+        except Exception:
             return 0
 
     def _format_tools(self, tool_specs: Optional[list[ToolSpec]]) -> Optional[list[dict[str, Any]]]:
@@ -314,32 +329,30 @@ class GeminiModel(Model):
 
         Returns:
             Gemini formatted tools array.
+
+        Gemini function calling: https://ai.google.dev/gemini-api/docs/function-calling
         """
         if not tool_specs:
             return None
 
-        tools = []
+        function_declarations = []
         for tool_spec in tool_specs:
-            tools.append(
+            function_declarations.append(
                 {
-                    "function_declarations": [
-                        {
-                            "name": tool_spec["name"],
-                            "description": tool_spec["description"],
-                            "parameters": tool_spec["inputSchema"]["json"],
-                        }
-                    ]
+                    "name": tool_spec["name"],
+                    "description": tool_spec["description"],
+                    "parameters": tool_spec["inputSchema"]["json"],
                 }
             )
 
-        return tools
+        return [{"function_declarations": function_declarations}]
 
-    def format_request(
+    def _format_request(
         self,
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
-        config: Optional[dict[str, Any]] = None,
+        config_override: Optional[dict[str, Any]] = None,
     ) -> dict[str, Any]:
         """Format a Gemini streaming request.
 
@@ -347,10 +360,12 @@ class GeminiModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
-            config: Additional configuration options including response_schema for structured output.
+            config_override: Additional configuration options including response_schema for structured output.
 
         Returns:
             A Gemini streaming request.
+
+        Streaming Content Request Body: https://ai.google.dev/api/generate-content#request-body_1
         """
         generation_config: dict[str, Any] = {}
 
@@ -358,14 +373,12 @@ class GeminiModel(Model):
         if params:
             generation_config.update(params)
 
-        if config:
-            if "response_schema" in config:
-                generation_config["response_schema"] = config["response_schema"]
-                generation_config["response_mime_type"] = config.get("response_mime_type", "application/json")
+        if "response_schema" in self.config:
+            generation_config["response_schema"] = self.config["response_schema"]
+            generation_config["response_mime_type"] = self.config.get("response_mime_type", "application/json")
 
-            config_params = config.get("params")
-            if config_params:
-                generation_config.update(config_params)
+        if config_override:
+            generation_config.update(config_override)
 
         request = {
             "contents": self._format_request_messages(messages),
@@ -382,7 +395,7 @@ class GeminiModel(Model):
 
         return request
 
-    def format_event(self, event_type: str, data: Any = None) -> StreamEvent:
+    def _format_event(self, event_type: str, data: Any = None) -> StreamEvent:
         """Format a Gemini event into a standardized message chunk.
 
         Args:
@@ -412,7 +425,7 @@ class GeminiModel(Model):
             case "content_block_delta":
                 if data and "function_call" in data:
                     args = data.get("args", {})
-                    return {"contentBlockDelta": {"delta": {"toolUse": {"input": args}}}}
+                    return {"contentBlockDelta": {"delta": {"toolUse": {"input": json.dumps(args)}}}}
 
                 return {"contentBlockDelta": {"delta": {"text": data}}}
 
@@ -420,15 +433,11 @@ class GeminiModel(Model):
                 return {"contentBlockStop": {}}
 
             case "message_stop":
-                match data:
-                    case "SAFETY" | "RECITATION":
-                        return {"messageStop": {"stopReason": "content_filtered"}}
-                    case "MAX_TOKENS":
-                        return {"messageStop": {"stopReason": "max_tokens"}}
-                    case "tool_use":
-                        return {"messageStop": {"stopReason": "tool_use"}}
-                    case _:
-                        return {"messageStop": {"stopReason": "end_turn"}}
+                if isinstance(data, str) and not isinstance(data, types.FinishReason):
+                    stop_reason = cast(StopReason, data)
+                else:
+                    stop_reason = cast(StopReason, self.FINISH_REASON_MAP.get(data, "end_turn"))
+                return {"messageStop": {"stopReason": stop_reason}}
 
             case "metadata":
                 return {
@@ -448,43 +457,49 @@ class GeminiModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
-        config: Optional[dict[str, Any]] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Gemini model.
 
+        Provides real-time streaming of model responses with support for text generation,
+        function calling, and comprehensive error handling. Includes token counting and
+        performance metrics.
+
         Args:
             messages: List of message objects to be processed by the model.
-            tool_specs: List of tool specifications. Enables function calling when provided.
+            tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
-            config: Additional configuration options including response_schema for structured output.
-            **kwargs: Additional keyword arguments for future extensibility.
+            **kwargs: Additional configuration options including response_schema for structured output.
 
         Yields:
-            StreamEvents: messageStart, contentBlockDelta, contentBlockStop, messageStop, metadata
+            StreamEvent: Standardized streaming events including:
+                - messageStart: Conversation initiation
+                - contentBlockStart: Beginning of content or tool use
+                - contentBlockDelta: Incremental content updates
+                - contentBlockStop: End of content block
+                - messageStop: Conversation completion with stop reason
+                - metadata: Usage statistics and performance metrics
 
         Raises:
-            ModelThrottledException: If the model is being rate-limited by Gemini API.
-            RuntimeError: If an error occurs during streaming or response parsing.
+            ModelThrottledException: If the model is being rate-limited or quota exceeded.
+            RuntimeError: If the request is invalid, blocked by safety settings, or server error occurs.
+
+        Generate Stream Content Response: https://ai.google.dev/api/generate-content#method:-models.streamgeneratecontent
         """
-        logger.debug("formatting request")
-        request = self.format_request(messages, tool_specs, system_prompt, config)
-        logger.debug("formatted request=<%s>", request)
-
         start_time = time.perf_counter()
-
         model_id = self.config.get("model_id", "gemini-2.5-flash")
 
-        tool_config = None
-        if tool_specs:
-            tool_config = types.ToolConfig(
-                function_calling_config=types.FunctionCallingConfig(mode=types.FunctionCallingConfigMode.AUTO)
-            )
+        request = self._format_request(messages, tool_specs, system_prompt, kwargs)
 
+        # Build config directly from the formatted request
         cfg = types.GenerateContentConfig(
             system_instruction=request.get("system_instruction"),
-            tools=request.get("tools"),  # Use the formatted tools from format_request
-            tool_config=tool_config,
+            tools=request.get("tools"),
+            tool_config=types.ToolConfig(
+                function_calling_config=types.FunctionCallingConfig(mode=types.FunctionCallingConfigMode.AUTO)
+            )
+            if tool_specs
+            else None,
             **(request.get("generation_config") or {}),
         )
 
@@ -494,8 +509,7 @@ class GeminiModel(Model):
         input_tokens = await self._count_tokens_safely(model_id, request["contents"])
 
         # Start the conversation
-        yield self.format_event("message_start")
-
+        yield self._format_event("message_start")
         output_text_buffer: list[str] = []
 
         try:
@@ -509,31 +523,57 @@ class GeminiModel(Model):
             has_function_call = False
             content_started = False
 
-            logger.debug("streaming response from model")
-
             async for chunk in response:
+                chunk_finish_reason = None
                 async for event in self._process_chunk(chunk, output_text_buffer, tool_calls):
                     if isinstance(event, bool):
                         if event:
                             has_function_call = True
                         continue
+                    elif isinstance(event, types.FinishReason):
+                        chunk_finish_reason = event
+                        continue
 
-                    if "contentBlockDelta" in event and not content_started:
-                        yield self.format_event("content_block_start")
+                    # Handle contentBlockStart events for both text and tool use
+                    if "contentBlockStart" in event:
                         content_started = True
-                    yield event
+                        yield event
 
-                if hasattr(chunk, "finish_reason") and isinstance(chunk.finish_reason, str):
-                    break
+                    # Handle contentBlockDelta events
+                    elif "contentBlockDelta" in event:
+                        # Check if this is text content
+                        if "delta" in event["contentBlockDelta"] and "text" in event["contentBlockDelta"]["delta"]:
+                            if not content_started:
+                                yield self._format_event("content_block_start")
+                                content_started = True
+                        yield event
 
+                    else:
+                        yield event
+
+                # Handle early termination
+                if chunk_finish_reason:
+                    if chunk_finish_reason in self.SAFETY_FINISH_REASONS:
+                        logger.debug("Content blocked due to safety: %s", chunk_finish_reason)
+                        yield self._format_event("content_block_stop")
+                        yield self._format_event("message_stop", chunk_finish_reason)
+                        break
+                    elif chunk_finish_reason == types.FinishReason.MAX_TOKENS:
+                        logger.debug("Content blocked due to max_tokens reached: %s", chunk_finish_reason)
+                        yield self._format_event("content_block_stop")
+                        yield self._format_event("message_stop", chunk_finish_reason)
+                        break
+
+            # Final events
             if content_started or has_function_call:
-                yield self.format_event("content_block_stop")
+                yield self._format_event("content_block_stop")
 
             if has_function_call:
-                yield self.format_event("message_stop", "tool_use")
+                yield self._format_event("message_stop", "tool_use")
             else:
-                yield self.format_event("message_stop", "end_turn")
+                yield self._format_event("message_stop", "end_turn")
 
+            # Usage metadata
             output_tokens = 0
             generated_text = "".join(output_text_buffer)
             if generated_text:
@@ -542,56 +582,36 @@ class GeminiModel(Model):
                 )
 
             latency_ms = int((time.perf_counter() - start_time) * 1000)
-            usage_data = {
-                "usage": {
-                    "inputTokens": input_tokens,
-                    "outputTokens": output_tokens,
-                    "totalTokens": input_tokens + output_tokens,
+            yield self._format_event(
+                "metadata",
+                {
+                    "usage": {
+                        "inputTokens": input_tokens,
+                        "outputTokens": output_tokens,
+                        "totalTokens": input_tokens + output_tokens,
+                    },
+                    "latency_ms": latency_ms,
                 },
-                "metrics": {
-                    "latencyMs": latency_ms,
-                },
-            }
-
-            yield self.format_event("metadata", usage_data)
-
-            logger.debug("finished streaming response from model")
+            )
 
         except genai.errors.ClientError as e:
-            error_msg = str(e).lower()
-
-            if any(msg in error_msg for msg in self.SAFETY_MESSAGES):
-                logger.warning("safety error: %s", str(e))
-                yield self.format_event("content_block_delta", "Response was blocked due to safety concerns.")
-                yield self.format_event("content_block_stop")
-                yield self.format_event("message_stop", "SAFETY")
-            elif any(msg in error_msg for msg in self.QUOTA_MESSAGES):
-                logger.warning("quota or rate limit error: %s", str(e))
-                yield self.format_event("content_block_stop")
-                yield self.format_event("message_stop", "MAX_TOKENS")
-                raise ModelThrottledException(f"Rate limit or quota exceeded: {str(e)}") from e
+            # Handle client errors (4xx) - rate limiting, quota, auth, etc.
+            if e.status in ("RESOURCE_EXHAUSTED", "UNAVAILABLE"):
+                raise ModelThrottledException(f"Rate limit or quota exceeded: {e}") from e
             else:
-                logger.warning("client error (other): %s", str(e))
-                yield self.format_event("content_block_delta", "Request could not be processed.")
-                yield self.format_event("content_block_stop")
-                yield self.format_event("message_stop", "SAFETY")
-
-        except genai.errors.UnknownApiResponseError as e:
-            logger.warning("incomplete or unparseable response: %s", str(e))
-            yield self.format_event("content_block_stop")
-            yield self.format_event("message_stop", "SAFETY")
-            raise RuntimeError(f"Incomplete response from Gemini: {str(e)}") from e
+                # Handle other client errors as RuntimeError
+                raise RuntimeError(f"Client error from Gemini: {e}") from e
 
         except genai.errors.ServerError as e:
-            logger.warning("server error: %s", str(e))
-            yield self.format_event("content_block_stop")
-            yield self.format_event("message_stop", "MAX_TOKENS")
-            error_message = str(e)
-            raise ModelThrottledException(f"Server error: {error_message}") from e
+            # Handle server errors (5xx)
+            raise ModelThrottledException(f"Server error: {e}") from e
+
+        except genai.errors.UnknownApiResponseError as e:
+            raise RuntimeError(f"Unparseable response from Gemini: {e}") from e
 
         except Exception as e:
             logger.error("unexpected error during streaming: %s", str(e))
-            raise RuntimeError(f"Error streaming from Gemini: {str(e)}") from e
+            raise RuntimeError(f"Unexpected error streaming from Gemini: {e}") from e
 
     @override
     async def structured_output(
@@ -610,23 +630,26 @@ class GeminiModel(Model):
 
         Raises:
             ValueError: If the model doesn't return valid structured output.
-            ModelThrottledException: If the model is being rate-limited.
-            genai.errors.ClientError: If the request is invalid or blocked by safety settings.
-            genai.errors.ServerError: If the server encounters an error processing the request.
+
+        Gemini Structured Output: https://ai.google.dev/gemini-api/docs/structured-output
         """
         schema = output_model.model_json_schema() if hasattr(output_model, "model_json_schema") else output_model
 
-        config = {
+        structured_config = {
             "response_mime_type": "application/json",
             "response_schema": schema,
         }
 
         if "config" in kwargs:
-            config.update(kwargs.pop("config"))
+            structured_config.update(kwargs.pop("config"))
 
         logger.debug("Using Gemini's native structured output with schema: %s", output_model.__name__)
 
-        async_response = self.stream(messages=prompt, system_prompt=system_prompt, config=config, **kwargs)
+        structured_config.pop("tool_specs", None)
+        kwargs.pop("tool_specs", None)
+        async_response = self.stream(
+            messages=prompt, tool_specs=None, system_prompt=system_prompt, **structured_config, **kwargs
+        )
 
         accumulated_text = []
         stop_reason = None
@@ -647,7 +670,7 @@ class GeminiModel(Model):
             logger.error("Empty response from model when generating structured output")
             raise ValueError("Empty response from model when generating structured output")
 
-        if stop_reason not in ["end_turn"]:
+        if stop_reason != "end_turn":
             logger.error("Model returned unexpected stop_reason: %s", stop_reason)
             raise ValueError(f'Model returned stop_reason: {stop_reason} instead of "end_turn"')
 
