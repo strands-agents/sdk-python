@@ -1392,3 +1392,69 @@ def test_format_request_filters_sdk_unknown_member_content_blocks(model, model_i
 
     for block in content:
         assert "SDK_UNKNOWN_MEMBER" not in block
+
+
+@pytest.mark.asyncio
+async def test_stream_deepseek_filters_reasoning_content(bedrock_client, alist):
+    """Test that DeepSeek models filter reasoningContent from messages during streaming."""
+    model = BedrockModel(model_id="us.deepseek.r1-v1:0")
+    
+    messages = [
+        {
+            "role": "user",
+            "content": [{"text": "Hello"}]
+        },
+        {
+            "role": "assistant", 
+            "content": [
+                {"text": "Response"},
+                {"reasoningContent": {"reasoningText": {"text": "Thinking..."}}},
+            ]
+        }
+    ]
+    
+    bedrock_client.converse_stream.return_value = {"stream": []}
+    
+    await alist(model.stream(messages))
+    
+    # Verify the request was made with filtered messages (no reasoningContent)
+    call_args = bedrock_client.converse_stream.call_args[1]
+    sent_messages = call_args["messages"]
+    
+    assert len(sent_messages) == 2
+    assert sent_messages[0]["content"] == [{"text": "Hello"}]
+    assert sent_messages[1]["content"] == [{"text": "Response"}]
+
+@pytest.mark.asyncio
+async def test_stream_deepseek_skips_empty_messages(bedrock_client, alist):
+    """Test that DeepSeek models skip messages that would be empty after filtering reasoningContent."""
+    model = BedrockModel(model_id="us.deepseek.r1-v1:0")
+    
+    messages = [
+        {
+            "role": "user",
+            "content": [{"text": "Hello"}]
+        },
+        {
+            "role": "assistant", 
+            "content": [
+                {"reasoningContent": {"reasoningText": {"text": "Only reasoning..."}}}
+            ]
+        },
+        {
+            "role": "user",
+            "content": [{"text": "Follow up"}]
+        }
+    ]
+    
+    bedrock_client.converse_stream.return_value = {"stream": []}
+    
+    await alist(model.stream(messages))
+    
+    # Verify the request was made with only non-empty messages
+    call_args = bedrock_client.converse_stream.call_args[1]
+    sent_messages = call_args["messages"]
+    
+    assert len(sent_messages) == 2
+    assert sent_messages[0]["content"] == [{"text": "Hello"}]
+    assert sent_messages[1]["content"] == [{"text": "Follow up"}]

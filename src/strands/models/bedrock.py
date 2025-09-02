@@ -308,6 +308,8 @@ class BedrockModel(Model):
             ),
         }
 
+
+
     def _format_bedrock_messages(self, messages: Messages) -> Messages:
         """Format messages for Bedrock API compatibility.
 
@@ -331,6 +333,8 @@ class BedrockModel(Model):
         """
         cleaned_messages = []
         filtered_unknown_members = False
+        # TODO: Replace with systematic model configuration registry (https://github.com/strands-agents/sdk-python/issues/780)
+        is_deepseek = "deepseek" in self.config["model_id"].lower()
 
         for message in messages:
             cleaned_content: list[ContentBlock] = []
@@ -340,7 +344,10 @@ class BedrockModel(Model):
                 if "SDK_UNKNOWN_MEMBER" in content_block:
                     filtered_unknown_members = True
                     continue
-
+                # DeepSeek models have issues with reasoningContent
+                if is_deepseek and "reasoningContent" in content_block:
+                    continue
+                    
                 if "toolResult" in content_block:
                     # Create a new content block with only the cleaned toolResult
                     tool_result: ToolResult = content_block["toolResult"]
@@ -364,11 +371,12 @@ class BedrockModel(Model):
                     # Keep other content blocks as-is
                     cleaned_content.append(content_block)
 
-            # Create new message with cleaned content
-            cleaned_message: Message = Message(
-                content=cleaned_content, role=message["role"]
-            )
-            cleaned_messages.append(cleaned_message)
+            # Create new message with cleaned content (skip if empty for DeepSeek)
+            if cleaned_content:
+                cleaned_message: Message = Message(
+                    content=cleaned_content, role=message["role"]
+                )
+                cleaned_messages.append(cleaned_message)
 
         if filtered_unknown_members:
             logger.warning(
@@ -489,17 +497,7 @@ class BedrockModel(Model):
 
         await task
 
-    def _strip_reasoning_content_from_message(self, message: Message) -> Message:
-        # Deep copy the message to avoid mutating original
-        import copy
 
-        msg_copy = copy.deepcopy(message)
-
-        content = msg_copy.get("content", [])
-        # Filter out any content blocks with reasoningContent
-        filtered_content = [c for c in content if "reasoningContent" not in c]
-        msg_copy["content"] = filtered_content
-        return msg_copy
 
     def _stream(
         self,
