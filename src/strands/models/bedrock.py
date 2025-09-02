@@ -154,18 +154,11 @@ class BedrockModel(Model):
             else:
                 new_user_agent = "strands-agents"
 
-            client_config = boto_client_config.merge(
-                BotocoreConfig(user_agent_extra=new_user_agent)
-            )
+            client_config = boto_client_config.merge(BotocoreConfig(user_agent_extra=new_user_agent))
         else:
             client_config = BotocoreConfig(user_agent_extra="strands-agents")
 
-        resolved_region = (
-            region_name
-            or session.region_name
-            or os.environ.get("AWS_REGION")
-            or DEFAULT_BEDROCK_REGION
-        )
+        resolved_region = region_name or session.region_name or os.environ.get("AWS_REGION") or DEFAULT_BEDROCK_REGION
 
         self.client = session.client(
             service_name="bedrock-runtime",
@@ -174,9 +167,7 @@ class BedrockModel(Model):
             region_name=resolved_region,
         )
 
-        logger.debug(
-            "region=<%s> | bedrock client created", self.client.meta.region_name
-        )
+        logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
 
     @override
     def update_config(self, **model_config: Unpack[BedrockConfig]) -> None:  # type: ignore
@@ -228,11 +219,7 @@ class BedrockModel(Model):
             "messages": self._format_bedrock_messages(messages),
             "system": [
                 *([{"text": system_prompt}] if system_prompt else []),
-                *(
-                    [{"cachePoint": {"type": self.config["cache_prompt"]}}]
-                    if self.config.get("cache_prompt")
-                    else []
-                ),
+                *([{"cachePoint": {"type": self.config["cache_prompt"]}}] if self.config.get("cache_prompt") else []),
             ],
             **(
                 {
@@ -252,20 +239,12 @@ class BedrockModel(Model):
                 else {}
             ),
             **(
-                {
-                    "additionalModelRequestFields": self.config[
-                        "additional_request_fields"
-                    ]
-                }
+                {"additionalModelRequestFields": self.config["additional_request_fields"]}
                 if self.config.get("additional_request_fields")
                 else {}
             ),
             **(
-                {
-                    "additionalModelResponseFieldPaths": self.config[
-                        "additional_response_field_paths"
-                    ]
-                }
+                {"additionalModelResponseFieldPaths": self.config["additional_response_field_paths"]}
                 if self.config.get("additional_response_field_paths")
                 else {}
             ),
@@ -276,18 +255,13 @@ class BedrockModel(Model):
                         "guardrailVersion": self.config["guardrail_version"],
                         "trace": self.config.get("guardrail_trace", "enabled"),
                         **(
-                            {
-                                "streamProcessingMode": self.config.get(
-                                    "guardrail_stream_processing_mode"
-                                )
-                            }
+                            {"streamProcessingMode": self.config.get("guardrail_stream_processing_mode")}
                             if self.config.get("guardrail_stream_processing_mode")
                             else {}
                         ),
                     }
                 }
-                if self.config.get("guardrail_id")
-                and self.config.get("guardrail_version")
+                if self.config.get("guardrail_id") and self.config.get("guardrail_version")
                 else {}
             ),
             "inferenceConfig": {
@@ -302,13 +276,10 @@ class BedrockModel(Model):
             },
             **(
                 self.config["additional_args"]
-                if "additional_args" in self.config
-                and self.config["additional_args"] is not None
+                if "additional_args" in self.config and self.config["additional_args"] is not None
                 else {}
             ),
         }
-
-
 
     def _format_bedrock_messages(self, messages: Messages) -> Messages:
         """Format messages for Bedrock API compatibility.
@@ -347,7 +318,7 @@ class BedrockModel(Model):
                 # DeepSeek models have issues with reasoningContent
                 if is_deepseek and "reasoningContent" in content_block:
                     continue
-                    
+
                 if "toolResult" in content_block:
                     # Create a new content block with only the cleaned toolResult
                     tool_result: ToolResult = content_block["toolResult"]
@@ -373,9 +344,7 @@ class BedrockModel(Model):
 
             # Create new message with cleaned content (skip if empty for DeepSeek)
             if cleaned_content:
-                cleaned_message: Message = Message(
-                    content=cleaned_content, role=message["role"]
-                )
+                cleaned_message: Message = Message(content=cleaned_content, role=message["role"])
                 cleaned_messages.append(cleaned_message)
 
         if filtered_unknown_members:
@@ -398,17 +367,11 @@ class BedrockModel(Model):
         output_assessments = guardrail_data.get("outputAssessments", {})
 
         # Check input assessments
-        if any(
-            self._find_detected_and_blocked_policy(assessment)
-            for assessment in input_assessment.values()
-        ):
+        if any(self._find_detected_and_blocked_policy(assessment) for assessment in input_assessment.values()):
             return True
 
         # Check output assessments
-        if any(
-            self._find_detected_and_blocked_policy(assessment)
-            for assessment in output_assessments.values()
-        ):
+        if any(self._find_detected_and_blocked_policy(assessment) for assessment in output_assessments.values()):
             return True
 
         return False
@@ -483,9 +446,7 @@ class BedrockModel(Model):
         loop = asyncio.get_event_loop()
         queue: asyncio.Queue[Optional[StreamEvent]] = asyncio.Queue()
 
-        thread = asyncio.to_thread(
-            self._stream, callback, messages, tool_specs, system_prompt
-        )
+        thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt)
         task = asyncio.create_task(thread)
 
         while True:
@@ -496,8 +457,6 @@ class BedrockModel(Model):
             yield event
 
         await task
-
-
 
     def _stream(
         self,
@@ -583,10 +542,7 @@ class BedrockModel(Model):
             if e.response["Error"]["Code"] == "ThrottlingException":
                 raise ModelThrottledException(error_message) from e
 
-            if any(
-                overflow_message in error_message
-                for overflow_message in BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES
-            ):
+            if any(overflow_message in error_message for overflow_message in BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES):
                 logger.warning("bedrock threw context window overflow error")
                 raise ContextWindowOverflowException(e) from e
 
@@ -622,9 +578,7 @@ class BedrockModel(Model):
             callback()
             logger.debug("finished streaming response from model")
 
-    def _convert_non_streaming_to_streaming(
-        self, response: dict[str, Any]
-    ) -> Iterable[StreamEvent]:
+    def _convert_non_streaming_to_streaming(self, response: dict[str, Any]) -> Iterable[StreamEvent]:
         """Convert a non-streaming response to the streaming format.
 
         Args:
@@ -654,9 +608,7 @@ class BedrockModel(Model):
                 # For tool use, we need to yield the input as a delta
                 input_value = json.dumps(content["toolUse"]["input"])
 
-                yield {
-                    "contentBlockDelta": {"delta": {"toolUse": {"input": input_value}}}
-                }
+                yield {"contentBlockDelta": {"delta": {"toolUse": {"input": input_value}}}}
             elif "text" in content:
                 # Then yield the text as a delta
                 yield {
@@ -668,13 +620,7 @@ class BedrockModel(Model):
                 # Then yield the reasoning content as a delta
                 yield {
                     "contentBlockDelta": {
-                        "delta": {
-                            "reasoningContent": {
-                                "text": content["reasoningContent"]["reasoningText"][
-                                    "text"
-                                ]
-                            }
-                        }
+                        "delta": {"reasoningContent": {"text": content["reasoningContent"]["reasoningText"]["text"]}}
                     }
                 }
 
@@ -683,9 +629,7 @@ class BedrockModel(Model):
                         "contentBlockDelta": {
                             "delta": {
                                 "reasoningContent": {
-                                    "signature": content["reasoningContent"][
-                                        "reasoningText"
-                                    ]["signature"]
+                                    "signature": content["reasoningContent"]["reasoningText"]["signature"]
                                 }
                             }
                         }
@@ -752,11 +696,7 @@ class BedrockModel(Model):
         # Check if input is a dictionary
         if isinstance(input, dict):
             # Check if current dictionary has action: BLOCKED and detected: true
-            if (
-                input.get("action") == "BLOCKED"
-                and input.get("detected")
-                and isinstance(input.get("detected"), bool)
-            ):
+            if input.get("action") == "BLOCKED" and input.get("detected") and isinstance(input.get("detected"), bool):
                 return True
 
             # Recursively check all values in the dictionary
@@ -807,9 +747,7 @@ class BedrockModel(Model):
         stop_reason, messages, _, _ = event["stop"]
 
         if stop_reason != "tool_use":
-            raise ValueError(
-                f'Model returned stop_reason: {stop_reason} instead of "tool_use".'
-            )
+            raise ValueError(f'Model returned stop_reason: {stop_reason} instead of "tool_use".')
 
         content = messages["content"]
         output_response: dict[str, Any] | None = None
@@ -822,8 +760,6 @@ class BedrockModel(Model):
                 continue
 
         if output_response is None:
-            raise ValueError(
-                "No valid tool use or tool use input was found in the Bedrock response."
-            )
+            raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
 
         yield {"output": output_model(**output_response)}
