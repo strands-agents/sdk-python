@@ -24,11 +24,10 @@ from mcp.types import GetPromptResult, ListPromptsResult
 from mcp.types import ImageContent as MCPImageContent
 from mcp.types import TextContent as MCPTextContent
 
-from strands.types.tools import ToolResultContent, ToolResultStatus
-
 from ...types import PaginatedList
 from ...types.exceptions import MCPClientInitializationError
 from ...types.media import ImageFormat
+from ...types.tools import ToolResultContent, ToolResultStatus
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_instrumentation import mcp_instrumentation
 from .mcp_types import MCPToolResult, MCPTransport
