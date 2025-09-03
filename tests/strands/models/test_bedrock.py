@@ -25,16 +25,27 @@ def session_cls():
 
 
 @pytest.fixture
+def mock_bedrock_inference_profiles():
+    with unittest.mock.patch.object(strands.models.bedrock.boto3, "client") as mock_boto_client:
+        mock_bedrock = unittest.mock.MagicMock()
+        mock_bedrock.list_inference_profiles.return_value = {
+            "inferenceProfileSummaries": [{"inferenceProfileId": "us.anthropic.claude-sonnet-4-20250514-v1:0"}]
+        }
+        mock_boto_client.return_value = mock_bedrock
+        yield mock_boto_client
+
+
+@pytest.fixture
 def mock_client_method(session_cls):
     # the boto3.Session().client(...) method
     return session_cls.return_value.client
 
 
 @pytest.fixture
-def bedrock_client(session_cls):
+def bedrock_client(session_cls, region="us-west-2"):
     mock_client = session_cls.return_value.client.return_value
     mock_client.meta = unittest.mock.MagicMock()
-    mock_client.meta.region_name = "us-west-2"
+    mock_client.meta.region_name = region
     yield mock_client
 
 
@@ -44,7 +55,7 @@ def model_id():
 
 
 @pytest.fixture
-def model(bedrock_client, model_id):
+def model(bedrock_client, mock_bedrock_inference_profiles, model_id):
     _ = bedrock_client
 
     return BedrockModel(model_id=model_id)
@@ -113,7 +124,7 @@ def test_output_model_cls():
     return TestOutputModel
 
 
-def test__init__default_model_id(bedrock_client):
+def test__init__default_model_id(bedrock_client, mock_bedrock_inference_profiles):
     """Test that BedrockModel uses DEFAULT_MODEL_ID when no model_id is provided."""
     _ = bedrock_client
     model = BedrockModel()
@@ -121,10 +132,10 @@ def test__init__default_model_id(bedrock_client):
     tru_model_id = model.get_config().get("model_id")
     exp_model_id = DEFAULT_BEDROCK_MODEL_ID
 
-    assert tru_model_id == exp_model_id
+    assert tru_model_id and exp_model_id in tru_model_id
 
 
-def test__init__with_default_region(session_cls, mock_client_method):
+def test__init__with_default_region(session_cls, mock_client_method, mock_bedrock_inference_profiles):
     """Test that BedrockModel uses the provided region."""
     with unittest.mock.patch.object(os, "environ", {}):
         BedrockModel()
@@ -133,7 +144,7 @@ def test__init__with_default_region(session_cls, mock_client_method):
         )
 
 
-def test__init__with_session_region(session_cls, mock_client_method):
+def test__init__with_session_region(session_cls, mock_client_method, mock_bedrock_inference_profiles):
     """Test that BedrockModel uses the provided region."""
     session_cls.return_value.region_name = "eu-blah-1"
 
@@ -142,14 +153,14 @@ def test__init__with_session_region(session_cls, mock_client_method):
     mock_client_method.assert_called_with(region_name="eu-blah-1", config=ANY, service_name=ANY, endpoint_url=None)
 
 
-def test__init__with_custom_region(mock_client_method):
+def test__init__with_custom_region(mock_client_method, mock_bedrock_inference_profiles):
     """Test that BedrockModel uses the provided region."""
     custom_region = "us-east-1"
     BedrockModel(region_name=custom_region)
     mock_client_method.assert_called_with(region_name=custom_region, config=ANY, service_name=ANY, endpoint_url=None)
 
 
-def test__init__with_default_environment_variable_region(mock_client_method):
+def test__init__with_default_environment_variable_region(mock_client_method, mock_bedrock_inference_profiles):
     """Test that BedrockModel uses the AWS_REGION since we code that in."""
     with unittest.mock.patch.object(os, "environ", {"AWS_REGION": "eu-west-2"}):
         BedrockModel()
@@ -157,7 +168,7 @@ def test__init__with_default_environment_variable_region(mock_client_method):
     mock_client_method.assert_called_with(region_name="eu-west-2", config=ANY, service_name=ANY, endpoint_url=None)
 
 
-def test__init__region_precedence(mock_client_method, session_cls):
+def test__init__region_precedence(mock_client_method, session_cls, mock_bedrock_inference_profiles):
     """Test that BedrockModel uses the correct ordering of precedence when determining region."""
     with unittest.mock.patch.object(os, "environ", {"AWS_REGION": "us-environment-1"}) as mock_os_environ:
         session_cls.return_value.region_name = "us-session-1"
@@ -204,7 +215,7 @@ def test__init__with_region_and_session_raises_value_error():
         _ = BedrockModel(region_name="us-east-1", boto_session=boto3.Session(region_name="us-east-1"))
 
 
-def test__init__default_user_agent(bedrock_client):
+def test__init__default_user_agent(bedrock_client, mock_bedrock_inference_profiles):
     """Set user agent when no boto_client_config is provided."""
     with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
         mock_session = mock_session_cls.return_value
@@ -218,7 +229,7 @@ def test__init__default_user_agent(bedrock_client):
         assert kwargs["config"].user_agent_extra == "strands-agents"
 
 
-def test__init__with_custom_boto_client_config_no_user_agent(bedrock_client):
+def test__init__with_custom_boto_client_config_no_user_agent(bedrock_client, mock_bedrock_inference_profiles):
     """Set user agent when boto_client_config is provided without user_agent_extra."""
     custom_config = BotocoreConfig(read_timeout=900)
 
@@ -235,7 +246,7 @@ def test__init__with_custom_boto_client_config_no_user_agent(bedrock_client):
         assert kwargs["config"].read_timeout == 900
 
 
-def test__init__with_custom_boto_client_config_with_user_agent(bedrock_client):
+def test__init__with_custom_boto_client_config_with_user_agent(bedrock_client, mock_bedrock_inference_profiles):
     """Append to existing user agent when boto_client_config is provided with user_agent_extra."""
     custom_config = BotocoreConfig(user_agent_extra="existing-agent", read_timeout=900)
 
@@ -252,7 +263,7 @@ def test__init__with_custom_boto_client_config_with_user_agent(bedrock_client):
         assert kwargs["config"].read_timeout == 900
 
 
-def test__init__model_config(bedrock_client):
+def test__init__model_config(bedrock_client, mock_bedrock_inference_profiles):
     _ = bedrock_client
 
     model = BedrockModel(max_tokens=1)
@@ -614,7 +625,14 @@ async def test_stream_stream_output_guardrails(
 
 @pytest.mark.asyncio
 async def test_stream_output_guardrails_redacts_input_and_output(
-    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
+    bedrock_client,
+    mock_bedrock_inference_profiles,
+    model,
+    messages,
+    tool_spec,
+    model_id,
+    additional_request_fields,
+    alist,
 ):
     model.update_config(guardrail_redact_output=True)
     metadata_event = {
@@ -672,7 +690,14 @@ async def test_stream_output_guardrails_redacts_input_and_output(
 
 @pytest.mark.asyncio
 async def test_stream_output_no_blocked_guardrails_doesnt_redact(
-    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
+    bedrock_client,
+    mock_bedrock_inference_profiles,
+    model,
+    messages,
+    tool_spec,
+    model_id,
+    additional_request_fields,
+    alist,
 ):
     metadata_event = {
         "metadata": {
@@ -781,7 +806,7 @@ async def test_stream_output_no_guardrail_redact(
 
 
 @pytest.mark.asyncio
-async def test_stream_with_streaming_false(bedrock_client, alist, messages):
+async def test_stream_with_streaming_false(bedrock_client, mock_bedrock_inference_profiles, alist, messages):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
@@ -806,7 +831,9 @@ async def test_stream_with_streaming_false(bedrock_client, alist, messages):
 
 
 @pytest.mark.asyncio
-async def test_stream_with_streaming_false_and_tool_use(bedrock_client, alist, messages):
+async def test_stream_with_streaming_false_and_tool_use(
+    bedrock_client, mock_bedrock_inference_profiles, alist, messages
+):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {
@@ -837,7 +864,9 @@ async def test_stream_with_streaming_false_and_tool_use(bedrock_client, alist, m
 
 
 @pytest.mark.asyncio
-async def test_stream_with_streaming_false_and_reasoning(bedrock_client, alist, messages):
+async def test_stream_with_streaming_false_and_reasoning(
+    bedrock_client, mock_bedrock_inference_profiles, alist, messages
+):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {
@@ -875,7 +904,7 @@ async def test_stream_with_streaming_false_and_reasoning(bedrock_client, alist, 
 
 
 @pytest.mark.asyncio
-async def test_stream_and_reasoning_no_signature(bedrock_client, alist, messages):
+async def test_stream_and_reasoning_no_signature(bedrock_client, mock_bedrock_inference_profiles, alist, messages):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {
@@ -911,7 +940,9 @@ async def test_stream_and_reasoning_no_signature(bedrock_client, alist, messages
 
 
 @pytest.mark.asyncio
-async def test_stream_with_streaming_false_with_metrics_and_usage(bedrock_client, alist, messages):
+async def test_stream_with_streaming_false_with_metrics_and_usage(
+    bedrock_client, mock_bedrock_inference_profiles, alist, messages
+):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
@@ -945,7 +976,7 @@ async def test_stream_with_streaming_false_with_metrics_and_usage(bedrock_client
 
 
 @pytest.mark.asyncio
-async def test_stream_input_guardrails(bedrock_client, alist, messages):
+async def test_stream_input_guardrails(bedrock_client, mock_bedrock_inference_profiles, alist, messages):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
@@ -995,7 +1026,7 @@ async def test_stream_input_guardrails(bedrock_client, alist, messages):
 
 
 @pytest.mark.asyncio
-async def test_stream_output_guardrails(bedrock_client, alist, messages):
+async def test_stream_output_guardrails(bedrock_client, mock_bedrock_inference_profiles, alist, messages):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
@@ -1048,7 +1079,9 @@ async def test_stream_output_guardrails(bedrock_client, alist, messages):
 
 
 @pytest.mark.asyncio
-async def test_stream_output_guardrails_redacts_output(bedrock_client, alist, messages):
+async def test_stream_output_guardrails_redacts_output(
+    bedrock_client, mock_bedrock_inference_profiles, alist, messages
+):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
