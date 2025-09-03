@@ -1,6 +1,6 @@
 import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
@@ -390,17 +390,7 @@ async def test_cyclic_graph_execution(mock_strands_tracer, mock_use_span):
         assert agent_c.invoke_async.call_count == 1  # C executes once
 
         # Verify that node state was reset for the revisited node (A)
-        reset_spy.assert_called_once_with("a")  # Only A should be reset (when revisited)
-
-        # Count occurrences of each node in execution order
-        node_counts = {}
-        for node in result.execution_order:
-            node_counts[node.node_id] = node_counts.get(node.node_id, 0) + 1
-
-        # Verify the expected counts
-        assert node_counts["a"] == 2  # A appears twice
-        assert node_counts["b"] == 1  # B appears once
-        assert node_counts["c"] == 1  # C appears once
+        assert reset_spy.call_args_list == [call("a")]  # Only A should be reset (when revisited)
 
         # Verify all nodes were completed (final state)
         assert result.completed_nodes == 3
@@ -428,8 +418,6 @@ def test_graph_builder_validation():
         builder.add_node(same_agent, "node2")  # Same agent instance, different node_id
 
     # Test duplicate node instances in Graph.__init__
-    from strands.multiagent.graph import Graph, GraphNode
-
     duplicate_agent = create_mock_agent("duplicate_agent")
     node1 = GraphNode("node1", duplicate_agent)
     node2 = GraphNode("node2", duplicate_agent)  # Same agent instance
@@ -1079,9 +1067,7 @@ async def test_state_reset_only_with_cycles_enabled():
     graph = builder.build()
 
     # Mock the _execute_node method to test conditional reset logic
-    import unittest.mock
-
-    with unittest.mock.patch.object(node, "reset_executor_state") as mock_reset:
+    with patch.object(node, "reset_executor_state") as mock_reset:
         # Simulate the conditional logic from _execute_node
         if graph.reset_on_revisit and node in state.completed_nodes:
             node.reset_executor_state()
@@ -1096,7 +1082,7 @@ async def test_state_reset_only_with_cycles_enabled():
     builder.reset_on_revisit()
     graph = builder.build()
 
-    with unittest.mock.patch.object(node, "reset_executor_state") as mock_reset:
+    with patch.object(node, "reset_executor_state") as mock_reset:
         # Simulate the conditional logic from _execute_node
         if graph.reset_on_revisit and node in state.completed_nodes:
             node.reset_executor_state()
@@ -1141,7 +1127,9 @@ async def test_self_loop_functionality(mock_strands_tracer, mock_use_span):
     assert len(result.execution_order) == 3
     assert all(node.node_id == "self_loop" for node in result.execution_order)
 
-    # Test self-loop without reset_on_revisit
+
+@pytest.mark.asyncio
+async def test_self_loop_functionality_without_reset(mock_strands_tracer, mock_use_span):
     loop_agent_no_reset = create_mock_agent("loop_agent", "Loop without reset")
     execution_count_no_reset = 0
 
@@ -1168,9 +1156,8 @@ async def test_self_loop_functionality(mock_strands_tracer, mock_use_span):
 
 
 @pytest.mark.asyncio
-async def test_complex_self_loop_scenarios(mock_strands_tracer, mock_use_span):
+async def test_complex_self_loop(mock_strands_tracer, mock_use_span):
     """Test complex self-loop scenarios including multi-node graphs and multiple self-loops."""
-    # Test 1: Complex graph with start -> loop -> end pattern
     start_agent = create_mock_agent("start_agent", "Start")
     loop_agent = create_mock_agent("loop_agent", "Loop")
     end_agent = create_mock_agent("end_agent", "End")
@@ -1204,7 +1191,9 @@ async def test_complex_self_loop_scenarios(mock_strands_tracer, mock_use_span):
     assert loop_agent.invoke_async.call_count == 2
     assert end_agent.invoke_async.call_count == 1
 
-    # Test 2: Multiple nodes with their own self-loops
+
+@pytest.mark.asyncio
+async def test_multiple_nodes_with_self_loops(mock_strands_tracer, mock_use_span):
     agent_a = create_mock_agent("agent_a", "Agent A")
     agent_b = create_mock_agent("agent_b", "Agent B")
 
@@ -1237,11 +1226,8 @@ async def test_complex_self_loop_scenarios(mock_strands_tracer, mock_use_span):
 
 
 @pytest.mark.asyncio
-async def test_self_loop_edge_cases(mock_strands_tracer, mock_use_span):
+async def test_self_loop_state_reset():
     """Test self-loop edge cases including state reset, failure handling, and infinite loop prevention."""
-    # Test 1: State reset during self-loops
-    from strands.agent.state import AgentState
-
     agent = create_mock_agent("stateful_agent", "Stateful response")
     agent.state = AgentState()
 
@@ -1255,24 +1241,18 @@ async def test_self_loop_edge_cases(mock_strands_tracer, mock_use_span):
     builder.reset_on_revisit(True)
     builder.set_max_node_executions(10)
 
-    # Mock reset tracking
-    reset_spy = MagicMock()
-    original_reset = node.reset_executor_state
-
-    def spy_reset():
-        reset_spy()
-        return original_reset()
-
-    node.reset_executor_state = spy_reset
+    node.reset_executor_state = Mock(wraps=node.reset_executor_state)
 
     graph = builder.build()
     result = await graph.invoke_async("Test state reset")
 
     assert result.status == Status.COMPLETED
     assert len(result.execution_order) == 3
-    assert reset_spy.call_count >= 2  # Reset called for revisits
+    assert node.reset_executor_state.call_count >= 2  # Reset called for revisits
 
-    # Test 2: Infinite loop prevention
+
+@pytest.mark.asyncio
+async def test_infinite_loop_prevention():
     infinite_agent = create_mock_agent("infinite_agent", "Infinite loop")
 
     def always_true_condition(state: GraphState) -> bool:
@@ -1291,7 +1271,9 @@ async def test_self_loop_edge_cases(mock_strands_tracer, mock_use_span):
     assert result2.status == Status.FAILED
     assert len(result2.execution_order) == 5
 
-    # Test 3: MultiAgent node self-loops
+
+@pytest.mark.asyncio
+async def test_infinite_loop_prevention_self_loops():
     multi_agent = create_mock_multi_agent("multi_agent", "Multi-agent response")
     loop_count = 0
 
@@ -1313,6 +1295,3 @@ async def test_self_loop_edge_cases(mock_strands_tracer, mock_use_span):
     assert result3.status == Status.COMPLETED
     assert len(result3.execution_order) >= 2
     assert multi_agent.invoke_async.call_count >= 2
-
-    mock_strands_tracer.start_multiagent_span.assert_called()
-    mock_use_span.assert_called()
