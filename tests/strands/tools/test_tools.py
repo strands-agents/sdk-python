@@ -9,6 +9,7 @@ from strands.tools.tools import (
     validate_tool_use,
     validate_tool_use_name,
 )
+from strands.types._events import ToolResultEvent
 from strands.types.tools import ToolUse
 
 
@@ -506,5 +507,5 @@ async def test_stream(identity_tool, alist):
     stream = identity_tool.stream({"tool_use": 1}, {"a": 2})
 
     tru_events = await alist(stream)
-    exp_events = [({"tool_use": 1}, 2)]
+    exp_events = [ToolResultEvent(({"tool_use": 1}, 2))]
     assert tru_events == exp_events

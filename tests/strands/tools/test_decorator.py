@@ -10,6 +10,7 @@ import pytest
 
 import strands
 from strands import Agent
+from strands.types._events import ToolResultEvent
 from strands.types.tools import AgentTool, ToolContext, ToolUse
 
 
@@ -117,7 +118,7 @@ async def test_stream(identity_tool, alist):
     stream = identity_tool.stream({"toolUseId": "t1", "input": {"a": 2}}, {})
 
     tru_events = await alist(stream)
-    exp_events = [{"toolUseId": "t1", "status": "success", "content": [{"text": "2"}]}]
+    exp_events = [ToolResultEvent({"toolUseId": "t1", "status": "success", "content": [{"text": "2"}]})]
 
     assert tru_events == exp_events
 
@@ -131,7 +132,9 @@ async def test_stream_with_agent(alist):
     stream = identity.stream({"input": {"a": 2}}, {"agent": {"state": 1}})
 
     tru_events = await alist(stream)
-    exp_events = [{"toolUseId": "unknown", "status": "success", "content": [{"text": "(2, {'state': 1})"}]}]
+    exp_events = [
+        ToolResultEvent({"toolUseId": "unknown", "status": "success", "content": [{"text": "(2, {'state': 1})"}]})
+    ]
     assert tru_events == exp_events
 
 
@@ -180,7 +183,9 @@ Args:
     stream = test_tool.stream(tool_use, {})
 
     tru_events = await alist(stream)
-    exp_events = [{"toolUseId": "test-id", "status": "success", "content": [{"text": "Result: hello 42"}]}]
+    exp_events = [
+        ToolResultEvent({"toolUseId": "test-id", "status": "success", "content": [{"text": "Result: hello 42"}]})
+    ]
     assert tru_events == exp_events
 
     # Make sure these are set properly
@@ -229,7 +234,9 @@ async def test_tool_with_optional_params(alist):
     stream = test_tool.stream(tool_use, {})
 
     tru_events = await alist(stream)
-    exp_events = [{"toolUseId": "test-id", "status": "success", "content": [{"text": "Result: hello"}]}]
+    exp_events = [
+        ToolResultEvent({"toolUseId": "test-id", "status": "success", "content": [{"text": "Result: hello"}]})
+    ]
     assert tru_events == exp_events
 
     # Test with both params
@@ -237,7 +244,9 @@ async def test_tool_with_optional_params(alist):
     stream = test_tool.stream(tool_use, {})
 
     tru_events = await alist(stream)
-    exp_events = [{"toolUseId": "test-id", "status": "success", "content": [{"text": "Result: hello 42"}]}]
+    exp_events = [
+        ToolResultEvent({"toolUseId": "test-id", "status": "success", "content": [{"text": "Result: hello 42"}]})
+    ]
 
 
 @pytest.mark.asyncio
@@ -256,8 +265,8 @@ async def test_tool_error_handling(alist):
     stream = test_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "error"
-    assert "validation error for test_tooltool\nrequired\n" in result["content"][0]["text"].lower(), (
+    assert result["tool_result"]["status"] == "error"
+    assert "validation error for test_tooltool\nrequired\n" in result["tool_result"]["content"][0]["text"].lower(), (
         "Validation error should indicate which argument is missing"
     )
 
@@ -266,8 +275,8 @@ async def test_tool_error_handling(alist):
     stream = test_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "error"
-    assert "test error" in result["content"][0]["text"].lower(), (
+    assert result["tool_result"]["status"] == "error"
+    assert "test error" in result["tool_result"]["content"][0]["text"].lower(), (
         "Runtime error should contain the original error message"
     )
 
@@ -313,14 +322,14 @@ async def test_agent_parameter_passing(alist):
     stream = test_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["content"][0]["text"] == "Param: test"
+    assert result["tool_result"]["content"][0]["text"] == "Param: test"
 
     # Test with agent
     stream = test_tool.stream(tool_use, {"agent": mock_agent})
 
     result = (await alist(stream))[-1]
-    assert "Agent:" in result["content"][0]["text"]
-    assert "test" in result["content"][0]["text"]
+    assert "Agent:" in result["tool_result"]["content"][0]["text"]
+    assert "test" in result["tool_result"]["content"][0]["text"]
 
 
 @pytest.mark.asyncio
@@ -350,23 +359,23 @@ async def test_tool_decorator_with_different_return_values(alist):
     stream = dict_return_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert result["content"][0]["text"] == "Result: test"
-    assert result["toolUseId"] == "test-id"
+    assert result["tool_result"]["status"] == "success"
+    assert result["tool_result"]["content"][0]["text"] == "Result: test"
+    assert result["tool_result"]["toolUseId"] == "test-id"
 
     # Test the string return - should wrap in standard format
     stream = string_return_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert result["content"][0]["text"] == "Result: test"
+    assert result["tool_result"]["status"] == "success"
+    assert result["tool_result"]["content"][0]["text"] == "Result: test"
 
     # Test None return - should still create valid ToolResult with "None" text
     stream = none_return_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert result["content"][0]["text"] == "None"
+    assert result["tool_result"]["status"] == "success"
+    assert result["tool_result"]["content"][0]["text"] == "None"
 
 
 @pytest.mark.asyncio
@@ -403,7 +412,7 @@ async def test_class_method_handling(alist):
     stream = instance.test_method.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert "Test: tool-value" in result["content"][0]["text"]
+    assert "Test: tool-value" in result["tool_result"]["content"][0]["text"]
 
 
 @pytest.mark.asyncio
@@ -422,7 +431,9 @@ async def test_tool_as_adhoc_field(alist):
 
     stream = instance.field.stream({"toolUseId": "test-id", "input": {"param": "example"}}, {})
     result2 = (await alist(stream))[-1]
-    assert result2 == {"content": [{"text": "param: example"}], "status": "success", "toolUseId": "test-id"}
+    assert result2 == ToolResultEvent(
+        {"content": [{"text": "param: example"}], "status": "success", "toolUseId": "test-id"}
+    )
 
 
 @pytest.mark.asyncio
@@ -444,7 +455,9 @@ async def test_tool_as_instance_field(alist):
 
     stream = instance.field.stream({"toolUseId": "test-id", "input": {"param": "example"}}, {})
     result2 = (await alist(stream))[-1]
-    assert result2 == {"content": [{"text": "param: example"}], "status": "success", "toolUseId": "test-id"}
+    assert result2 == ToolResultEvent(
+        {"content": [{"text": "param: example"}], "status": "success", "toolUseId": "test-id"}
+    )
 
 
 @pytest.mark.asyncio
@@ -474,14 +487,14 @@ async def test_default_parameter_handling(alist):
     stream = tool_with_defaults.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["content"][0]["text"] == "hello default 42"
+    assert result["tool_result"]["content"][0]["text"] == "hello default 42"
 
     # Call with some but not all optional parameters
     tool_use = {"toolUseId": "test-id", "input": {"required": "hello", "number": 100}}
     stream = tool_with_defaults.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["content"][0]["text"] == "hello default 100"
+    assert result["tool_result"]["content"][0]["text"] == "hello default 100"
 
 
 @pytest.mark.asyncio
@@ -496,14 +509,15 @@ async def test_empty_tool_use_handling(alist):
     # Test with completely empty tool use
     stream = test_tool.stream({}, {})
     result = (await alist(stream))[-1]
-    assert result["status"] == "error"
-    assert "unknown" in result["toolUseId"]
+    print(result)
+    assert result["tool_result"]["status"] == "error"
+    assert "unknown" in result["tool_result"]["toolUseId"]
 
     # Test with missing input
     stream = test_tool.stream({"toolUseId": "test-id"}, {})
     result = (await alist(stream))[-1]
-    assert result["status"] == "error"
-    assert "test-id" in result["toolUseId"]
+    assert result["tool_result"]["status"] == "error"
+    assert "test-id" in result["tool_result"]["toolUseId"]
 
 
 @pytest.mark.asyncio
@@ -529,8 +543,8 @@ async def test_traditional_function_call(alist):
     stream = add_numbers.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert result["content"][0]["text"] == "5"
+    assert result["tool_result"]["status"] == "success"
+    assert result["tool_result"]["content"][0]["text"] == "5"
 
 
 @pytest.mark.asyncio
@@ -565,8 +579,8 @@ async def test_multiple_default_parameters(alist):
     stream = multi_default_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert "hello, default_str, 42, True, 3.14" in result["content"][0]["text"]
+    assert result["tool_result"]["status"] == "success"
+    assert "hello, default_str, 42, True, 3.14" in result["tool_result"]["content"][0]["text"]
 
     # Test calling with some optional parameters
     tool_use = {
@@ -576,7 +590,7 @@ async def test_multiple_default_parameters(alist):
     stream = multi_default_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert "hello, default_str, 100, True, 2.718" in result["content"][0]["text"]
+    assert "hello, default_str, 100, True, 2.718" in result["tool_result"]["content"][0]["text"]
 
 
 @pytest.mark.asyncio
@@ -603,8 +617,8 @@ async def test_return_type_validation(alist):
     stream = int_return_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert result["content"][0]["text"] == "42"
+    assert result["tool_result"]["status"] == "success"
+    assert result["tool_result"]["content"][0]["text"] == "42"
 
     # Test with return that doesn't match declared type
     # Note: This should still work because Python doesn't enforce return types at runtime
@@ -613,16 +627,16 @@ async def test_return_type_validation(alist):
     stream = int_return_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert result["content"][0]["text"] == "not an int"
+    assert result["tool_result"]["status"] == "success"
+    assert result["tool_result"]["content"][0]["text"] == "not an int"
 
     # Test with None return from a non-None return type
     tool_use = {"toolUseId": "test-id", "input": {"param": "none"}}
     stream = int_return_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert result["content"][0]["text"] == "None"
+    assert result["tool_result"]["status"] == "success"
+    assert result["tool_result"]["content"][0]["text"] == "None"
 
     # Define tool with Union return type
     @strands.tool
@@ -644,22 +658,25 @@ async def test_return_type_validation(alist):
     stream = union_return_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert "{'key': 'value'}" in result["content"][0]["text"] or '{"key": "value"}' in result["content"][0]["text"]
+    assert result["tool_result"]["status"] == "success"
+    assert (
+        "{'key': 'value'}" in result["tool_result"]["content"][0]["text"]
+        or '{"key": "value"}' in result["tool_result"]["content"][0]["text"]
+    )
 
     tool_use = {"toolUseId": "test-id", "input": {"param": "str"}}
     stream = union_return_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert result["content"][0]["text"] == "string result"
+    assert result["tool_result"]["status"] == "success"
+    assert result["tool_result"]["content"][0]["text"] == "string result"
 
     tool_use = {"toolUseId": "test-id", "input": {"param": "none"}}
     stream = union_return_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert result["content"][0]["text"] == "None"
+    assert result["tool_result"]["status"] == "success"
+    assert result["tool_result"]["content"][0]["text"] == "None"
 
 
 @pytest.mark.asyncio
@@ -682,8 +699,8 @@ async def test_tool_with_no_parameters(alist):
     stream = no_params_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert result["content"][0]["text"] == "Success - no parameters needed"
+    assert result["tool_result"]["status"] == "success"
+    assert result["tool_result"]["content"][0]["text"] == "Success - no parameters needed"
 
     # Test direct call
     direct_result = no_params_tool()
@@ -711,8 +728,8 @@ async def test_complex_parameter_types(alist):
     stream = complex_type_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert "Got config with 3 keys" in result["content"][0]["text"]
+    assert result["tool_result"]["status"] == "success"
+    assert "Got config with 3 keys" in result["tool_result"]["content"][0]["text"]
 
     # Direct call
     direct_result = complex_type_tool(nested_dict)
@@ -742,12 +759,12 @@ async def test_custom_tool_result_handling(alist):
 
     # The wrapper should preserve our format and just add the toolUseId
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert result["toolUseId"] == "custom-id"
-    assert len(result["content"]) == 2
-    assert result["content"][0]["text"] == "First line: test"
-    assert result["content"][1]["text"] == "Second line"
-    assert result["content"][1]["type"] == "markdown"
+    assert result["tool_result"]["status"] == "success"
+    assert result["tool_result"]["toolUseId"] == "custom-id"
+    assert len(result["tool_result"]["content"]) == 2
+    assert result["tool_result"]["content"][0]["text"] == "First line: test"
+    assert result["tool_result"]["content"][1]["text"] == "Second line"
+    assert result["tool_result"]["content"][1]["type"] == "markdown"
 
 
 def test_docstring_parsing():
@@ -816,8 +833,8 @@ async def test_detailed_validation_errors(alist):
     stream = validation_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "error"
-    assert "int_param" in result["content"][0]["text"]
+    assert result["tool_result"]["status"] == "error"
+    assert "int_param" in result["tool_result"]["content"][0]["text"]
 
     # Test missing required parameter
     tool_use = {
@@ -831,8 +848,8 @@ async def test_detailed_validation_errors(alist):
     stream = validation_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "error"
-    assert "int_param" in result["content"][0]["text"]
+    assert result["tool_result"]["status"] == "error"
+    assert "int_param" in result["tool_result"]["content"][0]["text"]
 
 
 @pytest.mark.asyncio
@@ -855,16 +872,16 @@ async def test_tool_complex_validation_edge_cases(alist):
     stream = edge_case_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert result["content"][0]["text"] == "None"
+    assert result["tool_result"]["status"] == "success"
+    assert result["tool_result"]["content"][0]["text"] == "None"
 
     # Test with empty dict
     tool_use = {"toolUseId": "test-id", "input": {"param": {}}}
     stream = edge_case_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert result["content"][0]["text"] == "{}"
+    assert result["tool_result"]["status"] == "success"
+    assert result["tool_result"]["content"][0]["text"] == "{}"
 
     # Test with a complex nested dictionary
     nested_dict = {"key1": {"nested": [1, 2, 3]}, "key2": None}
@@ -872,9 +889,9 @@ async def test_tool_complex_validation_edge_cases(alist):
     stream = edge_case_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert "key1" in result["content"][0]["text"]
-    assert "nested" in result["content"][0]["text"]
+    assert result["tool_result"]["status"] == "success"
+    assert "key1" in result["tool_result"]["content"][0]["text"]
+    assert "nested" in result["tool_result"]["content"][0]["text"]
 
 
 @pytest.mark.asyncio
@@ -922,8 +939,8 @@ async def test_tool_method_detection_errors(alist):
     stream = instance.test_method.stream({"toolUseId": "test-id", "input": {"param": "direct"}}, {})
 
     direct_result = (await alist(stream))[-1]
-    assert direct_result["status"] == "success"
-    assert direct_result["content"][0]["text"] == "Method Got: direct"
+    assert direct_result["tool_result"]["status"] == "success"
+    assert direct_result["tool_result"]["content"][0]["text"] == "Method Got: direct"
 
     # Create a standalone function to test regular function calls
     @strands.tool
@@ -944,8 +961,8 @@ async def test_tool_method_detection_errors(alist):
     stream = standalone_tool.stream({"toolUseId": "test-id", "input": {"p1": "value1"}}, {})
 
     tool_use_result = (await alist(stream))[-1]
-    assert tool_use_result["status"] == "success"
-    assert tool_use_result["content"][0]["text"] == "Standalone: value1, default"
+    assert tool_use_result["tool_result"]["status"] == "success"
+    assert tool_use_result["tool_result"]["content"][0]["text"] == "Standalone: value1, default"
 
 
 @pytest.mark.asyncio
@@ -976,9 +993,9 @@ async def test_tool_general_exception_handling(alist):
         stream = failing_tool.stream(tool_use, {})
 
         result = (await alist(stream))[-1]
-        assert result["status"] == "error"
+        assert result["tool_result"]["status"] == "error"
 
-        error_message = result["content"][0]["text"]
+        error_message = result["tool_result"]["content"][0]["text"]
 
         # Check that error type is included
         if error_type == "value_error":
@@ -1011,33 +1028,33 @@ async def test_tool_with_complex_anyof_schema(alist):
     stream = complex_schema_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert "list: [1, 2, 3]" in result["content"][0]["text"]
+    assert result["tool_result"]["status"] == "success"
+    assert "list: [1, 2, 3]" in result["tool_result"]["content"][0]["text"]
 
     # Test with a dict
     tool_use = {"toolUseId": "test-id", "input": {"union_param": {"key": "value"}}}
     stream = complex_schema_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert "dict:" in result["content"][0]["text"]
-    assert "key" in result["content"][0]["text"]
+    assert result["tool_result"]["status"] == "success"
+    assert "dict:" in result["tool_result"]["content"][0]["text"]
+    assert "key" in result["tool_result"]["content"][0]["text"]
 
     # Test with a string
     tool_use = {"toolUseId": "test-id", "input": {"union_param": "test_string"}}
     stream = complex_schema_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert "str: test_string" in result["content"][0]["text"]
+    assert result["tool_result"]["status"] == "success"
+    assert "str: test_string" in result["tool_result"]["content"][0]["text"]
 
     # Test with None
     tool_use = {"toolUseId": "test-id", "input": {"union_param": None}}
     stream = complex_schema_tool.stream(tool_use, {})
 
     result = (await alist(stream))[-1]
-    assert result["status"] == "success"
-    assert "NoneType: None" in result["content"][0]["text"]
+    assert result["tool_result"]["status"] == "success"
+    assert "NoneType: None" in result["tool_result"]["content"][0]["text"]
 
 
 async def _run_context_injection_test(context_tool: AgentTool, additional_context=None):
@@ -1061,15 +1078,17 @@ async def _run_context_injection_test(context_tool: AgentTool, additional_contex
     assert len(tool_results) == 1
     tool_result = tool_results[0]
 
-    assert tool_result == {
-        "status": "success",
-        "content": [
-            {"text": "Tool 'context_tool' (ID: test-id)"},
-            {"text": "injected agent 'test_agent' processed: some_message"},
-            {"text": "context agent 'test_agent'"},
-        ],
-        "toolUseId": "test-id",
-    }
+    assert tool_result == ToolResultEvent(
+        {
+            "status": "success",
+            "content": [
+                {"text": "Tool 'context_tool' (ID: test-id)"},
+                {"text": "injected agent 'test_agent' processed: some_message"},
+                {"text": "context agent 'test_agent'"},
+            ],
+            "toolUseId": "test-id",
+        }
+    )
 
 
 @pytest.mark.asyncio
@@ -1164,9 +1183,9 @@ async def test_tool_context_injection_disabled_missing_parameter():
     tool_result = tool_results[0]
 
     # Should get a validation error because tool_context is required but not provided
-    assert tool_result["status"] == "error"
-    assert "tool_context" in tool_result["content"][0]["text"].lower()
-    assert "validation" in tool_result["content"][0]["text"].lower()
+    assert tool_result["tool_result"]["status"] == "error"
+    assert "tool_context" in tool_result["tool_result"]["content"][0]["text"].lower()
+    assert "validation" in tool_result["tool_result"]["content"][0]["text"].lower()
 
 
 @pytest.mark.asyncio
@@ -1196,8 +1215,10 @@ async def test_tool_context_injection_disabled_string_parameter():
     tool_result = tool_results[0]
 
     # Should succeed with the string parameter
-    assert tool_result == {
-        "status": "success",
-        "content": [{"text": "success"}],
-        "toolUseId": "test-id-2",
-    }
+    assert tool_result == ToolResultEvent(
+        {
+            "status": "success",
+            "content": [{"text": "success"}],
+            "toolUseId": "test-id-2",
+        }
+    )

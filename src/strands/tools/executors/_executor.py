@@ -119,7 +119,20 @@ class ToolExecutor(abc.ABC):
                 return
 
             async for event in selected_tool.stream(tool_use, invocation_state, **kwargs):
-                yield ToolStreamEvent(tool_use, event)
+                # Internal optimization; for built-in AgentTools, we yield TypedEvents out of .stream()
+                # so that we don't needlessly yield ToolStreamEvents for non-generator callbacks.
+                # In which case, as soon as we get a ToolResultEvent we're done and for ToolStreamEvent
+                # we yield it directly; all other cases (non-sdk AgentTools), we wrap events in
+                # ToolStreamEvent and the last even is just the result
+
+                if isinstance(event, ToolResultEvent):
+                    # below the last "event" must point to the tool_result
+                    event = event.tool_result
+                    break
+                elif isinstance(event, ToolStreamEvent):
+                    yield event
+                else:
+                    yield ToolStreamEvent(tool_use, event)
 
             result = cast(ToolResult, event)
 
