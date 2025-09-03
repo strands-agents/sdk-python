@@ -1,146 +1,149 @@
-"""Tests for MultiAgentBase module."""
-
 import pytest
 
-from strands.multiagent.base import SharedContext
+from strands.agent import AgentResult
+from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
 
-def test_shared_context_initialization():
-    """Test SharedContext initialization."""
-    context = SharedContext()
-    assert context.context == {}
-
-    # Test with initial context
-    initial_context = {"node1": {"key1": "value1"}}
-    context = SharedContext(initial_context)
-    assert context.context == initial_context
-
-
-def test_shared_context_add_context():
-    """Test adding context to SharedContext."""
-    context = SharedContext()
-    
-    # Create mock nodes
-    node1 = type('MockNode', (), {'node_id': 'node1'})()
-    node2 = type('MockNode', (), {'node_id': 'node2'})()
-    
-    # Add context for a node
-    context.add_context(node1, "key1", "value1")
-    assert context.context["node1"]["key1"] == "value1"
-    
-    # Add more context for the same node
-    context.add_context(node1, "key2", "value2")
-    assert context.context["node1"]["key1"] == "value1"
-    assert context.context["node1"]["key2"] == "value2"
-    
-    # Add context for a different node
-    context.add_context(node2, "key1", "value3")
-    assert context.context["node2"]["key1"] == "value3"
-    assert "node2" not in context.context["node1"]
+@pytest.fixture
+def agent_result():
+    """Create a mock AgentResult for testing."""
+    return AgentResult(
+        message={"role": "assistant", "content": [{"text": "Test response"}]},
+        stop_reason="end_turn",
+        state={},
+        metrics={},
+    )
 
 
-def test_shared_context_get_context():
-    """Test getting context from SharedContext."""
-    context = SharedContext()
-    
-    # Create mock nodes
-    node1 = type('MockNode', (), {'node_id': 'node1'})()
-    node2 = type('MockNode', (), {'node_id': 'node2'})()
-    non_existent_node = type('MockNode', (), {'node_id': 'non_existent_node'})()
-    
-    # Add some test data
-    context.add_context(node1, "key1", "value1")
-    context.add_context(node1, "key2", "value2")
-    context.add_context(node2, "key1", "value3")
-    
-    # Get specific key
-    assert context.get_context(node1, "key1") == "value1"
-    assert context.get_context(node1, "key2") == "value2"
-    assert context.get_context(node2, "key1") == "value3"
-    
-    # Get all context for a node
-    node1_context = context.get_context(node1)
-    assert node1_context == {"key1": "value1", "key2": "value2"}
-    
-    # Get context for non-existent node
-    assert context.get_context(non_existent_node) == {}
-    assert context.get_context(non_existent_node, "key") is None
+def test_node_result_initialization_and_properties(agent_result):
+    """Test NodeResult initialization and property access."""
+    # Basic initialization
+    node_result = NodeResult(result=agent_result, execution_time=50, status="completed")
+
+    # Verify properties
+    assert node_result.result == agent_result
+    assert node_result.execution_time == 50
+    assert node_result.status == "completed"
+    assert node_result.accumulated_usage == {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
+    assert node_result.accumulated_metrics == {"latencyMs": 0.0}
+    assert node_result.execution_count == 0
+
+    # With custom metrics
+    custom_usage = {"inputTokens": 100, "outputTokens": 200, "totalTokens": 300}
+    custom_metrics = {"latencyMs": 250.0}
+    node_result_custom = NodeResult(
+        result=agent_result,
+        execution_time=75,
+        status="completed",
+        accumulated_usage=custom_usage,
+        accumulated_metrics=custom_metrics,
+        execution_count=5,
+    )
+    assert node_result_custom.accumulated_usage == custom_usage
+    assert node_result_custom.accumulated_metrics == custom_metrics
+    assert node_result_custom.execution_count == 5
+
+    # Test default factory creates independent instances
+    node_result1 = NodeResult(result=agent_result)
+    node_result2 = NodeResult(result=agent_result)
+    node_result1.accumulated_usage["inputTokens"] = 100
+    assert node_result2.accumulated_usage["inputTokens"] == 0
+    assert node_result1.accumulated_usage is not node_result2.accumulated_usage
 
 
-def test_shared_context_validation():
-    """Test SharedContext input validation."""
-    context = SharedContext()
-    
-    # Create mock node
-    node1 = type('MockNode', (), {'node_id': 'node1'})()
-    
-    # Test invalid key validation
-    with pytest.raises(ValueError, match="Key cannot be None"):
-        context.add_context(node1, None, "value")
-    
-    with pytest.raises(ValueError, match="Key must be a string"):
-        context.add_context(node1, 123, "value")
-    
-    with pytest.raises(ValueError, match="Key cannot be empty"):
-        context.add_context(node1, "", "value")
-    
-    with pytest.raises(ValueError, match="Key cannot be empty"):
-        context.add_context(node1, "   ", "value")
-    
-    # Test JSON serialization validation
-    with pytest.raises(ValueError, match="Value is not JSON serializable"):
-        context.add_context(node1, "key", lambda x: x)  # Function not serializable
-    
-    # Test valid values
-    context.add_context(node1, "string", "hello")
-    context.add_context(node1, "number", 42)
-    context.add_context(node1, "boolean", True)
-    context.add_context(node1, "list", [1, 2, 3])
-    context.add_context(node1, "dict", {"nested": "value"})
-    context.add_context(node1, "none", None)
+def test_node_result_get_agent_results(agent_result):
+    """Test get_agent_results method with different structures."""
+    # Simple case with single AgentResult
+    node_result = NodeResult(result=agent_result)
+    agent_results = node_result.get_agent_results()
+    assert len(agent_results) == 1
+    assert agent_results[0] == agent_result
+
+    # Test with Exception as result (should return empty list)
+    exception_result = NodeResult(result=Exception("Test exception"), status=Status.FAILED)
+    agent_results = exception_result.get_agent_results()
+    assert len(agent_results) == 0
+
+    # Complex nested case
+    inner_agent_result1 = AgentResult(
+        message={"role": "assistant", "content": [{"text": "Response 1"}]}, stop_reason="end_turn", state={}, metrics={}
+    )
+    inner_agent_result2 = AgentResult(
+        message={"role": "assistant", "content": [{"text": "Response 2"}]}, stop_reason="end_turn", state={}, metrics={}
+    )
+
+    inner_node_result1 = NodeResult(result=inner_agent_result1)
+    inner_node_result2 = NodeResult(result=inner_agent_result2)
+
+    multi_agent_result = MultiAgentResult(results={"node1": inner_node_result1, "node2": inner_node_result2})
+
+    outer_node_result = NodeResult(result=multi_agent_result)
+    agent_results = outer_node_result.get_agent_results()
+
+    assert len(agent_results) == 2
+    response_texts = [result.message["content"][0]["text"] for result in agent_results]
+    assert "Response 1" in response_texts
+    assert "Response 2" in response_texts
 
 
-def test_shared_context_isolation():
-    """Test that SharedContext provides proper isolation between nodes."""
-    context = SharedContext()
-    
-    # Create mock nodes
-    node1 = type('MockNode', (), {'node_id': 'node1'})()
-    node2 = type('MockNode', (), {'node_id': 'node2'})()
-    
-    # Add context for different nodes
-    context.add_context(node1, "key1", "value1")
-    context.add_context(node2, "key1", "value2")
-    
-    # Ensure nodes don't interfere with each other
-    assert context.get_context(node1, "key1") == "value1"
-    assert context.get_context(node2, "key1") == "value2"
-    
-    # Getting all context for a node should only return that node's context
-    assert context.get_context(node1) == {"key1": "value1"}
-    assert context.get_context(node2) == {"key1": "value2"}
+def test_multi_agent_result_initialization(agent_result):
+    """Test MultiAgentResult initialization with defaults and custom values."""
+    # Default initialization
+    result = MultiAgentResult(results={})
+    assert result.results == {}
+    assert result.accumulated_usage == {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
+    assert result.accumulated_metrics == {"latencyMs": 0.0}
+    assert result.execution_count == 0
+    assert result.execution_time == 0
+
+    # Custom values``
+    node_result = NodeResult(result=agent_result)
+    results = {"test_node": node_result}
+    usage = {"inputTokens": 50, "outputTokens": 100, "totalTokens": 150}
+    metrics = {"latencyMs": 200.0}
+
+    result = MultiAgentResult(
+        results=results, accumulated_usage=usage, accumulated_metrics=metrics, execution_count=3, execution_time=300
+    )
+
+    assert result.results == results
+    assert result.accumulated_usage == usage
+    assert result.accumulated_metrics == metrics
+    assert result.execution_count == 3
+    assert result.execution_time == 300
+
+    # Test default factory creates independent instances
+    result1 = MultiAgentResult(results={})
+    result2 = MultiAgentResult(results={})
+    result1.accumulated_usage["inputTokens"] = 200
+    result1.accumulated_metrics["latencyMs"] = 500.0
+    assert result2.accumulated_usage["inputTokens"] == 0
+    assert result2.accumulated_metrics["latencyMs"] == 0.0
+    assert result1.accumulated_usage is not result2.accumulated_usage
+    assert result1.accumulated_metrics is not result2.accumulated_metrics
 
 
-def test_shared_context_copy_semantics():
-    """Test that SharedContext.get_context returns copies to prevent mutation."""
-    context = SharedContext()
-    
-    # Create mock node
-    node1 = type('MockNode', (), {'node_id': 'node1'})()
-    
-    # Add a mutable value
-    context.add_context(node1, "mutable", [1, 2, 3])
-    
-    # Get the context and modify it
-    retrieved_context = context.get_context(node1)
-    retrieved_context["mutable"].append(4)
-    
-    # The original should remain unchanged
-    assert context.get_context(node1, "mutable") == [1, 2, 3]
-    
-    # Test that getting all context returns a copy
-    all_context = context.get_context(node1)
-    all_context["new_key"] = "new_value"
-    
-    # The original should remain unchanged
-    assert "new_key" not in context.get_context(node1)
+def test_multi_agent_base_abstract_behavior():
+    """Test abstract class behavior of MultiAgentBase."""
+    # Test that MultiAgentBase cannot be instantiated directly
+    with pytest.raises(TypeError):
+        MultiAgentBase()
+
+    # Test that incomplete implementations raise TypeError
+    class IncompleteMultiAgent(MultiAgentBase):
+        pass
+
+    with pytest.raises(TypeError):
+        IncompleteMultiAgent()
+
+    # Test that complete implementations can be instantiated
+    class CompleteMultiAgent(MultiAgentBase):
+        async def invoke_async(self, task: str) -> MultiAgentResult:
+            return MultiAgentResult(results={})
+
+        def __call__(self, task: str) -> MultiAgentResult:
+            return MultiAgentResult(results={})
+
+    # Should not raise an exception
+    agent = CompleteMultiAgent()
+    assert isinstance(agent, MultiAgentBase)

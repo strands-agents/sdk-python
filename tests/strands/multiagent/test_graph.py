@@ -797,96 +797,19 @@ def test_graph_dataclasses_and_enums():
     # Test GraphEdge hashing
     node_x = GraphNode("x", mock_agent_a)
     node_y = GraphNode("y", mock_agent_b)
-    edge_x_y = GraphEdge(node_x, node_y)
-    edge_y_x = GraphEdge(node_y, node_x)
+    edge1 = GraphEdge(node_x, node_y)
+    edge2 = GraphEdge(node_x, node_y)
+    edge3 = GraphEdge(node_y, node_x)
+    assert hash(edge1) == hash(edge2)
+    assert hash(edge1) != hash(edge3)
 
-    # Different edges should have different hashes
-    assert hash(edge_x_y) != hash(edge_y_x)
-
-    # Same edge should have same hash
-    edge_x_y_duplicate = GraphEdge(node_x, node_y)
-    assert hash(edge_x_y) == hash(edge_x_y_duplicate)
-
-
-def test_graph_shared_context():
-    """Test that Graph exposes shared context for user-defined state."""
-    # Create a simple graph
-    mock_agent_a = create_mock_agent("agent_a")
-    mock_agent_b = create_mock_agent("agent_b")
-
-    builder = GraphBuilder()
-    builder.add_node(mock_agent_a, "node_a")
-    builder.add_node(mock_agent_b, "node_b")
-    builder.add_edge("node_a", "node_b")
-    builder.set_entry_point("node_a")
-
-    graph = builder.build()
-
-    # Test that shared_context is accessible
-    assert hasattr(graph, "shared_context")
-    assert graph.shared_context is not None
-
-    # Get node objects
-    node_a = graph.nodes["node_a"]
-    node_b = graph.nodes["node_b"]
-    
-    # Test adding context
-    graph.shared_context.add_context(node_a, "file_reference", "/path/to/file")
-    graph.shared_context.add_context(node_a, "data", {"key": "value"})
-
-    # Test getting context
-    assert graph.shared_context.get_context(node_a, "file_reference") == "/path/to/file"
-    assert graph.shared_context.get_context(node_a, "data") == {"key": "value"}
-    assert graph.shared_context.get_context(node_a) == {"file_reference": "/path/to/file", "data": {"key": "value"}}
-
-    # Test getting context for non-existent node
-    non_existent_node = type('MockNode', (), {'node_id': 'non_existent_node'})()
-    assert graph.shared_context.get_context(non_existent_node) == {}
-    assert graph.shared_context.get_context(non_existent_node, "key") is None
-
-    # Test that context is shared across nodes
-    graph.shared_context.add_context(node_b, "shared_data", "accessible_to_all")
-    assert graph.shared_context.get_context(node_a, "shared_data") is None  # Different node
-    assert graph.shared_context.get_context(node_b, "shared_data") == "accessible_to_all"
-
-
-def test_graph_shared_context_validation():
-    """Test that Graph shared context validates input properly."""
-    mock_agent = create_mock_agent("agent")
-
-    builder = GraphBuilder()
-    builder.add_node(mock_agent, "node")
-    builder.set_entry_point("node")
-
-    graph = builder.build()
-
-    # Get node object
-    node = graph.nodes["node"]
-    
-    # Test invalid key validation
-    with pytest.raises(ValueError, match="Key cannot be None"):
-        graph.shared_context.add_context(node, None, "value")
-
-    with pytest.raises(ValueError, match="Key must be a string"):
-        graph.shared_context.add_context(node, 123, "value")
-
-    with pytest.raises(ValueError, match="Key cannot be empty"):
-        graph.shared_context.add_context(node, "", "value")
-
-    with pytest.raises(ValueError, match="Key cannot be empty"):
-        graph.shared_context.add_context(node, "   ", "value")
-
-    # Test JSON serialization validation
-    with pytest.raises(ValueError, match="Value is not JSON serializable"):
-        graph.shared_context.add_context(node, "key", lambda x: x)  # Function not serializable
-
-    # Test valid values
-    graph.shared_context.add_context(node, "string", "hello")
-    graph.shared_context.add_context(node, "number", 42)
-    graph.shared_context.add_context(node, "boolean", True)
-    graph.shared_context.add_context(node, "list", [1, 2, 3])
-    graph.shared_context.add_context(node, "dict", {"nested": "value"})
-    graph.shared_context.add_context(node, "none", None)
+    # Test GraphNode initialization
+    mock_agent = create_mock_agent("test_agent")
+    node = GraphNode("test_node", mock_agent)
+    assert node.node_id == "test_node"
+    assert node.executor == mock_agent
+    assert node.execution_status == Status.PENDING
+    assert len(node.dependencies) == 0
 
 
 def test_graph_synchronous_execution(mock_strands_tracer, mock_use_span, mock_agents):

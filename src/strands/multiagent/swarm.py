@@ -14,6 +14,7 @@ Key Features:
 
 import asyncio
 import copy
+import json
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -28,15 +29,16 @@ from ..telemetry import get_tracer
 from ..tools.decorator import tool
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
-from .base import MultiAgentBase, MultiAgentNode, MultiAgentResult, NodeResult, SharedContext, Status
+from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
-class SwarmNode(MultiAgentNode):
+class SwarmNode:
     """Represents a node (e.g. Agent) in the swarm."""
 
+    node_id: str
     executor: Agent
     _initial_messages: Messages = field(default_factory=list, init=False)
     _initial_state: AgentState = field(default_factory=AgentState, init=False)
@@ -69,6 +71,55 @@ class SwarmNode(MultiAgentNode):
         """Reset SwarmNode executor state to initial state when swarm was created."""
         self.executor.messages = copy.deepcopy(self._initial_messages)
         self.executor.state = AgentState(self._initial_state.get())
+
+
+@dataclass
+class SharedContext:
+    """Shared context between swarm nodes."""
+
+    context: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def add_context(self, node: SwarmNode, key: str, value: Any) -> None:
+        """Add context."""
+        self._validate_key(key)
+        self._validate_json_serializable(value)
+
+        if node.node_id not in self.context:
+            self.context[node.node_id] = {}
+        self.context[node.node_id][key] = value
+
+    def _validate_key(self, key: str) -> None:
+        """Validate that a key is valid.
+
+        Args:
+            key: The key to validate
+
+        Raises:
+            ValueError: If key is invalid
+        """
+        if key is None:
+            raise ValueError("Key cannot be None")
+        if not isinstance(key, str):
+            raise ValueError("Key must be a string")
+        if not key.strip():
+            raise ValueError("Key cannot be empty")
+
+    def _validate_json_serializable(self, value: Any) -> None:
+        """Validate that a value is JSON serializable.
+
+        Args:
+            value: The value to validate
+
+        Raises:
+            ValueError: If value is not JSON serializable
+        """
+        try:
+            json.dumps(value)
+        except (TypeError, ValueError) as e:
+            raise ValueError(
+                f"Value is not JSON serializable: {type(value).__name__}. "
+                f"Only JSON-compatible types (str, int, float, bool, list, dict, None) are allowed."
+            ) from e
 
 
 @dataclass
@@ -603,8 +654,3 @@ class Swarm(MultiAgentBase):
             execution_time=self.state.execution_time,
             node_history=self.state.node_history,
         )
-
-
-# Backward compatibility aliases
-# These ensure that existing imports continue to work
-__all__ = ["SwarmNode", "SharedContext", "Status"]

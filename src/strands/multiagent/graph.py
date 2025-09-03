@@ -29,7 +29,7 @@ from ..agent.state import AgentState
 from ..telemetry import get_tracer
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
-from .base import MultiAgentBase, MultiAgentNode, MultiAgentResult, NodeResult, SharedContext, Status
+from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,6 @@ class GraphState:
         task: The original input prompt/query provided to the graph execution.
               This represents the actual work to be performed by the graph as a whole.
               Entry point nodes receive this task as their input if they have no dependencies.
-        shared_context: Context shared between graph nodes for storing user-defined state.
     """
 
     # Task (with default empty string)
@@ -61,9 +60,6 @@ class GraphState:
 
     # Results
     results: dict[str, NodeResult] = field(default_factory=dict)
-
-    # User-defined state shared across nodes
-    shared_context: "SharedContext" = field(default_factory=lambda: SharedContext())
 
     # Accumulated metrics
     accumulated_usage: Usage = field(default_factory=lambda: Usage(inputTokens=0, outputTokens=0, totalTokens=0))
@@ -130,7 +126,7 @@ class GraphEdge:
 
 
 @dataclass
-class GraphNode(MultiAgentNode):
+class GraphNode:
     """Represents a node in the graph.
 
     The execution_status tracks the node's lifecycle within graph orchestration:
@@ -139,6 +135,7 @@ class GraphNode(MultiAgentNode):
     - COMPLETED/FAILED: Node finished executing (regardless of result quality)
     """
 
+    node_id: str
     executor: Agent | MultiAgentBase
     dependencies: set["GraphNode"] = field(default_factory=set)
     execution_status: Status = Status.PENDING
@@ -391,25 +388,6 @@ class Graph(MultiAgentBase):
         self.reset_on_revisit = reset_on_revisit
         self.state = GraphState()
         self.tracer = get_tracer()
-
-    @property
-    def shared_context(self) -> SharedContext:
-        """Access to the shared context for storing user-defined state across graph nodes.
-
-        Returns:
-            The SharedContext instance that can be used to store and retrieve
-            information that should be accessible to all nodes in the graph.
-
-        Example:
-            ```python
-            graph = Graph(...)
-            node1 = graph.nodes["node1"]
-            node2 = graph.nodes["node2"]
-            graph.shared_context.add_context(node1, "file_reference", "/path/to/file")
-            graph.shared_context.get_context(node2, "file_reference")
-            ```
-        """
-        return self.state.shared_context
 
     def __call__(self, task: str | list[ContentBlock], **kwargs: Any) -> GraphResult:
         """Invoke the graph synchronously."""

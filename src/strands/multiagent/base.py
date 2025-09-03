@@ -3,8 +3,6 @@
 Provides minimal foundation for multi-agent patterns (Swarm, Graph).
 """
 
-import copy
-import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
@@ -22,105 +20,6 @@ class Status(Enum):
     EXECUTING = "executing"
     COMPLETED = "completed"
     FAILED = "failed"
-
-
-@dataclass
-class MultiAgentNode:
-    """Base class for nodes in multi-agent systems."""
-
-    node_id: str
-
-    def __hash__(self) -> int:
-        """Return hash for MultiAgentNode based on node_id."""
-        return hash(self.node_id)
-
-    def __eq__(self, other: Any) -> bool:
-        """Return equality for MultiAgentNode based on node_id."""
-        if not isinstance(other, MultiAgentNode):
-            return False
-        return self.node_id == other.node_id
-
-
-@dataclass
-class SharedContext:
-    """Shared context between multi-agent nodes.
-
-    This class provides a key-value store for sharing information across nodes
-    in multi-agent systems like Graph and Swarm. It validates that all values
-    are JSON serializable to ensure compatibility.
-    """
-
-    context: dict[str, dict[str, Any]] = field(default_factory=dict)
-
-    def add_context(self, node: MultiAgentNode, key: str, value: Any) -> None:
-        """Add context for a specific node.
-
-        Args:
-            node: The node object to add context for
-            key: The key to store the value under
-            value: The value to store (must be JSON serializable)
-
-        Raises:
-            ValueError: If key is invalid or value is not JSON serializable
-        """
-        self._validate_key(key)
-        self._validate_json_serializable(value)
-
-        if node.node_id not in self.context:
-            self.context[node.node_id] = {}
-        self.context[node.node_id][key] = value
-
-    def get_context(self, node: MultiAgentNode, key: str | None = None) -> Any:
-        """Get context for a specific node.
-
-        Args:
-            node: The node object to get context for
-            key: The specific key to retrieve (if None, returns all context for the node)
-
-        Returns:
-            The stored value, entire context dict for the node, or None if not found
-        """
-        if node.node_id not in self.context:
-            return None if key else {}
-
-        if key is None:
-            return copy.deepcopy(self.context[node.node_id])
-        else:
-            value = self.context[node.node_id].get(key)
-            return copy.deepcopy(value) if value is not None else None
-
-    def _validate_key(self, key: str) -> None:
-        """Validate that a key is valid.
-
-        Args:
-            key: The key to validate
-
-        Raises:
-            ValueError: If key is invalid
-        """
-        if key is None:
-            raise ValueError("Key cannot be None")
-        if not isinstance(key, str):
-            raise ValueError("Key must be a string")
-        if not key.strip():
-            raise ValueError("Key cannot be empty")
-
-    def _validate_json_serializable(self, value: Any) -> None:
-        """Validate that a value is JSON serializable.
-
-        Args:
-            value: The value to validate
-
-        Raises:
-            ValueError: If value is not JSON serializable
-        """
-        try:
-            json.dumps(value)
-        except (TypeError, ValueError) as e:
-            raise ValueError(
-                f"Value is not JSON serializable: {type(value).__name__}. "
-                f"Only JSON-compatible types (str, int, float, bool, list, dict, None) are allowed."
-            ) from e
 
 
 @dataclass
