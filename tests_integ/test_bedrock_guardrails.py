@@ -203,24 +203,6 @@ def test_guardrail_output_intervention_redact_output(bedrock_guardrail, processi
         )
 
 
-def test_guardrail_input_intervention_properly_redacts(boto_session, bedrock_guardrail):
-    bedrock_model = BedrockModel(
-        guardrail_id=bedrock_guardrail,
-        guardrail_version="DRAFT",
-        boto_session=boto_session,
-    )
-
-    agent = Agent(model=bedrock_model, system_prompt="You are a helpful assistant.", callback_handler=None)
-
-    response1 = agent("CACTUS")
-    response2 = agent("Hello!")
-
-    assert response1.stop_reason == "guardrail_intervened"
-    assert REDACT_MESSAGE in str(response1)
-    assert response2.stop_reason != "guardrail_intervened"
-    assert REDACT_MESSAGE not in str(response2)
-
-
 def test_guardrail_input_intervention_properly_redacts_in_session(boto_session, bedrock_guardrail, temp_dir):
     bedrock_model = BedrockModel(
         guardrail_id=bedrock_guardrail,
