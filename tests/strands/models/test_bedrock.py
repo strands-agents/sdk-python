@@ -1266,10 +1266,10 @@ def test_format_request_removes_status_field_when_configured(model, model_id):
 
 def test_auto_behavior_anthropic_vs_non_anthropic(bedrock_client):
     model_anthropic = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
-    assert model_anthropic.get_config()["remove_tool_result_status"] is False
+    assert model_anthropic.get_config()["remove_tool_result_status"] == "auto"
     
     model_non_anthropic = BedrockModel(model_id="amazon.titan-text-v1")
-    assert model_non_anthropic.get_config()["remove_tool_result_status"] is True
+    assert model_non_anthropic.get_config()["remove_tool_result_status"] == "auto"
 
 
 def test_explicit_boolean_values_preserved(bedrock_client):

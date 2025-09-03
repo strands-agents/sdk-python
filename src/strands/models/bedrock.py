@@ -35,7 +35,7 @@ BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
 ]
 
 # Models that should keep tool result status (remove_tool_result_status = False)
-MODELS_KEEP_STATUS = [
+_MODELS_KEEP_STATUS = [
     "anthropic.claude",
 ]
 
@@ -152,12 +152,6 @@ class BedrockModel(Model):
         )
 
         logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
-        
-        # Resolve "auto" value for remove_tool_result_status
-        if self.config.get("remove_tool_result_status") == "auto":
-            self.config["remove_tool_result_status"] = not any(
-                model in self.config["model_id"] for model in MODELS_KEEP_STATUS
-            )
 
     @override
     def update_config(self, **model_config: Unpack[BedrockConfig]) -> None:  # type: ignore
@@ -167,12 +161,6 @@ class BedrockModel(Model):
             **model_config: Configuration overrides.
         """
         self.config.update(model_config)
-        
-        # Resolve "auto" value for remove_tool_result_status if needed
-        if self.config.get("remove_tool_result_status") == "auto":
-            self.config["remove_tool_result_status"] = not any(
-                model in self.config["model_id"] for model in MODELS_KEEP_STATUS
-            )
 
     @override
     def get_config(self) -> BedrockConfig:
@@ -182,6 +170,17 @@ class BedrockModel(Model):
             The Bedrock model configuration.
         """
         return self.config
+
+    def _should_remove_tool_result_status(self) -> bool:
+        """Determine whether to remove tool result status based on current config."""
+        remove_status = self.config.get("remove_tool_result_status", "auto")
+        
+        if remove_status is True:
+            return True
+        elif remove_status is False:
+            return False
+        else:  # "auto"
+            return not any(model in self.config["model_id"] for model in _MODELS_KEEP_STATUS)
 
     def format_request(
         self,
@@ -296,7 +295,7 @@ class BedrockModel(Model):
                     # Create a new content block with only the cleaned toolResult
                     tool_result: ToolResult = content_block["toolResult"]
 
-                    if self.config.get("remove_tool_result_status") is True:
+                    if self._should_remove_tool_result_status():
                         # Remove status field
                         cleaned_tool_result = ToolResult(  # type: ignore[typeddict-item]
                             toolUseId=tool_result["toolUseId"], content=tool_result["content"]
