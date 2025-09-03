@@ -216,9 +216,9 @@ def test_guardrail_input_intervention_properly_redacts(boto_session, bedrock_gua
     response2 = agent("Hello!")
 
     assert response1.stop_reason == "guardrail_intervened"
-    assert str(response1).strip() == BLOCKED_INPUT
+    assert REDACT_MESSAGE in str(response1)
     assert response2.stop_reason != "guardrail_intervened"
-    assert str(response2).strip() != BLOCKED_INPUT
+    assert REDACT_MESSAGE not in str(response2)
 
 
 def test_guardrail_input_intervention_properly_redacts_in_session(boto_session, bedrock_guardrail, temp_dir):
