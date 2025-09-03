@@ -4,6 +4,7 @@ import pytest
 
 import strands
 import strands.event_loop
+from strands.types._events import TypedEvent
 from strands.types.streaming import (
     ContentBlockDeltaEvent,
     ContentBlockStartEvent,
@@ -145,7 +146,7 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
     ],
 )
 def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_updated_state, callback_args):
-    exp_callback_event = {"callback": {**callback_args, "delta": event["delta"]}} if callback_args else {}
+    exp_callback_event = {**callback_args, "delta": event["delta"]} if callback_args else {}
 
     tru_updated_state, tru_callback_event = strands.event_loop.streaming.handle_content_block_delta(event, state)
 
@@ -163,12 +164,14 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {"toolUseId": "123", "name": "test", "input": '{"key": "value"}'},
                 "text": "",
                 "reasoningText": "",
+                "citationsContent": [],
             },
             {
                 "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {"key": "value"}}}],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "citationsContent": [],
             },
         ),
         # Tool Use - Missing input
@@ -178,12 +181,14 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {"toolUseId": "123", "name": "test"},
                 "text": "",
                 "reasoningText": "",
+                "citationsContent": [],
             },
             {
                 "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {}}}],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "citationsContent": [],
             },
         ),
         # Text
@@ -193,12 +198,31 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {},
                 "text": "test",
                 "reasoningText": "",
+                "citationsContent": [],
             },
             {
                 "content": [{"text": "test"}],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "citationsContent": [],
+            },
+        ),
+        # Citations
+        (
+            {
+                "content": [],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [{"citations": [{"text": "test", "source": "test"}]}],
+            },
+            {
+                "content": [],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [{"citations": [{"text": "test", "source": "test"}]}],
             },
         ),
         # Reasoning
@@ -209,6 +233,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "test",
                 "signature": "123",
+                "citationsContent": [],
             },
             {
                 "content": [{"reasoningContent": {"reasoningText": {"text": "test", "signature": "123"}}}],
@@ -216,6 +241,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "",
                 "signature": "123",
+                "citationsContent": [],
             },
         ),
         # Reasoning without signature
@@ -225,12 +251,14 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "test",
+                "citationsContent": [],
             },
             {
                 "content": [{"reasoningContent": {"reasoningText": {"text": "test"}}}],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "citationsContent": [],
             },
         ),
         # Empty
@@ -240,12 +268,14 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "citationsContent": [],
             },
             {
                 "content": [],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "citationsContent": [],
             },
         ),
     ],
@@ -315,85 +345,71 @@ def test_extract_usage_metrics_with_cache_tokens():
             ],
             [
                 {
-                    "callback": {
-                        "event": {
-                            "messageStart": {
-                                "role": "assistant",
-                            },
+                    "event": {
+                        "messageStart": {
+                            "role": "assistant",
                         },
                     },
                 },
                 {
-                    "callback": {
-                        "event": {
-                            "contentBlockStart": {
-                                "start": {
-                                    "toolUse": {
-                                        "name": "test",
-                                        "toolUseId": "123",
-                                    },
+                    "event": {
+                        "contentBlockStart": {
+                            "start": {
+                                "toolUse": {
+                                    "name": "test",
+                                    "toolUseId": "123",
                                 },
                             },
                         },
                     },
                 },
                 {
-                    "callback": {
-                        "event": {
-                            "contentBlockDelta": {
-                                "delta": {
-                                    "toolUse": {
-                                        "input": '{"key": "value"}',
-                                    },
+                    "event": {
+                        "contentBlockDelta": {
+                            "delta": {
+                                "toolUse": {
+                                    "input": '{"key": "value"}',
                                 },
                             },
                         },
                     },
                 },
                 {
-                    "callback": {
-                        "current_tool_use": {
-                            "input": {
-                                "key": "value",
-                            },
-                            "name": "test",
-                            "toolUseId": "123",
+                    "current_tool_use": {
+                        "input": {
+                            "key": "value",
                         },
-                        "delta": {
-                            "toolUse": {
-                                "input": '{"key": "value"}',
-                            },
+                        "name": "test",
+                        "toolUseId": "123",
+                    },
+                    "delta": {
+                        "toolUse": {
+                            "input": '{"key": "value"}',
                         },
                     },
                 },
                 {
-                    "callback": {
-                        "event": {
-                            "contentBlockStop": {},
+                    "event": {
+                        "contentBlockStop": {},
+                    },
+                },
+                {
+                    "event": {
+                        "messageStop": {
+                            "stopReason": "tool_use",
                         },
                     },
                 },
                 {
-                    "callback": {
-                        "event": {
-                            "messageStop": {
-                                "stopReason": "tool_use",
+                    "event": {
+                        "metadata": {
+                            "metrics": {
+                                "latencyMs": 1,
                             },
-                        },
-                    },
-                },
-                {
-                    "callback": {
-                        "event": {
-                            "metadata": {
-                                "metrics": {
-                                    "latencyMs": 1,
-                                },
-                                "usage": {
-                                    "inputTokens": 1,
-                                    "outputTokens": 1,
-                                    "totalTokens": 1,
-                                },
+                            "usage": {
+                                "inputTokens": 1,
+                                "outputTokens": 1,
+                                "totalTokens": 1,
                             },
                         },
                     },
@@ -416,9 +432,7 @@ def test_extract_usage_metrics_with_cache_tokens():
             [{}],
             [
                 {
-                    "callback": {
-                        "event": {},
-                    },
+                    "event": {},
                 },
                 {
                     "stop": (
@@ -462,80 +476,64 @@ def test_extract_usage_metrics_with_cache_tokens():
             ],
             [
                 {
-                    "callback": {
-                        "event": {
-                            "messageStart": {
-                                "role": "assistant",
+                    "event": {
+                        "messageStart": {
+                            "role": "assistant",
+                        },
+                    },
+                },
+                {
+                    "event": {
+                        "contentBlockStart": {
+                            "start": {},
+                        },
+                    },
+                },
+                {
+                    "event": {
+                        "contentBlockDelta": {
+                            "delta": {
+                                "text": "Hello!",
                             },
                         },
                     },
                 },
                 {
-                    "callback": {
-                        "event": {
-                            "contentBlockStart": {
-                                "start": {},
+                    "data": "Hello!",
+                    "delta": {
+                        "text": "Hello!",
+                    },
+                },
+                {
+                    "event": {
+                        "contentBlockStop": {},
+                    },
+                },
+                {
+                    "event": {
+                        "messageStop": {
+                            "stopReason": "guardrail_intervened",
+                        },
+                    },
+                },
+                {
+                    "event": {
+                        "redactContent": {
+                            "redactAssistantContentMessage": "REDACTED.",
+                            "redactUserContentMessage": "REDACTED",
+                        },
+                    },
+                },
+                {
+                    "event": {
+                        "metadata": {
+                            "metrics": {
+                                "latencyMs": 1,
                             },
-                        },
-                    },
-                },
-                {
-                    "callback": {
-                        "event": {
-                            "contentBlockDelta": {
-                                "delta": {
-                                    "text": "Hello!",
-                                },
-                            },
-                        },
-                    },
-                },
-                {
-                    "callback": {
-                        "data": "Hello!",
-                        "delta": {
-                            "text": "Hello!",
-                        },
-                    },
-                },
-                {
-                    "callback": {
-                        "event": {
-                            "contentBlockStop": {},
-                        },
-                    },
-                },
-                {
-                    "callback": {
-                        "event": {
-                            "messageStop": {
-                                "stopReason": "guardrail_intervened",
-                            },
-                        },
-                    },
-                },
-                {
-                    "callback": {
-                        "event": {
-                            "redactContent": {
-                                "redactAssistantContentMessage": "REDACTED.",
-                                "redactUserContentMessage": "REDACTED",
-                            },
-                        },
-                    },
-                },
-                {
-                    "callback": {
-                        "event": {
-                            "metadata": {
-                                "metrics": {
-                                    "latencyMs": 1,
-                                },
-                                "usage": {
-                                    "inputTokens": 1,
-                                    "outputTokens": 1,
-                                    "totalTokens": 1,
-                                },
+                            "usage": {
+                                "inputTokens": 1,
+                                "outputTokens": 1,
+                                "totalTokens": 1,
                             },
                         },
                     },
@@ -562,6 +560,10 @@ async def test_process_stream(response, exp_events, agenerator, alist):
     tru_events = await alist(stream)
     assert tru_events == exp_events
 
+    # Ensure that we're getting typed events coming out of process_stream
+    non_typed_events = [event for event in tru_events if not isinstance(event, TypedEvent)]
+    assert non_typed_events == []
+
 
 @pytest.mark.asyncio
 async def test_stream_messages(agenerator, alist):
@@ -583,29 +585,23 @@ async def test_stream_messages(agenerator, alist):
     tru_events = await alist(stream)
     exp_events = [
         {
-            "callback": {
-                "event": {
-                    "contentBlockDelta": {
-                        "delta": {
-                            "text": "test",
-                        },
+            "event": {
+                "contentBlockDelta": {
+                    "delta": {
+                        "text": "test",
                     },
                 },
             },
         },
         {
-            "callback": {
-                "data": "test",
-                "delta": {
-                    "text": "test",
-                },
+            "data": "test",
+            "delta": {
+                "text": "test",
             },
         },
         {
-            "callback": {
-                "event": {
-                    "contentBlockStop": {},
-                },
+            "event": {
+                "contentBlockStop": {},
             },
         },
         {
@@ -624,3 +620,7 @@ async def test_stream_messages(agenerator, alist):
         None,
         "test prompt",
     )
+
+    # Ensure that we're getting typed events coming out of process_stream
+    non_typed_events = [event for event in tru_events if not isinstance(event, TypedEvent)]
+    assert non_typed_events == []

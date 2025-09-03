@@ -5,8 +5,7 @@ import pytest
 
 from strands.agent import Agent, AgentResult
 from strands.agent.state import AgentState
-from strands.hooks import AgentInitializedEvent
-from strands.hooks.registry import HookProvider, HookRegistry
+from strands.hooks.registry import HookRegistry
 from strands.multiagent.base import Status
 from strands.multiagent.swarm import SharedContext, Swarm, SwarmNode, SwarmResult, SwarmState
 from strands.session.session_manager import SessionManager

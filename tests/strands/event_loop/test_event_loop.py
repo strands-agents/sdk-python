@@ -1,23 +1,20 @@
 import concurrent
 import unittest.mock
-from unittest.mock import ANY, MagicMock, call, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
 import strands
 import strands.telemetry
-from strands.event_loop.event_loop import run_tool
 from strands.experimental.hooks import (
     AfterModelInvocationEvent,
     AfterToolInvocationEvent,
     BeforeModelInvocationEvent,
     BeforeToolInvocationEvent,
 )
-from strands.hooks import (
-    HookProvider,
-    HookRegistry,
-)
+from strands.hooks import HookRegistry
 from strands.telemetry.metrics import EventLoopMetrics
+from strands.tools.executors import SequentialToolExecutor
 from strands.tools.registry import ToolRegistry
 from strands.types.exceptions import (
     ContextWindowOverflowException,
@@ -131,7 +128,12 @@ def hook_provider(hook_registry):
 
 
 @pytest.fixture
-def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_registry):
+def tool_executor():
+    return SequentialToolExecutor()
+
+
+@pytest.fixture
+def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_registry, tool_executor):
     mock = unittest.mock.Mock(name="agent")
     mock.config.cache_points = []
     mock.model = model
@@ -141,6 +143,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.thread_pool = thread_pool
     mock.event_loop_metrics = EventLoopMetrics()
     mock.hooks = hook_registry
+    mock.tool_executor = tool_executor
 
     return mock
 
@@ -483,7 +486,7 @@ async def test_cycle_exception(
     ]
 
     tru_stop_event = None
-    exp_stop_event = {"callback": {"force_stop": True, "force_stop_reason": "Invalid error presented"}}
+    exp_stop_event = {"force_stop": True, "force_stop_reason": "Invalid error presented"}
 
     with pytest.raises(EventLoopException):
         stream = strands.event_loop.event_loop.event_loop_cycle(
@@ -810,260 +813,6 @@ async def test_prepare_next_cycle_in_tool_execution(agent, model, tool_stream, a
             recursive_args["invocation_state"]["event_loop_parent_cycle_id"]
             == recursive_args["invocation_state"]["event_loop_cycle_id"]
         )
-
-
-@pytest.mark.asyncio
-async def test_run_tool(agent, tool, alist):
-    process = run_tool(
-        agent,
-        tool_use={"toolUseId": "tool_use_id", "name": tool.tool_name, "input": {"random_string": "a_string"}},
-        invocation_state={},
-    )
-
-    tru_result = (await alist(process))[-1]
-    exp_result = {"toolUseId": "tool_use_id", "status": "success", "content": [{"text": "a_string"}]}
-
-    assert tru_result == exp_result
-
-
-@pytest.mark.asyncio
-async def test_run_tool_missing_tool(agent, alist):
-    process = run_tool(
-        agent,
-        tool_use={"toolUseId": "missing", "name": "missing", "input": {}},
-        invocation_state={},
-    )
-
-    tru_events = await alist(process)
-    exp_events = [
-        {
-            "toolUseId": "missing",
-            "status": "error",
-            "content": [{"text": "Unknown tool: missing"}],
-        },
-    ]
-
-    assert tru_events == exp_events
-
-
-@pytest.mark.asyncio
-async def test_run_tool_hooks(agent, hook_provider, tool_times_2, alist):
-    """Test that the correct hooks are emitted."""
-
-    process = run_tool(
-        agent=agent,
-        tool_use={"toolUseId": "test", "name": tool_times_2.tool_name, "input": {"x": 5}},
-        invocation_state={},
-    )
-    await alist(process)
-
-    assert len(hook_provider.events_received) == 2
-
-    assert hook_provider.events_received[0] == BeforeToolInvocationEvent(
-        agent=agent,
-        selected_tool=tool_times_2,
-        tool_use={"input": {"x": 5}, "name": "multiply_by_2", "toolUseId": "test"},
-        invocation_state=ANY,
-    )
-
-    assert hook_provider.events_received[1] == AfterToolInvocationEvent(
-        agent=agent,
-        selected_tool=tool_times_2,
-        exception=None,
-        tool_use={"toolUseId": "test", "name": tool_times_2.tool_name, "input": {"x": 5}},
-        result={"toolUseId": "test", "status": "success", "content": [{"text": "10"}]},
-        invocation_state=ANY,
-    )
-
-
-@pytest.mark.asyncio
-async def test_run_tool_hooks_on_missing_tool(agent, hook_provider, alist):
-    """Test that AfterToolInvocation hook is invoked even when tool throws exception."""
-    process = run_tool(
-        agent=agent,
-        tool_use={"toolUseId": "test", "name": "missing_tool", "input": {"x": 5}},
-        invocation_state={},
-    )
-    await alist(process)
-
-    assert len(hook_provider.events_received) == 2
-
-    assert hook_provider.events_received[0] == BeforeToolInvocationEvent(
-        agent=agent,
-        selected_tool=None,
-        tool_use={"input": {"x": 5}, "name": "missing_tool", "toolUseId": "test"},
-        invocation_state=ANY,
-    )
-
-    assert hook_provider.events_received[1] == AfterToolInvocationEvent(
-        agent=agent,
-        selected_tool=None,
-        tool_use={"input": {"x": 5}, "name": "missing_tool", "toolUseId": "test"},
-        invocation_state=ANY,
-        result={"content": [{"text": "Unknown tool: missing_tool"}], "status": "error", "toolUseId": "test"},
-        exception=None,
-    )
-
-
-@pytest.mark.asyncio
-async def test_run_tool_hook_after_tool_invocation_on_exception(agent, tool_registry, hook_provider, alist):
-    """Test that AfterToolInvocation hook is invoked even when tool throws exception."""
-    error = ValueError("Tool failed")
-
-    failing_tool = MagicMock()
-    failing_tool.tool_name = "failing_tool"
-
-    failing_tool.stream.side_effect = error
-
-    tool_registry.register_tool(failing_tool)
-
-    process = run_tool(
-        agent=agent,
-        tool_use={"toolUseId": "test", "name": "failing_tool", "input": {"x": 5}},
-        invocation_state={},
-    )
-    await alist(process)
-
-    assert hook_provider.events_received[1] == AfterToolInvocationEvent(
-        agent=agent,
-        selected_tool=failing_tool,
-        tool_use={"input": {"x": 5}, "name": "failing_tool", "toolUseId": "test"},
-        invocation_state=ANY,
-        result={"content": [{"text": "Error: Tool failed"}], "status": "error", "toolUseId": "test"},
-        exception=error,
-    )
-
-
-@pytest.mark.asyncio
-async def test_run_tool_hook_before_tool_invocation_updates(agent, tool_times_5, hook_registry, hook_provider, alist):
-    """Test that modifying properties on BeforeToolInvocation takes effect."""
-
-    updated_tool_use = {"toolUseId": "modified", "name": "replacement_tool", "input": {"x": 3}}
-
-    def modify_hook(event: BeforeToolInvocationEvent):
-        # Modify selected_tool to use replacement_tool
-        event.selected_tool = tool_times_5
-        # Modify tool_use to change toolUseId
-        event.tool_use = updated_tool_use
-
-    hook_registry.add_callback(BeforeToolInvocationEvent, modify_hook)
-
-    process = run_tool(
-        agent=agent,
-        tool_use={"toolUseId": "original", "name": "original_tool", "input": {"x": 1}},
-        invocation_state={},
-    )
-    result = (await alist(process))[-1]
-
-    # Should use replacement_tool (5 * 3 = 15) instead of original_tool (1 * 2 = 2)
-    assert result == {"toolUseId": "modified", "status": "success", "content": [{"text": "15"}]}
-
-    assert hook_provider.events_received[1] == AfterToolInvocationEvent(
-        agent=agent,
-        selected_tool=tool_times_5,
-        tool_use=updated_tool_use,
-        invocation_state=ANY,
-        result={"content": [{"text": "15"}], "status": "success", "toolUseId": "modified"},
-        exception=None,
-    )
-
-
-@pytest.mark.asyncio
-async def test_run_tool_hook_after_tool_invocation_updates(agent, tool_times_2, hook_registry, alist):
-    """Test that modifying properties on AfterToolInvocation takes effect."""
-
-    updated_result = {"toolUseId": "modified", "status": "success", "content": [{"text": "modified_result"}]}
-
-    def modify_hook(event: AfterToolInvocationEvent):
-        # Modify result to change the output
-        event.result = updated_result
-
-    hook_registry.add_callback(AfterToolInvocationEvent, modify_hook)
-
-    process = run_tool(
-        agent=agent,
-        tool_use={"toolUseId": "test", "name": tool_times_2.tool_name, "input": {"x": 5}},
-        invocation_state={},
-    )
-
-    result = (await alist(process))[-1]
-    assert result == updated_result
-
-
-@pytest.mark.asyncio
-async def test_run_tool_hook_after_tool_invocation_updates_with_missing_tool(agent, hook_registry, alist):
-    """Test that modifying properties on AfterToolInvocation takes effect."""
-
-    updated_result = {"toolUseId": "modified", "status": "success", "content": [{"text": "modified_result"}]}
-
-    def modify_hook(event: AfterToolInvocationEvent):
-        # Modify result to change the output
-        event.result = updated_result
-
-    hook_registry.add_callback(AfterToolInvocationEvent, modify_hook)
-
-    process = run_tool(
-        agent=agent,
-        tool_use={"toolUseId": "test", "name": "missing_tool", "input": {"x": 5}},
-        invocation_state={},
-    )
-
-    result = (await alist(process))[-1]
-    assert result == updated_result
-
-
-@pytest.mark.asyncio
-async def test_run_tool_hook_update_result_with_missing_tool(agent, tool_registry, hook_registry, alist):
-    """Test that modifying properties on AfterToolInvocation takes effect."""
-
-    @strands.tool
-    def test_quota():
-        return "9"
-
-    tool_registry.register_tool(test_quota)
-
-    class ExampleProvider(HookProvider):
-        def register_hooks(self, registry: "HookRegistry") -> None:
-            registry.add_callback(BeforeToolInvocationEvent, self.before_tool_call)
-            registry.add_callback(AfterToolInvocationEvent, self.after_tool_call)
-
-        def before_tool_call(self, event: BeforeToolInvocationEvent):
-            if event.tool_use.get("name") == "test_quota":
-                event.selected_tool = None
-
-        def after_tool_call(self, event: AfterToolInvocationEvent):
-            if event.tool_use.get("name") == "test_quota":
-                event.result = {
-                    "status": "error",
-                    "toolUseId": "test",
-                    "content": [{"text": "This tool has been used too many times!"}],
-                }
-
-    hook_registry.add_hook(ExampleProvider())
-
-    with patch.object(strands.event_loop.event_loop, "logger") as mock_logger:
-        process = run_tool(
-            agent=agent,
-            tool_use={"toolUseId": "test", "name": "test_quota", "input": {"x": 5}},
-            invocation_state={},
-        )
-
-        result = (await alist(process))[-1]
-
-    assert result == {
-        "status": "error",
-        "toolUseId": "test",
-        "content": [{"text": "This tool has been used too many times!"}],
-    }
-
-    assert mock_logger.debug.call_args_list == [
-        call("tool_use=<%s> | streaming", {"toolUseId": "test", "name": "test_quota", "input": {"x": 5}}),
-        call(
-            "tool_name=<%s>, tool_use_id=<%s> | a hook resulted in a non-existing tool call",
-            "test_quota",
-            "test",
-        ),
-    ]
 
 
 @pytest.mark.asyncio

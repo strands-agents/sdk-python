@@ -7,7 +7,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union
+from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -18,8 +18,11 @@ from typing_extensions import TypedDict, Unpack, override
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Message, Messages
-from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
-from ..types.streaming import StreamEvent
+from ..types.exceptions import (
+    ContextWindowOverflowException,
+    ModelThrottledException,
+)
+from ..types.streaming import CitationsDelta, StreamEvent
 from ..types.tools import ToolResult, ToolSpec
 from .model import Model
 
@@ -100,6 +103,7 @@ class BedrockModel(Model):
         boto_session: Optional[boto3.Session] = None,
         boto_client_config: Optional[BotocoreConfig] = None,
         region_name: Optional[str] = None,
+        endpoint_url: Optional[str] = None,
         **model_config: Unpack[BedrockConfig],
     ):
         """Initialize provider instance.
@@ -109,6 +113,7 @@ class BedrockModel(Model):
             boto_client_config: Configuration to use when creating the Bedrock-Runtime Boto Client.
             region_name: AWS region to use for the Bedrock service.
                 Defaults to the AWS_REGION environment variable if set, or "us-west-2" if not set.
+            endpoint_url: Custom endpoint URL for VPC endpoints (PrivateLink)
             **model_config: Configuration options for the Bedrock model.
         """
         if region_name and boto_session:
@@ -140,6 +145,7 @@ class BedrockModel(Model):
         self.client = session.client(
             service_name="bedrock-runtime",
             config=client_config,
+            endpoint_url=endpoint_url,
             region_name=resolved_region,
         )
 
@@ -429,6 +435,8 @@ class BedrockModel(Model):
             logger.debug("got response from model")
             if streaming:
                 response = self.client.converse_stream(**request)
+                # Track tool use events to fix stopReason for streaming responses
+                has_tool_use = False
                 for chunk in response["stream"]:
                     if (
                         "metadata" in chunk
@@ -440,7 +448,24 @@ class BedrockModel(Model):
                             for event in self._generate_redaction_events():
                                 callback(event)
 
-                    callback(chunk)
+                    # Track if we see tool use events
+                    if "contentBlockStart" in chunk and chunk["contentBlockStart"].get("start", {}).get("toolUse"):
+                        has_tool_use = True
+
+                    # Fix stopReason for streaming responses that contain tool use
+                    if (
+                        has_tool_use
+                        and "messageStop" in chunk
+                        and (message_stop := chunk["messageStop"]).get("stopReason") == "end_turn"
+                    ):
+                        # Create corrected chunk with tool_use stopReason
+                        modified_chunk = chunk.copy()
+                        modified_chunk["messageStop"] = message_stop.copy()
+                        modified_chunk["messageStop"]["stopReason"] = "tool_use"
+                        logger.warning("Override stop reason from end_turn to tool_use")
+                        callback(modified_chunk)
+                    else:
+                        callback(chunk)
 
             else:
                 response = self.client.converse(**request)
@@ -510,7 +535,7 @@ class BedrockModel(Model):
         yield {"messageStart": {"role": response["output"]["message"]["role"]}}
 
         # Process content blocks
-        for content in response["output"]["message"]["content"]:
+        for content in cast(list[ContentBlock], response["output"]["message"]["content"]):
             # Yield contentBlockStart event if needed
             if "toolUse" in content:
                 yield {
@@ -553,14 +578,40 @@ class BedrockModel(Model):
                             }
                         }
                     }
+            elif "citationsContent" in content:
+                # For non-streaming citations, emit text and metadata deltas in sequence
+                # to match streaming behavior where they flow naturally
+                if "content" in content["citationsContent"]:
+                    text_content = "".join([content["text"] for content in content["citationsContent"]["content"]])
+                    yield {
+                        "contentBlockDelta": {"delta": {"text": text_content}},
+                    }
+
+                for citation in content["citationsContent"]["citations"]:
+                    # Then emit citation metadata (for structure)
+
+                    citation_metadata: CitationsDelta = {
+                        "title": citation["title"],
+                        "location": citation["location"],
+                        "sourceContent": citation["sourceContent"],
+                    }
+                    yield {"contentBlockDelta": {"delta": {"citation": citation_metadata}}}
 
             # Yield contentBlockStop event
             yield {"contentBlockStop": {}}
 
         # Yield messageStop event
+        # Fix stopReason for models that return end_turn when they should return tool_use on non-streaming side
+        current_stop_reason = response["stopReason"]
+        if current_stop_reason == "end_turn":
+            message_content = response["output"]["message"]["content"]
+            if any("toolUse" in content for content in message_content):
+                current_stop_reason = "tool_use"
+                logger.warning("Override stop reason from end_turn to tool_use")
+
         yield {
             "messageStop": {
-                "stopReason": response["stopReason"],
+                "stopReason": current_stop_reason,
                 "additionalModelResponseFields": response.get("additionalModelResponseFields"),
             }
         }

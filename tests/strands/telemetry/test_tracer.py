@@ -369,7 +369,7 @@ def test_start_agent_span(mock_tracer):
         span = tracer.start_agent_span(
             custom_trace_attributes=custom_attrs,
             agent_name="WeatherAgent",
-            message={"content": content, "role": "user"},
+            messages=[{"content": content, "role": "user"}],
             model_id=model_id,
             tools=tools,
         )

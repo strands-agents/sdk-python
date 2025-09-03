@@ -129,7 +129,7 @@ def test__init__with_default_region(session_cls, mock_client_method):
     with unittest.mock.patch.object(os, "environ", {}):
         BedrockModel()
         session_cls.return_value.client.assert_called_with(
-            region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY
+            region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY, endpoint_url=None
         )
 
 
@@ -139,14 +139,14 @@ def test__init__with_session_region(session_cls, mock_client_method):
 
     BedrockModel()
 
-    mock_client_method.assert_called_with(region_name="eu-blah-1", config=ANY, service_name=ANY)
+    mock_client_method.assert_called_with(region_name="eu-blah-1", config=ANY, service_name=ANY, endpoint_url=None)
 
 
 def test__init__with_custom_region(mock_client_method):
     """Test that BedrockModel uses the provided region."""
     custom_region = "us-east-1"
     BedrockModel(region_name=custom_region)
-    mock_client_method.assert_called_with(region_name=custom_region, config=ANY, service_name=ANY)
+    mock_client_method.assert_called_with(region_name=custom_region, config=ANY, service_name=ANY, endpoint_url=None)
 
 
 def test__init__with_default_environment_variable_region(mock_client_method):
@@ -154,7 +154,7 @@ def test__init__with_default_environment_variable_region(mock_client_method):
     with unittest.mock.patch.object(os, "environ", {"AWS_REGION": "eu-west-2"}):
         BedrockModel()
 
-    mock_client_method.assert_called_with(region_name="eu-west-2", config=ANY, service_name=ANY)
+    mock_client_method.assert_called_with(region_name="eu-west-2", config=ANY, service_name=ANY, endpoint_url=None)
 
 
 def test__init__region_precedence(mock_client_method, session_cls):
@@ -164,21 +164,38 @@ def test__init__region_precedence(mock_client_method, session_cls):
 
         # specifying a region always wins out
         BedrockModel(region_name="us-specified-1")
-        mock_client_method.assert_called_with(region_name="us-specified-1", config=ANY, service_name=ANY)
+        mock_client_method.assert_called_with(
+            region_name="us-specified-1", config=ANY, service_name=ANY, endpoint_url=None
+        )
 
         # other-wise uses the session's
         BedrockModel()
-        mock_client_method.assert_called_with(region_name="us-session-1", config=ANY, service_name=ANY)
+        mock_client_method.assert_called_with(
+            region_name="us-session-1", config=ANY, service_name=ANY, endpoint_url=None
+        )
 
         # environment variable next
         session_cls.return_value.region_name = None
         BedrockModel()
-        mock_client_method.assert_called_with(region_name="us-environment-1", config=ANY, service_name=ANY)
+        mock_client_method.assert_called_with(
+            region_name="us-environment-1", config=ANY, service_name=ANY, endpoint_url=None
+        )
 
         mock_os_environ.pop("AWS_REGION")
         session_cls.return_value.region_name = None  # No session region
         BedrockModel()
-        mock_client_method.assert_called_with(region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY)
+        mock_client_method.assert_called_with(
+            region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY, endpoint_url=None
+        )
+
+
+def test__init__with_endpoint_url(mock_client_method):
+    """Test that BedrockModel uses the provided endpoint_url for VPC endpoints."""
+    custom_endpoint = "https://vpce-12345-abcde.bedrock-runtime.us-west-2.vpce.amazonaws.com"
+    BedrockModel(endpoint_url=custom_endpoint)
+    mock_client_method.assert_called_with(
+        region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY, endpoint_url=custom_endpoint
+    )
 
 
 def test__init__with_region_and_session_raises_value_error():
@@ -1208,6 +1225,53 @@ async def test_stream_logging(bedrock_client, model, messages, caplog, alist):
     assert "invoking model" in log_text
     assert "got response from model" in log_text
     assert "finished streaming response from model" in log_text
+
+
+@pytest.mark.asyncio
+async def test_stream_stop_reason_override_streaming(bedrock_client, model, messages, alist):
+    """Test that stopReason is overridden from end_turn to tool_use in streaming mode when tool use is detected."""
+    bedrock_client.converse_stream.return_value = {
+        "stream": [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "test_tool"}}}},
+            {"contentBlockDelta": {"delta": {"test": {"input": '{"param": "value"}'}}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    }
+
+    response = model.stream(messages)
+    events = await alist(response)
+
+    # Find the messageStop event
+    message_stop_event = next(event for event in events if "messageStop" in event)
+
+    # Verify stopReason was overridden to tool_use
+    assert message_stop_event["messageStop"]["stopReason"] == "tool_use"
+
+
+@pytest.mark.asyncio
+async def test_stream_stop_reason_override_non_streaming(bedrock_client, alist, messages):
+    """Test that stopReason is overridden from end_turn to tool_use in non-streaming mode when tool use is detected."""
+    bedrock_client.converse.return_value = {
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [{"toolUse": {"toolUseId": "123", "name": "test_tool", "input": {"param": "value"}}}],
+            }
+        },
+        "stopReason": "end_turn",
+    }
+
+    model = BedrockModel(model_id="test-model", streaming=False)
+    response = model.stream(messages)
+    events = await alist(response)
+
+    # Find the messageStop event
+    message_stop_event = next(event for event in events if "messageStop" in event)
+
+    # Verify stopReason was overridden to tool_use
+    assert message_stop_event["messageStop"]["stopReason"] == "tool_use"
 
 
 def test_format_request_cleans_tool_result_content_blocks(model, model_id):

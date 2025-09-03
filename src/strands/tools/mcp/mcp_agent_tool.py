@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from mcp.types import Tool as MCPTool
 from typing_extensions import override
 
+from ...types._events import ToolResultEvent
 from ...types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
 
 if TYPE_CHECKING:
@@ -96,4 +97,4 @@ class MCPAgentTool(AgentTool):
             name=self.tool_name,
             arguments=tool_use["input"],
         )
-        yield result
+        yield ToolResultEvent(result)
