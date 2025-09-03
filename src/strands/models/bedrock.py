@@ -34,6 +34,11 @@ BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
     "too many total text bytes",
 ]
 
+# Models that should keep tool result status (remove_tool_result_status = False)
+MODELS_KEEP_STATUS = [
+    "anthropic.claude",
+]
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -69,7 +74,7 @@ class BedrockModel(Model):
             max_tokens: Maximum number of tokens to generate in the response
             model_id: The Bedrock model ID (e.g., "us.anthropic.claude-sonnet-4-20250514-v1:0")
             remove_tool_result_status: Flag to remove status field from tool results.
-                True removes status, False keeps status, "auto" keeps status. Defaults to None.
+                True removes status, False keeps status, "auto" determines based on model_id. Defaults to "auto".
             stop_sequences: List of sequences that will stop generation when encountered
             streaming: Flag to enable/disable streaming. Defaults to True.
             temperature: Controls randomness in generation (higher = more random)
@@ -117,7 +122,7 @@ class BedrockModel(Model):
         if region_name and boto_session:
             raise ValueError("Cannot specify both `region_name` and `boto_session`.")
 
-        self.config = BedrockModel.BedrockConfig(model_id=DEFAULT_BEDROCK_MODEL_ID)
+        self.config = BedrockModel.BedrockConfig(model_id=DEFAULT_BEDROCK_MODEL_ID, remove_tool_result_status="auto")
         self.update_config(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -147,6 +152,12 @@ class BedrockModel(Model):
         )
 
         logger.debug("region=<%s> | bedrock client created", self.client.meta.region_name)
+        
+        # Resolve "auto" value for remove_tool_result_status
+        if self.config.get("remove_tool_result_status") == "auto":
+            self.config["remove_tool_result_status"] = not any(
+                model in self.config["model_id"] for model in MODELS_KEEP_STATUS
+            )
 
     @override
     def update_config(self, **model_config: Unpack[BedrockConfig]) -> None:  # type: ignore
@@ -156,6 +167,12 @@ class BedrockModel(Model):
             **model_config: Configuration overrides.
         """
         self.config.update(model_config)
+        
+        # Resolve "auto" value for remove_tool_result_status if needed
+        if self.config.get("remove_tool_result_status") == "auto":
+            self.config["remove_tool_result_status"] = not any(
+                model in self.config["model_id"] for model in MODELS_KEEP_STATUS
+            )
 
     @override
     def get_config(self) -> BedrockConfig:
@@ -280,12 +297,12 @@ class BedrockModel(Model):
                     tool_result: ToolResult = content_block["toolResult"]
 
                     if self.config.get("remove_tool_result_status") is True:
-                        # Remove status field when explicitly configured
+                        # Remove status field
                         cleaned_tool_result = ToolResult(  # type: ignore[typeddict-item]
                             toolUseId=tool_result["toolUseId"], content=tool_result["content"]
                         )
                     else:
-                        # Keep status field by default
+                        # Keep status field
                         cleaned_tool_result = ToolResult(
                             content=tool_result["content"],
                             toolUseId=tool_result["toolUseId"],
@@ -301,7 +318,6 @@ class BedrockModel(Model):
             # Create new message with cleaned content
             cleaned_message: Message = Message(content=cleaned_content, role=message["role"])
             cleaned_messages.append(cleaned_message)
-
         return cleaned_messages
 
     def _has_blocked_guardrail(self, guardrail_data: dict[str, Any]) -> bool:
