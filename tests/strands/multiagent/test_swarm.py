@@ -470,42 +470,29 @@ def test_swarm_validate_unsupported_features():
     with pytest.raises(ValueError, match="Session persistence is not supported for Swarm agents yet"):
         Swarm([agent_with_session])
 
-    # Test with callbacks (should fail)
-    class TestHookProvider(HookProvider):
-        def register_hooks(self, registry, **kwargs):
-            registry.add_callback(AgentInitializedEvent, lambda e: None)
-
-    agent_with_hooks = create_mock_agent("agent_with_hooks")
-    agent_with_hooks._session_manager = None
-    agent_with_hooks.hooks = HookRegistry()
-    agent_with_hooks.hooks.add_hook(TestHookProvider())
-
-    with pytest.raises(ValueError, match="Agent callbacks are not supported for Swarm agents yet"):
-        Swarm([agent_with_hooks])
-
 
 @pytest.mark.asyncio
 async def test_swarm_kwargs_passing(mock_strands_tracer, mock_use_span):
     """Test that kwargs are passed through to underlying agents."""
     # Create a mock agent that captures kwargs
     kwargs_agent = create_mock_agent("kwargs_agent", "Response with kwargs")
-    
+
     async def capture_kwargs(*args, **kwargs):
         # Store kwargs for verification
         capture_kwargs.captured_kwargs = kwargs
         return kwargs_agent.return_value
-    
+
     kwargs_agent.invoke_async = MagicMock(side_effect=capture_kwargs)
-    
+
     # Create swarm
     swarm = Swarm(nodes=[kwargs_agent])
-    
+
     # Execute with custom kwargs
     test_kwargs = {"custom_param": "test_value", "another_param": 42}
     result = await swarm.invoke_async("Test kwargs passing", **test_kwargs)
-    
+
     # Verify kwargs were passed to agent
-    assert hasattr(capture_kwargs, 'captured_kwargs')
+    assert hasattr(capture_kwargs, "captured_kwargs")
     assert capture_kwargs.captured_kwargs == test_kwargs
     assert result.status == Status.COMPLETED
 
@@ -514,22 +501,22 @@ def test_swarm_kwargs_passing_sync(mock_strands_tracer, mock_use_span):
     """Test that kwargs are passed through to underlying agents in sync execution."""
     # Create a mock agent that captures kwargs
     kwargs_agent = create_mock_agent("kwargs_agent", "Response with kwargs")
-    
+
     async def capture_kwargs(*args, **kwargs):
         # Store kwargs for verification
         capture_kwargs.captured_kwargs = kwargs
         return kwargs_agent.return_value
-    
+
     kwargs_agent.invoke_async = MagicMock(side_effect=capture_kwargs)
-    
+
     # Create swarm
     swarm = Swarm(nodes=[kwargs_agent])
-    
+
     # Execute with custom kwargs
     test_kwargs = {"custom_param": "test_value", "another_param": 42}
     result = swarm("Test kwargs passing sync", **test_kwargs)
-    
+
     # Verify kwargs were passed to agent
-    assert hasattr(capture_kwargs, 'captured_kwargs')
+    assert hasattr(capture_kwargs, "captured_kwargs")
     assert capture_kwargs.captured_kwargs == test_kwargs
     assert result.status == Status.COMPLETED

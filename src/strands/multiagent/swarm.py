@@ -563,7 +563,9 @@ class Swarm(MultiAgentBase):
             f"{elapsed_time:.2f}",
         )
 
-    async def _execute_node(self, node: SwarmNode, task: str | list[ContentBlock], invocation_state: dict[str, Any]) -> AgentResult:
+    async def _execute_node(
+        self, node: SwarmNode, task: str | list[ContentBlock], invocation_state: dict[str, Any]
+    ) -> AgentResult:
         """Execute swarm node."""
         start_time = time.time()
         node_name = node.node_id
