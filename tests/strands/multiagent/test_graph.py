@@ -559,7 +559,9 @@ async def test_graph_execution_limits(mock_strands_tracer, mock_use_span):
     assert result.status == Status.FAILED  # Should fail due to limit
     assert len(result.execution_order) == 2  # Should stop at 2 executions
 
-    # Test execution limits with cyclic graph
+
+@pytest.mark.asyncio
+async def test_graph_execution_limits_with_cyclic_graph(mock_strands_tracer, mock_use_span):
     timeout_agent_a = create_mock_agent("timeout_agent_a", "Response A")
     timeout_agent_b = create_mock_agent("timeout_agent_b", "Response B")
 
@@ -1097,15 +1099,7 @@ async def test_self_loop_functionality(mock_strands_tracer, mock_use_span):
     """Test comprehensive self-loop functionality including conditions and reset behavior."""
     # Test basic self-loop with execution counting
     self_loop_agent = create_mock_agent("self_loop_agent", "Self loop response")
-    execution_count = 0
-    original_invoke = self_loop_agent.invoke_async
-
-    async def counting_invoke(*args, **kwargs):
-        nonlocal execution_count
-        execution_count += 1
-        return await original_invoke(*args, **kwargs)
-
-    self_loop_agent.invoke_async = counting_invoke
+    self_loop_agent.invoke_async = Mock(side_effect=self_loop_agent.invoke_async)
 
     def loop_condition(state: GraphState) -> bool:
         return len(state.execution_order) < 3
@@ -1123,7 +1117,7 @@ async def test_self_loop_functionality(mock_strands_tracer, mock_use_span):
 
     # Verify basic self-loop functionality
     assert result.status == Status.COMPLETED
-    assert execution_count == 3
+    assert self_loop_agent.invoke_async.call_count == 3
     assert len(result.execution_order) == 3
     assert all(node.node_id == "self_loop" for node in result.execution_order)
 
@@ -1131,16 +1125,12 @@ async def test_self_loop_functionality(mock_strands_tracer, mock_use_span):
 @pytest.mark.asyncio
 async def test_self_loop_functionality_without_reset(mock_strands_tracer, mock_use_span):
     loop_agent_no_reset = create_mock_agent("loop_agent", "Loop without reset")
-    execution_count_no_reset = 0
 
-    def simple_condition(state: GraphState) -> bool:
-        nonlocal execution_count_no_reset
-        execution_count_no_reset += 1
-        return execution_count_no_reset <= 2
+    can_only_be_called_twice: Mock = Mock(side_effect=lambda state: can_only_be_called_twice.call_count <= 2)
 
     builder2 = GraphBuilder()
     builder2.add_node(loop_agent_no_reset, "loop_node")
-    builder2.add_edge("loop_node", "loop_node", condition=simple_condition)
+    builder2.add_edge("loop_node", "loop_node", condition=can_only_be_called_twice)
     builder2.set_entry_point("loop_node")
     builder2.reset_on_revisit(False)  # Disable state reset
     builder2.set_max_node_executions(10)
