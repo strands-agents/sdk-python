@@ -1128,18 +1128,18 @@ async def test_self_loop_functionality_without_reset(mock_strands_tracer, mock_u
 
     can_only_be_called_twice: Mock = Mock(side_effect=lambda state: can_only_be_called_twice.call_count <= 2)
 
-    builder2 = GraphBuilder()
-    builder2.add_node(loop_agent_no_reset, "loop_node")
-    builder2.add_edge("loop_node", "loop_node", condition=can_only_be_called_twice)
-    builder2.set_entry_point("loop_node")
-    builder2.reset_on_revisit(False)  # Disable state reset
-    builder2.set_max_node_executions(10)
+    builder = GraphBuilder()
+    builder.add_node(loop_agent_no_reset, "loop_node")
+    builder.add_edge("loop_node", "loop_node", condition=can_only_be_called_twice)
+    builder.set_entry_point("loop_node")
+    builder.reset_on_revisit(False)  # Disable state reset
+    builder.set_max_node_executions(10)
 
-    graph2 = builder2.build()
-    result2 = await graph2.invoke_async("Test self loop without reset")
+    graph = builder.build()
+    result = await graph.invoke_async("Test self loop without reset")
 
-    assert result2.status == Status.COMPLETED
-    assert len(result2.execution_order) == 2
+    assert result.status == Status.COMPLETED
+    assert len(result.execution_order) == 2
 
     mock_strands_tracer.start_multiagent_span.assert_called()
     mock_use_span.assert_called()
@@ -1193,21 +1193,21 @@ async def test_multiple_nodes_with_self_loops(mock_strands_tracer, mock_use_span
     def condition_b(state: GraphState) -> bool:
         return sum(1 for node in state.execution_order if node.node_id == "b") < 2
 
-    builder2 = GraphBuilder()
-    builder2.add_node(agent_a, "a")
-    builder2.add_node(agent_b, "b")
-    builder2.add_edge("a", "a", condition=condition_a)
-    builder2.add_edge("b", "b", condition=condition_b)
-    builder2.add_edge("a", "b")
-    builder2.set_entry_point("a")
-    builder2.reset_on_revisit(True)
-    builder2.set_max_node_executions(15)
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "a")
+    builder.add_node(agent_b, "b")
+    builder.add_edge("a", "a", condition=condition_a)
+    builder.add_edge("b", "b", condition=condition_b)
+    builder.add_edge("a", "b")
+    builder.set_entry_point("a")
+    builder.reset_on_revisit(True)
+    builder.set_max_node_executions(15)
 
-    graph2 = builder2.build()
-    result2 = await graph2.invoke_async("Test multiple self loops")
+    graph = builder.build()
+    result = await graph.invoke_async("Test multiple self loops")
 
-    assert result2.status == Status.COMPLETED
-    assert len(result2.execution_order) == 4  # a -> a -> b -> b
+    assert result.status == Status.COMPLETED
+    assert len(result.execution_order) == 4  # a -> a -> b -> b
     assert agent_a.invoke_async.call_count == 2
     assert agent_b.invoke_async.call_count == 2
 
@@ -1248,18 +1248,18 @@ async def test_infinite_loop_prevention():
     def always_true_condition(state: GraphState) -> bool:
         return True
 
-    builder2 = GraphBuilder()
-    builder2.add_node(infinite_agent, "infinite_node")
-    builder2.add_edge("infinite_node", "infinite_node", condition=always_true_condition)
-    builder2.set_entry_point("infinite_node")
-    builder2.reset_on_revisit(True)
-    builder2.set_max_node_executions(5)
+    builder = GraphBuilder()
+    builder.add_node(infinite_agent, "infinite_node")
+    builder.add_edge("infinite_node", "infinite_node", condition=always_true_condition)
+    builder.set_entry_point("infinite_node")
+    builder.reset_on_revisit(True)
+    builder.set_max_node_executions(5)
 
-    graph2 = builder2.build()
-    result2 = await graph2.invoke_async("Test infinite loop prevention")
+    graph = builder.build()
+    result = await graph.invoke_async("Test infinite loop prevention")
 
-    assert result2.status == Status.FAILED
-    assert len(result2.execution_order) == 5
+    assert result.status == Status.FAILED
+    assert len(result.execution_order) == 5
 
 
 @pytest.mark.asyncio
@@ -1272,16 +1272,16 @@ async def test_infinite_loop_prevention_self_loops():
         loop_count += 1
         return loop_count <= 2
 
-    builder3 = GraphBuilder()
-    builder3.add_node(multi_agent, "multi_node")
-    builder3.add_edge("multi_node", "multi_node", condition=multi_loop_condition)
-    builder3.set_entry_point("multi_node")
-    builder3.reset_on_revisit(True)
-    builder3.set_max_node_executions(10)
+    builder = GraphBuilder()
+    builder.add_node(multi_agent, "multi_node")
+    builder.add_edge("multi_node", "multi_node", condition=multi_loop_condition)
+    builder.set_entry_point("multi_node")
+    builder.reset_on_revisit(True)
+    builder.set_max_node_executions(10)
 
-    graph3 = builder3.build()
-    result3 = await graph3.invoke_async("Test multi-agent self loop")
+    graph = builder.build()
+    result = await graph.invoke_async("Test multi-agent self loop")
 
-    assert result3.status == Status.COMPLETED
-    assert len(result3.execution_order) >= 2
+    assert result.status == Status.COMPLETED
+    assert len(result.execution_order) >= 2
     assert multi_agent.invoke_async.call_count >= 2
