@@ -7,17 +7,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import (
-    Any,
-    AsyncGenerator,
-    Callable,
-    Iterable,
-    Literal,
-    Optional,
-    Type,
-    TypeVar,
-    Union,
-)
+from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -303,9 +293,9 @@ class BedrockModel(Model):
             https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolResultBlock.html
         """
         cleaned_messages = []
+
         filtered_unknown_members = False
-        # TODO: Replace with systematic model configuration registry (https://github.com/strands-agents/sdk-python/issues/780)
-        is_deepseek = "deepseek" in self.config["model_id"].lower()
+        dropped_deepseek_reasoning_content = False
 
         for message in messages:
             cleaned_content: list[ContentBlock] = []
@@ -315,9 +305,11 @@ class BedrockModel(Model):
                 if "SDK_UNKNOWN_MEMBER" in content_block:
                     filtered_unknown_members = True
                     continue
+
                 # DeepSeek models have issues with reasoningContent
                 # TODO: Replace with systematic model configuration registry (https://github.com/strands-agents/sdk-python/issues/780)
                 if "deepseek" in self.config["model_id"].lower() and "reasoningContent" in content_block:
+                    dropped_deepseek_reasoning_content = True
                     continue
 
                 if "toolResult" in content_block:
@@ -351,6 +343,10 @@ class BedrockModel(Model):
         if filtered_unknown_members:
             logger.warning(
                 "Filtered out SDK_UNKNOWN_MEMBER content blocks from messages, consider upgrading boto3 version"
+            )
+        if dropped_deepseek_reasoning_content:
+            logger.debug(
+                "Filtered DeepSeek reasoningContent content blocks from messages - https://api-docs.deepseek.com/guides/reasoning_model#multi-round-conversation"
             )
 
         return cleaned_messages
