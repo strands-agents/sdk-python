@@ -34,8 +34,8 @@ BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
     "too many total text bytes",
 ]
 
-# Models that should keep tool result status (remove_tool_result_status = False)
-_MODELS_KEEP_STATUS = [
+# Models that should include tool result status (include_tool_result_status = True)
+_MODELS_INCLUDE_STATUS = [
     "anthropic.claude",
 ]
 
@@ -73,8 +73,8 @@ class BedrockModel(Model):
             guardrail_redact_output_message: If a Bedrock Output guardrail triggers, replace output with this message.
             max_tokens: Maximum number of tokens to generate in the response
             model_id: The Bedrock model ID (e.g., "us.anthropic.claude-sonnet-4-20250514-v1:0")
-            remove_tool_result_status: Flag to remove status field from tool results.
-                True removes status, False keeps status, "auto" determines based on model_id. Defaults to "auto".
+            include_tool_result_status: Flag to include status field in tool results.
+                True includes status, False removes status, "auto" determines based on model_id. Defaults to "auto".
             stop_sequences: List of sequences that will stop generation when encountered
             streaming: Flag to enable/disable streaming. Defaults to True.
             temperature: Controls randomness in generation (higher = more random)
@@ -96,7 +96,7 @@ class BedrockModel(Model):
         guardrail_redact_output_message: Optional[str]
         max_tokens: Optional[int]
         model_id: str
-        remove_tool_result_status: Optional[Literal["auto"] | bool]
+        include_tool_result_status: Optional[Literal["auto"] | bool]
         stop_sequences: Optional[list[str]]
         streaming: Optional[bool]
         temperature: Optional[float]
@@ -122,7 +122,7 @@ class BedrockModel(Model):
         if region_name and boto_session:
             raise ValueError("Cannot specify both `region_name` and `boto_session`.")
 
-        self.config = BedrockModel.BedrockConfig(model_id=DEFAULT_BEDROCK_MODEL_ID, remove_tool_result_status="auto")
+        self.config = BedrockModel.BedrockConfig(model_id=DEFAULT_BEDROCK_MODEL_ID, include_tool_result_status="auto")
         self.update_config(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -171,16 +171,16 @@ class BedrockModel(Model):
         """
         return self.config
 
-    def _should_remove_tool_result_status(self) -> bool:
-        """Determine whether to remove tool result status based on current config."""
-        remove_status = self.config.get("remove_tool_result_status", "auto")
+    def _should_include_tool_result_status(self) -> bool:
+        """Determine whether to include tool result status based on current config."""
+        include_status = self.config.get("include_tool_result_status", "auto")
         
-        if remove_status is True:
+        if include_status is True:
             return True
-        elif remove_status is False:
+        elif include_status is False:
             return False
         else:  # "auto"
-            return not any(model in self.config["model_id"] for model in _MODELS_KEEP_STATUS)
+            return any(model in self.config["model_id"] for model in _MODELS_INCLUDE_STATUS)
 
     def format_request(
         self,
@@ -295,17 +295,17 @@ class BedrockModel(Model):
                     # Create a new content block with only the cleaned toolResult
                     tool_result: ToolResult = content_block["toolResult"]
 
-                    if self._should_remove_tool_result_status():
-                        # Remove status field
-                        cleaned_tool_result = ToolResult(  # type: ignore[typeddict-item]
-                            toolUseId=tool_result["toolUseId"], content=tool_result["content"]
-                        )
-                    else:
-                        # Keep status field
+                    if self._should_include_tool_result_status():
+                        # Include status field
                         cleaned_tool_result = ToolResult(
                             content=tool_result["content"],
                             toolUseId=tool_result["toolUseId"],
                             status=tool_result["status"],
+                        )
+                    else:
+                        # Remove status field
+                        cleaned_tool_result = ToolResult(  # type: ignore[typeddict-item]
+                            toolUseId=tool_result["toolUseId"], content=tool_result["content"]
                         )
 
                     cleaned_block: ContentBlock = {"toolResult": cleaned_tool_result}

@@ -1239,7 +1239,7 @@ def test_format_request_cleans_tool_result_content_blocks(model, model_id):
 
 
 def test_format_request_removes_status_field_when_configured(model, model_id):
-    model.update_config(remove_tool_result_status=True)
+    model.update_config(include_tool_result_status=False)
 
     messages = [
         {
@@ -1266,18 +1266,18 @@ def test_format_request_removes_status_field_when_configured(model, model_id):
 
 def test_auto_behavior_anthropic_vs_non_anthropic(bedrock_client):
     model_anthropic = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
-    assert model_anthropic.get_config()["remove_tool_result_status"] == "auto"
+    assert model_anthropic.get_config()["include_tool_result_status"] == "auto"
     
     model_non_anthropic = BedrockModel(model_id="amazon.titan-text-v1")
-    assert model_non_anthropic.get_config()["remove_tool_result_status"] == "auto"
+    assert model_non_anthropic.get_config()["include_tool_result_status"] == "auto"
 
 
 def test_explicit_boolean_values_preserved(bedrock_client):
-    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", remove_tool_result_status=True)
-    assert model.get_config()["remove_tool_result_status"] is True
+    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", include_tool_result_status=True)
+    assert model.get_config()["include_tool_result_status"] is True
     
-    model2 = BedrockModel(model_id="amazon.titan-text-v1", remove_tool_result_status=False)
-    assert model2.get_config()["remove_tool_result_status"] is False
+    model2 = BedrockModel(model_id="amazon.titan-text-v1", include_tool_result_status=False)
+    assert model2.get_config()["include_tool_result_status"] is False
     """Test that format_request keeps status field by default for anthropic.claude models."""
     # Default model is anthropic.claude, so should keep status
     model = BedrockModel()
