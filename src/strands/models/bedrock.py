@@ -180,7 +180,7 @@ class BedrockModel(Model):
     def _should_include_tool_result_status(self) -> bool:
         """Determine whether to include tool result status based on current config."""
         include_status = self.config.get("include_tool_result_status", "auto")
-        
+
         if include_status is True:
             return True
         elif include_status is False:
@@ -275,6 +275,7 @@ class BedrockModel(Model):
         """Format messages for Bedrock API compatibility.
 
         This function ensures messages conform to Bedrock's expected format by:
+        - Filtering out SDK_UNKNOWN_MEMBER content blocks
         - Cleaning tool result content blocks by removing additional fields that may be
           useful for retaining information in hooks but would cause Bedrock validation
           exceptions when presented with unexpected fields
@@ -292,11 +293,17 @@ class BedrockModel(Model):
             https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolResultBlock.html
         """
         cleaned_messages = []
+        filtered_unknown_members = False
 
         for message in messages:
             cleaned_content: list[ContentBlock] = []
 
             for content_block in message["content"]:
+                # Filter out SDK_UNKNOWN_MEMBER content blocks
+                if "SDK_UNKNOWN_MEMBER" in content_block:
+                    filtered_unknown_members = True
+                    continue
+
                 if "toolResult" in content_block:
                     # Create a new content block with only the cleaned toolResult
                     tool_result: ToolResult = content_block["toolResult"]
@@ -323,6 +330,12 @@ class BedrockModel(Model):
             # Create new message with cleaned content
             cleaned_message: Message = Message(content=cleaned_content, role=message["role"])
             cleaned_messages.append(cleaned_message)
+
+        if filtered_unknown_members:
+            logger.warning(
+                "Filtered out SDK_UNKNOWN_MEMBER content blocks from messages, consider upgrading boto3 version"
+            )
+
         return cleaned_messages
 
     def _has_blocked_guardrail(self, guardrail_data: dict[str, Any]) -> bool:
