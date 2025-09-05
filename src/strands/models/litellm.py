@@ -50,6 +50,7 @@ class LiteLLMModel(OpenAIModel):
         """
         self.client_args = client_args or {}
         self.config = dict(model_config)
+        self._apply_proxy_prefix()
 
         logger.debug("config=<%s> | initializing", self.config)
 
@@ -61,6 +62,18 @@ class LiteLLMModel(OpenAIModel):
             **model_config: Configuration overrides.
         """
         self.config.update(model_config)
+        self._apply_proxy_prefix()
+
+    def _apply_proxy_prefix(self) -> None:
+        """Apply litellm_proxy/ prefix to model_id when use_litellm_proxy is True.
+
+        This is a workaround for https://github.com/BerriAI/litellm/issues/13454
+        where use_litellm_proxy parameter is not honored.
+        """
+        if self.client_args.get("use_litellm_proxy") and "model_id" in self.config:
+            model_id = self.config["model_id"]
+            if not model_id.startswith("litellm_proxy/"):
+                self.config["model_id"] = f"litellm_proxy/{model_id}"
 
     @override
     def get_config(self) -> LiteLLMConfig:
