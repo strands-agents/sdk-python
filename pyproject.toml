@@ -90,6 +90,9 @@ otel = [
 writer = [
     "writer-sdk>=2.2.0,<3.0.0"
 ]
+clova = [
+    "httpx>=0.27.0,<1.0.0",
+]
 
 sagemaker = [
     "boto3>=1.26.0,<2.0.0",
@@ -108,7 +111,7 @@ a2a = [
     "starlette>=0.46.2,<1.0.0",
 ]
 all = [
-    "strands-agents[a2a,anthropic,dev,docs,litellm,llamaapi,mistral,ollama,openai,otel]",
+    "strands-agents[a2a,anthropic,clova,dev,docs,litellm,llamaapi,mistral,ollama,openai,otel]",
 ]
 
 [tool.hatch.version]
@@ -116,7 +119,7 @@ all = [
 source = "vcs"
 
 [tool.hatch.envs.hatch-static-analysis]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "writer", "a2a", "sagemaker"]
+features = ["anthropic", "clova", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "writer", "a2a", "sagemaker"]
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
   "ruff>=0.11.6,<0.12.0",
@@ -139,7 +142,7 @@ lint-fix = [
 ]
 
 [tool.hatch.envs.hatch-test]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "writer", "a2a", "sagemaker"]
+features = ["anthropic", "clova", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "writer", "a2a", "sagemaker"]
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
@@ -155,7 +158,7 @@ extra-args = [
 
 [tool.hatch.envs.dev]
 dev-mode = true
-features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel", "mistral", "writer", "a2a", "sagemaker"]
+features = ["dev", "docs", "anthropic", "clova", "litellm", "llamaapi", "ollama", "otel", "mistral", "writer", "a2a", "sagemaker"]
 
 [[tool.hatch.envs.hatch-test.matrix]]
 python = ["3.13", "3.12", "3.11", "3.10"]
