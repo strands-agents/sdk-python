@@ -56,7 +56,7 @@ jobs:
           ref: ${{ inputs.ref }}  # Explicitly define which commit to check out
           persist-credentials: false  # Don't persist credentials for subsequent actions
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
@@ -79,7 +79,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
           cache: 'pip'
