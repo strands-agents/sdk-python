@@ -50,6 +50,9 @@ packages = ["src/strands"]
 anthropic = [
     "anthropic>=0.21.0,<1.0.0",
 ]
+baseten = [
+    "openai>=1.68.0,<2.0.0",
+]
 dev = [
     "commitizen>=4.4.0,<5.0.0",
     "hatch>=1.0.0,<2.0.0",
