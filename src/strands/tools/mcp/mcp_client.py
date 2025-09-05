@@ -23,6 +23,7 @@ from mcp.types import CallToolResult as MCPCallToolResult
 from mcp.types import GetPromptResult, ListPromptsResult
 from mcp.types import ImageContent as MCPImageContent
 from mcp.types import TextContent as MCPTextContent
+from mcp.types import EmbeddedResource as MCPEmbeddedResource
 
 from ...types import PaginatedList
 from ...types.exceptions import MCPClientInitializationError
@@ -386,7 +387,7 @@ class MCPClient:
 
     def _map_mcp_content_to_tool_result_content(
         self,
-        content: MCPTextContent | MCPImageContent | Any,
+        content: MCPTextContent | MCPImageContent | MCPEmbeddedResource | Any,
     ) -> Union[ToolResultContent, None]:
         """Maps MCP content types to tool result content types.
 
@@ -410,6 +411,92 @@ class MCPClient:
                     "source": {"bytes": base64.b64decode(content.data)},
                 }
             }
+        elif isinstance(content, MCPEmbeddedResource):
+            self._log_debug_with_thread("mapping MCP embedded resource content")
+            resource = getattr(content, "resource", None)
+            if resource is None:
+                self._log_debug_with_thread("embedded resource has no 'resource' field - dropping")
+                return None
+
+            # Support both pydantic model and dict access
+            def _get(attr: str) -> Any:
+                if hasattr(resource, attr):
+                    return getattr(resource, attr)
+                if isinstance(resource, dict):
+                    return resource.get(attr)
+                return None
+
+            text_val = _get("text")
+            if text_val:
+                return {"text": text_val}
+
+            blob_val = _get("blob")
+            mime_type = _get("mimeType")
+
+            if blob_val is not None:
+                # blob is a base64 string in current mcp schema
+                raw_bytes: Optional[bytes]
+                try:
+                    if isinstance(blob_val, (bytes, bytearray)):
+                        raw_bytes = bytes(blob_val)
+                    elif isinstance(blob_val, str):
+                        raw_bytes = base64.b64decode(blob_val)
+                    else:
+                        raw_bytes = None
+                except Exception:
+                    raw_bytes = None
+
+                if raw_bytes is None:
+                    self._log_debug_with_thread("embedded resource blob could not be decoded - dropping")
+                    return None
+
+                def _is_textual(mt: Optional[str]) -> bool:
+                    if not mt:
+                        return False
+                    if mt.startswith("text/"):
+                        return True
+                    textual = (
+                        "application/json",
+                        "application/xml",
+                        "application/javascript",
+                        "application/x-yaml",
+                        "application/yaml",
+                        "application/xhtml+xml",
+                    )
+                    if mt in textual or mt.endswith("+json") or mt.endswith("+xml"):
+                        return True
+                    return False
+
+                if _is_textual(mime_type):
+                    try:
+                        return {"text": raw_bytes.decode("utf-8", errors="replace")}
+                    except Exception:
+                        pass
+
+                if mime_type in MIME_TO_FORMAT:
+                    return {
+                        "image": {
+                            "format": MIME_TO_FORMAT[mime_type],
+                            "source": {"bytes": raw_bytes},
+                        }
+                    }
+
+                self._log_debug_with_thread("embedded resource blob with non-textual/unknown mimeType - dropping")
+                return None
+            
+            # Handle URI-only resources
+            uri = _get("uri")
+            if uri:
+                return {
+                    "json": {
+                        "uri": uri,
+                        "mime_type": mime_type
+                    }
+                }
+
+            # Make sure we return in all paths
+            self._log_debug_with_thread("embedded resource had no usable text/blob/uri; dropping")
+            return None
         else:
             self._log_debug_with_thread("unhandled content type: %s - dropping content", content.__class__.__name__)
             return None
