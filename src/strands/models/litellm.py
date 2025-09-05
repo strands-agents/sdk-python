@@ -233,6 +233,6 @@ class LiteLLMModel(OpenAIModel):
         where use_litellm_proxy parameter is not honored.
         """
         if self.client_args.get("use_litellm_proxy") and "model_id" in self.config:
-            model_id = self.config["model_id"]
+            model_id = self.get_config()["model_id"]
             if not model_id.startswith("litellm_proxy/"):
                 self.config["model_id"] = f"litellm_proxy/{model_id}"
