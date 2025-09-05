@@ -59,6 +59,39 @@ def test_update_config(model, model_id):
 
 
 @pytest.mark.parametrize(
+    "client_args, model_id, expected_model_id",
+    [
+        ({"use_litellm_proxy": True}, "openai/gpt-4", "litellm_proxy/openai/gpt-4"),
+        ({"use_litellm_proxy": False}, "openai/gpt-4", "openai/gpt-4"),
+        ({"use_litellm_proxy": None}, "openai/gpt-4", "openai/gpt-4"),
+        ({}, "openai/gpt-4", "openai/gpt-4"),
+        (None, "openai/gpt-4", "openai/gpt-4"),
+        ({"use_litellm_proxy": True}, "litellm_proxy/openai/gpt-4", "litellm_proxy/openai/gpt-4"),
+        ({"use_litellm_proxy": False}, "litellm_proxy/openai/gpt-4", "litellm_proxy/openai/gpt-4"),
+    ],
+)
+def test_use_litellm_proxy_prefix(client_args, model_id, expected_model_id):
+    """Test litellm_proxy prefix behavior for various configurations."""
+    model = LiteLLMModel(client_args=client_args, model_id=model_id)
+    assert model.get_config()["model_id"] == expected_model_id
+
+
+@pytest.mark.parametrize(
+    "client_args, initial_model_id, new_model_id, expected_model_id",
+    [
+        ({"use_litellm_proxy": True}, "openai/gpt-4", "anthropic/claude-3", "litellm_proxy/anthropic/claude-3"),
+        ({"use_litellm_proxy": False}, "openai/gpt-4", "anthropic/claude-3", "anthropic/claude-3"),
+        (None, "openai/gpt-4", "anthropic/claude-3", "anthropic/claude-3"),
+    ],
+)
+def test_update_config_proxy_prefix(client_args, initial_model_id, new_model_id, expected_model_id):
+    """Test that update_config applies proxy prefix correctly."""
+    model = LiteLLMModel(client_args=client_args, model_id=initial_model_id)
+    model.update_config(model_id=new_model_id)
+    assert model.get_config()["model_id"] == expected_model_id
+
+
+@pytest.mark.parametrize(
     "content, exp_result",
     [
         # Case 1: Thinking
