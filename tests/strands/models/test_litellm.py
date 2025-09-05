@@ -230,9 +230,6 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
     litellm_acompletion.assert_called_once_with(**expected_request)
 
 
-
-
-
 @pytest.mark.asyncio
 async def test_stream_empty(litellm_acompletion, api_key, model_id, model, agenerator, alist):
     mock_delta = unittest.mock.Mock(content=None, tool_calls=None, reasoning_content=None)
@@ -288,6 +285,3 @@ async def test_structured_output(litellm_acompletion, model, test_output_model_c
 
     exp_result = {"output": test_output_model_cls(name="John", age=30)}
     assert tru_result == exp_result
-
-
-
