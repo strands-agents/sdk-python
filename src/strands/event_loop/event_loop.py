@@ -8,8 +8,8 @@ The event loop allows agents to:
 4. Manage recursive execution cycles
 """
 
+import asyncio
 import logging
-import time
 import uuid
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
@@ -189,7 +189,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
                         MAX_ATTEMPTS,
                         attempt + 1,
                     )
-                    time.sleep(current_delay)
+                    await asyncio.sleep(current_delay)
                     current_delay = min(current_delay * 2, MAX_DELAY)
 
                     yield EventLoopThrottleEvent(delay=current_delay)
