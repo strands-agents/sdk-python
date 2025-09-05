@@ -293,7 +293,9 @@ class BedrockModel(Model):
             https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolResultBlock.html
         """
         cleaned_messages = []
+
         filtered_unknown_members = False
+        dropped_deepseek_reasoning_content = False
 
         for message in messages:
             cleaned_content: list[ContentBlock] = []
@@ -302,6 +304,12 @@ class BedrockModel(Model):
                 # Filter out SDK_UNKNOWN_MEMBER content blocks
                 if "SDK_UNKNOWN_MEMBER" in content_block:
                     filtered_unknown_members = True
+                    continue
+
+                # DeepSeek models have issues with reasoningContent
+                # TODO: Replace with systematic model configuration registry (https://github.com/strands-agents/sdk-python/issues/780)
+                if "deepseek" in self.config["model_id"].lower() and "reasoningContent" in content_block:
+                    dropped_deepseek_reasoning_content = True
                     continue
 
                 if "toolResult" in content_block:
@@ -327,13 +335,18 @@ class BedrockModel(Model):
                     # Keep other content blocks as-is
                     cleaned_content.append(content_block)
 
-            # Create new message with cleaned content
-            cleaned_message: Message = Message(content=cleaned_content, role=message["role"])
-            cleaned_messages.append(cleaned_message)
+            # Create new message with cleaned content (skip if empty for DeepSeek)
+            if cleaned_content:
+                cleaned_message: Message = Message(content=cleaned_content, role=message["role"])
+                cleaned_messages.append(cleaned_message)
 
         if filtered_unknown_members:
             logger.warning(
                 "Filtered out SDK_UNKNOWN_MEMBER content blocks from messages, consider upgrading boto3 version"
+            )
+        if dropped_deepseek_reasoning_content:
+            logger.debug(
+                "Filtered DeepSeek reasoningContent content blocks from messages - https://api-docs.deepseek.com/guides/reasoning_model#multi-round-conversation"
             )
 
         return cleaned_messages
@@ -386,7 +399,8 @@ class BedrockModel(Model):
                 {
                     "redactContent": {
                         "redactAssistantContentMessage": self.config.get(
-                            "guardrail_redact_output_message", "[Assistant output redacted.]"
+                            "guardrail_redact_output_message",
+                            "[Assistant output redacted.]",
                         )
                     }
                 }
@@ -699,7 +713,11 @@ class BedrockModel(Model):
 
     @override
     async def structured_output(
-        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
+        self,
+        output_model: Type[T],
+        prompt: Messages,
+        system_prompt: Optional[str] = None,
+        **kwargs: Any,
     ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
@@ -714,7 +732,12 @@ class BedrockModel(Model):
         """
         tool_spec = convert_pydantic_to_tool_spec(output_model)
 
-        response = self.stream(messages=prompt, tool_specs=[tool_spec], system_prompt=system_prompt, **kwargs)
+        response = self.stream(
+            messages=prompt,
+            tool_specs=[tool_spec],
+            system_prompt=system_prompt,
+            **kwargs,
+        )
         async for event in streaming.process_stream(response):
             yield event
 
