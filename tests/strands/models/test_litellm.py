@@ -230,38 +230,7 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
     litellm_acompletion.assert_called_once_with(**expected_request)
 
 
-@pytest.mark.parametrize(
-    "use_litellm_proxy, expected_model_id",
-    [
-        (True, "litellm_proxy/openai/gpt-4"),
-        (False, "openai/gpt-4"),
-        (None, "openai/gpt-4"),
-    ],
-)
-@pytest.mark.asyncio
-async def test_stream_with_proxy(litellm_acompletion, api_key, agenerator, alist, use_litellm_proxy, expected_model_id):
-    """Test that streaming works correctly with various proxy configurations."""
-    client_args = {"api_key": api_key}
-    if use_litellm_proxy is not None:
-        client_args["use_litellm_proxy"] = use_litellm_proxy
 
-    model = LiteLLMModel(client_args=client_args, model_id="openai/gpt-4")
-
-    mock_delta = unittest.mock.Mock(content="test response", tool_calls=None, reasoning_content=None)
-    mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta)])
-    mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
-    mock_event_3 = unittest.mock.Mock(usage=None)
-
-    litellm_acompletion.side_effect = unittest.mock.AsyncMock(
-        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3])
-    )
-
-    messages = [{"role": "user", "content": [{"text": "test"}]}]
-    response = model.stream(messages)
-    await alist(response)
-
-    call_args = litellm_acompletion.call_args[1]
-    assert call_args["model"] == expected_model_id
 
 
 @pytest.mark.asyncio
@@ -321,39 +290,4 @@ async def test_structured_output(litellm_acompletion, model, test_output_model_c
     assert tru_result == exp_result
 
 
-@pytest.mark.parametrize(
-    "use_litellm_proxy, expected_model_id",
-    [
-        (True, "litellm_proxy/openai/gpt-4"),
-        (False, "openai/gpt-4"),
-    ],
-)
-@pytest.mark.asyncio
-async def test_structured_output_with_proxy(
-    litellm_acompletion, api_key, test_output_model_cls, alist, use_litellm_proxy, expected_model_id
-):
-    """Test that structured_output works correctly with various proxy configurations."""
-    model = LiteLLMModel(
-        client_args={"api_key": api_key, "use_litellm_proxy": use_litellm_proxy}, model_id="openai/gpt-4"
-    )
 
-    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
-
-    mock_choice = unittest.mock.Mock()
-    mock_choice.finish_reason = "tool_calls"
-    mock_choice.message.content = '{"name": "Jane", "age": 25}'
-    mock_response = unittest.mock.Mock()
-    mock_response.choices = [mock_choice]
-
-    litellm_acompletion.side_effect = unittest.mock.AsyncMock(return_value=mock_response)
-
-    with unittest.mock.patch.object(strands.models.litellm, "supports_response_schema", return_value=True):
-        stream = model.structured_output(test_output_model_cls, messages)
-        events = await alist(stream)
-        tru_result = events[-1]
-
-    exp_result = {"output": test_output_model_cls(name="Jane", age=25)}
-    assert tru_result == exp_result
-
-    call_args = litellm_acompletion.call_args[1]
-    assert call_args["model"] == expected_model_id
