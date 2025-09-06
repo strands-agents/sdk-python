@@ -28,7 +28,7 @@ from .model import Model
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+DEFAULT_BEDROCK_MODEL_ID = "global.anthropic.claude-sonnet-4-20250514-v1:0"
 DEFAULT_BEDROCK_REGION = "us-west-2"
 
 BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
