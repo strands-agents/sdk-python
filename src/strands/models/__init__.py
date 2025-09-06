@@ -6,5 +6,6 @@ This package includes an abstract base Model class along with concrete implement
 from . import bedrock, model
 from .bedrock import BedrockModel
 from .model import Model
+from .rate_limiter import rate_limit_model
 
-__all__ = ["bedrock", "model", "BedrockModel", "Model"]
+__all__ = ["bedrock", "model", "BedrockModel", "Model", "rate_limit_model"]
