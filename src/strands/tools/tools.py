@@ -8,7 +8,7 @@ import asyncio
 import inspect
 import logging
 import re
-from typing import Any
+from typing import Any, List, Union
 
 from typing_extensions import override
 
@@ -33,22 +33,22 @@ def validate_tool_use(tool: ToolUse) -> None:
     validate_tool_use_name(tool)
 
 
-def validate_tool_use_name(tool: ToolUse) -> None:
+def validate_tool_use_name(tool_use: ToolUse) -> None:
     """Validate the name of a tool use.
 
     Args:
-        tool: The tool use to validate.
+        tool_use: The tool use to validate.
 
     Raises:
         InvalidToolUseNameException: If the tool name is invalid.
     """
     # We need to fix some typing here, because we don't actually expect a ToolUse, but dict[str, Any]
-    if "name" not in tool:
+    if "name" not in tool_use:
         message = "tool name missing"  # type: ignore[unreachable]
         logger.warning(message)
         raise InvalidToolUseNameException(message)
 
-    tool_name = tool["name"]
+    tool_name = tool_use["name"]
     tool_name_pattern = r"^[a-zA-Z0-9_\-]{1,}$"
     tool_name_max_length = 64
     valid_name_pattern = bool(re.match(tool_name_pattern, tool_name))
@@ -144,6 +144,13 @@ def normalize_tool_spec(tool_spec: ToolSpec) -> ToolSpec:
                 normalized["inputSchema"] = {"json": normalize_schema(normalized["inputSchema"])}
 
     return normalized
+
+
+def normalize_loaded_tools(loaded: Union[AgentTool, List[AgentTool]]) -> List[AgentTool]:
+    """Normalize ToolLoader.load_tool return value to always be a list of AgentTool."""
+    if isinstance(loaded, list):
+        return loaded
+    return [loaded]
 
 
 class PythonAgentTool(AgentTool):
