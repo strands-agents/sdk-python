@@ -1,6 +1,7 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates
 import unittest.mock
 
+import pydantic
 import pytest
 
 import strands
@@ -33,6 +34,15 @@ def messages():
 @pytest.fixture
 def system_prompt():
     return "s1"
+
+
+@pytest.fixture
+def test_output_model_cls():
+    class TestOutputModel(pydantic.BaseModel):
+        name: str
+        age: int
+
+    return TestOutputModel
 
 
 def test__init__model_configs(llamaapi_client, model_id):
@@ -361,3 +371,16 @@ def test_format_chunk_other(model):
 
     with pytest.raises(RuntimeError, match="chunk_type=<other> | unknown type"):
         model.format_chunk(event)
+
+
+@pytest.mark.asyncio
+async def test_structured_output(llamaapi_client, model, messages, test_output_model_cls, alist):
+    mock_api_response = unittest.mock.Mock()
+    mock_api_response.completion_message.content.text = '{"name": "John", "age": 30}'
+
+    llamaapi_client.chat.completions.create = unittest.mock.Mock(return_value=mock_api_response)
+
+    stream = model.structured_output(test_output_model_cls, messages)
+    events = await alist(stream)
+
+    assert events[-1] == {"output": test_output_model_cls(name="John", age=30)}
