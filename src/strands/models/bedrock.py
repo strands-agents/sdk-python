@@ -7,7 +7,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union
+from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -18,8 +18,11 @@ from typing_extensions import TypedDict, Unpack, override
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Message, Messages
-from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
-from ..types.streaming import StreamEvent
+from ..types.exceptions import (
+    ContextWindowOverflowException,
+    ModelThrottledException,
+)
+from ..types.streaming import CitationsDelta, StreamEvent
 from ..types.tools import ToolResult, ToolSpec
 from .model import Model
 
@@ -32,6 +35,11 @@ BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
     "Input is too long for requested model",
     "input length and `max_tokens` exceed context limit",
     "too many total text bytes",
+]
+
+# Models that should include tool result status (include_tool_result_status = True)
+_MODELS_INCLUDE_STATUS = [
+    "anthropic.claude",
 ]
 
 T = TypeVar("T", bound=BaseModel)
@@ -68,6 +76,8 @@ class BedrockModel(Model):
             guardrail_redact_output_message: If a Bedrock Output guardrail triggers, replace output with this message.
             max_tokens: Maximum number of tokens to generate in the response
             model_id: The Bedrock model ID (e.g., "us.anthropic.claude-sonnet-4-20250514-v1:0")
+            include_tool_result_status: Flag to include status field in tool results.
+                True includes status, False removes status, "auto" determines based on model_id. Defaults to "auto".
             stop_sequences: List of sequences that will stop generation when encountered
             streaming: Flag to enable/disable streaming. Defaults to True.
             temperature: Controls randomness in generation (higher = more random)
@@ -89,6 +99,7 @@ class BedrockModel(Model):
         guardrail_redact_output_message: Optional[str]
         max_tokens: Optional[int]
         model_id: str
+        include_tool_result_status: Optional[Literal["auto"] | bool]
         stop_sequences: Optional[list[str]]
         streaming: Optional[bool]
         temperature: Optional[float]
@@ -100,6 +111,7 @@ class BedrockModel(Model):
         boto_session: Optional[boto3.Session] = None,
         boto_client_config: Optional[BotocoreConfig] = None,
         region_name: Optional[str] = None,
+        endpoint_url: Optional[str] = None,
         **model_config: Unpack[BedrockConfig],
     ):
         """Initialize provider instance.
@@ -109,12 +121,13 @@ class BedrockModel(Model):
             boto_client_config: Configuration to use when creating the Bedrock-Runtime Boto Client.
             region_name: AWS region to use for the Bedrock service.
                 Defaults to the AWS_REGION environment variable if set, or "us-west-2" if not set.
+            endpoint_url: Custom endpoint URL for VPC endpoints (PrivateLink)
             **model_config: Configuration options for the Bedrock model.
         """
         if region_name and boto_session:
             raise ValueError("Cannot specify both `region_name` and `boto_session`.")
 
-        self.config = BedrockModel.BedrockConfig(model_id=DEFAULT_BEDROCK_MODEL_ID)
+        self.config = BedrockModel.BedrockConfig(model_id=DEFAULT_BEDROCK_MODEL_ID, include_tool_result_status="auto")
         self.update_config(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -140,6 +153,7 @@ class BedrockModel(Model):
         self.client = session.client(
             service_name="bedrock-runtime",
             config=client_config,
+            endpoint_url=endpoint_url,
             region_name=resolved_region,
         )
 
@@ -162,6 +176,17 @@ class BedrockModel(Model):
             The Bedrock model configuration.
         """
         return self.config
+
+    def _should_include_tool_result_status(self) -> bool:
+        """Determine whether to include tool result status based on current config."""
+        include_status = self.config.get("include_tool_result_status", "auto")
+
+        if include_status is True:
+            return True
+        elif include_status is False:
+            return False
+        else:  # "auto"
+            return any(model in self.config["model_id"] for model in _MODELS_INCLUDE_STATUS)
 
     def format_request(
         self,
@@ -250,6 +275,7 @@ class BedrockModel(Model):
         """Format messages for Bedrock API compatibility.
 
         This function ensures messages conform to Bedrock's expected format by:
+        - Filtering out SDK_UNKNOWN_MEMBER content blocks
         - Cleaning tool result content blocks by removing additional fields that may be
           useful for retaining information in hooks but would cause Bedrock validation
           exceptions when presented with unexpected fields
@@ -267,19 +293,33 @@ class BedrockModel(Model):
             https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolResultBlock.html
         """
         cleaned_messages = []
+        filtered_unknown_members = False
 
         for message in messages:
             cleaned_content: list[ContentBlock] = []
 
             for content_block in message["content"]:
+                # Filter out SDK_UNKNOWN_MEMBER content blocks
+                if "SDK_UNKNOWN_MEMBER" in content_block:
+                    filtered_unknown_members = True
+                    continue
+
                 if "toolResult" in content_block:
                     # Create a new content block with only the cleaned toolResult
                     tool_result: ToolResult = content_block["toolResult"]
 
-                    # Keep only the required fields for Bedrock
-                    cleaned_tool_result = ToolResult(
-                        content=tool_result["content"], toolUseId=tool_result["toolUseId"], status=tool_result["status"]
-                    )
+                    if self._should_include_tool_result_status():
+                        # Include status field
+                        cleaned_tool_result = ToolResult(
+                            content=tool_result["content"],
+                            toolUseId=tool_result["toolUseId"],
+                            status=tool_result["status"],
+                        )
+                    else:
+                        # Remove status field
+                        cleaned_tool_result = ToolResult(  # type: ignore[typeddict-item]
+                            toolUseId=tool_result["toolUseId"], content=tool_result["content"]
+                        )
 
                     cleaned_block: ContentBlock = {"toolResult": cleaned_tool_result}
                     cleaned_content.append(cleaned_block)
@@ -290,6 +330,11 @@ class BedrockModel(Model):
             # Create new message with cleaned content
             cleaned_message: Message = Message(content=cleaned_content, role=message["role"])
             cleaned_messages.append(cleaned_message)
+
+        if filtered_unknown_members:
+            logger.warning(
+                "Filtered out SDK_UNKNOWN_MEMBER content blocks from messages, consider upgrading boto3 version"
+            )
 
         return cleaned_messages
 
@@ -429,6 +474,8 @@ class BedrockModel(Model):
             logger.debug("got response from model")
             if streaming:
                 response = self.client.converse_stream(**request)
+                # Track tool use events to fix stopReason for streaming responses
+                has_tool_use = False
                 for chunk in response["stream"]:
                     if (
                         "metadata" in chunk
@@ -440,7 +487,24 @@ class BedrockModel(Model):
                             for event in self._generate_redaction_events():
                                 callback(event)
 
-                    callback(chunk)
+                    # Track if we see tool use events
+                    if "contentBlockStart" in chunk and chunk["contentBlockStart"].get("start", {}).get("toolUse"):
+                        has_tool_use = True
+
+                    # Fix stopReason for streaming responses that contain tool use
+                    if (
+                        has_tool_use
+                        and "messageStop" in chunk
+                        and (message_stop := chunk["messageStop"]).get("stopReason") == "end_turn"
+                    ):
+                        # Create corrected chunk with tool_use stopReason
+                        modified_chunk = chunk.copy()
+                        modified_chunk["messageStop"] = message_stop.copy()
+                        modified_chunk["messageStop"]["stopReason"] = "tool_use"
+                        logger.warning("Override stop reason from end_turn to tool_use")
+                        callback(modified_chunk)
+                    else:
+                        callback(chunk)
 
             else:
                 response = self.client.converse(**request)
@@ -510,7 +574,7 @@ class BedrockModel(Model):
         yield {"messageStart": {"role": response["output"]["message"]["role"]}}
 
         # Process content blocks
-        for content in response["output"]["message"]["content"]:
+        for content in cast(list[ContentBlock], response["output"]["message"]["content"]):
             # Yield contentBlockStart event if needed
             if "toolUse" in content:
                 yield {
@@ -553,14 +617,40 @@ class BedrockModel(Model):
                             }
                         }
                     }
+            elif "citationsContent" in content:
+                # For non-streaming citations, emit text and metadata deltas in sequence
+                # to match streaming behavior where they flow naturally
+                if "content" in content["citationsContent"]:
+                    text_content = "".join([content["text"] for content in content["citationsContent"]["content"]])
+                    yield {
+                        "contentBlockDelta": {"delta": {"text": text_content}},
+                    }
+
+                for citation in content["citationsContent"]["citations"]:
+                    # Then emit citation metadata (for structure)
+
+                    citation_metadata: CitationsDelta = {
+                        "title": citation["title"],
+                        "location": citation["location"],
+                        "sourceContent": citation["sourceContent"],
+                    }
+                    yield {"contentBlockDelta": {"delta": {"citation": citation_metadata}}}
 
             # Yield contentBlockStop event
             yield {"contentBlockStop": {}}
 
         # Yield messageStop event
+        # Fix stopReason for models that return end_turn when they should return tool_use on non-streaming side
+        current_stop_reason = response["stopReason"]
+        if current_stop_reason == "end_turn":
+            message_content = response["output"]["message"]["content"]
+            if any("toolUse" in content for content in message_content):
+                current_stop_reason = "tool_use"
+                logger.warning("Override stop reason from end_turn to tool_use")
+
         yield {
             "messageStop": {
-                "stopReason": response["stopReason"],
+                "stopReason": current_stop_reason,
                 "additionalModelResponseFields": response.get("additionalModelResponseFields"),
             }
         }

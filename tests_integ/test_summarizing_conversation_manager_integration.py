@@ -160,7 +160,7 @@ def test_summarization_with_context_overflow(model):
 
     # First message should be the summary (assistant message)
     summary_message = agent.messages[0]
-    assert summary_message["role"] == "assistant"
+    assert summary_message["role"] == "user"
     assert len(summary_message["content"]) > 0
 
     # Verify the summary contains actual text content
@@ -362,7 +362,7 @@ def test_dedicated_summarization_agent(model, summarization_model):
 
     # Get the summary message
     summary_message = agent.messages[0]
-    assert summary_message["role"] == "assistant"
+    assert summary_message["role"] == "user"
 
     # Extract summary text
     summary_text = None

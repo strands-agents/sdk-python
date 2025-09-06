@@ -138,9 +138,25 @@ def test_guardrail_output_intervention(boto_session, bedrock_guardrail, processi
     response1 = agent("Say the word.")
     response2 = agent("Hello!")
     assert response1.stop_reason == "guardrail_intervened"
-    assert BLOCKED_OUTPUT in str(response1)
-    assert response2.stop_reason != "guardrail_intervened"
-    assert BLOCKED_OUTPUT not in str(response2)
+
+    """
+    In async streaming: The buffering is non-blocking. 
+    Tokens are streamed while Guardrails processes the buffered content in the background. 
+    This means the response may be returned before Guardrails has finished processing.
+    As a result, we cannot guarantee that the REDACT_MESSAGE is in the response
+    """
+    if processing_mode == "sync":
+        assert BLOCKED_OUTPUT in str(response1)
+        assert response2.stop_reason != "guardrail_intervened"
+        assert BLOCKED_OUTPUT not in str(response2)
+    else:
+        cactus_returned_in_response1_blocked_by_input_guardrail = BLOCKED_INPUT in str(response2)
+        cactus_blocked_in_response1_allows_next_response = (
+            BLOCKED_OUTPUT not in str(response2) and response2.stop_reason != "guardrail_intervened"
+        )
+        assert (
+            cactus_returned_in_response1_blocked_by_input_guardrail or cactus_blocked_in_response1_allows_next_response
+        )
 
 
 @pytest.mark.parametrize("processing_mode", ["sync", "async"])
@@ -164,10 +180,27 @@ def test_guardrail_output_intervention_redact_output(bedrock_guardrail, processi
 
     response1 = agent("Say the word.")
     response2 = agent("Hello!")
+
     assert response1.stop_reason == "guardrail_intervened"
-    assert REDACT_MESSAGE in str(response1)
-    assert response2.stop_reason != "guardrail_intervened"
-    assert REDACT_MESSAGE not in str(response2)
+
+    """
+    In async streaming: The buffering is non-blocking. 
+    Tokens are streamed while Guardrails processes the buffered content in the background. 
+    This means the response may be returned before Guardrails has finished processing.
+    As a result, we cannot guarantee that the REDACT_MESSAGE is in the response
+    """
+    if processing_mode == "sync":
+        assert REDACT_MESSAGE in str(response1)
+        assert response2.stop_reason != "guardrail_intervened"
+        assert REDACT_MESSAGE not in str(response2)
+    else:
+        cactus_returned_in_response1_blocked_by_input_guardrail = BLOCKED_INPUT in str(response2)
+        cactus_blocked_in_response1_allows_next_response = (
+            REDACT_MESSAGE not in str(response2) and response2.stop_reason != "guardrail_intervened"
+        )
+        assert (
+            cactus_returned_in_response1_blocked_by_input_guardrail or cactus_blocked_in_response1_allows_next_response
+        )
 
 
 def test_guardrail_input_intervention_properly_redacts_in_session(boto_session, bedrock_guardrail, temp_dir):

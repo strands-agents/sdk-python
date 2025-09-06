@@ -30,7 +30,7 @@ dependencies = [
     "botocore>=1.29.0,<2.0.0",
     "docstring_parser>=0.15,<1.0",
     "mcp>=1.11.0,<2.0.0",
-    "pydantic>=2.0.0,<3.0.0",
+    "pydantic>=2.4.0,<3.0.0",
     "typing-extensions>=4.13.2,<5.0.0",
     "watchdog>=6.0.0,<7.0.0",
     "opentelemetry-api>=1.30.0,<2.0.0",
@@ -57,8 +57,8 @@ dev = [
     "mypy>=1.15.0,<2.0.0",
     "pre-commit>=3.2.0,<4.4.0",
     "pytest>=8.0.0,<9.0.0",
+    "pytest-cov>=6.0.0,<7.0.0",
     "pytest-asyncio>=1.0.0,<1.2.0",
-    "pytest-cov>=4.1.0,<5.0.0",
     "pytest-xdist>=3.0.0,<4.0.0",
     "ruff>=0.12.0,<0.13.0",
 ]
@@ -68,9 +68,8 @@ docs = [
     "sphinx-autodoc-typehints>=1.12.0,<2.0.0",
 ]
 litellm = [
-    "litellm>=1.73.1,<2.0.0",
-    # https://github.com/BerriAI/litellm/issues/13711
-    "openai<1.100.0",
+    "litellm>=1.75.9,<2.0.0",
+    "openai>=1.68.0,<1.102.0",
 ]
 llamaapi = [
     "llama-api-client>=0.1.0,<1.0.0",
@@ -143,8 +142,8 @@ features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mis
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
+    "pytest-cov>=6.0.0,<7.0.0",
     "pytest-asyncio>=1.0.0,<1.2.0",
-    "pytest-cov>=4.1.0,<5.0.0",
     "pytest-xdist>=3.0.0,<4.0.0",
 ]
 extra-args = [

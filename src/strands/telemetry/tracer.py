@@ -408,7 +408,7 @@ class Tracer:
 
     def start_agent_span(
         self,
-        message: Message,
+        messages: Messages,
         agent_name: str,
         model_id: Optional[str] = None,
         tools: Optional[list] = None,
@@ -418,7 +418,7 @@ class Tracer:
         """Start a new span for an agent invocation.
 
         Args:
-            message: The user message being sent to the agent.
+            messages: List of messages being sent to the agent.
             agent_name: Name of the agent.
             model_id: Optional model identifier.
             tools: Optional list of tools being used.
@@ -451,13 +451,12 @@ class Tracer:
         span = self._start_span(
             f"invoke_agent {agent_name}", attributes=attributes, span_kind=trace_api.SpanKind.CLIENT
         )
-        self._add_event(
-            span,
-            "gen_ai.user.message",
-            event_attributes={
-                "content": serialize(message["content"]),
-            },
-        )
+        for message in messages:
+            self._add_event(
+                span,
+                f"gen_ai.{message['role']}.message",
+                {"content": serialize(message["content"])},
+            )
 
         return span
 

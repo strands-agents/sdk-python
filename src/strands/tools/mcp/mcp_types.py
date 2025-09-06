@@ -9,7 +9,7 @@ from mcp.shared.memory import MessageStream
 from mcp.shared.message import SessionMessage
 from typing_extensions import NotRequired
 
-from strands.types.tools import ToolResult
+from ...types.tools import ToolResult
 
 """
 MCPTransport defines the interface for MCP transport implementations. This abstracts

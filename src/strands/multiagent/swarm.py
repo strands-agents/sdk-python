@@ -318,10 +318,6 @@ class Swarm(MultiAgentBase):
             if node._session_manager is not None:
                 raise ValueError("Session persistence is not supported for Swarm agents yet.")
 
-            # Check for callbacks
-            if node.hooks.has_callbacks():
-                raise ValueError("Agent callbacks are not supported for Swarm agents yet.")
-
     def _inject_swarm_tools(self) -> None:
         """Add swarm coordination tools to each agent."""
         # Create tool functions with proper closures

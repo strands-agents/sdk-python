@@ -5,9 +5,11 @@ These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
-from typing import Literal
+from typing import Literal, Optional
 
 from typing_extensions import TypedDict
+
+from .citations import CitationsConfig
 
 DocumentFormat = Literal["pdf", "csv", "doc", "docx", "xls", "xlsx", "html", "txt", "md"]
 """Supported document formats."""
@@ -23,7 +25,7 @@ class DocumentSource(TypedDict):
     bytes: bytes
 
 
-class DocumentContent(TypedDict):
+class DocumentContent(TypedDict, total=False):
     """A document to include in a message.
 
     Attributes:
@@ -35,6 +37,8 @@ class DocumentContent(TypedDict):
     format: Literal["pdf", "csv", "doc", "docx", "xls", "xlsx", "html", "txt", "md"]
     name: str
     source: DocumentSource
+    citations: Optional[CitationsConfig]
+    context: Optional[str]
 
 
 ImageFormat = Literal["png", "jpeg", "gif", "webp"]

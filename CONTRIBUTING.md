@@ -49,7 +49,7 @@ This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as 
 
    Alternatively, install development dependencies in a manually created virtual environment:
    ```bash
-   pip install -e ".[dev]" && pip install -e ".[litellm]"
+   pip install -e ".[all]"
    ```
 
 
