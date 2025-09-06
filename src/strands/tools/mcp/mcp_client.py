@@ -253,8 +253,16 @@ class MCPClient:
             return await self._background_thread_session.call_tool(name, arguments, read_timeout_seconds)
 
         try:
-            call_tool_result: MCPCallToolResult = self._invoke_on_background_thread(_call_tool_async()).result()
+            # Add timeout to prevent hanging when server returns JSON-RPC error
+            # Default timeout of 60 seconds, or use read_timeout_seconds if provided
+            timeout_seconds = read_timeout_seconds.total_seconds() if read_timeout_seconds else 60.0
+            
+            future = self._invoke_on_background_thread(_call_tool_async())
+            call_tool_result: MCPCallToolResult = future.result(timeout=timeout_seconds)
             return self._handle_tool_result(tool_use_id, call_tool_result)
+        except futures.TimeoutError as e:
+            logger.exception("tool execution timed out after %s seconds", timeout_seconds)
+            return self._handle_tool_execution_error(tool_use_id, Exception(f"Tool call timed out after {timeout_seconds} seconds"))
         except Exception as e:
             logger.exception("tool execution failed")
             return self._handle_tool_execution_error(tool_use_id, e)
@@ -288,9 +296,18 @@ class MCPClient:
             return await self._background_thread_session.call_tool(name, arguments, read_timeout_seconds)
 
         try:
+            # Add timeout to prevent hanging when server returns JSON-RPC error
+            # Default timeout of 60 seconds, or use read_timeout_seconds if provided
+            timeout_seconds = read_timeout_seconds.total_seconds() if read_timeout_seconds else 60.0
+            
             future = self._invoke_on_background_thread(_call_tool_async())
-            call_tool_result: MCPCallToolResult = await asyncio.wrap_future(future)
+            call_tool_result: MCPCallToolResult = await asyncio.wait_for(
+                asyncio.wrap_future(future), timeout=timeout_seconds
+            )
             return self._handle_tool_result(tool_use_id, call_tool_result)
+        except asyncio.TimeoutError as e:
+            logger.exception("async tool execution timed out after %s seconds", timeout_seconds)
+            return self._handle_tool_execution_error(tool_use_id, Exception(f"Tool call timed out after {timeout_seconds} seconds"))
         except Exception as e:
             logger.exception("tool execution failed")
             return self._handle_tool_execution_error(tool_use_id, e)
