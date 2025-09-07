@@ -37,6 +37,11 @@ BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
     "too many total text bytes",
 ]
 
+# Models that should include tool result status (include_tool_result_status = True)
+_MODELS_INCLUDE_STATUS = [
+    "anthropic.claude",
+]
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -71,6 +76,8 @@ class BedrockModel(Model):
             guardrail_redact_output_message: If a Bedrock Output guardrail triggers, replace output with this message.
             max_tokens: Maximum number of tokens to generate in the response
             model_id: The Bedrock model ID (e.g., "us.anthropic.claude-sonnet-4-20250514-v1:0")
+            include_tool_result_status: Flag to include status field in tool results.
+                True includes status, False removes status, "auto" determines based on model_id. Defaults to "auto".
             stop_sequences: List of sequences that will stop generation when encountered
             streaming: Flag to enable/disable streaming. Defaults to True.
             temperature: Controls randomness in generation (higher = more random)
@@ -92,6 +99,7 @@ class BedrockModel(Model):
         guardrail_redact_output_message: Optional[str]
         max_tokens: Optional[int]
         model_id: str
+        include_tool_result_status: Optional[Literal["auto"] | bool]
         stop_sequences: Optional[list[str]]
         streaming: Optional[bool]
         temperature: Optional[float]
@@ -119,7 +127,7 @@ class BedrockModel(Model):
         if region_name and boto_session:
             raise ValueError("Cannot specify both `region_name` and `boto_session`.")
 
-        self.config = BedrockModel.BedrockConfig(model_id=DEFAULT_BEDROCK_MODEL_ID)
+        self.config = BedrockModel.BedrockConfig(model_id=DEFAULT_BEDROCK_MODEL_ID, include_tool_result_status="auto")
         self.update_config(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -168,6 +176,17 @@ class BedrockModel(Model):
             The Bedrock model configuration.
         """
         return self.config
+
+    def _should_include_tool_result_status(self) -> bool:
+        """Determine whether to include tool result status based on current config."""
+        include_status = self.config.get("include_tool_result_status", "auto")
+
+        if include_status is True:
+            return True
+        elif include_status is False:
+            return False
+        else:  # "auto"
+            return any(model in self.config["model_id"] for model in _MODELS_INCLUDE_STATUS)
 
     def format_request(
         self,
@@ -256,6 +275,7 @@ class BedrockModel(Model):
         """Format messages for Bedrock API compatibility.
 
         This function ensures messages conform to Bedrock's expected format by:
+        - Filtering out SDK_UNKNOWN_MEMBER content blocks
         - Cleaning tool result content blocks by removing additional fields that may be
           useful for retaining information in hooks but would cause Bedrock validation
           exceptions when presented with unexpected fields
@@ -273,19 +293,33 @@ class BedrockModel(Model):
             https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolResultBlock.html
         """
         cleaned_messages = []
+        filtered_unknown_members = False
 
         for message in messages:
             cleaned_content: list[ContentBlock] = []
 
             for content_block in message["content"]:
+                # Filter out SDK_UNKNOWN_MEMBER content blocks
+                if "SDK_UNKNOWN_MEMBER" in content_block:
+                    filtered_unknown_members = True
+                    continue
+
                 if "toolResult" in content_block:
                     # Create a new content block with only the cleaned toolResult
                     tool_result: ToolResult = content_block["toolResult"]
 
-                    # Keep only the required fields for Bedrock
-                    cleaned_tool_result = ToolResult(
-                        content=tool_result["content"], toolUseId=tool_result["toolUseId"], status=tool_result["status"]
-                    )
+                    if self._should_include_tool_result_status():
+                        # Include status field
+                        cleaned_tool_result = ToolResult(
+                            content=tool_result["content"],
+                            toolUseId=tool_result["toolUseId"],
+                            status=tool_result["status"],
+                        )
+                    else:
+                        # Remove status field
+                        cleaned_tool_result = ToolResult(  # type: ignore[typeddict-item]
+                            toolUseId=tool_result["toolUseId"], content=tool_result["content"]
+                        )
 
                     cleaned_block: ContentBlock = {"toolResult": cleaned_tool_result}
                     cleaned_content.append(cleaned_block)
@@ -296,6 +330,11 @@ class BedrockModel(Model):
             # Create new message with cleaned content
             cleaned_message: Message = Message(content=cleaned_content, role=message["role"])
             cleaned_messages.append(cleaned_message)
+
+        if filtered_unknown_members:
+            logger.warning(
+                "Filtered out SDK_UNKNOWN_MEMBER content blocks from messages, consider upgrading boto3 version"
+            )
 
         return cleaned_messages
 

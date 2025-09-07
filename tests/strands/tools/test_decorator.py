@@ -3,14 +3,14 @@ Tests for the function-based tool decorator pattern.
 """
 
 from asyncio import Queue
-from typing import Any, Dict, Optional, Union
+from typing import Any, AsyncGenerator, Dict, Optional, Union
 from unittest.mock import MagicMock
 
 import pytest
 
 import strands
 from strands import Agent
-from strands.types._events import ToolResultEvent
+from strands.types._events import ToolResultEvent, ToolStreamEvent
 from strands.types.tools import AgentTool, ToolContext, ToolUse
 
 
@@ -1222,3 +1222,144 @@ async def test_tool_context_injection_disabled_string_parameter():
             "toolUseId": "test-id-2",
         }
     )
+
+
+@pytest.mark.asyncio
+async def test_tool_async_generator():
+    """Test that async generators yield results appropriately."""
+
+    @strands.tool(context=False)
+    async def async_generator() -> AsyncGenerator:
+        """Tool that expects tool_context as a regular string parameter."""
+        yield 0
+        yield "Value 1"
+        yield {"nested": "value"}
+        yield {
+            "status": "success",
+            "content": [{"text": "Looks like tool result"}],
+            "toolUseId": "test-id-2",
+        }
+        yield "final result"
+
+    tool: AgentTool = async_generator
+    tool_use: ToolUse = {
+        "toolUseId": "test-id-2",
+        "name": "context_tool",
+        "input": {"message": "some_message", "tool_context": "my_custom_context_string"},
+    }
+    generator = tool.stream(
+        tool_use=tool_use,
+        invocation_state={
+            "agent": Agent(name="test_agent"),
+        },
+    )
+    act_results = [value async for value in generator]
+    exp_results = [
+        ToolStreamEvent(tool_use, 0),
+        ToolStreamEvent(tool_use, "Value 1"),
+        ToolStreamEvent(tool_use, {"nested": "value"}),
+        ToolStreamEvent(
+            tool_use,
+            {
+                "status": "success",
+                "content": [{"text": "Looks like tool result"}],
+                "toolUseId": "test-id-2",
+            },
+        ),
+        ToolStreamEvent(tool_use, "final result"),
+        ToolResultEvent(
+            {
+                "status": "success",
+                "content": [{"text": "final result"}],
+                "toolUseId": "test-id-2",
+            }
+        ),
+    ]
+
+    assert act_results == exp_results
+
+
+@pytest.mark.asyncio
+async def test_tool_async_generator_exceptions_result_in_error():
+    """Test that async generators handle exceptions."""
+
+    @strands.tool(context=False)
+    async def async_generator() -> AsyncGenerator:
+        """Tool that expects tool_context as a regular string parameter."""
+        yield 13
+        raise ValueError("It's an error!")
+
+    tool: AgentTool = async_generator
+    tool_use: ToolUse = {
+        "toolUseId": "test-id-2",
+        "name": "context_tool",
+        "input": {"message": "some_message", "tool_context": "my_custom_context_string"},
+    }
+    generator = tool.stream(
+        tool_use=tool_use,
+        invocation_state={
+            "agent": Agent(name="test_agent"),
+        },
+    )
+    act_results = [value async for value in generator]
+    exp_results = [
+        ToolStreamEvent(tool_use, 13),
+        ToolResultEvent(
+            {
+                "status": "error",
+                "content": [{"text": "Error: It's an error!"}],
+                "toolUseId": "test-id-2",
+            }
+        ),
+    ]
+
+    assert act_results == exp_results
+
+
+@pytest.mark.asyncio
+async def test_tool_async_generator_yield_object_result():
+    """Test that async generators handle exceptions."""
+
+    @strands.tool(context=False)
+    async def async_generator() -> AsyncGenerator:
+        """Tool that expects tool_context as a regular string parameter."""
+        yield 13
+        yield {
+            "status": "success",
+            "content": [{"text": "final result"}],
+            "toolUseId": "test-id-2",
+        }
+
+    tool: AgentTool = async_generator
+    tool_use: ToolUse = {
+        "toolUseId": "test-id-2",
+        "name": "context_tool",
+        "input": {"message": "some_message", "tool_context": "my_custom_context_string"},
+    }
+    generator = tool.stream(
+        tool_use=tool_use,
+        invocation_state={
+            "agent": Agent(name="test_agent"),
+        },
+    )
+    act_results = [value async for value in generator]
+    exp_results = [
+        ToolStreamEvent(tool_use, 13),
+        ToolStreamEvent(
+            tool_use,
+            {
+                "status": "success",
+                "content": [{"text": "final result"}],
+                "toolUseId": "test-id-2",
+            },
+        ),
+        ToolResultEvent(
+            {
+                "status": "success",
+                "content": [{"text": "final result"}],
+                "toolUseId": "test-id-2",
+            }
+        ),
+    ]
+
+    assert act_results == exp_results

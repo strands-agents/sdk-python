@@ -275,24 +275,19 @@ class ToolResultEvent(TypedEvent):
 class ToolStreamEvent(TypedEvent):
     """Event emitted when a tool yields sub-events as part of tool execution."""
 
-    def __init__(self, tool_use: ToolUse, tool_sub_event: Any) -> None:
+    def __init__(self, tool_use: ToolUse, tool_stream_data: Any) -> None:
         """Initialize with tool streaming data.
 
         Args:
             tool_use: The tool invocation producing the stream
-            tool_sub_event: The yielded event from the tool execution
+            tool_stream_data: The yielded event from the tool execution
         """
-        super().__init__({"tool_stream_tool_use": tool_use, "tool_stream_event": tool_sub_event})
+        super().__init__({"tool_stream_event": {"tool_use": tool_use, "data": tool_stream_data}})
 
     @property
     def tool_use_id(self) -> str:
         """The toolUseId associated with this stream."""
-        return cast(str, cast(ToolUse, self.get("tool_stream_tool_use")).get("toolUseId"))
-
-    @property
-    @override
-    def is_callback_event(self) -> bool:
-        return False
+        return cast(str, cast(ToolUse, cast(dict, self.get("tool_stream_event")).get("tool_use")).get("toolUseId"))
 
 
 class ModelMessageEvent(TypedEvent):

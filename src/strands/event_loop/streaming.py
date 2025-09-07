@@ -289,7 +289,6 @@ async def process_stream(chunks: AsyncIterable[StreamEvent]) -> AsyncGenerator[T
         "text": "",
         "current_tool_use": {},
         "reasoningText": "",
-        "signature": "",
         "citationsContent": [],
     }
     state["content"] = state["message"]["content"]

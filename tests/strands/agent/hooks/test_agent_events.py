@@ -261,17 +261,21 @@ async def test_stream_e2e_success(alist):
             }
         },
         {
+            "tool_stream_event": {
+                "data": {"tool_streaming": True},
+                "tool_use": {"input": {}, "name": "streaming_tool", "toolUseId": "12345"},
+            }
+        },
+        {
+            "tool_stream_event": {
+                "data": "Final result",
+                "tool_use": {"input": {}, "name": "streaming_tool", "toolUseId": "12345"},
+            }
+        },
+        {
             "message": {
                 "content": [
-                    {
-                        "toolResult": {
-                            # TODO update this text when we get tool streaming implemented; right now this
-                            # TODO is of the form '<async_generator object streaming_tool at 0x107d18a00>'
-                            "content": [{"text": ANY}],
-                            "status": "success",
-                            "toolUseId": "12345",
-                        }
-                    },
+                    {"toolResult": {"content": [{"text": "Final result"}], "status": "success", "toolUseId": "12345"}}
                 ],
                 "role": "user",
             }

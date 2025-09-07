@@ -1275,7 +1275,6 @@ async def test_stream_stop_reason_override_non_streaming(bedrock_client, alist, 
 
 
 def test_format_request_cleans_tool_result_content_blocks(model, model_id):
-    """Test that format_request cleans toolResult blocks by removing extra fields."""
     messages = [
         {
             "role": "user",
@@ -1295,9 +1294,101 @@ def test_format_request_cleans_tool_result_content_blocks(model, model_id):
 
     formatted_request = model.format_request(messages)
 
-    # Verify toolResult only contains allowed fields in the formatted request
     tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
-    expected = {"content": [{"text": "Tool output"}], "toolUseId": "tool123", "status": "success"}
+    expected = {"toolUseId": "tool123", "content": [{"text": "Tool output"}]}
     assert tool_result == expected
     assert "extraField" not in tool_result
     assert "mcpMetadata" not in tool_result
+    assert "status" not in tool_result
+
+
+def test_format_request_removes_status_field_when_configured(model, model_id):
+    model.update_config(include_tool_result_status=False)
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [{"text": "Tool output"}],
+                        "toolUseId": "tool123",
+                        "status": "success",
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+    expected = {"toolUseId": "tool123", "content": [{"text": "Tool output"}]}
+    assert tool_result == expected
+    assert "status" not in tool_result
+
+
+def test_auto_behavior_anthropic_vs_non_anthropic(bedrock_client):
+    model_anthropic = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+    assert model_anthropic.get_config()["include_tool_result_status"] == "auto"
+
+    model_non_anthropic = BedrockModel(model_id="amazon.titan-text-v1")
+    assert model_non_anthropic.get_config()["include_tool_result_status"] == "auto"
+
+
+def test_explicit_boolean_values_preserved(bedrock_client):
+    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", include_tool_result_status=True)
+    assert model.get_config()["include_tool_result_status"] is True
+
+    model2 = BedrockModel(model_id="amazon.titan-text-v1", include_tool_result_status=False)
+    assert model2.get_config()["include_tool_result_status"] is False
+    """Test that format_request keeps status field by default for anthropic.claude models."""
+    # Default model is anthropic.claude, so should keep status
+    model = BedrockModel()
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [{"text": "Tool output"}],
+                        "toolUseId": "tool123",
+                        "status": "success",
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    # Verify toolResult contains status field by default
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+    expected = {"content": [{"text": "Tool output"}], "toolUseId": "tool123", "status": "success"}
+    assert tool_result == expected
+    assert "status" in tool_result
+
+
+def test_format_request_filters_sdk_unknown_member_content_blocks(model, model_id, caplog):
+    """Test that format_request filters out SDK_UNKNOWN_MEMBER content blocks."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Hello"},
+                {"SDK_UNKNOWN_MEMBER": {"name": "reasoningContent"}},
+                {"text": "World"},
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    content = formatted_request["messages"][0]["content"]
+    assert len(content) == 2
+    assert content[0] == {"text": "Hello"}
+    assert content[1] == {"text": "World"}
+
+    for block in content:
+        assert "SDK_UNKNOWN_MEMBER" not in block
