@@ -267,12 +267,14 @@ def test_agent_structured_output_hooks(agent, hook_provider, user, agenerator):
 
     length, events = hook_provider.get_events()
 
-    assert length == 2
+    assert length == 4  # BeforeInvocationEvent, MessageAddedEvent (prompt), MessageAddedEvent (output), AfterInvocationEvent
 
     assert next(events) == BeforeInvocationEvent(agent=agent)
+    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[0])  # Prompt added
+    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[1])  # Output added
     assert next(events) == AfterInvocationEvent(agent=agent)
 
-    assert len(agent.messages) == 0  # no new messages added
+    assert len(agent.messages) == 2  # prompt and structured output added
 
 
 @pytest.mark.asyncio
@@ -284,9 +286,11 @@ async def test_agent_structured_async_output_hooks(agent, hook_provider, user, a
 
     length, events = hook_provider.get_events()
 
-    assert length == 2
+    assert length == 4  # BeforeInvocationEvent, MessageAddedEvent (prompt), MessageAddedEvent (output), AfterInvocationEvent
 
     assert next(events) == BeforeInvocationEvent(agent=agent)
+    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[0])  # Prompt added
+    assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[1])  # Output added
     assert next(events) == AfterInvocationEvent(agent=agent)
 
-    assert len(agent.messages) == 0  # no new messages added
+    assert len(agent.messages) == 2  # prompt and structured output added
