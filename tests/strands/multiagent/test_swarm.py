@@ -474,49 +474,27 @@ def test_swarm_validate_unsupported_features():
 @pytest.mark.asyncio
 async def test_swarm_kwargs_passing(mock_strands_tracer, mock_use_span):
     """Test that kwargs are passed through to underlying agents."""
-    # Create a mock agent that captures kwargs
     kwargs_agent = create_mock_agent("kwargs_agent", "Response with kwargs")
+    kwargs_agent.invoke_async = Mock(side_effect=kwargs_agent.invoke_async)
 
-    async def capture_kwargs(*args, **kwargs):
-        # Store kwargs for verification
-        capture_kwargs.captured_kwargs = kwargs
-        return kwargs_agent.return_value
-
-    kwargs_agent.invoke_async = MagicMock(side_effect=capture_kwargs)
-
-    # Create swarm
     swarm = Swarm(nodes=[kwargs_agent])
 
-    # Execute with custom kwargs
     test_kwargs = {"custom_param": "test_value", "another_param": 42}
     result = await swarm.invoke_async("Test kwargs passing", **test_kwargs)
 
-    # Verify kwargs were passed to agent
-    assert hasattr(capture_kwargs, "captured_kwargs")
-    assert capture_kwargs.captured_kwargs == test_kwargs
+    assert kwargs_agent.invoke_async.call_args.kwargs == test_kwargs
     assert result.status == Status.COMPLETED
 
 
 def test_swarm_kwargs_passing_sync(mock_strands_tracer, mock_use_span):
     """Test that kwargs are passed through to underlying agents in sync execution."""
-    # Create a mock agent that captures kwargs
     kwargs_agent = create_mock_agent("kwargs_agent", "Response with kwargs")
+    kwargs_agent.invoke_async = Mock(side_effect=kwargs_agent.invoke_async)
 
-    async def capture_kwargs(*args, **kwargs):
-        # Store kwargs for verification
-        capture_kwargs.captured_kwargs = kwargs
-        return kwargs_agent.return_value
-
-    kwargs_agent.invoke_async = MagicMock(side_effect=capture_kwargs)
-
-    # Create swarm
     swarm = Swarm(nodes=[kwargs_agent])
 
-    # Execute with custom kwargs
     test_kwargs = {"custom_param": "test_value", "another_param": 42}
     result = swarm("Test kwargs passing sync", **test_kwargs)
 
-    # Verify kwargs were passed to agent
-    assert hasattr(capture_kwargs, "captured_kwargs")
-    assert capture_kwargs.captured_kwargs == test_kwargs
+    assert kwargs_agent.invoke_async.call_args.kwargs == test_kwargs
     assert result.status == Status.COMPLETED
