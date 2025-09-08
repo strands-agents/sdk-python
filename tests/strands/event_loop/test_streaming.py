@@ -1,10 +1,12 @@
 import unittest.mock
+from typing import cast
 
 import pytest
 
 import strands
 import strands.event_loop
-from strands.types._events import TypedEvent
+from strands.types._events import ModelStopReason, TypedEvent
+from strands.types.content import Message
 from strands.types.streaming import (
     ContentBlockDeltaEvent,
     ContentBlockStartEvent,
@@ -563,6 +565,88 @@ async def test_process_stream(response, exp_events, agenerator, alist):
     # Ensure that we're getting typed events coming out of process_stream
     non_typed_events = [event for event in tru_events if not isinstance(event, TypedEvent)]
     assert non_typed_events == []
+
+
+def _get_message_from_event(event: ModelStopReason) -> Message:
+    return cast(Message, event["stop"][1])
+
+
+@pytest.mark.asyncio
+async def test_process_stream_with_no_signature(agenerator, alist):
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {
+            "contentBlockDelta": {
+                "delta": {"reasoningContent": {"text": 'User asks: "Reason about 2+2" so I will do that'}},
+                "contentBlockIndex": 0,
+            }
+        },
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "."}}, "contentBlockIndex": 0}},
+        {"contentBlockStop": {"contentBlockIndex": 0}},
+        {
+            "contentBlockDelta": {
+                "delta": {"text": "Sure! Let’s do it"},
+                "contentBlockIndex": 1,
+            }
+        },
+        {"contentBlockStop": {"contentBlockIndex": 1}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 112, "outputTokens": 764, "totalTokens": 876},
+                "metrics": {"latencyMs": 2970},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+
+    last_event = cast(ModelStopReason, (await alist(stream))[-1])
+
+    message = _get_message_from_event(last_event)
+
+    assert "signature" not in message["content"][0]["reasoningContent"]["reasoningText"]
+    assert message["content"][1]["text"] == "Sure! Let’s do it"
+
+
+@pytest.mark.asyncio
+async def test_process_stream_with_signature(agenerator, alist):
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {
+            "contentBlockDelta": {
+                "delta": {"reasoningContent": {"text": 'User asks: "Reason about 2+2" so I will do that'}},
+                "contentBlockIndex": 0,
+            }
+        },
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "."}}, "contentBlockIndex": 0}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "test-"}}, "contentBlockIndex": 0}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "signature"}}, "contentBlockIndex": 0}},
+        {"contentBlockStop": {"contentBlockIndex": 0}},
+        {
+            "contentBlockDelta": {
+                "delta": {"text": "Sure! Let’s do it"},
+                "contentBlockIndex": 1,
+            }
+        },
+        {"contentBlockStop": {"contentBlockIndex": 1}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 112, "outputTokens": 764, "totalTokens": 876},
+                "metrics": {"latencyMs": 2970},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+
+    last_event = cast(ModelStopReason, (await alist(stream))[-1])
+
+    message = _get_message_from_event(last_event)
+
+    assert message["content"][0]["reasoningContent"]["reasoningText"]["signature"] == "test-signature"
+    assert message["content"][1]["text"] == "Sure! Let’s do it"
 
 
 @pytest.mark.asyncio

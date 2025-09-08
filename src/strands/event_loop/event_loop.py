@@ -132,13 +132,13 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
             model_id=model_id,
         )
         with trace_api.use_span(model_invoke_span):
-            tool_specs = agent.tool_registry.get_all_tool_specs()
-
             agent.hooks.invoke_callbacks(
                 BeforeModelInvocationEvent(
                     agent=agent,
                 )
             )
+
+            tool_specs = agent.tool_registry.get_all_tool_specs()
 
             try:
                 async for event in stream_messages(agent.model, agent.system_prompt, agent.messages, tool_specs):
