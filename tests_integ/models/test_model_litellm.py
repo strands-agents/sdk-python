@@ -115,7 +115,7 @@ def test_invoke_multi_modal_input(agent, yellow_img):
 
 def test_structured_output_multi_modal_input(agent, yellow_img, yellow_color):
     content = [
-        {"text": "what is in this image"},
+        {"text": "what color is this image"},
         {
             "image": {
                 "format": "png",
