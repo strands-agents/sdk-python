@@ -394,7 +394,7 @@ class Graph(MultiAgentBase):
             task: The task to execute
             invocation_state: Additional state/context passed to underlying agents.
                 Defaults to None to avoid mutable default argument issues.
-            **kwargs: Additional keyword arguments passed to underlying agents.
+            **kwargs: Keyword arguments allowing backward compatible future changes.
         """
         if invocation_state is None:
             invocation_state = {}
@@ -416,7 +416,7 @@ class Graph(MultiAgentBase):
             invocation_state: Additional state/context passed to underlying agents.
                 Defaults to None to avoid mutable default argument issues - a new empty dict
                 is created if None is provided.
-            **kwargs: Additional keyword arguments passed to underlying agents.
+            **kwargs: Keyword arguments allowing backward compatible future changes.
         """
         if invocation_state is None:
             invocation_state = {}
@@ -444,9 +444,7 @@ class Graph(MultiAgentBase):
                     self.node_timeout or "None",
                 )
 
-                # Merge kwargs into invocation_state for internal execution
-                merged_state = {**invocation_state, **kwargs}
-                await self._execute_graph(merged_state)
+                await self._execute_graph(invocation_state)
 
                 # Set final status based on execution results
                 if self.state.failed_nodes:
