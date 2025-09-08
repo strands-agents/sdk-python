@@ -1,0 +1,243 @@
+name: Auto Close Issues
+
+on:
+  schedule:
+    - cron: '0 9 * * *'  # Daily at 9 AM UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run in dry-run mode (no actions taken, only logging)'
+        required: false
+        default: 'true'
+        type: boolean
+
+env:
+  LABEL_NAME: 'autoclose in 3 days'
+  DAYS_TO_WAIT: '3'
+  AUTHORIZED_USERS: ''  # Comma-separated list (ex: user1,user2,user3) *required for 'users' mode
+  AUTH_MODE: 'write-access'  # Options: 'users', 'write-access'
+  ISSUE_TYPES: 'issues'  # Options: 'issues', 'pulls', 'both'
+  DRY_RUN: 'true'  # Set to 'true' to enable dry-run mode (no actions taken)
+
+jobs:
+  auto-close:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate configuration
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { LABEL_NAME, DAYS_TO_WAIT, AUTH_MODE, AUTHORIZED_USERS, ISSUE_TYPES, DRY_RUN } = process.env;
+            
+            // Check for manual dry-run override
+            const isDryRun = '${{ inputs.dry_run }}' === 'true' || DRY_RUN === 'true';
+            
+            // Validate required fields
+            if (!LABEL_NAME) throw new Error('LABEL_NAME is required');
+            if (!DAYS_TO_WAIT || isNaN(parseInt(DAYS_TO_WAIT)) || parseInt(DAYS_TO_WAIT) < 1) {
+              throw new Error('DAYS_TO_WAIT must be a positive integer');
+            }
+            if (!['users', 'write-access'].includes(AUTH_MODE)) {
+              throw new Error('AUTH_MODE must be "users" or "write-access"');
+            }
+            if (!['issues', 'pulls', 'both'].includes(ISSUE_TYPES)) {
+              throw new Error('ISSUE_TYPES must be "issues", "pulls", or "both"');
+            }
+            if (AUTH_MODE === 'users' && (!AUTHORIZED_USERS || AUTHORIZED_USERS.trim() === '')) {
+              throw new Error('AUTHORIZED_USERS is required when AUTH_MODE is "users"');
+            }
+            
+            console.log('✅ Configuration validated successfully');
+            console.log(`Label: "${LABEL_NAME}", Days: ${DAYS_TO_WAIT}, Auth: ${AUTH_MODE}, Types: ${ISSUE_TYPES}`);
+            if (isDryRun) {
+              console.log('🧪 DRY-RUN MODE: No actions will be taken, only logging what would happen');
+            }
+
+      - name: Find and process labeled issues
+        uses: actions/github-script@v8
+        with:
+          script: |
+            // Constants
+            const REQUIRED_PERMISSIONS = ['write', 'admin'];
+            const CLOSE_MESSAGE = `This issue has been automatically closed as it was marked for auto-closure by the team and no response was received within ${process.env.DAYS_TO_WAIT} days.`;
+            
+            // Check for dry-run mode
+            const isDryRun = '${{ inputs.dry_run }}' === 'true' || process.env.DRY_RUN === 'true';
+            
+            // Parse configuration
+            const config = {
+              labelName: process.env.LABEL_NAME,
+              daysToWait: parseInt(process.env.DAYS_TO_WAIT),
+              authMode: process.env.AUTH_MODE,
+              authorizedUsers: process.env.AUTHORIZED_USERS?.split(',').map(u => u.trim()).filter(u => u) || [],
+              issueTypes: process.env.ISSUE_TYPES
+            };
+            
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - config.daysToWait);
+            
+            // Authorization check function
+            async function isAuthorizedUser(username) {
+              try {
+                if (config.authMode === 'users') {
+                  return config.authorizedUsers.includes(username);
+                } else if (config.authMode === 'write-access') {
+                  const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    username: username
+                  });
+                  return REQUIRED_PERMISSIONS.includes(data.permission);
+                }
+              } catch (error) {
+                console.log(`⚠️ Failed to check authorization for ${username}: ${error.message}`);
+                return false;
+              }
+              return false;
+            }
+            
+            // Find issues with the target label
+            const searchQuery = `repo:${context.repo.owner}/${context.repo.repo} is:open label:"${config.labelName}"`;
+            const typeFilter = config.issueTypes === 'pulls' ? 'is:pr' : 
+                              config.issueTypes === 'both' ? '' : 'is:issue';
+            
+            try {
+              const { data: searchResults } = await github.rest.search.issuesAndPullRequests({
+                q: `${searchQuery} ${typeFilter}`.trim(),
+                sort: 'updated',
+                order: 'desc'
+              });
+              
+              const targetIssues = searchResults.items.filter(issue => {
+                if (config.issueTypes === 'issues' && issue.pull_request) return false;
+                if (config.issueTypes === 'pulls' && !issue.pull_request) return false;
+                return true;
+              });
+              
+              console.log(`🔍 Found ${targetIssues.length} items with label "${config.labelName}"`);
+              
+              if (targetIssues.length === 0) {
+                console.log('✅ No items to process');
+                return;
+              }
+              
+              // Process each issue
+              let closedCount = 0;
+              let labelRemovedCount = 0;
+              let skippedCount = 0;
+              
+              for (const issue of targetIssues) {
+                console.log(`\n📋 Processing #${issue.number}: ${issue.title}`);
+                
+                try {
+                  // Get label events to find when label was last added
+                  const { data: events } = await github.rest.issues.listEvents({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issue.number
+                  });
+                  
+                  const labelEvents = events
+                    .filter(e => e.event === 'labeled' && e.label?.name === config.labelName)
+                    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                  
+                  if (labelEvents.length === 0) {
+                    console.log(`⚠️ No label events found for #${issue.number}`);
+                    skippedCount++;
+                    continue;
+                  }
+                  
+                  const lastLabelAdded = new Date(labelEvents[0].created_at);
+                  const labelAdder = labelEvents[0].actor.login;
+                  
+                  // Check if enough time has passed
+                  if (lastLabelAdded > cutoffDate) {
+                    const daysRemaining = Math.ceil((lastLabelAdded - cutoffDate) / (1000 * 60 * 60 * 24));
+                    console.log(`⏳ Label added too recently (${daysRemaining} days remaining)`);
+                    skippedCount++;
+                    continue;
+                  }
+                  
+                  // Check comments since label was added
+                  const { data: comments } = await github.rest.issues.listComments({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issue.number,
+                    since: lastLabelAdded.toISOString()
+                  });
+                  
+                  let hasUnauthorizedComment = false;
+                  
+                  for (const comment of comments) {
+                    // Skip comments from the person who added the label
+                    if (comment.user.login === labelAdder) continue;
+                    
+                    const isAuthorized = await isAuthorizedUser(comment.user.login);
+                    if (!isAuthorized) {
+                      console.log(`❌ Unauthorized comment from ${comment.user.login}`);
+                      hasUnauthorizedComment = true;
+                      break;
+                    }
+                  }
+                  
+                  if (hasUnauthorizedComment) {
+                    // Remove label due to unauthorized comment
+                    if (isDryRun) {
+                      console.log(`🧪 DRY-RUN: Would remove ${config.labelName} label from #${issue.number}`);
+                    } else {
+                      await github.rest.issues.removeLabel({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: issue.number,
+                        name: config.labelName
+                      });
+                      console.log(`🏷️ Removed ${config.labelName} label from #${issue.number}`);
+                    }
+                    labelRemovedCount++;
+                  } else {
+                    // Close the issue
+                    if (isDryRun) {
+                      console.log(`🧪 DRY-RUN: Would close #${issue.number} with comment`);
+                      console.log(`🧪 DRY-RUN: Comment would be: "${CLOSE_MESSAGE}"`);
+                    } else {
+                      await github.rest.issues.createComment({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: issue.number,
+                        body: CLOSE_MESSAGE
+                      });
+                      
+                      await github.rest.issues.update({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        issue_number: issue.number,
+                        state: 'closed'
+                      });
+                      
+                      console.log(`🔒 Closed #${issue.number}`);
+                    }
+                    closedCount++;
+                  }
+                } catch (error) {
+                  console.log(`❌ Error processing #${issue.number}: ${error.message}`);
+                  skippedCount++;
+                }
+              }
+              
+              // Summary
+              console.log(`\n📊 Summary:`);
+              if (isDryRun) {
+                console.log(`   🧪 DRY-RUN MODE - No actual changes made:`);
+                console.log(`   • Issues that would be closed: ${closedCount}`);
+                console.log(`   • Labels that would be removed: ${labelRemovedCount}`);
+              } else {
+                console.log(`   • Issues closed: ${closedCount}`);
+                console.log(`   • Labels removed: ${labelRemovedCount}`);
+              }
+              console.log(`   • Issues skipped: ${skippedCount}`);
+              console.log(`   • Total processed: ${targetIssues.length}`);
+              
+            } catch (error) {
+              console.log(`❌ Failed to search for issues: ${error.message}`);
+              throw error;
+            }
