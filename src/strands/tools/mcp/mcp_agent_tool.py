@@ -54,17 +54,23 @@ class MCPAgentTool(AgentTool):
         """Get the specification of the tool.
 
         This method converts the MCP tool specification to the agent framework's
-        ToolSpec format, including the input schema and description.
+        ToolSpec format, including the input schema, description, and optional output schema.
 
         Returns:
             ToolSpec: The tool specification in the agent framework format
         """
         description: str = self.mcp_tool.description or f"Tool which performs {self.mcp_tool.name}"
-        return {
+
+        spec: ToolSpec = {
             "inputSchema": {"json": self.mcp_tool.inputSchema},
             "name": self.mcp_tool.name,
             "description": description,
         }
+
+        if self.mcp_tool.outputSchema:
+            spec["outputSchema"] = {"json": self.mcp_tool.outputSchema}
+
+        return spec
 
     @property
     def tool_type(self) -> str:
