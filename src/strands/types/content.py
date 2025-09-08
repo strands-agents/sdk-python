@@ -6,7 +6,7 @@ SDK. These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from typing_extensions import TypedDict
 
@@ -80,6 +80,7 @@ class ContentBlock(TypedDict, total=False):
         guardContent: Contains the content to assess with the guardrail.
         image: Image to include in the message.
         reasoningContent: Contains content regarding the reasoning that is carried out by the model.
+        resume: TODO
         text: Text to include in the message.
         toolResult: The result for a tool request that a model makes.
         toolUse: Information about a tool use request from a model.
@@ -92,6 +93,7 @@ class ContentBlock(TypedDict, total=False):
     guardContent: GuardContent
     image: ImageContent
     reasoningContent: ReasoningContentBlock
+    resume: dict[str, Any]
     text: str
     toolResult: ToolResult
     toolUse: ToolUse

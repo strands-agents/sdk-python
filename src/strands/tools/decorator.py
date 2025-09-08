@@ -62,7 +62,8 @@ import docstring_parser
 from pydantic import BaseModel, Field, create_model
 from typing_extensions import override
 
-from ..types._events import ToolResultEvent, ToolStreamEvent
+from ..hooks.interrupt import Interrupt, InterruptException
+from ..types._events import ToolInterruptEvent, ToolResultEvent, ToolStreamEvent
 from ..types.tools import AgentTool, JSONSchema, ToolContext, ToolGenerator, ToolResult, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
@@ -270,9 +271,16 @@ class FunctionToolMetadata:
             invocation_state: Caller-provided kwargs that were passed to the agent when it was invoked (agent(),
                               agent.invoke_async(), etc.).
         """
+
         if self._context_param and self._context_param in self.signature.parameters:
+            tool_name = tool_use["name"]
+            agent = invocation_state["agent"]
+
             tool_context = ToolContext(
-                tool_use=tool_use, agent=invocation_state["agent"], invocation_state=invocation_state
+                tool_use=tool_use,
+                agent=agent,
+                invocation_state=invocation_state,
+                interrupt=agent.interrupts.get(tool_name) or Interrupt(tool_name, reasons=[]),
             )
             validated_input[self._context_param] = tool_context
 
@@ -447,6 +455,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         """
         # This is a tool use call - process accordingly
         tool_use_id = tool_use.get("toolUseId", "unknown")
+        tool_name = tool_use["name"]
         tool_input: dict[str, Any] = tool_use.get("input", {})
 
         try:
@@ -477,6 +486,17 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
                 result = await asyncio.to_thread(self._tool_func, **validated_input)  # type: ignore
                 yield self._wrap_tool_result(tool_use_id, result)
 
+        except InterruptException as e:
+            yield ToolInterruptEvent(e.interrupt)
+            yield self._wrap_tool_result(
+                tool_use_id,
+                {
+                    "toolUseId": tool_use_id,
+                    "status": "error",
+                    "content": [{"text": f"{tool_name} interrupted"}]
+
+                },
+            )
         except ValueError as e:
             # Special handling for validation errors
             error_msg = str(e)

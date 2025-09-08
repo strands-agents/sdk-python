@@ -7,13 +7,14 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from ...hooks import HookEvent
+from ...hooks.interrupt import InterruptEvent
 from ...types.content import Message
 from ...types.streaming import StopReason
 from ...types.tools import AgentTool, ToolResult, ToolUse
 
 
 @dataclass
-class BeforeToolInvocationEvent(HookEvent):
+class BeforeToolInvocationEvent(HookEvent, InterruptEvent):
     """Event triggered before a tool is invoked.
 
     This event is fired just before the agent executes a tool, allowing hook
@@ -26,14 +27,17 @@ class BeforeToolInvocationEvent(HookEvent):
             to change which tool gets executed. This may be None if tool lookup failed.
         tool_use: The tool parameters that will be passed to selected_tool.
         invocation_state: Keyword arguments that will be passed to the tool.
+        cancel: A user defined message that when set, will lead to canceling of the tool call.
+            The message is used to populate a tool result with status "error".
     """
 
     selected_tool: Optional[AgentTool]
     tool_use: ToolUse
     invocation_state: dict[str, Any]
+    cancel: Optional[str] = None
 
     def _can_write(self, name: str) -> bool:
-        return name in ["selected_tool", "tool_use"]
+        return name in ["cancel", "interrupt", "selected_tool", "tool_use"]
 
 
 @dataclass
