@@ -241,7 +241,7 @@ class Swarm(MultiAgentBase):
         """Invoke the swarm synchronously."""
 
         def execute() -> SwarmResult:
-            return asyncio.run(self.invoke_async(task))
+            return asyncio.run(self.invoke_async(task, **kwargs))
 
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)
@@ -272,7 +272,7 @@ class Swarm(MultiAgentBase):
                     self.execution_timeout,
                 )
 
-                await self._execute_swarm()
+                await self._execute_swarm(kwargs)
             except Exception:
                 logger.exception("swarm execution failed")
                 self.state.completion_status = Status.FAILED
@@ -483,7 +483,7 @@ class Swarm(MultiAgentBase):
 
         return context_text
 
-    async def _execute_swarm(self) -> None:
+    async def _execute_swarm(self, invocation_state: dict[str, Any]) -> None:
         """Shared execution logic used by execute_async."""
         try:
             # Main execution loop
@@ -522,7 +522,7 @@ class Swarm(MultiAgentBase):
                 # TODO: Implement cancellation token to stop _execute_node from continuing
                 try:
                     await asyncio.wait_for(
-                        self._execute_node(current_node, self.state.task),
+                        self._execute_node(current_node, self.state.task, invocation_state),
                         timeout=self.node_timeout,
                     )
 
@@ -563,7 +563,9 @@ class Swarm(MultiAgentBase):
             f"{elapsed_time:.2f}",
         )
 
-    async def _execute_node(self, node: SwarmNode, task: str | list[ContentBlock]) -> AgentResult:
+    async def _execute_node(
+        self, node: SwarmNode, task: str | list[ContentBlock], invocation_state: dict[str, Any]
+    ) -> AgentResult:
         """Execute swarm node."""
         start_time = time.time()
         node_name = node.node_id
@@ -583,7 +585,7 @@ class Swarm(MultiAgentBase):
             # Execute node
             result = None
             node.reset_executor_state()
-            result = await node.executor.invoke_async(node_input)
+            result = await node.executor.invoke_async(node_input, **invocation_state)
 
             execution_time = round((time.time() - start_time) * 1000)
 

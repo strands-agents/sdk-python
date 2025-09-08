@@ -1285,3 +1285,89 @@ async def test_infinite_loop_prevention_self_loops():
     assert result.status == Status.COMPLETED
     assert len(result.execution_order) >= 2
     assert multi_agent.invoke_async.call_count >= 2
+
+
+@pytest.mark.asyncio
+async def test_graph_kwargs_passing_agent(mock_strands_tracer, mock_use_span):
+    """Test that kwargs are passed through to underlying Agent nodes."""
+    # Create a mock agent that captures kwargs
+    kwargs_agent = create_mock_agent("kwargs_agent", "Response with kwargs")
+
+    async def capture_kwargs(*args, **kwargs):
+        # Store kwargs for verification
+        capture_kwargs.captured_kwargs = kwargs
+        return kwargs_agent.return_value
+
+    kwargs_agent.invoke_async = MagicMock(side_effect=capture_kwargs)
+
+    # Create graph
+    builder = GraphBuilder()
+    builder.add_node(kwargs_agent, "kwargs_node")
+    graph = builder.build()
+
+    # Execute with custom kwargs
+    test_kwargs = {"custom_param": "test_value", "another_param": 42}
+    result = await graph.invoke_async("Test kwargs passing", **test_kwargs)
+
+    # Verify kwargs were passed to agent
+    assert hasattr(capture_kwargs, "captured_kwargs")
+    assert capture_kwargs.captured_kwargs == test_kwargs
+    assert result.status == Status.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_graph_kwargs_passing_multiagent(mock_strands_tracer, mock_use_span):
+    """Test that kwargs are passed through to underlying MultiAgentBase nodes."""
+    # Create a mock MultiAgentBase that captures kwargs
+    kwargs_multiagent = create_mock_multi_agent("kwargs_multiagent", "MultiAgent response with kwargs")
+
+    # Store the original return value
+    original_result = kwargs_multiagent.invoke_async.return_value
+
+    async def capture_kwargs(*args, **kwargs):
+        # Store kwargs for verification
+        capture_kwargs.captured_kwargs = kwargs
+        return original_result
+
+    kwargs_multiagent.invoke_async = AsyncMock(side_effect=capture_kwargs)
+
+    # Create graph
+    builder = GraphBuilder()
+    builder.add_node(kwargs_multiagent, "multiagent_node")
+    graph = builder.build()
+
+    # Execute with custom kwargs
+    test_kwargs = {"custom_param": "test_value", "another_param": 42}
+    result = await graph.invoke_async("Test kwargs passing to multiagent", **test_kwargs)
+
+    # Verify kwargs were passed to multiagent
+    assert hasattr(capture_kwargs, "captured_kwargs")
+    assert capture_kwargs.captured_kwargs == test_kwargs
+    assert result.status == Status.COMPLETED
+
+
+def test_graph_kwargs_passing_sync(mock_strands_tracer, mock_use_span):
+    """Test that kwargs are passed through to underlying nodes in sync execution."""
+    # Create a mock agent that captures kwargs
+    kwargs_agent = create_mock_agent("kwargs_agent", "Response with kwargs")
+
+    async def capture_kwargs(*args, **kwargs):
+        # Store kwargs for verification
+        capture_kwargs.captured_kwargs = kwargs
+        return kwargs_agent.return_value
+
+    kwargs_agent.invoke_async = MagicMock(side_effect=capture_kwargs)
+
+    # Create graph
+    builder = GraphBuilder()
+    builder.add_node(kwargs_agent, "kwargs_node")
+    graph = builder.build()
+
+    # Execute with custom kwargs
+    test_kwargs = {"custom_param": "test_value", "another_param": 42}
+    result = graph("Test kwargs passing sync", **test_kwargs)
+
+    # Verify kwargs were passed to agent
+    assert hasattr(capture_kwargs, "captured_kwargs")
+    assert capture_kwargs.captured_kwargs == test_kwargs
+    assert result.status == Status.COMPLETED
