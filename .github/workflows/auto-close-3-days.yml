@@ -97,33 +97,34 @@ jobs:
             }
             
             // Find issues with the target label using Issues API instead of deprecated Search API
-            let allIssues = [];
-            let page = 1;
-            const perPage = 100;
-            
-            while (true) {
-              const { data: issues } = await github.rest.issues.listForRepo({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                state: 'open',
-                labels: config.labelName,
-                sort: 'updated',
-                direction: 'desc',
-                per_page: perPage,
-                page: page
-              });
+            try {
+              let allIssues = [];
+              let page = 1;
+              const perPage = 100;
               
-              if (issues.length === 0) break;
-              allIssues = allIssues.concat(issues);
-              if (issues.length < perPage) break;
-              page++;
-            }
-            
-            const targetIssues = allIssues.filter(issue => {
-              if (config.issueTypes === 'issues' && issue.pull_request) return false;
-              if (config.issueTypes === 'pulls' && !issue.pull_request) return false;
-              return true;
-            });
+              while (true) {
+                const { data: issues } = await github.rest.issues.listForRepo({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  state: 'open',
+                  labels: config.labelName,
+                  sort: 'updated',
+                  direction: 'desc',
+                  per_page: perPage,
+                  page: page
+                });
+                
+                if (issues.length === 0) break;
+                allIssues = allIssues.concat(issues);
+                if (issues.length < perPage) break;
+                page++;
+              }
+              
+              const targetIssues = allIssues.filter(issue => {
+                if (config.issueTypes === 'issues' && issue.pull_request) return false;
+                if (config.issueTypes === 'pulls' && !issue.pull_request) return false;
+                return true;
+              });
               
               console.log(`🔍 Found ${targetIssues.length} items with label "${config.labelName}"`);
               
