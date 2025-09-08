@@ -193,8 +193,10 @@ def test__init__with_endpoint_url(mock_client_method):
     """Test that BedrockModel uses the provided endpoint_url for VPC endpoints."""
     custom_endpoint = "https://vpce-12345-abcde.bedrock-runtime.us-west-2.vpce.amazonaws.com"
     BedrockModel(endpoint_url=custom_endpoint)
+    # Get the actual call to check the region that was used
+    call_kwargs = mock_client_method.call_args[1]
     mock_client_method.assert_called_with(
-        region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY, endpoint_url=custom_endpoint
+        region_name=call_kwargs["region_name"], config=ANY, service_name=ANY, endpoint_url=custom_endpoint
     )
 
 

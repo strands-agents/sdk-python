@@ -52,6 +52,12 @@ class MCPClientInitializationError(Exception):
     pass
 
 
+class UTCPClientInitializationError(Exception):
+    """Raised when the UTCP client fails to initialize properly."""
+
+    pass
+
+
 class ModelThrottledException(Exception):
     """Exception raised when the model is throttled.
 
