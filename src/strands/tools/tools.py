@@ -33,22 +33,22 @@ def validate_tool_use(tool: ToolUse) -> None:
     validate_tool_use_name(tool)
 
 
-def validate_tool_use_name(tool_use: ToolUse) -> None:
+def validate_tool_use_name(tool: ToolUse) -> None:
     """Validate the name of a tool use.
 
     Args:
-        tool_use: The tool use to validate.
+        tool: The tool use to validate.
 
     Raises:
         InvalidToolUseNameException: If the tool name is invalid.
     """
     # We need to fix some typing here, because we don't actually expect a ToolUse, but dict[str, Any]
-    if "name" not in tool_use:
+    if "name" not in tool:
         message = "tool name missing"  # type: ignore[unreachable]
         logger.warning(message)
         raise InvalidToolUseNameException(message)
 
-    tool_name = tool_use["name"]
+    tool_name = tool["name"]
     tool_name_pattern = r"^[a-zA-Z0-9_\-]{1,}$"
     tool_name_max_length = 64
     valid_name_pattern = bool(re.match(tool_name_pattern, tool_name))
