@@ -26,9 +26,9 @@ from tests.fixtures.mock_hook_provider import MockHookProvider
 
 
 @pytest.fixture
-def mock_asyncio():
+def mock_sleep():
     with unittest.mock.patch.object(
-        strands.event_loop.event_loop, "asyncio", new_callable=unittest.mock.AsyncMock
+        strands.event_loop.event_loop.asyncio, "sleep", new_callable=unittest.mock.AsyncMock
     ) as mock:
         yield mock
 
@@ -188,7 +188,7 @@ async def test_event_loop_cycle_text_response(
 
 @pytest.mark.asyncio
 async def test_event_loop_cycle_text_response_throttling(
-    mock_asyncio,
+    mock_sleep,
     agent,
     model,
     agenerator,
@@ -217,12 +217,12 @@ async def test_event_loop_cycle_text_response_throttling(
 
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
     # Verify that sleep was called once with the initial delay
-    mock_asyncio.sleep.assert_called_once()
+    mock_sleep.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_event_loop_cycle_exponential_backoff(
-    mock_asyncio,
+    mock_sleep,
     agent,
     model,
     agenerator,
@@ -256,13 +256,13 @@ async def test_event_loop_cycle_exponential_backoff(
 
     # Verify that sleep was called with increasing delays
     # Initial delay is 4, then 8, then 16
-    assert mock_asyncio.sleep.call_count == 3
-    assert mock_asyncio.sleep.call_args_list == [call(4), call(8), call(16)]
+    assert mock_sleep.call_count == 3
+    assert mock_sleep.call_args_list == [call(4), call(8), call(16)]
 
 
 @pytest.mark.asyncio
 async def test_event_loop_cycle_text_response_throttling_exceeded(
-    mock_asyncio,
+    mock_sleep,
     agent,
     model,
     alist,
@@ -283,7 +283,7 @@ async def test_event_loop_cycle_text_response_throttling_exceeded(
         )
         await alist(stream)
 
-    mock_asyncio.sleep.assert_has_calls(
+    mock_sleep.assert_has_calls(
         [
             call(4),
             call(8),
@@ -818,7 +818,7 @@ async def test_prepare_next_cycle_in_tool_execution(agent, model, tool_stream, a
 
 
 @pytest.mark.asyncio
-async def test_event_loop_cycle_exception_model_hooks(mock_asyncio, agent, model, agenerator, alist, hook_provider):
+async def test_event_loop_cycle_exception_model_hooks(mock_sleep, agent, model, agenerator, alist, hook_provider):
     """Test that model hooks are correctly emitted even when throttled."""
     # Set up the model to raise throttling exceptions multiple times before succeeding
     exception = ModelThrottledException("ThrottlingException | ConverseStream")
