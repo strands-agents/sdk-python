@@ -18,7 +18,7 @@ from typing_extensions import TypedDict, cast
 from strands.tools.decorator import DecoratedFunctionTool
 
 from ..types.tools import AgentTool, ToolSpec
-from .tools import PythonAgentTool, normalize_loaded_tools, normalize_schema, normalize_tool_spec
+from .tools import PythonAgentTool, normalize_schema, normalize_tool_spec
 
 logger = logging.getLogger(__name__)
 
@@ -127,9 +127,8 @@ class ToolRegistry:
             if not os.path.exists(tool_path):
                 raise FileNotFoundError(f"Tool file not found: {tool_path}")
 
-            loaded_tool = ToolLoader.load_tool(tool_path, tool_name)
-            # normalize_loaded_tools handles single tool or list of tools
-            for t in normalize_loaded_tools(loaded_tool):
+            loaded_tools = ToolLoader.load_tools(tool_path, tool_name)
+            for t in loaded_tools:
                 t.mark_dynamic()
                 # Because we're explicitly registering the tool we don't need an allowlist
                 self.register_tool(t)

@@ -8,7 +8,7 @@ import asyncio
 import inspect
 import logging
 import re
-from typing import Any, List, Union
+from typing import Any
 
 from typing_extensions import override
 
@@ -144,13 +144,6 @@ def normalize_tool_spec(tool_spec: ToolSpec) -> ToolSpec:
                 normalized["inputSchema"] = {"json": normalize_schema(normalized["inputSchema"])}
 
     return normalized
-
-
-def normalize_loaded_tools(loaded: Union[AgentTool, List[AgentTool]]) -> List[AgentTool]:
-    """Normalize ToolLoader.load_tool return value to always be a list of AgentTool."""
-    if isinstance(loaded, list):
-        return loaded
-    return [loaded]
 
 
 class PythonAgentTool(AgentTool):

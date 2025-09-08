@@ -120,7 +120,27 @@ class ToolLoader:
 
     @classmethod
     def load_tool(cls, tool_path: str, tool_name: str) -> AgentTool:
-        """Load a tool based on its file extension.
+        """DEPRECATED: Load a single tool based on its file extension for backwards compatibility.
+
+        Use `load_tools` to retrieve all tools defined in a file (returns a list).
+        This function will emit a `DeprecationWarning` and return the first discovered tool.
+        """
+        warnings.warn(
+            "ToolLoader.load_tool is deprecated and will be removed in Strands SDK 2.0. "
+            "Use ToolLoader.load_tools(...) which always returns a list of AgentTool.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+        tools = ToolLoader.load_tools(tool_path, tool_name)
+        if not tools:
+            raise RuntimeError(f"No tools found in {tool_path} for {tool_name}")
+
+        return tools[0]
+
+    @classmethod
+    def load_tools(cls, tool_path: str, tool_name: str) -> list[AgentTool]:
+        """Load tools from a file based on its file extension.
 
         Args:
             tool_path: Path to the tool file.
@@ -142,7 +162,7 @@ class ToolLoader:
 
         try:
             if ext == ".py":
-                return cls.load_python_tool(abs_path, tool_name)
+                return cls.load_python_tools(abs_path, tool_name)
             else:
                 raise ValueError(f"Unsupported tool file type: {ext}")
         except Exception:
