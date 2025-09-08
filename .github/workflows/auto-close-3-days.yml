@@ -18,6 +18,7 @@ env:
   AUTH_MODE: 'write-access'  # Options: 'users', 'write-access'
   ISSUE_TYPES: 'issues'  # Options: 'issues', 'pulls', 'both'
   DRY_RUN: 'true'  # Set to 'true' to enable dry-run mode (no actions taken)
+  REPLACEMENT_LABEL: ''  # Optional: Label to add when removing the auto-close label
 
 jobs:
   auto-close:
@@ -70,7 +71,8 @@ jobs:
               daysToWait: parseInt(process.env.DAYS_TO_WAIT),
               authMode: process.env.AUTH_MODE,
               authorizedUsers: process.env.AUTHORIZED_USERS?.split(',').map(u => u.trim()).filter(u => u) || [],
-              issueTypes: process.env.ISSUE_TYPES
+              issueTypes: process.env.ISSUE_TYPES,
+              replacementLabel: process.env.REPLACEMENT_LABEL?.trim() || null
             };
             
             const cutoffDate = new Date();
@@ -178,7 +180,7 @@ jobs:
                     
                     const isAuthorized = await isAuthorizedUser(comment.user.login);
                     if (!isAuthorized) {
-                      console.log(`❌ Unauthorized comment from ${comment.user.login}`);
+                      console.log(`❌ New comment from ${comment.user.login}`);
                       hasUnauthorizedComment = true;
                       break;
                     }
@@ -188,6 +190,9 @@ jobs:
                     // Remove label due to unauthorized comment (regardless of time elapsed)
                     if (isDryRun) {
                       console.log(`🧪 DRY-RUN: Would remove ${config.labelName} label from #${issue.number}`);
+                      if (config.replacementLabel) {
+                        console.log(`🧪 DRY-RUN: Would add ${config.replacementLabel} label to #${issue.number}`);
+                      }
                     } else {
                       await github.rest.issues.removeLabel({
                         owner: context.repo.owner,
@@ -196,6 +201,16 @@ jobs:
                         name: config.labelName
                       });
                       console.log(`🏷️ Removed ${config.labelName} label from #${issue.number}`);
+                      
+                      if (config.replacementLabel) {
+                        await github.rest.issues.addLabels({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: issue.number,
+                          labels: [config.replacementLabel]
+                        });
+                        console.log(`🏷️ Added ${config.replacementLabel} label to #${issue.number}`);
+                      }
                     }
                     labelRemovedCount++;
                     continue;
