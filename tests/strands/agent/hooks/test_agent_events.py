@@ -31,9 +31,9 @@ async def streaming_tool():
 
 
 @pytest.fixture
-def mock_asyncio():
+def mock_sleep():
     with unittest.mock.patch.object(
-        strands.event_loop.event_loop, "asyncio", new_callable=unittest.mock.AsyncMock
+        strands.event_loop.event_loop.asyncio, "sleep", new_callable=unittest.mock.AsyncMock
     ) as mock:
         yield mock
 
@@ -324,7 +324,7 @@ async def test_stream_e2e_success(alist):
 
 
 @pytest.mark.asyncio
-async def test_stream_e2e_throttle_and_redact(alist, mock_asyncio):
+async def test_stream_e2e_throttle_and_redact(alist, mock_sleep):
     model = MagicMock()
     model.stream.side_effect = [
         ModelThrottledException("ThrottlingException | ConverseStream"),
@@ -391,7 +391,7 @@ async def test_stream_e2e_throttle_and_redact(alist, mock_asyncio):
 async def test_event_loop_cycle_text_response_throttling_early_end(
     agenerator,
     alist,
-    mock_asyncio,
+    mock_sleep,
 ):
     model = MagicMock()
     model.stream.side_effect = [
