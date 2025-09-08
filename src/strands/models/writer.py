@@ -7,6 +7,7 @@ import base64
 import json
 import logging
 import mimetypes
+import time
 from typing import Any, AsyncGenerator, Dict, List, Optional, Type, TypedDict, TypeVar, Union, cast
 
 import writerai
@@ -329,16 +330,18 @@ class WriterModel(Model):
                         return {"messageStop": {"stopReason": "end_turn"}}
 
             case "metadata":
+                usage = event["data"]["usage"]
+                metrics = event["data"]["metrics"]
                 return {
                     "metadata": {
                         "usage": {
-                            "inputTokens": event["data"].prompt_tokens if event["data"] else 0,
-                            "outputTokens": event["data"].completion_tokens if event["data"] else 0,
-                            "totalTokens": event["data"].total_tokens if event["data"] else 0,
+                            "inputTokens": usage.prompt_tokens if usage else 0,
+                            "outputTokens": usage.completion_tokens if usage else 0,
+                            "totalTokens": usage.total_tokens if usage else 0,
                         },  # If 'stream_options' param is unset, empty metadata will be provided.
                         # To avoid errors replacing expected fields with default zero value
                         "metrics": {
-                            "latencyMs": 0,  # All palmyra models don't provide 'latency' metadata
+                            "latencyMs": metrics["latency"] * 1000,
                         },
                     },
                 }
@@ -373,6 +376,7 @@ class WriterModel(Model):
         logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")
+        start_time = time.time()
         try:
             response = await self.client.chat.chat(**request)
         except writerai.RateLimitError as e:
@@ -416,7 +420,11 @@ class WriterModel(Model):
         async for chunk in response:
             _ = chunk
 
-        yield self.format_chunk({"chunk_type": "metadata", "data": chunk.usage})
+        end_time = time.time()
+        latency = end_time - start_time
+        yield self.format_chunk(
+            {"chunk_type": "metadata", "data": {"usage": chunk.usage, "metrics": {"latency": latency}}}
+        )
 
         logger.debug("finished streaming response from model")
 

@@ -68,6 +68,12 @@ def test_output_model_cls():
     return TestOutputModel
 
 
+@pytest.fixture
+def mock_time():
+    with unittest.mock.patch.object(strands.models.openai, "time") as mock:
+        yield mock.time
+
+
 def test__init__(openai_client_cls, model_id):
     model = OpenAIModel({"api_key": "k1"}, model_id=model_id, params={"max_tokens": 1})
 
@@ -352,7 +358,10 @@ def test_format_request(model, messages, tool_specs, system_prompt):
         (
             {
                 "chunk_type": "metadata",
-                "data": unittest.mock.Mock(prompt_tokens=100, completion_tokens=50, total_tokens=150),
+                "data": {
+                    "usage": unittest.mock.Mock(prompt_tokens=100, completion_tokens=50, total_tokens=150),
+                    "metrics": {"latency": 0.001},
+                },
             },
             {
                 "metadata": {
@@ -362,7 +371,7 @@ def test_format_request(model, messages, tool_specs, system_prompt):
                         "totalTokens": 150,
                     },
                     "metrics": {
-                        "latencyMs": 0,
+                        "latencyMs": 1,
                     },
                 },
             },
@@ -382,7 +391,9 @@ def test_format_chunk_unknown_type(model):
 
 
 @pytest.mark.asyncio
-async def test_stream(openai_client, model_id, model, agenerator, alist):
+async def test_stream(openai_client, model_id, model, mock_time, agenerator, alist):
+    mock_time.side_effect = [0, 0.001]
+
     mock_tool_call_1_part_1 = unittest.mock.Mock(index=0)
     mock_tool_call_2_part_1 = unittest.mock.Mock(index=1)
     mock_delta_1 = unittest.mock.Mock(
@@ -456,12 +467,12 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
                     "outputTokens": mock_event_6.usage.completion_tokens,
                     "totalTokens": mock_event_6.usage.total_tokens,
                 },
-                "metrics": {"latencyMs": 0},
+                "metrics": {"latencyMs": 1},
             }
         },
     ]
 
-    assert len(tru_events) == len(exp_events)
+    assert tru_events == exp_events
     # Verify that format_request was called with the correct arguments
     expected_request = {
         "max_tokens": 1,

@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import time
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Literal, Optional, Type, TypedDict, TypeVar, Union, cast
 
@@ -301,6 +302,8 @@ class SageMakerAIModel(OpenAIModel):
 
         logger.debug("invoking model")
         try:
+            start_time = time.time()
+
             if self.payload_config.get("stream", True):
                 response = self.client.invoke_endpoint_with_response_stream(**request)
 
@@ -366,8 +369,16 @@ class SageMakerAIModel(OpenAIModel):
                             break
 
                         if choice.get("usage", None):
+                            end_time = time.time()
+                            latency = end_time - start_time
                             yield self.format_chunk(
-                                {"chunk_type": "metadata", "data": UsageMetadata(**choice["usage"])}
+                                {
+                                    "chunk_type": "metadata",
+                                    "data": {
+                                        "usage": UsageMetadata(**choice["usage"]),
+                                        "metrics": {"latency": latency},
+                                    },
+                                },
                             )
 
                     except json.JSONDecodeError:
@@ -405,16 +416,14 @@ class SageMakerAIModel(OpenAIModel):
                 yield self.format_chunk({"chunk_type": "message_stop", "data": finish_reason})
 
             else:
-                # Not all SageMaker AI models support streaming!
+                # Not all SageMaker AI models support streaming
                 response = self.client.invoke_endpoint(**request)  # type: ignore[assignment]
                 final_response_json = json.loads(response["Body"].read().decode("utf-8"))  # type: ignore[attr-defined]
                 logger.info("response=<%s>", json.dumps(final_response_json, indent=2))
 
-                # Obtain the key elements from the response
                 message = final_response_json["choices"][0]["message"]
                 message_stop_reason = final_response_json["choices"][0]["finish_reason"]
 
-                # Message start
                 yield self.format_chunk({"chunk_type": "message_start"})
 
                 # Handle text
@@ -425,7 +434,6 @@ class SageMakerAIModel(OpenAIModel):
                     )
                     yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
 
-                # Handle reasoning content
                 if message.get("reasoning_content", None):
                     yield self.format_chunk({"chunk_type": "content_start", "data_type": "reasoning_content"})
                     yield self.format_chunk(
@@ -437,7 +445,6 @@ class SageMakerAIModel(OpenAIModel):
                     )
                     yield self.format_chunk({"chunk_type": "content_stop", "data_type": "reasoning_content"})
 
-                # Handle the tool calling, if any
                 if message.get("tool_calls", None) or message_stop_reason == "tool_calls":
                     if not isinstance(message["tool_calls"], list):
                         message["tool_calls"] = [message["tool_calls"]]
@@ -454,12 +461,19 @@ class SageMakerAIModel(OpenAIModel):
                         yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
                     message_stop_reason = "tool_calls"
 
-                # Message close
                 yield self.format_chunk({"chunk_type": "message_stop", "data": message_stop_reason})
-                # Handle usage metadata
+
                 if final_response_json.get("usage", None):
+                    end_time = time.time()
+                    latency = end_time - start_time
                     yield self.format_chunk(
-                        {"chunk_type": "metadata", "data": UsageMetadata(**final_response_json.get("usage", None))}
+                        {
+                            "chunk_type": "metadata",
+                            "data": {
+                                "usage": UsageMetadata(**final_response_json.get("usage", None)),
+                                "metrics": {"latency": latency},
+                            },
+                        },
                     )
         except (
             self.client.exceptions.InternalFailure,

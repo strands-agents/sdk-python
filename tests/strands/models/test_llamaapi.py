@@ -332,11 +332,14 @@ def test_format_chunk_message_stop_max_tokens(model):
 def test_format_chunk_metadata(model):
     event = {
         "chunk_type": "metadata",
-        "data": [
-            unittest.mock.Mock(metric="num_prompt_tokens", value=100),
-            unittest.mock.Mock(metric="num_completion_tokens", value=50),
-            unittest.mock.Mock(metric="num_total_tokens", value=150),
-        ],
+        "data": {
+            "usage": [
+                unittest.mock.Mock(metric="num_prompt_tokens", value=100),
+                unittest.mock.Mock(metric="num_completion_tokens", value=50),
+                unittest.mock.Mock(metric="num_total_tokens", value=150),
+            ],
+            "metrics": {"latency": 0.001},
+        },
     }
 
     tru_chunk = model.format_chunk(event)
@@ -348,7 +351,7 @@ def test_format_chunk_metadata(model):
                 "totalTokens": 150,
             },
             "metrics": {
-                "latencyMs": 0,
+                "latencyMs": 1,
             },
         },
     }

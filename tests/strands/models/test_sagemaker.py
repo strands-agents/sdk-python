@@ -8,6 +8,7 @@ import boto3
 import pytest
 from botocore.config import Config as BotocoreConfig
 
+import strands
 from strands.models.sagemaker import (
     FunctionCall,
     SageMakerAIModel,
@@ -85,6 +86,12 @@ def tool_specs() -> List[ToolSpec]:
 def system_prompt() -> str:
     """Sample system prompt for testing."""
     return "You are a helpful assistant."
+
+
+@pytest.fixture
+def mock_time():
+    with unittest.mock.patch.object(strands.models.sagemaker, "time") as mock:
+        yield mock.time
 
 
 class TestSageMakerAIModel:
@@ -449,8 +456,9 @@ class TestSageMakerAIModel:
         sagemaker_client.invoke_endpoint.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_stream_non_streaming_with_tool_calls(self, sagemaker_client, model, messages):
-        """Test non-streaming response with tool calls."""
+    async def test_stream_non_streaming_with_tool_calls(self, sagemaker_client, model, messages, mock_time):
+        mock_time.side_effect = [0, 0.001]
+
         # Configure model for non-streaming
         model.payload_config["stream"] = False
 
@@ -518,8 +526,16 @@ class TestSageMakerAIModel:
         # Verify metadata
         metadata = next((e for e in response if "metadata" in e), None)
         assert metadata is not None
-        usage_data = metadata["metadata"]["usage"]
-        assert usage_data["totalTokens"] == 30
+        tru_metadata = metadata["metadata"]
+        exp_metadata = {
+            "usage": {
+                "inputTokens": 10,
+                "outputTokens": 20,
+                "totalTokens": 30,
+            },
+            "metrics": {"latencyMs": 1},
+        }
+        assert tru_metadata == exp_metadata
 
 
 class TestDataClasses:

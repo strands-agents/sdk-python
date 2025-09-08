@@ -5,6 +5,7 @@
 
 import json
 import logging
+import time
 from typing import Any, AsyncGenerator, Optional, Type, TypedDict, TypeVar, Union, cast
 
 import litellm
@@ -127,9 +128,10 @@ class LiteLLMModel(OpenAIModel):
         logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")
+        start_time = time.time()
         response = await litellm.acompletion(**self.client_args, **request)
-
         logger.debug("got response from model")
+
         yield self.format_chunk({"chunk_type": "message_start"})
         yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
@@ -178,7 +180,11 @@ class LiteLLMModel(OpenAIModel):
             _ = event
 
         if event.usage:
-            yield self.format_chunk({"chunk_type": "metadata", "data": event.usage})
+            end_time = time.time()
+            latency = end_time - start_time
+            yield self.format_chunk(
+                {"chunk_type": "metadata", "data": {"usage": event.usage, "metrics": {"latency": latency}}}
+            )
 
         logger.debug("finished streaming response from model")
 

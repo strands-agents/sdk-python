@@ -7,6 +7,7 @@ import base64
 import json
 import logging
 import mimetypes
+import time
 from typing import Any, AsyncGenerator, Optional, Type, TypedDict, TypeVar, Union, cast
 
 import anthropic
@@ -324,6 +325,7 @@ class AnthropicModel(Model):
 
             case "metadata":
                 usage = event["usage"]
+                metrics = event["metrics"]
 
                 return {
                     "metadata": {
@@ -333,7 +335,7 @@ class AnthropicModel(Model):
                             "totalTokens": usage["input_tokens"] + usage["output_tokens"],
                         },
                         "metrics": {
-                            "latencyMs": 0,  # TODO
+                            "latencyMs": metrics["latency"] * 1000,
                         },
                     }
                 }
@@ -370,14 +372,19 @@ class AnthropicModel(Model):
 
         logger.debug("invoking model")
         try:
+            start_time = time.time()
             async with self.client.messages.stream(**request) as stream:
                 logger.debug("got response from model")
                 async for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
                         yield self.format_chunk(event.model_dump())
 
+                end_time = time.time()
+                latency = end_time - start_time
                 usage = event.message.usage  # type: ignore
-                yield self.format_chunk({"type": "metadata", "usage": usage.model_dump()})
+                yield self.format_chunk(
+                    {"type": "metadata", "usage": usage.model_dump(), "metrics": {"latency": latency}}
+                )
 
         except anthropic.RateLimitError as error:
             raise ModelThrottledException(str(error)) from error

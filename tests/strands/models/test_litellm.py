@@ -49,6 +49,12 @@ def test_output_model_cls():
     return TestOutputModel
 
 
+@pytest.fixture
+def mock_time():
+    with unittest.mock.patch.object(strands.models.litellm, "time") as mock:
+        yield mock.time
+
+
 def test_update_config(model, model_id):
     model.update_config(model_id=model_id)
 
@@ -105,7 +111,9 @@ def test_format_request_message_content(content, exp_result):
 
 
 @pytest.mark.asyncio
-async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator, alist):
+async def test_stream(litellm_acompletion, api_key, model_id, model, mock_time, agenerator, alist):
+    mock_time.side_effect = [0, 0.001]
+
     mock_tool_call_1_part_1 = unittest.mock.Mock(index=0)
     mock_tool_call_2_part_1 = unittest.mock.Mock(index=1)
     mock_delta_1 = unittest.mock.Mock(
@@ -179,7 +187,7 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
                     "outputTokens": mock_event_6.usage.completion_tokens,
                     "totalTokens": mock_event_6.usage.total_tokens,
                 },
-                "metrics": {"latencyMs": 0},
+                "metrics": {"latencyMs": 1},
             }
         },
     ]
