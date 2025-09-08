@@ -70,7 +70,7 @@ def test_update_config(model, model_id):
         ({"use_litellm_proxy": False}, "litellm_proxy/openai/gpt-4", "litellm_proxy/openai/gpt-4"),
     ],
 )
-def test_use_litellm_proxy_prefix(client_args, model_id, expected_model_id):
+def test__init__use_litellm_proxy_prefix(client_args, model_id, expected_model_id):
     """Test litellm_proxy prefix behavior for various configurations."""
     model = LiteLLMModel(client_args=client_args, model_id=model_id)
     assert model.get_config()["model_id"] == expected_model_id
