@@ -609,6 +609,7 @@ class Swarm(MultiAgentBase):
             # Execute node
             result = None
             node.reset_executor_state()
+            # Unpacking since this is the agent class. Other executors should not unpack
             result = await node.executor.invoke_async(node_input, **invocation_state)
 
             execution_time = round((time.time() - start_time) * 1000)
