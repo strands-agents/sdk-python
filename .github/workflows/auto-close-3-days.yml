@@ -96,23 +96,34 @@ jobs:
               return false;
             }
             
-            // Find issues with the target label
-            const searchQuery = `repo:${context.repo.owner}/${context.repo.repo} is:open label:"${config.labelName}"`;
-            const typeFilter = config.issueTypes === 'pulls' ? 'is:pr' : 
-                              config.issueTypes === 'both' ? '' : 'is:issue';
+            // Find issues with the target label using Issues API instead of deprecated Search API
+            let allIssues = [];
+            let page = 1;
+            const perPage = 100;
             
-            try {
-              const { data: searchResults } = await github.rest.search.issuesAndPullRequests({
-                q: `${searchQuery} ${typeFilter}`.trim(),
+            while (true) {
+              const { data: issues } = await github.rest.issues.listForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                labels: config.labelName,
                 sort: 'updated',
-                order: 'desc'
+                direction: 'desc',
+                per_page: perPage,
+                page: page
               });
               
-              const targetIssues = searchResults.items.filter(issue => {
-                if (config.issueTypes === 'issues' && issue.pull_request) return false;
-                if (config.issueTypes === 'pulls' && !issue.pull_request) return false;
-                return true;
-              });
+              if (issues.length === 0) break;
+              allIssues = allIssues.concat(issues);
+              if (issues.length < perPage) break;
+              page++;
+            }
+            
+            const targetIssues = allIssues.filter(issue => {
+              if (config.issueTypes === 'issues' && issue.pull_request) return false;
+              if (config.issueTypes === 'pulls' && !issue.pull_request) return false;
+              return true;
+            });
               
               console.log(`🔍 Found ${targetIssues.length} items with label "${config.labelName}"`);
               
@@ -238,6 +249,6 @@ jobs:
               console.log(`   • Total processed: ${targetIssues.length}`);
               
             } catch (error) {
-              console.log(`❌ Failed to search for issues: ${error.message}`);
+              console.log(`❌ Failed to fetch issues: ${error.message}`);
               throw error;
             }
