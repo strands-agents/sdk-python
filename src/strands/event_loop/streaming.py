@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, AsyncGenerator, AsyncIterable, Optional
+from typing import Any, AsyncGenerator, AsyncIterable, Optional, cast
 
 from ..models.model import Model
 from ..types._events import (
@@ -346,7 +346,17 @@ async def stream_messages(
     logger.debug("model=<%s> | streaming messages", model)
 
     messages = remove_blank_messages_content_text(messages)
-    chunks = model.stream(messages, tool_specs if tool_specs else None, system_prompt)
+
+    # TODO(#780): Remove outputSchema filtering once model-specific behavior handling is implemented.
+    # For now, we filter out outputSchema from all tool specs to ensure compatibility with all model providers.
+    # Some providers (e.g., Bedrock) will throw validation errors if they receive unknown fields.
+    filtered_tool_specs = None
+    if tool_specs:
+        filtered_tool_specs = cast(
+            list[ToolSpec], [{k: v for k, v in spec.items() if k != "outputSchema"} for spec in tool_specs]
+        )
+
+    chunks = model.stream(messages, filtered_tool_specs, system_prompt)
 
     async for event in process_stream(chunks):
         yield event
