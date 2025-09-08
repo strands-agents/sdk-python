@@ -162,14 +162,6 @@ jobs:
                   const lastLabelAdded = new Date(labelEvents[0].created_at);
                   const labelAdder = labelEvents[0].actor.login;
                   
-                  // Check if enough time has passed
-                  if (lastLabelAdded > cutoffDate) {
-                    const daysRemaining = Math.ceil((lastLabelAdded - cutoffDate) / (1000 * 60 * 60 * 24));
-                    console.log(`⏳ Label added too recently (${daysRemaining} days remaining)`);
-                    skippedCount++;
-                    continue;
-                  }
-                  
                   // Check comments since label was added
                   const { data: comments } = await github.rest.issues.listComments({
                     owner: context.repo.owner,
@@ -193,7 +185,7 @@ jobs:
                   }
                   
                   if (hasUnauthorizedComment) {
-                    // Remove label due to unauthorized comment
+                    // Remove label due to unauthorized comment (regardless of time elapsed)
                     if (isDryRun) {
                       console.log(`🧪 DRY-RUN: Would remove ${config.labelName} label from #${issue.number}`);
                     } else {
@@ -206,30 +198,39 @@ jobs:
                       console.log(`🏷️ Removed ${config.labelName} label from #${issue.number}`);
                     }
                     labelRemovedCount++;
-                  } else {
-                    // Close the issue
-                    if (isDryRun) {
-                      console.log(`🧪 DRY-RUN: Would close #${issue.number} with comment`);
-                      console.log(`🧪 DRY-RUN: Comment would be: "${CLOSE_MESSAGE}"`);
-                    } else {
-                      await github.rest.issues.createComment({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        issue_number: issue.number,
-                        body: CLOSE_MESSAGE
-                      });
-                      
-                      await github.rest.issues.update({
-                        owner: context.repo.owner,
-                        repo: context.repo.repo,
-                        issue_number: issue.number,
-                        state: 'closed'
-                      });
-                      
-                      console.log(`🔒 Closed #${issue.number}`);
-                    }
-                    closedCount++;
+                    continue;
                   }
+                  
+                  // Check if enough time has passed for auto-close
+                  if (lastLabelAdded > cutoffDate) {
+                    const daysRemaining = Math.ceil((lastLabelAdded - cutoffDate) / (1000 * 60 * 60 * 24));
+                    console.log(`⏳ Label added too recently (${daysRemaining} days remaining)`);
+                    skippedCount++;
+                    continue;
+                  }
+                  
+                  // Close the issue (only if time has elapsed AND no unauthorized comments)
+                  if (isDryRun) {
+                    console.log(`🧪 DRY-RUN: Would close #${issue.number} with comment`);
+                    console.log(`🧪 DRY-RUN: Comment would be: "${CLOSE_MESSAGE}"`);
+                  } else {
+                    await github.rest.issues.createComment({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issue.number,
+                      body: CLOSE_MESSAGE
+                    });
+                    
+                    await github.rest.issues.update({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issue.number,
+                      state: 'closed'
+                    });
+                    
+                    console.log(`🔒 Closed #${issue.number}`);
+                  }
+                  closedCount++;
                 } catch (error) {
                   console.log(`❌ Error processing #${issue.number}: ${error.message}`);
                   skippedCount++;
