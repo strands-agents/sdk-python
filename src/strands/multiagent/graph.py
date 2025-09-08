@@ -385,18 +385,42 @@ class Graph(MultiAgentBase):
         self.state = GraphState()
         self.tracer = get_tracer()
 
-    def __call__(self, task: str | list[ContentBlock], **kwargs: Any) -> GraphResult:
-        """Invoke the graph synchronously."""
+    def __call__(
+        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> GraphResult:
+        """Invoke the graph synchronously.
+
+        Args:
+            task: The task to execute
+            invocation_state: Additional state/context passed to underlying agents.
+                Defaults to None to avoid mutable default argument issues.
+            **kwargs: Additional keyword arguments passed to underlying agents.
+        """
+        if invocation_state is None:
+            invocation_state = {}
 
         def execute() -> GraphResult:
-            return asyncio.run(self.invoke_async(task, **kwargs))
+            return asyncio.run(self.invoke_async(task, invocation_state, **kwargs))
 
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)
             return future.result()
 
-    async def invoke_async(self, task: str | list[ContentBlock], **kwargs: Any) -> GraphResult:
-        """Invoke the graph asynchronously."""
+    async def invoke_async(
+        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> GraphResult:
+        """Invoke the graph asynchronously.
+
+        Args:
+            task: The task to execute
+            invocation_state: Additional state/context passed to underlying agents.
+                Defaults to None to avoid mutable default argument issues - a new empty dict
+                is created if None is provided.
+            **kwargs: Additional keyword arguments passed to underlying agents.
+        """
+        if invocation_state is None:
+            invocation_state = {}
+
         logger.debug("task=<%s> | starting graph execution", task)
 
         # Initialize state
@@ -420,7 +444,9 @@ class Graph(MultiAgentBase):
                     self.node_timeout or "None",
                 )
 
-                await self._execute_graph(kwargs)
+                # Merge kwargs into invocation_state for internal execution
+                merged_state = {**invocation_state, **kwargs}
+                await self._execute_graph(merged_state)
 
                 # Set final status based on execution results
                 if self.state.failed_nodes:
@@ -529,11 +555,11 @@ class Graph(MultiAgentBase):
                 if isinstance(node.executor, MultiAgentBase):
                     if self.node_timeout is not None:
                         multi_agent_result = await asyncio.wait_for(
-                            node.executor.invoke_async(node_input, **invocation_state),
+                            node.executor.invoke_async(node_input, invocation_state),
                             timeout=self.node_timeout,
                         )
                     else:
-                        multi_agent_result = await node.executor.invoke_async(node_input, **invocation_state)
+                        multi_agent_result = await node.executor.invoke_async(node_input, invocation_state)
 
                     # Create NodeResult with MultiAgentResult directly
                     node_result = NodeResult(

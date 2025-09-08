@@ -480,7 +480,7 @@ async def test_swarm_kwargs_passing(mock_strands_tracer, mock_use_span):
     swarm = Swarm(nodes=[kwargs_agent])
 
     test_kwargs = {"custom_param": "test_value", "another_param": 42}
-    result = await swarm.invoke_async("Test kwargs passing", **test_kwargs)
+    result = await swarm.invoke_async("Test kwargs passing", test_kwargs)
 
     assert kwargs_agent.invoke_async.call_args.kwargs == test_kwargs
     assert result.status == Status.COMPLETED
@@ -494,7 +494,7 @@ def test_swarm_kwargs_passing_sync(mock_strands_tracer, mock_use_span):
     swarm = Swarm(nodes=[kwargs_agent])
 
     test_kwargs = {"custom_param": "test_value", "another_param": 42}
-    result = swarm("Test kwargs passing sync", **test_kwargs)
+    result = swarm("Test kwargs passing sync", test_kwargs)
 
     assert kwargs_agent.invoke_async.call_args.kwargs == test_kwargs
     assert result.status == Status.COMPLETED

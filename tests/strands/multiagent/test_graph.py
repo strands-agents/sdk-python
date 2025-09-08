@@ -1297,10 +1297,10 @@ async def test_graph_kwargs_passing_agent(mock_strands_tracer, mock_use_span):
     builder.add_node(kwargs_agent, "kwargs_node")
     graph = builder.build()
 
-    test_kwargs = {"custom_param": "test_value", "another_param": 42}
-    result = await graph.invoke_async("Test kwargs passing", **test_kwargs)
+    test_invocation_state = {"custom_param": "test_value", "another_param": 42}
+    result = await graph.invoke_async("Test kwargs passing", test_invocation_state)
 
-    kwargs_agent.invoke_async.assert_called_once_with([{"text": "Test kwargs passing"}], **test_kwargs)
+    kwargs_agent.invoke_async.assert_called_once_with([{"text": "Test kwargs passing"}], **test_invocation_state)
     assert result.status == Status.COMPLETED
 
 
@@ -1314,12 +1314,10 @@ async def test_graph_kwargs_passing_multiagent(mock_strands_tracer, mock_use_spa
     builder.add_node(kwargs_multiagent, "multiagent_node")
     graph = builder.build()
 
-    test_kwargs = {"custom_param": "test_value", "another_param": 42}
-    result = await graph.invoke_async("Test kwargs passing to multiagent", **test_kwargs)
+    test_invocation_state = {"custom_param": "test_value", "another_param": 42}
+    result = await graph.invoke_async("Test kwargs passing to multiagent", test_invocation_state)
 
-    kwargs_multiagent.invoke_async.assert_called_once_with(
-        [{"text": "Test kwargs passing to multiagent"}], **test_kwargs
-    )
+    kwargs_multiagent.invoke_async.assert_called_once_with([{"text": "Test kwargs passing to multiagent"}], test_invocation_state)
     assert result.status == Status.COMPLETED
 
 
@@ -1332,8 +1330,8 @@ def test_graph_kwargs_passing_sync(mock_strands_tracer, mock_use_span):
     builder.add_node(kwargs_agent, "kwargs_node")
     graph = builder.build()
 
-    test_kwargs = {"custom_param": "test_value", "another_param": 42}
-    result = graph("Test kwargs passing sync", **test_kwargs)
+    test_invocation_state = {"custom_param": "test_value", "another_param": 42}
+    result = graph("Test kwargs passing sync", test_invocation_state)
 
-    kwargs_agent.invoke_async.assert_called_once_with([{"text": "Test kwargs passing sync"}], **test_kwargs)
+    kwargs_agent.invoke_async.assert_called_once_with([{"text": "Test kwargs passing sync"}], **test_invocation_state)
     assert result.status == Status.COMPLETED
