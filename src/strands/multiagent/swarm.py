@@ -252,7 +252,7 @@ class Swarm(MultiAgentBase):
             invocation_state = {}
 
         def execute() -> SwarmResult:
-            return asyncio.run(self.invoke_async(task, invocation_state, **kwargs))
+            return asyncio.run(self.invoke_async(task, invocation_state))
 
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)
