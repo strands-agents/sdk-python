@@ -246,7 +246,7 @@ class Swarm(MultiAgentBase):
             task: The task to execute
             invocation_state: Additional state/context passed to underlying agents.
                 Defaults to None to avoid mutable default argument issues.
-            **kwargs: Additional keyword arguments passed to underlying agents.
+            **kwargs: Keyword arguments allowing backward compatible future changes.
         """
         if invocation_state is None:
             invocation_state = {}
@@ -268,7 +268,7 @@ class Swarm(MultiAgentBase):
             invocation_state: Additional state/context passed to underlying agents.
                 Defaults to None to avoid mutable default argument issues - a new empty dict
                 is created if None is provided.
-            **kwargs: Additional keyword arguments passed to underlying agents.
+            **kwargs: Keyword arguments allowing backward compatible future changes.
         """
         if invocation_state is None:
             invocation_state = {}
@@ -296,9 +296,7 @@ class Swarm(MultiAgentBase):
                     self.execution_timeout,
                 )
 
-                # Merge kwargs into invocation_state for internal execution
-                merged_state = {**invocation_state, **kwargs}
-                await self._execute_swarm(merged_state)
+                await self._execute_swarm(invocation_state)
             except Exception:
                 logger.exception("swarm execution failed")
                 self.state.completion_status = Status.FAILED

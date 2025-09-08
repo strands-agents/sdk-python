@@ -1317,7 +1317,9 @@ async def test_graph_kwargs_passing_multiagent(mock_strands_tracer, mock_use_spa
     test_invocation_state = {"custom_param": "test_value", "another_param": 42}
     result = await graph.invoke_async("Test kwargs passing to multiagent", test_invocation_state)
 
-    kwargs_multiagent.invoke_async.assert_called_once_with([{"text": "Test kwargs passing to multiagent"}], test_invocation_state)
+    kwargs_multiagent.invoke_async.assert_called_once_with(
+        [{"text": "Test kwargs passing to multiagent"}], test_invocation_state
+    )
     assert result.status == Status.COMPLETED
 
 
