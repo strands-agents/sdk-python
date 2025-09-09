@@ -35,8 +35,8 @@ jobs:
             
             // Validate required fields
             if (!LABEL_NAME) throw new Error('LABEL_NAME is required');
-            if (!DAYS_TO_WAIT || isNaN(parseInt(DAYS_TO_WAIT)) || parseInt(DAYS_TO_WAIT) < 1) {
-              throw new Error('DAYS_TO_WAIT must be a positive integer');
+            if (!DAYS_TO_WAIT || isNaN(parseInt(DAYS_TO_WAIT)) || parseInt(DAYS_TO_WAIT) < 0) {
+              throw new Error('DAYS_TO_WAIT must be a positive integer or zero');
             }
             if (!['users', 'write-access'].includes(AUTH_MODE)) {
               throw new Error('AUTH_MODE must be "users" or "write-access"');
