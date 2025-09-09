@@ -433,7 +433,7 @@ def test_format_request_tool_choice_auto(model, messages, model_id, max_tokens):
                 "input_schema": {"key": "value"},
             }
         ],
-        "tool_choice": tool_choice,
+        "tool_choice": {"type": "auto"},
     }
 
     assert tru_request == exp_request
@@ -455,7 +455,7 @@ def test_format_request_tool_choice_any(model, messages, model_id, max_tokens):
                 "input_schema": {"key": "value"},
             }
         ],
-        "tool_choice": tool_choice,
+        "tool_choice": {"type": "any"},
     }
 
     assert tru_request == exp_request
@@ -477,7 +477,7 @@ def test_format_request_tool_choice_tool(model, messages, model_id, max_tokens):
                 "input_schema": {"key": "value"},
             }
         ],
-        "tool_choice": tool_choice,
+        "tool_choice": {"name": "test_tool", "type": "tool"},
     }
 
     assert tru_request == exp_request
