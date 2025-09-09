@@ -18,7 +18,7 @@ from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
-from ..types.tools import ToolSpec
+from ..types.tools import ToolChoice, ToolSpec
 from ._config_validation import validate_config_keys
 from .model import Model
 
@@ -195,7 +195,11 @@ class AnthropicModel(Model):
         return formatted_messages
 
     def format_request(
-        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+        self,
+        messages: Messages,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        system_prompt: Optional[str] = None,
+        tool_choice: Optional[ToolChoice] = None,
     ) -> dict[str, Any]:
         """Format an Anthropic streaming request.
 
@@ -203,6 +207,7 @@ class AnthropicModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
 
         Returns:
             An Anthropic streaming request.
@@ -223,6 +228,7 @@ class AnthropicModel(Model):
                 }
                 for tool_spec in tool_specs or []
             ],
+            **({"tool_choice": tool_choice} if tool_choice else {}),
             **({"system": system_prompt} if system_prompt else {}),
             **(self.config.get("params") or {}),
         }
@@ -350,6 +356,7 @@ class AnthropicModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        tool_choice: Optional[ToolChoice] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Anthropic model.
@@ -358,6 +365,7 @@ class AnthropicModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -368,7 +376,7 @@ class AnthropicModel(Model):
             ModelThrottledException: If the request is throttled by Anthropic.
         """
         logger.debug("formatting request")
-        request = self.format_request(messages, tool_specs, system_prompt)
+        request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
         logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")
@@ -410,7 +418,13 @@ class AnthropicModel(Model):
         """
         tool_spec = convert_pydantic_to_tool_spec(output_model)
 
-        response = self.stream(messages=prompt, tool_specs=[tool_spec], system_prompt=system_prompt, **kwargs)
+        response = self.stream(
+            messages=prompt,
+            tool_specs=[tool_spec],
+            system_prompt=system_prompt,
+            tool_choice=cast(ToolChoice, {"any": {}}),
+            **kwargs,
+        )
         async for event in process_stream(response):
             yield event
 

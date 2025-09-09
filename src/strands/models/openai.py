@@ -16,7 +16,7 @@ from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
 from ..types.streaming import StreamEvent
-from ..types.tools import ToolResult, ToolSpec, ToolUse
+from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._config_validation import validate_config_keys
 from .model import Model
 
@@ -175,6 +175,27 @@ class OpenAIModel(Model):
         }
 
     @classmethod
+    def format_request_tool_choice(cls, tool_choice: ToolChoice) -> Union[str, dict[str, Any]]:
+        """Format a tool choice for OpenAI compatibility.
+
+        Args:
+            tool_choice: Tool choice configuration in Bedrock format.
+
+        Returns:
+            OpenAI compatible tool choice format.
+        """
+        match tool_choice:
+            case {"auto": _}:
+                return "auto"  # OpenAI SDK doesn't define constants for these values
+            case {"any": _}:
+                return "required"
+            case {"tool": {"name": tool_name}}:
+                return {"type": "function", "function": {"name": tool_name}}
+            case _:
+                # This should not happen with proper typing, but handle gracefully
+                return "auto"
+
+    @classmethod
     def format_request_messages(cls, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
         """Format an OpenAI compatible messages array.
 
@@ -216,7 +237,11 @@ class OpenAIModel(Model):
         return [message for message in formatted_messages if message["content"] or "tool_calls" in message]
 
     def format_request(
-        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+        self,
+        messages: Messages,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        system_prompt: Optional[str] = None,
+        tool_choice: Optional[ToolChoice] = None,
     ) -> dict[str, Any]:
         """Format an OpenAI compatible chat streaming request.
 
@@ -224,6 +249,7 @@ class OpenAIModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
 
         Returns:
             An OpenAI compatible chat streaming request.
@@ -248,6 +274,7 @@ class OpenAIModel(Model):
                 }
                 for tool_spec in tool_specs or []
             ],
+            **({"tool_choice": self.format_request_tool_choice(tool_choice)} if tool_choice else {}),
             **cast(dict[str, Any], self.config.get("params", {})),
         }
 
@@ -329,6 +356,7 @@ class OpenAIModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        tool_choice: Optional[ToolChoice] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the OpenAI model.
@@ -337,13 +365,14 @@ class OpenAIModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Formatted message chunks from the model.
         """
         logger.debug("formatting request")
-        request = self.format_request(messages, tool_specs, system_prompt)
+        request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
         logger.debug("formatted request=<%s>", request)
 
         logger.debug("invoking model")

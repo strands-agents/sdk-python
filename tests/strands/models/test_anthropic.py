@@ -417,6 +417,72 @@ def test_format_request_with_empty_content(model, model_id, max_tokens):
     assert tru_request == exp_request
 
 
+def test_format_request_tool_choice_auto(model, messages, model_id, max_tokens):
+    tool_specs = [{"description": "test tool", "name": "test_tool", "inputSchema": {"json": {"key": "value"}}}]
+    tool_choice = {"auto": {}}
+
+    tru_request = model.format_request(messages, tool_specs, tool_choice=tool_choice)
+    exp_request = {
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}],
+        "model": model_id,
+        "tools": [
+            {
+                "name": "test_tool",
+                "description": "test tool",
+                "input_schema": {"key": "value"},
+            }
+        ],
+        "tool_choice": tool_choice,
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_tool_choice_any(model, messages, model_id, max_tokens):
+    tool_specs = [{"description": "test tool", "name": "test_tool", "inputSchema": {"json": {"key": "value"}}}]
+    tool_choice = {"any": {}}
+
+    tru_request = model.format_request(messages, tool_specs, tool_choice=tool_choice)
+    exp_request = {
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}],
+        "model": model_id,
+        "tools": [
+            {
+                "name": "test_tool",
+                "description": "test tool",
+                "input_schema": {"key": "value"},
+            }
+        ],
+        "tool_choice": tool_choice,
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_tool_choice_tool(model, messages, model_id, max_tokens):
+    tool_specs = [{"description": "test tool", "name": "test_tool", "inputSchema": {"json": {"key": "value"}}}]
+    tool_choice = {"tool": {"name": "test_tool"}}
+
+    tru_request = model.format_request(messages, tool_specs, tool_choice=tool_choice)
+    exp_request = {
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}],
+        "model": model_id,
+        "tools": [
+            {
+                "name": "test_tool",
+                "description": "test tool",
+                "input_schema": {"key": "value"},
+            }
+        ],
+        "tool_choice": tool_choice,
+    }
+
+    assert tru_request == exp_request
+
+
 def test_format_chunk_message_start(model):
     event = {"type": "message_start"}
 

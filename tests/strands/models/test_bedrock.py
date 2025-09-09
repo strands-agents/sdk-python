@@ -393,7 +393,57 @@ def test_format_request_tool_specs(model, messages, model_id, tool_spec):
         "system": [],
         "toolConfig": {
             "tools": [{"toolSpec": tool_spec}],
-            "toolChoice": {"auto": {}},
+        },
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_tool_choice_auto(model, messages, model_id, tool_spec):
+    tool_choice = {"auto": {}}
+    tru_request = model.format_request(messages, [tool_spec], tool_choice=tool_choice)
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": [],
+        "toolConfig": {
+            "tools": [{"toolSpec": tool_spec}],
+            "toolChoice": tool_choice,
+        },
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_tool_choice_any(model, messages, model_id, tool_spec):
+    tool_choice = {"any": {}}
+    tru_request = model.format_request(messages, [tool_spec], tool_choice=tool_choice)
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": [],
+        "toolConfig": {
+            "tools": [{"toolSpec": tool_spec}],
+            "toolChoice": tool_choice,
+        },
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_tool_choice_tool(model, messages, model_id, tool_spec):
+    tool_choice = {"tool": {"name": "test_tool"}}
+    tru_request = model.format_request(messages, [tool_spec], tool_choice=tool_choice)
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": [],
+        "toolConfig": {
+            "tools": [{"toolSpec": tool_spec}],
+            "toolChoice": tool_choice,
         },
     }
 
@@ -413,7 +463,6 @@ def test_format_request_cache(model, messages, model_id, tool_spec, cache_type):
                 {"toolSpec": tool_spec},
                 {"cachePoint": {"type": cache_type}},
             ],
-            "toolChoice": {"auto": {}},
         },
     }
 
@@ -487,7 +536,6 @@ async def test_stream(bedrock_client, model, messages, tool_spec, model_id, addi
         "system": [],
         "toolConfig": {
             "tools": [{"toolSpec": tool_spec}],
-            "toolChoice": {"auto": {}},
         },
     }
 
@@ -538,7 +586,6 @@ async def test_stream_stream_input_guardrails(
         "system": [],
         "toolConfig": {
             "tools": [{"toolSpec": tool_spec}],
-            "toolChoice": {"auto": {}},
         },
     }
 
@@ -595,7 +642,6 @@ async def test_stream_stream_output_guardrails(
         "system": [],
         "toolConfig": {
             "tools": [{"toolSpec": tool_spec}],
-            "toolChoice": {"auto": {}},
         },
     }
 
@@ -652,7 +698,6 @@ async def test_stream_output_guardrails_redacts_input_and_output(
         "system": [],
         "toolConfig": {
             "tools": [{"toolSpec": tool_spec}],
-            "toolChoice": {"auto": {}},
         },
     }
 
@@ -709,7 +754,6 @@ async def test_stream_output_no_blocked_guardrails_doesnt_redact(
         "system": [],
         "toolConfig": {
             "tools": [{"toolSpec": tool_spec}],
-            "toolChoice": {"auto": {}},
         },
     }
 
@@ -762,7 +806,6 @@ async def test_stream_output_no_guardrail_redact(
         "system": [],
         "toolConfig": {
             "tools": [{"toolSpec": tool_spec}],
-            "toolChoice": {"auto": {}},
         },
     }
 
