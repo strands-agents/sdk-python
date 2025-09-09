@@ -11,7 +11,7 @@ from botocore.exceptions import ClientError, EventStreamError
 
 import strands
 from strands.models import BedrockModel
-from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, DEFAULT_BEDROCK_REGION
+from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, DEFAULT_BEDROCK_REGION, DEFAULT_READ_TIMEOUT
 from strands.types.exceptions import ModelThrottledException
 from strands.types.tools import ToolSpec
 
@@ -216,6 +216,20 @@ def test__init__default_user_agent(bedrock_client):
         assert kwargs["service_name"] == "bedrock-runtime"
         assert isinstance(kwargs["config"], BotocoreConfig)
         assert kwargs["config"].user_agent_extra == "strands-agents"
+        assert kwargs["config"].read_timeout == DEFAULT_READ_TIMEOUT
+
+
+def test__init__default_read_timeout(bedrock_client):
+    """Set default read timeout when no boto_client_config is provided."""
+    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
+        mock_session = mock_session_cls.return_value
+        _ = BedrockModel()
+
+        # Verify the client was created with the correct read timeout
+        mock_session.client.assert_called_once()
+        args, kwargs = mock_session.client.call_args
+        assert isinstance(kwargs["config"], BotocoreConfig)
+        assert kwargs["config"].read_timeout == DEFAULT_READ_TIMEOUT
 
 
 def test__init__with_custom_boto_client_config_no_user_agent(bedrock_client):

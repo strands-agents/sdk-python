@@ -45,6 +45,7 @@ _MODELS_INCLUDE_STATUS = [
 
 T = TypeVar("T", bound=BaseModel)
 
+DEFAULT_READ_TIMEOUT = 120
 
 class BedrockModel(Model):
     """AWS Bedrock model provider implementation.
@@ -147,7 +148,7 @@ class BedrockModel(Model):
 
             client_config = boto_client_config.merge(BotocoreConfig(user_agent_extra=new_user_agent))
         else:
-            client_config = BotocoreConfig(user_agent_extra="strands-agents")
+            client_config = BotocoreConfig(user_agent_extra="strands-agents", read_timeout=DEFAULT_READ_TIMEOUT)
 
         resolved_region = region_name or session.region_name or os.environ.get("AWS_REGION") or DEFAULT_BEDROCK_REGION
 
