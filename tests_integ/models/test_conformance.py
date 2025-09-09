@@ -25,17 +25,20 @@ def provider_info(request) -> ProviderInfo:
 
 
 @pytest.fixture()
-def model(provider_info):
-    return provider_info.create_model()
-
-
-@pytest.fixture()
 def skip_for(provider_info: list[ProviderInfo]):
+    """A fixture which provides a function to skip the test if the provider is one of the providers specified."""
+
     def skip_for_any_provider_in_list(providers: list[ProviderInfo], description: str):
+        """Skips the current test is the provider is one of those provided."""
         if provider_info in providers:
             raise SkipTest(f"Skipping test for {provider_info.id}: {description}")
 
     return skip_for_any_provider_in_list
+
+
+@pytest.fixture()
+def model(provider_info):
+    return provider_info.create_model()
 
 
 def test_model_can_be_constructed(model: Model, skip_for):
