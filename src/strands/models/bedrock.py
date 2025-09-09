@@ -47,6 +47,7 @@ T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_READ_TIMEOUT = 120
 
+
 class BedrockModel(Model):
     """AWS Bedrock model provider implementation.
 

@@ -15,6 +15,7 @@ from strands import Agent
 from strands.tools.mcp.mcp_client import MCPClient
 from strands.tools.mcp.mcp_types import MCPTransport
 from strands.types.content import Message
+from strands.types.exceptions import MCPClientInitializationError
 from strands.types.tools import ToolUse
 
 
@@ -268,3 +269,31 @@ def test_streamable_http_mcp_client():
 
 def _messages_to_content_blocks(messages: List[Message]) -> List[ToolUse]:
     return [block["toolUse"] for message in messages for block in message["content"] if "toolUse" in block]
+
+
+def test_mcp_client_timeout_integration():
+    """Integration test for timeout scenario that caused hanging."""
+    import threading
+
+    from mcp import StdioServerParameters, stdio_client
+
+    def slow_transport():
+        time.sleep(4)  # Longer than timeout
+        return stdio_client(StdioServerParameters(command="python", args=["tests_integ/echo_server.py"]))
+
+    client = MCPClient(slow_transport, startup_timeout=2)
+    initial_threads = threading.active_count()
+
+    # First attempt should timeout
+    with pytest.raises(MCPClientInitializationError, match="background thread did not start in 2 seconds"):
+        with client:
+            pass
+
+    time.sleep(1)  # Allow cleanup
+    assert threading.active_count() == initial_threads  # No thread leak
+
+    # Should be able to recover by increasing timeout
+    client._startup_timeout = 60
+    with client:
+        tools = client.list_tools_sync()
+        assert len(tools) >= 0  # Should work now

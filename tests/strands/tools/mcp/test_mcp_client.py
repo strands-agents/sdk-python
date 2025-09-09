@@ -337,8 +337,12 @@ def test_enter_with_initialization_exception(mock_transport):
 
     client = MCPClient(mock_transport["transport_callable"])
 
-    with pytest.raises(MCPClientInitializationError, match="the client initialization failed"):
-        client.start()
+    with patch.object(client, "stop") as mock_stop:
+        with pytest.raises(MCPClientInitializationError, match="the client initialization failed"):
+            client.start()
+
+        # Verify stop() was called for cleanup
+        mock_stop.assert_called_once_with(None, None, None)
 
 
 def test_mcp_tool_result_type():
@@ -466,3 +470,18 @@ def test_get_prompt_sync_session_not_active():
 
     with pytest.raises(MCPClientInitializationError, match="client session is not running"):
         client.get_prompt_sync("test_prompt_id", {})
+
+
+def test_timeout_initialization_cleanup():
+    """Test that timeout during initialization properly cleans up."""
+
+    def slow_transport():
+        time.sleep(5)
+        return MagicMock()
+
+    client = MCPClient(slow_transport, startup_timeout=1)
+
+    with patch.object(client, "stop") as mock_stop:
+        with pytest.raises(MCPClientInitializationError, match="background thread did not start in 1 seconds"):
+            client.start()
+        mock_stop.assert_called_once_with(None, None, None)
