@@ -6,6 +6,7 @@
 import base64
 import json
 import logging
+import time
 from typing import Any, AsyncGenerator, Iterable, Optional, Type, TypeVar, Union
 
 import mistralai
@@ -334,7 +335,8 @@ class MistralModel(Model):
                 return {"messageStop": {"stopReason": reason}}
 
             case "metadata":
-                usage = event["data"]
+                usage = event["data"]["usage"]
+                metrics = event["data"]["metrics"]
                 return {
                     "metadata": {
                         "usage": {
@@ -343,7 +345,7 @@ class MistralModel(Model):
                             "totalTokens": usage.total_tokens,
                         },
                         "metrics": {
-                            "latencyMs": event.get("latency_ms", 0),
+                            "latencyMs": metrics["latency"] * 1000,
                         },
                     },
                 }
@@ -360,6 +362,8 @@ class MistralModel(Model):
         Yields:
             Formatted events that match the streaming format.
         """
+        start_time = time.time()
+
         yield {"chunk_type": "message_start"}
 
         content_started = False
@@ -389,7 +393,12 @@ class MistralModel(Model):
             yield {"chunk_type": "message_stop", "data": finish_reason}
 
         if hasattr(response, "usage") and response.usage:
-            yield {"chunk_type": "metadata", "data": response.usage}
+            end_time = time.time()
+            latency = end_time - start_time
+            yield {
+                "chunk_type": "metadata",
+                "data": {"usage": response.usage, "metrics": {"latency": latency}},
+            }
 
     @override
     async def stream(
@@ -434,6 +443,7 @@ class MistralModel(Model):
 
             # Use the streaming API
             async with mistralai.Mistral(**self.client_args) as client:
+                start_time = time.time()
                 stream_response = await client.chat.stream_async(**request)
 
                 yield self.format_chunk({"chunk_type": "message_start"})
@@ -488,7 +498,14 @@ class MistralModel(Model):
                             yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
 
                             if hasattr(chunk, "usage"):
-                                yield self.format_chunk({"chunk_type": "metadata", "data": chunk.usage})
+                                end_time = time.time()
+                                latency = end_time - start_time
+                                yield self.format_chunk(
+                                    {
+                                        "chunk_type": "metadata",
+                                        "data": {"usage": chunk.usage, "metrics": {"latency": latency}},
+                                    }
+                                )
 
         except Exception as e:
             if "rate" in str(e).lower() or "429" in str(e):

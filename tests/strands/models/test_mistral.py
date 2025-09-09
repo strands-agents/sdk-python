@@ -68,6 +68,12 @@ def test_output_model_cls():
     return TestOutputModel
 
 
+@pytest.fixture
+def mock_time():
+    with unittest.mock.patch.object(strands.models.mistral, "time") as mock:
+        yield mock.time
+
+
 def test__init__model_configs(mistral_client, model_id, max_tokens):
     _ = mistral_client
 
@@ -380,38 +386,12 @@ def test_format_chunk_metadata(model):
 
     event = {
         "chunk_type": "metadata",
-        "data": mock_usage,
-        "latency_ms": 250,
-    }
-
-    actual_chunk = model.format_chunk(event)
-    exp_chunk = {
-        "metadata": {
-            "usage": {
-                "inputTokens": 100,
-                "outputTokens": 50,
-                "totalTokens": 150,
-            },
-            "metrics": {
-                "latencyMs": 250,
-            },
+        "data": {
+            "usage": mock_usage,
+            "metrics": {"latency": 0.001},
         },
     }
 
-    assert actual_chunk == exp_chunk
-
-
-def test_format_chunk_metadata_no_latency(model):
-    mock_usage = unittest.mock.Mock()
-    mock_usage.prompt_tokens = 100
-    mock_usage.completion_tokens = 50
-    mock_usage.total_tokens = 150
-
-    event = {
-        "chunk_type": "metadata",
-        "data": mock_usage,
-    }
-
     actual_chunk = model.format_chunk(event)
     exp_chunk = {
         "metadata": {
@@ -421,7 +401,7 @@ def test_format_chunk_metadata_no_latency(model):
                 "totalTokens": 150,
             },
             "metrics": {
-                "latencyMs": 0,
+                "latencyMs": 1,
             },
         },
     }
@@ -437,7 +417,9 @@ def test_format_chunk_unknown(model):
 
 
 @pytest.mark.asyncio
-async def test_stream(mistral_client, model, agenerator, alist):
+async def test_stream(mistral_client, model, mock_time, agenerator, alist):
+    mock_time.side_effect = [0, 0.001]
+
     mock_usage = unittest.mock.Mock()
     mock_usage.prompt_tokens = 100
     mock_usage.completion_tokens = 50
@@ -458,10 +440,8 @@ async def test_stream(mistral_client, model, agenerator, alist):
     mistral_client.chat.stream_async = unittest.mock.AsyncMock(return_value=agenerator([mock_event]))
 
     messages = [{"role": "user", "content": [{"text": "test"}]}]
-    response = model.stream(messages, None, None)
-
-    # Consume the response
-    await alist(response)
+    stream = model.stream(messages, None, None)
+    responses = await alist(stream)
 
     expected_request = {
         "model": "mistral-large-latest",
@@ -471,6 +451,21 @@ async def test_stream(mistral_client, model, agenerator, alist):
     }
 
     mistral_client.chat.stream_async.assert_called_once_with(**expected_request)
+
+    tru_metadata = responses[-1]
+    exp_metadata = {
+        "metadata": {
+            "usage": {
+                "inputTokens": 100,
+                "outputTokens": 50,
+                "totalTokens": 150,
+            },
+            "metrics": {
+                "latencyMs": 1,
+            },
+        },
+    }
+    assert tru_metadata == exp_metadata
 
 
 @pytest.mark.asyncio
