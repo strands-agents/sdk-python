@@ -17,7 +17,7 @@ env:
   AUTHORIZED_USERS: ''  # Comma-separated list (ex: user1,user2,user3) *required for 'users' mode
   AUTH_MODE: 'write-access'  # Options: 'users', 'write-access'
   ISSUE_TYPES: 'issues'  # Options: 'issues', 'pulls', 'both'
-  DRY_RUN: 'true'  # Set to 'true' to enable dry-run mode (no actions taken)
+  DRY_RUN: 'false'  # Set to 'true' to enable dry-run mode (no actions taken)
   REPLACEMENT_LABEL: 'invalid'  # Optional: Label to add when removing the auto-close label
 
 jobs:
@@ -30,8 +30,10 @@ jobs:
           script: |
             const { LABEL_NAME, DAYS_TO_WAIT, AUTH_MODE, AUTHORIZED_USERS, ISSUE_TYPES, DRY_RUN } = process.env;
             
+            const isManualTrigger = !!github.event.workflow_dispatch;
             // Check for manual dry-run override
-            const isDryRun = '${{ inputs.dry_run }}' === 'true' || DRY_RUN === 'true';
+            const isDryRun = isManualTrigger ? '${{ inputs.dry_run }}' === 'true' : DRY_RUN === 'true';
+            
             
             // Validate required fields
             if (!LABEL_NAME) throw new Error('LABEL_NAME is required');
