@@ -1,8 +1,8 @@
-name: Auto Close Issues
+name: Auto Close 3 Days
 
 on:
   schedule:
-    - cron: '0 9 * * *'  # Daily at 9 AM UTC
+    - cron: '0 14 * * 1-5'  # 9 AM EST (2 PM UTC) Monday through Friday
   workflow_dispatch:
     inputs:
       dry_run:
@@ -60,7 +60,7 @@ jobs:
           script: |
             // Constants
             const REQUIRED_PERMISSIONS = ['write', 'admin'];
-            const CLOSE_MESSAGE = `This issue has been automatically closed as it was marked for auto-closure by the team and no response was received within ${process.env.DAYS_TO_WAIT} days.`;
+            const CLOSE_MESSAGE = `This issue has been automatically closed as it was marked for auto-closure by the team and no addtional responses was received within ${process.env.DAYS_TO_WAIT} days.`;
             
             // Check for dry-run mode
             const isDryRun = '${{ inputs.dry_run }}' === 'true' || process.env.DRY_RUN === 'true';
