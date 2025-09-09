@@ -51,6 +51,12 @@ def test_output_model_cls():
     return TestOutputModel
 
 
+@pytest.fixture
+def mock_time():
+    with unittest.mock.patch.object(strands.models.anthropic, "time") as mock:
+        yield mock.time
+
+
 def test__init__model_configs(anthropic_client, model_id, max_tokens):
     _ = anthropic_client
 
@@ -598,6 +604,7 @@ def test_format_chunk_metadata(model):
     event = {
         "type": "metadata",
         "usage": {"input_tokens": 1, "output_tokens": 2},
+        "metrics": {"latency": 0.001},
     }
 
     tru_chunk = model.format_chunk(event)
@@ -609,7 +616,7 @@ def test_format_chunk_metadata(model):
                 "totalTokens": 3,
             },
             "metrics": {
-                "latencyMs": 0,
+                "latencyMs": 1,
             },
         },
     }
@@ -625,7 +632,9 @@ def test_format_chunk_unknown(model):
 
 
 @pytest.mark.asyncio
-async def test_stream(anthropic_client, model, agenerator, alist):
+async def test_stream(anthropic_client, model, mock_time, agenerator, alist):
+    mock_time.side_effect = [0, 0.001]
+
     mock_event_1 = unittest.mock.Mock(
         type="message_start",
         dict=lambda: {"type": "message_start"},
@@ -656,7 +665,7 @@ async def test_stream(anthropic_client, model, agenerator, alist):
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
-        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 1}}},
     ]
 
     assert tru_events == exp_events

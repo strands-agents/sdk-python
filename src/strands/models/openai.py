@@ -7,6 +7,7 @@ import base64
 import json
 import logging
 import mimetypes
+import time
 from typing import Any, AsyncGenerator, Optional, Protocol, Type, TypedDict, TypeVar, Union, cast
 
 import openai
@@ -310,12 +311,12 @@ class OpenAIModel(Model):
                 return {
                     "metadata": {
                         "usage": {
-                            "inputTokens": event["data"].prompt_tokens,
-                            "outputTokens": event["data"].completion_tokens,
-                            "totalTokens": event["data"].total_tokens,
+                            "inputTokens": event["data"]["usage"].prompt_tokens,
+                            "outputTokens": event["data"]["usage"].completion_tokens,
+                            "totalTokens": event["data"]["usage"].total_tokens,
                         },
                         "metrics": {
-                            "latencyMs": 0,  # TODO
+                            "latencyMs": event["data"]["metrics"]["latency"] * 1000,
                         },
                     },
                 }
@@ -333,13 +334,16 @@ class OpenAIModel(Model):
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the OpenAI model.
 
+        - Note: The latencyMs entry in the metadata payload is calculated by Strands as OpenAI does not provide this
+                metric.
+
         Args:
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             **kwargs: Additional keyword arguments for future extensibility.
 
-        Yields:
+        Returns:
             Formatted message chunks from the model.
         """
         logger.debug("formatting request")
@@ -347,9 +351,10 @@ class OpenAIModel(Model):
         logger.debug("formatted request=<%s>", request)
 
         logger.debug("invoking model")
+        start_time = time.time()
         response = await self.client.chat.completions.create(**request)
-
         logger.debug("got response from model")
+
         yield self.format_chunk({"chunk_type": "message_start"})
         yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
@@ -398,7 +403,11 @@ class OpenAIModel(Model):
             _ = event
 
         if event.usage:
-            yield self.format_chunk({"chunk_type": "metadata", "data": event.usage})
+            end_time = time.time()
+            latency = end_time - start_time
+            yield self.format_chunk(
+                {"chunk_type": "metadata", "data": {"usage": event.usage, "metrics": {"latency": latency}}}
+            )
 
         logger.debug("finished streaming response from model")
 

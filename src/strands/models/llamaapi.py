@@ -8,6 +8,7 @@ import base64
 import json
 import logging
 import mimetypes
+import time
 from typing import Any, AsyncGenerator, Optional, Type, TypeVar, Union, cast
 
 import llama_api_client
@@ -299,7 +300,7 @@ class LlamaAPIModel(Model):
 
             case "metadata":
                 usage = {}
-                for metrics in event["data"]:
+                for metrics in event["data"]["usage"]:
                     if metrics.metric == "num_prompt_tokens":
                         usage["inputTokens"] = metrics.value
                     elif metrics.metric == "num_completion_tokens":
@@ -316,7 +317,7 @@ class LlamaAPIModel(Model):
                     "metadata": {
                         "usage": usage_type,
                         "metrics": {
-                            "latencyMs": 0,  # TODO
+                            "latencyMs": event["data"]["metrics"]["latency"] * 1000,
                         },
                     },
                 }
@@ -333,6 +334,9 @@ class LlamaAPIModel(Model):
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the LlamaAPI model.
+
+        - Note: The latencyMs entry in the metadata payload is calculated by Strands as LlamaAPI does not provide this
+                metric.
 
         Args:
             messages: List of message objects to be processed by the model.
@@ -351,6 +355,7 @@ class LlamaAPIModel(Model):
         logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")
+        start_time = time.time()
         try:
             response = self.client.chat.completions.create(**request)
         except llama_api_client.RateLimitError as e:
@@ -404,7 +409,11 @@ class LlamaAPIModel(Model):
 
         # we may have a metrics event here
         if metrics_event:
-            yield self.format_chunk({"chunk_type": "metadata", "data": metrics_event})
+            end_time = time.time()
+            latency = end_time - start_time
+            yield self.format_chunk(
+                {"chunk_type": "metadata", "data": {"usage": metrics_event, "metrics": {"latency": latency}}}
+            )
 
         logger.debug("finished streaming response from model")
 
