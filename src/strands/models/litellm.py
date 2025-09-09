@@ -114,6 +114,9 @@ class LiteLLMModel(OpenAIModel):
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the LiteLLM model.
 
+        - Notes: The latencyMs entry in the metadata payload is calculated by Strands as LiteLLM does not provide this
+                 metric.
+
         Args:
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.

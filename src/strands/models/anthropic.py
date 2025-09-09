@@ -353,6 +353,9 @@ class AnthropicModel(Model):
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Anthropic model.
 
+        - Note: The latencyMs entry in the metadata payload is calculated by Strands as Anthropic does not provide this
+                metric.
+
         Args:
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.

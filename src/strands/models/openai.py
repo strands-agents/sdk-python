@@ -331,13 +331,16 @@ class OpenAIModel(Model):
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the OpenAI model.
 
+        - Note: The latencyMs entry in the metadata payload is calculated by Strands as OpenAI does not provide this
+                metric.
+
         Args:
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             **kwargs: Additional keyword arguments for future extensibility.
 
-        Yields:
+        Returns:
             Formatted message chunks from the model.
         """
         logger.debug("formatting request")
