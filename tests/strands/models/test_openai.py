@@ -182,24 +182,24 @@ def test_format_request_tool_message():
 def test_format_request_tool_choice_auto():
     tool_choice = {"auto": {}}
 
-    tru_result = OpenAIModel.format_request_tool_choice(tool_choice)
-    exp_result = "auto"
+    tru_result = OpenAIModel._format_request_tool_choice(tool_choice)
+    exp_result = {"tool_choice": "auto"}
     assert tru_result == exp_result
 
 
 def test_format_request_tool_choice_any():
     tool_choice = {"any": {}}
 
-    tru_result = OpenAIModel.format_request_tool_choice(tool_choice)
-    exp_result = "required"
+    tru_result = OpenAIModel._format_request_tool_choice(tool_choice)
+    exp_result = {"tool_choice": "required"}
     assert tru_result == exp_result
 
 
 def test_format_request_tool_choice_tool():
     tool_choice = {"tool": {"name": "test_tool"}}
 
-    tru_result = OpenAIModel.format_request_tool_choice(tool_choice)
-    exp_result = {"type": "function", "function": {"name": "test_tool"}}
+    tru_result = OpenAIModel._format_request_tool_choice(tool_choice)
+    exp_result = {"tool_choice": {"type": "function", "function": {"name": "test_tool"}}}
     assert tru_result == exp_result
 
 
@@ -742,3 +742,18 @@ def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings
     assert len(captured_warnings) == 1
     assert "Invalid configuration parameters" in str(captured_warnings[0].message)
     assert "wrong_param" in str(captured_warnings[0].message)
+
+
+def test_tool_choice_supported_no_warning(model, messages, captured_warnings):
+    """Test that toolChoice doesn't emit warning for supported providers."""
+    tool_choice = {"auto": {}}
+    model.format_request(messages, tool_choice=tool_choice)
+
+    assert len(captured_warnings) == 0
+
+
+def test_tool_choice_none_no_warning(model, messages, captured_warnings):
+    """Test that None toolChoice doesn't emit warning."""
+    model.format_request(messages, tool_choice=None)
+
+    assert len(captured_warnings) == 0

@@ -379,3 +379,38 @@ def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings
     assert len(captured_warnings) == 1
     assert "Invalid configuration parameters" in str(captured_warnings[0].message)
     assert "wrong_param" in str(captured_warnings[0].message)
+
+
+@pytest.mark.asyncio
+async def test_tool_choice_not_supported_warns(model, messages, captured_warnings, alist):
+    """Test that non-None toolChoice emits warning for unsupported providers."""
+    tool_choice = {"auto": {}}
+
+    with unittest.mock.patch.object(model.client.chat.completions, "create") as mock_create:
+        mock_chunk = unittest.mock.Mock()
+        mock_chunk.event.event_type = "start"
+        mock_chunk.event.stop_reason = "stop"
+
+        mock_create.return_value = [mock_chunk]
+
+        response = model.stream(messages, tool_choice=tool_choice)
+        await alist(response)
+
+    assert len(captured_warnings) == 1
+    assert "ToolChoice was provided to this provider but is not supported" in str(captured_warnings[0].message)
+
+
+@pytest.mark.asyncio
+async def test_tool_choice_none_no_warning(model, messages, captured_warnings, alist):
+    """Test that None toolChoice doesn't emit warning."""
+    with unittest.mock.patch.object(model.client.chat.completions, "create") as mock_create:
+        mock_chunk = unittest.mock.Mock()
+        mock_chunk.event.event_type = "start"
+        mock_chunk.event.stop_reason = "stop"
+
+        mock_create.return_value = [mock_chunk]
+
+        response = model.stream(messages, tool_choice=None)
+        await alist(response)
+
+    assert len(captured_warnings) == 0

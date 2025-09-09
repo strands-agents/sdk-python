@@ -15,7 +15,7 @@ from typing_extensions import Unpack, override
 from ..types.content import ContentBlock, Messages
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
-from ._config_validation import validate_config_keys
+from ._validation import validate_config_keys
 from .openai import OpenAIModel
 
 logger = logging.getLogger(__name__)
@@ -114,7 +114,7 @@ class LiteLLMModel(OpenAIModel):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
-        tool_choice: Optional[ToolChoice] = None,
+        tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the LiteLLM model.
@@ -123,15 +123,14 @@ class LiteLLMModel(OpenAIModel):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
-            tool_choice: Selection strategy for tool invocation. **Note: This parameter is accepted for
-                interface consistency but is currently ignored for this model provider.**
+            tool_choice: Selection strategy for tool invocation.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Formatted message chunks from the model.
         """
         logger.debug("formatting request")
-        request = self.format_request(messages, tool_specs, system_prompt)
+        request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
         logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")

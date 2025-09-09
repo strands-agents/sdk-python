@@ -24,7 +24,7 @@ from ..types.exceptions import (
 )
 from ..types.streaming import CitationsDelta, StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec
-from ._config_validation import validate_config_keys
+from ._validation import validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -195,7 +195,7 @@ class BedrockModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
-        tool_choice: Optional[ToolChoice] = None,
+        tool_choice: ToolChoice | None = None,
     ) -> dict[str, Any]:
         """Format a Bedrock converse stream request.
 
@@ -226,7 +226,7 @@ class BedrockModel(Model):
                                 else []
                             ),
                         ],
-                        **({"toolChoice": tool_choice} if tool_choice else {}),
+                        **({"toolChoice": tool_choice if tool_choice else {"auto": {}}}),
                     }
                 }
                 if tool_specs
@@ -418,7 +418,7 @@ class BedrockModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
-        tool_choice: Optional[ToolChoice] = None,
+        tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Bedrock model.
@@ -467,7 +467,7 @@ class BedrockModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
-        tool_choice: Optional[ToolChoice] = None,
+        tool_choice: ToolChoice | None = None,
     ) -> None:
         """Stream conversation with the Bedrock model.
 

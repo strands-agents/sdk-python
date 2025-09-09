@@ -393,6 +393,7 @@ def test_format_request_tool_specs(model, messages, model_id, tool_spec):
         "system": [],
         "toolConfig": {
             "tools": [{"toolSpec": tool_spec}],
+            "toolChoice": {"auto": {}},
         },
     }
 
@@ -463,6 +464,7 @@ def test_format_request_cache(model, messages, model_id, tool_spec, cache_type):
                 {"toolSpec": tool_spec},
                 {"cachePoint": {"type": cache_type}},
             ],
+            "toolChoice": {"auto": {}},
         },
     }
 
@@ -536,6 +538,7 @@ async def test_stream(bedrock_client, model, messages, tool_spec, model_id, addi
         "system": [],
         "toolConfig": {
             "tools": [{"toolSpec": tool_spec}],
+            "toolChoice": {"auto": {}},
         },
     }
 
@@ -586,6 +589,7 @@ async def test_stream_stream_input_guardrails(
         "system": [],
         "toolConfig": {
             "tools": [{"toolSpec": tool_spec}],
+            "toolChoice": {"auto": {}},
         },
     }
 
@@ -642,6 +646,7 @@ async def test_stream_stream_output_guardrails(
         "system": [],
         "toolConfig": {
             "tools": [{"toolSpec": tool_spec}],
+            "toolChoice": {"auto": {}},
         },
     }
 
@@ -698,6 +703,7 @@ async def test_stream_output_guardrails_redacts_input_and_output(
         "system": [],
         "toolConfig": {
             "tools": [{"toolSpec": tool_spec}],
+            "toolChoice": {"auto": {}},
         },
     }
 
@@ -754,6 +760,7 @@ async def test_stream_output_no_blocked_guardrails_doesnt_redact(
         "system": [],
         "toolConfig": {
             "tools": [{"toolSpec": tool_spec}],
+            "toolChoice": {"auto": {}},
         },
     }
 
@@ -806,6 +813,7 @@ async def test_stream_output_no_guardrail_redact(
         "system": [],
         "toolConfig": {
             "tools": [{"toolSpec": tool_spec}],
+            "toolChoice": {"auto": {}},
         },
     }
 
@@ -1506,3 +1514,18 @@ def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings
     assert len(captured_warnings) == 1
     assert "Invalid configuration parameters" in str(captured_warnings[0].message)
     assert "wrong_param" in str(captured_warnings[0].message)
+
+
+def test_tool_choice_supported_no_warning(model, messages, tool_spec, captured_warnings):
+    """Test that toolChoice doesn't emit warning for supported providers."""
+    tool_choice = {"auto": {}}
+    model.format_request(messages, [tool_spec], tool_choice=tool_choice)
+
+    assert len(captured_warnings) == 0
+
+
+def test_tool_choice_none_no_warning(model, messages, captured_warnings):
+    """Test that None toolChoice doesn't emit warning."""
+    model.format_request(messages, tool_choice=None)
+
+    assert len(captured_warnings) == 0
