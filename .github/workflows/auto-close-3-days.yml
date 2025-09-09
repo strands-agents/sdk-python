@@ -18,7 +18,7 @@ env:
   AUTH_MODE: 'write-access'  # Options: 'users', 'write-access'
   ISSUE_TYPES: 'issues'  # Options: 'issues', 'pulls', 'both'
   DRY_RUN: 'true'  # Set to 'true' to enable dry-run mode (no actions taken)
-  REPLACEMENT_LABEL: ''  # Optional: Label to add when removing the auto-close label
+  REPLACEMENT_LABEL: 'invalid'  # Optional: Label to add when removing the auto-close label
 
 jobs:
   auto-close:
