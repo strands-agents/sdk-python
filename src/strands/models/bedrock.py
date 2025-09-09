@@ -24,6 +24,7 @@ from ..types.exceptions import (
 )
 from ..types.streaming import CitationsDelta, StreamEvent
 from ..types.tools import ToolResult, ToolSpec
+from ._config_validation import validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -166,6 +167,7 @@ class BedrockModel(Model):
         Args:
             **model_config: Configuration overrides.
         """
+        validate_config_keys(model_config, self.BedrockConfig)
         self.config.update(model_config)
 
     @override

@@ -1445,3 +1445,21 @@ async def test_stream_deepseek_skips_empty_messages(bedrock_client, alist):
     assert len(sent_messages) == 2
     assert sent_messages[0]["content"] == [{"text": "Hello"}]
     assert sent_messages[1]["content"] == [{"text": "Follow up"}]
+
+
+def test_config_validation_warns_on_unknown_keys(bedrock_client, captured_warnings):
+    """Test that unknown config keys emit a warning."""
+    BedrockModel(model_id="test-model", invalid_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "invalid_param" in str(captured_warnings[0].message)
+
+
+def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings):
+    """Test that update_config warns on unknown keys."""
+    model.update_config(wrong_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "wrong_param" in str(captured_warnings[0].message)

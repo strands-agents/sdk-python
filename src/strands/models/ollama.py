@@ -14,6 +14,7 @@ from typing_extensions import TypedDict, Unpack, override
 from ..types.content import ContentBlock, Messages
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolSpec
+from ._config_validation import validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -70,6 +71,7 @@ class OllamaModel(Model):
         """
         self.host = host
         self.client_args = ollama_client_args or {}
+        validate_config_keys(model_config, self.OllamaConfig)
         self.config = OllamaModel.OllamaConfig(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -81,6 +83,7 @@ class OllamaModel(Model):
         Args:
             **model_config: Configuration overrides.
         """
+        validate_config_keys(model_config, self.OllamaConfig)
         self.config.update(model_config)
 
     @override

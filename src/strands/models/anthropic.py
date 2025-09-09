@@ -20,6 +20,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolSpec
+from ._config_validation import validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,7 @@ class AnthropicModel(Model):
                 For a complete list of supported arguments, see https://docs.anthropic.com/en/api/client-sdks.
             **model_config: Configuration options for the Anthropic model.
         """
+        validate_config_keys(model_config, self.AnthropicConfig)
         self.config = AnthropicModel.AnthropicConfig(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -82,6 +84,7 @@ class AnthropicModel(Model):
         Args:
             **model_config: Configuration overrides.
         """
+        validate_config_keys(model_config, self.AnthropicConfig)
         self.config.update(model_config)
 
     @override
