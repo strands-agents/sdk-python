@@ -8,17 +8,17 @@ on:
       dry_run:
         description: 'Run in dry-run mode (no actions taken, only logging)'
         required: false
-        default: 'true'
+        default: 'false'
         type: boolean
 
 env:
   LABEL_NAME: 'autoclose in 3 days'
-  DAYS_TO_WAIT: '0'
+  DAYS_TO_WAIT: '3'
   AUTHORIZED_USERS: ''  # Comma-separated list (ex: user1,user2,user3) *required for 'users' mode
   AUTH_MODE: 'write-access'  # Options: 'users', 'write-access'
   ISSUE_TYPES: 'issues'  # Options: 'issues', 'pulls', 'both'
   DRY_RUN: 'false'  # Set to 'true' to enable dry-run mode (no actions taken)
-  REPLACEMENT_LABEL: 'invalid'  # Optional: Label to add when removing the auto-close label
+  REPLACEMENT_LABEL: ''  # Optional: Label to add when removing the auto-close label
   CLOSE_MESSAGE: 'This issue has been automatically closed as it was marked for auto-closure by the team and no additional responses was received within the allotted time.'
 
 jobs:
