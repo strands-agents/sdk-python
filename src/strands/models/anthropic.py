@@ -18,7 +18,7 @@ from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
-from ..types.tools import ToolChoice, ToolSpec
+from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
 from ._validation import validate_config_keys
 from .model import Model
 
@@ -243,7 +243,7 @@ class AnthropicModel(Model):
         elif "auto" in tool_choice:
             return {"tool_choice": {"type": "auto"}}
         elif "tool" in tool_choice:
-            return {"tool_choice": {"type": "tool", "name": tool_choice["tool"]["name"]}}
+            return {"tool_choice": {"type": "tool", "name": cast(ToolChoiceToolDict, tool_choice)["tool"]["name"]}}
         else:
             return {}
 
