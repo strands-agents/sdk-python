@@ -228,10 +228,24 @@ class AnthropicModel(Model):
                 }
                 for tool_spec in tool_specs or []
             ],
-            **({"tool_choice": tool_choice} if tool_choice else {}),
+            **(self._format_tool_choice(tool_choice)),
             **({"system": system_prompt} if system_prompt else {}),
             **(self.config.get("params") or {}),
         }
+
+    @staticmethod
+    def _format_tool_choice(tool_choice: ToolChoice | None) -> dict:
+        if tool_choice is None:
+            return {}
+
+        if "any" in tool_choice:
+            return {"tool_choice": {"type": "any"}}
+        elif "auto" in tool_choice:
+            return {"tool_choice": {"type": "auto"}}
+        elif "tool" in tool_choice:
+            return {"tool_choice": {"type": "tool", "name": tool_choice["tool"]["name"]}}
+        else:
+            return {}
 
     def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
         """Format the Anthropic response events into standardized message chunks.
