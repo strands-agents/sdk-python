@@ -16,7 +16,7 @@ from asyncio import AbstractEventLoop
 from concurrent import futures
 from datetime import timedelta
 from types import TracebackType
-from typing import Any, Callable, Coroutine, Dict, Optional, TypeVar, Union
+from typing import Any, Callable, Coroutine, Dict, Optional, TypeVar, Union, cast
 
 from mcp import ClientSession, ListToolsResult
 from mcp.types import CallToolResult as MCPCallToolResult
@@ -157,7 +157,7 @@ class MCPClient:
                 async def _set_close_event() -> None:
                     self._close_event.set()
 
-                asyncio.run_coroutine_threadsafe(_set_close_event(), self._background_thread_event_loop)
+                self._invoke_on_background_thread(_set_close_event()).result()
 
             self._log_debug_with_thread("waiting for background thread to join")
             self._background_thread.join()
@@ -183,8 +183,7 @@ class MCPClient:
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _list_tools_async() -> ListToolsResult:
-            assert self._background_thread_session is not None
-            return await self._background_thread_session.list_tools(cursor=pagination_token)
+            return await cast(ClientSession, self._background_thread_session).list_tools(cursor=pagination_token)
 
         list_tools_response: ListToolsResult = self._invoke_on_background_thread(_list_tools_async()).result()
         self._log_debug_with_thread("received %d tools from MCP server", len(list_tools_response.tools))
@@ -210,8 +209,7 @@ class MCPClient:
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _list_prompts_async() -> ListPromptsResult:
-            assert self._background_thread_session is not None
-            return await self._background_thread_session.list_prompts(cursor=pagination_token)
+            return await cast(ClientSession, self._background_thread_session).list_prompts(cursor=pagination_token)
 
         list_prompts_result: ListPromptsResult = self._invoke_on_background_thread(_list_prompts_async()).result()
         self._log_debug_with_thread("received %d prompts from MCP server", len(list_prompts_result.prompts))
@@ -235,8 +233,7 @@ class MCPClient:
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _get_prompt_async() -> GetPromptResult:
-            assert self._background_thread_session is not None
-            return await self._background_thread_session.get_prompt(prompt_id, arguments=args)
+            return await cast(ClientSession, self._background_thread_session).get_prompt(prompt_id, arguments=args)
 
         get_prompt_result: GetPromptResult = self._invoke_on_background_thread(_get_prompt_async()).result()
         self._log_debug_with_thread("received prompt from MCP server")
@@ -271,8 +268,9 @@ class MCPClient:
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _call_tool_async() -> MCPCallToolResult:
-            assert self._background_thread_session is not None
-            return await self._background_thread_session.call_tool(name, arguments, read_timeout_seconds)
+            return await cast(ClientSession, self._background_thread_session).call_tool(
+                name, arguments, read_timeout_seconds
+            )
 
         try:
             call_tool_result: MCPCallToolResult = self._invoke_on_background_thread(_call_tool_async()).result()
@@ -307,8 +305,9 @@ class MCPClient:
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _call_tool_async() -> MCPCallToolResult:
-            assert self._background_thread_session is not None
-            return await self._background_thread_session.call_tool(name, arguments, read_timeout_seconds)
+            return await cast(ClientSession, self._background_thread_session).call_tool(
+                name, arguments, read_timeout_seconds
+            )
 
         try:
             future = self._invoke_on_background_thread(_call_tool_async())

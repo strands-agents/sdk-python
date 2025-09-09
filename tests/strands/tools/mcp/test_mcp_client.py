@@ -485,3 +485,39 @@ def test_timeout_initialization_cleanup():
         with pytest.raises(MCPClientInitializationError, match="background thread did not start in 1 seconds"):
             client.start()
         mock_stop.assert_called_once_with(None, None, None)
+
+
+def test_stop_with_no_background_thread():
+    """Test that stop() handles the case when no background thread exists."""
+    client = MCPClient(MagicMock())
+
+    # Ensure no background thread exists
+    assert client._background_thread is None
+
+    # Mock join to verify it's not called
+    with patch("threading.Thread.join") as mock_join:
+        client.stop(None, None, None)
+        mock_join.assert_not_called()
+
+    # Verify cleanup occurred
+    assert client._background_thread is None
+
+
+def test_stop_with_background_thread_but_no_event_loop():
+    """Test that stop() handles the case when background thread exists but event loop is None."""
+    client = MCPClient(MagicMock())
+
+    # Mock a background thread without event loop
+    mock_thread = MagicMock()
+    mock_thread.join = MagicMock()
+    client._background_thread = mock_thread
+    client._background_thread_event_loop = None
+
+    # Should not raise any exceptions and should join the thread
+    client.stop(None, None, None)
+
+    # Verify thread was joined
+    mock_thread.join.assert_called_once()
+
+    # Verify cleanup occurred
+    assert client._background_thread is None
