@@ -13,7 +13,7 @@ on:
 
 env:
   LABEL_NAME: 'autoclose in 3 days'
-  DAYS_TO_WAIT: '1'
+  DAYS_TO_WAIT: '0'
   AUTHORIZED_USERS: ''  # Comma-separated list (ex: user1,user2,user3) *required for 'users' mode
   AUTH_MODE: 'write-access'  # Options: 'users', 'write-access'
   ISSUE_TYPES: 'issues'  # Options: 'issues', 'pulls', 'both'
