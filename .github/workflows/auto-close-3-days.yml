@@ -28,9 +28,9 @@ jobs:
         uses: actions/github-script@v8
         with:
           script: |
-            const { LABEL_NAME, DAYS_TO_WAIT, AUTH_MODE, AUTHORIZED_USERS, ISSUE_TYPES, DRY_RUN } = process.env;
+            const { LABEL_NAME, DAYS_TO_WAIT, AUTH_MODE, AUTHORIZED_USERS, ISSUE_TYPES, DRY_RUN, GITHUB_EVENT_NAME } = process.env;
             
-            const isManualTrigger = !!github.event.workflow_dispatch;
+            const isManualTrigger = GITHUB_EVENT_NAME === 'workflow_dispatch';
             // Check for manual dry-run override
             const isDryRun = isManualTrigger ? '${{ inputs.dry_run }}' === 'true' : DRY_RUN === 'true';
             
