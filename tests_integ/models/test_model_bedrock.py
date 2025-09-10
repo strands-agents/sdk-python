@@ -4,6 +4,7 @@ import pytest
 import strands
 from strands import Agent
 from strands.models import BedrockModel
+from strands.types.content import ContentBlock
 
 
 @pytest.fixture
@@ -27,12 +28,20 @@ def non_streaming_model():
 
 @pytest.fixture
 def streaming_agent(streaming_model, system_prompt):
-    return Agent(model=streaming_model, system_prompt=system_prompt, load_tools_from_directory=False)
+    return Agent(
+        model=streaming_model,
+        system_prompt=system_prompt,
+        load_tools_from_directory=False,
+    )
 
 
 @pytest.fixture
 def non_streaming_agent(non_streaming_model, system_prompt):
-    return Agent(model=non_streaming_model, system_prompt=system_prompt, load_tools_from_directory=False)
+    return Agent(
+        model=non_streaming_model,
+        system_prompt=system_prompt,
+        load_tools_from_directory=False,
+    )
 
 
 @pytest.fixture
@@ -182,6 +191,42 @@ def test_invoke_multi_modal_input(streaming_agent, yellow_img):
     text = result.message["content"][0]["text"].lower()
 
     assert "yellow" in text
+
+
+def test_document_citations(non_streaming_agent, letter_pdf):
+    content: list[ContentBlock] = [
+        {
+            "document": {
+                "name": "letter to shareholders",
+                "source": {"bytes": letter_pdf},
+                "citations": {"enabled": True},
+                "context": "This is a letter to shareholders",
+                "format": "pdf",
+            },
+        },
+        {"text": "What does the document say about artificial intelligence? Use citations to back up your answer."},
+    ]
+    non_streaming_agent(content)
+
+    assert any("citationsContent" in content for content in non_streaming_agent.messages[-1]["content"])
+
+
+def test_document_citations_streaming(streaming_agent, letter_pdf):
+    content: list[ContentBlock] = [
+        {
+            "document": {
+                "name": "letter to shareholders",
+                "source": {"bytes": letter_pdf},
+                "citations": {"enabled": True},
+                "context": "This is a letter to shareholders",
+                "format": "pdf",
+            },
+        },
+        {"text": "What does the document say about artificial intelligence? Use citations to back up your answer."},
+    ]
+    streaming_agent(content)
+
+    assert any("citationsContent" in content for content in streaming_agent.messages[-1]["content"])
 
 
 def test_structured_output_multi_modal_input(streaming_agent, yellow_img, yellow_color):

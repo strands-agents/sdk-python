@@ -14,13 +14,24 @@ import json
 import logging
 import random
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, AsyncGenerator, AsyncIterator, Callable, Mapping, Optional, Type, TypeVar, Union, cast
+from typing import (
+    Any,
+    AsyncGenerator,
+    AsyncIterator,
+    Callable,
+    Mapping,
+    Optional,
+    Type,
+    TypeVar,
+    Union,
+    cast,
+)
 
 from opentelemetry import trace as trace_api
 from pydantic import BaseModel
 
 from .. import _identifier
-from ..event_loop.event_loop import event_loop_cycle, run_tool
+from ..event_loop.event_loop import event_loop_cycle
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
     AfterInvocationEvent,
@@ -35,8 +46,12 @@ from ..models.model import Model
 from ..session.session_manager import SessionManager
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer, serialize
+from ..tools.executors import ConcurrentToolExecutor
+from ..tools.executors._executor import ToolExecutor
 from ..tools.registry import ToolRegistry
 from ..tools.watcher import ToolWatcher
+from ..types._events import AgentResultEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
+from ..types.agent import AgentInput
 from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.tools import ToolResult, ToolUse
@@ -136,13 +151,14 @@ class Agent:
                     "name": normalized_name,
                     "input": kwargs.copy(),
                 }
+                tool_results: list[ToolResult] = []
+                invocation_state = kwargs
 
                 async def acall() -> ToolResult:
-                    # Pass kwargs as invocation_state
-                    async for event in run_tool(self._agent, tool_use, kwargs):
+                    async for event in ToolExecutor._stream(self._agent, tool_use, tool_results, invocation_state):
                         _ = event
 
-                    return cast(ToolResult, event)
+                    return tool_results[0]
 
                 def tcall() -> ToolResult:
                     return asyncio.run(acall())
@@ -208,6 +224,7 @@ class Agent:
         state: Optional[Union[AgentState, dict]] = None,
         hooks: Optional[list[HookProvider]] = None,
         session_manager: Optional[SessionManager] = None,
+        tool_executor: Optional[ToolExecutor] = None,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -250,6 +267,7 @@ class Agent:
                 Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
+            tool_executor: Definition of tool execution stragety (e.g., sequential, concurrent, etc.).
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -324,6 +342,8 @@ class Agent:
         if self._session_manager:
             self.hooks.add_hook(self._session_manager)
 
+        self.tool_executor = tool_executor or ConcurrentToolExecutor()
+
         if hooks:
             for hook in hooks:
                 self.hooks.add_hook(hook)
@@ -354,14 +374,21 @@ class Agent:
         all_tools = self.tool_registry.get_all_tools_config()
         return list(all_tools.keys())
 
-    def __call__(self, prompt: Union[str, list[ContentBlock]], **kwargs: Any) -> AgentResult:
+    def __call__(self, prompt: AgentInput = None, **kwargs: Any) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
-        This method implements the conversational interface (e.g., `agent("hello!")`). It adds the user's prompt to
-        the conversation history, processes it through the model, executes any tool calls, and returns the final result.
+        This method implements the conversational interface with multiple input patterns:
+        - String input: `agent("hello!")`
+        - ContentBlock list: `agent([{"text": "hello"}, {"image": {...}}])`
+        - Message list: `agent([{"role": "user", "content": [{"text": "hello"}]}])`
+        - No input: `agent()` - uses existing conversation history
 
         Args:
-            prompt: User input as text or list of ContentBlock objects for multi-modal content.
+            prompt: User input in various formats:
+                - str: Simple text input
+                - list[ContentBlock]: Multi-modal content blocks
+                - list[Message]: Complete messages with roles
+                - None: Use existing conversation history
             **kwargs: Additional parameters to pass through the event loop.
 
         Returns:
@@ -380,14 +407,21 @@ class Agent:
             future = executor.submit(execute)
             return future.result()
 
-    async def invoke_async(self, prompt: Union[str, list[ContentBlock]], **kwargs: Any) -> AgentResult:
+    async def invoke_async(self, prompt: AgentInput = None, **kwargs: Any) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
-        This method implements the conversational interface (e.g., `agent("hello!")`). It adds the user's prompt to
-        the conversation history, processes it through the model, executes any tool calls, and returns the final result.
+        This method implements the conversational interface with multiple input patterns:
+        - String input: Simple text input
+        - ContentBlock list: Multi-modal content blocks
+        - Message list: Complete messages with roles
+        - No input: Use existing conversation history
 
         Args:
-            prompt: User input as text or list of ContentBlock objects for multi-modal content.
+            prompt: User input in various formats:
+                - str: Simple text input
+                - list[ContentBlock]: Multi-modal content blocks
+                - list[Message]: Complete messages with roles
+                - None: Use existing conversation history
             **kwargs: Additional parameters to pass through the event loop.
 
         Returns:
@@ -404,7 +438,7 @@ class Agent:
 
         return cast(AgentResult, event["result"])
 
-    def structured_output(self, output_model: Type[T], prompt: Optional[Union[str, list[ContentBlock]]] = None) -> T:
+    def structured_output(self, output_model: Type[T], prompt: AgentInput = None) -> T:
         """This method allows you to get structured output from the agent.
 
         If you pass in a prompt, it will be used temporarily without adding it to the conversation history.
@@ -416,7 +450,11 @@ class Agent:
         Args:
             output_model: The output model (a JSON schema written as a Pydantic BaseModel)
                 that the agent will use when responding.
-            prompt: The prompt to use for the agent (will not be added to conversation history).
+            prompt: The prompt to use for the agent in various formats:
+                - str: Simple text input
+                - list[ContentBlock]: Multi-modal content blocks
+                - list[Message]: Complete messages with roles
+                - None: Use existing conversation history
 
         Raises:
             ValueError: If no conversation history or prompt is provided.
@@ -429,9 +467,7 @@ class Agent:
             future = executor.submit(execute)
             return future.result()
 
-    async def structured_output_async(
-        self, output_model: Type[T], prompt: Optional[Union[str, list[ContentBlock]]] = None
-    ) -> T:
+    async def structured_output_async(self, output_model: Type[T], prompt: AgentInput = None) -> T:
         """This method allows you to get structured output from the agent.
 
         If you pass in a prompt, it will be used temporarily without adding it to the conversation history.
@@ -455,12 +491,8 @@ class Agent:
             try:
                 if not self.messages and not prompt:
                     raise ValueError("No conversation history or prompt provided")
-                # Create temporary messages array if prompt is provided
-                if prompt:
-                    content: list[ContentBlock] = [{"text": prompt}] if isinstance(prompt, str) else prompt
-                    temp_messages = self.messages + [{"role": "user", "content": content}]
-                else:
-                    temp_messages = self.messages
+
+                temp_messages: Messages = self.messages + self._convert_prompt_to_messages(prompt)
 
                 structured_output_span.set_attributes(
                     {
@@ -492,26 +524,35 @@ class Agent:
             finally:
                 self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
-    async def stream_async(self, prompt: Union[str, list[ContentBlock]], **kwargs: Any) -> AsyncIterator[Any]:
+    async def stream_async(
+        self,
+        prompt: AgentInput = None,
+        **kwargs: Any,
+    ) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
 
-        This method provides an asynchronous interface for streaming agent events, allowing
-        consumers to process stream events programmatically through an async iterator pattern
-        rather than callback functions. This is particularly useful for web servers and other
-        async environments.
+        This method provides an asynchronous interface for streaming agent events with multiple input patterns:
+        - String input: Simple text input
+        - ContentBlock list: Multi-modal content blocks
+        - Message list: Complete messages with roles
+        - No input: Use existing conversation history
 
         Args:
-            prompt: User input as text or list of ContentBlock objects for multi-modal content.
+            prompt: User input in various formats:
+                - str: Simple text input
+                - list[ContentBlock]: Multi-modal content blocks
+                - list[Message]: Complete messages with roles
+                - None: Use existing conversation history
             **kwargs: Additional parameters to pass to the event loop.
 
         Yields:
             An async iterator that yields events. Each event is a dictionary containing
-            information about the current state of processing, such as:
+               information about the current state of processing, such as:
 
-            - data: Text content being generated
-            - complete: Whether this is the final chunk
-            - current_tool_use: Information about tools being executed
-            - And other event data provided by the callback handler
+                - data: Text content being generated
+                - complete: Whether this is the final chunk
+                - current_tool_use: Information about tools being executed
+                - And other event data provided by the callback handler
 
         Raises:
             Exception: Any exceptions from the agent invocation will be propagated to the caller.
@@ -525,21 +566,26 @@ class Agent:
         """
         callback_handler = kwargs.get("callback_handler", self.callback_handler)
 
-        content: list[ContentBlock] = [{"text": prompt}] if isinstance(prompt, str) else prompt
-        message: Message = {"role": "user", "content": content}
+        # Process input and get message to add (if any)
+        messages = self._convert_prompt_to_messages(prompt)
 
-        self.trace_span = self._start_agent_trace_span(message)
+        self.trace_span = self._start_agent_trace_span(messages)
+
         with trace_api.use_span(self.trace_span):
             try:
-                events = self._run_loop(message, invocation_state=kwargs)
+                events = self._run_loop(messages, invocation_state=kwargs)
+
                 async for event in events:
-                    if "callback" in event:
-                        callback_handler(**event["callback"])
-                        yield event["callback"]
+                    event.prepare(invocation_state=kwargs)
+
+                    if event.is_callback_event:
+                        as_dict = event.as_dict()
+                        callback_handler(**as_dict)
+                        yield as_dict
 
                 result = AgentResult(*event["stop"])
                 callback_handler(result=result)
-                yield {"result": result}
+                yield AgentResultEvent(result=result).as_dict()
 
                 self._end_agent_trace_span(response=result)
 
@@ -547,13 +593,11 @@ class Agent:
                 self._end_agent_trace_span(error=e)
                 raise
 
-    async def _run_loop(
-        self, message: Message, invocation_state: dict[str, Any]
-    ) -> AsyncGenerator[dict[str, Any], None]:
+    async def _run_loop(self, messages: Messages, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
         """Execute the agent's event loop with the given message and parameters.
 
         Args:
-            message: The user message to add to the conversation.
+            messages: The input messages to add to the conversation.
             invocation_state: Additional parameters to pass to the event loop.
 
         Yields:
@@ -562,9 +606,10 @@ class Agent:
         self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
 
         try:
-            yield {"callback": {"init_event_loop": True, **invocation_state}}
+            yield InitEventLoopEvent()
 
-            self._append_message(message)
+            for message in messages:
+                self._append_message(message)
 
             # Execute the event loop cycle with retry logic for context limits
             events = self._execute_event_loop_cycle(invocation_state)
@@ -572,13 +617,13 @@ class Agent:
                 # Signal from the model provider that the message sent by the user should be redacted,
                 # likely due to a guardrail.
                 if (
-                    event.get("callback")
-                    and event["callback"].get("event")
-                    and event["callback"]["event"].get("redactContent")
-                    and event["callback"]["event"]["redactContent"].get("redactUserContentMessage")
+                    isinstance(event, ModelStreamChunkEvent)
+                    and event.chunk
+                    and event.chunk.get("redactContent")
+                    and event.chunk["redactContent"].get("redactUserContentMessage")
                 ):
                     self.messages[-1]["content"] = [
-                        {"text": event["callback"]["event"]["redactContent"]["redactUserContentMessage"]}
+                        {"text": str(event.chunk["redactContent"]["redactUserContentMessage"])}
                     ]
                     if self._session_manager:
                         self._session_manager.redact_latest_message(self.messages[-1], self)
@@ -588,7 +633,7 @@ class Agent:
             self.conversation_manager.apply_management(self)
             self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
-    async def _execute_event_loop_cycle(self, invocation_state: dict[str, Any]) -> AsyncGenerator[dict[str, Any], None]:
+    async def _execute_event_loop_cycle(self, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
         """Execute the event loop cycle with retry logic for context window limits.
 
         This internal method handles the execution of the event loop cycle and implements
@@ -621,6 +666,34 @@ class Agent:
             events = self._execute_event_loop_cycle(invocation_state)
             async for event in events:
                 yield event
+
+    def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
+        messages: Messages | None = None
+        if prompt is not None:
+            if isinstance(prompt, str):
+                # String input - convert to user message
+                messages = [{"role": "user", "content": [{"text": prompt}]}]
+            elif isinstance(prompt, list):
+                if len(prompt) == 0:
+                    # Empty list
+                    messages = []
+                # Check if all item in input list are dictionaries
+                elif all(isinstance(item, dict) for item in prompt):
+                    # Check if all items are messages
+                    if all(all(key in item for key in Message.__annotations__.keys()) for item in prompt):
+                        # Messages input - add all messages to conversation
+                        messages = cast(Messages, prompt)
+
+                    # Check if all items are content blocks
+                    elif all(any(key in ContentBlock.__annotations__.keys() for key in item) for item in prompt):
+                        # Treat as List[ContentBlock] input - convert to user message
+                        # This allows invalid structures to be passed through to the model
+                        messages = [{"role": "user", "content": cast(list[ContentBlock], prompt)}]
+        else:
+            messages = []
+        if messages is None:
+            raise ValueError("Input prompt must be of type: `str | list[Contentblock] | Messages | None`.")
+        return messages
 
     def _record_tool_execution(
         self,
@@ -687,15 +760,15 @@ class Agent:
         self._append_message(tool_result_msg)
         self._append_message(assistant_msg)
 
-    def _start_agent_trace_span(self, message: Message) -> trace_api.Span:
+    def _start_agent_trace_span(self, messages: Messages) -> trace_api.Span:
         """Starts a trace span for the agent.
 
         Args:
-            message: The user message.
+            messages: The input messages.
         """
         model_id = self.model.config.get("model_id") if hasattr(self.model, "config") else None
         return self.tracer.start_agent_span(
-            message=message,
+            messages=messages,
             agent_name=self.name,
             model_id=model_id,
             tools=self.tool_names,

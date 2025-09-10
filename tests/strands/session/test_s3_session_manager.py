@@ -251,7 +251,7 @@ def test_read_nonexistent_message(s3_manager, sample_session, sample_agent, samp
     s3_manager.create_agent(sample_session.session_id, sample_agent)
 
     # Read message
-    result = s3_manager.read_message(sample_session.session_id, sample_agent.agent_id, "nonexistent_message")
+    result = s3_manager.read_message(sample_session.session_id, sample_agent.agent_id, 999)
 
     assert result is None
 
@@ -356,3 +356,21 @@ def test__get_session_path_invalid_session_id(session_id, s3_manager):
 def test__get_agent_path_invalid_agent_id(agent_id, s3_manager):
     with pytest.raises(ValueError, match=f"agent_id={agent_id} | id cannot contain path separators"):
         s3_manager._get_agent_path("session1", agent_id)
+
+
+@pytest.mark.parametrize(
+    "message_id",
+    [
+        "../../../secret",
+        "../../attack",
+        "../escape",
+        "path/traversal",
+        "not_an_int",
+        None,
+        [],
+    ],
+)
+def test__get_message_path_invalid_message_id(message_id, s3_manager):
+    """Test that message_id that is not an integer raises ValueError."""
+    with pytest.raises(ValueError, match=r"message_id=<.*> \| message id must be an integer"):
+        s3_manager._get_message_path("session1", "agent1", message_id)

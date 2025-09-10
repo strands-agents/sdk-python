@@ -361,3 +361,21 @@ def test_format_chunk_other(model):
 
     with pytest.raises(RuntimeError, match="chunk_type=<other> | unknown type"):
         model.format_chunk(event)
+
+
+def test_config_validation_warns_on_unknown_keys(llamaapi_client, captured_warnings):
+    """Test that unknown config keys emit a warning."""
+    LlamaAPIModel(model_id="test-model", invalid_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "invalid_param" in str(captured_warnings[0].message)
+
+
+def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings):
+    """Test that update_config warns on unknown keys."""
+    model.update_config(wrong_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "wrong_param" in str(captured_warnings[0].message)

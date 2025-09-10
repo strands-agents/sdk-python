@@ -19,6 +19,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StreamEvent, Usage
 from ..types.tools import ToolResult, ToolSpec, ToolUse
+from ._config_validation import validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ class LlamaAPIModel(Model):
             client_args: Arguments for the Llama API client.
             **model_config: Configuration options for the Llama API model.
         """
+        validate_config_keys(model_config, self.LlamaConfig)
         self.config = LlamaAPIModel.LlamaConfig(**model_config)
         logger.debug("config=<%s> | initializing", self.config)
 
@@ -75,6 +77,7 @@ class LlamaAPIModel(Model):
         Args:
             **model_config: Configuration overrides.
         """
+        validate_config_keys(model_config, self.LlamaConfig)
         self.config.update(model_config)
 
     @override

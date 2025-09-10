@@ -5,8 +5,7 @@ import pytest
 
 from strands.agent import Agent, AgentResult
 from strands.agent.state import AgentState
-from strands.hooks import AgentInitializedEvent
-from strands.hooks.registry import HookProvider, HookRegistry
+from strands.hooks.registry import HookRegistry
 from strands.multiagent.base import Status
 from strands.multiagent.swarm import SharedContext, Swarm, SwarmNode, SwarmResult, SwarmState
 from strands.session.session_manager import SessionManager
@@ -470,16 +469,3 @@ def test_swarm_validate_unsupported_features():
 
     with pytest.raises(ValueError, match="Session persistence is not supported for Swarm agents yet"):
         Swarm([agent_with_session])
-
-    # Test with callbacks (should fail)
-    class TestHookProvider(HookProvider):
-        def register_hooks(self, registry, **kwargs):
-            registry.add_callback(AgentInitializedEvent, lambda e: None)
-
-    agent_with_hooks = create_mock_agent("agent_with_hooks")
-    agent_with_hooks._session_manager = None
-    agent_with_hooks.hooks = HookRegistry()
-    agent_with_hooks.hooks.add_hook(TestHookProvider())
-
-    with pytest.raises(ValueError, match="Agent callbacks are not supported for Swarm agents yet"):
-        Swarm([agent_with_hooks])

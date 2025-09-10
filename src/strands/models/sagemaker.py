@@ -15,6 +15,7 @@ from typing_extensions import Unpack, override
 from ..types.content import ContentBlock, Messages
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolResult, ToolSpec
+from ._config_validation import validate_config_keys
 from .openai import OpenAIModel
 
 T = TypeVar("T", bound=BaseModel)
@@ -146,6 +147,8 @@ class SageMakerAIModel(OpenAIModel):
             boto_session: Boto Session to use when calling the SageMaker Runtime.
             boto_client_config: Configuration to use when creating the SageMaker-Runtime Boto Client.
         """
+        validate_config_keys(endpoint_config, self.SageMakerAIEndpointConfig)
+        validate_config_keys(payload_config, self.SageMakerAIPayloadSchema)
         payload_config.setdefault("stream", True)
         payload_config.setdefault("tool_results_as_user_messages", False)
         self.endpoint_config = dict(endpoint_config)
@@ -180,6 +183,7 @@ class SageMakerAIModel(OpenAIModel):
         Args:
             **endpoint_config: Configuration overrides.
         """
+        validate_config_keys(endpoint_config, self.SageMakerAIEndpointConfig)
         self.endpoint_config.update(endpoint_config)
 
     @override

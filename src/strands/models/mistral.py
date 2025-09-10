@@ -16,6 +16,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StopReason, StreamEvent
 from ..types.tools import ToolResult, ToolSpec, ToolUse
+from ._config_validation import validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,7 @@ class MistralModel(Model):
             if not 0.0 <= top_p <= 1.0:
                 raise ValueError(f"top_p must be between 0.0 and 1.0, got {top_p}")
 
+        validate_config_keys(model_config, self.MistralConfig)
         self.config = MistralModel.MistralConfig(**model_config)
 
         # Set default stream to True if not specified
@@ -101,6 +103,7 @@ class MistralModel(Model):
         Args:
             **model_config: Configuration overrides.
         """
+        validate_config_keys(model_config, self.MistralConfig)
         self.config.update(model_config)
 
     @override

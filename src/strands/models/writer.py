@@ -17,6 +17,7 @@ from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolResult, ToolSpec, ToolUse
+from ._config_validation import validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,7 @@ class WriterModel(Model):
             client_args: Arguments for the Writer client (e.g., api_key, base_url, timeout, etc.).
             **model_config: Configuration options for the Writer model.
         """
+        validate_config_keys(model_config, self.WriterConfig)
         self.config = WriterModel.WriterConfig(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -67,6 +69,7 @@ class WriterModel(Model):
         Args:
             **model_config: Configuration overrides.
         """
+        validate_config_keys(model_config, self.WriterConfig)
         self.config.update(model_config)
 
     @override

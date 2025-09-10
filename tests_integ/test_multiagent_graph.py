@@ -1,8 +1,11 @@
 import pytest
 
 from strands import Agent, tool
+from strands.experimental.hooks import AfterModelInvocationEvent, BeforeModelInvocationEvent
+from strands.hooks import AfterInvocationEvent, AgentInitializedEvent, BeforeInvocationEvent, MessageAddedEvent
 from strands.multiagent.graph import GraphBuilder
 from strands.types.content import ContentBlock
+from tests.fixtures.mock_hook_provider import MockHookProvider
 
 
 @tool
@@ -18,49 +21,59 @@ def multiply_numbers(x: int, y: int) -> int:
 
 
 @pytest.fixture
-def math_agent():
+def hook_provider():
+    return MockHookProvider("all")
+
+
+@pytest.fixture
+def math_agent(hook_provider):
     """Create an agent specialized in mathematical operations."""
     return Agent(
         model="us.amazon.nova-pro-v1:0",
         system_prompt="You are a mathematical assistant. Always provide clear, step-by-step calculations.",
+        hooks=[hook_provider],
         tools=[calculate_sum, multiply_numbers],
     )
 
 
 @pytest.fixture
-def analysis_agent():
+def analysis_agent(hook_provider):
     """Create an agent specialized in data analysis."""
     return Agent(
         model="us.amazon.nova-pro-v1:0",
+        hooks=[hook_provider],
         system_prompt="You are a data analysis expert. Provide insights and interpretations of numerical results.",
     )
 
 
 @pytest.fixture
-def summary_agent():
+def summary_agent(hook_provider):
     """Create an agent specialized in summarization."""
     return Agent(
         model="us.amazon.nova-lite-v1:0",
+        hooks=[hook_provider],
         system_prompt="You are a summarization expert. Create concise, clear summaries of complex information.",
     )
 
 
 @pytest.fixture
-def validation_agent():
+def validation_agent(hook_provider):
     """Create an agent specialized in validation."""
     return Agent(
         model="us.amazon.nova-pro-v1:0",
+        hooks=[hook_provider],
         system_prompt="You are a validation expert. Check results for accuracy and completeness.",
     )
 
 
 @pytest.fixture
-def image_analysis_agent():
+def image_analysis_agent(hook_provider):
     """Create an agent specialized in image analysis."""
     return Agent(
+        hooks=[hook_provider],
         system_prompt=(
             "You are an image analysis expert. Describe what you see in images and provide detailed analysis."
-        )
+        ),
     )
 
 
@@ -149,7 +162,7 @@ async def test_graph_execution_with_string(math_agent, summary_agent, validation
 
 
 @pytest.mark.asyncio
-async def test_graph_execution_with_image(image_analysis_agent, summary_agent, yellow_img):
+async def test_graph_execution_with_image(image_analysis_agent, summary_agent, yellow_img, hook_provider):
     """Test graph execution with multi-modal image input."""
     builder = GraphBuilder()
 
@@ -186,3 +199,16 @@ async def test_graph_execution_with_image(image_analysis_agent, summary_agent, y
     # Verify both nodes completed
     assert "image_analyzer" in result.results
     assert "summarizer" in result.results
+
+    expected_hook_events = [
+        AgentInitializedEvent,
+        BeforeInvocationEvent,
+        MessageAddedEvent,
+        BeforeModelInvocationEvent,
+        AfterModelInvocationEvent,
+        MessageAddedEvent,
+        AfterInvocationEvent,
+    ]
+
+    assert hook_provider.extract_for(image_analysis_agent).event_types_received == expected_hook_events
+    assert hook_provider.extract_for(summary_agent).event_types_received == expected_hook_events

@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 import pytest
 from pydantic import BaseModel, Field
@@ -157,6 +157,7 @@ def test_convert_pydantic_to_tool_spec_multiple_same_type():
                     "user2": {
                         "type": ["object", "null"],
                         "description": "The second user",
+                        "title": "UserWithPlanet",
                         "properties": {
                             "name": {"description": "The name of the user", "title": "Name", "type": "string"},
                             "age": {
@@ -206,6 +207,85 @@ def test_convert_pydantic_with_missing_refs():
     # but our error handling should prevent errors
     with pytest.raises(ValueError, match="Circular reference detected and not supported"):
         convert_pydantic_to_tool_spec(NodeWithCircularRef)
+
+
+def test_convert_pydantic_with_circular_required_dependency():
+    """Test that the tool handles circular dependencies gracefully."""
+
+    class NodeWithCircularRef(BaseModel):
+        """A node with a circular reference to itself."""
+
+        name: str = Field(description="The name of the node")
+        parent: "NodeWithCircularRef"
+
+    with pytest.raises(ValueError, match="Circular reference detected and not supported"):
+        convert_pydantic_to_tool_spec(NodeWithCircularRef)
+
+
+def test_convert_pydantic_with_circular_optional_dependency():
+    """Test that the tool handles circular dependencies gracefully."""
+
+    class NodeWithCircularRef(BaseModel):
+        """A node with a circular reference to itself."""
+
+        name: str = Field(description="The name of the node")
+        parent: Optional["NodeWithCircularRef"] = None
+
+    with pytest.raises(ValueError, match="Circular reference detected and not supported"):
+        convert_pydantic_to_tool_spec(NodeWithCircularRef)
+
+
+def test_convert_pydantic_with_circular_optional_dependenc_not_using_optional_typing():
+    """Test that the tool handles circular dependencies gracefully."""
+
+    class NodeWithCircularRef(BaseModel):
+        """A node with a circular reference to itself."""
+
+        name: str = Field(description="The name of the node")
+        parent: "NodeWithCircularRef" = None
+
+    with pytest.raises(ValueError, match="Circular reference detected and not supported"):
+        convert_pydantic_to_tool_spec(NodeWithCircularRef)
+
+
+def test_conversion_works_with_fields_that_are_not_marked_as_optional_but_have_a_default_value_which_makes_them_optional():  # noqa E501
+    class Family(BaseModel):
+        ages: List[str] = Field(default_factory=list)
+        names: List[str] = Field(default_factory=list)
+
+    converted_output = convert_pydantic_to_tool_spec(Family)
+    expected_output = {
+        "name": "Family",
+        "description": "Family structured output tool",
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "properties": {
+                    "ages": {
+                        "items": {"type": "string"},
+                        "title": "Ages",
+                        "type": ["array", "null"],
+                    },
+                    "names": {
+                        "items": {"type": "string"},
+                        "title": "Names",
+                        "type": ["array", "null"],
+                    },
+                },
+                "title": "Family",
+            }
+        },
+    }
+    assert converted_output == expected_output
+
+
+def test_marks_fields_as_optional_for_model_w_fields_that_are_not_marked_as_optional_but_have_a_default_value_which_makes_them_optional():  # noqa E501
+    class Family(BaseModel):
+        ages: List[str] = Field(default_factory=list)
+        names: List[str] = Field(default_factory=list)
+
+    converted_output = convert_pydantic_to_tool_spec(Family)
+    assert "null" in converted_output["inputSchema"]["json"]["properties"]["ages"]["type"]
 
 
 def test_convert_pydantic_with_custom_description():

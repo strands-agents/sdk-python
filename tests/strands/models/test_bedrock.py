@@ -11,7 +11,7 @@ from botocore.exceptions import ClientError, EventStreamError
 
 import strands
 from strands.models import BedrockModel
-from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, DEFAULT_BEDROCK_REGION
+from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, DEFAULT_BEDROCK_REGION, DEFAULT_READ_TIMEOUT
 from strands.types.exceptions import ModelThrottledException
 from strands.types.tools import ToolSpec
 
@@ -129,7 +129,7 @@ def test__init__with_default_region(session_cls, mock_client_method):
     with unittest.mock.patch.object(os, "environ", {}):
         BedrockModel()
         session_cls.return_value.client.assert_called_with(
-            region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY
+            region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY, endpoint_url=None
         )
 
 
@@ -139,14 +139,14 @@ def test__init__with_session_region(session_cls, mock_client_method):
 
     BedrockModel()
 
-    mock_client_method.assert_called_with(region_name="eu-blah-1", config=ANY, service_name=ANY)
+    mock_client_method.assert_called_with(region_name="eu-blah-1", config=ANY, service_name=ANY, endpoint_url=None)
 
 
 def test__init__with_custom_region(mock_client_method):
     """Test that BedrockModel uses the provided region."""
     custom_region = "us-east-1"
     BedrockModel(region_name=custom_region)
-    mock_client_method.assert_called_with(region_name=custom_region, config=ANY, service_name=ANY)
+    mock_client_method.assert_called_with(region_name=custom_region, config=ANY, service_name=ANY, endpoint_url=None)
 
 
 def test__init__with_default_environment_variable_region(mock_client_method):
@@ -154,7 +154,7 @@ def test__init__with_default_environment_variable_region(mock_client_method):
     with unittest.mock.patch.object(os, "environ", {"AWS_REGION": "eu-west-2"}):
         BedrockModel()
 
-    mock_client_method.assert_called_with(region_name="eu-west-2", config=ANY, service_name=ANY)
+    mock_client_method.assert_called_with(region_name="eu-west-2", config=ANY, service_name=ANY, endpoint_url=None)
 
 
 def test__init__region_precedence(mock_client_method, session_cls):
@@ -164,21 +164,38 @@ def test__init__region_precedence(mock_client_method, session_cls):
 
         # specifying a region always wins out
         BedrockModel(region_name="us-specified-1")
-        mock_client_method.assert_called_with(region_name="us-specified-1", config=ANY, service_name=ANY)
+        mock_client_method.assert_called_with(
+            region_name="us-specified-1", config=ANY, service_name=ANY, endpoint_url=None
+        )
 
         # other-wise uses the session's
         BedrockModel()
-        mock_client_method.assert_called_with(region_name="us-session-1", config=ANY, service_name=ANY)
+        mock_client_method.assert_called_with(
+            region_name="us-session-1", config=ANY, service_name=ANY, endpoint_url=None
+        )
 
         # environment variable next
         session_cls.return_value.region_name = None
         BedrockModel()
-        mock_client_method.assert_called_with(region_name="us-environment-1", config=ANY, service_name=ANY)
+        mock_client_method.assert_called_with(
+            region_name="us-environment-1", config=ANY, service_name=ANY, endpoint_url=None
+        )
 
         mock_os_environ.pop("AWS_REGION")
         session_cls.return_value.region_name = None  # No session region
         BedrockModel()
-        mock_client_method.assert_called_with(region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY)
+        mock_client_method.assert_called_with(
+            region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY, endpoint_url=None
+        )
+
+
+def test__init__with_endpoint_url(mock_client_method):
+    """Test that BedrockModel uses the provided endpoint_url for VPC endpoints."""
+    custom_endpoint = "https://vpce-12345-abcde.bedrock-runtime.us-west-2.vpce.amazonaws.com"
+    BedrockModel(endpoint_url=custom_endpoint)
+    mock_client_method.assert_called_with(
+        region_name=DEFAULT_BEDROCK_REGION, config=ANY, service_name=ANY, endpoint_url=custom_endpoint
+    )
 
 
 def test__init__with_region_and_session_raises_value_error():
@@ -199,6 +216,20 @@ def test__init__default_user_agent(bedrock_client):
         assert kwargs["service_name"] == "bedrock-runtime"
         assert isinstance(kwargs["config"], BotocoreConfig)
         assert kwargs["config"].user_agent_extra == "strands-agents"
+        assert kwargs["config"].read_timeout == DEFAULT_READ_TIMEOUT
+
+
+def test__init__default_read_timeout(bedrock_client):
+    """Set default read timeout when no boto_client_config is provided."""
+    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
+        mock_session = mock_session_cls.return_value
+        _ = BedrockModel()
+
+        # Verify the client was created with the correct read timeout
+        mock_session.client.assert_called_once()
+        args, kwargs = mock_session.client.call_args
+        assert isinstance(kwargs["config"], BotocoreConfig)
+        assert kwargs["config"].read_timeout == DEFAULT_READ_TIMEOUT
 
 
 def test__init__with_custom_boto_client_config_no_user_agent(bedrock_client):
@@ -1210,8 +1241,54 @@ async def test_stream_logging(bedrock_client, model, messages, caplog, alist):
     assert "finished streaming response from model" in log_text
 
 
+@pytest.mark.asyncio
+async def test_stream_stop_reason_override_streaming(bedrock_client, model, messages, alist):
+    """Test that stopReason is overridden from end_turn to tool_use in streaming mode when tool use is detected."""
+    bedrock_client.converse_stream.return_value = {
+        "stream": [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "test_tool"}}}},
+            {"contentBlockDelta": {"delta": {"test": {"input": '{"param": "value"}'}}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    }
+
+    response = model.stream(messages)
+    events = await alist(response)
+
+    # Find the messageStop event
+    message_stop_event = next(event for event in events if "messageStop" in event)
+
+    # Verify stopReason was overridden to tool_use
+    assert message_stop_event["messageStop"]["stopReason"] == "tool_use"
+
+
+@pytest.mark.asyncio
+async def test_stream_stop_reason_override_non_streaming(bedrock_client, alist, messages):
+    """Test that stopReason is overridden from end_turn to tool_use in non-streaming mode when tool use is detected."""
+    bedrock_client.converse.return_value = {
+        "output": {
+            "message": {
+                "role": "assistant",
+                "content": [{"toolUse": {"toolUseId": "123", "name": "test_tool", "input": {"param": "value"}}}],
+            }
+        },
+        "stopReason": "end_turn",
+    }
+
+    model = BedrockModel(model_id="test-model", streaming=False)
+    response = model.stream(messages)
+    events = await alist(response)
+
+    # Find the messageStop event
+    message_stop_event = next(event for event in events if "messageStop" in event)
+
+    # Verify stopReason was overridden to tool_use
+    assert message_stop_event["messageStop"]["stopReason"] == "tool_use"
+
+
 def test_format_request_cleans_tool_result_content_blocks(model, model_id):
-    """Test that format_request cleans toolResult blocks by removing extra fields."""
     messages = [
         {
             "role": "user",
@@ -1231,9 +1308,172 @@ def test_format_request_cleans_tool_result_content_blocks(model, model_id):
 
     formatted_request = model.format_request(messages)
 
-    # Verify toolResult only contains allowed fields in the formatted request
     tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
-    expected = {"content": [{"text": "Tool output"}], "toolUseId": "tool123", "status": "success"}
+    expected = {"toolUseId": "tool123", "content": [{"text": "Tool output"}]}
     assert tool_result == expected
     assert "extraField" not in tool_result
     assert "mcpMetadata" not in tool_result
+    assert "status" not in tool_result
+
+
+def test_format_request_removes_status_field_when_configured(model, model_id):
+    model.update_config(include_tool_result_status=False)
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [{"text": "Tool output"}],
+                        "toolUseId": "tool123",
+                        "status": "success",
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+    expected = {"toolUseId": "tool123", "content": [{"text": "Tool output"}]}
+    assert tool_result == expected
+    assert "status" not in tool_result
+
+
+def test_auto_behavior_anthropic_vs_non_anthropic(bedrock_client):
+    model_anthropic = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0")
+    assert model_anthropic.get_config()["include_tool_result_status"] == "auto"
+
+    model_non_anthropic = BedrockModel(model_id="amazon.titan-text-v1")
+    assert model_non_anthropic.get_config()["include_tool_result_status"] == "auto"
+
+
+def test_explicit_boolean_values_preserved(bedrock_client):
+    model = BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", include_tool_result_status=True)
+    assert model.get_config()["include_tool_result_status"] is True
+
+    model2 = BedrockModel(model_id="amazon.titan-text-v1", include_tool_result_status=False)
+    assert model2.get_config()["include_tool_result_status"] is False
+    """Test that format_request keeps status field by default for anthropic.claude models."""
+    # Default model is anthropic.claude, so should keep status
+    model = BedrockModel()
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "content": [{"text": "Tool output"}],
+                        "toolUseId": "tool123",
+                        "status": "success",
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    # Verify toolResult contains status field by default
+    tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
+    expected = {"content": [{"text": "Tool output"}], "toolUseId": "tool123", "status": "success"}
+    assert tool_result == expected
+    assert "status" in tool_result
+
+
+def test_format_request_filters_sdk_unknown_member_content_blocks(model, model_id, caplog):
+    """Test that format_request filters out SDK_UNKNOWN_MEMBER content blocks."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Hello"},
+                {"SDK_UNKNOWN_MEMBER": {"name": "reasoningContent"}},
+                {"text": "World"},
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    content = formatted_request["messages"][0]["content"]
+    assert len(content) == 2
+    assert content[0] == {"text": "Hello"}
+    assert content[1] == {"text": "World"}
+
+    for block in content:
+        assert "SDK_UNKNOWN_MEMBER" not in block
+
+
+@pytest.mark.asyncio
+async def test_stream_deepseek_filters_reasoning_content(bedrock_client, alist):
+    """Test that DeepSeek models filter reasoningContent from messages during streaming."""
+    model = BedrockModel(model_id="us.deepseek.r1-v1:0")
+
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Response"},
+                {"reasoningContent": {"reasoningText": {"text": "Thinking..."}}},
+            ],
+        },
+    ]
+
+    bedrock_client.converse_stream.return_value = {"stream": []}
+
+    await alist(model.stream(messages))
+
+    # Verify the request was made with filtered messages (no reasoningContent)
+    call_args = bedrock_client.converse_stream.call_args[1]
+    sent_messages = call_args["messages"]
+
+    assert len(sent_messages) == 2
+    assert sent_messages[0]["content"] == [{"text": "Hello"}]
+    assert sent_messages[1]["content"] == [{"text": "Response"}]
+
+
+@pytest.mark.asyncio
+async def test_stream_deepseek_skips_empty_messages(bedrock_client, alist):
+    """Test that DeepSeek models skip messages that would be empty after filtering reasoningContent."""
+    model = BedrockModel(model_id="us.deepseek.r1-v1:0")
+
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"reasoningContent": {"reasoningText": {"text": "Only reasoning..."}}}]},
+        {"role": "user", "content": [{"text": "Follow up"}]},
+    ]
+
+    bedrock_client.converse_stream.return_value = {"stream": []}
+
+    await alist(model.stream(messages))
+
+    # Verify the request was made with only non-empty messages
+    call_args = bedrock_client.converse_stream.call_args[1]
+    sent_messages = call_args["messages"]
+
+    assert len(sent_messages) == 2
+    assert sent_messages[0]["content"] == [{"text": "Hello"}]
+    assert sent_messages[1]["content"] == [{"text": "Follow up"}]
+
+
+def test_config_validation_warns_on_unknown_keys(bedrock_client, captured_warnings):
+    """Test that unknown config keys emit a warning."""
+    BedrockModel(model_id="test-model", invalid_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "invalid_param" in str(captured_warnings[0].message)
+
+
+def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings):
+    """Test that update_config warns on unknown keys."""
+    model.update_config(wrong_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "wrong_param" in str(captured_warnings[0].message)

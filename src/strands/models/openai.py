@@ -17,6 +17,7 @@ from typing_extensions import Unpack, override
 from ..types.content import ContentBlock, Messages
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolResult, ToolSpec, ToolUse
+from ._config_validation import validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ class OpenAIModel(Model):
                 For a complete list of supported arguments, see https://pypi.org/project/openai/.
             **model_config: Configuration options for the OpenAI model.
         """
+        validate_config_keys(model_config, self.OpenAIConfig)
         self.config = dict(model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -75,6 +77,7 @@ class OpenAIModel(Model):
         Args:
             **model_config: Configuration overrides.
         """
+        validate_config_keys(model_config, self.OpenAIConfig)
         self.config.update(model_config)
 
     @override
