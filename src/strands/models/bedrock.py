@@ -31,7 +31,7 @@ from .model import Model
 logger = logging.getLogger(__name__)
 
 # See: `BedrockModel._get_default_model_with_warning` for why we need both
-DEFAULT_BEDROCK_MODEL_ID = "{}.anthropic.claude-sonnet-4-20250514-v1:0"
+DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
 _DEFAULT_BEDROCK_MODEL_ID = "{}.anthropic.claude-sonnet-4-20250514-v1:0"
 DEFAULT_BEDROCK_REGION = "us-west-2"
 
@@ -789,7 +789,7 @@ class BedrockModel(Model):
             region_name (str): region for bedrock model
             model_config (Optional[dict[str, Any]]): Model Config that caller passes in on init
         """
-        if DEFAULT_BEDROCK_MODEL_ID != _DEFAULT_BEDROCK_MODEL_ID:
+        if DEFAULT_BEDROCK_MODEL_ID != _DEFAULT_BEDROCK_MODEL_ID.format("us"):
             return DEFAULT_BEDROCK_MODEL_ID
 
         model_config = model_config or {}
@@ -805,7 +805,7 @@ class BedrockModel(Model):
             ================== WARNING ==================
 
                 This region {region_name} does not support
-                our default inference endpoint: {DEFAULT_BEDROCK_MODEL_ID.format(prefix)}.
+                our default inference endpoint: {_DEFAULT_BEDROCK_MODEL_ID.format(prefix)}.
                 Update the agent to pass in a 'model_id' like so:
                 ```
                 Agent(..., model='valid_model_id', ...)
@@ -817,4 +817,4 @@ class BedrockModel(Model):
                 stacklevel=2,
             )
 
-        return DEFAULT_BEDROCK_MODEL_ID.format(prefix_inference_map.get(prefix, prefix))
+        return _DEFAULT_BEDROCK_MODEL_ID.format(prefix_inference_map.get(prefix, prefix))
