@@ -437,7 +437,7 @@ def test_format_chunk_unknown(model):
 
 
 @pytest.mark.asyncio
-async def test_stream(mistral_client, model, agenerator, alist):
+async def test_stream(mistral_client, model, agenerator, alist, captured_warnings):
     mock_usage = unittest.mock.Mock()
     mock_usage.prompt_tokens = 100
     mock_usage.completion_tokens = 50
@@ -471,6 +471,41 @@ async def test_stream(mistral_client, model, agenerator, alist):
     }
 
     mistral_client.chat.stream_async.assert_called_once_with(**expected_request)
+
+    assert len(captured_warnings) == 0
+
+
+@pytest.mark.asyncio
+async def test_tool_choice_not_supported_warns(mistral_client, model, agenerator, alist, captured_warnings):
+    tool_choice = {"auto": {}}
+
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_event = unittest.mock.Mock(
+        data=unittest.mock.Mock(
+            choices=[
+                unittest.mock.Mock(
+                    delta=unittest.mock.Mock(content="test stream", tool_calls=None),
+                    finish_reason="end_turn",
+                )
+            ]
+        ),
+        usage=mock_usage,
+    )
+
+    mistral_client.chat.stream_async = unittest.mock.AsyncMock(return_value=agenerator([mock_event]))
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    response = model.stream(messages, None, None, tool_choice=tool_choice)
+
+    # Consume the response
+    await alist(response)
+
+    assert len(captured_warnings) == 1
+    assert "ToolChoice was provided to this provider but is not supported" in str(captured_warnings[0].message)
 
 
 @pytest.mark.asyncio

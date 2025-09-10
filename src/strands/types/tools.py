@@ -145,10 +145,15 @@ class ToolContext:
     invocation_state: dict[str, Any]
 
 
+# Individual ToolChoice type aliases
+ToolChoiceAutoDict = dict[Literal["auto"], ToolChoiceAuto]
+ToolChoiceAnyDict = dict[Literal["any"], ToolChoiceAny]
+ToolChoiceToolDict = dict[Literal["tool"], ToolChoiceTool]
+
 ToolChoice = Union[
-    dict[Literal["auto"], ToolChoiceAuto],
-    dict[Literal["any"], ToolChoiceAny],
-    dict[Literal["tool"], ToolChoiceTool],
+    ToolChoiceAutoDict,
+    ToolChoiceAnyDict,
+    ToolChoiceToolDict,
 ]
 """
 Configuration for how the model should choose tools.

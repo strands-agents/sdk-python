@@ -84,15 +84,35 @@ class MultiAgentBase(ABC):
     """
 
     @abstractmethod
-    async def invoke_async(self, task: str | list[ContentBlock], **kwargs: Any) -> MultiAgentResult:
-        """Invoke asynchronously."""
+    async def invoke_async(
+        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> MultiAgentResult:
+        """Invoke asynchronously.
+
+        Args:
+            task: The task to execute
+            invocation_state: Additional state/context passed to underlying agents.
+                Defaults to None to avoid mutable default argument issues.
+            **kwargs: Additional keyword arguments passed to underlying agents.
+        """
         raise NotImplementedError("invoke_async not implemented")
 
-    def __call__(self, task: str | list[ContentBlock], **kwargs: Any) -> MultiAgentResult:
-        """Invoke synchronously."""
+    def __call__(
+        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> MultiAgentResult:
+        """Invoke synchronously.
+
+        Args:
+            task: The task to execute
+            invocation_state: Additional state/context passed to underlying agents.
+                Defaults to None to avoid mutable default argument issues.
+            **kwargs: Additional keyword arguments passed to underlying agents.
+        """
+        if invocation_state is None:
+            invocation_state = {}
 
         def execute() -> MultiAgentResult:
-            return asyncio.run(self.invoke_async(task, **kwargs))
+            return asyncio.run(self.invoke_async(task, invocation_state, **kwargs))
 
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)

@@ -1,4 +1,5 @@
 import unittest.mock
+from unittest.mock import call
 
 import pydantic
 import pytest
@@ -219,15 +220,16 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
 
     assert tru_events == exp_events
 
-    expected_request = {
-        "api_key": api_key,
-        "model": model_id,
-        "messages": [{"role": "user", "content": [{"text": "calculate 2+2", "type": "text"}]}],
-        "stream": True,
-        "stream_options": {"include_usage": True},
-        "tools": [],
-    }
-    litellm_acompletion.assert_called_once_with(**expected_request)
+    assert litellm_acompletion.call_args_list == [
+        call(
+            api_key=api_key,
+            messages=[{"role": "user", "content": [{"text": "calculate 2+2", "type": "text"}]}],
+            model=model_id,
+            stream=True,
+            stream_options={"include_usage": True},
+            tools=[],
+        )
+    ]
 
 
 @pytest.mark.asyncio
@@ -303,3 +305,18 @@ def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings
     assert len(captured_warnings) == 1
     assert "Invalid configuration parameters" in str(captured_warnings[0].message)
     assert "wrong_param" in str(captured_warnings[0].message)
+
+
+def test_tool_choice_supported_no_warning(model, messages, captured_warnings):
+    """Test that toolChoice doesn't emit warning for supported providers."""
+    tool_choice = {"auto": {}}
+    model.format_request(messages, tool_choice=tool_choice)
+
+    assert len(captured_warnings) == 0
+
+
+def test_tool_choice_none_no_warning(model, messages, captured_warnings):
+    """Test that None toolChoice doesn't emit warning."""
+    model.format_request(messages, tool_choice=None)
+
+    assert len(captured_warnings) == 0

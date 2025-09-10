@@ -237,18 +237,42 @@ class Swarm(MultiAgentBase):
         self._setup_swarm(nodes)
         self._inject_swarm_tools()
 
-    def __call__(self, task: str | list[ContentBlock], **kwargs: Any) -> SwarmResult:
-        """Invoke the swarm synchronously."""
+    def __call__(
+        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> SwarmResult:
+        """Invoke the swarm synchronously.
+
+        Args:
+            task: The task to execute
+            invocation_state: Additional state/context passed to underlying agents.
+                Defaults to None to avoid mutable default argument issues.
+            **kwargs: Keyword arguments allowing backward compatible future changes.
+        """
+        if invocation_state is None:
+            invocation_state = {}
 
         def execute() -> SwarmResult:
-            return asyncio.run(self.invoke_async(task))
+            return asyncio.run(self.invoke_async(task, invocation_state))
 
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)
             return future.result()
 
-    async def invoke_async(self, task: str | list[ContentBlock], **kwargs: Any) -> SwarmResult:
-        """Invoke the swarm asynchronously."""
+    async def invoke_async(
+        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> SwarmResult:
+        """Invoke the swarm asynchronously.
+
+        Args:
+            task: The task to execute
+            invocation_state: Additional state/context passed to underlying agents.
+                Defaults to None to avoid mutable default argument issues - a new empty dict
+                is created if None is provided.
+            **kwargs: Keyword arguments allowing backward compatible future changes.
+        """
+        if invocation_state is None:
+            invocation_state = {}
+
         logger.debug("starting swarm execution")
 
         # Initialize swarm state with configuration
@@ -272,7 +296,7 @@ class Swarm(MultiAgentBase):
                     self.execution_timeout,
                 )
 
-                await self._execute_swarm()
+                await self._execute_swarm(invocation_state)
             except Exception:
                 logger.exception("swarm execution failed")
                 self.state.completion_status = Status.FAILED
@@ -483,7 +507,7 @@ class Swarm(MultiAgentBase):
 
         return context_text
 
-    async def _execute_swarm(self) -> None:
+    async def _execute_swarm(self, invocation_state: dict[str, Any]) -> None:
         """Shared execution logic used by execute_async."""
         try:
             # Main execution loop
@@ -522,7 +546,7 @@ class Swarm(MultiAgentBase):
                 # TODO: Implement cancellation token to stop _execute_node from continuing
                 try:
                     await asyncio.wait_for(
-                        self._execute_node(current_node, self.state.task),
+                        self._execute_node(current_node, self.state.task, invocation_state),
                         timeout=self.node_timeout,
                     )
 
@@ -563,7 +587,9 @@ class Swarm(MultiAgentBase):
             f"{elapsed_time:.2f}",
         )
 
-    async def _execute_node(self, node: SwarmNode, task: str | list[ContentBlock]) -> AgentResult:
+    async def _execute_node(
+        self, node: SwarmNode, task: str | list[ContentBlock], invocation_state: dict[str, Any]
+    ) -> AgentResult:
         """Execute swarm node."""
         start_time = time.time()
         node_name = node.node_id
@@ -583,7 +609,8 @@ class Swarm(MultiAgentBase):
             # Execute node
             result = None
             node.reset_executor_state()
-            result = await node.executor.invoke_async(node_input)
+            # Unpacking since this is the agent class. Other executors should not unpack
+            result = await node.executor.invoke_async(node_input, **invocation_state)
 
             execution_time = round((time.time() - start_time) * 1000)
 
