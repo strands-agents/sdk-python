@@ -136,7 +136,7 @@ class BedrockModel(Model):
         session = boto_session or boto3.Session()
         resolved_region = region_name or session.region_name or os.environ.get("AWS_REGION") or DEFAULT_BEDROCK_REGION
         self.config = BedrockModel.BedrockConfig(
-            model_id=(BedrockModel._get_default_model_with_warning(resolved_region, model_config)),
+            model_id=BedrockModel._get_default_model_with_warning(resolved_region, model_config),
             include_tool_result_status="auto",
         )
         self.update_config(**model_config)
