@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from ..types.content import Messages
 from ..types.streaming import StreamEvent
-from ..types.tools import ToolSpec
+from ..types.tools import ToolChoice, ToolSpec
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +70,7 @@ class Model(abc.ABC):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncIterable[StreamEvent]:
         """Stream conversation with the model.
@@ -84,6 +85,7 @@ class Model(abc.ABC):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:

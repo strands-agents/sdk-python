@@ -24,8 +24,8 @@ from ..types.exceptions import (
     ModelThrottledException,
 )
 from ..types.streaming import CitationsDelta, StreamEvent
-from ..types.tools import ToolResult, ToolSpec
-from ._config_validation import validate_config_keys
+from ..types.tools import ToolChoice, ToolResult, ToolSpec
+from ._validation import validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -201,6 +201,7 @@ class BedrockModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        tool_choice: ToolChoice | None = None,
     ) -> dict[str, Any]:
         """Format a Bedrock converse stream request.
 
@@ -208,6 +209,7 @@ class BedrockModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
 
         Returns:
             A Bedrock converse stream request.
@@ -230,7 +232,7 @@ class BedrockModel(Model):
                                 else []
                             ),
                         ],
-                        "toolChoice": {"auto": {}},
+                        **({"toolChoice": tool_choice if tool_choice else {"auto": {}}}),
                     }
                 }
                 if tool_specs
@@ -422,6 +424,7 @@ class BedrockModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Bedrock model.
@@ -433,6 +436,7 @@ class BedrockModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -451,7 +455,7 @@ class BedrockModel(Model):
         loop = asyncio.get_event_loop()
         queue: asyncio.Queue[Optional[StreamEvent]] = asyncio.Queue()
 
-        thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt)
+        thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt, tool_choice)
         task = asyncio.create_task(thread)
 
         while True:
@@ -469,6 +473,7 @@ class BedrockModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        tool_choice: ToolChoice | None = None,
     ) -> None:
         """Stream conversation with the Bedrock model.
 
@@ -480,6 +485,7 @@ class BedrockModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
 
         Raises:
             ContextWindowOverflowException: If the input exceeds the model's context window.
@@ -487,7 +493,7 @@ class BedrockModel(Model):
         """
         try:
             logger.debug("formatting request")
-            request = self.format_request(messages, tool_specs, system_prompt)
+            request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
             logger.debug("request=<%s>", request)
 
             logger.debug("invoking model")
@@ -744,6 +750,7 @@ class BedrockModel(Model):
             messages=prompt,
             tool_specs=[tool_spec],
             system_prompt=system_prompt,
+            tool_choice=cast(ToolChoice, {"any": {}}),
             **kwargs,
         )
         async for event in streaming.process_stream(response):
