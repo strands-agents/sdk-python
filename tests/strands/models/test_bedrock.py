@@ -11,7 +11,12 @@ from botocore.exceptions import ClientError, EventStreamError
 
 import strands
 from strands.models import BedrockModel
-from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, DEFAULT_BEDROCK_REGION, DEFAULT_READ_TIMEOUT
+from strands.models.bedrock import (
+    _DEFAULT_BEDROCK_MODEL_ID,
+    DEFAULT_BEDROCK_MODEL_ID,
+    DEFAULT_BEDROCK_REGION,
+    DEFAULT_READ_TIMEOUT,
+)
 from strands.types.exceptions import ModelThrottledException
 from strands.types.tools import ToolSpec
 
@@ -1481,33 +1486,51 @@ def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings
     assert "wrong_param" in str(captured_warnings[0].message)
 
 
-def test_get_model_prefix_with_warning_supported_regions_shows_no_warning(captured_warnings):
+def test_get_default_model_with_warning_supported_regions_shows_no_warning(captured_warnings):
     """Test get_model_prefix_with_warning doesn't warn for supported region prefixes."""
-    prefix_us = BedrockModel.get_model_prefix_with_warning("us-west-2")
-    assert prefix_us == "us"
-
-    prefix_eu = BedrockModel.get_model_prefix_with_warning("eu-west-1")
-    assert prefix_eu == "eu"
-
+    BedrockModel._get_default_model_with_warning("us-west-2")
+    BedrockModel._get_default_model_with_warning("eu-west-2")
     assert len(captured_warnings) == 0
 
 
-def test_get_model_prefix_with_warning_unsupported_region_warns(captured_warnings):
-    """Test get_model_prefix_with_warning warns for unsupported regions."""
-    prefix = BedrockModel.get_model_prefix_with_warning("ca-central-1")
+def test_get_default_model_for_supported_eu_region_returns_correct_model_id(captured_warnings):
+    model_id = BedrockModel._get_default_model_with_warning("eu-west-1")
+    assert model_id == "eu.anthropic.claude-sonnet-4-20250514-v1:0"
+    assert len(captured_warnings) == 0
 
-    assert prefix == "ca"
+
+def test_get_default_model_for_supported_us_region_returns_correct_model_id(captured_warnings):
+    model_id = BedrockModel._get_default_model_with_warning("us-east-1")
+    assert model_id == "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    assert len(captured_warnings) == 0
+
+
+def test_get_default_model_for_supported_gov_region_returns_correct_model_id(captured_warnings):
+    model_id = BedrockModel._get_default_model_with_warning("us-gov-west-1")
+    assert model_id == "us-gov.anthropic.claude-sonnet-4-20250514-v1:0"
+    assert len(captured_warnings) == 0
+
+
+def test_get_model_prefix_for_ap_region_converts_to_apac_endpoint(captured_warnings):
+    """Test _get_default_model_with_warning warns for APAC regions since 'ap' is not in supported prefixes."""
+    model_id = BedrockModel._get_default_model_with_warning("ap-southeast-1")
+    assert model_id == "apac.anthropic.claude-sonnet-4-20250514-v1:0"
+
+
+def test_get_default_model_with_warning_unsupported_region_warns(captured_warnings):
+    """Test _get_default_model_with_warning warns for unsupported regions."""
+    BedrockModel._get_default_model_with_warning("ca-central-1")
     assert len(captured_warnings) == 1
     assert "This region ca-central-1 does not support" in str(captured_warnings[0].message)
     assert "our default inference endpoint" in str(captured_warnings[0].message)
 
 
-def test_get_model_prefix_with_warning_no_warning_with_custom_model_id(captured_warnings):
-    """Test get_model_prefix_with_warning doesn't warn when custom model_id provided."""
+def test_get_default_model_with_warning_no_warning_with_custom_model_id(captured_warnings):
+    """Test _get_default_model_with_warning doesn't warn when custom model_id provided."""
     model_config = {"model_id": "custom-model"}
-    prefix = BedrockModel.get_model_prefix_with_warning("ca-central-1", model_config)
+    model_id = BedrockModel._get_default_model_with_warning("ca-central-1", model_config)
 
-    assert prefix == "ca"
+    assert model_id == "custom-model"
     assert len(captured_warnings) == 0
 
 
@@ -1522,19 +1545,20 @@ def test_init_with_unsupported_region_warns(session_cls, captured_warnings):
 def test_init_with_unsupported_region_custom_model_no_warning(session_cls, captured_warnings):
     """Test BedrockModel initialization doesn't warn when custom model_id provided."""
     BedrockModel(region_name="ca-central-1", model_id="custom-model")
-
     assert len(captured_warnings) == 0
 
 
-def test_default_model_id_format_with_region_prefix(session_cls):
-    """Test that default model ID is formatted with region prefix."""
-    session_cls.return_value.region_name = "eu-west-1"
+def test_override_default_model_id_uses_the_overriden_value(captured_warnings):
+    with unittest.mock.patch("strands.models.bedrock.DEFAULT_BEDROCK_MODEL_ID", "custom-overridden-model"):
+        model_id = BedrockModel._get_default_model_with_warning("us-east-1")
+        assert model_id == "custom-overridden-model"
 
-    model = BedrockModel()
-    model_id = model.get_config().get("model_id")
 
-    assert model_id.startswith("eu.")
-    assert "anthropic.claude-sonnet-4" in model_id
+def test_no_override_uses_formatted_default_model_id(captured_warnings):
+    model_id = BedrockModel._get_default_model_with_warning("us-east-1")
+    assert model_id == "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    assert model_id != _DEFAULT_BEDROCK_MODEL_ID
+    assert len(captured_warnings) == 0
 
 
 def test_custom_model_id_not_overridden_by_region_formatting(session_cls):
@@ -1545,10 +1569,3 @@ def test_custom_model_id_not_overridden_by_region_formatting(session_cls):
     model_id = model.get_config().get("model_id")
 
     assert model_id == custom_model_id
-
-
-def test_get_model_prefix_for_ap_region_converts_to_apac_endpoint(captured_warnings):
-    """Test get_model_prefix_with_warning warns for APAC regions since 'ap' is not in supported prefixes."""
-    prefix = BedrockModel.get_model_prefix_with_warning("ap-southeast-1")
-
-    assert prefix == "apac"

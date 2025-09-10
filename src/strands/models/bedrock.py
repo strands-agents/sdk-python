@@ -30,7 +30,9 @@ from .model import Model
 
 logger = logging.getLogger(__name__)
 
+# See: `BedrockModel._get_default_model_with_warning` for why we need both
 DEFAULT_BEDROCK_MODEL_ID = "{}.anthropic.claude-sonnet-4-20250514-v1:0"
+_DEFAULT_BEDROCK_MODEL_ID = "{}.anthropic.claude-sonnet-4-20250514-v1:0"
 DEFAULT_BEDROCK_REGION = "us-west-2"
 
 BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
@@ -134,9 +136,7 @@ class BedrockModel(Model):
         session = boto_session or boto3.Session()
         resolved_region = region_name or session.region_name or os.environ.get("AWS_REGION") or DEFAULT_BEDROCK_REGION
         self.config = BedrockModel.BedrockConfig(
-            model_id=DEFAULT_BEDROCK_MODEL_ID.format(
-                BedrockModel.get_model_prefix_with_warning(resolved_region, model_config)
-            ),
+            model_id=(BedrockModel._get_default_model_with_warning(resolved_region, model_config)),
             include_tool_result_status="auto",
         )
         self.update_config(**model_config)
@@ -770,22 +770,29 @@ class BedrockModel(Model):
         yield {"output": output_model(**output_response)}
 
     @staticmethod
-    def get_model_prefix_with_warning(region_name: str, model_config: Optional[BedrockConfig] = None) -> str:
-        """Get model prefix for bedrock model based on region.
+    def _get_default_model_with_warning(region_name: str, model_config: Optional[BedrockConfig] = None) -> str:
+        """Get the default Bedrock modelId based on region.
 
         If the region is not **known** to support inference then we show a helpful warning
         that compliments the exception that Bedrock will throw.
-        If the customer provided a model_id in their config then we should not
-        show any warnings as this is only for the **default** model we provide.
+        If the customer provided a model_id in their config or they overrode the `DEFAULT_BEDROCK_MODEL_ID`
+        then we should not process further.
 
         Args:
             region_name (str): region for bedrock model
             model_config (Optional[dict[str, Any]]): Model Config that caller passes in on init
         """
-        prefix_infr_map = {"ap": "apac"}  # some inference endpoints can be a bit different then the region prefix
+        if DEFAULT_BEDROCK_MODEL_ID != _DEFAULT_BEDROCK_MODEL_ID:
+            return DEFAULT_BEDROCK_MODEL_ID
+
         model_config = model_config or {}
+        if model_config.get("model_id"):
+            return model_config["model_id"]
+
+        prefix_inference_map = {"ap": "apac"}  # some inference endpoints can be a bit different than the region prefix
+
         prefix = "-".join(region_name.split("-")[:-2]).lower()  # handles `us-east-1` or `us-gov-east-1`
-        if prefix not in {"us", "eu", "ap"} and not model_config.get("model_id"):
+        if prefix not in {"us", "eu", "ap", "us-gov"}:
             warnings.warn(
                 f"""
             ================== WARNING ==================
@@ -802,4 +809,5 @@ class BedrockModel(Model):
             """,
                 stacklevel=2,
             )
-        return prefix_infr_map.get(prefix, prefix)
+
+        return DEFAULT_BEDROCK_MODEL_ID.format(prefix_inference_map.get(prefix, prefix))
