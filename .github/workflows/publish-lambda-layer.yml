@@ -9,64 +9,90 @@ on:
         type: string
       python_version:
         description: 'Python version'
-        required: false
-        default: '3.12'
+        required: true
+        default: 'ALL'
         type: choice
-        options: ['3.10', '3.11', '3.12', '3.13']
+        options: ['ALL', '3.10', '3.11', '3.12', '3.13']
       architecture:
         description: 'Architecture'
-        required: false
-        default: 'x86_64'
+        required: true
+        default: 'ALL'
         type: choice
-        options: ['x86_64', 'aarch64']
+        options: ['ALL', 'x86_64', 'aarch64']
       region:
         description: 'AWS region'
-        required: false
-        default: 'us-east-1'
+        required: true
+        default: 'ALL'
         type: choice
         # Only non opt-in regions included for now
-        options: ['us-east-1', 'us-east-2', 'us-west-1', 'us-west-2', 'ap-south-1', 'ap-northeast-1', 'ap-northeast-2', 'ap-northeast-3', 'ap-southeast-1', 'ap-southeast-2', 'ca-central-1', 'eu-central-1', 'eu-west-1', 'eu-west-2', 'eu-west-3', 'eu-north-1', 'sa-east-1']
+        options: ['ALL', 'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2', 'ap-south-1', 'ap-northeast-1', 'ap-northeast-2', 'ap-northeast-3', 'ap-southeast-1', 'ap-southeast-2', 'ca-central-1', 'eu-central-1', 'eu-west-1', 'eu-west-2', 'eu-west-3', 'eu-north-1', 'sa-east-1']
       confirm:
-        description: 'Type "Create Lambda Layer" to confirm publishing the layer'
+        description: 'Type "Create Lambda Layer {PyPI version}" to confirm publishing the layer'
         required: true
         type: string
 
 env:
-  IS_FULL_DEPLOY: ${{ !inputs.python_version && !inputs.architecture && !inputs.region }}
+  BUCKET_NAME: strands-agents-lambda-layer
 
 jobs:
-  publish-layer:
+  validate:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ${{ inputs.python_version && fromJson(format('["{}"', inputs.python_version)) || fromJson('["3.10", "3.11", "3.12", "3.13"]') }}
-        architecture: ${{ inputs.architecture && fromJson(format('["{}"', inputs.architecture)) || fromJson('["x86_64", "aarch64"]') }}
-        region: ${{ inputs.region && fromJson(format('["{}"', inputs.region)) || fromJson('["us-east-1", "us-east-2", "us-west-1", "us-west-2", "ap-south-1", "ap-northeast-1", "ap-northeast-2", "ap-northeast-3", "ap-southeast-1", "ap-southeast-2", "ca-central-1", "eu-central-1", "eu-west-1", "eu-west-2", "eu-west-3", "eu-north-1", "sa-east-1"]') }}
-
-    outputs:
-      layer-version: ${{ env.LAYER_VERSION }}
-    permissions:
-      id-token: write
-      contents: read
-
     steps:
       - name: Validate confirmation
         run: |
           CONFIRM="${{ inputs.confirm }}"
-          if [ "$CONFIRM" != "Create Lambda Layer" ]; then
-            if [[ "$CONFIRM" =~ ^(x86_64|aarch64|3\.[0-9]+|[a-z]+-[a-z]+-[0-9]+)$ ]]; then
-              echo "Error: You entered '$CONFIRM' which looks like an architecture, Python version, or region."
-              echo "Please type exactly 'Create Lambda Layer' to confirm."
-            else
-              echo "Confirmation failed. You must type exactly 'Create Lambda Layer' to proceed."
-            fi
+          EXPECTED="Create Lambda Layer ${{ inputs.package_version }}"
+          if [ "$CONFIRM" != "$EXPECTED" ]; then
+            echo "Confirmation failed. You must type exactly '$EXPECTED' to proceed."
             exit 1
           fi
           echo "Confirmation validated"
 
-      - name: Checkout current repository
-        uses: actions/checkout@v4
+  create-buckets:
+    needs: validate
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        region: ${{ inputs.region == 'ALL' && fromJson('["us-east-1", "us-east-2", "us-west-1", "us-west-2", "ap-south-1", "ap-northeast-1", "ap-northeast-2", "ap-northeast-3", "ap-southeast-1", "ap-southeast-2", "ca-central-1", "eu-central-1", "eu-west-1", "eu-west-2", "eu-west-3", "eu-north-1", "sa-east-1"]') || fromJson(format('["{0}"]', inputs.region)) }}
+    permissions:
+      id-token: write
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.STRANDS_LAMBDA_LAYER_PUBLISHER_ROLE }}
+          aws-region: ${{ matrix.region }}
 
+      - name: Create S3 bucket
+        run: |
+          REGION="${{ matrix.region }}"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          REGIONAL_BUCKET="${{ env.BUCKET_NAME }}-${ACCOUNT_ID}-${REGION}"
+          
+          if ! aws s3api head-bucket --bucket "$REGIONAL_BUCKET" 2>/dev/null; then
+            if [ "$REGION" = "us-east-1" ]; then
+              aws s3api create-bucket --bucket "$REGIONAL_BUCKET" --region "$REGION" 2>/dev/null || echo "Bucket $REGIONAL_BUCKET already exists"
+            else
+              aws s3api create-bucket --bucket "$REGIONAL_BUCKET" --region "$REGION" --create-bucket-configuration LocationConstraint="$REGION" 2>/dev/null || echo "Bucket $REGIONAL_BUCKET already exists"
+            fi
+            echo "S3 bucket ready: $REGIONAL_BUCKET"
+          else
+            echo "S3 bucket already exists: $REGIONAL_BUCKET"
+          fi
+
+  package-and-upload:
+    needs: create-buckets
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ${{ inputs.python_version == 'ALL' && fromJson('["3.10", "3.11", "3.12", "3.13"]') || fromJson(format('["{0}"]', inputs.python_version)) }}
+        architecture: ${{ inputs.architecture == 'ALL' && fromJson('["x86_64", "aarch64"]') || fromJson(format('["{0}"]', inputs.architecture)) }}
+        region: ${{ inputs.region == 'ALL' && fromJson('["us-east-1", "us-east-2", "us-west-1", "us-west-2", "ap-south-1", "ap-northeast-1", "ap-northeast-2", "ap-northeast-3", "ap-southeast-1", "ap-southeast-2", "ca-central-1", "eu-central-1", "eu-west-1", "eu-west-2", "eu-west-3", "eu-north-1", "sa-east-1"]') || fromJson(format('["{0}"]', inputs.region)) }}
+
+    permissions:
+      id-token: write
+
+    steps:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -94,34 +120,64 @@ jobs:
         run: |
           cd layer
           zip -r ../lambda-layer.zip .
-          
-      - name: Upload layer to S3 and publish
+
+      - name: Upload to S3
         run: |
           PYTHON_VERSION="${{ matrix.python-version }}"
           ARCH="${{ matrix.architecture }}"
           REGION="${{ matrix.region }}"
           LAYER_NAME="strands-agents-py${PYTHON_VERSION//./_}-${ARCH}"
-          BUCKET_NAME="strands-agents-lambda-layers-$(aws sts get-caller-identity --query Account --output text)-${REGION}"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          BUCKET_NAME="${{ env.BUCKET_NAME }}-${ACCOUNT_ID}-${REGION}"
           LAYER_KEY="$LAYER_NAME/v${{ inputs.package_version }}/lambda-layer.zip"
-
-          if ! aws s3api head-bucket --bucket "$BUCKET_NAME" 2>/dev/null; then
-            if [ "$REGION" = "us-east-1" ]; then
-              aws s3api create-bucket --bucket "$BUCKET_NAME" --region "$REGION"
-            else
-              aws s3api create-bucket --bucket "$BUCKET_NAME" --region "$REGION" --create-bucket-configuration LocationConstraint="$REGION"
-            fi
-          fi
 
           aws s3 cp lambda-layer.zip "s3://$BUCKET_NAME/$LAYER_KEY" --region "$REGION"
           echo "Uploaded layer to s3://$BUCKET_NAME/$LAYER_KEY"
 
+  publish-layer:
+    needs: package-and-upload
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ${{ inputs.python_version == 'ALL' && fromJson('["3.10", "3.11", "3.12", "3.13"]') || fromJson(format('["{0}"]', inputs.python_version)) }}
+        architecture: ${{ inputs.architecture == 'ALL' && fromJson('["x86_64", "aarch64"]') || fromJson(format('["{0}"]', inputs.architecture)) }}
+        region: ${{ inputs.region == 'ALL' && fromJson('["us-east-1", "us-east-2", "us-west-1", "us-west-2", "ap-south-1", "ap-northeast-1", "ap-northeast-2", "ap-northeast-3", "ap-southeast-1", "ap-southeast-2", "ca-central-1", "eu-central-1", "eu-west-1", "eu-west-2", "eu-west-3", "eu-north-1", "sa-east-1"]') || fromJson(format('["{0}"]', inputs.region)) }}
+
+    permissions:
+      id-token: write
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.STRANDS_LAMBDA_LAYER_PUBLISHER_ROLE }}
+          aws-region: ${{ matrix.region }}
+
+      - name: Publish layer
+        run: |
+          PYTHON_VERSION="${{ matrix.python-version }}"
+          ARCH="${{ matrix.architecture }}"
+          REGION="${{ matrix.region }}"
+          LAYER_NAME="strands-agents-py${PYTHON_VERSION//./_}-${ARCH}"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          REGION_BUCKET="${{ env.BUCKET_NAME }}-${ACCOUNT_ID}-${REGION}"
+          LAYER_KEY="$LAYER_NAME/v${{ inputs.package_version }}/lambda-layer.zip"
+
           DESCRIPTION="PyPI package: strands-agents v${{ inputs.package_version }} (Python $PYTHON_VERSION, $ARCH)"
+
+          # Set compatible architecture based on matrix architecture
+          if [ "$ARCH" = "x86_64" ]; then
+            COMPATIBLE_ARCH="x86_64"
+          else
+            COMPATIBLE_ARCH="arm64"
+          fi
 
           LAYER_OUTPUT=$(aws lambda publish-layer-version \
             --layer-name $LAYER_NAME \
             --description "$DESCRIPTION" \
-            --content S3Bucket=$BUCKET_NAME,S3Key=$LAYER_KEY \
+            --content S3Bucket=$REGION_BUCKET,S3Key=$LAYER_KEY \
             --compatible-runtimes python${{ matrix.python-version }} \
+            --compatible-architectures $COMPATIBLE_ARCH \
             --region "$REGION" \
             --license-info Apache-2.0 \
             --output json)
@@ -140,47 +196,3 @@ jobs:
             --region "$REGION"
       
           echo "Successfully published layer version $LAYER_VERSION in region $REGION"
-          
-          if [ "${{ env.IS_FULL_DEPLOY }}" = "true" ] && [ "$REGION" = "us-east-1" ] && [ "$PYTHON_VERSION" = "3.10" ] && [ "$ARCH" = "x86_64" ]; then
-            echo "LAYER_VERSION=$LAYER_VERSION" >> $GITHUB_ENV
-          fi
-
-  update-docs:
-    if: ${{ env.IS_FULL_DEPLOY == 'true' }}
-    needs: publish-layer
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout docs repository
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository_owner }}/docs
-          token: ${{ secrets.GITHUB_TOKEN }}
-          path: docs
-
-      - name: Update lambda layers documentation
-        run: |
-          cd docs
-          LAYER_VERSION="${{ needs.publish-layer.outputs.layer-version }}"
-          NEW_ROW="| $LAYER_VERSION | [${{ inputs.package_version }}](https://pypi.org/project/strands-agents/${{ inputs.package_version }}) | \`arn:aws:lambda:{REGION}:856699698935:layer:strands-agents-{VERSION}-{ARCHITECTURE}:$LAYER_VERSION\` |"
-          
-          sed -i "/<!-- LAYER_TABLE_START -->/a\$NEW_ROW" docs/user-guide/deploy/lambda-layers.md
-
-      - name: Create Pull Request
-        run: |
-          cd docs
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          
-          BRANCH="update-lambda-layers-${{ inputs.package_version }}"
-          git checkout -b "$BRANCH"
-          git add docs/user-guide/deploy/lambda-layers.md
-          git commit -m "Update lambda layers with version ${{ inputs.package_version }}"
-          git push origin "$BRANCH"
-          
-          gh pr create \
-            --title "Update lambda layers documentation for v${{ inputs.package_version }}" \
-            --body "Automated update to add new lambda layer version ${{ inputs.package_version }}" \
-            --head "$BRANCH" \
-            --base main
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
