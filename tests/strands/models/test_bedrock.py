@@ -1461,6 +1461,131 @@ async def test_stream_deepseek_skips_empty_messages(bedrock_client, alist):
     assert sent_messages[1]["content"] == [{"text": "Follow up"}]
 
 
+def test_format_request_filters_image_content_blocks(model, model_id):
+    """Test that format_request filters extra fields from image content blocks."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"bytes": b"image_data"},
+                        "filename": "test.png",  # Extra field that should be filtered
+                        "metadata": {"size": 1024},  # Extra field that should be filtered
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    image_block = formatted_request["messages"][0]["content"][0]["image"]
+    expected = {"format": "png", "source": {"bytes": b"image_data"}}
+    assert image_block == expected
+    assert "filename" not in image_block
+    assert "metadata" not in image_block
+
+
+def test_format_request_filters_document_content_blocks(model, model_id):
+    """Test that format_request filters extra fields from document content blocks."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "document": {
+                        "name": "test.pdf",
+                        "source": {"bytes": b"pdf_data"},
+                        "format": "pdf",
+                        "extraField": "should be removed",
+                        "metadata": {"pages": 10},
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    document_block = formatted_request["messages"][0]["content"][0]["document"]
+    expected = {"name": "test.pdf", "source": {"bytes": b"pdf_data"}, "format": "pdf"}
+    assert document_block == expected
+    assert "extraField" not in document_block
+    assert "metadata" not in document_block
+
+
+def test_format_request_filters_video_content_blocks(model, model_id):
+    """Test that format_request filters extra fields from video content blocks."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "video": {
+                        "format": "mp4",
+                        "source": {"bytes": b"video_data"},
+                        "duration": 120,  # Extra field that should be filtered
+                        "resolution": "1080p",  # Extra field that should be filtered
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    video_block = formatted_request["messages"][0]["content"][0]["video"]
+    expected = {"format": "mp4", "source": {"bytes": b"video_data"}}
+    assert video_block == expected
+    assert "duration" not in video_block
+    assert "resolution" not in video_block
+
+
+def test_format_request_filters_cache_point_content_blocks(model, model_id):
+    """Test that format_request filters extra fields from cachePoint content blocks."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "cachePoint": {
+                        "type": "default",
+                        "extraField": "should be removed",
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    cache_point_block = formatted_request["messages"][0]["content"][0]["cachePoint"]
+    expected = {"type": "default"}
+    assert cache_point_block == expected
+    assert "extraField" not in cache_point_block
+
+
+def test_format_request_preserves_unknown_content_blocks(model, model_id):
+    """Test that format_request preserves content blocks that don't need filtering."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "Hello world"},
+                {"unknownBlock": {"data": "preserved", "extra": "also preserved"}},
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    content = formatted_request["messages"][0]["content"]
+    assert content[0] == {"text": "Hello world"}
+    assert content[1] == {"unknownBlock": {"data": "preserved", "extra": "also preserved"}}
+
+
 def test_config_validation_warns_on_unknown_keys(bedrock_client, captured_warnings):
     """Test that unknown config keys emit a warning."""
     BedrockModel(model_id="test-model", invalid_param="test")

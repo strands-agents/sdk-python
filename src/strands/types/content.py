@@ -71,6 +71,22 @@ class CachePoint(TypedDict):
     type: str
 
 
+# Private type for type-safe access to ContentBlock keys
+# Kept private to avoid backwards compatibility issues when adding new content block types
+# until a public use case is identified
+_ContentBlockType = Literal[
+    "image",
+    "toolResult",
+    "toolUse",
+    "document",
+    "video",
+    "reasoningContent",
+    "citationsContent",
+    "cachePoint",
+    "guardContent",
+]
+
+
 class ContentBlock(TypedDict, total=False):
     """A block of content for a message that you pass to, or receive from, a model.
 

@@ -17,13 +17,13 @@ from typing_extensions import TypedDict, Unpack, override
 
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
-from ..types.content import ContentBlock, Message, Messages
+from ..types.content import ContentBlock, Message, Messages, _ContentBlockType
 from ..types.exceptions import (
     ContextWindowOverflowException,
     ModelThrottledException,
 )
 from ..types.streaming import CitationsDelta, StreamEvent
-from ..types.tools import ToolResult, ToolSpec
+from ..types.tools import ToolSpec
 from ._config_validation import validate_config_keys
 from .model import Model
 
@@ -43,9 +43,56 @@ _MODELS_INCLUDE_STATUS = [
     "anthropic.claude",
 ]
 
+# Allowed fields for each Bedrock content block type to prevent validation exceptions
+# Bedrock strictly validates content blocks and throws exceptions for unknown fields
+# https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ContentBlock.html
+_BEDROCK_CONTENT_BLOCK_FIELDS: dict[_ContentBlockType, set[str]] = {
+    "image": {
+        "format",
+        "source",
+    },  # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ImageBlock.html
+    "toolResult": {
+        "content",
+        "toolUseId",
+        "status",
+    },  # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolResultBlock.html
+    "toolUse": {
+        "input",
+        "name",
+        "toolUseId",
+    },  # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolUseBlock.html
+    "document": {
+        "name",
+        "source",
+        "citations",
+        "context",
+        "format",
+    },  # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_DocumentBlock.html
+    "video": {
+        "format",
+        "source",
+    },  # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_VideoBlock.html
+    "reasoningContent": {
+        "reasoningText",
+        "redactedContent",
+    },  # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ReasoningContentBlock.html
+    "citationsContent": {
+        "citations",
+        "content",
+    },  # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CitationsContentBlock.html
+    "cachePoint": {"type"},  # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CachePointBlock.html
+    "guardContent": {
+        "image",
+        "text",
+    },  # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_GuardrailConverseContentBlock.html
+    # Note: text is handled as a primitive (string)
+}
+_BEDROCK_CONTENT_BLOCK_TYPES: set[_ContentBlockType] = set(_BEDROCK_CONTENT_BLOCK_FIELDS.keys())
+
 T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_READ_TIMEOUT = 120
+
 
 class BedrockModel(Model):
     """AWS Bedrock model provider implementation.
@@ -279,9 +326,7 @@ class BedrockModel(Model):
 
         This function ensures messages conform to Bedrock's expected format by:
         - Filtering out SDK_UNKNOWN_MEMBER content blocks
-        - Cleaning tool result content blocks by removing additional fields that may be
-          useful for retaining information in hooks but would cause Bedrock validation
-          exceptions when presented with unexpected fields
+        - Eagerly filtering content blocks to only include Bedrock-supported fields
         - Ensuring all message content blocks are properly formatted for the Bedrock API
 
         Args:
@@ -291,9 +336,11 @@ class BedrockModel(Model):
             Messages formatted for Bedrock API compatibility
 
         Note:
-            Bedrock will throw validation exceptions when presented with additional
-            unexpected fields in tool result blocks.
-            https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolResultBlock.html
+            Unlike other APIs that ignore unknown fields, Bedrock only accepts a strict
+            subset of fields for each content block type and throws validation exceptions
+            when presented with unexpected fields. Therefore, we must eagerly filter all
+            content blocks to remove any additional fields before sending to Bedrock.
+            https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ContentBlock.html
         """
         cleaned_messages = []
 
@@ -315,30 +362,25 @@ class BedrockModel(Model):
                     dropped_deepseek_reasoning_content = True
                     continue
 
-                if "toolResult" in content_block:
-                    # Create a new content block with only the cleaned toolResult
-                    tool_result: ToolResult = content_block["toolResult"]
+                # Clean content blocks that need field filtering for Bedrock API compatibility
+                filterable_block_types = set(content_block.keys()) & _BEDROCK_CONTENT_BLOCK_TYPES
 
-                    if self._should_include_tool_result_status():
-                        # Include status field
-                        cleaned_tool_result = ToolResult(
-                            content=tool_result["content"],
-                            toolUseId=tool_result["toolUseId"],
-                            status=tool_result["status"],
-                        )
-                    else:
-                        # Remove status field
-                        cleaned_tool_result = ToolResult(  # type: ignore[typeddict-item]
-                            toolUseId=tool_result["toolUseId"], content=tool_result["content"]
-                        )
+                if filterable_block_types:
+                    # Should only be one block type per content block since it is a discriminated union
+                    block_type = cast(_ContentBlockType, next(iter(filterable_block_types)))
+                    block_data = content_block[block_type]
+                    allowed_fields = _BEDROCK_CONTENT_BLOCK_FIELDS[block_type].copy()
 
-                    cleaned_block: ContentBlock = {"toolResult": cleaned_tool_result}
-                    cleaned_content.append(cleaned_block)
+                    if block_type == "toolResult" and not self._should_include_tool_result_status():
+                        allowed_fields.discard("status")
+
+                    cleaned_data = {k: v for k, v in block_data.items() if k in allowed_fields}
+                    cleaned_content.append(cast(ContentBlock, {block_type: cleaned_data}))
                 else:
                     # Keep other content blocks as-is
                     cleaned_content.append(content_block)
 
-            # Create new message with cleaned content (skip if empty for DeepSeek)
+            # Create new message with cleaned content (skip if empty)
             if cleaned_content:
                 cleaned_message: Message = Message(content=cleaned_content, role=message["role"])
                 cleaned_messages.append(cleaned_message)
