@@ -19,13 +19,13 @@ jobs:
         include:
           - label: 'autoclose in 3 days'
             days: 3
-            issue_types: 'issues' // issues/pulls/both
+            issue_types: 'issues' #issues/pulls/both
             replacement_label: ''
             closure_message: 'This issue has been automatically closed as it was marked for auto-closure by the team and no additional responses was received within 3 days.'
             dry_run: 'false'
           - label: 'autoclose in 7 days'
             days: 7
-            issue_types: 'issues'  // issues/pulls/both
+            issue_types: 'issues'  # issues/pulls/both
             replacement_label: ''
             closure_message: 'This issue has been automatically closed as it was marked for auto-closure by the team and no additional responses was received within 7 days.'
             dry_run: 'false'
