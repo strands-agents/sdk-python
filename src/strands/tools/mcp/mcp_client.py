@@ -122,6 +122,7 @@ class MCPClient:
             self._init_future.result(timeout=self._startup_timeout)
             self._log_debug_with_thread("the client initialization was successful")
         except futures.TimeoutError as e:
+            logger.exception("client initialization timed out")
             # Pass None for exc_type, exc_val, exc_tb since this isn't a context manager exit
             self.stop(None, None, None)
             raise MCPClientInitializationError(
@@ -161,7 +162,7 @@ class MCPClient:
 
             self._log_debug_with_thread("waiting for background thread to join")
             self._background_thread.join()
-            self._log_debug_with_thread("background thread joined, MCPClient context exited")
+        self._log_debug_with_thread("background thread is closed, MCPClient context exited")
 
         # Reset fields to allow instance reuse
         self._init_future = futures.Future()
