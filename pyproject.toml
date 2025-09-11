@@ -118,7 +118,9 @@ all = [
 source = "vcs"
 
 [tool.hatch.envs.hatch-static-analysis]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "writer", "a2a", "sagemaker", "gemini"]
+features = [
+    "a2a", "anthropic", "gemini", "litellm", "llamaapi", "mistral", "ollama", "openai", "otel", "sagemaker", "writer",
+]
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
   "ruff>=0.11.6,<0.12.0",
@@ -141,7 +143,9 @@ lint-fix = [
 ]
 
 [tool.hatch.envs.hatch-test]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "writer", "a2a", "sagemaker", "gemini"]
+features = [
+    "a2a", "anthropic", "gemini", "litellm", "llamaapi", "mistral", "ollama", "openai", "otel", "sagemaker", "writer",
+]
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
@@ -157,7 +161,21 @@ extra-args = [
 
 [tool.hatch.envs.dev]
 dev-mode = true
-features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel", "mistral", "writer", "a2a", "sagemaker", "gemini"]
+features = [
+    "a2a",
+    "anthropic",
+    "dev",
+    "docs",
+    "gemini",
+    "litellm",
+    "llamaapi",
+    "mistral",
+    "ollama",
+    "openai",
+    "otel",
+    "sagemaker",
+    "writer",
+]
 
 [[tool.hatch.envs.hatch-test.matrix]]
 python = ["3.13", "3.12", "3.11", "3.10"]
