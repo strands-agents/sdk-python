@@ -12,6 +12,7 @@ from ..types._events import (
     ModelStreamEvent,
     ReasoningSignatureStreamEvent,
     ReasoningTextStreamEvent,
+    RedactedContentStreamEvent,
     TextStreamEvent,
     ToolUseStreamEvent,
     TypedEvent,
@@ -170,16 +171,12 @@ def handle_content_block_delta(
                 delta=delta_content,
             )
 
-        elif "redactedContent" in delta_content["reasoningContent"]:
-            if "redactedContent" not in state:
-                state["redactedContent"] = b""
-
-            state["redactedContent"] += delta_content["reasoningContent"]["redactedContent"]
-            callback_handler(
-                redactedContent=delta_content["reasoningContent"]["redactedContent"],
+        elif redacted_content := delta_content["reasoningContent"].get("redactedContent"):
+            state.setdefault("redactedContent", b"")
+            state["redactedContent"] += redacted_content
+            typed_event = RedactedContentStreamEvent(
+                redacted_content=redacted_content,
                 delta=delta_content,
-                reasoning=True,
-                **kwargs,
             )
 
     return state, typed_event
@@ -200,7 +197,7 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
     text = state["text"]
     reasoning_text = state["reasoningText"]
     citations_content = state["citationsContent"]
-    redacted_content = state["redactedContent"]
+    redacted_content = state.get("redactedContent")
 
     if current_tool_use:
         if "input" not in current_tool_use:
