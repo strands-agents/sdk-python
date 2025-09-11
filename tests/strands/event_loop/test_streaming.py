@@ -137,7 +137,6 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
             {},
             {"redactedContent": b"encoded"},
             {"redactedContent": b"encoded", "reasoning": True},
-            marks=pytest.mark.skip(reason="Implementation has undefined callback_handler"),
         ),
         # Reasoning - redactedContent - Existing
         pytest.param(
@@ -145,7 +144,6 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
             {"redactedContent": b"encoded_"},
             {"redactedContent": b"encoded_data"},
             {"redactedContent": b"data", "reasoning": True},
-            marks=pytest.mark.skip(reason="Implementation has undefined callback_handler"),
         ),
         # Reasoning - Empty
         (
