@@ -35,7 +35,8 @@ from ...types.media import ImageFormat
 from ...types.tools import AgentTool, ToolResultContent, ToolResultStatus
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_instrumentation import mcp_instrumentation
-from .mcp_types import MCPToolResult, MCPTransport
+from .mcp_retry import MCPRetryConfig
+from .mcp_types import MCPRetryMetadata, MCPToolResult, MCPTransport
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +109,7 @@ class MCPClient(ToolProvider):
         tool_filters: ToolFilters | None = None,
         prefix: str | None = None,
         elicitation_callback: Optional[ElicitationFnT] = None,
+        retry_config: Optional[MCPRetryConfig] = None,
     ) -> None:
         """Initialize a new MCP Server connection.
 
@@ -118,11 +120,13 @@ class MCPClient(ToolProvider):
             tool_filters: Optional filters to apply to tools.
             prefix: Optional prefix for tool names.
             elicitation_callback: Optional callback function to handle elicitation requests from the MCP server.
+            retry_config: Optional retry configuration for tool calls. If None, no retries are performed.
         """
         self._startup_timeout = startup_timeout
         self._tool_filters = tool_filters
         self._prefix = prefix
         self._elicitation_callback = elicitation_callback
+        self._retry_config = retry_config or MCPRetryConfig()
 
         mcp_instrumentation()
         self._session_id = uuid.uuid4()
@@ -473,17 +477,22 @@ class MCPClient(ToolProvider):
         if not self._is_session_active():
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
-        async def _call_tool_async() -> MCPCallToolResult:
-            return await cast(ClientSession, self._background_thread_session).call_tool(
-                name, arguments, read_timeout_seconds
-            )
+        async def _call_tool_with_retry() -> MCPToolResult:
+            async def _call_tool_async() -> MCPCallToolResult:
+                return await cast(ClientSession, self._background_thread_session).call_tool(
+                    name, arguments, read_timeout_seconds
+                )
 
-        try:
-            call_tool_result: MCPCallToolResult = self._invoke_on_background_thread(_call_tool_async()).result()
-            return self._handle_tool_result(tool_use_id, call_tool_result)
-        except Exception as e:
-            logger.exception("tool execution failed")
-            return self._handle_tool_execution_error(tool_use_id, e)
+            try:
+                call_tool_result, retry_metadata = await self._execute_with_retry(name, _call_tool_async)
+                result = self._handle_tool_result(tool_use_id, call_tool_result)
+                result["retryMetadata"] = retry_metadata
+                return result
+            except Exception as e:
+                logger.exception("tool execution failed after retries")
+                return self._handle_tool_execution_error(tool_use_id, e)
+
+        return self._invoke_on_background_thread(_call_tool_with_retry()).result()
 
     async def call_tool_async(
         self,
@@ -510,18 +519,23 @@ class MCPClient(ToolProvider):
         if not self._is_session_active():
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
-        async def _call_tool_async() -> MCPCallToolResult:
-            return await cast(ClientSession, self._background_thread_session).call_tool(
-                name, arguments, read_timeout_seconds
-            )
+        async def _call_tool_with_retry() -> MCPToolResult:
+            async def _call_tool_async() -> MCPCallToolResult:
+                return await cast(ClientSession, self._background_thread_session).call_tool(
+                    name, arguments, read_timeout_seconds
+                )
 
-        try:
-            future = self._invoke_on_background_thread(_call_tool_async())
-            call_tool_result: MCPCallToolResult = await asyncio.wrap_future(future)
-            return self._handle_tool_result(tool_use_id, call_tool_result)
-        except Exception as e:
-            logger.exception("tool execution failed")
-            return self._handle_tool_execution_error(tool_use_id, e)
+            try:
+                call_tool_result, retry_metadata = await self._execute_with_retry(name, _call_tool_async)
+                result = self._handle_tool_result(tool_use_id, call_tool_result)
+                result["retryMetadata"] = retry_metadata
+                return result
+            except Exception as e:
+                logger.exception("tool execution failed after retries")
+                return self._handle_tool_execution_error(tool_use_id, e)
+
+        future = self._invoke_on_background_thread(_call_tool_with_retry())
+        return await asyncio.wrap_future(future)
 
     def _handle_tool_execution_error(self, tool_use_id: str, exception: Exception) -> MCPToolResult:
         """Create error ToolResult with consistent logging."""
@@ -722,6 +736,62 @@ class MCPClient(ToolProvider):
         else:
             self._log_debug_with_thread("unhandled content type: %s - dropping content", content.__class__.__name__)
             return None
+
+    async def _execute_with_retry(
+        self,
+        tool_name: str,
+        operation_func: Callable[[], Coroutine[Any, Any, MCPCallToolResult]],
+    ) -> tuple[MCPCallToolResult, MCPRetryMetadata]:
+        """Execute a tool operation with retry logic based on the configured strategy.
+
+        Args:
+            tool_name: Name of the tool being executed (for strategy selection)
+            operation_func: Async function that performs the actual tool call
+
+        Returns:
+            tuple: (call_tool_result, retry_metadata)
+
+        Raises:
+            Exception: The final exception if all retry attempts fail
+        """
+        strategy = self._retry_config.get_strategy_for_tool(tool_name)
+        retryer = strategy.retryer
+
+        attempt = 0
+        last_exception: Optional[Exception] = None
+
+        async for attempt_mgr in retryer:
+            with attempt_mgr:
+                attempt = retryer.statistics.get("attempt_number", 1)
+                self._log_debug_with_thread(f"Executing tool '{tool_name}' attempt {attempt}")
+
+                try:
+                    result = await operation_func()
+
+                    metadata = MCPRetryMetadata(
+                        total_attempts=attempt,
+                        retry_strategy_used=strategy.get_strategy_name(),
+                    )
+                    if last_exception:
+                        metadata["last_exception"] = str(last_exception)
+
+                    return result, metadata
+
+                except Exception as e:
+                    last_exception = e
+                    self._log_debug_with_thread(
+                        f"Tool '{tool_name}' attempt {attempt} failed with {type(e).__name__}: {str(e)}"
+                    )
+                    raise
+
+        metadata = MCPRetryMetadata(
+            total_attempts=attempt,
+            retry_strategy_used=strategy.get_strategy_name(),
+            last_exception=str(last_exception) if last_exception else None,
+        )
+        if last_exception:
+            raise last_exception
+        raise RuntimeError("Retry loop ended unexpectedly")
 
     def _log_debug_with_thread(self, msg: str, *args: Any, **kwargs: Any) -> None:
         """Logger helper to help differentiate logs coming from MCPClient background thread."""

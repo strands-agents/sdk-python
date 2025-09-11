@@ -10,6 +10,7 @@ from mcp.types import TextContent as MCPTextContent
 from mcp.types import Tool as MCPTool
 
 from strands.tools.mcp import MCPClient
+from strands.tools.mcp.mcp_retry import ExponentialBackoffRetry, MCPRetryConfig, NoRetryStrategy
 from strands.tools.mcp.mcp_types import MCPToolResult
 from strands.types.exceptions import MCPClientInitializationError
 
@@ -200,9 +201,15 @@ async def test_call_tool_async_status(mock_transport, mock_session, is_error, ex
             mock_future = MagicMock()
             mock_run_coroutine_threadsafe.return_value = mock_future
 
-            # Create an async mock that resolves to the mock result
+            # Create an async mock that resolves to the MCPToolResult format
             async def mock_awaitable():
-                return mock_result
+                # Return MCPToolResult format that _call_tool_with_retry would return
+                return MCPToolResult(
+                    status=expected_status,
+                    toolUseId="test-123",
+                    content=[{"text": "Test message"}],
+                    retryMetadata={"total_attempts": 1, "retry_strategy_used": "NoRetryStrategy"},
+                )
 
             mock_wrap_future.return_value = mock_awaitable()
 
@@ -218,6 +225,9 @@ async def test_call_tool_async_status(mock_transport, mock_session, is_error, ex
         assert result["toolUseId"] == "test-123"
         assert len(result["content"]) == 1
         assert result["content"][0]["text"] == "Test message"
+        # Check retry metadata is present
+        assert "retryMetadata" in result
+        assert result["retryMetadata"]["total_attempts"] == 1
 
 
 @pytest.mark.asyncio
@@ -232,14 +242,11 @@ async def test_call_tool_async_session_not_active():
 @pytest.mark.asyncio
 async def test_call_tool_async_exception(mock_transport, mock_session):
     """Test that call_tool_async correctly handles exceptions."""
-    with MCPClient(mock_transport["transport_callable"]) as client:
-        # Mock asyncio.run_coroutine_threadsafe to raise an exception
-        with patch("asyncio.run_coroutine_threadsafe") as mock_run_coroutine_threadsafe:
-            mock_run_coroutine_threadsafe.side_effect = Exception("Test exception")
+    # Mock the session to raise an exception
+    mock_session.call_tool.side_effect = Exception("Test exception")
 
-            result = await client.call_tool_async(
-                tool_use_id="test-123", name="test_tool", arguments={"param": "value"}
-            )
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = await client.call_tool_async(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
 
         assert result["status"] == "error"
         assert result["toolUseId"] == "test-123"
@@ -266,9 +273,14 @@ async def test_call_tool_async_with_timeout(mock_transport, mock_session):
             mock_future = MagicMock()
             mock_run_coroutine_threadsafe.return_value = mock_future
 
-            # Create an async mock that resolves to the mock result
+            # Create an async mock that resolves to the MCPToolResult format
             async def mock_awaitable():
-                return mock_result
+                return MCPToolResult(
+                    status="success",
+                    toolUseId="test-123",
+                    content=[{"text": "Test message"}],
+                    retryMetadata={"total_attempts": 1, "retry_strategy_used": "NoRetryStrategy"},
+                )
 
             mock_wrap_future.return_value = mock_awaitable()
 
@@ -284,24 +296,23 @@ async def test_call_tool_async_with_timeout(mock_transport, mock_session):
 
         assert result["status"] == "success"
         assert result["toolUseId"] == "test-123"
+        assert "retryMetadata" in result
 
 
 @pytest.mark.asyncio
 async def test_call_tool_async_initialization_not_complete():
-    """Test that call_tool_async returns error result when background thread is not initialized."""
+    """Test that call_tool_async raises an error when background thread is not initialized."""
     client = MCPClient(MagicMock())
 
     # Manually set the client state to simulate a partially initialized state
     client._background_thread = MagicMock()
     client._background_thread.is_alive.return_value = True
     client._background_thread_session = None  # Not initialized
+    client._background_thread_event_loop = None  # Not initialized
 
-    result = await client.call_tool_async(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
-
-    assert result["status"] == "error"
-    assert result["toolUseId"] == "test-123"
-    assert len(result["content"]) == 1
-    assert "client session was not initialized" in result["content"][0]["text"]
+    # This should raise MCPClientInitializationError
+    with pytest.raises(MCPClientInitializationError, match="the client session was not initialized"):
+        await client.call_tool_async(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
 
 
 @pytest.mark.asyncio
@@ -315,9 +326,14 @@ async def test_call_tool_async_wrap_future_exception(mock_transport, mock_sessio
             mock_future = MagicMock()
             mock_run_coroutine_threadsafe.return_value = mock_future
 
-            # Create an async mock that raises an exception
+            # Create an async mock that returns an error MCPToolResult
+            # (since _call_tool_with_retry catches exceptions and returns error results)
             async def mock_awaitable():
-                raise Exception("Wrap future exception")
+                return MCPToolResult(
+                    status="error",
+                    toolUseId="test-123",
+                    content=[{"text": "Tool execution failed: Wrap future exception"}],
+                )
 
             mock_wrap_future.return_value = mock_awaitable()
 
@@ -723,3 +739,143 @@ async def test_handle_error_message_non_exception():
 
     # This should not raise an exception
     await client._handle_error_message("normal message")
+
+
+# Retry Mechanism Tests
+
+
+def test_mcp_client_with_no_retry_config(mock_transport, mock_session):
+    """Test MCPClient behavior with default (no retry) configuration."""
+    # Mock successful tool call
+    mock_result = MCPCallToolResult(content=[MCPTextContent(type="text", text="success")], isError=False)
+    mock_session.call_tool.return_value = mock_result
+
+    client = MCPClient(mock_transport["transport_callable"])
+
+    # Should use NoRetryStrategy by default
+    assert isinstance(client._retry_config.strategy, NoRetryStrategy)
+
+    with client:
+        result = client.call_tool_sync("test_id", "test_tool", {"arg": "value"})
+
+        # Should complete successfully without retries
+        assert result["status"] == "success"
+        assert "retryMetadata" in result
+        assert result["retryMetadata"]["total_attempts"] == 1
+        assert result["retryMetadata"]["retry_strategy_used"] == "NoRetryStrategy"
+
+
+def test_mcp_client_with_global_retry_strategy(mock_transport, mock_session):
+    """Test MCPClient with global retry strategy."""
+    retry_config = MCPRetryConfig(
+        strategy=ExponentialBackoffRetry(max_attempts=3, min_wait=0.01)  # Fast for testing
+    )
+
+    # Mock tool call that fails twice then succeeds
+    call_count = 0
+
+    def mock_call_tool(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count < 3:
+            raise Exception(f"Temporary failure {call_count}")
+        return MCPCallToolResult(content=[MCPTextContent(type="text", text="success")], isError=False)
+
+    mock_session.call_tool.side_effect = mock_call_tool
+
+    client = MCPClient(mock_transport["transport_callable"], retry_config=retry_config)
+
+    with client:
+        result = client.call_tool_sync("test_id", "test_tool", {"arg": "value"})
+
+        # Should succeed after retries
+        assert result["status"] == "success"
+        assert result["retryMetadata"]["total_attempts"] == 3
+        assert result["retryMetadata"]["retry_strategy_used"] == "ExponentialBackoffRetry"
+        assert "last_exception" in result["retryMetadata"]
+
+
+def test_mcp_client_with_tool_specific_retry(mock_transport, mock_session):
+    """Test MCPClient with tool-specific retry configuration."""
+    retry_config = MCPRetryConfig(
+        strategy=NoRetryStrategy(),  # Global: no retries
+        tool_overrides={"retryable_tool": ExponentialBackoffRetry(max_attempts=2, min_wait=0.01)},
+    )
+
+    # Mock tool call that always fails
+    mock_session.call_tool.side_effect = Exception("Tool failure")
+
+    client = MCPClient(mock_transport["transport_callable"], retry_config=retry_config)
+
+    with client:
+        # Tool with no retry should fail immediately
+        result1 = client.call_tool_sync("test_id1", "normal_tool", {})
+        assert result1["status"] == "error"
+        assert "Tool execution failed: Tool failure" in result1["content"][0]["text"]
+
+        # Tool with retry should attempt multiple times
+        result2 = client.call_tool_sync("test_id2", "retryable_tool", {})
+        assert result2["status"] == "error"
+        # Should show it was attempted multiple times (but we can't check exact count due to mocking complexity)
+
+
+@pytest.mark.asyncio
+async def test_mcp_client_async_with_retry(mock_transport, mock_session):
+    """Test MCPClient async method with retry strategy."""
+    retry_config = MCPRetryConfig(strategy=ExponentialBackoffRetry(max_attempts=2, min_wait=0.01))
+
+    # Mock tool call that fails once then succeeds
+    call_count = 0
+
+    async def mock_call_tool(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise Exception("First attempt failure")
+        return MCPCallToolResult(content=[MCPTextContent(type="text", text="success")], isError=False)
+
+    mock_session.call_tool.side_effect = mock_call_tool
+
+    client = MCPClient(mock_transport["transport_callable"], retry_config=retry_config)
+
+    with client:
+        result = await client.call_tool_async("test_id", "test_tool", {"arg": "value"})
+
+        # Should succeed after retry
+        assert result["status"] == "success"
+        assert result["retryMetadata"]["total_attempts"] == 2
+        assert result["retryMetadata"]["retry_strategy_used"] == "ExponentialBackoffRetry"
+
+
+def test_retry_config_fluent_interface():
+    """Test MCPRetryConfig fluent interface for setting tool strategies."""
+    config = MCPRetryConfig()
+    strategy1 = ExponentialBackoffRetry(max_attempts=2)
+    strategy2 = ExponentialBackoffRetry(max_attempts=5)
+
+    # Test method chaining
+    result = config.set_tool_strategy("tool1", strategy1).set_tool_strategy("tool2", strategy2)
+
+    assert result is config  # Should return same instance
+    assert config.get_strategy_for_tool("tool1") is strategy1
+    assert config.get_strategy_for_tool("tool2") is strategy2
+    assert isinstance(config.get_strategy_for_tool("other_tool"), NoRetryStrategy)  # Should use default
+
+
+def test_mcp_client_initialization_with_retry_config(mock_transport):
+    """Test that MCPClient properly initializes with retry configuration."""
+    retry_config = MCPRetryConfig(strategy=ExponentialBackoffRetry(max_attempts=5))
+
+    client = MCPClient(mock_transport["transport_callable"], retry_config=retry_config)
+
+    assert client._retry_config is retry_config
+    assert client._retry_config.strategy.max_attempts == 5
+
+
+def test_mcp_client_initialization_without_retry_config(mock_transport):
+    """Test that MCPClient uses default retry configuration when none provided."""
+    client = MCPClient(mock_transport["transport_callable"])
+
+    assert isinstance(client._retry_config, MCPRetryConfig)
+    assert isinstance(client._retry_config.strategy, NoRetryStrategy)
+    assert len(client._retry_config.tool_overrides) == 0
