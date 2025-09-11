@@ -7,18 +7,24 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Iterable, Optional, TypedDict, cast
+from typing import Any, AsyncGenerator, Optional, Type, TypedDict, TypeVar, Union, cast
 
 import anthropic
+from pydantic import BaseModel
 from typing_extensions import Required, Unpack, override
 
+from ..event_loop.streaming import process_stream
+from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
-from ..types.models import Model
 from ..types.streaming import StreamEvent
-from ..types.tools import ToolSpec
+from ..types.tools import ToolChoice, ToolChoiceToolDict, ToolSpec
+from ._validation import validate_config_keys
+from .model import Model
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class AnthropicModel(Model):
@@ -50,7 +56,7 @@ class AnthropicModel(Model):
                 For a complete list of supported parameters, see https://docs.anthropic.com/en/api/messages.
         """
 
-        max_tokens: Required[str]
+        max_tokens: Required[int]
         model_id: Required[str]
         params: Optional[dict[str, Any]]
 
@@ -62,12 +68,13 @@ class AnthropicModel(Model):
                 For a complete list of supported arguments, see https://docs.anthropic.com/en/api/client-sdks.
             **model_config: Configuration options for the Anthropic model.
         """
+        validate_config_keys(model_config, self.AnthropicConfig)
         self.config = AnthropicModel.AnthropicConfig(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
 
         client_args = client_args or {}
-        self.client = anthropic.Anthropic(**client_args)
+        self.client = anthropic.AsyncAnthropic(**client_args)
 
     @override
     def update_config(self, **model_config: Unpack[AnthropicConfig]) -> None:  # type: ignore[override]
@@ -76,6 +83,7 @@ class AnthropicModel(Model):
         Args:
             **model_config: Configuration overrides.
         """
+        validate_config_keys(model_config, self.AnthropicConfig)
         self.config.update(model_config)
 
     @override
@@ -186,9 +194,12 @@ class AnthropicModel(Model):
 
         return formatted_messages
 
-    @override
     def format_request(
-        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+        self,
+        messages: Messages,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        system_prompt: Optional[str] = None,
+        tool_choice: ToolChoice | None = None,
     ) -> dict[str, Any]:
         """Format an Anthropic streaming request.
 
@@ -196,6 +207,7 @@ class AnthropicModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
 
         Returns:
             An Anthropic streaming request.
@@ -216,11 +228,25 @@ class AnthropicModel(Model):
                 }
                 for tool_spec in tool_specs or []
             ],
+            **(self._format_tool_choice(tool_choice)),
             **({"system": system_prompt} if system_prompt else {}),
             **(self.config.get("params") or {}),
         }
 
-    @override
+    @staticmethod
+    def _format_tool_choice(tool_choice: ToolChoice | None) -> dict:
+        if tool_choice is None:
+            return {}
+
+        if "any" in tool_choice:
+            return {"tool_choice": {"type": "any"}}
+        elif "auto" in tool_choice:
+            return {"tool_choice": {"type": "auto"}}
+        elif "tool" in tool_choice:
+            return {"tool_choice": {"type": "tool", "name": cast(ToolChoiceToolDict, tool_choice)["tool"]["name"]}}
+        else:
+            return {}
+
     def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
         """Format the Anthropic response events into standardized message chunks.
 
@@ -339,27 +365,44 @@ class AnthropicModel(Model):
                 raise RuntimeError(f"event_type=<{event['type']} | unknown type")
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
-        """Send the request to the Anthropic model and get the streaming response.
+    async def stream(
+        self,
+        messages: Messages,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        system_prompt: Optional[str] = None,
+        tool_choice: ToolChoice | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream conversation with the Anthropic model.
 
         Args:
-            request: The formatted request to send to the Anthropic model.
+            messages: List of message objects to be processed by the model.
+            tool_specs: List of tool specifications to make available to the model.
+            system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
+            **kwargs: Additional keyword arguments for future extensibility.
 
-        Returns:
-            An iterable of response events from the Anthropic model.
+        Yields:
+            Formatted message chunks from the model.
 
         Raises:
             ContextWindowOverflowException: If the input exceeds the model's context window.
             ModelThrottledException: If the request is throttled by Anthropic.
         """
+        logger.debug("formatting request")
+        request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
+        logger.debug("request=<%s>", request)
+
+        logger.debug("invoking model")
         try:
-            with self.client.messages.stream(**request) as stream:
-                for event in stream:
+            async with self.client.messages.stream(**request) as stream:
+                logger.debug("got response from model")
+                async for event in stream:
                     if event.type in AnthropicModel.EVENT_TYPES:
-                        yield event.dict()
+                        yield self.format_chunk(event.model_dump())
 
                 usage = event.message.usage  # type: ignore
-                yield {"type": "metadata", "usage": usage.dict()}
+                yield self.format_chunk({"type": "metadata", "usage": usage.model_dump()})
 
         except anthropic.RateLimitError as error:
             raise ModelThrottledException(str(error)) from error
@@ -369,3 +412,52 @@ class AnthropicModel(Model):
                 raise ContextWindowOverflowException(str(error)) from error
 
             raise error
+
+        logger.debug("finished streaming response from model")
+
+    @override
+    async def structured_output(
+        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        """Get structured output from the model.
+
+        Args:
+            output_model: The output model to use for the agent.
+            prompt: The prompt messages to use for the agent.
+            system_prompt: System prompt to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Yields:
+            Model events with the last being the structured output.
+        """
+        tool_spec = convert_pydantic_to_tool_spec(output_model)
+
+        response = self.stream(
+            messages=prompt,
+            tool_specs=[tool_spec],
+            system_prompt=system_prompt,
+            tool_choice=cast(ToolChoice, {"any": {}}),
+            **kwargs,
+        )
+        async for event in process_stream(response):
+            yield event
+
+        stop_reason, messages, _, _ = event["stop"]
+
+        if stop_reason != "tool_use":
+            raise ValueError(f'Model returned stop_reason: {stop_reason} instead of "tool_use".')
+
+        content = messages["content"]
+        output_response: dict[str, Any] | None = None
+        for block in content:
+            # if the tool use name doesn't match the tool spec name, skip, and if the block is not a tool use, skip.
+            # if the tool use name never matches, raise an error.
+            if block.get("toolUse") and block["toolUse"]["name"] == tool_spec["name"]:
+                output_response = block["toolUse"]["input"]
+            else:
+                continue
+
+        if output_response is None:
+            raise ValueError("No valid tool use or tool use input was found in the Anthropic response.")
+
+        yield {"output": output_model(**output_response)}

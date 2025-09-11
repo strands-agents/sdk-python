@@ -8,19 +8,23 @@ import base64
 import json
 import logging
 import mimetypes
-from typing import Any, Iterable, Optional, cast
+from typing import Any, AsyncGenerator, Optional, Type, TypeVar, Union, cast
 
 import llama_api_client
 from llama_api_client import LlamaAPIClient
+from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
-from ..types.models import Model
 from ..types.streaming import StreamEvent, Usage
-from ..types.tools import ToolResult, ToolSpec, ToolUse
+from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
+from ._validation import validate_config_keys, warn_on_tool_choice_not_supported
+from .model import Model
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class LlamaAPIModel(Model):
@@ -57,6 +61,7 @@ class LlamaAPIModel(Model):
             client_args: Arguments for the Llama API client.
             **model_config: Configuration options for the Llama API model.
         """
+        validate_config_keys(model_config, self.LlamaConfig)
         self.config = LlamaAPIModel.LlamaConfig(**model_config)
         logger.debug("config=<%s> | initializing", self.config)
 
@@ -72,6 +77,7 @@ class LlamaAPIModel(Model):
         Args:
             **model_config: Configuration overrides.
         """
+        validate_config_keys(model_config, self.LlamaConfig)
         self.config.update(model_config)
 
     @override
@@ -199,7 +205,6 @@ class LlamaAPIModel(Model):
 
         return [message for message in formatted_messages if message["content"] or "tool_calls" in message]
 
-    @override
     def format_request(
         self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
     ) -> dict[str, Any]:
@@ -246,7 +251,6 @@ class LlamaAPIModel(Model):
 
         return request
 
-    @override
     def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
         """Format the Llama API model response events into standardized message chunks.
 
@@ -321,24 +325,44 @@ class LlamaAPIModel(Model):
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
     @override
-    def stream(self, request: dict[str, Any]) -> Iterable[dict[str, Any]]:
-        """Send the request to the model and get a streaming response.
+    async def stream(
+        self,
+        messages: Messages,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        system_prompt: Optional[str] = None,
+        tool_choice: ToolChoice | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream conversation with the LlamaAPI model.
 
         Args:
-            request: The formatted request to send to the model.
+            messages: List of message objects to be processed by the model.
+            tool_specs: List of tool specifications to make available to the model.
+            system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation. **Note: This parameter is accepted for
+                interface consistency but is currently ignored for this model provider.**
+            **kwargs: Additional keyword arguments for future extensibility.
 
-        Returns:
-            The model's response.
+        Yields:
+            Formatted message chunks from the model.
 
         Raises:
             ModelThrottledException: When the model service is throttling requests from the client.
         """
+        warn_on_tool_choice_not_supported(tool_choice)
+
+        logger.debug("formatting request")
+        request = self.format_request(messages, tool_specs, system_prompt)
+        logger.debug("request=<%s>", request)
+
+        logger.debug("invoking model")
         try:
             response = self.client.chat.completions.create(**request)
         except llama_api_client.RateLimitError as e:
             raise ModelThrottledException(str(e)) from e
 
-        yield {"chunk_type": "message_start"}
+        logger.debug("got response from model")
+        yield self.format_chunk({"chunk_type": "message_start"})
 
         stop_reason = None
         tool_calls: dict[Any, list[Any]] = {}
@@ -347,9 +371,11 @@ class LlamaAPIModel(Model):
         metrics_event = None
         for chunk in response:
             if chunk.event.event_type == "start":
-                yield {"chunk_type": "content_start", "data_type": "text"}
+                yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
             elif chunk.event.event_type in ["progress", "complete"] and chunk.event.delta.type == "text":
-                yield {"chunk_type": "content_delta", "data_type": "text", "data": chunk.event.delta.text}
+                yield self.format_chunk(
+                    {"chunk_type": "content_delta", "data_type": "text", "data": chunk.event.delta.text}
+                )
             else:
                 if chunk.event.delta.type == "tool_call":
                     if chunk.event.delta.id:
@@ -361,26 +387,60 @@ class LlamaAPIModel(Model):
                 elif chunk.event.event_type == "metrics":
                     metrics_event = chunk.event.metrics
                 else:
-                    yield chunk
+                    yield self.format_chunk(chunk)
 
             if stop_reason is None:
                 stop_reason = chunk.event.stop_reason
 
             # stopped generation
             if stop_reason:
-                yield {"chunk_type": "content_stop", "data_type": "text"}
+                yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
 
         for tool_deltas in tool_calls.values():
             tool_start, tool_deltas = tool_deltas[0], tool_deltas[1:]
-            yield {"chunk_type": "content_start", "data_type": "tool", "data": tool_start}
+            yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_start})
 
             for tool_delta in tool_deltas:
-                yield {"chunk_type": "content_delta", "data_type": "tool", "data": tool_delta}
+                yield self.format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_delta})
 
-            yield {"chunk_type": "content_stop", "data_type": "tool"}
+            yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
 
-        yield {"chunk_type": "message_stop", "data": stop_reason}
+        yield self.format_chunk({"chunk_type": "message_stop", "data": stop_reason})
 
         # we may have a metrics event here
         if metrics_event:
-            yield {"chunk_type": "metadata", "data": metrics_event}
+            yield self.format_chunk({"chunk_type": "metadata", "data": metrics_event})
+
+        logger.debug("finished streaming response from model")
+
+    @override
+    def structured_output(
+        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        """Get structured output from the model.
+
+        Args:
+            output_model: The output model to use for the agent.
+            prompt: The prompt messages to use for the agent.
+            system_prompt: System prompt to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Yields:
+            Model events with the last being the structured output.
+
+        Raises:
+            NotImplementedError: Structured output is not currently supported for LlamaAPI models.
+        """
+        # response_format: ResponseFormat = {
+        #     "type": "json_schema",
+        #     "json_schema": {
+        #         "name": output_model.__name__,
+        #         "schema": output_model.model_json_schema(),
+        #     },
+        # }
+        # response = self.client.chat.completions.create(
+        #     model=self.config["model_id"],
+        #     messages=self.format_request(prompt)["messages"],
+        #     response_format=response_format,
+        # )
+        raise NotImplementedError("Strands sdk-python does not implement this in the Llama API Preview.")

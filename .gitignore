@@ -1,3 +1,4 @@
+.DS_Store
 build
 __pycache__*
 .coverage*
@@ -9,3 +10,5 @@ __pycache__*
 *.bak
 .vscode
 dist
+repl_state
+.kiro

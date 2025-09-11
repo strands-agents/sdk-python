@@ -4,6 +4,6 @@ The event loop enables conversational AI agents to process messages, execute too
 iterative manner.
 """
 
-from . import error_handler, event_loop, message_processor
+from . import event_loop
 
-__all__ = ["error_handler", "event_loop", "message_processor"]
+__all__ = ["event_loop"]

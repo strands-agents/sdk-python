@@ -13,7 +13,7 @@ authors = [
     {name = "AWS", email = "opensource@amazon.com"},
 ]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
@@ -28,14 +28,14 @@ classifiers = [
 dependencies = [
     "boto3>=1.26.0,<2.0.0",
     "botocore>=1.29.0,<2.0.0",
-    "docstring_parser>=0.15,<0.16.0",
-    "mcp>=1.8.0,<2.0.0",
-    "pydantic>=2.0.0,<3.0.0",
+    "docstring_parser>=0.15,<1.0",
+    "mcp>=1.11.0,<2.0.0",
+    "pydantic>=2.4.0,<3.0.0",
     "typing-extensions>=4.13.2,<5.0.0",
     "watchdog>=6.0.0,<7.0.0",
     "opentelemetry-api>=1.30.0,<2.0.0",
     "opentelemetry-sdk>=1.30.0,<2.0.0",
-    "opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0",
+    "opentelemetry-instrumentation-threading>=0.51b0,<1.00b0",
 ]
 
 [project.urls]
@@ -55,11 +55,12 @@ dev = [
     "hatch>=1.0.0,<2.0.0",
     "moto>=5.1.0,<6.0.0",
     "mypy>=1.15.0,<2.0.0",
-    "pre-commit>=3.2.0,<4.2.0",
+    "pre-commit>=3.2.0,<4.4.0",
     "pytest>=8.0.0,<9.0.0",
-    "pytest-asyncio>=0.26.0,<0.27.0",
-    "ruff>=0.4.4,<0.5.0",
-    "swagger-parser>=1.0.2,<2.0.0",
+    "pytest-cov>=6.0.0,<7.0.0",
+    "pytest-asyncio>=1.0.0,<1.2.0",
+    "pytest-xdist>=3.0.0,<4.0.0",
+    "ruff>=0.12.0,<0.13.0",
 ]
 docs = [
     "sphinx>=5.0.0,<6.0.0",
@@ -67,10 +68,14 @@ docs = [
     "sphinx-autodoc-typehints>=1.12.0,<2.0.0",
 ]
 litellm = [
-    "litellm>=1.69.0,<2.0.0",
+    "litellm>=1.75.9,<2.0.0",
+    "openai>=1.68.0,<1.102.0",
 ]
 llamaapi = [
     "llama-api-client>=0.1.0,<1.0.0",
+]
+mistral = [
+    "mistralai>=1.8.2",
 ]
 ollama = [
     "ollama>=0.4.8,<1.0.0",
@@ -78,17 +83,43 @@ ollama = [
 openai = [
     "openai>=1.68.0,<2.0.0",
 ]
+otel = [
+    "opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0",
+]
+writer = [
+    "writer-sdk>=2.2.0,<3.0.0"
+]
+
+sagemaker = [
+    "boto3>=1.26.0,<2.0.0",
+    "botocore>=1.29.0,<2.0.0",
+    "boto3-stubs[sagemaker-runtime]>=1.26.0,<2.0.0",
+    # uses OpenAI as part of the implementation
+    "openai>=1.68.0,<2.0.0",
+]
+
+a2a = [
+    "a2a-sdk>=0.3.0,<0.4.0",
+    "a2a-sdk[sql]>=0.3.0,<0.4.0",
+    "uvicorn>=0.34.2,<1.0.0",
+    "httpx>=0.28.1,<1.0.0",
+    "fastapi>=0.115.12,<1.0.0",
+    "starlette>=0.46.2,<1.0.0",
+]
+all = [
+    "strands-agents[a2a,anthropic,dev,docs,litellm,llamaapi,mistral,ollama,openai,otel]",
+]
 
 [tool.hatch.version]
 # Tells Hatch to use your version control system (git) to determine the version.
 source = "vcs"
 
 [tool.hatch.envs.hatch-static-analysis]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "writer", "a2a", "sagemaker"]
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
   "ruff>=0.11.6,<0.12.0",
-  "strands-agents @ {root:uri}"
+  "strands-agents @ {root:uri}",
 ]
 
 [tool.hatch.envs.hatch-static-analysis.scripts]
@@ -107,12 +138,12 @@ lint-fix = [
 ]
 
 [tool.hatch.envs.hatch-test]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai"]
+features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "writer", "a2a", "sagemaker"]
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
-    "pytest-asyncio>=0.26.0,<0.27.0",
-    "pytest-cov>=4.1.0,<5.0.0",
+    "pytest-cov>=6.0.0,<7.0.0",
+    "pytest-asyncio>=1.0.0,<1.2.0",
     "pytest-xdist>=3.0.0,<4.0.0",
 ]
 extra-args = [
@@ -123,13 +154,10 @@ extra-args = [
 
 [tool.hatch.envs.dev]
 dev-mode = true
-features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama"]
-
-
+features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel", "mistral", "writer", "a2a", "sagemaker"]
 
 [[tool.hatch.envs.hatch-test.matrix]]
 python = ["3.13", "3.12", "3.11", "3.10"]
-
 
 [tool.hatch.envs.hatch-test.scripts]
 run = [
@@ -163,9 +191,14 @@ test = [
     "hatch test --cover --cov-report html --cov-report xml {args}"
 ]
 test-integ = [
-    "hatch test tests-integ {args}"
+    "hatch test tests_integ {args}"
 ]
-
+prepare = [
+    "hatch fmt --formatter",
+    "hatch fmt --linter",
+    "hatch run test-lint",
+    "hatch test --all"
+]
 
 [tool.mypy]
 python_version = "3.10"
@@ -189,7 +222,7 @@ ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 120
-include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests-integ/**/*.py"]
+include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests_integ/**/*.py"]
 
 [tool.ruff.lint]
 select = [

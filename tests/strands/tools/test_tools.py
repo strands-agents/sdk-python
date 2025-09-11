@@ -2,7 +2,6 @@ import pytest
 
 import strands
 from strands.tools.tools import (
-    FunctionTool,
     InvalidToolUseNameException,
     PythonAgentTool,
     normalize_schema,
@@ -10,7 +9,46 @@ from strands.tools.tools import (
     validate_tool_use,
     validate_tool_use_name,
 )
+from strands.types._events import ToolResultEvent
 from strands.types.tools import ToolUse
+
+
+@pytest.fixture(scope="module")
+def identity_invoke():
+    def identity(tool_use, a):
+        return tool_use, a
+
+    return identity
+
+
+@pytest.fixture(scope="module")
+def identity_invoke_async():
+    async def identity(tool_use, a):
+        return tool_use, a
+
+    return identity
+
+
+@pytest.fixture
+def identity_tool(request):
+    identity = request.getfixturevalue(request.param)
+
+    return PythonAgentTool(
+        tool_name="identity",
+        tool_spec={
+            "name": "identity",
+            "description": "identity",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "a": {
+                        "type": "integer",
+                    },
+                },
+            },
+        },
+        tool_func=identity,
+    )
 
 
 def test_validate_tool_use_name_valid():
@@ -22,6 +60,10 @@ def test_validate_tool_use_name_valid():
     # Should not raise an exception
     validate_tool_use_name(tool2)
 
+    tool3 = {"name": "34234_numbers", "toolUseId": "123"}
+    # Should not raise an exception
+    validate_tool_use_name(tool3)
+
 
 def test_validate_tool_use_name_missing():
     tool = {"toolUseId": "123"}
@@ -30,7 +72,7 @@ def test_validate_tool_use_name_missing():
 
 
 def test_validate_tool_use_name_invalid_pattern():
-    tool = {"name": "123_invalid", "toolUseId": "123"}
+    tool = {"name": "+123_invalid", "toolUseId": "123"}
     with pytest.raises(InvalidToolUseNameException, match="invalid tool name pattern"):
         validate_tool_use_name(tool)
 
@@ -377,7 +419,7 @@ def test_validate_tool_use_with_valid_input():
         # Name - Invalid characters
         (
             {
-                "name": "1-invalid",
+                "name": "+1-invalid",
                 "toolUseId": "123",
                 "input": {},
             },
@@ -392,6 +434,15 @@ def test_validate_tool_use_with_valid_input():
             },
             strands.tools.InvalidToolUseNameException,
         ),
+        # Name - Empty
+        (
+            {
+                "name": "",
+                "toolUseId": "123",
+                "input": {},
+            },
+            strands.tools.InvalidToolUseNameException,
+        ),
     ],
 )
 def test_validate_tool_use_invalid(tool_use, expected_error):
@@ -399,194 +450,17 @@ def test_validate_tool_use_invalid(tool_use, expected_error):
         strands.tools.tools.validate_tool_use(tool_use)
 
 
-@pytest.fixture
-def function():
-    def identity(a: int) -> int:
-        return a
-
-    return identity
-
-
-@pytest.fixture
-def tool_function(function):
-    return strands.tools.tool(function)
-
-
-@pytest.fixture
-def tool(tool_function):
-    return FunctionTool(tool_function, tool_name="identity")
-
-
-def test__init__invalid_name():
-    def identity(a):
-        return a
-
-    identity.TOOL_SPEC = {"name": 0}
-
-    with pytest.raises(ValueError, match="Tool name must be a string"):
-        FunctionTool(identity)
-
-
-def test__init__missing_spec():
-    def identity(a):
-        return a
-
-    with pytest.raises(ValueError, match="Function identity is not decorated with @tool"):
-        FunctionTool(identity)
-
-
-def test_tool_name(tool):
-    tru_name = tool.tool_name
+@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
+def test_tool_name(identity_tool):
+    tru_name = identity_tool.tool_name
     exp_name = "identity"
 
     assert tru_name == exp_name
 
 
-def test_tool_spec(tool):
-    exp_spec = {
-        "name": "identity",
-        "description": "identity",
-        "inputSchema": {
-            "json": {
-                "type": "object",
-                "properties": {
-                    "a": {
-                        "description": "Parameter a",
-                        "type": "integer",
-                    },
-                },
-                "required": ["a"],
-            }
-        },
-    }
-
-    tru_spec = tool.tool_spec
-    assert tru_spec == exp_spec
-
-
-def test_tool_type(tool):
-    tru_type = tool.tool_type
-    exp_type = "function"
-
-    assert tru_type == exp_type
-
-
-def test_supports_hot_reload(tool):
-    assert tool.supports_hot_reload
-
-
-def test_original_function(tool, function):
-    tru_name = tool.original_function.__name__
-    exp_name = function.__name__
-
-    assert tru_name == exp_name
-
-
-def test_original_function_not_decorated():
-    def identity(a: int):
-        return a
-
-    identity.TOOL_SPEC = {}
-
-    tool = FunctionTool(identity, tool_name="identity")
-
-    tru_name = tool.original_function.__name__
-    exp_name = "identity"
-
-    assert tru_name == exp_name
-
-
-def test_get_display_properties(tool):
-    tru_properties = tool.get_display_properties()
-    exp_properties = {
-        "Function": "identity",
-        "Name": "identity",
-        "Type": "function",
-    }
-
-    assert tru_properties == exp_properties
-
-
-def test_invoke(tool):
-    tru_output = tool.invoke({"input": {"a": 2}})
-    exp_output = {"toolUseId": "unknown", "status": "success", "content": [{"text": "2"}]}
-
-    assert tru_output == exp_output
-
-
-def test_invoke_with_agent():
-    @strands.tools.tool
-    def identity(a: int, agent: dict = None):
-        return a, agent
-
-    tool = FunctionTool(identity, tool_name="identity")
-
-    exp_output = {"toolUseId": "unknown", "status": "success", "content": [{"text": "(2, {'state': 1})"}]}
-
-    tru_output = tool.invoke({"input": {"a": 2}}, agent={"state": 1})
-
-    assert tru_output == exp_output
-
-
-def test_invoke_exception():
-    def identity(a: int):
-        return a
-
-    identity.TOOL_SPEC = {}
-
-    tool = FunctionTool(identity, tool_name="identity")
-
-    tru_output = tool.invoke({}, invalid=1)
-    exp_output = {
-        "toolUseId": "unknown",
-        "status": "error",
-        "content": [
-            {
-                "text": (
-                    "Error executing function: "
-                    "test_invoke_exception.<locals>.identity() "
-                    "got an unexpected keyword argument 'invalid'"
-                )
-            }
-        ],
-    }
-
-    assert tru_output == exp_output
-
-
-# Tests from test_python_agent_tool.py
-@pytest.fixture
-def python_tool():
-    def identity(tool_use, a):
-        return tool_use, a
-
-    return PythonAgentTool(
-        tool_name="identity",
-        tool_spec={
-            "name": "identity",
-            "description": "identity",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "a": {
-                        "type": "integer",
-                    },
-                },
-            },
-        },
-        callback=identity,
-    )
-
-
-def test_python_tool_name(python_tool):
-    tru_name = python_tool.tool_name
-    exp_name = "identity"
-
-    assert tru_name == exp_name
-
-
-def test_python_tool_spec(python_tool):
-    tru_spec = python_tool.tool_spec
+@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
+def test_tool_spec(identity_tool):
+    tru_spec = identity_tool.tool_spec
     exp_spec = {
         "name": "identity",
         "description": "identity",
@@ -603,15 +477,35 @@ def test_python_tool_spec(python_tool):
     assert tru_spec == exp_spec
 
 
-def test_python_tool_type(python_tool):
-    tru_type = python_tool.tool_type
+@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
+def test_tool_type(identity_tool):
+    tru_type = identity_tool.tool_type
     exp_type = "python"
 
     assert tru_type == exp_type
 
 
-def test_python_invoke(python_tool):
-    tru_output = python_tool.invoke({"tool_use": 1}, a=2)
-    exp_output = ({"tool_use": 1}, 2)
+@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
+def test_supports_hot_reload(identity_tool):
+    assert not identity_tool.supports_hot_reload
 
-    assert tru_output == exp_output
+
+@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
+def test_get_display_properties(identity_tool):
+    tru_properties = identity_tool.get_display_properties()
+    exp_properties = {
+        "Name": "identity",
+        "Type": "python",
+    }
+
+    assert tru_properties == exp_properties
+
+
+@pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
+@pytest.mark.asyncio
+async def test_stream(identity_tool, alist):
+    stream = identity_tool.stream({"tool_use": 1}, {"a": 2})
+
+    tru_events = await alist(stream)
+    exp_events = [ToolResultEvent(({"tool_use": 1}, 2))]
+    assert tru_events == exp_events

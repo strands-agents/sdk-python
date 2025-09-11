@@ -3,16 +3,24 @@
 - Docs: https://docs.litellm.ai/
 """
 
+import json
 import logging
-from typing import Any, Optional, TypedDict, cast
+from typing import Any, AsyncGenerator, Optional, Type, TypedDict, TypeVar, Union, cast
 
 import litellm
+from litellm.utils import supports_response_schema
+from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
-from ..types.content import ContentBlock
+from ..types.content import ContentBlock, Messages
+from ..types.streaming import StreamEvent
+from ..types.tools import ToolChoice, ToolSpec
+from ._validation import validate_config_keys
 from .openai import OpenAIModel
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T", bound=BaseModel)
 
 
 class LiteLLMModel(OpenAIModel):
@@ -41,12 +49,12 @@ class LiteLLMModel(OpenAIModel):
                 https://github.com/BerriAI/litellm/blob/main/litellm/main.py.
             **model_config: Configuration options for the LiteLLM model.
         """
+        self.client_args = client_args or {}
+        validate_config_keys(model_config, self.LiteLLMConfig)
         self.config = dict(model_config)
+        self._apply_proxy_prefix()
 
         logger.debug("config=<%s> | initializing", self.config)
-
-        client_args = client_args or {}
-        self.client = litellm.LiteLLM(**client_args)
 
     @override
     def update_config(self, **model_config: Unpack[LiteLLMConfig]) -> None:  # type: ignore[override]
@@ -55,7 +63,9 @@ class LiteLLMModel(OpenAIModel):
         Args:
             **model_config: Configuration overrides.
         """
+        validate_config_keys(model_config, self.LiteLLMConfig)
         self.config.update(model_config)
+        self._apply_proxy_prefix()
 
     @override
     def get_config(self) -> LiteLLMConfig:
@@ -97,3 +107,137 @@ class LiteLLMModel(OpenAIModel):
             }
 
         return super().format_request_message_content(content)
+
+    @override
+    async def stream(
+        self,
+        messages: Messages,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        system_prompt: Optional[str] = None,
+        tool_choice: ToolChoice | None = None,
+        **kwargs: Any,
+    ) -> AsyncGenerator[StreamEvent, None]:
+        """Stream conversation with the LiteLLM model.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            tool_specs: List of tool specifications to make available to the model.
+            system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Yields:
+            Formatted message chunks from the model.
+        """
+        logger.debug("formatting request")
+        request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
+        logger.debug("request=<%s>", request)
+
+        logger.debug("invoking model")
+        response = await litellm.acompletion(**self.client_args, **request)
+
+        logger.debug("got response from model")
+        yield self.format_chunk({"chunk_type": "message_start"})
+        yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
+
+        tool_calls: dict[int, list[Any]] = {}
+
+        async for event in response:
+            # Defensive: skip events with empty or missing choices
+            if not getattr(event, "choices", None):
+                continue
+            choice = event.choices[0]
+
+            if choice.delta.content:
+                yield self.format_chunk(
+                    {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
+                )
+
+            if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
+                yield self.format_chunk(
+                    {
+                        "chunk_type": "content_delta",
+                        "data_type": "reasoning_content",
+                        "data": choice.delta.reasoning_content,
+                    }
+                )
+
+            for tool_call in choice.delta.tool_calls or []:
+                tool_calls.setdefault(tool_call.index, []).append(tool_call)
+
+            if choice.finish_reason:
+                break
+
+        yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
+
+        for tool_deltas in tool_calls.values():
+            yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]})
+
+            for tool_delta in tool_deltas:
+                yield self.format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_delta})
+
+            yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
+
+        yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
+
+        # Skip remaining events as we don't have use for anything except the final usage payload
+        async for event in response:
+            _ = event
+
+        if event.usage:
+            yield self.format_chunk({"chunk_type": "metadata", "data": event.usage})
+
+        logger.debug("finished streaming response from model")
+
+    @override
+    async def structured_output(
+        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
+    ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
+        """Get structured output from the model.
+
+        Args:
+            output_model: The output model to use for the agent.
+            prompt: The prompt messages to use for the agent.
+            system_prompt: System prompt to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Yields:
+            Model events with the last being the structured output.
+        """
+        response = await litellm.acompletion(
+            **self.client_args,
+            model=self.get_config()["model_id"],
+            messages=self.format_request(prompt, system_prompt=system_prompt)["messages"],
+            response_format=output_model,
+        )
+
+        if not supports_response_schema(self.get_config()["model_id"]):
+            raise ValueError("Model does not support response_format")
+        if len(response.choices) > 1:
+            raise ValueError("Multiple choices found in the response.")
+
+        # Find the first choice with tool_calls
+        for choice in response.choices:
+            if choice.finish_reason == "tool_calls":
+                try:
+                    # Parse the tool call content as JSON
+                    tool_call_data = json.loads(choice.message.content)
+                    # Instantiate the output model with the parsed data
+                    yield {"output": output_model(**tool_call_data)}
+                    return
+                except (json.JSONDecodeError, TypeError, ValueError) as e:
+                    raise ValueError(f"Failed to parse or load content into model: {e}") from e
+
+        # If no tool_calls found, raise an error
+        raise ValueError("No tool_calls found in response")
+
+    def _apply_proxy_prefix(self) -> None:
+        """Apply litellm_proxy/ prefix to model_id when use_litellm_proxy is True.
+
+        This is a workaround for https://github.com/BerriAI/litellm/issues/13454
+        where use_litellm_proxy parameter is not honored.
+        """
+        if self.client_args.get("use_litellm_proxy") and "model_id" in self.config:
+            model_id = self.get_config()["model_id"]
+            if not model_id.startswith("litellm_proxy/"):
+                self.config["model_id"] = f"litellm_proxy/{model_id}"

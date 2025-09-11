@@ -6,15 +6,15 @@ These types are modeled after the Bedrock API.
 """
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Union
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
 
 from typing_extensions import TypedDict
 
 from .media import DocumentContent, ImageContent
 
 if TYPE_CHECKING:
-    from .content import Messages
-    from .models import Model
+    from .. import Agent
 
 JSONSchema = dict
 """Type alias for JSON Schema dictionaries."""
@@ -90,7 +90,7 @@ class ToolResult(TypedDict):
         toolUseId: The unique identifier of the tool use request that produced this result.
     """
 
-    content: List[ToolResultContent]
+    content: list[ToolResultContent]
     status: ToolResultStatus
     toolUseId: str
 
@@ -121,10 +121,39 @@ class ToolChoiceTool(TypedDict):
     name: str
 
 
+@dataclass
+class ToolContext:
+    """Context object containing framework-provided data for decorated tools.
+
+    This object provides access to framework-level information that may be useful
+    for tool implementations.
+
+    Attributes:
+        tool_use: The complete ToolUse object containing tool invocation details.
+        agent: The Agent instance executing this tool, providing access to conversation history,
+               model configuration, and other agent state.
+        invocation_state: Caller-provided kwargs that were passed to the agent when it was invoked (agent(),
+                          agent.invoke_async(), etc.).
+
+    Note:
+        This class is intended to be instantiated by the SDK. Direct construction by users
+        is not supported and may break in future versions as new fields are added.
+    """
+
+    tool_use: ToolUse
+    agent: "Agent"
+    invocation_state: dict[str, Any]
+
+
+# Individual ToolChoice type aliases
+ToolChoiceAutoDict = dict[Literal["auto"], ToolChoiceAuto]
+ToolChoiceAnyDict = dict[Literal["any"], ToolChoiceAny]
+ToolChoiceToolDict = dict[Literal["tool"], ToolChoiceTool]
+
 ToolChoice = Union[
-    Dict[Literal["auto"], ToolChoiceAuto],
-    Dict[Literal["any"], ToolChoiceAny],
-    Dict[Literal["tool"], ToolChoiceTool],
+    ToolChoiceAutoDict,
+    ToolChoiceAnyDict,
+    ToolChoiceToolDict,
 ]
 """
 Configuration for how the model should choose tools.
@@ -133,6 +162,12 @@ Configuration for how the model should choose tools.
 - "any": The model must use at least one tool (any tool)
 - "tool": The model must use the specified tool
 """
+
+RunToolHandler = Callable[[ToolUse], AsyncGenerator[dict[str, Any], None]]
+"""Callback that runs a single tool and streams back results."""
+
+ToolGenerator = AsyncGenerator[Any, None]
+"""Generator of tool events with the last being the tool result."""
 
 
 class ToolConfig(TypedDict):
@@ -143,15 +178,34 @@ class ToolConfig(TypedDict):
         toolChoice: Configuration for how the model should choose tools.
     """
 
-    tools: List[Tool]
+    tools: list[Tool]
     toolChoice: ToolChoice
+
+
+class ToolFunc(Protocol):
+    """Function signature for Python decorated and module based tools."""
+
+    __name__: str
+
+    def __call__(
+        self, *args: Any, **kwargs: Any
+    ) -> Union[
+        ToolResult,
+        Awaitable[ToolResult],
+    ]:
+        """Function signature for Python decorated and module based tools.
+
+        Returns:
+            Tool result or awaitable tool result.
+        """
+        ...
 
 
 class AgentTool(ABC):
     """Abstract base class for all SDK tools.
 
     This class defines the interface that all tool implementations must follow. Each tool must provide its name,
-    specification, and implement an invoke method that executes the tool's functionality.
+    specification, and implement a stream method that executes the tool's functionality.
     """
 
     _is_dynamic: bool
@@ -195,18 +249,19 @@ class AgentTool(ABC):
 
     @abstractmethod
     # pragma: no cover
-    def invoke(self, tool: ToolUse, *args: Any, **kwargs: dict[str, Any]) -> ToolResult:
-        """Execute the tool's functionality with the given tool use request.
+    def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any) -> ToolGenerator:
+        """Stream tool events and return the final result.
 
         Args:
-            tool: The tool use request containing tool ID and parameters.
-            *args: Positional arguments to pass to the tool.
-            **kwargs: Keyword arguments to pass to the tool.
+            tool_use: The tool use request containing tool ID and parameters.
+            invocation_state: Caller-provided kwargs that were passed to the agent when it was invoked (agent(),
+                              agent.invoke_async(), etc.).
+            **kwargs: Additional keyword arguments for future extensibility.
 
-        Returns:
-            The result of the tool execution.
+        Yields:
+            Tool events with the last being the tool result.
         """
-        pass
+        ...
 
     @property
     def is_dynamic(self) -> bool:
@@ -235,56 +290,3 @@ class AgentTool(ABC):
             "Name": self.tool_name,
             "Type": self.tool_type,
         }
-
-
-class ToolHandler(ABC):
-    """Abstract base class for handling tool execution within the agent framework."""
-
-    @abstractmethod
-    # pragma: no cover
-    def preprocess(
-        self,
-        tool: ToolUse,
-        tool_config: ToolConfig,
-        **kwargs: Any,
-    ) -> Optional[ToolResult]:
-        """Preprocess a tool use request before execution.
-
-        Args:
-            tool: The tool use request to preprocess.
-            tool_config: The tool configuration for the current session.
-            **kwargs: Additional context-specific arguments.
-
-        Returns:
-            A preprocessed tool result object.
-        """
-        ...
-
-    @abstractmethod
-    # pragma: no cover
-    def process(
-        self,
-        tool: ToolUse,
-        *,
-        messages: "Messages",
-        model: "Model",
-        system_prompt: Optional[str],
-        tool_config: ToolConfig,
-        callback_handler: Any,
-        **kwargs: Any,
-    ) -> ToolResult:
-        """Process a tool use request and execute the tool.
-
-        Args:
-            tool: The tool use request to process.
-            messages: The current conversation history.
-            model: The model being used for the conversation.
-            system_prompt: The system prompt for the conversation.
-            tool_config: The tool configuration for the current session.
-            callback_handler: Callback for processing events as they happen.
-            **kwargs: Additional context-specific arguments.
-
-        Returns:
-            The result of the tool execution.
-        """
-        ...

@@ -1,135 +1,12 @@
 import os
-import pathlib
 import re
 import textwrap
-import unittest.mock
 
 import pytest
 
-import strands
+from strands.tools.decorator import DecoratedFunctionTool
 from strands.tools.loader import ToolLoader
-from strands.tools.tools import FunctionTool, PythonAgentTool
-
-
-def test_load_function_tool():
-    @strands.tools.tool
-    def tool_function(a):
-        return a
-
-    tool = strands.tools.loader.load_function_tool(tool_function)
-
-    assert isinstance(tool, FunctionTool)
-
-
-def test_load_function_tool_no_function():
-    tool = strands.tools.loader.load_function_tool("no_function")
-
-    assert tool is None
-
-
-def test_load_function_tool_no_spec():
-    def tool_function(a):
-        return a
-
-    tool = strands.tools.loader.load_function_tool(tool_function)
-
-    assert tool is None
-
-
-def test_load_function_tool_invalid():
-    def tool_function(a):
-        return a
-
-    tool_function.TOOL_SPEC = "invalid"
-
-    tool = strands.tools.loader.load_function_tool(tool_function)
-
-    assert tool is None
-
-
-def test_scan_module_for_tools():
-    @strands.tools.tool
-    def tool_function_1(a):
-        return a
-
-    @strands.tools.tool
-    def tool_function_2(b):
-        return b
-
-    def tool_function_3(c):
-        return c
-
-    def tool_function_4(d):
-        return d
-
-    tool_function_4.TOOL_SPEC = "invalid"
-
-    mock_module = unittest.mock.MagicMock()
-    mock_module.tool_function_1 = tool_function_1
-    mock_module.tool_function_2 = tool_function_2
-    mock_module.tool_function_3 = tool_function_3
-    mock_module.tool_function_4 = tool_function_4
-
-    tools = strands.tools.loader.scan_module_for_tools(mock_module)
-
-    assert len(tools) == 2
-    assert all(isinstance(tool, FunctionTool) for tool in tools)
-
-
-def test_scan_directory_for_tools(tmp_path):
-    tool_definition_1 = textwrap.dedent("""
-        import strands
-
-        @strands.tools.tool
-        def tool_function_1(a):
-            return a
-    """)
-    tool_definition_2 = textwrap.dedent("""
-        import strands
-
-        @strands.tools.tool
-        def tool_function_2(b):
-            return b
-    """)
-    tool_definition_3 = textwrap.dedent("""
-        def tool_function_3(c):
-            return c
-    """)
-    tool_definition_4 = textwrap.dedent("""
-        def tool_function_4(d):
-            return d
-    """)
-    tool_definition_5 = ""
-    tool_definition_6 = "**invalid**"
-
-    tool_path_1 = tmp_path / "tool_1.py"
-    tool_path_2 = tmp_path / "tool_2.py"
-    tool_path_3 = tmp_path / "tool_3.py"
-    tool_path_4 = tmp_path / "tool_4.py"
-    tool_path_5 = tmp_path / "_tool_5.py"
-    tool_path_6 = tmp_path / "tool_6.py"
-
-    tool_path_1.write_text(tool_definition_1)
-    tool_path_2.write_text(tool_definition_2)
-    tool_path_3.write_text(tool_definition_3)
-    tool_path_4.write_text(tool_definition_4)
-    tool_path_5.write_text(tool_definition_5)
-    tool_path_6.write_text(tool_definition_6)
-
-    tools = strands.tools.loader.scan_directory_for_tools(tmp_path)
-
-    tru_tool_names = sorted(tools.keys())
-    exp_tool_names = ["tool_function_1", "tool_function_2"]
-
-    assert tru_tool_names == exp_tool_names
-    assert all(isinstance(tool, FunctionTool) for tool in tools.values())
-
-
-def test_scan_directory_for_tools_does_not_exist():
-    tru_tools = strands.tools.loader.scan_directory_for_tools(pathlib.Path("does_not_exist"))
-    exp_tools = {}
-
-    assert tru_tools == exp_tools
+from strands.tools.tools import PythonAgentTool
 
 
 @pytest.fixture
@@ -171,7 +48,7 @@ def tool_module(tool_path):
 def test_load_python_tool_path_function_based(tool_path):
     tool = ToolLoader.load_python_tool(tool_path, "identity")
 
-    assert isinstance(tool, FunctionTool)
+    assert isinstance(tool, DecoratedFunctionTool)
 
 
 @pytest.mark.parametrize(
@@ -272,7 +149,7 @@ def test_load_python_tool_dot_function_based(tool_path, tool_module):
 
     tool = ToolLoader.load_python_tool(tool_module, "identity")
 
-    assert isinstance(tool, FunctionTool)
+    assert isinstance(tool, DecoratedFunctionTool)
 
 
 @pytest.mark.parametrize(
@@ -329,7 +206,7 @@ def test_load_python_tool_dot_missing():
 def test_load_tool(tool_path):
     tool = ToolLoader.load_tool(tool_path, "identity")
 
-    assert isinstance(tool, FunctionTool)
+    assert isinstance(tool, DecoratedFunctionTool)
 
 
 def test_load_tool_missing():
@@ -358,3 +235,78 @@ def test_load_tool_invalid_ext(tmp_path):
 def test_load_tool_no_spec(tool_path):
     with pytest.raises(AttributeError, match="Tool no_spec missing TOOL_SPEC"):
         ToolLoader.load_tool(tool_path, "no_spec")
+
+    with pytest.raises(AttributeError, match="Tool no_spec missing TOOL_SPEC"):
+        ToolLoader.load_tools(tool_path, "no_spec")
+
+    with pytest.raises(AttributeError, match="Tool no_spec missing TOOL_SPEC"):
+        ToolLoader.load_python_tool(tool_path, "no_spec")
+
+    with pytest.raises(AttributeError, match="Tool no_spec missing TOOL_SPEC"):
+        ToolLoader.load_python_tools(tool_path, "no_spec")
+
+
+@pytest.mark.parametrize(
+    "tool_path",
+    [
+        textwrap.dedent(
+            """
+            import strands
+
+            @strands.tools.tool
+            def alpha():
+                return "alpha"
+
+            @strands.tools.tool
+            def bravo():
+                return "bravo"
+            """
+        )
+    ],
+    indirect=True,
+)
+def test_load_python_tool_path_multiple_function_based(tool_path):
+    # load_python_tools, load_tools returns a list when multiple decorated tools are present
+    loaded_python_tools = ToolLoader.load_python_tools(tool_path, "alpha")
+
+    assert isinstance(loaded_python_tools, list)
+    assert len(loaded_python_tools) == 2
+    assert all(isinstance(t, DecoratedFunctionTool) for t in loaded_python_tools)
+    names = {t.tool_name for t in loaded_python_tools}
+    assert names == {"alpha", "bravo"}
+
+    loaded_tools = ToolLoader.load_tools(tool_path, "alpha")
+
+    assert isinstance(loaded_tools, list)
+    assert len(loaded_tools) == 2
+    assert all(isinstance(t, DecoratedFunctionTool) for t in loaded_tools)
+    names = {t.tool_name for t in loaded_tools}
+    assert names == {"alpha", "bravo"}
+
+
+@pytest.mark.parametrize(
+    "tool_path",
+    [
+        textwrap.dedent(
+            """
+            import strands
+
+            @strands.tools.tool
+            def alpha():
+                return "alpha"
+
+            @strands.tools.tool
+            def bravo():
+                return "bravo"
+            """
+        )
+    ],
+    indirect=True,
+)
+def test_load_tool_path_returns_single_tool(tool_path):
+    # loaded_python_tool and loaded_tool returns single item
+    loaded_python_tool = ToolLoader.load_python_tool(tool_path, "alpha")
+    loaded_tool = ToolLoader.load_tool(tool_path, "alpha")
+
+    assert loaded_python_tool.tool_name == "alpha"
+    assert loaded_tool.tool_name == "alpha"

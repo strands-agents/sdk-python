@@ -1,8 +1,12 @@
 import unittest.mock
+from typing import cast
 
 import pytest
 
 import strands
+import strands.event_loop
+from strands.types._events import ModelStopReason, TypedEvent
+from strands.types.content import Message
 from strands.types.streaming import (
     ContentBlockDeltaEvent,
     ContentBlockStartEvent,
@@ -17,13 +21,6 @@ def moto_autouse(moto_env, moto_mock_aws):
     _ = moto_mock_aws
 
 
-@pytest.fixture
-def agent():
-    mock = unittest.mock.Mock()
-
-    return mock
-
-
 @pytest.mark.parametrize(
     ("messages", "exp_result"),
     [
@@ -32,6 +29,7 @@ def agent():
                 {"role": "assistant", "content": [{"text": "a"}, {"text": " \n"}, {"toolUse": {}}]},
                 {"role": "assistant", "content": [{"text": ""}, {"toolUse": {}}]},
                 {"role": "assistant", "content": [{"text": "a"}, {"text": " \n"}]},
+                {"role": "assistant", "content": []},
                 {"role": "assistant"},
                 {"role": "user", "content": [{"text": " \n"}]},
             ],
@@ -39,6 +37,7 @@ def agent():
                 {"role": "assistant", "content": [{"text": "a"}, {"toolUse": {}}]},
                 {"role": "assistant", "content": [{"toolUse": {}}]},
                 {"role": "assistant", "content": [{"text": "a"}, {"text": "[blank text]"}]},
+                {"role": "assistant", "content": [{"text": "[blank text]"}]},
                 {"role": "assistant"},
                 {"role": "user", "content": [{"text": " \n"}]},
             ],
@@ -81,7 +80,7 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
 
 
 @pytest.mark.parametrize(
-    ("event", "state", "exp_updated_state", "exp_handler_args"),
+    ("event", "state", "exp_updated_state", "callback_args"),
     [
         # Tool Use - Existing input
         (
@@ -162,21 +161,13 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
         ),
     ],
 )
-def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_updated_state, exp_handler_args):
-    if exp_handler_args:
-        exp_handler_args.update({"delta": event["delta"], "extra_arg": 1})
+def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_updated_state, callback_args):
+    exp_callback_event = {**callback_args, "delta": event["delta"]} if callback_args else {}
 
-    tru_handler_args = {}
-
-    def callback_handler(**kwargs):
-        tru_handler_args.update(kwargs)
-
-    tru_updated_state = strands.event_loop.streaming.handle_content_block_delta(
-        event, state, callback_handler, extra_arg=1
-    )
+    tru_updated_state, tru_callback_event = strands.event_loop.streaming.handle_content_block_delta(event, state)
 
     assert tru_updated_state == exp_updated_state
-    assert tru_handler_args == exp_handler_args
+    assert tru_callback_event == exp_callback_event
 
 
 @pytest.mark.parametrize(
@@ -189,6 +180,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {"toolUseId": "123", "name": "test", "input": '{"key": "value"}'},
                 "text": "",
                 "reasoningText": "",
+                "citationsContent": [],
                 "redactedContent": b"",
             },
             {
@@ -196,6 +188,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "citationsContent": [],
                 "redactedContent": b"",
             },
         ),
@@ -206,6 +199,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {"toolUseId": "123", "name": "test"},
                 "text": "",
                 "reasoningText": "",
+                "citationsContent": [],
                 "redactedContent": b"",
             },
             {
@@ -213,6 +207,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "citationsContent": [],
                 "redactedContent": b"",
             },
         ),
@@ -223,6 +218,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {},
                 "text": "test",
                 "reasoningText": "",
+                "citationsContent": [],
                 "redactedContent": b"",
             },
             {
@@ -230,6 +226,24 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "citationsContent": [],
+            },
+        ),
+        # Citations
+        (
+            {
+                "content": [],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [{"citations": [{"text": "test", "source": "test"}]}],
+            },
+            {
+                "content": [],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [{"citations": [{"text": "test", "source": "test"}]}],
                 "redactedContent": b"",
             },
         ),
@@ -241,6 +255,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "test",
                 "signature": "123",
+                "citationsContent": [],
                 "redactedContent": b"",
             },
             {
@@ -249,6 +264,24 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "",
                 "signature": "123",
+                "citationsContent": [],
+            },
+        ),
+        # Reasoning without signature
+        (
+            {
+                "content": [],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "test",
+                "citationsContent": [],
+            },
+            {
+                "content": [{"reasoningContent": {"reasoningText": {"text": "test"}}}],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [],
                 "redactedContent": b"",
             },
         ),
@@ -276,6 +309,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "citationsContent": [],
                 "redactedContent": b"",
             },
             {
@@ -283,6 +317,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "citationsContent": [],
                 "redactedContent": b"",
             },
         ),
@@ -315,9 +350,22 @@ def test_extract_usage_metrics():
     assert tru_usage == exp_usage and tru_metrics == exp_metrics
 
 
+def test_extract_usage_metrics_with_cache_tokens():
+    event = {
+        "usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, "cacheReadInputTokens": 0},
+        "metrics": {"latencyMs": 0},
+    }
+
+    tru_usage, tru_metrics = strands.event_loop.streaming.extract_usage_metrics(event)
+    exp_usage, exp_metrics = event["usage"], event["metrics"]
+
+    assert tru_usage == exp_usage and tru_metrics == exp_metrics
+
+
 @pytest.mark.parametrize(
-    ("response", "exp_stop_reason", "exp_message", "exp_usage", "exp_metrics", "exp_request_state", "exp_messages"),
+    ("response", "exp_events"),
     [
+        # Standard Message
         (
             [
                 {"messageStart": {"role": "assistant"}},
@@ -338,28 +386,111 @@ def test_extract_usage_metrics():
                     }
                 },
             ],
-            "tool_use",
-            {
-                "role": "assistant",
-                "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {"key": "value"}}}],
-            },
-            {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
-            {"latencyMs": 1},
-            {"calls": 1},
-            [{"role": "user", "content": [{"text": "Some input!"}]}],
+            [
+                {
+                    "event": {
+                        "messageStart": {
+                            "role": "assistant",
+                        },
+                    },
+                },
+                {
+                    "event": {
+                        "contentBlockStart": {
+                            "start": {
+                                "toolUse": {
+                                    "name": "test",
+                                    "toolUseId": "123",
+                                },
+                            },
+                        },
+                    },
+                },
+                {
+                    "event": {
+                        "contentBlockDelta": {
+                            "delta": {
+                                "toolUse": {
+                                    "input": '{"key": "value"}',
+                                },
+                            },
+                        },
+                    },
+                },
+                {
+                    "current_tool_use": {
+                        "input": {
+                            "key": "value",
+                        },
+                        "name": "test",
+                        "toolUseId": "123",
+                    },
+                    "delta": {
+                        "toolUse": {
+                            "input": '{"key": "value"}',
+                        },
+                    },
+                },
+                {
+                    "event": {
+                        "contentBlockStop": {},
+                    },
+                },
+                {
+                    "event": {
+                        "messageStop": {
+                            "stopReason": "tool_use",
+                        },
+                    },
+                },
+                {
+                    "event": {
+                        "metadata": {
+                            "metrics": {
+                                "latencyMs": 1,
+                            },
+                            "usage": {
+                                "inputTokens": 1,
+                                "outputTokens": 1,
+                                "totalTokens": 1,
+                            },
+                        },
+                    },
+                },
+                {
+                    "stop": (
+                        "tool_use",
+                        {
+                            "role": "assistant",
+                            "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {"key": "value"}}}],
+                        },
+                        {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        {"latencyMs": 1},
+                    )
+                },
+            ],
         ),
+        # Empty Message
         (
             [{}],
-            "end_turn",
-            {
-                "role": "assistant",
-                "content": [],
-            },
-            {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
-            {"latencyMs": 0},
-            {},
-            [{"role": "user", "content": [{"text": "Some input!"}]}],
+            [
+                {
+                    "event": {},
+                },
+                {
+                    "stop": (
+                        "end_turn",
+                        {
+                            "role": "assistant",
+                            "content": [],
+                        },
+                        {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+                        {"latencyMs": 0},
+                    ),
+                },
+            ],
         ),
+        # Redacted Message
         (
             [
                 {"messageStart": {"role": "assistant"}},
@@ -428,71 +559,159 @@ def test_extract_usage_metrics():
         ),
     ],
 )
-def test_process_stream(
-    response, exp_stop_reason, exp_message, exp_usage, exp_metrics, exp_request_state, exp_messages
-):
-    def callback_handler(**kwargs):
-        if "request_state" in kwargs:
-            kwargs["request_state"].setdefault("calls", 0)
-            kwargs["request_state"]["calls"] += 1
+@pytest.mark.asyncio
+async def test_process_stream(response, exp_events, agenerator, alist):
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
 
-    tru_messages = [{"role": "user", "content": [{"text": "Some input!"}]}]
+    tru_events = await alist(stream)
+    assert tru_events == exp_events
 
-    tru_stop_reason, tru_message, tru_usage, tru_metrics, tru_request_state = (
-        strands.event_loop.streaming.process_stream(response, callback_handler, tru_messages)
-    )
-
-    assert tru_stop_reason == exp_stop_reason
-    assert tru_message == exp_message
-    assert tru_usage == exp_usage
-    assert tru_metrics == exp_metrics
-    assert tru_request_state == exp_request_state
-    assert tru_messages == exp_messages
+    # Ensure that we're getting typed events coming out of process_stream
+    non_typed_events = [event for event in tru_events if not isinstance(event, TypedEvent)]
+    assert non_typed_events == []
 
 
-def test_stream_messages(agent):
-    def callback_handler(**kwargs):
-        if "request_state" in kwargs:
-            kwargs["request_state"].setdefault("calls", 0)
-            kwargs["request_state"]["calls"] += 1
+def _get_message_from_event(event: ModelStopReason) -> Message:
+    return cast(Message, event["stop"][1])
 
-    mock_model = unittest.mock.MagicMock()
-    mock_model.converse.return_value = [
-        {"contentBlockDelta": {"delta": {"text": "test"}}},
-        {"contentBlockStop": {}},
+
+@pytest.mark.asyncio
+async def test_process_stream_with_no_signature(agenerator, alist):
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {
+            "contentBlockDelta": {
+                "delta": {"reasoningContent": {"text": 'User asks: "Reason about 2+2" so I will do that'}},
+                "contentBlockIndex": 0,
+            }
+        },
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "."}}, "contentBlockIndex": 0}},
+        {"contentBlockStop": {"contentBlockIndex": 0}},
+        {
+            "contentBlockDelta": {
+                "delta": {"text": "Sure! Let’s do it"},
+                "contentBlockIndex": 1,
+            }
+        },
+        {"contentBlockStop": {"contentBlockIndex": 1}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 112, "outputTokens": 764, "totalTokens": 876},
+                "metrics": {"latencyMs": 2970},
+            }
+        },
     ]
 
-    tru_stop_reason, tru_message, tru_usage, tru_metrics, tru_request_state = (
-        strands.event_loop.streaming.stream_messages(
-            mock_model,
-            model_id="test_model",
-            system_prompt="test prompt",
-            messages=[{"role": "assistant", "content": [{"text": "a"}, {"text": " \n"}]}],
-            tool_config=None,
-            callback_handler=callback_handler,
-            agent=agent,
-        )
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+
+    last_event = cast(ModelStopReason, (await alist(stream))[-1])
+
+    message = _get_message_from_event(last_event)
+
+    assert "signature" not in message["content"][0]["reasoningContent"]["reasoningText"]
+    assert message["content"][1]["text"] == "Sure! Let’s do it"
+
+
+@pytest.mark.asyncio
+async def test_process_stream_with_signature(agenerator, alist):
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {
+            "contentBlockDelta": {
+                "delta": {"reasoningContent": {"text": 'User asks: "Reason about 2+2" so I will do that'}},
+                "contentBlockIndex": 0,
+            }
+        },
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "."}}, "contentBlockIndex": 0}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "test-"}}, "contentBlockIndex": 0}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "signature"}}, "contentBlockIndex": 0}},
+        {"contentBlockStop": {"contentBlockIndex": 0}},
+        {
+            "contentBlockDelta": {
+                "delta": {"text": "Sure! Let’s do it"},
+                "contentBlockIndex": 1,
+            }
+        },
+        {"contentBlockStop": {"contentBlockIndex": 1}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 112, "outputTokens": 764, "totalTokens": 876},
+                "metrics": {"latencyMs": 2970},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+
+    last_event = cast(ModelStopReason, (await alist(stream))[-1])
+
+    message = _get_message_from_event(last_event)
+
+    assert message["content"][0]["reasoningContent"]["reasoningText"]["signature"] == "test-signature"
+    assert message["content"][1]["text"] == "Sure! Let’s do it"
+
+
+@pytest.mark.asyncio
+async def test_stream_messages(agenerator, alist):
+    mock_model = unittest.mock.MagicMock()
+    mock_model.stream.return_value = agenerator(
+        [
+            {"contentBlockDelta": {"delta": {"text": "test"}}},
+            {"contentBlockStop": {}},
+        ]
     )
 
-    exp_stop_reason = "end_turn"
-    exp_message = {"role": "assistant", "content": [{"text": "test"}]}
-    exp_usage = {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
-    exp_metrics = {"latencyMs": 0}
-    exp_request_state = {"calls": 1}
-
-    assert (
-        tru_stop_reason == exp_stop_reason
-        and tru_message == exp_message
-        and tru_usage == exp_usage
-        and tru_metrics == exp_metrics
-        and tru_request_state == exp_request_state
+    stream = strands.event_loop.streaming.stream_messages(
+        mock_model,
+        system_prompt="test prompt",
+        messages=[{"role": "assistant", "content": [{"text": "a"}, {"text": " \n"}]}],
+        tool_specs=None,
     )
 
-    mock_model.converse.assert_called_with(
+    tru_events = await alist(stream)
+    exp_events = [
+        {
+            "event": {
+                "contentBlockDelta": {
+                    "delta": {
+                        "text": "test",
+                    },
+                },
+            },
+        },
+        {
+            "data": "test",
+            "delta": {
+                "text": "test",
+            },
+        },
+        {
+            "event": {
+                "contentBlockStop": {},
+            },
+        },
+        {
+            "stop": (
+                "end_turn",
+                {"role": "assistant", "content": [{"text": "test"}]},
+                {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+                {"latencyMs": 0},
+            )
+        },
+    ]
+    assert tru_events == exp_events
+
+    mock_model.stream.assert_called_with(
         [{"role": "assistant", "content": [{"text": "a"}, {"text": "[blank text]"}]}],
         None,
         "test prompt",
     )
+
+    # Ensure that we're getting typed events coming out of process_stream
+    non_typed_events = [event for event in tru_events if not isinstance(event, TypedEvent)]
+    assert non_typed_events == []
 
 
 def test_process_stream_redacted_content_callback():

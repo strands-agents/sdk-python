@@ -1,6 +1,7 @@
 import unittest.mock
 
 import anthropic
+import pydantic
 import pytest
 
 import strands
@@ -10,7 +11,7 @@ from strands.types.exceptions import ContextWindowOverflowException, ModelThrott
 
 @pytest.fixture
 def anthropic_client():
-    with unittest.mock.patch.object(strands.models.anthropic.anthropic, "Anthropic") as mock_client_cls:
+    with unittest.mock.patch.object(strands.models.anthropic.anthropic, "AsyncAnthropic") as mock_client_cls:
         yield mock_client_cls.return_value
 
 
@@ -39,6 +40,15 @@ def messages():
 @pytest.fixture
 def system_prompt():
     return "s1"
+
+
+@pytest.fixture
+def test_output_model_cls():
+    class TestOutputModel(pydantic.BaseModel):
+        name: str
+        age: int
+
+    return TestOutputModel
 
 
 def test__init__model_configs(anthropic_client, model_id, max_tokens):
@@ -407,6 +417,72 @@ def test_format_request_with_empty_content(model, model_id, max_tokens):
     assert tru_request == exp_request
 
 
+def test_format_request_tool_choice_auto(model, messages, model_id, max_tokens):
+    tool_specs = [{"description": "test tool", "name": "test_tool", "inputSchema": {"json": {"key": "value"}}}]
+    tool_choice = {"auto": {}}
+
+    tru_request = model.format_request(messages, tool_specs, tool_choice=tool_choice)
+    exp_request = {
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}],
+        "model": model_id,
+        "tools": [
+            {
+                "name": "test_tool",
+                "description": "test tool",
+                "input_schema": {"key": "value"},
+            }
+        ],
+        "tool_choice": {"type": "auto"},
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_tool_choice_any(model, messages, model_id, max_tokens):
+    tool_specs = [{"description": "test tool", "name": "test_tool", "inputSchema": {"json": {"key": "value"}}}]
+    tool_choice = {"any": {}}
+
+    tru_request = model.format_request(messages, tool_specs, tool_choice=tool_choice)
+    exp_request = {
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}],
+        "model": model_id,
+        "tools": [
+            {
+                "name": "test_tool",
+                "description": "test tool",
+                "input_schema": {"key": "value"},
+            }
+        ],
+        "tool_choice": {"type": "any"},
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_tool_choice_tool(model, messages, model_id, max_tokens):
+    tool_specs = [{"description": "test tool", "name": "test_tool", "inputSchema": {"json": {"key": "value"}}}]
+    tool_choice = {"tool": {"name": "test_tool"}}
+
+    tru_request = model.format_request(messages, tool_specs, tool_choice=tool_choice)
+    exp_request = {
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}],
+        "model": model_id,
+        "tools": [
+            {
+                "name": "test_tool",
+                "description": "test tool",
+                "input_schema": {"key": "value"},
+            }
+        ],
+        "tool_choice": {"name": "test_tool", "type": "tool"},
+    }
+
+    assert tru_request == exp_request
+
+
 def test_format_chunk_message_start(model):
     event = {"type": "message_start"}
 
@@ -614,37 +690,62 @@ def test_format_chunk_unknown(model):
         model.format_chunk(event)
 
 
-def test_stream(anthropic_client, model):
-    mock_event_1 = unittest.mock.Mock(type="message_start", dict=lambda: {"type": "message_start"})
-    mock_event_2 = unittest.mock.Mock(type="unknown")
+@pytest.mark.asyncio
+async def test_stream(anthropic_client, model, agenerator, alist):
+    mock_event_1 = unittest.mock.Mock(
+        type="message_start",
+        dict=lambda: {"type": "message_start"},
+        model_dump=lambda: {"type": "message_start"},
+    )
+    mock_event_2 = unittest.mock.Mock(
+        type="unknown",
+        dict=lambda: {"type": "unknown"},
+        model_dump=lambda: {"type": "unknown"},
+    )
     mock_event_3 = unittest.mock.Mock(
-        type="metadata", message=unittest.mock.Mock(usage=unittest.mock.Mock(dict=lambda: {"input_tokens": 1}))
+        type="metadata",
+        message=unittest.mock.Mock(
+            usage=unittest.mock.Mock(
+                dict=lambda: {"input_tokens": 1, "output_tokens": 2},
+                model_dump=lambda: {"input_tokens": 1, "output_tokens": 2},
+            )
+        ),
     )
 
-    mock_stream = unittest.mock.MagicMock()
-    mock_stream.__iter__.return_value = iter([mock_event_1, mock_event_2, mock_event_3])
-    anthropic_client.messages.stream.return_value.__enter__.return_value = mock_stream
+    mock_context = unittest.mock.AsyncMock()
+    mock_context.__aenter__.return_value = agenerator([mock_event_1, mock_event_2, mock_event_3])
+    anthropic_client.messages.stream.return_value = mock_context
 
-    request = {"model": "m1"}
-    response = model.stream(request)
+    messages = [{"role": "user", "content": [{"text": "hello"}]}]
+    response = model.stream(messages, None, None)
 
-    tru_events = list(response)
+    tru_events = await alist(response)
     exp_events = [
-        {"type": "message_start"},
-        {"type": "metadata", "usage": {"input_tokens": 1}},
+        {"messageStart": {"role": "assistant"}},
+        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
     ]
 
     assert tru_events == exp_events
-    anthropic_client.messages.stream.assert_called_once_with(**request)
+
+    # Check that the formatted request was passed to the client
+    expected_request = {
+        "max_tokens": 1,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "hello"}]}],
+        "model": "m1",
+        "tools": [],
+    }
+    anthropic_client.messages.stream.assert_called_once_with(**expected_request)
 
 
-def test_stream_rate_limit_error(anthropic_client, model):
+@pytest.mark.asyncio
+async def test_stream_rate_limit_error(anthropic_client, model, alist):
     anthropic_client.messages.stream.side_effect = anthropic.RateLimitError(
         "rate limit", response=unittest.mock.Mock(), body=None
     )
 
+    messages = [{"role": "user", "content": [{"text": "hello"}]}]
     with pytest.raises(ModelThrottledException, match="rate limit"):
-        next(model.stream({}))
+        await alist(model.stream(messages))
 
 
 @pytest.mark.parametrize(
@@ -655,19 +756,113 @@ def test_stream_rate_limit_error(anthropic_client, model):
         "...input and output tokens exceed your context limit...",
     ],
 )
-def test_stream_bad_request_overflow_error(overflow_message, anthropic_client, model):
+@pytest.mark.asyncio
+async def test_stream_bad_request_overflow_error(overflow_message, anthropic_client, model):
     anthropic_client.messages.stream.side_effect = anthropic.BadRequestError(
         overflow_message, response=unittest.mock.Mock(), body=None
     )
 
+    messages = [{"role": "user", "content": [{"text": "hello"}]}]
     with pytest.raises(ContextWindowOverflowException):
-        next(model.stream({}))
+        await anext(model.stream(messages))
 
 
-def test_stream_bad_request_error(anthropic_client, model):
+@pytest.mark.asyncio
+async def test_stream_bad_request_error(anthropic_client, model):
     anthropic_client.messages.stream.side_effect = anthropic.BadRequestError(
         "bad", response=unittest.mock.Mock(), body=None
     )
 
+    messages = [{"role": "user", "content": [{"text": "hello"}]}]
     with pytest.raises(anthropic.BadRequestError, match="bad"):
-        next(model.stream({}))
+        await anext(model.stream(messages))
+
+
+@pytest.mark.asyncio
+async def test_structured_output(anthropic_client, model, test_output_model_cls, agenerator, alist):
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+
+    events = [
+        unittest.mock.Mock(type="message_start", model_dump=unittest.mock.Mock(return_value={"type": "message_start"})),
+        unittest.mock.Mock(
+            type="content_block_start",
+            model_dump=unittest.mock.Mock(
+                return_value={
+                    "type": "content_block_start",
+                    "index": 0,
+                    "content_block": {"type": "tool_use", "id": "123", "name": "TestOutputModel"},
+                }
+            ),
+        ),
+        unittest.mock.Mock(
+            type="content_block_delta",
+            model_dump=unittest.mock.Mock(
+                return_value={
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "input_json_delta", "partial_json": '{"name": "John", "age": 30}'},
+                },
+            ),
+        ),
+        unittest.mock.Mock(
+            type="content_block_stop",
+            model_dump=unittest.mock.Mock(return_value={"type": "content_block_stop", "index": 0}),
+        ),
+        unittest.mock.Mock(
+            type="message_stop",
+            model_dump=unittest.mock.Mock(
+                return_value={"type": "message_stop", "message": {"stop_reason": "tool_use"}}
+            ),
+        ),
+        unittest.mock.Mock(
+            message=unittest.mock.Mock(
+                usage=unittest.mock.Mock(
+                    model_dump=unittest.mock.Mock(return_value={"input_tokens": 0, "output_tokens": 0})
+                ),
+            ),
+        ),
+    ]
+
+    mock_context = unittest.mock.AsyncMock()
+    mock_context.__aenter__.return_value = agenerator(events)
+    anthropic_client.messages.stream.return_value = mock_context
+
+    stream = model.structured_output(test_output_model_cls, messages)
+    events = await alist(stream)
+
+    tru_result = events[-1]
+    exp_result = {"output": test_output_model_cls(name="John", age=30)}
+    assert tru_result == exp_result
+
+
+def test_config_validation_warns_on_unknown_keys(anthropic_client, captured_warnings):
+    """Test that unknown config keys emit a warning."""
+    AnthropicModel(model_id="test-model", max_tokens=100, invalid_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "invalid_param" in str(captured_warnings[0].message)
+
+
+def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings):
+    """Test that update_config warns on unknown keys."""
+    model.update_config(wrong_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "wrong_param" in str(captured_warnings[0].message)
+
+
+def test_tool_choice_supported_no_warning(model, messages, captured_warnings):
+    """Test that toolChoice doesn't emit warning for supported providers."""
+    tool_choice = {"auto": {}}
+    model.format_request(messages, tool_choice=tool_choice)
+
+    assert len(captured_warnings) == 0
+
+
+def test_tool_choice_none_no_warning(model, messages, captured_warnings):
+    """Test that None toolChoice doesn't emit warning."""
+    model.format_request(messages, tool_choice=None)
+
+    assert len(captured_warnings) == 0

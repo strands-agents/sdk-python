@@ -4,6 +4,7 @@ import pytest
 from mcp.types import Tool as MCPTool
 
 from strands.tools.mcp import MCPAgentTool, MCPClient
+from strands.types._events import ToolResultEvent
 
 
 @pytest.fixture
@@ -57,12 +58,14 @@ def test_tool_spec_without_description(mock_mcp_tool, mock_mcp_client):
     assert tool_spec["description"] == "Tool which performs test_tool"
 
 
-def test_invoke(mcp_agent_tool, mock_mcp_client):
+@pytest.mark.asyncio
+async def test_stream(mcp_agent_tool, mock_mcp_client, alist):
     tool_use = {"toolUseId": "test-123", "name": "test_tool", "input": {"param": "value"}}
 
-    result = mcp_agent_tool.invoke(tool_use)
+    tru_events = await alist(mcp_agent_tool.stream(tool_use, {}))
+    exp_events = [ToolResultEvent(mock_mcp_client.call_tool_async.return_value)]
 
-    mock_mcp_client.call_tool_sync.assert_called_once_with(
+    assert tru_events == exp_events
+    mock_mcp_client.call_tool_async.assert_called_once_with(
         tool_use_id="test-123", name="test_tool", arguments={"param": "value"}
     )
-    assert result == mock_mcp_client.call_tool_sync.return_value
