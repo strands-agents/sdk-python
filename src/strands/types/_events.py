@@ -172,9 +172,9 @@ class ReasoningTextStreamEvent(ModelStreamEvent):
 class RedactedContentStreamEvent(ModelStreamEvent):
     """Event emitted during redacted content streaming."""
 
-    def __init__(self, delta: ContentBlockDelta, redacted_content: bytes | None) -> None:
+    def __init__(self, delta: ContentBlockDelta, redacted_content: bytes | None, reasoning: bool = False) -> None:
         """Initialize with delta and redacted content."""
-        super().__init__({"redactedContent": redacted_content, "delta": delta, "reasoning": True})
+        super().__init__({"redactedContent": redacted_content, "delta": delta, "reasoning": reasoning})
 
 
 class ReasoningSignatureStreamEvent(ModelStreamEvent):

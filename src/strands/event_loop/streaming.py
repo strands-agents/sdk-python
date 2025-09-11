@@ -175,8 +175,7 @@ def handle_content_block_delta(
             state.setdefault("redactedContent", b"")
             state["redactedContent"] += redacted_content
             typed_event = RedactedContentStreamEvent(
-                redacted_content=redacted_content,
-                delta=delta_content,
+                redacted_content=redacted_content, delta=delta_content, reasoning=True
             )
 
     return state, typed_event
