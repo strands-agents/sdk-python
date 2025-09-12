@@ -172,8 +172,7 @@ def handle_content_block_delta(
             )
 
         elif redacted_content := delta_content["reasoningContent"].get("redactedContent"):
-            state.setdefault("redactedContent", b"")
-            state["redactedContent"] += redacted_content
+            state["redactedContent"] = state.get("redactedContent", b"") + redacted_content
             typed_event = RedactedContentStreamEvent(
                 redacted_content=redacted_content, delta=delta_content, reasoning=True
             )
@@ -302,7 +301,6 @@ async def process_stream(chunks: AsyncIterable[StreamEvent]) -> AsyncGenerator[T
         "current_tool_use": {},
         "reasoningText": "",
         "citationsContent": [],
-        "redactedContent": b"",
     }
     state["content"] = state["message"]["content"]
 
