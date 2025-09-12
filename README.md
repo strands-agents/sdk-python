@@ -39,7 +39,7 @@ Strands Agents is a simple yet powerful SDK that takes a model-driven approach t
 - **Lightweight & Flexible**: Simple agent loop that just works and is fully customizable
 - **Model Agnostic**: Support for Amazon Bedrock, Anthropic, LiteLLM, Llama, Ollama, OpenAI, Writer, and custom providers
 - **Advanced Capabilities**: Multi-agent systems, autonomous agents, and streaming support
-- **Built-in MCP**: Native support for Model Context Protocol (MCP) servers, enabling access to thousands of pre-built tools
+- **Built-in MCP & UTCP**: Native support for Model Context Protocol (MCP) servers and Universal Tool Calling Protocol (UTCP) providers, enabling access to thousands of pre-built tools
 
 ## Quick Start
 
@@ -68,6 +68,9 @@ source .venv/bin/activate  # On Windows use: .venv\Scripts\activate
 
 # Install Strands and tools
 pip install strands-agents strands-agents-tools
+
+# For UTCP support (optional)
+pip install utcp utcp-http
 ```
 
 ## Features at a Glance
@@ -119,6 +122,54 @@ with aws_docs_client:
    agent = Agent(tools=aws_docs_client.list_tools_sync())
    response = agent("Tell me about Amazon Bedrock and how to use it with Python")
 ```
+
+### UTCP Support
+
+Integrate with [Universal Tool Calling Protocol (UTCP)](https://github.com/universal-tool-calling-protocol/python-utcp/) providers for enhanced flexibility. UTCP provides native support for OpenAPI/Swagger APIs and custom tool servers:
+
+```python
+from strands import Agent
+from strands.tools.utcp import UTCPClient
+
+# Configure UTCP client with HTTP call templates
+utcp_config = {
+    "manual_call_templates": [
+        {
+            "name": "petstore",
+            "call_template_type": "http",
+            "http_method": "GET",
+            "url": "https://petstore.swagger.io/v2/swagger.json"
+        },
+        {
+            "name": "openlibrary", 
+            "call_template_type": "http",
+            "http_method": "GET",
+            "url": "https://openlibrary.org/static/openapi.json"
+        }
+    ]
+}
+
+async with UTCPClient(utcp_config) as utcp_client:
+    # Discover tools from all configured APIs
+    tools = await utcp_client.list_tools()
+    print(f"Found {len(tools)} tools from external APIs")
+    
+    # Create agent with UTCP tools
+    agent = Agent(
+        name="API Agent",
+        tools=tools[:10]  # Use first 10 tools
+    )
+    
+    response = await agent.invoke("Find information about pets")
+    print(response)
+```
+
+**UTCP Features:**
+- ✅ **OpenAPI/Swagger Support**: Automatic tool generation from API specs
+- ✅ **Multiple Providers**: Connect to multiple APIs simultaneously  
+- ✅ **Custom Servers**: Build your own UTCP-compatible tool servers
+- ✅ **Async/Await**: Full async support with context managers
+- ✅ **Error Handling**: Graceful handling of network and API errors
 
 ### Multiple Model Providers
 
