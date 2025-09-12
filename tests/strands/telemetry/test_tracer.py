@@ -746,3 +746,174 @@ def test_serialize_vs_json_dumps():
     custom_result = serialize({"text": japanese_text})
     assert japanese_text in custom_result
     assert "\\u" not in custom_result
+
+
+def test_get_event_name_for_message_user():
+    """Test getting event name for regular user message."""
+    tracer = Tracer()
+    message = {"role": "user", "content": [{"text": "Hello"}]}
+
+    event_name = tracer._get_event_name_for_message(message)
+
+    assert event_name == "gen_ai.user.message"
+
+
+def test_get_event_name_for_message_assistant():
+    """Test getting event name for regular assistant message."""
+    tracer = Tracer()
+    message = {"role": "assistant", "content": [{"text": "Hello"}]}
+
+    event_name = tracer._get_event_name_for_message(message)
+
+    assert event_name == "gen_ai.assistant.message"
+
+
+def test_get_event_name_for_message_with_tool_result():
+    """Test getting event name for message containing tool result."""
+    tracer = Tracer()
+    message = {
+        "role": "user",
+        "content": [{"toolResult": {"toolUseId": "123", "status": "success", "content": [{"text": "Tool response"}]}}],
+    }
+
+    event_name = tracer._get_event_name_for_message(message)
+
+    assert event_name == "gen_ai.tool.message"
+
+
+def test_get_event_name_for_message_with_mixed_content():
+    """Test getting event name for message with both text and tool result."""
+    tracer = Tracer()
+    message = {
+        "role": "user",
+        "content": [
+            {"text": "Here are the results:"},
+            {"toolResult": {"toolUseId": "123", "status": "success", "content": [{"text": "Tool response"}]}},
+        ],
+    }
+
+    event_name = tracer._get_event_name_for_message(message)
+
+    # Should be tool message since it contains a tool result
+    assert event_name == "gen_ai.tool.message"
+
+
+def test_get_event_name_for_message_empty_content():
+    """Test getting event name for message with empty content."""
+    tracer = Tracer()
+    message = {"role": "user", "content": []}
+
+    event_name = tracer._get_event_name_for_message(message)
+
+    assert event_name == "gen_ai.user.message"
+
+
+def test_get_event_name_for_message_no_content():
+    """Test getting event name for message with no content key."""
+    tracer = Tracer()
+    message = {"role": "assistant"}
+
+    event_name = tracer._get_event_name_for_message(message)
+
+    assert event_name == "gen_ai.assistant.message"
+
+
+def test_get_event_name_for_message_multiple_tool_results():
+    """Test getting event name for message with multiple tool results."""
+    tracer = Tracer()
+    message = {
+        "role": "user",
+        "content": [
+            {"toolResult": {"toolUseId": "123", "status": "success", "content": [{"text": "First tool"}]}},
+            {"toolResult": {"toolUseId": "456", "status": "success", "content": [{"text": "Second tool"}]}},
+        ],
+    }
+
+    event_name = tracer._get_event_name_for_message(message)
+
+    assert event_name == "gen_ai.tool.message"
+
+
+def test_start_model_invoke_span_with_tool_result_message(mock_tracer):
+    """Test that start_model_invoke_span correctly labels tool result messages."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        # Message that contains a tool result
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"toolResult": {"toolUseId": "123", "status": "success", "content": [{"text": "Weather is sunny"}]}}
+                ],
+            }
+        ]
+
+        span = tracer.start_model_invoke_span(messages=messages, model_id="test-model")
+
+        # Should use gen_ai.tool.message event name instead of gen_ai.user.message
+        mock_span.add_event.assert_called_with(
+            "gen_ai.tool.message", attributes={"content": json.dumps(messages[0]["content"])}
+        )
+        assert span is not None
+
+
+def test_start_agent_span_with_tool_result_message(mock_tracer):
+    """Test that start_agent_span correctly labels tool result messages."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        # Message that contains a tool result
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"toolResult": {"toolUseId": "123", "status": "success", "content": [{"text": "Weather is sunny"}]}}
+                ],
+            }
+        ]
+
+        span = tracer.start_agent_span(messages=messages, agent_name="WeatherAgent", model_id="test-model")
+
+        # Should use gen_ai.tool.message event name instead of gen_ai.user.message
+        mock_span.add_event.assert_called_with(
+            "gen_ai.tool.message", attributes={"content": json.dumps(messages[0]["content"])}
+        )
+        assert span is not None
+
+
+def test_start_event_loop_cycle_span_with_tool_result_message(mock_tracer):
+    """Test that start_event_loop_cycle_span correctly labels tool result messages."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        # Message that contains a tool result
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"toolResult": {"toolUseId": "123", "status": "success", "content": [{"text": "Weather is sunny"}]}}
+                ],
+            }
+        ]
+
+        event_loop_kwargs = {"event_loop_cycle_id": "cycle-123"}
+        span = tracer.start_event_loop_cycle_span(event_loop_kwargs, messages=messages)
+
+        # Should use gen_ai.tool.message event name instead of gen_ai.user.message
+        mock_span.add_event.assert_called_with(
+            "gen_ai.tool.message", attributes={"content": json.dumps(messages[0]["content"])}
+        )
+        assert span is not None
