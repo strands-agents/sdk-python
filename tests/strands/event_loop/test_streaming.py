@@ -136,14 +136,14 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
             {"delta": {"reasoningContent": {"redactedContent": b"encoded"}}},
             {},
             {"redactedContent": b"encoded"},
-            {"redactedContent": b"encoded", "reasoning": True},
+            {"reasoningRedactedContent": b"encoded", "reasoning": True},
         ),
         # Reasoning - redactedContent - Existing
         pytest.param(
             {"delta": {"reasoningContent": {"redactedContent": b"data"}}},
             {"redactedContent": b"encoded_"},
             {"redactedContent": b"encoded_data"},
-            {"redactedContent": b"data", "reasoning": True},
+            {"reasoningRedactedContent": b"data", "reasoning": True},
         ),
         # Reasoning - Empty
         (
