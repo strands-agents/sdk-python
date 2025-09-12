@@ -44,8 +44,6 @@ class GeminiModel(Model):
 
         model_id: Required[str]
         params: Optional[dict[str, Any]]
-        response_schema: Optional[dict[str, Any]]
-        response_mime_type: Optional[str]
 
     def __init__(
         self,
