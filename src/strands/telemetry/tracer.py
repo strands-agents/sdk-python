@@ -263,6 +263,8 @@ class Tracer:
             "gen_ai.usage.completion_tokens": usage["outputTokens"],
             "gen_ai.usage.output_tokens": usage["outputTokens"],
             "gen_ai.usage.total_tokens": usage["totalTokens"],
+            "gen_ai.usage.cache_read_input_tokens": usage.get("cacheReadInputTokens", 0),
+            "gen_ai.usage.cache_write_input_tokens": usage.get("cacheWriteInputTokens", 0),
         }
 
         self._add_event(
@@ -491,6 +493,8 @@ class Tracer:
                         "gen_ai.usage.input_tokens": accumulated_usage["inputTokens"],
                         "gen_ai.usage.output_tokens": accumulated_usage["outputTokens"],
                         "gen_ai.usage.total_tokens": accumulated_usage["totalTokens"],
+                        "gen_ai.usage.cache_read_input_tokens": accumulated_usage.get("cacheReadInputTokens", 0),
+                        "gen_ai.usage.cache_write_input_tokens": accumulated_usage.get("cacheWriteInputTokens", 0),
                     }
                 )
 
