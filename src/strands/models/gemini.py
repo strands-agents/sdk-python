@@ -15,8 +15,8 @@ from typing_extensions import Required, Unpack, override
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StreamEvent
-from ..types.tools import ToolSpec
-from ._config_validation import validate_config_keys
+from ..types.tools import ToolChoice, ToolSpec
+from ._validation import validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -91,7 +91,7 @@ class GeminiModel(Model):
     def _format_request_content_part(self, content: ContentBlock) -> genai.types.Part:
         """Format content block into a Gemini part instance.
 
-        - Docs: https://ai.google.dev/api/caching#Part
+        - Docs: https://googleapis.github.io/python-genai/genai.html#genai.types.Part
 
         Args:
             content: Message content to format.
@@ -156,7 +156,7 @@ class GeminiModel(Model):
     def _format_request_content(self, messages: Messages) -> list[genai.types.Content]:
         """Format message content into Gemini content instances.
 
-        - Docs: https://ai.google.dev/api/caching#Content
+        - Docs: https://googleapis.github.io/python-genai/genai.html#genai.types.Content
 
         Args:
             messages: List of message objects to be processed by the model.
@@ -175,7 +175,7 @@ class GeminiModel(Model):
     def _format_request_tools(self, tool_specs: Optional[list[ToolSpec]]) -> list[genai.types.Tool | Any]:
         """Format tool specs into Gemini tools.
 
-        - Docs: https://ai.google.dev/api/caching#Tool
+        - Docs: https://googleapis.github.io/python-genai/genai.html#genai.types.Tool
 
         Args:
             tool_specs: List of tool specifications to make available to the model.
@@ -202,6 +202,8 @@ class GeminiModel(Model):
         system_prompt: Optional[str],
     ) -> genai.types.GenerateContentConfig:
         """Format Gemini request config.
+
+        - Docs: https://googleapis.github.io/python-genai/genai.html#genai.types.GenerateContentConfig
 
         Args:
             tool_specs: List of tool specifications to make available to the model.
@@ -335,6 +337,7 @@ class GeminiModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Gemini model.
@@ -343,6 +346,8 @@ class GeminiModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
+                Note: Currently unused.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:

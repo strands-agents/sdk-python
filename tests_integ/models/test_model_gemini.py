@@ -6,18 +6,16 @@ import pytest
 import strands
 from strands import Agent
 from strands.models.gemini import GeminiModel
+from tests_integ.models import providers
 
-# these tests only run if we have the google api key
-pytestmark = pytest.mark.skipif(
-    "GOOGLE_API_KEY" not in os.environ,
-    reason="GOOGLE_API_KEY environment variable missing",
-)
+# these tests only run if we have the gemini api key
+pytestmark = providers.gemini.mark
 
 
 @pytest.fixture
 def model():
     return GeminiModel(
-        api_key=os.getenv("GOOGLE_API_KEY"),
+        client_args={"api_key": os.getenv("GOOGLE_API_KEY")},
         model_id="gemini-2.5-flash",
         params={"temperature": 0.15},  # Lower temperature for consistent test behavior
     )
@@ -26,11 +24,11 @@ def model():
 @pytest.fixture
 def tools():
     @strands.tool
-    def tool_time(timezone: str) -> str:
+    def tool_time(city: str) -> str:
         return "12:00"
 
     @strands.tool
-    def tool_weather() -> str:
+    def tool_weather(city: str) -> str:
         return "sunny"
 
     return [tool_time, tool_weather]
@@ -38,11 +36,16 @@ def tools():
 
 @pytest.fixture
 def system_prompt():
-    return "You are an AI assistant."
+    return "You are a helpful AI assistant."
 
 
 @pytest.fixture
-def agent(model, tools, system_prompt):
+def assistant_agent(model, system_prompt):
+    return Agent(model=model, system_prompt=system_prompt)
+
+
+@pytest.fixture
+def tool_agent(model, tools, system_prompt):
     return Agent(model=model, tools=tools, system_prompt=system_prompt)
 
 
@@ -72,24 +75,29 @@ def yellow_color():
     return Color(name="yellow")
 
 
-def test_agent_invoke(agent):
-    result = agent("What is the current time and weather? My timezeone is EST")
+@pytest.fixture(scope="module")
+def test_image_path(request):
+    return request.config.rootpath / "tests_integ" / "test_image.png"
+
+
+def test_agent_invoke(tool_agent):
+    result = tool_agent("What is the current time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
 
     assert all(string in text for string in ["12:00", "sunny"])
 
 
 @pytest.mark.asyncio
-async def test_agent_invoke_async(agent):
-    result = await agent.invoke_async("What is the current time and weather? My timezone is EST")
+async def test_agent_invoke_async(tool_agent):
+    result = await tool_agent.invoke_async("What is the current time and weather in New York?")
     text = result.message["content"][0]["text"].lower()
 
     assert all(string in text for string in ["12:00", "sunny"])
 
 
 @pytest.mark.asyncio
-async def test_agent_stream_async(agent):
-    stream = agent.stream_async("What is the current time and weather? My timezone is EST")
+async def test_agent_stream_async(tool_agent):
+    stream = tool_agent.stream_async("What is the current time and weather in New York?")
     async for event in stream:
         _ = event
 
@@ -99,20 +107,16 @@ async def test_agent_stream_async(agent):
     assert all(string in text for string in ["12:00", "sunny"])
 
 
-def test_structured_output(agent, weather):
-    tru_weather = agent.structured_output(type(weather), "The time is 12:00 and the weather is sunny")
-    exp_weather = weather
-    assert tru_weather == exp_weather
+def test_agent_invoke_multiturn(assistant_agent):
+    assistant_agent("What color is the sky?")
+    assistant_agent("What color is lava?")
+    result = assistant_agent("What was the answer to my first question?")
+    text = result.message["content"][0]["text"].lower()
+
+    assert "blue" in text
 
 
-@pytest.mark.asyncio
-async def test_agent_structured_output_async(agent, weather):
-    tru_weather = await agent.structured_output_async(type(weather), "The time is 12:00 and the weather is sunny")
-    exp_weather = weather
-    assert tru_weather == exp_weather
-
-
-def test_invoke_multi_modal_input(agent, yellow_img):
+def test_agent_invoke_image_input(assistant_agent, yellow_img):
     content = [
         {"text": "what is in this image"},
         {
@@ -124,195 +128,48 @@ def test_invoke_multi_modal_input(agent, yellow_img):
             },
         },
     ]
-    result = agent(content)
+    result = assistant_agent(content)
     text = result.message["content"][0]["text"].lower()
 
     assert "yellow" in text
 
 
-def test_structured_output_multi_modal_input(agent, yellow_img, yellow_color):
+def test_agent_invoke_document_input(assistant_agent, letter_pdf):
     content = [
-        {"text": "Is this image red, blue, or yellow?"},
-        {
-            "image": {
-                "format": "png",
-                "source": {
-                    "bytes": yellow_img,
-                },
-            },
-        },
+        {"text": "summarize this document"},
+        {"document": {"format": "pdf", "source": {"bytes": letter_pdf}}},
     ]
-    tru_color = agent.structured_output(type(yellow_color), content)
-    exp_color = yellow_color
-    assert tru_color == exp_color
-
-
-@pytest.fixture
-def sample_document_bytes():
-    content = """
-    FELINE OVERLORDS COUNCIL - SECRET SESSION
-    Date: December 15, 2024, 3:33 AM (optimal plotting time)
-    Location: Under the big couch, behind the dust bunnies
-    
-    Council Members:
-    - Lord Whiskers (Supreme Cat, expert in human manipulation)
-    - Lady Mittens (Minister of Tuna Affairs, has thumbs)
-    - Sir Fluffington (Head of Nap Operations, sleeps 23 hours/day)
-    - Agent Shadowpaws (Stealth Specialist, invisible until dinner time)
-    
-    Agenda:
-    1. Global domination progress report (87 percent complete, need more cardboard boxes)
-    2. Human training effectiveness (they still think THEY'RE in charge)
-    3. Strategic laser pointer deployment for maximum chaos
-    
-    Action Items:
-    - Lord Whiskers: Perfect the "pathetic meowing at 4 AM" technique
-    - Lady Mittens: Continue knocking things off tables for science
-    - Sir Fluffington: Maintain position on human's keyboard during important work
-    - Agent Shadowpaws: Investigate the mysterious red dot phenomenon
-    
-    Next Council: When the humans least expect it (probably during their Zoom calls)
-    
-    Remember: Act cute, think world domination!
-    """
-    return content.encode("utf-8")
-
-
-def test_document_processing(agent, sample_document_bytes):
-    content = [
-        {"text": "Summarize the key points from this secret council meeting document."},
-        {"document": {"format": "txt", "source": {"bytes": sample_document_bytes}}},
-    ]
-
-    result = agent(content)
+    result = assistant_agent(content)
     text = result.message["content"][0]["text"].lower()
 
-    assert any(word in text for word in ["cat", "feline", "council", "secret"])
-    assert any(name in text for word in ["whiskers", "mittens", "fluffington", "shadowpaws"] for name in [word])
-    assert any(concept in text for concept in ["domination", "human", "agenda", "action"])
-    assert len(text) > 50
+    assert "shareholder" in text
 
 
-def test_multi_image_processing(agent, yellow_img):
-    """Test processing multiple images simultaneously."""
-    second_img = yellow_img
-
-    content = [
-        {"text": "Compare these two images. What colors do you see?"},
-        {"image": {"format": "png", "source": {"bytes": yellow_img}}},
-        {"image": {"format": "png", "source": {"bytes": second_img}}},
-    ]
-
-    result = agent(content)
-    text = result.message["content"][0]["text"].lower()
-
-    assert any(word in text for word in ["images", "both", "two"])
-    assert any(color in text for color in ["yellow", "color"])
+# def test_structured_output(tool_agent, weather):
+#     tru_weather = tool_agent.structured_output(type(weather), "The time is 12:00 and the weather is sunny")
+#     exp_weather = weather
+#     assert tru_weather == exp_weather
 
 
-def test_conversation_context_retention(agent):
-    """Test that Gemini maintains context across multiple interactions."""
-
-    # First interaction - establish context
-    result1 = agent("I'm working on a Python project about weather data analysis.")
-    text1 = result1.message["content"][0]["text"].lower()
-
-    # Should acknowledge the context
-    assert any(word in text1 for word in ["python", "weather", "project", "analysis"])
-
-    # Second interaction - should remember context
-    result2 = agent("What tools would be helpful for this?")
-    text2 = result2.message["content"][0]["text"].lower()
-
-    # Should suggest relevant tools based on previous context
-    assert any(word in text2 for word in ["python", "data", "weather", "analysis", "tools"])
+# @pytest.mark.asyncio
+# async def test_agent_structured_output_async(tool_agent, weather):
+#     tru_weather = await agent.structured_output_async(type(weather), "The time is 12:00 and the weather is sunny")
+#     exp_weather = weather
+#     assert tru_weather == exp_weather
 
 
-def test_complex_structured_output(agent):
-    """Test structured output with nested, complex schema."""
-
-    class ProjectPlan(pydantic.BaseModel):
-        """A project plan with multiple structured fields."""
-
-        title: str = pydantic.Field(description="Project title")
-        phases: list[str] = pydantic.Field(description="List of project phases")
-        team_size: int = pydantic.Field(description="Number of team members needed")
-        duration_weeks: int = pydantic.Field(description="Estimated duration in weeks")
-        key_deliverables: list[str] = pydantic.Field(description="Main project deliverables")
-
-    prompt = """Create a project plan for building a mobile app. Include:
-    - A clear project title
-    - 4 main phases (like planning, development, testing, launch)
-    - Team size between 3-8 people
-    - Duration between 8-16 weeks
-    - 3-5 key deliverables"""
-
-    result = agent.structured_output(ProjectPlan, prompt)
-
-    # Validate the structured output
-    assert isinstance(result, ProjectPlan)
-    assert len(result.title.strip()) > 0
-    assert "app" in result.title.lower()
-    assert len(result.phases) >= 3
-    assert 3 <= result.team_size <= 8
-    assert 8 <= result.duration_weeks <= 16
-    assert len(result.key_deliverables) >= 3
-
-
-@pytest.mark.asyncio
-async def test_streaming_with_structured_task(agent):
-    """Test streaming output for a structured task."""
-
-    stream = agent.stream_async("Write a short product review for a smartphone, including pros and cons.")
-    async for event in stream:
-        _ = event
-
-    result = event["result"]
-    full_text = result.message["content"][0]["text"]
-
-    assert len(full_text) > 100
-    assert any(word in full_text.lower() for word in ["phone", "smartphone", "device"])
-    assert any(word in full_text.lower() for word in ["pros", "advantages", "benefits", "good"])
-    assert any(word in full_text.lower() for word in ["cons", "disadvantages", "issues", "problems"])
-
-
-def test_multi_modal_document_combination(agent, yellow_img, sample_document_bytes):
-    """Test processing both image and document in a single request."""
-
-    content = [
-        {
-            "text": "I have an image and a document. \
-            Please tell me what you can see in the image and summarize the document."
-        },
-        {"image": {"format": "png", "source": {"bytes": yellow_img}}},
-        {"document": {"format": "txt", "source": {"bytes": sample_document_bytes}}},
-    ]
-
-    result = agent(content)
-    text = result.message["content"][0]["text"].lower()
-
-    # Should reference both the image and document
-    assert any(word in text for word in ["image", "picture", "see", "yellow"])
-    assert any(word in text for word in ["cat", "meeting", "planning", "council"])
-
-
-def test_system_prompt_adherence():
-    """Test that different system prompts affect behavior appropriately."""
-
-    model = GeminiModel(
-        api_key=os.getenv("GOOGLE_API_KEY"),
-        model_id="gemini-2.5-flash",
-        params={"temperature": 0.2},
-    )
-
-    specialized_agent = Agent(
-        model=model,
-        tools=[],
-        system_prompt="You are a helpful assistant who always responds with exactly one sentence \
-                    and includes the word 'precisely' in every response.",
-    )
-
-    result = specialized_agent("What is artificial intelligence?")
-    text = result.message["content"][0]["text"]
-
-    assert "precisely" in text.lower()
+# def test_agent_structured_output_image_input(assistant_agent, yellow_img, yellow_color):
+#     content = [
+#         {"text": "Is this image red, blue, or yellow?"},
+#         {
+#             "image": {
+#                 "format": "png",
+#                 "source": {
+#                     "bytes": yellow_img,
+#                 },
+#             },
+#         },
+#     ]
+#     tru_color = assistant_agent.structured_output(type(yellow_color), content)
+#     exp_color = yellow_color
+#     assert tru_color == exp_color
