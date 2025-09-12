@@ -1488,6 +1488,28 @@ def test_format_request_filters_image_content_blocks(model, model_id):
     assert "metadata" not in image_block
 
 
+def test_format_request_filters_nested_image_s3_fields(model, model_id):
+    """Test deep filtering of nested s3Location fields in image blocks."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"s3Location": {"bucket": "my-bucket", "key": "image.png", "extraField": "filtered"}},
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    s3_location = formatted_request["messages"][0]["content"][0]["image"]["source"]["s3Location"]
+
+    assert s3_location == {"bucket": "my-bucket", "key": "image.png"}
+
+
 def test_format_request_filters_document_content_blocks(model, model_id):
     """Test that format_request filters extra fields from document content blocks."""
     messages = [
@@ -1514,6 +1536,27 @@ def test_format_request_filters_document_content_blocks(model, model_id):
     assert document_block == expected
     assert "extraField" not in document_block
     assert "metadata" not in document_block
+
+
+def test_format_request_filters_nested_reasoning_content(model, model_id):
+    """Test deep filtering of nested reasoningText fields."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "reasoningContent": {
+                        "reasoningText": {"text": "thinking...", "signature": "abc123", "extraField": "filtered"}
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    reasoning_text = formatted_request["messages"][0]["content"][0]["reasoningContent"]["reasoningText"]
+
+    assert reasoning_text == {"text": "thinking...", "signature": "abc123"}
 
 
 def test_format_request_filters_video_content_blocks(model, model_id):

@@ -89,6 +89,37 @@ _BEDROCK_CONTENT_BLOCK_FIELDS: dict[_ContentBlockType, set[str]] = {
 }
 _BEDROCK_CONTENT_BLOCK_TYPES: set[_ContentBlockType] = set(_BEDROCK_CONTENT_BLOCK_FIELDS.keys())
 
+# Nested schemas for deep filtering of Bedrock content blocks
+_BEDROCK_CONTENT_BLOCK_SCHEMAS: dict[_ContentBlockType, dict[str, Any]] = {
+    "image": {
+        "format": True,
+        "source": {"bytes": True, "s3Location": {"bucket": True, "key": True, "region": True, "version": True}},
+    },
+    "toolResult": {"content": True, "toolUseId": True, "status": True},
+    "toolUse": {"input": True, "name": True, "toolUseId": True},
+    "document": {
+        "name": True,
+        "source": {"bytes": True, "s3Location": {"bucket": True, "key": True, "region": True, "version": True}},
+        "format": True,
+        "citations": True,
+        "context": True,
+    },
+    "video": {
+        "format": True,
+        "source": {"bytes": True, "s3Location": {"bucket": True, "key": True, "region": True, "version": True}},
+    },
+    "reasoningContent": {"reasoningText": {"text": True, "signature": True}, "redactedContent": True},
+    "citationsContent": {"citations": True, "content": True},
+    "cachePoint": {"type": True},
+    "guardContent": {
+        "image": {
+            "format": True,
+            "source": {"bytes": True, "s3Location": {"bucket": True, "key": True, "region": True, "version": True}},
+        },
+        "text": {"qualifiers": True, "text": True},
+    },
+}
+
 T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_READ_TIMEOUT = 120
@@ -369,12 +400,12 @@ class BedrockModel(Model):
                     # Should only be one block type per content block since it is a discriminated union
                     block_type = cast(_ContentBlockType, next(iter(filterable_block_types)))
                     block_data = content_block[block_type]
-                    allowed_fields = _BEDROCK_CONTENT_BLOCK_FIELDS[block_type].copy()
+                    schema = _BEDROCK_CONTENT_BLOCK_SCHEMAS[block_type].copy()
 
                     if block_type == "toolResult" and not self._should_include_tool_result_status():
-                        allowed_fields.discard("status")
+                        schema.pop("status", None)
 
-                    cleaned_data = {k: v for k, v in block_data.items() if k in allowed_fields}
+                    cleaned_data = _deep_filter(block_data, schema)
                     cleaned_content.append(cast(ContentBlock, {block_type: cleaned_data}))
                 else:
                     # Keep other content blocks as-is
@@ -805,3 +836,34 @@ class BedrockModel(Model):
             raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
 
         yield {"output": output_model(**output_response)}
+
+
+def _deep_filter(data: Union[dict[str, Any], Any], schema: dict[str, Any]) -> dict[str, Any]:
+    """Fast recursive filtering using nested dict schemas.
+
+    Args:
+        data: Input data to filter (content block or nested dict)
+        schema: Schema defining allowed fields and nested structure
+
+    Returns:
+        Filtered dictionary containing only schema-defined fields
+    """
+    if not isinstance(data, dict):
+        return {}
+
+    result = {}
+    for key in data.keys() & schema.keys():
+        value = data[key]
+        schema_spec = schema[key]
+
+        if schema_spec is True:
+            result[key] = value
+        elif isinstance(schema_spec, dict) and isinstance(value, dict):
+            filtered = _deep_filter(value, schema_spec)
+            if filtered:
+                result[key] = filtered
+        elif isinstance(schema_spec, dict) and isinstance(value, list):
+            result[key] = [_deep_filter(item, schema_spec) for item in value if isinstance(item, dict)]
+        else:
+            result[key] = value
+    return result
