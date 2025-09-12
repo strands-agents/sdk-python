@@ -174,7 +174,7 @@ class ReasoningRedactedContentStreamEvent(ModelStreamEvent):
 
     def __init__(self, delta: ContentBlockDelta, redacted_content: bytes | None, reasoning: bool = False) -> None:
         """Initialize with delta and redacted content."""
-        super().__init__({"redactedContent": redacted_content, "delta": delta, "reasoning": reasoning})
+        super().__init__({"reasoningRedactedContent": redacted_content, "delta": delta, "reasoning": reasoning})
 
 
 class ReasoningSignatureStreamEvent(ModelStreamEvent):
