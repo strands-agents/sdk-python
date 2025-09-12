@@ -469,3 +469,32 @@ def test_swarm_validate_unsupported_features():
 
     with pytest.raises(ValueError, match="Session persistence is not supported for Swarm agents yet"):
         Swarm([agent_with_session])
+
+
+@pytest.mark.asyncio
+async def test_swarm_kwargs_passing(mock_strands_tracer, mock_use_span):
+    """Test that kwargs are passed through to underlying agents."""
+    kwargs_agent = create_mock_agent("kwargs_agent", "Response with kwargs")
+    kwargs_agent.invoke_async = Mock(side_effect=kwargs_agent.invoke_async)
+
+    swarm = Swarm(nodes=[kwargs_agent])
+
+    test_kwargs = {"custom_param": "test_value", "another_param": 42}
+    result = await swarm.invoke_async("Test kwargs passing", test_kwargs)
+
+    assert kwargs_agent.invoke_async.call_args.kwargs == test_kwargs
+    assert result.status == Status.COMPLETED
+
+
+def test_swarm_kwargs_passing_sync(mock_strands_tracer, mock_use_span):
+    """Test that kwargs are passed through to underlying agents in sync execution."""
+    kwargs_agent = create_mock_agent("kwargs_agent", "Response with kwargs")
+    kwargs_agent.invoke_async = Mock(side_effect=kwargs_agent.invoke_async)
+
+    swarm = Swarm(nodes=[kwargs_agent])
+
+    test_kwargs = {"custom_param": "test_value", "another_param": 42}
+    result = swarm("Test kwargs passing sync", test_kwargs)
+
+    assert kwargs_agent.invoke_async.call_args.kwargs == test_kwargs
+    assert result.status == Status.COMPLETED

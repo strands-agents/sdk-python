@@ -130,6 +130,7 @@ from strands.models import BedrockModel
 from strands.models.ollama import OllamaModel
 from strands.models.llamaapi import LlamaAPIModel
 from strands.models.gemini import GeminiModel
+from strands.models.llamacpp import LlamaCppModel
 
 # Bedrock
 bedrock_model = BedrockModel(
@@ -170,6 +171,7 @@ Built-in providers:
  - [Anthropic](https://strandsagents.com/latest/user-guide/concepts/model-providers/anthropic/)
  - [Gemini](https://strandsagents.com/latest/user-guide/concepts/model-providers/gemini/)
  - [LiteLLM](https://strandsagents.com/latest/user-guide/concepts/model-providers/litellm/)
+ - [llama.cpp](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamacpp/)
  - [LlamaAPI](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamaapi/)
  - [Ollama](https://strandsagents.com/latest/user-guide/concepts/model-providers/ollama/)
  - [OpenAI](https://strandsagents.com/latest/user-guide/concepts/model-providers/openai/)

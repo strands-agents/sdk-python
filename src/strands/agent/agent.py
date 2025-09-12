@@ -425,7 +425,7 @@ class Agent:
             **kwargs: Additional parameters to pass through the event loop.
 
         Returns:
-            Result object containing:
+            Result: object containing:
 
                 - stop_reason: Why the event loop stopped (e.g., "end_turn", "max_tokens")
                 - message: The final message from the model

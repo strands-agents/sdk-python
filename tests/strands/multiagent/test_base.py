@@ -155,7 +155,7 @@ def test_multi_agent_base_call_method():
             self.received_task = None
             self.received_kwargs = None
 
-        async def invoke_async(self, task, **kwargs):
+        async def invoke_async(self, task, invocation_state, **kwargs):
             self.invoke_async_called = True
             self.received_task = task
             self.received_kwargs = kwargs

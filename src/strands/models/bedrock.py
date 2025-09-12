@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import os
+import warnings
 from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union, cast
 
 import boto3
@@ -23,13 +24,15 @@ from ..types.exceptions import (
     ModelThrottledException,
 )
 from ..types.streaming import CitationsDelta, StreamEvent
-from ..types.tools import ToolResult, ToolSpec
-from ._config_validation import validate_config_keys
+from ..types.tools import ToolChoice, ToolResult, ToolSpec
+from ._validation import validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
 
+# See: `BedrockModel._get_default_model_with_warning` for why we need both
 DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+_DEFAULT_BEDROCK_MODEL_ID = "{}.anthropic.claude-sonnet-4-20250514-v1:0"
 DEFAULT_BEDROCK_REGION = "us-west-2"
 
 BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
@@ -130,12 +133,15 @@ class BedrockModel(Model):
         if region_name and boto_session:
             raise ValueError("Cannot specify both `region_name` and `boto_session`.")
 
-        self.config = BedrockModel.BedrockConfig(model_id=DEFAULT_BEDROCK_MODEL_ID, include_tool_result_status="auto")
+        session = boto_session or boto3.Session()
+        resolved_region = region_name or session.region_name or os.environ.get("AWS_REGION") or DEFAULT_BEDROCK_REGION
+        self.config = BedrockModel.BedrockConfig(
+            model_id=BedrockModel._get_default_model_with_warning(resolved_region, model_config),
+            include_tool_result_status="auto",
+        )
         self.update_config(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
-
-        session = boto_session or boto3.Session()
 
         # Add strands-agents to the request user agent
         if boto_client_config:
@@ -150,8 +156,6 @@ class BedrockModel(Model):
             client_config = boto_client_config.merge(BotocoreConfig(user_agent_extra=new_user_agent))
         else:
             client_config = BotocoreConfig(user_agent_extra="strands-agents", read_timeout=DEFAULT_READ_TIMEOUT)
-
-        resolved_region = region_name or session.region_name or os.environ.get("AWS_REGION") or DEFAULT_BEDROCK_REGION
 
         self.client = session.client(
             service_name="bedrock-runtime",
@@ -197,6 +201,7 @@ class BedrockModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        tool_choice: ToolChoice | None = None,
     ) -> dict[str, Any]:
         """Format a Bedrock converse stream request.
 
@@ -204,6 +209,7 @@ class BedrockModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
 
         Returns:
             A Bedrock converse stream request.
@@ -226,7 +232,7 @@ class BedrockModel(Model):
                                 else []
                             ),
                         ],
-                        "toolChoice": {"auto": {}},
+                        **({"toolChoice": tool_choice if tool_choice else {"auto": {}}}),
                     }
                 }
                 if tool_specs
@@ -418,6 +424,7 @@ class BedrockModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Bedrock model.
@@ -429,6 +436,7 @@ class BedrockModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -447,7 +455,7 @@ class BedrockModel(Model):
         loop = asyncio.get_event_loop()
         queue: asyncio.Queue[Optional[StreamEvent]] = asyncio.Queue()
 
-        thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt)
+        thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt, tool_choice)
         task = asyncio.create_task(thread)
 
         while True:
@@ -465,6 +473,7 @@ class BedrockModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        tool_choice: ToolChoice | None = None,
     ) -> None:
         """Stream conversation with the Bedrock model.
 
@@ -476,6 +485,7 @@ class BedrockModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
 
         Raises:
             ContextWindowOverflowException: If the input exceeds the model's context window.
@@ -483,7 +493,7 @@ class BedrockModel(Model):
         """
         try:
             logger.debug("formatting request")
-            request = self.format_request(messages, tool_specs, system_prompt)
+            request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
             logger.debug("request=<%s>", request)
 
             logger.debug("invoking model")
@@ -740,6 +750,7 @@ class BedrockModel(Model):
             messages=prompt,
             tool_specs=[tool_spec],
             system_prompt=system_prompt,
+            tool_choice=cast(ToolChoice, {"any": {}}),
             **kwargs,
         )
         async for event in streaming.process_stream(response):
@@ -764,3 +775,46 @@ class BedrockModel(Model):
             raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
 
         yield {"output": output_model(**output_response)}
+
+    @staticmethod
+    def _get_default_model_with_warning(region_name: str, model_config: Optional[BedrockConfig] = None) -> str:
+        """Get the default Bedrock modelId based on region.
+
+        If the region is not **known** to support inference then we show a helpful warning
+        that compliments the exception that Bedrock will throw.
+        If the customer provided a model_id in their config or they overrode the `DEFAULT_BEDROCK_MODEL_ID`
+        then we should not process further.
+
+        Args:
+            region_name (str): region for bedrock model
+            model_config (Optional[dict[str, Any]]): Model Config that caller passes in on init
+        """
+        if DEFAULT_BEDROCK_MODEL_ID != _DEFAULT_BEDROCK_MODEL_ID.format("us"):
+            return DEFAULT_BEDROCK_MODEL_ID
+
+        model_config = model_config or {}
+        if model_config.get("model_id"):
+            return model_config["model_id"]
+
+        prefix_inference_map = {"ap": "apac"}  # some inference endpoints can be a bit different than the region prefix
+
+        prefix = "-".join(region_name.split("-")[:-2]).lower()  # handles `us-east-1` or `us-gov-east-1`
+        if prefix not in {"us", "eu", "ap", "us-gov"}:
+            warnings.warn(
+                f"""
+            ================== WARNING ==================
+
+                This region {region_name} does not support
+                our default inference endpoint: {_DEFAULT_BEDROCK_MODEL_ID.format(prefix)}.
+                Update the agent to pass in a 'model_id' like so:
+                ```
+                Agent(..., model='valid_model_id', ...)
+                ````
+                Documentation: https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html
+
+            ==================================================
+            """,
+                stacklevel=2,
+            )
+
+        return _DEFAULT_BEDROCK_MODEL_ID.format(prefix_inference_map.get(prefix, prefix))

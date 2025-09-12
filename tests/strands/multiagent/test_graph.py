@@ -1285,3 +1285,55 @@ async def test_infinite_loop_prevention_self_loops():
     assert result.status == Status.COMPLETED
     assert len(result.execution_order) >= 2
     assert multi_agent.invoke_async.call_count >= 2
+
+
+@pytest.mark.asyncio
+async def test_graph_kwargs_passing_agent(mock_strands_tracer, mock_use_span):
+    """Test that kwargs are passed through to underlying Agent nodes."""
+    kwargs_agent = create_mock_agent("kwargs_agent", "Response with kwargs")
+    kwargs_agent.invoke_async = Mock(side_effect=kwargs_agent.invoke_async)
+
+    builder = GraphBuilder()
+    builder.add_node(kwargs_agent, "kwargs_node")
+    graph = builder.build()
+
+    test_invocation_state = {"custom_param": "test_value", "another_param": 42}
+    result = await graph.invoke_async("Test kwargs passing", test_invocation_state)
+
+    kwargs_agent.invoke_async.assert_called_once_with([{"text": "Test kwargs passing"}], **test_invocation_state)
+    assert result.status == Status.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_graph_kwargs_passing_multiagent(mock_strands_tracer, mock_use_span):
+    """Test that kwargs are passed through to underlying MultiAgentBase nodes."""
+    kwargs_multiagent = create_mock_multi_agent("kwargs_multiagent", "MultiAgent response with kwargs")
+    kwargs_multiagent.invoke_async = Mock(side_effect=kwargs_multiagent.invoke_async)
+
+    builder = GraphBuilder()
+    builder.add_node(kwargs_multiagent, "multiagent_node")
+    graph = builder.build()
+
+    test_invocation_state = {"custom_param": "test_value", "another_param": 42}
+    result = await graph.invoke_async("Test kwargs passing to multiagent", test_invocation_state)
+
+    kwargs_multiagent.invoke_async.assert_called_once_with(
+        [{"text": "Test kwargs passing to multiagent"}], test_invocation_state
+    )
+    assert result.status == Status.COMPLETED
+
+
+def test_graph_kwargs_passing_sync(mock_strands_tracer, mock_use_span):
+    """Test that kwargs are passed through to underlying nodes in sync execution."""
+    kwargs_agent = create_mock_agent("kwargs_agent", "Response with kwargs")
+    kwargs_agent.invoke_async = Mock(side_effect=kwargs_agent.invoke_async)
+
+    builder = GraphBuilder()
+    builder.add_node(kwargs_agent, "kwargs_node")
+    graph = builder.build()
+
+    test_invocation_state = {"custom_param": "test_value", "another_param": 42}
+    result = graph("Test kwargs passing sync", test_invocation_state)
+
+    kwargs_agent.invoke_async.assert_called_once_with([{"text": "Test kwargs passing sync"}], **test_invocation_state)
+    assert result.status == Status.COMPLETED
