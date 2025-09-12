@@ -39,7 +39,7 @@ def moto_autouse(moto_env, moto_mock_aws):
                 {"role": "assistant", "content": [{"text": "a"}, {"text": "[blank text]"}]},
                 {"role": "assistant", "content": [{"text": "[blank text]"}]},
                 {"role": "assistant"},
-                {"role": "user", "content": [{"text": " \n"}]},
+                {"role": "user", "content": [{"text": "[blank text]"}]},
             ],
         ),
         (

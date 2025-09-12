@@ -49,28 +49,34 @@ def remove_blank_messages_content_text(messages: Messages) -> Messages:
     replaced_blank_message_content_text = False
 
     for message in messages:
-        # only modify assistant messages
-        if "role" in message and message["role"] != "assistant":
-            continue
-        if "content" in message:
+        # modify empty user messages
+        if "role" in message and message["role"] == "user" and "content" in message:
             content = message["content"]
-            has_tool_use = any("toolUse" in item for item in content)
-            if len(content) == 0:
-                content.append({"text": "[blank text]"})
-                continue
+            for item in content:
+                if "text" in item and not item["text"].strip():
+                    replaced_blank_message_content_text = True
+                    item["text"] = "[blank text]"
+        # only modify assistant messages
+        if "role" in message and message["role"] == "assistant":
+            if "content" in message:
+                content = message["content"]
+                has_tool_use = any("toolUse" in item for item in content)
+                if len(content) == 0:
+                    content.append({"text": "[blank text]"})
+                    continue
 
-            if has_tool_use:
-                # Remove blank 'text' items for assistant messages
-                before_len = len(content)
-                content[:] = [item for item in content if "text" not in item or item["text"].strip()]
-                if not removed_blank_message_content_text and before_len != len(content):
-                    removed_blank_message_content_text = True
-            else:
-                # Replace blank 'text' with '[blank text]' for assistant messages
-                for item in content:
-                    if "text" in item and not item["text"].strip():
-                        replaced_blank_message_content_text = True
-                        item["text"] = "[blank text]"
+                if has_tool_use:
+                    # Remove blank 'text' items for assistant messages
+                    before_len = len(content)
+                    content[:] = [item for item in content if "text" not in item or item["text"].strip()]
+                    if not removed_blank_message_content_text and before_len != len(content):
+                        removed_blank_message_content_text = True
+                else:
+                    # Replace blank 'text' with '[blank text]' for assistant messages
+                    for item in content:
+                        if "text" in item and not item["text"].strip():
+                            replaced_blank_message_content_text = True
+                            item["text"] = "[blank text]"
 
     if removed_blank_message_content_text:
         logger.debug("removed blank message context text")
