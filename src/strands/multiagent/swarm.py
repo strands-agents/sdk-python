@@ -196,7 +196,7 @@ class Swarm(MultiAgentBase):
         self,
         nodes: list[Agent],
         *,
-        entry_point: str | None = None,
+        entry_point: Agent | None = None,
         max_handoffs: int = 20,
         max_iterations: int = 20,
         execution_timeout: float = 900.0,
@@ -208,7 +208,7 @@ class Swarm(MultiAgentBase):
 
         Args:
             nodes: List of nodes (e.g. Agent) to include in the swarm
-            entry_point: Name of the agent to start with. If None, uses the first agent (default: None)
+            entry_point: Agent to start with. If None, uses the first agent (default: None)
             max_handoffs: Maximum handoffs to agents and users (default: 20)
             max_iterations: Maximum node executions within the swarm (default: 20)
             execution_timeout: Total execution timeout in seconds (default: 900.0)
@@ -280,7 +280,7 @@ class Swarm(MultiAgentBase):
 
         # Initialize swarm state with configuration
         if self.entry_point:
-            initial_node = self.nodes[self.entry_point]
+            initial_node = self.nodes[str(self.entry_point.name)]
         else:
             initial_node = next(iter(self.nodes.values()))  # First SwarmNode
 
@@ -335,17 +335,22 @@ class Swarm(MultiAgentBase):
 
         # Validate entry point if specified
         if self.entry_point is not None:
-            if self.entry_point not in self.nodes:
-                available_nodes = list(self.nodes.keys())
-                raise ValueError(
-                    f"Entry point '{self.entry_point}' not found in swarm nodes. Available nodes: {available_nodes}"
-                )
+            entry_point_node_id = str(self.entry_point.name)
+            if (
+                entry_point_node_id not in self.nodes
+                or self.nodes[entry_point_node_id].executor is not self.entry_point
+            ):
+                available_agents = [
+                    f"{node_id} ({type(node.executor).__name__})" for node_id, node in self.nodes.items()
+                ]
+                raise ValueError(f"Entry point agent not found in swarm nodes. Available agents: {available_agents}")
 
         swarm_nodes = list(self.nodes.values())
         logger.debug("nodes=<%s> | initialized swarm with nodes", [node.node_id for node in swarm_nodes])
 
         if self.entry_point:
-            logger.debug("entry_point=<%s> | configured entry point", self.entry_point)
+            entry_point_name = getattr(self.entry_point, "name", "unnamed_agent")
+            logger.debug("entry_point=<%s> | configured entry point", entry_point_name)
         else:
             first_node = next(iter(self.nodes.keys()))
             logger.debug("entry_point=<%s> | using first node as entry point", first_node)

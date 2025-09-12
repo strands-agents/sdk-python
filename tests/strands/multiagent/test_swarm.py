@@ -459,10 +459,10 @@ def test_swarm_configurable_entry_point():
     agent3 = create_mock_agent("agent3", "Agent 3 response")
 
     # Create swarm with agent2 as entry point
-    swarm = Swarm([agent1, agent2, agent3], entry_point="agent2")
+    swarm = Swarm([agent1, agent2, agent3], entry_point=agent2)
 
     # Verify entry point is set correctly
-    assert swarm.entry_point == "agent2"
+    assert swarm.entry_point is agent2
 
     # Execute swarm
     result = swarm("Test task")
@@ -477,14 +477,11 @@ def test_swarm_invalid_entry_point():
     """Test swarm with invalid entry point raises error."""
     agent1 = create_mock_agent("agent1", "Agent 1 response")
     agent2 = create_mock_agent("agent2", "Agent 2 response")
+    agent3 = create_mock_agent("agent3", "Agent 3 response")  # Not in swarm
 
-    # Try to create swarm with non-existent entry point
-    with pytest.raises(ValueError, match="Entry point 'nonexistent' not found in swarm nodes"):
-        Swarm([agent1, agent2], entry_point="nonexistent")
-    
-    # Try with random string entry point
-    with pytest.raises(ValueError, match="Entry point 'xyz123random' not found in swarm nodes"):
-        Swarm([agent1, agent2], entry_point="xyz123random")
+    # Try to create swarm with agent not in the swarm
+    with pytest.raises(ValueError, match="Entry point agent not found in swarm nodes"):
+        Swarm([agent1, agent2], entry_point=agent3)
 
 
 def test_swarm_default_entry_point():
@@ -505,6 +502,29 @@ def test_swarm_default_entry_point():
     assert result.status == Status.COMPLETED
     assert len(result.node_history) == 1
     assert result.node_history[0].node_id == "agent1"
+
+
+def test_swarm_duplicate_agent_names():
+    """Test swarm rejects agents with duplicate names."""
+    agent1 = create_mock_agent("duplicate_name", "Agent 1 response")
+    agent2 = create_mock_agent("duplicate_name", "Agent 2 response")
+
+    # Try to create swarm with duplicate names
+    with pytest.raises(ValueError, match="Node ID 'duplicate_name' is not unique"):
+        Swarm([agent1, agent2])
+
+
+def test_swarm_entry_point_same_name_different_object():
+    """Test entry point validation with same name but different object."""
+    agent1 = create_mock_agent("agent1", "Agent 1 response")
+    agent2 = create_mock_agent("agent2", "Agent 2 response")
+
+    # Create a different agent with same name as agent1
+    different_agent_same_name = create_mock_agent("agent1", "Different agent response")
+
+    # Try to use the different agent as entry point
+    with pytest.raises(ValueError, match="Entry point agent not found in swarm nodes"):
+        Swarm([agent1, agent2], entry_point=different_agent_same_name)
 
 
 def test_swarm_validate_unsupported_features():
