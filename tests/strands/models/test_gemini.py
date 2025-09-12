@@ -1,5 +1,6 @@
 import unittest.mock
 
+import pydantic
 import pytest
 from google import genai
 
@@ -36,6 +37,15 @@ def messages():
 @pytest.fixture
 def system_prompt():
     return "s1"
+
+
+@pytest.fixture
+def weather_output():
+    class Weather(pydantic.BaseModel):
+        time: str
+        weather: str
+
+    return Weather(time="12:00", weather="sunny")
 
 
 def test__init__model_configs(gemini_client, model_id):
@@ -519,3 +529,23 @@ async def test_stream_response_client_exception(gemini_client, model, messages):
 
     with pytest.raises(genai.errors.ClientError, match="INTERNAL"):
         await anext(model.stream(messages))
+
+
+@pytest.mark.asyncio
+async def test_structured_output(gemini_client, model, messages, model_id, weather_output):
+    gemini_client.aio.models.generate_content.return_value = unittest.mock.Mock(parsed=weather_output.model_dump())
+
+    tru_response = await anext(model.structured_output(type(weather_output), messages))
+    exp_response = {"output": weather_output}
+    assert tru_response == exp_response
+
+    exp_request = {
+        "config": {
+            "tools": [{"function_declarations": []}],
+            "response_mime_type": "application/json",
+            "response_schema": weather_output.model_json_schema(),
+        },
+        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content.assert_called_with(**exp_request)

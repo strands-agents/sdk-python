@@ -40,8 +40,6 @@ class GeminiModel(Model):
             params: Additional model parameters (e.g., temperature).
                 For a complete list of supported parameters, see
                 https://ai.google.dev/api/generate-content#generationconfig.
-            response_schema: TODO
-            response_mime_type: TODO
         """
 
         model_id: Required[str]
@@ -200,6 +198,7 @@ class GeminiModel(Model):
         self,
         tool_specs: Optional[list[ToolSpec]],
         system_prompt: Optional[str],
+        params: Optional[dict[str, Any]],
     ) -> genai.types.GenerateContentConfig:
         """Format Gemini request config.
 
@@ -208,6 +207,7 @@ class GeminiModel(Model):
         Args:
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            params: Additional model parameters (e.g., temperature).
 
         Returns:
             Gemini request config.
@@ -215,14 +215,15 @@ class GeminiModel(Model):
         return genai.types.GenerateContentConfig(
             system_instruction=system_prompt,
             tools=self._format_request_tools(tool_specs),
-            **(self.config.get("params") or {}),
+            **(params or {}),
         )
 
     def _format_request(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: Optional[list[ToolSpec]],
+        system_prompt: Optional[str],
+        params: Optional[dict[str, Any]],
     ) -> dict[str, Any]:
         """Format a Gemini streaming request.
 
@@ -232,12 +233,13 @@ class GeminiModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            params: Additional model parameters (e.g., temperature).
 
         Returns:
             A Gemini streaming request.
         """
         return {
-            "config": self._format_request_config(tool_specs, system_prompt).to_json_dict(),
+            "config": self._format_request_config(tool_specs, system_prompt, params).to_json_dict(),
             "contents": [content.to_json_dict() for content in self._format_request_content(messages)],
             "model": self.config["model_id"],
         }
@@ -356,7 +358,7 @@ class GeminiModel(Model):
         Raises:
             ModelThrottledException: If the request is throttled by Gemini.
         """
-        request = self._format_request(messages, tool_specs, system_prompt)
+        request = self._format_request(messages, tool_specs, system_prompt, self.config.get("params"))
 
         try:
             response = await self.client.aio.models.generate_content_stream(**request)
@@ -409,6 +411,8 @@ class GeminiModel(Model):
     ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model using Gemini's native structured output.
 
+        - Docs: https://ai.google.dev/gemini-api/docs/structured-output
+
         Args:
             output_model: The output model to use for the agent.
             prompt: The prompt messages to use for the agent.
@@ -417,59 +421,12 @@ class GeminiModel(Model):
 
         Yields:
             Model events with the last being the structured output.
-
-        Raises:
-            ValueError: If the model doesn't return valid structured output.
-
-        Gemini Structured Output: https://ai.google.dev/gemini-api/docs/structured-output
         """
-        yield {}
-
-    #     schema = output_model.model_json_schema() if hasattr(output_model, "model_json_schema") else output_model
-
-    #     structured_config = {
-    #         "response_mime_type": "application/json",
-    #         "response_schema": schema,
-    #     }
-
-    #     if "config" in kwargs:
-    #         structured_config.update(kwargs.pop("config"))
-
-    #     logger.debug("Using Gemini's native structured output with schema: %s", output_model.__name__)
-
-    #     structured_config.pop("tool_specs", None)
-    #     kwargs.pop("tool_specs", None)
-    #     async_response = self.stream(
-    #         messages=prompt, tool_specs=None, system_prompt=system_prompt, **structured_config, **kwargs
-    #     )
-
-    #     accumulated_text = []
-    #     stop_reason = None
-
-    #     async for event in async_response:
-    #         # Don't yield streaming events, only collect the final result
-    #         if "messageStop" in event and "stopReason" in event["messageStop"]:
-    #             stop_reason = event["messageStop"]["stopReason"]
-
-    #         if "contentBlockDelta" in event:
-    #             delta = event["contentBlockDelta"].get("delta", {})
-    #             if "text" in delta:
-    #                 accumulated_text.append(delta["text"])
-
-    #     full_response = "".join(accumulated_text)
-
-    #     if not full_response.strip():
-    #         logger.error("Empty response from model when generating structured output")
-    #         raise ValueError("Empty response from model when generating structured output")
-
-    #     if stop_reason != "end_turn":
-    #         logger.error("Model returned unexpected stop_reason: %s", stop_reason)
-    #         raise ValueError(f'Model returned stop_reason: {stop_reason} instead of "end_turn"')
-
-    #     try:
-    #         result = output_model.model_validate_json(full_response)
-    #         yield {"output": result}
-
-    #     except Exception as e:
-    #         logger.error("Failed to create output model from JSON response: %s", str(e))
-    #         raise ValueError(f"Failed to create structured output from Gemini response: {str(e)}") from e
+        params = {
+            **(self.config.get("params") or {}),
+            "response_mime_type": "application/json",
+            "response_schema": output_model.model_json_schema(),
+        }
+        request = self._format_request(prompt, None, system_prompt, params)
+        response = await self.client.aio.models.generate_content(**request)
+        yield {"output": output_model.model_validate(response.parsed)}

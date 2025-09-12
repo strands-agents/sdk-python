@@ -145,31 +145,33 @@ def test_agent_invoke_document_input(assistant_agent, letter_pdf):
     assert "shareholder" in text
 
 
-# def test_structured_output(tool_agent, weather):
-#     tru_weather = tool_agent.structured_output(type(weather), "The time is 12:00 and the weather is sunny")
-#     exp_weather = weather
-#     assert tru_weather == exp_weather
+def test_agent_structured_output(assistant_agent, weather):
+    tru_weather = assistant_agent.structured_output(type(weather), "The time is 12:00 and the weather is sunny")
+    exp_weather = weather
+    assert tru_weather == exp_weather
 
 
-# @pytest.mark.asyncio
-# async def test_agent_structured_output_async(tool_agent, weather):
-#     tru_weather = await agent.structured_output_async(type(weather), "The time is 12:00 and the weather is sunny")
-#     exp_weather = weather
-#     assert tru_weather == exp_weather
+@pytest.mark.asyncio
+async def test_agent_structured_output_async(assistant_agent, weather):
+    tru_weather = await assistant_agent.structured_output_async(
+        type(weather), "The time is 12:00 and the weather is sunny"
+    )
+    exp_weather = weather
+    assert tru_weather == exp_weather
 
 
-# def test_agent_structured_output_image_input(assistant_agent, yellow_img, yellow_color):
-#     content = [
-#         {"text": "Is this image red, blue, or yellow?"},
-#         {
-#             "image": {
-#                 "format": "png",
-#                 "source": {
-#                     "bytes": yellow_img,
-#                 },
-#             },
-#         },
-#     ]
-#     tru_color = assistant_agent.structured_output(type(yellow_color), content)
-#     exp_color = yellow_color
-#     assert tru_color == exp_color
+def test_agent_structured_output_image_input(assistant_agent, yellow_img, yellow_color):
+    content = [
+        {"text": "Is this image red, blue, or yellow?"},
+        {
+            "image": {
+                "format": "png",
+                "source": {
+                    "bytes": yellow_img,
+                },
+            },
+        },
+    ]
+    tru_color = assistant_agent.structured_output(type(yellow_color), content)
+    exp_color = yellow_color
+    assert tru_color == exp_color
