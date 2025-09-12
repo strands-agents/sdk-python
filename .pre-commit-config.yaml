@@ -3,7 +3,7 @@ repos:
     hooks:
       - id: hatch-format
         name: Format code
-        entry: hatch fmt --formatter
+        entry: hatch run test-format
         language: system
         pass_filenames: false
         types: [python]
@@ -15,13 +15,6 @@ repos:
         pass_filenames: false
         types: [python]
         stages: [pre-commit]
-      - id: hatch-test-lint
-        name: Type linting
-        entry: hatch run test-lint
-        language: system
-        pass_filenames: false
-        types: [ python ]
-        stages: [ pre-commit ]
       - id: hatch-test
         name: Unit tests
         entry: hatch test

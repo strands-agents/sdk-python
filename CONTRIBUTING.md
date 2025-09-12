@@ -44,12 +44,7 @@ This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as 
 
 1. Entering virtual environment using `hatch` (recommended), then launch your IDE in the new shell.
    ```bash
-   hatch shell dev
-   ```
-
-   Alternatively, install development dependencies in a manually created virtual environment:
-   ```bash
-   pip install -e ".[all]"
+   hatch shell
    ```
 
 
@@ -72,6 +67,10 @@ This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as 
 5. Run unit tests:
    ```bash
    hatch test
+   ```
+   Or run them with coverage:
+   ```bash
+   hatch test -c
    ```
 
 6. Run integration tests:
