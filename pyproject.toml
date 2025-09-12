@@ -57,7 +57,7 @@ dev = [
     "mypy>=1.15.0,<2.0.0",
     "pre-commit>=3.2.0,<4.4.0",
     "pytest>=8.0.0,<9.0.0",
-    "pytest-cov>=6.0.0,<7.0.0",
+    "pytest-cov>=6.0.0,<8.0.0",
     "pytest-asyncio>=1.0.0,<1.2.0",
     "pytest-xdist>=3.0.0,<4.0.0",
     "ruff>=0.12.0,<0.14.0",
@@ -142,7 +142,7 @@ features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mis
 extra-dependencies = [
     "moto>=5.1.0,<6.0.0",
     "pytest>=8.0.0,<9.0.0",
-    "pytest-cov>=6.0.0,<7.0.0",
+    "pytest-cov>=6.0.0,<8.0.0",
     "pytest-asyncio>=1.0.0,<1.2.0",
     "pytest-xdist>=3.0.0,<4.0.0",
 ]
