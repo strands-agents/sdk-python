@@ -451,6 +451,62 @@ def test_swarm_auto_completion_without_handoff():
     no_handoff_agent.invoke_async.assert_called()
 
 
+def test_swarm_configurable_entry_point():
+    """Test swarm with configurable entry point."""
+    # Create multiple agents
+    agent1 = create_mock_agent("agent1", "Agent 1 response")
+    agent2 = create_mock_agent("agent2", "Agent 2 response")
+    agent3 = create_mock_agent("agent3", "Agent 3 response")
+
+    # Create swarm with agent2 as entry point
+    swarm = Swarm([agent1, agent2, agent3], entry_point="agent2")
+
+    # Verify entry point is set correctly
+    assert swarm.entry_point == "agent2"
+
+    # Execute swarm
+    result = swarm("Test task")
+
+    # Verify agent2 was the first to execute
+    assert result.status == Status.COMPLETED
+    assert len(result.node_history) == 1
+    assert result.node_history[0].node_id == "agent2"
+
+
+def test_swarm_invalid_entry_point():
+    """Test swarm with invalid entry point raises error."""
+    agent1 = create_mock_agent("agent1", "Agent 1 response")
+    agent2 = create_mock_agent("agent2", "Agent 2 response")
+
+    # Try to create swarm with non-existent entry point
+    with pytest.raises(ValueError, match="Entry point 'nonexistent' not found in swarm nodes"):
+        Swarm([agent1, agent2], entry_point="nonexistent")
+    
+    # Try with random string entry point
+    with pytest.raises(ValueError, match="Entry point 'xyz123random' not found in swarm nodes"):
+        Swarm([agent1, agent2], entry_point="xyz123random")
+
+
+def test_swarm_default_entry_point():
+    """Test swarm uses first agent as default entry point."""
+    agent1 = create_mock_agent("agent1", "Agent 1 response")
+    agent2 = create_mock_agent("agent2", "Agent 2 response")
+
+    # Create swarm without specifying entry point
+    swarm = Swarm([agent1, agent2])
+
+    # Verify no explicit entry point is set
+    assert swarm.entry_point is None
+
+    # Execute swarm
+    result = swarm("Test task")
+
+    # Verify first agent was used as entry point
+    assert result.status == Status.COMPLETED
+    assert len(result.node_history) == 1
+    assert result.node_history[0].node_id == "agent1"
+
+
 def test_swarm_validate_unsupported_features():
     """Test Swarm validation for session persistence and callbacks."""
     # Test with normal agent (should work)
