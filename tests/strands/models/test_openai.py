@@ -8,14 +8,11 @@ from strands.models.openai import OpenAIModel
 
 
 @pytest.fixture
-def openai_client_cls():
+def openai_client():
     with unittest.mock.patch.object(strands.models.openai.openai, "AsyncOpenAI") as mock_client_cls:
-        yield mock_client_cls
-
-
-@pytest.fixture
-def openai_client(openai_client_cls):
-    return openai_client_cls.return_value
+        mock_client = unittest.mock.AsyncMock()
+        mock_client_cls.return_value.__aenter__.return_value = mock_client
+        yield mock_client
 
 
 @pytest.fixture
@@ -68,15 +65,13 @@ def test_output_model_cls():
     return TestOutputModel
 
 
-def test__init__(openai_client_cls, model_id):
-    model = OpenAIModel({"api_key": "k1"}, model_id=model_id, params={"max_tokens": 1})
+def test__init__(model_id):
+    model = OpenAIModel(model_id=model_id, params={"max_tokens": 1})
 
     tru_config = model.get_config()
     exp_config = {"model_id": "m1", "params": {"max_tokens": 1}}
 
     assert tru_config == exp_config
-
-    openai_client_cls.assert_called_once_with(api_key="k1")
 
 
 def test_update_config(model, model_id):
