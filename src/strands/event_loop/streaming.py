@@ -12,7 +12,7 @@ from ..types._events import (
     ModelStreamEvent,
     ReasoningSignatureStreamEvent,
     ReasoningTextStreamEvent,
-    RedactedContentStreamEvent,
+    ReasoningRedactedContentStreamEvent,
     TextStreamEvent,
     ToolUseStreamEvent,
     TypedEvent,
@@ -173,7 +173,7 @@ def handle_content_block_delta(
 
         elif redacted_content := delta_content["reasoningContent"].get("redactedContent"):
             state["redactedContent"] = state.get("redactedContent", b"") + redacted_content
-            typed_event = RedactedContentStreamEvent(
+            typed_event = ReasoningRedactedContentStreamEvent(
                 redacted_content=redacted_content, delta=delta_content, reasoning=True
             )
 
