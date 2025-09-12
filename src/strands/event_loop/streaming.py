@@ -10,6 +10,7 @@ from ..types._events import (
     ModelStopReason,
     ModelStreamChunkEvent,
     ModelStreamEvent,
+    ReasoningRedactedContentStreamEvent,
     ReasoningSignatureStreamEvent,
     ReasoningTextStreamEvent,
     TextStreamEvent,
@@ -170,6 +171,12 @@ def handle_content_block_delta(
                 delta=delta_content,
             )
 
+        elif redacted_content := delta_content["reasoningContent"].get("redactedContent"):
+            state["redactedContent"] = state.get("redactedContent", b"") + redacted_content
+            typed_event = ReasoningRedactedContentStreamEvent(
+                redacted_content=redacted_content, delta=delta_content, reasoning=True
+            )
+
     return state, typed_event
 
 
@@ -188,6 +195,7 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
     text = state["text"]
     reasoning_text = state["reasoningText"]
     citations_content = state["citationsContent"]
+    redacted_content = state.get("redactedContent")
 
     if current_tool_use:
         if "input" not in current_tool_use:
@@ -231,6 +239,9 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
 
         content.append(content_block)
         state["reasoningText"] = ""
+    elif redacted_content:
+        content.append({"reasoningContent": {"redactedContent": redacted_content}})
+        state["redactedContent"] = b""
 
     return state
 

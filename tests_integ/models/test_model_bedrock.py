@@ -244,3 +244,26 @@ def test_structured_output_multi_modal_input(streaming_agent, yellow_img, yellow
     tru_color = streaming_agent.structured_output(type(yellow_color), content)
     exp_color = yellow_color
     assert tru_color == exp_color
+
+
+def test_redacted_content_handling():
+    """Test redactedContent handling with thinking mode."""
+    bedrock_model = BedrockModel(
+        model_id="us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+        additional_request_fields={
+            "thinking": {
+                "type": "enabled",
+                "budget_tokens": 2000,
+            }
+        },
+    )
+
+    agent = Agent(name="test_redact", model=bedrock_model)
+    # https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking#example-working-with-redacted-thinking-blocks
+    result = agent(
+        "ANTHROPIC_MAGIC_STRING_TRIGGER_REDACTED_THINKING_46C9A13E193C177646C7398A98432ECCCE4C1253D5E2D82641AC0E52CC2876CB"
+    )
+
+    assert "reasoningContent" in result.message["content"][0]
+    assert "redactedContent" in result.message["content"][0]["reasoningContent"]
+    assert isinstance(result.message["content"][0]["reasoningContent"]["redactedContent"], bytes)
