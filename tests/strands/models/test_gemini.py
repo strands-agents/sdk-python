@@ -35,6 +35,15 @@ def messages():
 
 
 @pytest.fixture
+def tool_spec():
+    return {
+        "description": "description",
+        "name": "name",
+        "inputSchema": {"json": {"key": "val"}},
+    }
+
+
+@pytest.fixture
 def system_prompt():
     return "s1"
 
@@ -206,6 +215,30 @@ async def test_stream_request_with_reasoning(gemini_client, model, model_id):
             "tools": [{"function_declarations": []}],
         },
         "contents": [{"parts": [{"text": "reasoning_text", "thought": True}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_tool_spec(gemini_client, model, model_id, tool_spec):
+    await anext(model.stream([], [tool_spec]))
+
+    exp_request = {
+        "config": {
+            "tools": [
+                {
+                    "function_declarations": [
+                        {
+                            "description": "description",
+                            "name": "name",
+                            "parameters_json_schema": {"key": "val"},
+                        },
+                    ],
+                },
+            ],
+        },
+        "contents": [],
         "model": model_id,
     }
     gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)

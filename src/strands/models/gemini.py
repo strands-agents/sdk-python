@@ -43,7 +43,7 @@ class GeminiModel(Model):
         """
 
         model_id: Required[str]
-        params: Optional[dict[str, Any]]
+        params: dict[str, Any]
 
     def __init__(
         self,
@@ -183,9 +183,9 @@ class GeminiModel(Model):
             genai.types.Tool(
                 function_declarations=[
                     genai.types.FunctionDeclaration(
-                        name=tool_spec["name"],
                         description=tool_spec["description"],
-                        parameters=tool_spec["inputSchema"]["json"],
+                        name=tool_spec["name"],
+                        parameters_json_schema=tool_spec["inputSchema"]["json"],
                     )
                     for tool_spec in tool_specs or []
                 ],
