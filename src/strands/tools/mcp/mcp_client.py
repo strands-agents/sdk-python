@@ -16,7 +16,7 @@ from asyncio import AbstractEventLoop
 from concurrent import futures
 from datetime import timedelta
 from types import TracebackType
-from typing import Any, Callable, Coroutine, Dict, Optional, TypeVar, Union
+from typing import Any, Callable, Coroutine, Dict, Optional, TypeVar, Union, cast
 
 from mcp import ClientSession, ListToolsResult
 from mcp.types import CallToolResult as MCPCallToolResult
@@ -83,11 +83,15 @@ class MCPClient:
         self._transport_callable = transport_callable
 
         self._background_thread: threading.Thread | None = None
-        self._background_thread_session: ClientSession
-        self._background_thread_event_loop: AbstractEventLoop
+        self._background_thread_session: ClientSession | None = None
+        self._background_thread_event_loop: AbstractEventLoop | None = None
 
     def __enter__(self) -> "MCPClient":
-        """Context manager entry point which initializes the MCP server connection."""
+        """Context manager entry point which initializes the MCP server connection.
+
+        TODO: Refactor to lazy initialization pattern following idiomatic Python.
+        Heavy work in __enter__ is non-idiomatic - should move connection logic to first method call instead.
+        """
         return self.start()
 
     def __exit__(self, exc_type: BaseException, exc_val: BaseException, exc_tb: TracebackType) -> None:
@@ -118,9 +122,16 @@ class MCPClient:
             self._init_future.result(timeout=self._startup_timeout)
             self._log_debug_with_thread("the client initialization was successful")
         except futures.TimeoutError as e:
-            raise MCPClientInitializationError("background thread did not start in 30 seconds") from e
+            logger.exception("client initialization timed out")
+            # Pass None for exc_type, exc_val, exc_tb since this isn't a context manager exit
+            self.stop(None, None, None)
+            raise MCPClientInitializationError(
+                f"background thread did not start in {self._startup_timeout} seconds"
+            ) from e
         except Exception as e:
             logger.exception("client failed to initialize")
+            # Pass None for exc_type, exc_val, exc_tb since this isn't a context manager exit
+            self.stop(None, None, None)
             raise MCPClientInitializationError("the client initialization failed") from e
         return self
 
@@ -129,6 +140,9 @@ class MCPClient:
     ) -> None:
         """Signals the background thread to stop and waits for it to complete, ensuring proper cleanup of all resources.
 
+        This method is defensive and can handle partial initialization states that may occur
+        if start() fails partway through initialization.
+
         Args:
             exc_type: Exception type if an exception was raised in the context
             exc_val: Exception value if an exception was raised in the context
@@ -136,14 +150,19 @@ class MCPClient:
         """
         self._log_debug_with_thread("exiting MCPClient context")
 
-        async def _set_close_event() -> None:
-            self._close_event.set()
-
-        self._invoke_on_background_thread(_set_close_event()).result()
-        self._log_debug_with_thread("waiting for background thread to join")
+        # Only try to signal close event if we have a background thread
         if self._background_thread is not None:
+            # Signal close event if event loop exists
+            if self._background_thread_event_loop is not None:
+
+                async def _set_close_event() -> None:
+                    self._close_event.set()
+
+                self._invoke_on_background_thread(_set_close_event()).result()
+
+            self._log_debug_with_thread("waiting for background thread to join")
             self._background_thread.join()
-        self._log_debug_with_thread("background thread joined, MCPClient context exited")
+        self._log_debug_with_thread("background thread is closed, MCPClient context exited")
 
         # Reset fields to allow instance reuse
         self._init_future = futures.Future()
@@ -165,7 +184,7 @@ class MCPClient:
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _list_tools_async() -> ListToolsResult:
-            return await self._background_thread_session.list_tools(cursor=pagination_token)
+            return await cast(ClientSession, self._background_thread_session).list_tools(cursor=pagination_token)
 
         list_tools_response: ListToolsResult = self._invoke_on_background_thread(_list_tools_async()).result()
         self._log_debug_with_thread("received %d tools from MCP server", len(list_tools_response.tools))
@@ -191,7 +210,7 @@ class MCPClient:
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _list_prompts_async() -> ListPromptsResult:
-            return await self._background_thread_session.list_prompts(cursor=pagination_token)
+            return await cast(ClientSession, self._background_thread_session).list_prompts(cursor=pagination_token)
 
         list_prompts_result: ListPromptsResult = self._invoke_on_background_thread(_list_prompts_async()).result()
         self._log_debug_with_thread("received %d prompts from MCP server", len(list_prompts_result.prompts))
@@ -215,7 +234,7 @@ class MCPClient:
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _get_prompt_async() -> GetPromptResult:
-            return await self._background_thread_session.get_prompt(prompt_id, arguments=args)
+            return await cast(ClientSession, self._background_thread_session).get_prompt(prompt_id, arguments=args)
 
         get_prompt_result: GetPromptResult = self._invoke_on_background_thread(_get_prompt_async()).result()
         self._log_debug_with_thread("received prompt from MCP server")
@@ -250,7 +269,9 @@ class MCPClient:
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _call_tool_async() -> MCPCallToolResult:
-            return await self._background_thread_session.call_tool(name, arguments, read_timeout_seconds)
+            return await cast(ClientSession, self._background_thread_session).call_tool(
+                name, arguments, read_timeout_seconds
+            )
 
         try:
             call_tool_result: MCPCallToolResult = self._invoke_on_background_thread(_call_tool_async()).result()
@@ -285,7 +306,9 @@ class MCPClient:
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
 
         async def _call_tool_async() -> MCPCallToolResult:
-            return await self._background_thread_session.call_tool(name, arguments, read_timeout_seconds)
+            return await cast(ClientSession, self._background_thread_session).call_tool(
+                name, arguments, read_timeout_seconds
+            )
 
         try:
             future = self._invoke_on_background_thread(_call_tool_async())
