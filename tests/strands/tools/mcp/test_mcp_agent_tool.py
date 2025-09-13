@@ -13,6 +13,7 @@ def mock_mcp_tool():
     mock_tool.name = "test_tool"
     mock_tool.description = "A test tool"
     mock_tool.inputSchema = {"type": "object", "properties": {}}
+    mock_tool.outputSchema = None  # MCP tools can have optional outputSchema
     return mock_tool
 
 
@@ -56,6 +57,16 @@ def test_tool_spec_without_description(mock_mcp_tool, mock_mcp_client):
     tool_spec = agent_tool.tool_spec
 
     assert tool_spec["description"] == "Tool which performs test_tool"
+
+
+def test_tool_spec_with_output_schema(mock_mcp_tool, mock_mcp_client):
+    mock_mcp_tool.outputSchema = {"type": "object", "properties": {"result": {"type": "string"}}}
+
+    agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client)
+    tool_spec = agent_tool.tool_spec
+
+    assert "outputSchema" in tool_spec
+    assert tool_spec["outputSchema"]["json"] == {"type": "object", "properties": {"result": {"type": "string"}}}
 
 
 @pytest.mark.asyncio
