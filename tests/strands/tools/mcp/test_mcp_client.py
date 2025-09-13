@@ -466,3 +466,90 @@ def test_get_prompt_sync_session_not_active():
 
     with pytest.raises(MCPClientInitializationError, match="client session is not running"):
         client.get_prompt_sync("test_prompt_id", {})
+
+
+def test_call_tool_sync_server_jsonrpc_error_response(mock_transport, mock_session):
+    """Test that call_tool_sync handles JSON-RPC error responses from server without hanging.
+    
+    This reproduces the bug where the MCP client hangs when the remote streamable HTTP server
+    responds with a JSON-RPC error instead of a successful tool result.
+    """
+    import concurrent.futures
+    import threading
+    import time
+    from unittest.mock import patch
+    from datetime import timedelta
+    
+    # Simulate a JSON-RPC error by making the call_tool method hang indefinitely
+    # This mimics what happens when the MCP SDK receives a JSON-RPC error response
+    def hanging_call_tool(*args, **kwargs):
+        # Simulate the hanging behavior by sleeping indefinitely
+        time.sleep(10)  # This will cause a timeout in our test
+        
+    mock_session.call_tool = hanging_call_tool
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        # Test with a very short timeout to verify the fix
+        start_time = time.time()
+        
+        # This should not hang indefinitely, should timeout after 2 seconds
+        result = client.call_tool_sync(
+            tool_use_id="test-hanging-123", 
+            name="test_tool", 
+            arguments={"param": "value"},
+            read_timeout_seconds=timedelta(seconds=2)  # Short timeout for test
+        )
+        
+        elapsed_time = time.time() - start_time
+        
+        # The call should complete quickly (within 3 seconds) due to timeout handling
+        # and return a timeout error result rather than hanging for 10+ seconds
+        assert elapsed_time < 4, f"Tool call took {elapsed_time} seconds, suggesting it hung"
+        assert result["status"] == "error"
+        assert result["toolUseId"] == "test-hanging-123"
+        assert len(result["content"]) == 1
+        assert ("timed out" in result["content"][0]["text"] or 
+                "Tool execution failed" in result["content"][0]["text"])
+
+
+@pytest.mark.asyncio 
+async def test_call_tool_async_server_jsonrpc_error_response(mock_transport, mock_session):
+    """Test that call_tool_async handles JSON-RPC error responses from server without hanging.
+    
+    This reproduces the bug where the MCP client hangs when the remote streamable HTTP server
+    responds with a JSON-RPC error instead of a successful tool result.
+    """
+    import asyncio
+    import concurrent.futures
+    import time
+    from unittest.mock import patch
+    from datetime import timedelta
+    
+    # Simulate a JSON-RPC error by making the call_tool method hang indefinitely
+    async def hanging_call_tool(*args, **kwargs):
+        # Simulate the hanging behavior
+        await asyncio.sleep(10)  # This will cause a timeout in our test
+        
+    mock_session.call_tool = hanging_call_tool
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        start_time = time.time()
+        
+        # This should not hang indefinitely, should timeout after 2 seconds
+        result = await client.call_tool_async(
+            tool_use_id="test-async-hanging-123", 
+            name="test_tool", 
+            arguments={"param": "value"},
+            read_timeout_seconds=timedelta(seconds=2)  # Short timeout for test
+        )
+            
+        elapsed_time = time.time() - start_time
+        
+        # The call should complete quickly (within 3 seconds) due to timeout handling
+        # and return a timeout error result rather than hanging for 10+ seconds
+        assert elapsed_time < 4, f"Async tool call took {elapsed_time} seconds, suggesting it hung"
+        assert result["status"] == "error"
+        assert result["toolUseId"] == "test-async-hanging-123"
+        assert len(result["content"]) == 1
+        assert ("timed out" in result["content"][0]["text"] or 
+                "Tool execution failed" in result["content"][0]["text"])
