@@ -511,35 +511,77 @@ async def test_process_stream(response, exp_events, agenerator, alist):
 
 
 @pytest.mark.parametrize(
-    "response",
+    ("response", "exp_events"),
     [
         # Redacted Message
-        [
-            {"messageStart": {"role": "assistant"}},
-            {
-                "contentBlockStart": {"start": {}},
-            },
-            {
-                "contentBlockDelta": {"delta": {"text": "Hello!"}},
-            },
-            {"contentBlockStop": {}},
-            {
-                "messageStop": {"stopReason": "guardrail_intervened"},
-            },
-            {
-                "redactContent": {
-                    "redactUserContentMessage": "REDACTED",
-                    "redactAssistantContentMessage": "REDACTED.",
-                }
-            },
-            {
-                "metadata": {
-                    "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
-                    "metrics": {"latencyMs": 1},
-                }
-            },
-        ],
-        pytest.param(
+        (
+            [
+                {"messageStart": {"role": "assistant"}},
+                {
+                    "contentBlockStart": {"start": {}},
+                },
+                {
+                    "contentBlockDelta": {"delta": {"text": "Hello!"}},
+                },
+                {"contentBlockStop": {}},
+                {
+                    "messageStop": {"stopReason": "guardrail_intervened"},
+                },
+                {
+                    "redactContent": {
+                        "redactUserContentMessage": "REDACTED",
+                        "redactAssistantContentMessage": "REDACTED.",
+                    }
+                },
+                {
+                    "metadata": {
+                        "usage": {
+                            "inputTokens": 1,
+                            "outputTokens": 1,
+                            "totalTokens": 1,
+                        },
+                        "metrics": {"latencyMs": 1},
+                    }
+                },
+            ],
+            [
+                {"event": {"messageStart": {"role": "assistant"}}},
+                {"event": {"contentBlockStart": {"start": {}}}},
+                {"event": {"contentBlockDelta": {"delta": {"text": "Hello!"}}}},
+                {"data": "Hello!", "delta": {"text": "Hello!"}},
+                {"event": {"contentBlockStop": {}}},
+                {"event": {"messageStop": {"stopReason": "guardrail_intervened"}}},
+                {
+                    "event": {
+                        "redactContent": {
+                            "redactUserContentMessage": "REDACTED",
+                            "redactAssistantContentMessage": "REDACTED.",
+                        }
+                    }
+                },
+                {
+                    "event": {
+                        "metadata": {
+                            "usage": {
+                                "inputTokens": 1,
+                                "outputTokens": 1,
+                                "totalTokens": 1,
+                            },
+                            "metrics": {"latencyMs": 1},
+                        }
+                    }
+                },
+                {
+                    "stop": (
+                        "guardrail_intervened",
+                        {"role": "assistant", "content": [{"text": "REDACTED."}]},
+                        {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        {"latencyMs": 1},
+                    )
+                },
+            ],
+        ),
+        (
             [
                 {"messageStart": {"role": "assistant"}},
                 {
@@ -554,23 +596,59 @@ async def test_process_stream(response, exp_events, agenerator, alist):
                 },
                 {
                     "metadata": {
-                        "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        "usage": {
+                            "inputTokens": 1,
+                            "outputTokens": 1,
+                            "totalTokens": 1,
+                        },
                         "metrics": {"latencyMs": 1},
                     }
                 },
             ],
-            marks=pytest.mark.skip(reason="Implementation has undefined callback_handler"),
+            [
+                {"event": {"messageStart": {"role": "assistant"}}},
+                {"event": {"contentBlockStart": {"start": {}}}},
+                {"event": {"contentBlockDelta": {"delta": {"reasoningContent": {"redactedContent": b"encoded_data"}}}}},
+                {
+                    "reasoningRedactedContent": b"encoded_data",
+                    "delta": {"reasoningContent": {"redactedContent": b"encoded_data"}},
+                    "reasoning": True,
+                },
+                {"event": {"contentBlockStop": {}}},
+                {"event": {"messageStop": {"stopReason": "end_turn"}}},
+                {
+                    "event": {
+                        "metadata": {
+                            "usage": {
+                                "inputTokens": 1,
+                                "outputTokens": 1,
+                                "totalTokens": 1,
+                            },
+                            "metrics": {"latencyMs": 1},
+                        }
+                    }
+                },
+                {
+                    "stop": (
+                        "end_turn",
+                        {
+                            "role": "assistant",
+                            "content": [{"reasoningContent": {"redactedContent": b"encoded_data"}}],
+                        },
+                        {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        {"latencyMs": 1},
+                    )
+                },
+            ],
         ),
     ],
 )
 @pytest.mark.asyncio
-async def test_process_stream_redacted(response, agenerator, alist):
+async def test_process_stream_redacted(response, exp_events, agenerator, alist):
     stream = strands.event_loop.streaming.process_stream(agenerator(response))
 
     tru_events = await alist(stream)
-
-    # Verify the structure matches expected redacted content behavior
-    assert len(tru_events) > 0
+    assert tru_events == exp_events
 
     # Ensure that we're getting typed events coming out of process_stream
     non_typed_events = [event for event in tru_events if not isinstance(event, TypedEvent)]
