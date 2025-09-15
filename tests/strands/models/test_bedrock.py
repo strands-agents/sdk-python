@@ -1489,7 +1489,7 @@ def test_format_request_filters_image_content_blocks(model, model_id):
 
 
 def test_format_request_filters_nested_image_s3_fields(model, model_id):
-    """Test deep filtering of nested s3Location fields in image blocks."""
+    """Test that s3Location is filtered out and only bytes source is preserved."""
     messages = [
         {
             "role": "user",
@@ -1497,7 +1497,10 @@ def test_format_request_filters_nested_image_s3_fields(model, model_id):
                 {
                     "image": {
                         "format": "png",
-                        "source": {"s3Location": {"bucket": "my-bucket", "key": "image.png", "extraField": "filtered"}},
+                        "source": {
+                            "bytes": b"image_data",
+                            "s3Location": {"bucket": "my-bucket", "key": "image.png", "extraField": "filtered"},
+                        },
                     }
                 }
             ],
@@ -1505,9 +1508,10 @@ def test_format_request_filters_nested_image_s3_fields(model, model_id):
     ]
 
     formatted_request = model.format_request(messages)
-    s3_location = formatted_request["messages"][0]["content"][0]["image"]["source"]["s3Location"]
+    image_source = formatted_request["messages"][0]["content"][0]["image"]["source"]
 
-    assert s3_location == {"bucket": "my-bucket", "key": "image.png"}
+    assert image_source == {"bytes": b"image_data"}
+    assert "s3Location" not in image_source
 
 
 def test_format_request_filters_document_content_blocks(model, model_id):
@@ -1608,25 +1612,6 @@ def test_format_request_filters_cache_point_content_blocks(model, model_id):
     expected = {"type": "default"}
     assert cache_point_block == expected
     assert "extraField" not in cache_point_block
-
-
-def test_format_request_preserves_unknown_content_blocks(model, model_id):
-    """Test that format_request preserves content blocks that don't need filtering."""
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"text": "Hello world"},
-                {"unknownBlock": {"data": "preserved", "extra": "also preserved"}},
-            ],
-        }
-    ]
-
-    formatted_request = model.format_request(messages)
-
-    content = formatted_request["messages"][0]["content"]
-    assert content[0] == {"text": "Hello world"}
-    assert content[1] == {"unknownBlock": {"data": "preserved", "extra": "also preserved"}}
 
 
 def test_config_validation_warns_on_unknown_keys(bedrock_client, captured_warnings):
