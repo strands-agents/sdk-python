@@ -204,6 +204,9 @@ class LiteLLMModel(OpenAIModel):
         Yields:
             Model events with the last being the structured output.
         """
+        if not supports_response_schema(self.get_config()["model_id"]):
+            raise ValueError("Model does not support response_format")
+
         response = await litellm.acompletion(
             **self.client_args,
             model=self.get_config()["model_id"],
@@ -211,11 +214,9 @@ class LiteLLMModel(OpenAIModel):
             response_format=output_model,
         )
 
-        if not supports_response_schema(self.get_config()["model_id"]):
-            raise ValueError("Model does not support response_format")
         if len(response.choices) > 1:
             raise ValueError("Multiple choices found in the response.")
-
+        
         # Find the first choice with tool_calls
         for choice in response.choices:
             if choice.finish_reason == "tool_calls":
