@@ -216,7 +216,7 @@ class LiteLLMModel(OpenAIModel):
 
         if len(response.choices) > 1:
             raise ValueError("Multiple choices found in the response.")
-        
+
         # Find the first choice with tool_calls
         for choice in response.choices:
             if choice.finish_reason == "tool_calls":

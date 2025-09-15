@@ -44,13 +44,13 @@ def weather():
 def yellow_color():
     class Color(pydantic.BaseModel):
         """Describes a color with its basic name.
-        
+
         Used to extract and normalize color names from text or images.
         The color name should be a simple, common color like 'red', 'blue', 'yellow', etc.
         """
 
         simple_color_name: str = pydantic.Field(
-            description="The basic color name (e.g., 'red', 'blue', 'yellow', 'green', 'orange', 'purple', 'black', 'white')"
+            description="The basic color name (e.g., 'red', 'blue', 'yellow', 'green', 'orange', 'purple')"
         )
 
         @pydantic.field_validator("simple_color_name", mode="after")
