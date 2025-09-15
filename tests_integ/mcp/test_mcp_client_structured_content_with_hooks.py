@@ -56,10 +56,12 @@ def test_mcp_client_hooks_structured_content():
         assert result["status"] == "success"
         assert len(result["content"]) == 1
 
+        print("here?\n")
+        print(result)
         # Verify structured content is present and correct
         assert "structuredContent" in result
-        assert result["structuredContent"]["result"] == {"echoed": test_data}
+        assert result["structuredContent"] == {"echoed": test_data, 'message_length': 15}
 
         # Verify text content matches structured content
         text_content = json.loads(result["content"][0]["text"])
-        assert text_content == {"echoed": test_data}
+        assert text_content == {"echoed": test_data, 'message_length': 15}

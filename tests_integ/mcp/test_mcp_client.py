@@ -150,14 +150,14 @@ def test_mcp_client():
 
         # With the new MCPToolResult, structured content is in its own field
         assert "structuredContent" in result
-        assert result["structuredContent"]["result"] == {"echoed": "STRUCTURED_DATA_TEST"}
+        assert result["structuredContent"] == {"echoed": "STRUCTURED_DATA_TEST", 'message_length': 20}
 
         # Verify the result is an MCPToolResult (at runtime it's just a dict, but type-wise it should be MCPToolResult)
         assert result["status"] == "success"
         assert result["toolUseId"] == tool_use_id
 
         assert len(result["content"]) == 1
-        assert json.loads(result["content"][0]["text"]) == {"echoed": "STRUCTURED_DATA_TEST"}
+        assert json.loads(result["content"][0]["text"]) == {"echoed": "STRUCTURED_DATA_TEST", 'message_length': 20}
 
 
 def test_can_reuse_mcp_client():
@@ -200,14 +200,14 @@ async def test_mcp_client_async_structured_content():
         assert "structuredContent" in result
         # "result" nesting is not part of the MCP Structured Content specification,
         # but rather a FastMCP implementation detail
-        assert result["structuredContent"]["result"] == {"echoed": "ASYNC_STRUCTURED_TEST"}
+        assert result["structuredContent"] == {"echoed": "ASYNC_STRUCTURED_TEST", 'message_length': 21}
 
         # Verify basic MCPToolResult structure
         assert result["status"] in ["success", "error"]
         assert result["toolUseId"] == tool_use_id
 
         assert len(result["content"]) == 1
-        assert json.loads(result["content"][0]["text"]) == {"echoed": "ASYNC_STRUCTURED_TEST"}
+        assert json.loads(result["content"][0]["text"]) == {"echoed": "ASYNC_STRUCTURED_TEST", 'message_length': 21}
 
 
 def test_mcp_client_without_structured_content():
