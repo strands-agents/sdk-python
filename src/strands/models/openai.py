@@ -378,6 +378,9 @@ class OpenAIModel(Model):
 
         logger.debug("invoking model")
 
+        # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying httpx
+        # client. The asyncio event loop does not allow connections to be shared. For more details, please refer to
+        # https://github.com/encode/httpx/discussions/2959.
         async with openai.AsyncOpenAI(**self.client_args) as client:
             response = await client.chat.completions.create(**request)
 
@@ -449,6 +452,9 @@ class OpenAIModel(Model):
         Yields:
             Model events with the last being the structured output.
         """
+        # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying httpx
+        # client. The asyncio event loop does not allow connections to be shared. For more details, please refer to
+        # https://github.com/encode/httpx/discussions/2959.
         async with openai.AsyncOpenAI(**self.client_args) as client:
             response: ParsedChatCompletion = await client.beta.chat.completions.parse(
                 model=self.get_config()["model_id"],
