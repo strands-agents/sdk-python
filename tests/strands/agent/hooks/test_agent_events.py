@@ -388,6 +388,84 @@ async def test_stream_e2e_throttle_and_redact(alist, mock_sleep):
 
 
 @pytest.mark.asyncio
+async def test_stream_e2e_reasoning_redacted_content(alist):
+    mock_provider = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {"reasoningContent": {"redactedContent": b"test_redacted_data"}},
+                    {"text": "Response with redacted reasoning"},
+                ],
+            },
+        ]
+    )
+
+    mock_callback = unittest.mock.Mock()
+    agent = Agent(model=mock_provider, callback_handler=mock_callback)
+
+    stream = agent.stream_async("Test redacted content")
+
+    tru_events = await alist(stream)
+    exp_events = [
+        {"init_event_loop": True},
+        {"start": True},
+        {"start_event_loop": True},
+        {"event": {"messageStart": {"role": "assistant"}}},
+        {"event": {"contentBlockStart": {"start": {}}}},
+        {"event": {"contentBlockDelta": {"delta": {"reasoningContent": {"redactedContent": b"test_redacted_data"}}}}},
+        {
+            **any_props,
+            "reasoningRedactedContent": b"test_redacted_data",
+            "delta": {"reasoningContent": {"redactedContent": b"test_redacted_data"}},
+            "reasoning": True,
+        },
+        {"event": {"contentBlockStop": {}}},
+        {"event": {"contentBlockStart": {"start": {}}}},
+        {"event": {"contentBlockDelta": {"delta": {"text": "Response with redacted reasoning"}}}},
+        {
+            **any_props,
+            "data": "Response with redacted reasoning",
+            "delta": {"text": "Response with redacted reasoning"},
+        },
+        {"event": {"contentBlockStop": {}}},
+        {"event": {"messageStop": {"stopReason": "end_turn"}}},
+        {
+            "message": {
+                "content": [
+                    {"reasoningContent": {"redactedContent": b"test_redacted_data"}},
+                    {"text": "Response with redacted reasoning"},
+                ],
+                "role": "assistant",
+            }
+        },
+        {
+            "result": AgentResult(
+                stop_reason="end_turn",
+                message={
+                    "content": [
+                        {"reasoningContent": {"redactedContent": b"test_redacted_data"}},
+                        {"text": "Response with redacted reasoning"},
+                    ],
+                    "role": "assistant",
+                },
+                metrics=ANY,
+                state={},
+            )
+        },
+    ]
+    assert tru_events == exp_events
+
+    exp_calls = [call(**event) for event in exp_events]
+    act_calls = mock_callback.call_args_list
+    assert act_calls == exp_calls
+
+    # Ensure that all events coming out of the agent are *not* typed events
+    typed_events = [event for event in tru_events if isinstance(event, TypedEvent)]
+    assert typed_events == []
+
+
+@pytest.mark.asyncio
 async def test_event_loop_cycle_text_response_throttling_early_end(
     agenerator,
     alist,
