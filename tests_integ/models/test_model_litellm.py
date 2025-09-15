@@ -34,8 +34,8 @@ def weather():
     class Weather(pydantic.BaseModel):
         """Extracts the time and weather from the user's message with the exact strings."""
 
-        time: str
-        weather: str
+        time: str = pydantic.Field(description="The time in HH:MM format (e.g., '12:00', '09:30')")
+        weather: str = pydantic.Field(description="The weather condition (e.g., 'sunny', 'rainy', 'cloudy')")
 
     return Weather(time="12:00", weather="sunny")
 
