@@ -417,6 +417,72 @@ def test_format_request_with_empty_content(model, model_id, max_tokens):
     assert tru_request == exp_request
 
 
+def test_format_request_tool_choice_auto(model, messages, model_id, max_tokens):
+    tool_specs = [{"description": "test tool", "name": "test_tool", "inputSchema": {"json": {"key": "value"}}}]
+    tool_choice = {"auto": {}}
+
+    tru_request = model.format_request(messages, tool_specs, tool_choice=tool_choice)
+    exp_request = {
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}],
+        "model": model_id,
+        "tools": [
+            {
+                "name": "test_tool",
+                "description": "test tool",
+                "input_schema": {"key": "value"},
+            }
+        ],
+        "tool_choice": {"type": "auto"},
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_tool_choice_any(model, messages, model_id, max_tokens):
+    tool_specs = [{"description": "test tool", "name": "test_tool", "inputSchema": {"json": {"key": "value"}}}]
+    tool_choice = {"any": {}}
+
+    tru_request = model.format_request(messages, tool_specs, tool_choice=tool_choice)
+    exp_request = {
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}],
+        "model": model_id,
+        "tools": [
+            {
+                "name": "test_tool",
+                "description": "test tool",
+                "input_schema": {"key": "value"},
+            }
+        ],
+        "tool_choice": {"type": "any"},
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_tool_choice_tool(model, messages, model_id, max_tokens):
+    tool_specs = [{"description": "test tool", "name": "test_tool", "inputSchema": {"json": {"key": "value"}}}]
+    tool_choice = {"tool": {"name": "test_tool"}}
+
+    tru_request = model.format_request(messages, tool_specs, tool_choice=tool_choice)
+    exp_request = {
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": [{"type": "text", "text": "test"}]}],
+        "model": model_id,
+        "tools": [
+            {
+                "name": "test_tool",
+                "description": "test tool",
+                "input_schema": {"key": "value"},
+            }
+        ],
+        "tool_choice": {"name": "test_tool", "type": "tool"},
+    }
+
+    assert tru_request == exp_request
+
+
 def test_format_chunk_message_start(model):
     event = {"type": "message_start"}
 
@@ -785,3 +851,18 @@ def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings
     assert len(captured_warnings) == 1
     assert "Invalid configuration parameters" in str(captured_warnings[0].message)
     assert "wrong_param" in str(captured_warnings[0].message)
+
+
+def test_tool_choice_supported_no_warning(model, messages, captured_warnings):
+    """Test that toolChoice doesn't emit warning for supported providers."""
+    tool_choice = {"auto": {}}
+    model.format_request(messages, tool_choice=tool_choice)
+
+    assert len(captured_warnings) == 0
+
+
+def test_tool_choice_none_no_warning(model, messages, captured_warnings):
+    """Test that None toolChoice doesn't emit warning."""
+    model.format_request(messages, tool_choice=None)
+
+    assert len(captured_warnings) == 0

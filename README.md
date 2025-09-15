@@ -129,6 +129,7 @@ from strands import Agent
 from strands.models import BedrockModel
 from strands.models.ollama import OllamaModel
 from strands.models.llamaapi import LlamaAPIModel
+from strands.models.llamacpp import LlamaCppModel
 
 # Bedrock
 bedrock_model = BedrockModel(
@@ -159,6 +160,7 @@ Built-in providers:
  - [Amazon Bedrock](https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/)
  - [Anthropic](https://strandsagents.com/latest/user-guide/concepts/model-providers/anthropic/)
  - [LiteLLM](https://strandsagents.com/latest/user-guide/concepts/model-providers/litellm/)
+ - [llama.cpp](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamacpp/)
  - [LlamaAPI](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamaapi/)
  - [Ollama](https://strandsagents.com/latest/user-guide/concepts/model-providers/ollama/)
  - [OpenAI](https://strandsagents.com/latest/user-guide/concepts/model-providers/openai/)

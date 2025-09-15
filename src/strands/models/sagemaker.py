@@ -14,8 +14,8 @@ from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
 from ..types.streaming import StreamEvent
-from ..types.tools import ToolResult, ToolSpec
-from ._config_validation import validate_config_keys
+from ..types.tools import ToolChoice, ToolResult, ToolSpec
+from ._validation import validate_config_keys, warn_on_tool_choice_not_supported
 from .openai import OpenAIModel
 
 T = TypeVar("T", bound=BaseModel)
@@ -197,7 +197,11 @@ class SageMakerAIModel(OpenAIModel):
 
     @override
     def format_request(
-        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+        self,
+        messages: Messages,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        system_prompt: Optional[str] = None,
+        tool_choice: ToolChoice | None = None,
     ) -> dict[str, Any]:
         """Format an Amazon SageMaker chat streaming request.
 
@@ -205,6 +209,8 @@ class SageMakerAIModel(OpenAIModel):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation. **Note: This parameter is accepted for
+                interface consistency but is currently ignored for this model provider.**
 
         Returns:
             An Amazon SageMaker chat streaming request.
@@ -286,6 +292,7 @@ class SageMakerAIModel(OpenAIModel):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the SageMaker model.
@@ -294,16 +301,21 @@ class SageMakerAIModel(OpenAIModel):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation. **Note: This parameter is accepted for
+                interface consistency but is currently ignored for this model provider.**
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Formatted message chunks from the model.
         """
+        warn_on_tool_choice_not_supported(tool_choice)
+
         logger.debug("formatting request")
         request = self.format_request(messages, tool_specs, system_prompt)
         logger.debug("formatted request=<%s>", request)
 
         logger.debug("invoking model")
+
         try:
             if self.payload_config.get("stream", True):
                 response = self.client.invoke_endpoint_with_response_stream(**request)

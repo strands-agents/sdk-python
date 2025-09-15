@@ -12,7 +12,7 @@ jobs:
       approval-env: ${{ steps.collab-check.outputs.result }}
     steps:
       - name: Collaborator Check
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         id: collab-check
         with:
           result-encoding: string
@@ -46,7 +46,7 @@ jobs:
       contents: read
     steps:
       - name: Configure Credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v5
         with:
          role-to-assume: ${{ secrets.STRANDS_INTEG_TEST_ROLE }}
          aws-region: us-east-1
@@ -57,7 +57,7 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }} # Pull the commit from the forked repo
           persist-credentials: false  # Don't persist credentials for subsequent actions
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.10'
       - name: Install dependencies

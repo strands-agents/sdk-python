@@ -196,6 +196,7 @@ class Swarm(MultiAgentBase):
         self,
         nodes: list[Agent],
         *,
+        entry_point: Agent | None = None,
         max_handoffs: int = 20,
         max_iterations: int = 20,
         execution_timeout: float = 900.0,
@@ -207,6 +208,7 @@ class Swarm(MultiAgentBase):
 
         Args:
             nodes: List of nodes (e.g. Agent) to include in the swarm
+            entry_point: Agent to start with. If None, uses the first agent (default: None)
             max_handoffs: Maximum handoffs to agents and users (default: 20)
             max_iterations: Maximum node executions within the swarm (default: 20)
             execution_timeout: Total execution timeout in seconds (default: 900.0)
@@ -218,6 +220,7 @@ class Swarm(MultiAgentBase):
         """
         super().__init__()
 
+        self.entry_point = entry_point
         self.max_handoffs = max_handoffs
         self.max_iterations = max_iterations
         self.execution_timeout = execution_timeout
@@ -237,22 +240,50 @@ class Swarm(MultiAgentBase):
         self._setup_swarm(nodes)
         self._inject_swarm_tools()
 
-    def __call__(self, task: str | list[ContentBlock], **kwargs: Any) -> SwarmResult:
-        """Invoke the swarm synchronously."""
+    def __call__(
+        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> SwarmResult:
+        """Invoke the swarm synchronously.
+
+        Args:
+            task: The task to execute
+            invocation_state: Additional state/context passed to underlying agents.
+                Defaults to None to avoid mutable default argument issues.
+            **kwargs: Keyword arguments allowing backward compatible future changes.
+        """
+        if invocation_state is None:
+            invocation_state = {}
 
         def execute() -> SwarmResult:
-            return asyncio.run(self.invoke_async(task))
+            return asyncio.run(self.invoke_async(task, invocation_state))
 
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)
             return future.result()
 
-    async def invoke_async(self, task: str | list[ContentBlock], **kwargs: Any) -> SwarmResult:
-        """Invoke the swarm asynchronously."""
+    async def invoke_async(
+        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> SwarmResult:
+        """Invoke the swarm asynchronously.
+
+        Args:
+            task: The task to execute
+            invocation_state: Additional state/context passed to underlying agents.
+                Defaults to None to avoid mutable default argument issues - a new empty dict
+                is created if None is provided.
+            **kwargs: Keyword arguments allowing backward compatible future changes.
+        """
+        if invocation_state is None:
+            invocation_state = {}
+
         logger.debug("starting swarm execution")
 
         # Initialize swarm state with configuration
-        initial_node = next(iter(self.nodes.values()))  # First SwarmNode
+        if self.entry_point:
+            initial_node = self.nodes[str(self.entry_point.name)]
+        else:
+            initial_node = next(iter(self.nodes.values()))  # First SwarmNode
+
         self.state = SwarmState(
             current_node=initial_node,
             task=task,
@@ -272,7 +303,7 @@ class Swarm(MultiAgentBase):
                     self.execution_timeout,
                 )
 
-                await self._execute_swarm()
+                await self._execute_swarm(invocation_state)
             except Exception:
                 logger.exception("swarm execution failed")
                 self.state.completion_status = Status.FAILED
@@ -302,8 +333,27 @@ class Swarm(MultiAgentBase):
 
             self.nodes[node_id] = SwarmNode(node_id=node_id, executor=node)
 
+        # Validate entry point if specified
+        if self.entry_point is not None:
+            entry_point_node_id = str(self.entry_point.name)
+            if (
+                entry_point_node_id not in self.nodes
+                or self.nodes[entry_point_node_id].executor is not self.entry_point
+            ):
+                available_agents = [
+                    f"{node_id} ({type(node.executor).__name__})" for node_id, node in self.nodes.items()
+                ]
+                raise ValueError(f"Entry point agent not found in swarm nodes. Available agents: {available_agents}")
+
         swarm_nodes = list(self.nodes.values())
         logger.debug("nodes=<%s> | initialized swarm with nodes", [node.node_id for node in swarm_nodes])
+
+        if self.entry_point:
+            entry_point_name = getattr(self.entry_point, "name", "unnamed_agent")
+            logger.debug("entry_point=<%s> | configured entry point", entry_point_name)
+        else:
+            first_node = next(iter(self.nodes.keys()))
+            logger.debug("entry_point=<%s> | using first node as entry point", first_node)
 
     def _validate_swarm(self, nodes: list[Agent]) -> None:
         """Validate swarm structure and nodes."""
@@ -483,7 +533,7 @@ class Swarm(MultiAgentBase):
 
         return context_text
 
-    async def _execute_swarm(self) -> None:
+    async def _execute_swarm(self, invocation_state: dict[str, Any]) -> None:
         """Shared execution logic used by execute_async."""
         try:
             # Main execution loop
@@ -522,7 +572,7 @@ class Swarm(MultiAgentBase):
                 # TODO: Implement cancellation token to stop _execute_node from continuing
                 try:
                     await asyncio.wait_for(
-                        self._execute_node(current_node, self.state.task),
+                        self._execute_node(current_node, self.state.task, invocation_state),
                         timeout=self.node_timeout,
                     )
 
@@ -563,7 +613,9 @@ class Swarm(MultiAgentBase):
             f"{elapsed_time:.2f}",
         )
 
-    async def _execute_node(self, node: SwarmNode, task: str | list[ContentBlock]) -> AgentResult:
+    async def _execute_node(
+        self, node: SwarmNode, task: str | list[ContentBlock], invocation_state: dict[str, Any]
+    ) -> AgentResult:
         """Execute swarm node."""
         start_time = time.time()
         node_name = node.node_id
@@ -583,7 +635,8 @@ class Swarm(MultiAgentBase):
             # Execute node
             result = None
             node.reset_executor_state()
-            result = await node.executor.invoke_async(node_input)
+            # Unpacking since this is the agent class. Other executors should not unpack
+            result = await node.executor.invoke_async(node_input, **invocation_state)
 
             execution_time = round((time.time() - start_time) * 1000)
 

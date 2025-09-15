@@ -2,9 +2,10 @@
 requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
+
 [project]
 name = "strands-agents"
-dynamic = ["version"]
+dynamic = ["version"]  # Version determined by git tags
 description = "A model-driven approach to building AI agents in just a few lines of code"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -38,64 +39,24 @@ dependencies = [
     "opentelemetry-instrumentation-threading>=0.51b0,<1.00b0",
 ]
 
-[project.urls]
-Homepage = "https://github.com/strands-agents/sdk-python"
-"Bug Tracker" = "https://github.com/strands-agents/sdk-python/issues"
-Documentation = "https://strandsagents.com"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/strands"]
 
 [project.optional-dependencies]
-anthropic = [
-    "anthropic>=0.21.0,<1.0.0",
+anthropic = ["anthropic>=0.21.0,<1.0.0"]
+litellm = ["litellm>=1.75.9,<2.0.0", "openai>=1.68.0,<1.108.0"]
+llamaapi = ["llama-api-client>=0.1.0,<1.0.0"]
+mistral = ["mistralai>=1.8.2"]
+ollama = ["ollama>=0.4.8,<1.0.0"]
+openai = ["openai>=1.68.0,<2.0.0"]
+writer = ["writer-sdk>=2.2.0,<3.0.0"]
+sagemaker = [
+    "boto3-stubs[sagemaker-runtime]>=1.26.0,<2.0.0",
+    "openai>=1.68.0,<2.0.0",  # SageMaker uses OpenAI-compatible interface
 ]
-dev = [
-    "commitizen>=4.4.0,<5.0.0",
-    "hatch>=1.0.0,<2.0.0",
-    "moto>=5.1.0,<6.0.0",
-    "mypy>=1.15.0,<2.0.0",
-    "pre-commit>=3.2.0,<4.4.0",
-    "pytest>=8.0.0,<9.0.0",
-    "pytest-cov>=6.0.0,<7.0.0",
-    "pytest-asyncio>=1.0.0,<1.2.0",
-    "pytest-xdist>=3.0.0,<4.0.0",
-    "ruff>=0.12.0,<0.13.0",
-]
+otel = ["opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0"]
 docs = [
     "sphinx>=5.0.0,<6.0.0",
     "sphinx-rtd-theme>=1.0.0,<2.0.0",
     "sphinx-autodoc-typehints>=1.12.0,<2.0.0",
-]
-litellm = [
-    "litellm>=1.75.9,<2.0.0",
-    "openai>=1.68.0,<1.102.0",
-]
-llamaapi = [
-    "llama-api-client>=0.1.0,<1.0.0",
-]
-mistral = [
-    "mistralai>=1.8.2",
-]
-ollama = [
-    "ollama>=0.4.8,<1.0.0",
-]
-openai = [
-    "openai>=1.68.0,<2.0.0",
-]
-otel = [
-    "opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0",
-]
-writer = [
-    "writer-sdk>=2.2.0,<3.0.0"
-]
-
-sagemaker = [
-    "boto3>=1.26.0,<2.0.0",
-    "botocore>=1.29.0,<2.0.0",
-    "boto3-stubs[sagemaker-runtime]>=1.26.0,<2.0.0",
-    # uses OpenAI as part of the implementation
-    "openai>=1.68.0,<2.0.0",
 ]
 
 a2a = [
@@ -106,22 +67,46 @@ a2a = [
     "fastapi>=0.115.12,<1.0.0",
     "starlette>=0.46.2,<1.0.0",
 ]
-all = [
-    "strands-agents[a2a,anthropic,dev,docs,litellm,llamaapi,mistral,ollama,openai,otel]",
+all = ["strands-agents[a2a,anthropic,docs,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel]"]
+
+dev = [
+    "commitizen>=4.4.0,<5.0.0",
+    "hatch>=1.0.0,<2.0.0",
+    "moto>=5.1.0,<6.0.0",
+    "mypy>=1.15.0,<2.0.0",
+    "pre-commit>=3.2.0,<4.4.0",
+    "pytest>=8.0.0,<9.0.0",
+    "pytest-cov>=7.0.0,<8.0.0",
+    "pytest-asyncio>=1.0.0,<1.2.0",
+    "pytest-xdist>=3.0.0,<4.0.0",
+    "ruff>=0.13.0,<0.14.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/strands-agents/sdk-python"
+"Bug Tracker" = "https://github.com/strands-agents/sdk-python/issues"
+Documentation = "https://strandsagents.com"
+
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/strands"]
+
+
 [tool.hatch.version]
-# Tells Hatch to use your version control system (git) to determine the version.
-source = "vcs"
+source = "vcs"  # Use git tags for versioning
+
 
 [tool.hatch.envs.hatch-static-analysis]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "writer", "a2a", "sagemaker"]
+installer = "uv"
+features = ["all"]
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
-  "ruff>=0.11.6,<0.12.0",
+  "ruff>=0.13.0,<0.14.0",
+  # Include required pacakge dependencies for mypy
   "strands-agents @ {root:uri}",
 ]
 
+# Define static-analysis scripts so we can include mypy as part of the linting check
 [tool.hatch.envs.hatch-static-analysis.scripts]
 format-check = [
     "ruff format --check"
@@ -137,65 +122,54 @@ lint-fix = [
     "ruff check --fix"
 ]
 
+
 [tool.hatch.envs.hatch-test]
-features = ["anthropic", "litellm", "llamaapi", "ollama", "openai", "otel", "mistral", "writer", "a2a", "sagemaker"]
-extra-dependencies = [
-    "moto>=5.1.0,<6.0.0",
+installer = "uv"
+features = ["all"]
+extra-args = ["-n", "auto", "-vv"]
+dependencies = [
     "pytest>=8.0.0,<9.0.0",
-    "pytest-cov>=6.0.0,<7.0.0",
+    "pytest-cov>=7.0.0,<8.0.0",
     "pytest-asyncio>=1.0.0,<1.2.0",
     "pytest-xdist>=3.0.0,<4.0.0",
+    "moto>=5.1.0,<6.0.0",
 ]
-extra-args = [
-    "-n",
-    "auto",
-    "-vv",
-]
-
-[tool.hatch.envs.dev]
-dev-mode = true
-features = ["dev", "docs", "anthropic", "litellm", "llamaapi", "ollama", "otel", "mistral", "writer", "a2a", "sagemaker"]
 
 [[tool.hatch.envs.hatch-test.matrix]]
 python = ["3.13", "3.12", "3.11", "3.10"]
 
 [tool.hatch.envs.hatch-test.scripts]
-run = [
-    "pytest{env:HATCH_TEST_ARGS:} {args}"
-]
-run-cov = [
-    "pytest{env:HATCH_TEST_ARGS:} --cov --cov-config=pyproject.toml {args}"
-]
-
+run = "pytest{env:HATCH_TEST_ARGS:} {args}" # Run with: hatch test
+run-cov = "pytest{env:HATCH_TEST_ARGS:} {args} --cov --cov-config=pyproject.toml --cov-report html --cov-report xml {args}" # Run with: hatch test -c
 cov-combine = []
 cov-report = []
 
 
+[tool.hatch.envs.default]
+installer = "uv"
+dev-mode = true
+features = ["all"]
+dependencies = [
+    "commitizen>=4.4.0,<5.0.0",
+    "hatch>=1.0.0,<2.0.0",
+    "pre-commit>=3.2.0,<4.4.0",
+]
+
+
 [tool.hatch.envs.default.scripts]
-list = [
-    "echo 'Scripts commands available for default env:'; hatch env show --json | jq --raw-output '.default.scripts | keys[]'"
-]
-format = [
-  "hatch fmt --formatter",
-]
-test-format = [
-    "hatch fmt --formatter --check",
-]
-lint = [
-    "hatch fmt --linter"
-]
-test-lint = [
-    "hatch fmt --linter --check"
-]
-test = [
-    "hatch test --cover --cov-report html --cov-report xml {args}"
-]
-test-integ = [
-    "hatch test tests_integ {args}"
-]
+list = "echo 'Scripts commands available for default env:'; hatch env show --json | jq --raw-output '.default.scripts | keys[]'"
+
+format = "hatch fmt --formatter"
+test-format = "hatch fmt --formatter --check"
+
+lint = "hatch fmt --linter"
+test-lint = "hatch fmt --linter --check"
+
+test = "hatch test {args}"
+test-integ = "hatch test tests_integ {args}"
+
 prepare = [
-    "hatch fmt --formatter",
-    "hatch fmt --linter",
+    "hatch run test-format",
     "hatch run test-lint",
     "hatch test --all"
 ]
@@ -216,9 +190,6 @@ warn_unreachable = true
 follow_untyped_imports = true
 ignore_missing_imports = false
 
-[[tool.mypy.overrides]]
-module = "litellm"
-ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 120
@@ -226,12 +197,12 @@ include = ["examples/**/*.py", "src/**/*.py", "tests/**/*.py", "tests_integ/**/*
 
 [tool.ruff.lint]
 select = [
-  "B", # flake8-bugbear
-  "D", # pydocstyle
-  "E", # pycodestyle
-  "F", # pyflakes
-  "G", # logging format
-  "I", # isort
+  "B",   # flake8-bugbear
+  "D",   # pydocstyle
+  "E",   # pycodestyle
+  "F",   # pyflakes
+  "G",   # logging format
+  "I",   # isort
   "LOG", # logging
 ]
 
@@ -241,11 +212,11 @@ select = [
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
+
 [tool.pytest.ini_options]
-testpaths = [
-    "tests"
-]
+testpaths = ["tests"]
 asyncio_default_fixture_loop_scope = "function"
+
 
 [tool.coverage.run]
 branch = true
@@ -263,13 +234,12 @@ directory = "build/coverage/html"
 [tool.coverage.xml]
 output = "build/coverage/coverage.xml"
 
+
 [tool.commitizen]
 name = "cz_conventional_commits"
 tag_format = "v$version"
 bump_message = "chore(release): bump version $current_version -> $new_version"
-version_files = [
-    "pyproject.toml:version",
-]
+version_files = ["pyproject.toml:version"]
 update_changelog_on_bump = true
 style = [
     ["qmark", "fg:#ff9d00 bold"],
