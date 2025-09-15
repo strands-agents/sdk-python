@@ -24,7 +24,7 @@ from ..types.exceptions import (
     ModelThrottledException,
 )
 from ..types.streaming import CitationsDelta, StreamEvent
-from ..types.tools import ToolChoice, ToolResult, ToolSpec
+from ..types.tools import ToolChoice, ToolSpec
 from ._validation import validate_config_keys
 from .model import Model
 
