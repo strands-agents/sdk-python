@@ -48,6 +48,7 @@ def test_tool_spec_with_description(mcp_agent_tool, mock_mcp_tool):
     assert tool_spec["name"] == "test_tool"
     assert tool_spec["description"] == "A test tool"
     assert tool_spec["inputSchema"]["json"] == {"type": "object", "properties": {}}
+    assert "outputSchema" not in tool_spec
 
 
 def test_tool_spec_without_description(mock_mcp_tool, mock_mcp_client):
@@ -67,6 +68,15 @@ def test_tool_spec_with_output_schema(mock_mcp_tool, mock_mcp_client):
 
     assert "outputSchema" in tool_spec
     assert tool_spec["outputSchema"]["json"] == {"type": "object", "properties": {"result": {"type": "string"}}}
+
+
+def test_tool_spec_without_output_schema(mock_mcp_tool, mock_mcp_client):
+    mock_mcp_tool.outputSchema = None
+
+    agent_tool = MCPAgentTool(mock_mcp_tool, mock_mcp_client)
+    tool_spec = agent_tool.tool_spec
+
+    assert "outputSchema" not in tool_spec
 
 
 @pytest.mark.asyncio

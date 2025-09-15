@@ -37,7 +37,7 @@ def test_mcp_client_hooks_structured_content():
 
     # Set up MCP client for echo server
     stdio_mcp_client = MCPClient(
-        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/echo_server.py"]))
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
     )
 
     with stdio_mcp_client:

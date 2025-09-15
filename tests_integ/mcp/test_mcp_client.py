@@ -76,7 +76,7 @@ def test_mcp_client():
 
     sse_mcp_client = MCPClient(lambda: sse_client("http://127.0.0.1:8000/sse"))
     stdio_mcp_client = MCPClient(
-        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/echo_server.py"]))
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
     )
 
     with sse_mcp_client, stdio_mcp_client:
@@ -162,7 +162,7 @@ def test_mcp_client():
 
 def test_can_reuse_mcp_client():
     stdio_mcp_client = MCPClient(
-        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/echo_server.py"]))
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
     )
     with stdio_mcp_client:
         stdio_mcp_client.list_tools_sync()
@@ -185,7 +185,7 @@ async def test_mcp_client_async_structured_content():
     that appears in structuredContent field.
     """
     stdio_mcp_client = MCPClient(
-        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/echo_server.py"]))
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
     )
 
     with stdio_mcp_client:
@@ -213,7 +213,7 @@ async def test_mcp_client_async_structured_content():
 def test_mcp_client_without_structured_content():
     """Test that MCP client works correctly when tools don't return structured content."""
     stdio_mcp_client = MCPClient(
-        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/echo_server.py"]))
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
     )
 
     with stdio_mcp_client:
