@@ -143,6 +143,18 @@ class MCPClient:
         This method is defensive and can handle partial initialization states that may occur
         if start() fails partway through initialization.
 
+        Resources to cleanup:
+        - _background_thread: Thread running the async event loop
+        - _background_thread_session: MCP ClientSession (auto-closed by context manager)
+        - _background_thread_event_loop: AsyncIO event loop in background thread
+        - _close_event: AsyncIO event to signal thread shutdown
+        - _init_future: Future for initialization synchronization
+        
+        Cleanup order:
+        1. Signal close event to background thread (if session initialized)
+        2. Wait for background thread to complete
+        3. Reset all state for reuse
+
         Args:
             exc_type: Exception type if an exception was raised in the context
             exc_val: Exception value if an exception was raised in the context
@@ -158,7 +170,9 @@ class MCPClient:
                 async def _set_close_event() -> None:
                     self._close_event.set()
 
-                self._invoke_on_background_thread(_set_close_event()).result()
+                # Not calling _invoke_on_background_thread since the session does not need to exist
+                # we only need the thread and event loop to exist.
+                asyncio.run_coroutine_threadsafe(coro=_set_close_event(), loop=self._background_thread_event_loop)
 
             self._log_debug_with_thread("waiting for background thread to join")
             self._background_thread.join()
@@ -168,6 +182,8 @@ class MCPClient:
         self._init_future = futures.Future()
         self._close_event = asyncio.Event()
         self._background_thread = None
+        self._background_thread_session = None
+        self._background_thread_event_loop = None
         self._session_id = uuid.uuid4()
 
     def list_tools_sync(self, pagination_token: Optional[str] = None) -> PaginatedList[MCPAgentTool]:

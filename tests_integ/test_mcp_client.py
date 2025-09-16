@@ -297,3 +297,4 @@ def test_mcp_client_timeout_integration():
     with client:
         tools = client.list_tools_sync()
         assert len(tools) >= 0  # Should work now
+

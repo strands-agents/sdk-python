@@ -521,3 +521,22 @@ def test_stop_with_background_thread_but_no_event_loop():
 
     # Verify cleanup occurred
     assert client._background_thread is None
+
+    
+def test_mcp_client_state_reset_after_timeout():
+    """Test that all client state is properly reset after timeout."""
+    def slow_transport():
+        time.sleep(4)  # Longer than timeout
+        return MagicMock()
+
+    client = MCPClient(slow_transport, startup_timeout=2)
+    
+    # First attempt should timeout
+    with pytest.raises(MCPClientInitializationError, match="background thread did not start in 2 seconds"):
+        client.start()
+
+    # Verify all state is reset
+    assert client._background_thread is None
+    assert client._background_thread_session is None
+    assert client._background_thread_event_loop is None
+    assert not client._init_future.done()  # New future created
