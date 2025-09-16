@@ -2,7 +2,7 @@
 
 This module provides session management functionality.
 """
-
+from .dynamodb_session_manager import DynamoDBSessionManager
 from .file_session_manager import FileSessionManager
 from .repository_session_manager import RepositorySessionManager
 from .s3_session_manager import S3SessionManager
@@ -13,6 +13,7 @@ __all__ = [
     "FileSessionManager",
     "RepositorySessionManager",
     "S3SessionManager",
+    "DynamoDBSessionManager",
     "SessionManager",
     "SessionRepository",
 ]
