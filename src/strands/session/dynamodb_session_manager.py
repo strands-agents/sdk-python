@@ -1,6 +1,7 @@
 """DynamoDB-based session manager for cloud storage."""
 
 import logging
+from decimal import Decimal
 from typing import Any, List, Optional
 
 import boto3
@@ -15,6 +16,23 @@ from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
 
 logger = logging.getLogger(__name__)
+
+
+def _convert_decimals_to_native_types(obj: Any) -> Any:
+    """Convert Decimal objects to native Python types recursively.
+
+    DynamoDB's TypeDeserializer returns Decimal objects for numeric values,
+    but other AWS services expect native Python int/float types.
+    """
+    if isinstance(obj, Decimal):
+        # Convert to int if it's a whole number, otherwise float
+        return int(obj) if obj % 1 == 0 else float(obj)
+    elif isinstance(obj, dict):
+        return {key: _convert_decimals_to_native_types(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [_convert_decimals_to_native_types(item) for item in obj]
+    else:
+        return obj
 
 
 class DynamoDBSessionManager(RepositorySessionManager, SessionRepository):
@@ -148,6 +166,7 @@ class DynamoDBSessionManager(RepositorySessionManager, SessionRepository):
                 return None
 
             data = self.deserializer.deserialize(response["Item"]["data"])
+            data = _convert_decimals_to_native_types(data)
             return Session.from_dict(data)
         except ClientError as e:
             raise SessionException(f"DynamoDB error reading session: {e}") from e
@@ -205,6 +224,7 @@ class DynamoDBSessionManager(RepositorySessionManager, SessionRepository):
                 return None
 
             data = self.deserializer.deserialize(response["Item"]["data"])
+            data = _convert_decimals_to_native_types(data)
             return SessionAgent.from_dict(data)
         except ClientError as e:
             raise SessionException(f"DynamoDB error reading agent: {e}") from e
@@ -263,6 +283,7 @@ class DynamoDBSessionManager(RepositorySessionManager, SessionRepository):
                 return None
 
             data = self.deserializer.deserialize(response["Item"]["data"])
+            data = _convert_decimals_to_native_types(data)
             return SessionMessage.from_dict(data)
         except ClientError as e:
             raise SessionException(f"DynamoDB error reading message: {e}") from e
@@ -322,6 +343,7 @@ class DynamoDBSessionManager(RepositorySessionManager, SessionRepository):
             messages = []
             for item in items:
                 data = self.deserializer.deserialize(item["data"])
+                data = _convert_decimals_to_native_types(data)
                 messages.append(SessionMessage.from_dict(data))
 
             return messages

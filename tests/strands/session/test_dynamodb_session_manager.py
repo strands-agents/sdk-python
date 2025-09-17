@@ -1,6 +1,7 @@
 """Tests for DynamoDBSessionManager."""
 
 import time
+from decimal import Decimal
 
 import boto3
 import pytest
@@ -8,7 +9,8 @@ from botocore.config import Config as BotocoreConfig
 from moto import mock_aws
 
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
-from strands.session.dynamodb_session_manager import DynamoDBSessionManager
+from strands.session.dynamodb_session_manager import DynamoDBSessionManager, \
+    _convert_decimals_to_native_types
 from strands.types.content import ContentBlock
 from strands.types.exceptions import SessionException
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
@@ -202,6 +204,7 @@ def test_read_agent(dynamodb_manager, sample_session, sample_agent):
 
     assert result.agent_id == sample_agent.agent_id
     assert result.state == sample_agent.state
+    assert isinstance(result.conversation_manager_state.get("removed_message_count"), int)
 
 
 def test_read_nonexistent_agent(dynamodb_manager, sample_session):
@@ -265,7 +268,7 @@ def test_read_message(dynamodb_manager, sample_session, sample_agent, sample_mes
     dynamodb_manager.create_message(sample_session.session_id, sample_agent.agent_id, sample_message)
 
     result = dynamodb_manager.read_message(sample_session.session_id, sample_agent.agent_id, sample_message.message_id)
-
+    assert isinstance(result.message_id, int)
     assert result.message_id == sample_message.message_id
     assert result.message["role"] == sample_message.message["role"]
     assert result.message["content"] == sample_message.message["content"]
@@ -306,6 +309,8 @@ def test_list_messages_all(dynamodb_manager, sample_session, sample_agent):
     result = dynamodb_manager.list_messages(sample_session.session_id, sample_agent.agent_id)
 
     assert len(result) == 5
+    for msg in result:
+        assert isinstance(msg.message_id, int)
 
 
 def test_list_messages_with_pagination(dynamodb_manager, sample_session, sample_agent):
@@ -398,3 +403,51 @@ def test__get_message_sk_invalid_message_id(message_id, dynamodb_manager):
     """Test that message_id that is not an integer raises ValueError."""
     with pytest.raises(ValueError, match=r"message_id=<.*> \| message id must be an integer"):
         dynamodb_manager._get_message_sk("agent1", message_id)
+
+
+def test_convert_decimals_to_native_types():
+    """Test the Decimal conversion utility function."""
+    # Test simple Decimal conversion
+    assert _convert_decimals_to_native_types(Decimal('10')) == 10
+    assert _convert_decimals_to_native_types(Decimal('10.5')) == 10.5
+    assert _convert_decimals_to_native_types(Decimal('0')) == 0
+
+    # Test nested dictionary conversion
+    data = {
+        'limit': Decimal('10'),
+        'max_length': Decimal('8000'),
+        'temperature': Decimal('0.5'),
+        'name': 'test',
+        'enabled': True,
+        'nested': {
+            'count': Decimal('42'),
+            'ratio': Decimal('3.14')
+        }
+    }
+
+    result = _convert_decimals_to_native_types(data)
+
+    assert result['limit'] == 10
+    assert isinstance(result['limit'], int)
+    assert result['max_length'] == 8000
+    assert isinstance(result['max_length'], int)
+    assert result['temperature'] == 0.5
+    assert isinstance(result['temperature'], float)
+    assert result['name'] == 'test'
+    assert result['enabled'] is True
+    assert result['nested']['count'] == 42
+    assert isinstance(result['nested']['count'], int)
+    assert result['nested']['ratio'] == 3.14
+    assert isinstance(result['nested']['ratio'], float)
+
+    # Test list conversion
+    list_data = [Decimal('1'), Decimal('2.5'), 'string', {'nested': Decimal('100')}]
+    result = _convert_decimals_to_native_types(list_data)
+
+    assert result[0] == 1
+    assert isinstance(result[0], int)
+    assert result[1] == 2.5
+    assert isinstance(result[1], float)
+    assert result[2] == 'string'
+    assert result[3]['nested'] == 100
+    assert isinstance(result[3]['nested'], int)
