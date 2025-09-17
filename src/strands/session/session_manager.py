@@ -1,11 +1,13 @@
 """Session manager interface for agent session management."""
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from ..hooks.events import AfterInvocationEvent, AgentInitializedEvent, MessageAddedEvent
 from ..hooks.registry import HookProvider, HookRegistry
 from ..types.content import Message
+from ..multiagent import Graph
+from ..experimental.multiagent_session import MultiAgentState
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
@@ -70,4 +72,52 @@ class SessionManager(HookProvider, ABC):
         Args:
             agent: Agent to initialize
             **kwargs: Additional keyword arguments for future extensibility.
+        """
+    @abstractmethod
+    def write_multi_agent_state(self, session_id, state: MultiAgentState) -> None:
+        """
+        Write the multi-agent state to the session storage.
+        :param session_id:
+        :param state:
+        :param kwargs:
+        """
+
+    @abstractmethod
+    def read_multi_agent_state(self) -> MultiAgentState:
+        """
+        Read the multi-agent state from the session storage.
+        :param session_id:
+        :param kwargs:
+        :return: MultiAgentState
+        """
+
+    @abstractmethod
+    def write_multi_agent_metadata(self, grap: Graph, graph_hash: str):
+        """
+        Write the multi-agent metadata to the session storage.
+        :param grap:
+        :param graph_hash:
+        :param kwargs:
+        """
+
+    @abstractmethod
+    def read_multi_agent_metadata(self) -> Graph:
+        """
+        Read the multi-agent metadata from the session storage.
+        """
+
+    @abstractmethod
+    def write_multi_agent_graph(self, graph: Graph, graph_hash: str) -> None:
+        """
+        Write the multi-agent graph to the session storage.
+        :param graph:
+        :param graph_hash:
+        :param kwargs:
+        """
+
+    @abstractmethod
+    def read_multi_agent_graph(self) -> Optional[dict]:
+        """
+        Read the multi-agent graph from the session storage.
+        :return: a
         """

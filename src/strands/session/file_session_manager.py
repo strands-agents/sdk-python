@@ -7,12 +7,13 @@ import shutil
 import tempfile
 from typing import Any, Optional, cast
 
+from personal.test_four import Graph
 from .. import _identifier
 from ..types.exceptions import SessionException
-from ..types.session import Session, SessionAgent, SessionMessage
+from ..types.session import Session, SessionAgent, SessionMessage, SessionType
 from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
-
+from ..multiagent import MultiAgentState
 logger = logging.getLogger(__name__)
 
 SESSION_PREFIX = "session_"
@@ -37,19 +38,20 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
     ```
     """
 
-    def __init__(self, session_id: str, storage_dir: Optional[str] = None, **kwargs: Any):
+    def __init__(self, session_id: str, storage_dir: Optional[str] = None, session_type = SessionType.AGENT, **kwargs: Any):
         """Initialize FileSession with filesystem storage.
 
         Args:
             session_id: ID for the session.
                 ID is not allowed to contain path separators (e.g., a/b).
             storage_dir: Directory for local filesystem storage (defaults to temp dir).
+            session_type: single agent or multiagent.
             **kwargs: Additional keyword arguments for future extensibility.
         """
         self.storage_dir = storage_dir or os.path.join(tempfile.gettempdir(), "strands/sessions")
         os.makedirs(self.storage_dir, exist_ok=True)
 
-        super().__init__(session_id=session_id, session_repository=self)
+        super().__init__(session_id=session_id, session_repository=self, session_type= session_type)
 
     def _get_session_path(self, session_id: str) -> str:
         """Get session directory path.
@@ -239,3 +241,27 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
             messages.append(SessionMessage.from_dict(message_data))
 
         return messages
+
+    def write_multi_agent_state(self, session_id: str, state: MultiAgentState, **kwargs):
+        state_path = os.path.join(self._get_session_path(session_id), "multi_agent_state.json")
+        self._write_file(state_path, state.to_dict())
+
+    def read_multi_agent_state(self, session_id: str, **kwargs) -> Optional[MultiAgentState]:
+        state_path = os.path.join(self._get_session_path(session_id), "multi_agent_state.json")
+        if not os.path.exists(state_path):
+            return None
+        state_data = self._read_file(state_path)
+        return MultiAgentState.from_dict(state_data)
+
+    def write_multi_agent_metadata(self, grap: Graph, graph_hash: str):
+        metadata_path = os.path.join(self._get_session_path(self.session_id), "multi_agent_metadata.json")
+        os.makedirs(os.path.dirname(metadata_path), exist_ok= True)
+        with open(metadata_path, "w") as f:
+            json.dump({"graph_name":grap.graph_name,"graph_hash":graph_hash},f)
+
+    def read_multi_agent_graph(self) -> Optional[dict]:
+        metadata_path = os.path.join(self._get_session_path(self.session_id), "multi_agent_metadata.json")
+        if not os.path.exists(metadata_path):
+            return None
+        with open(metadata_path, "r") as f:
+            return json.load(f)

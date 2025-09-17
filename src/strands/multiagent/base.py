@@ -18,10 +18,12 @@ from ..types.event_loop import Metrics, Usage
 class Status(Enum):
     """Execution status for both graphs and nodes."""
 
+    INITIALIZING = "initializing"
     PENDING = "pending"
     EXECUTING = "executing"
     COMPLETED = "completed"
     FAILED = "failed"
+    INTERRUPTED = "interrupted"
 
 
 @dataclass

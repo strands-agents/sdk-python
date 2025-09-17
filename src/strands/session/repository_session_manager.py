@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class RepositorySessionManager(SessionManager):
     """Session manager for persisting agents in a SessionRepository."""
 
-    def __init__(self, session_id: str, session_repository: SessionRepository, **kwargs: Any):
+    def __init__(self, session_id: str, session_repository: SessionRepository, session_type: SessionType = SessionType.AGENT, **kwargs: Any):
         """Initialize the RepositorySessionManager.
 
         If no session with the specified session_id exists yet, it will be created
@@ -43,10 +43,11 @@ class RepositorySessionManager(SessionManager):
         # Create a session if it does not exist yet
         if session is None:
             logger.debug("session_id=<%s> | session not found, creating new session", self.session_id)
-            session = Session(session_id=session_id, session_type=SessionType.AGENT)
+            session = Session(session_id=session_id, session_type=session_type)
             session_repository.create_session(session)
 
         self.session = session
+        self.session_type = session.session_type
 
         # Keep track of the latest message of each agent in case we need to redact it.
         self._latest_agent_message: dict[str, Optional[SessionMessage]] = {}
@@ -150,3 +151,7 @@ class RepositorySessionManager(SessionManager):
 
             # Restore the agents messages array including the optional prepend messages
             agent.messages = prepend_messages + [session_message.to_message() for session_message in session_messages]
+
+        @property
+        def is_multiagent(self) -> bool:
+            return self.session_type == SessionType.MULTI_AGENT

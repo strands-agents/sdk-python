@@ -8,7 +8,7 @@ via hook provider objects.
 """
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Generator, Generic, Protocol, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Generator, Generic, Protocol, Type, TypeVar, Optional
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -22,7 +22,7 @@ class HookEvent:
         agent: The agent instance that triggered this event.
     """
 
-    agent: "Agent"
+    agent: "Optional[Agent]" = None
 
     @property
     def should_reverse_callbacks(self) -> bool:
