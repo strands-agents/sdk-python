@@ -18,6 +18,8 @@ from typing_extensions import TypedDict, cast
 
 from strands.tools.decorator import DecoratedFunctionTool
 
+from .._async import run_async
+from ..experimental.tools import ToolProvider
 from ..types.tools import AgentTool, ToolSpec
 from .loader import load_tool_from_string, load_tools_from_module
 from .tools import PythonAgentTool, normalize_schema, normalize_tool_spec
@@ -36,6 +38,7 @@ class ToolRegistry:
         self.registry: Dict[str, AgentTool] = {}
         self.dynamic_tools: Dict[str, AgentTool] = {}
         self.tool_config: Optional[Dict[str, Any]] = None
+        self.tool_providers: List[ToolProvider] = []
 
     def process_tools(self, tools: List[Any]) -> List[str]:
         """Process tools list.
@@ -118,6 +121,16 @@ class ToolRegistry:
                 elif isinstance(tool, Iterable) and not isinstance(tool, (str, bytes, bytearray)):
                     for t in tool:
                         add_tool(t)
+                        
+                # Case 5: ToolProvider
+                elif isinstance(tool, ToolProvider):
+                    self.tool_providers.append(tool)
+
+                    provider_tools = run_async(tool.load_tools)
+
+                    for provider_tool in provider_tools:
+                        self.register_tool(provider_tool)
+                        tool_names.append(provider_tool.tool_name)
                 else:
                     logger.warning("tool=<%s> | unrecognized tool specification", tool)
 
