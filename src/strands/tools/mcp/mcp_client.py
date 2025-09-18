@@ -443,15 +443,21 @@ class MCPClient:
         """
         if isinstance(content, MCPTextContent):
             self._log_debug_with_thread("mapping MCP text content")
-            return {"text": content.text}
+            result = {"text": content.text}
+            if content.meta is not None:
+                result["_meta"] = content.meta
+            return result
         elif isinstance(content, MCPImageContent):
             self._log_debug_with_thread("mapping MCP image content with mime type: %s", content.mimeType)
-            return {
+            result = {
                 "image": {
                     "format": MIME_TO_FORMAT[content.mimeType],
                     "source": {"bytes": base64.b64decode(content.data)},
                 }
             }
+            if content.meta is not None:
+                result["_meta"] = content.meta
+            return result
         else:
             self._log_debug_with_thread("unhandled content type: %s - dropping content", content.__class__.__name__)
             return None

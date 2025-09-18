@@ -7,7 +7,7 @@ These types are modeled after the Bedrock API.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union, NotRequired, Dict
 
 from typing_extensions import TypedDict
 
@@ -68,12 +68,14 @@ class ToolResultContent(TypedDict, total=False):
         document: Document content returned by the tool.
         image: Image content returned by the tool.
         json: JSON-serializable data returned by the tool.
+        meta: meta content returned by the tool.
         text: Text content returned by the tool.
     """
 
     document: DocumentContent
     image: ImageContent
     json: Any
+    meta: NotRequired[Dict[str, Any]]
     text: str
 
 
