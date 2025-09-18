@@ -7,4 +7,4 @@ from typing import TypeAlias
 
 from .content import ContentBlock, Messages
 
-AgentInput: TypeAlias = str | list[ContentBlock] | Messages | None
+AgentInput: TypeAlias = str | ContentBlock | list[ContentBlock] | Messages | None

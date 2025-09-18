@@ -12,9 +12,10 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, cast
 from opentelemetry import trace as trace_api
 
 from ...experimental.hooks import AfterToolInvocationEvent, BeforeToolInvocationEvent
+from ...hooks.interrupt import Interrupt, InterruptException
 from ...telemetry.metrics import Trace
 from ...telemetry.tracer import get_tracer
-from ...types._events import ToolResultEvent, ToolStreamEvent, TypedEvent
+from ...types._events import ToolInterruptEvent, ToolResultEvent, ToolStreamEvent, TypedEvent
 from ...types.content import Message
 from ...types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolResult, ToolUse
 
@@ -78,8 +79,50 @@ class ToolExecutor(abc.ABC):
                 selected_tool=tool_func,
                 tool_use=tool_use,
                 invocation_state=invocation_state,
+                interrupt=agent.interrupts.get(tool_name) or Interrupt(tool_name, reasons=[]),
             )
         )
+
+        if before_event.interrupt.activated:
+            yield ToolInterruptEvent(before_event.interrupt)
+
+            result: ToolResult = {
+                "toolUseId": str(tool_use.get("toolUseId")),
+                "status": "error",
+                "content": [{"text": f"{tool_name} interrupted"}],
+            }
+            after_event = agent.hooks.invoke_callbacks(
+                AfterToolInvocationEvent(
+                    agent=agent,
+                    tool_use=tool_use,
+                    invocation_state=invocation_state,
+                    result=result,
+                    selected_tool=None,
+                )
+            )
+            yield ToolResultEvent(after_event.result)
+            tool_results.append(after_event.result)
+
+            return
+
+        if before_event.cancel:
+            result: ToolResult = {
+                "toolUseId": str(tool_use.get("toolUseId")),
+                "status": "error",
+                "content": [{"text": before_event.cancel}],
+            }
+            after_event = agent.hooks.invoke_callbacks(
+                AfterToolInvocationEvent(
+                    agent=agent,
+                    tool_use=tool_use,
+                    invocation_state=invocation_state,
+                    result=result,
+                    selected_tool=None,
+                )
+            )
+            yield ToolResultEvent(after_event.result)
+            tool_results.append(after_event.result)
+            return
 
         try:
             selected_tool = before_event.selected_tool
@@ -129,7 +172,7 @@ class ToolExecutor(abc.ABC):
                     # below the last "event" must point to the tool_result
                     event = event.tool_result
                     break
-                elif isinstance(event, ToolStreamEvent):
+                elif isinstance(event, (ToolStreamEvent, ToolInterruptEvent)):
                     yield event
                 else:
                     yield ToolStreamEvent(tool_use, event)
