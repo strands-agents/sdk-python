@@ -68,14 +68,14 @@ class ToolResultContent(TypedDict, total=False):
         document: Document content returned by the tool.
         image: Image content returned by the tool.
         json: JSON-serializable data returned by the tool.
-        meta: meta content returned by the tool.
+        _meta: meta content returned by the tool.
         text: Text content returned by the tool.
     """
 
     document: DocumentContent
     image: ImageContent
     json: Any
-    meta: NotRequired[Dict[str, Any]]
+    _meta: NotRequired[Dict[str, Any]]
     text: str
 
 
