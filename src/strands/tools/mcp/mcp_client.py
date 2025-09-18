@@ -149,7 +149,7 @@ class MCPClient:
         - _background_thread_event_loop: AsyncIO event loop in background thread
         - _close_event: AsyncIO event to signal thread shutdown
         - _init_future: Future for initialization synchronization
-        
+
         Cleanup order:
         1. Signal close event to background thread (if session initialized)
         2. Wait for background thread to complete
