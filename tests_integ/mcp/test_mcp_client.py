@@ -31,6 +31,11 @@ def start_comprehensive_mcp_server(transport: Literal["sse", "streamable-http"],
 
     mcp = FastMCP("Comprehensive MCP Server", port=port)
 
+    @mcp.tool(description="Tool that will timeout")
+    def timeout_tool() -> str:
+        time.sleep(10)
+        return "This tool has timed out"
+
     @mcp.tool(description="Calculator tool which performs calculations")
     def calculator(x: int, y: int) -> int:
         return x + y
@@ -297,3 +302,27 @@ def test_mcp_client_timeout_integration():
     with client:
         tools = client.list_tools_sync()
         assert len(tools) >= 0  # Should work now
+
+
+@pytest.mark.skipif(
+    condition=os.environ.get("GITHUB_ACTIONS") == "true",
+    reason="streamable transport is failing in GitHub actions, debugging if linux compatibility issue",
+)
+@pytest.mark.asyncio
+async def test_streamable_http_mcp_client_times_out_before_tool():
+    """Test an mcp server that timesout before the tool is able to respond."""
+    server_thread = threading.Thread(
+        target=start_comprehensive_mcp_server, kwargs={"transport": "streamable-http", "port": 8001}, daemon=True
+    )
+    server_thread.start()
+    time.sleep(2)  # wait for server to startup completely
+
+    def transport_callback() -> MCPTransport:
+        return streamablehttp_client(sse_read_timeout=2, url="http://127.0.0.1:8001/mcp")
+
+    streamable_http_client = MCPClient(transport_callback)
+    with streamable_http_client:
+        # Test tools
+        result = await streamable_http_client.call_tool_async(tool_use_id="123", name="timeout_tool")
+        assert result["status"] == "error"
+        assert result["content"][0]["text"] == "Tool execution failed: Connection closed"
