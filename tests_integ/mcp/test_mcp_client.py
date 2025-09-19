@@ -279,7 +279,7 @@ def test_mcp_client_timeout_integration():
 
     def slow_transport():
         time.sleep(4)  # Longer than timeout
-        return stdio_client(StdioServerParameters(command="python", args=["tests_integ/echo_server.py"]))
+        return stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
 
     client = MCPClient(slow_transport, startup_timeout=2)
     initial_threads = threading.active_count()
