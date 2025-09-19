@@ -90,5 +90,5 @@ jobs:
 
       - name: Run lint
         id: lint
-        run: hatch run test-lint
+        run: hatch fmt --linter --check
         continue-on-error: false
