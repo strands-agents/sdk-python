@@ -13,7 +13,7 @@ from google import genai
 from typing_extensions import Required, Unpack, override
 
 from ..types.content import ContentBlock, Messages
-from ..types.exceptions import ModelThrottledException
+from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._validation import validate_config_keys
@@ -405,9 +405,17 @@ class GeminiModel(Model):
             yield self._format_chunk({"chunk_type": "metadata", "data": event.usage_metadata})
 
         except genai.errors.ClientError as error:
-            match error.status:
+            if not error.message:
+                raise
+
+            message = json.loads(error.message)
+            match message["error"]["status"]:
                 case "RESOURCE_EXHAUSTED" | "UNAVAILABLE":
-                    raise ModelThrottledException(str(error)) from error
+                    raise ModelThrottledException(error.message) from error
+                case "INVALID_ARGUMENT":
+                    if "exceeds the maximum number of tokens" in message["error"]["message"]:
+                        raise ContextWindowOverflowException(error.message) from error
+                    raise error
                 case _:
                     raise error
 

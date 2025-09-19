@@ -1,3 +1,4 @@
+import json
 import unittest.mock
 
 import pydantic
@@ -6,7 +7,7 @@ from google import genai
 
 import strands
 from strands.models.gemini import GeminiModel
-from strands.types.exceptions import ModelThrottledException
+from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
 
 @pytest.fixture
@@ -567,10 +568,30 @@ async def test_stream_response_none_candidates(gemini_client, model, messages, a
 @pytest.mark.asyncio
 async def test_stream_response_throttled_exception(gemini_client, model, messages):
     gemini_client.aio.models.generate_content_stream.side_effect = genai.errors.ClientError(
-        429, {"status": "RESOURCE_EXHAUSTED"}
+        429, {"message": '{"error": {"status": "RESOURCE_EXHAUSTED"}}'}
     )
 
     with pytest.raises(ModelThrottledException, match="RESOURCE_EXHAUSTED"):
+        await anext(model.stream(messages))
+
+
+@pytest.mark.asyncio
+async def test_stream_response_context_overflow_exception(gemini_client, model, messages):
+    gemini_client.aio.models.generate_content_stream.side_effect = genai.errors.ClientError(
+        400,
+        {
+            "message": json.dumps(
+                {
+                    "error": {
+                        "message": "request exceeds the maximum number of tokens (100)",
+                        "status": "INVALID_ARGUMENT",
+                    },
+                }
+            ),
+        },
+    )
+
+    with pytest.raises(ContextWindowOverflowException, match="INVALID_ARGUMENT"):
         await anext(model.stream(messages))
 
 
