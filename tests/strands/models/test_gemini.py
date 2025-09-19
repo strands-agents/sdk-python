@@ -201,6 +201,7 @@ async def test_stream_request_with_reasoning(gemini_client, model, model_id):
                 {
                     "reasoningContent": {
                         "reasoningText": {
+                            "signature": "abc",
                             "text": "reasoning_text",
                         },
                     },
@@ -214,7 +215,18 @@ async def test_stream_request_with_reasoning(gemini_client, model, model_id):
         "config": {
             "tools": [{"function_declarations": []}],
         },
-        "contents": [{"parts": [{"text": "reasoning_text", "thought": True}], "role": "user"}],
+        "contents": [
+            {
+                "parts": [
+                    {
+                        "text": "reasoning_text",
+                        "thought": True,
+                        "thought_signature": "YWJj",
+                    },
+                ],
+                "role": "user",
+            },
+        ],
         "model": model_id,
     }
     gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
@@ -463,7 +475,13 @@ async def test_stream_response_reasoning(gemini_client, model, messages, agenera
                 candidates=[
                     genai.types.Candidate(
                         content=genai.types.Content(
-                            parts=[genai.types.Part(text="test reason", thought=True)],
+                            parts=[
+                                genai.types.Part(
+                                    text="test reason",
+                                    thought=True,
+                                    thought_signature=b"abc",
+                                ),
+                            ],
                         ),
                         finish_reason="STOP",
                     ),
@@ -480,7 +498,7 @@ async def test_stream_response_reasoning(gemini_client, model, messages, agenera
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
         {"contentBlockStart": {"start": {}}},
-        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "test reason"}}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"signature": "abc", "text": "test reason"}}}},
         {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn"}},
         {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},

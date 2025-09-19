@@ -112,9 +112,12 @@ class GeminiModel(Model):
             )
 
         if "reasoningContent" in content:
+            thought_signature = content["reasoningContent"]["reasoningText"].get("signature")
+
             return genai.types.Part(
-                thought=True,
                 text=content["reasoningContent"]["reasoningText"]["text"],
+                thought=True,
+                thought_signature=thought_signature.encode("utf-8") if thought_signature else None,
             )
 
         if "text" in content:
@@ -295,6 +298,11 @@ class GeminiModel(Model):
                                 "delta": {
                                     "reasoningContent": {
                                         "text": event["data"].text,
+                                        **(
+                                            {"signature": event["data"].thought_signature.decode("utf-8")}
+                                            if event["data"].thought_signature
+                                            else {}
+                                        ),
                                     },
                                 },
                             },
