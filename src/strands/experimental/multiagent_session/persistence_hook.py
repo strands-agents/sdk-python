@@ -1,23 +1,28 @@
 import threading
 from typing import Optional
 
-from ...session import SessionManager
+from .multiagent_state_adapter import MultiAgentAdapter
 
 from ...hooks.registry import HookProvider, HookRegistry
-from .multi_agent_events import (MultiAgentInitializationEvent, BeforeNodeInvocationEvent, AfterNodeInvocationEvent,
-                                 BeforeGraphInvocationEvent, AfterGraphInvocationEvent,MultiAgentState)
-from multiagent_state_adapter import MultiAgentAdapter
+from ...session import SessionManager
+from .multi_agent_events import (
+    AfterGraphInvocationEvent,
+    AfterNodeInvocationEvent,
+    BeforeGraphInvocationEvent,
+    BeforeNodeInvocationEvent,
+    MultiAgentInitializationEvent,
+    MultiAgentState,
+)
 
 
 def _get_multiagent_state(
-        multiagent_state: Optional[MultiAgentState],
-        graph,
+    multiagent_state: Optional[MultiAgentState],
+    graph,
 ) -> MultiAgentState:
-
     if multiagent_state is not None:
         return multiagent_state
 
-    #recompute and return
+    # recompute and return
     return MultiAgentAdapter.create_multi_agent_state(graph)
 
 
@@ -39,26 +44,24 @@ class MultiAgentHook(HookProvider):
         self._persist(multi_agent_state)
 
     def _on_before_graph(self, event: BeforeGraphInvocationEvent):
-        #TODO: To add logic here if needed.
+        # TODO: To add logic here if needed.
         pass
 
     def _on_before_node(self, event: BeforeNodeInvocationEvent):
-        #TODO: This allows human-in-the-loop,extra parameter required.
+        # TODO: This allows human-in-the-loop,extra parameter required.
         pass
 
     def _on_after_node(self, event: AfterNodeInvocationEvent):
-        multi_agent_state = _get_multiagent_state(event.state,event.graph)
+        multi_agent_state = _get_multiagent_state(event.state, event.graph)
         self._persist(multi_agent_state)
 
     def _on_after_graph(self, event: AfterGraphInvocationEvent):
-        multiagent_state = _get_multiagent_state(event.state,event.graph)
+        multiagent_state = _get_multiagent_state(event.state, event.graph)
         self._persist(multiagent_state)
 
-
     def _persist(self, multiagent_state: MultiAgentState) -> None:
-        """
-        Persist the provided MultiAgentState using the configured SessionManager.
+        """Persist the provided MultiAgentState using the configured SessionManager.
         This method is synchronized across threads/tasks to avoid write races.
         """
         with self._lock:
-            self._session_manager.write_multi_agent_state(self._session_id, multiagent_state)
+            self._session_manager.write_multi_agent_state(multiagent_state)

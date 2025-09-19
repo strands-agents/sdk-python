@@ -9,7 +9,7 @@ Submodules:
 """
 
 from .base import MultiAgentBase, MultiAgentResult, Status
-from .graph import GraphBuilder, GraphResult, GraphNode,Graph
+from .graph import Graph, GraphBuilder, GraphNode, GraphResult
 from .swarm import Swarm, SwarmResult
 
 __all__ = [
@@ -21,5 +21,5 @@ __all__ = [
     "SwarmResult",
     "GraphNode",
     "Status",
-    "Graph"
+    "Graph",
 ]

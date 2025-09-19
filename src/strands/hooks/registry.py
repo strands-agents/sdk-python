@@ -7,8 +7,8 @@ functions, supporting both individual callback registration and bulk registratio
 via hook provider objects.
 """
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Generator, Generic, Protocol, Type, TypeVar, Optional
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Generator, Generic, Protocol, Type, TypeVar
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -22,7 +22,7 @@ class HookEvent:
         agent: The agent instance that triggered this event.
     """
 
-    agent: "Optional[Agent]" = None
+    agent: "Agent | None" = field(default=None, kw_only=True)
 
     @property
     def should_reverse_callbacks(self) -> bool:

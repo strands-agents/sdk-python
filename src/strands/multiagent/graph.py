@@ -13,7 +13,7 @@ Key Features:
 - Clear dependency management
 - Supports nested graphs (Graph as a node in another Graph)
 """
-
+import ast
 import asyncio
 import copy
 import logging
@@ -22,17 +22,23 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Tuple
 
-from sympy.testing.runtests import TimeOutError
-
-from ..experimental.multiagent_session import (AfterNodeInvocationEvent, BeforeNodeInvocationEvent,
-                                               AfterGraphInvocationEvent, BeforeGraphInvocationEvent,
-                                               MultiAgentInitializationEvent, MultiAgentState, MultiAgentAdapter)
-from ..hooks import HookRegistry, HookProvider, HookCallback, HookEvent
-from ..session import (SessionManager, FileSessionManager, S3SessionManager, RepositorySessionManager)
 from opentelemetry import trace as trace_api
 
 from ..agent import Agent
 from ..agent.state import AgentState
+from ..experimental.multiagent_session import (
+    BeforeGraphInvocationEvent,
+    BeforeNodeInvocationEvent,
+    AfterGraphInvocationEvent,
+    AfterNodeInvocationEvent,
+    MultiAgentAdapter,
+    MultiAgentInitializationEvent,
+    MultiAgentState,
+)
+from ..experimental.multiagent_session.persistence_hook import MultiAgentHook
+
+from ..hooks import HookProvider, HookRegistry
+from ..session import SessionManager
 from ..telemetry import get_tracer
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
@@ -59,7 +65,7 @@ class GraphState:
     task: str | list[ContentBlock] = ""
 
     # Execution state
-    status: Status = Status.PENDING
+    status: str = Status.PENDING
     completed_nodes: set["GraphNode"] = field(default_factory=set)
     failed_nodes: set["GraphNode"] = field(default_factory=set)
     execution_order: list["GraphNode"] = field(default_factory=list)
@@ -326,7 +332,7 @@ class GraphBuilder:
         self._session_manager = session_manager
         return self
 
-    def add_hook(self,hook: HookProvider)-> "GraphBuilder":
+    def add_hook(self, hook: HookProvider) -> "GraphBuilder":
         self._hooks_providers.append(hook)
         return self
 
@@ -346,7 +352,17 @@ class GraphBuilder:
 
         # Validate entry points and check for cycles
         self._validate_graph()
+
+        #Build hook auto-inject
         hooks = HookRegistry()
+        if self._session_manager is not None:
+            # Expecting the SessionManager to expose a session_id property (RepositorySessionManager/FileSessionManager do)
+            session_id = getattr(self._session_manager, "session_id", None)
+            if session_id is None:
+                raise ValueError("SessionManager must expose `session_id` for MultiAgentHook.")
+            hooks.add_hook(MultiAgentHook(session_manager=self._session_manager, session_id=session_id))
+
+        # User-provided hooks (added after default to allow customization layering)
         for hook in self._hooks_providers:
             hooks.add_hook(hook)
 
@@ -359,7 +375,7 @@ class GraphBuilder:
             node_timeout=self._node_timeout,
             reset_on_revisit=self._reset_on_revisit,
             session_manager=self._session_manager,
-            hooks = hooks
+            hooks=hooks,
         )
 
     def _validate_graph(self) -> None:
@@ -375,6 +391,42 @@ class GraphBuilder:
             logger.warning("Graph without execution limits may run indefinitely if cycles exist")
 
 
+def _iterate_previous_outputs(raw: Any) -> list[tuple[str, str]]:
+    """
+    Return a list of (agent_name, text) regardless of whether 'raw' is a live
+    NodeResult or a persisted dict.
+    """
+    if hasattr(raw, "get_agent_results") and callable(getattr(raw, "get_agent_results")):
+        try:
+            return [(getattr(r, "agent_name", "Agent"), str(r)) for r in raw.get_agent_results()]
+        except Exception:
+            pass
+
+    # Persisted dict path
+    if isinstance(raw, dict):
+        if isinstance(raw.get("agent_outputs"), list):
+            return [("Agent", str(x)) for x in raw["agent_outputs"]]
+        if "summary" in raw:
+            return [("Agent", str(raw["summary"]))]
+
+    # String that might itself be a dict repr
+    if isinstance(raw, str):
+        try:
+            parsed = ast.literal_eval(raw)
+            if isinstance(parsed, dict):
+                # Recurse once into the normalized dict path
+                if isinstance(parsed.get("agent_outputs"), list):
+                    return [("Agent", str(x)) for x in parsed["agent_outputs"]]
+                if "summary" in parsed:
+                    return [("Agent", str(parsed["summary"]))]
+        except Exception:
+            pass
+        return [("Agent", raw)]
+
+    # Fallback
+    return [("Agent", str(raw))]
+
+
 class Graph(MultiAgentBase):
     """Directed Graph multi-agent orchestration with configurable revisit behavior."""
 
@@ -388,7 +440,7 @@ class Graph(MultiAgentBase):
         node_timeout: Optional[float] = None,
         reset_on_revisit: bool = False,
         session_manager: Optional[SessionManager] = None,
-        hooks: Optional[HookRegistry] = None
+        hooks: Optional[HookRegistry] = None,
     ) -> None:
         """Initialize Graph with execution limits and reset behavior.
 
@@ -416,18 +468,21 @@ class Graph(MultiAgentBase):
         self.state = GraphState()
         self.tracer = get_tracer()
         self.session_manager = session_manager
-        self.hooks= hooks or HookRegistry()
+        self.hooks = hooks or HookRegistry()
 
+        #Concurrncy lock
         self._lock = asyncio.Lock()
+        #Resume flag
         self._resume_from_persisted = False
-        self._resume_next_node:list[GraphNode] = []
+        self._resume_next_nodes: list[GraphNode] = []
+
         self._load_and_apply_multiagent_state()
 
     def add_hook(self, hook: HookProvider) -> None:
-            self.hooks.add_hook(hook)
+        self.hooks.add_hook(hook)
 
-    def add_callback(self, event:type, callback: Any) -> None:
-        self.hooks.add_callback(event, callback) # type: ignore
+    def add_callback(self, event: type, callback: Any) -> None:
+        self.hooks.add_callback(event, callback)  # type: ignore
 
     def __call__(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
@@ -468,9 +523,11 @@ class Graph(MultiAgentBase):
         logger.debug("task=<%s> | starting graph execution", task)
 
         if not self._resume_from_persisted and self.state.status == Status.PENDING:
-            #TODO: to check if we need do something on BeforeGraphInvocationEvent
+            # TODO: to check if we need do something on BeforeGraphInvocationEvent
             # self._call_hook_safely(BeforeGraphInvocationEvent(graph=self,state=self._get_multiagent_state()))
-            self._call_hook_safely(MultiAgentInitializationEvent(graph=self,state=self._get_multiagent_state()))
+            self._call_hook_safely(MultiAgentInitializationEvent(graph=self, state=self._get_multiagent_state()))
+
+        self._call_hook_safely(BeforeGraphInvocationEvent(graph=self, state=self._get_multiagent_state()))
 
         if not self._resume_from_persisted:
             start_time = time.time()
@@ -484,11 +541,12 @@ class Graph(MultiAgentBase):
                 start_time=start_time,
             )
         else:
-            if isinstance(self.state.task, str) or isinstance(self.state.task, list):
-                if not self.state.task:
-                    self.state.task = task
-                    #TODO: start time reset or not??
-
+            if isinstance(self.state.task, (str, list)) and not self.state.task:
+                self.state.task = task
+            # Reset failed nodes after resume.
+            self.state.status = Status.EXECUTING
+            self.state.failed_nodes.clear()
+            self.state.start_time = time.time()
         span = self.tracer.start_multiagent_span(task, "graph")
         with trace_api.use_span(span, end_on_exit=True):
             try:
@@ -516,6 +574,8 @@ class Graph(MultiAgentBase):
             finally:
                 self.state.execution_time = round((time.time() - self.state.start_time) * 1000)
                 self._call_hook_safely(AfterGraphInvocationEvent(graph=self, state=self._get_multiagent_state()))
+                self._resume_from_persisted = False
+                self._resume_next_nodes.clear()
             return self._build_result()
 
     def _validate_graph(self, nodes: dict[str, GraphNode]) -> None:
@@ -532,10 +592,7 @@ class Graph(MultiAgentBase):
 
     async def _execute_graph(self, invocation_state: dict[str, Any]) -> None:
         """Unified execution flow with conditional routing."""
-        if self._resume_from_persisted and self._resume_next_node:
-            ready_nodes = list(self._resume_next_node)
-        else:
-            ready_nodes = list(self.entry_points)
+        ready_nodes = list(self._resume_next_nodes) if self._resume_from_persisted else list(self.entry_points)
 
         while ready_nodes:
             # Check execution limits before continuing
@@ -551,7 +608,9 @@ class Graph(MultiAgentBase):
             current_batch = ready_nodes.copy()
             ready_nodes.clear()
 
-            #TODO: Check if we need to do something on BeforeNodeInvocationEvent
+            # TODO: Check if we need to do something on BeforeNodeInvocationEvent
+            for n in current_batch:
+                self._call_hook_safely(BeforeNodeInvocationEvent(graph=self, next_node_to_execute=n.node_id))
 
             # Execute current batch of ready nodes concurrently
             tasks = [asyncio.create_task(self._execute_node(node, invocation_state)) for node in current_batch]
@@ -564,15 +623,19 @@ class Graph(MultiAgentBase):
             # because a failure would throw exception and code would not make it here
             ready_nodes.extend(self._find_newly_ready_nodes(current_batch))
 
-        self._resume_from_persisted = False
-        self._resume_next_node.clear()
-
     def _find_newly_ready_nodes(self, completed_batch: list["GraphNode"]) -> list["GraphNode"]:
         """Find nodes that became ready after the last execution."""
         newly_ready = []
-        for _node_id, node in self.nodes.items():
+        for node in self.nodes.values():
+        # Skip nodes already completed unless we’re in feedback-loop mode
+            if (node in self.state.completed_nodes or node.execution_status == Status.COMPLETED) and not self.reset_on_revisit:
+                continue
+            if node in self.state.failed_nodes:
+                continue
             if self._is_node_ready_with_conditions(node, completed_batch):
-                newly_ready.append(node)
+                # Avoid duplicates
+                if node not in newly_ready:
+                    newly_ready.append(node)
         return newly_ready
 
     def _is_node_ready_with_conditions(self, node: GraphNode, completed_batch: list["GraphNode"]) -> bool:
@@ -601,7 +664,7 @@ class Graph(MultiAgentBase):
             logger.debug("node_id=<%s> | resetting node state for revisit", node.node_id)
             node.reset_executor_state()
             # Remove from completed nodes since we're re-executing it
-            self.state.completed_nodes.remove(node)
+            self.state.completed_nodes.discard(node)
 
         node.execution_status = Status.EXECUTING
         logger.debug("node_id=<%s> | executing node", node.node_id)
@@ -673,13 +736,15 @@ class Graph(MultiAgentBase):
             logger.debug(
                 "node_id=<%s>, execution_time=<%dms> | node completed successfully", node.node_id, node.execution_time
             )
-            self._call_hook_safely(AfterNodeInvocationEvent(graph=self, executed_node=node.node_id, state=self._get_multiagent_state()))
+            self._call_hook_safely(
+                AfterNodeInvocationEvent(graph=self, executed_node=node.node_id, state=self._get_multiagent_state())
+            )
 
         except Exception as e:
             logger.error("node_id=<%s>, error=<%s> | node failed", node.node_id, e)
             execution_time = round((time.time() - start_time) * 1000)
 
-            node_result = NodeResult(
+            fail_result = NodeResult(
                 result=e,
                 execution_time=execution_time,
                 status=Status.FAILED,
@@ -690,13 +755,17 @@ class Graph(MultiAgentBase):
 
             async with self._lock:
                 node.execution_status = Status.FAILED
-                node.result = node_result
+                node.result = fail_result
                 node.execution_time = execution_time
                 self.state.failed_nodes.add(node)
-                self.state.results[node.node_id] = node_result
+                self.state.results[node.node_id] = fail_result
 
             # Need to persist failure multiagent_state too
-            self._call_hook_safely(AfterNodeInvocationEvent(graph=self, executed_node=node.node_id, state=self._get_multiagent_state(msg= str(e))))
+            self._call_hook_safely(
+                AfterNodeInvocationEvent(
+                    graph=self, executed_node=node.node_id, state=self._get_multiagent_state(msg=str(e))
+                )
+            )
 
             raise
             # except asyncio.TimeoutError:
@@ -709,7 +778,6 @@ class Graph(MultiAgentBase):
             #     raise Exception(timeout_msg) from None
 
             # Mark as completed
-
 
     def _accumulate_metrics(self, node_result: NodeResult) -> None:
         """Accumulate metrics from a node result."""
@@ -768,13 +836,9 @@ class Graph(MultiAgentBase):
         # Add dependency outputs
         node_input.append(ContentBlock(text="\nInputs from previous nodes:"))
 
-        for dep_id, node_result in dependency_results.items():
+        for dep_id, prev_result in dependency_results.items():
             node_input.append(ContentBlock(text=f"\nFrom {dep_id}:"))
-            # Get all agent results from this node (flattened if nested)
-            agent_results = node_result.get_agent_results()
-            for result in agent_results:
-                agent_name = getattr(result, "agent_name", "Agent")
-                result_text = str(result)
+            for agent_name, result_text in _iterate_previous_outputs(prev_result):
                 node_input.append(ContentBlock(text=f"  - {agent_name}: {result_text}"))
 
         return node_input
@@ -798,33 +862,69 @@ class Graph(MultiAgentBase):
 
     # Persistence Helper Functions
 
-    def _get_multiagent_state(self,msg:str = None) -> MultiAgentState:
-        """
-        Get the multi-agent state from the session storage.
+    def _get_multiagent_state(self, msg: str = None) -> MultiAgentState:
+        """Get the multi-agent state from the session storage.
         :return: MultiAgentState
         """
         try:
-            return MultiAgentAdapter.create_multi_agent_state(self,msg = msg)
+            return MultiAgentAdapter.create_multi_agent_state(self, msg=msg)
         except Exception as e:
             logger.error("Failed to create multi-agent state: %s", e)
             completed_ids = [n.node_id for n in self.state.completed_nodes]
-            node_results = {k: str(v.result) if getattr(v, "result", None) is not None else None for k, v in self.state.results.items()}
+            node_results: dict[str, Any] = {}
+
+            # Build a normalized, future-proof node_results map
+            for key, val in (self.state.results or {}).items():
+                node_results[key] = self._summarize_node_result_for_persist(val)
             return MultiAgentState(
                 completed_nodes=set(completed_ids),
                 node_results=node_results,
-                status=str(self.state.status.value if hasattr(self.state.status, "value") else self.state.status),
-                next_nodes_to_execute=[n.node_id for n in self._compute_ready_node_for_resume()],
-                current_task=self.state.task if isinstance(self.state.task, str) or isinstance(self.state.task, list) else "",
-                error=msg,
+                status= self.state.status,
+                next_node_to_execute=[n.node_id for n in self._compute_ready_nodes_for_resume()],
+                current_task=self.state.task if isinstance(self.state.task, (str, list)) else "",
+                error_message = msg
             )
 
+    def _normalize_persisted_like_dict(self, dict: dict[str, Any]) -> dict[str, Any]:
+        if "agent_outputs" in dict and isinstance(dict["agent_outputs"], list):
+            return {"agent_outputs": [str(x) for x in dict["agent_outputs"]]}
+        if "summary" in dict:
+            return {"agent_outputs": [str(dict["summary"])]}
+        return {"agent_outputs": [str(dict)]}
+
+    def _summarize_node_result_for_persist(self, raw: Any) -> dict[str, Any]:
+        # Live NodeResult path (or compatible)
+        if hasattr(raw, "get_agent_results") and callable(getattr(raw, "get_agent_results")):
+            try:
+                results = raw.get_agent_results()
+                texts = [str(r) for r in results]
+                return {"agent_outputs": texts}
+            except Exception:
+                pass
+
+        # Already a dict (perhaps loaded from disk)
+        if isinstance(raw, dict):
+            return self._normalize_persisted_like_dict(raw)
+
+        # String that might itself be a dict repr -> try to parse
+        if isinstance(raw, str):
+            try:
+                parsed = ast.literal_eval(raw)
+                if isinstance(parsed, dict):
+                    return self._normalize_persisted_like_dict(parsed)
+            except Exception as e:
+                logger.debug("Failed to parse persisted node result: %s", e)
+            return {"agent_outputs": [raw]}
+
+        return {"agent_outputs": [str(raw)]}
+
+
     def _call_hook_safely(self, event_object: object) -> None:
-        """Invoke hook callbacks and swallow hook errors """
+        """Invoke hook callbacks and swallow hook errors"""
         try:
-            self.hooks.invoke_callbacks(event_object) # type: ignore
+            self.hooks.invoke_callbacks(event_object)  # type: ignore
         except Exception as e:
             logger.exception("Hook invocation failed for %s: %s", type(event_object).__name__, e)
-
 
     def _load_and_apply_multiagent_state(self) -> None:
         if self.session_manager is None:
@@ -832,16 +932,40 @@ class Graph(MultiAgentBase):
         try:
             saved_state = self.session_manager.read_multi_agent_state()
         except Exception as e:
-            logger.error("Failed to load multi-agent state: %s", e)
+            logger.warning("Skipping resume; failed to load state: %s", e)
             return
+        if not saved_state:
+            return
+
         try:
-           MultiAgentAdapter.apply_multi_agent_state(self,saved_state)
-           self._resume_from_persisted = True
-           self._resume_next_node = self._map_node_ids(saved_state.next_node_to_execute) or self._compute_ready_nodes_for_resume()
-           logger.debug("Resumed from persisted state. Next nodes: %s", [n.node_id for n in self._resume_next_node])
+            if getattr(saved_state,"status", None) is Status.COMPLETED:
+                logger.debug(
+                    "Saved multi-agent state is %s; skipping resume.",
+                    getattr(saved_state, "status", None),
+                )
+                return
+
+            MultiAgentAdapter.apply_multi_agent_state(self, saved_state)
+            self._resume_from_persisted = True
+            mapped = self._map_node_ids(getattr(saved_state, "next_node_to_execute", None))
+            valid_ready: list[GraphNode] = []
+            completed = set(self.state.completed_nodes)
+
+            for n in mapped:
+                if n in completed or n.execution_status == Status.COMPLETED:
+                    continue
+                # only include if it’s dependency-ready
+                incoming = [e for e in self.edges if e.to_node == n]
+                if any(e.from_node in completed and e.should_traverse(self.state) for e in incoming):
+                    valid_ready.append(n)
+
+            if not valid_ready:
+                valid_ready = self._compute_ready_nodes_for_resume()
+
+            self._resume_next_nodes = valid_ready
+            logger.debug("Resumed from persisted state. Next nodes: %s", [n.node_id for n in self._resume_next_nodes])
         except Exception as e:
             logger.exception("Failed to apply multiagent state : %s", e)
-
 
     def _map_node_ids(self, node_ids: list[str] | None) -> list[GraphNode]:
         if not node_ids:
@@ -860,9 +984,11 @@ class Graph(MultiAgentBase):
         for node in self.nodes.values():
             if node in completed_nodes:
                 continue
-            incoming = [e for e in self.edges if e.to_node ==node]
-            for edge in incoming:
-                if edge.from_node in completed_nodes and edge.should_traverse(self.state):
-                    ready_nodes.append(node)
-                    break
-        return ready_nodes or list(self.entry_points)
+            incoming = [e for e in self.edges if e.to_node is node]
+            if any(e.from_node in completed_nodes and e.should_traverse(self.state) for e in incoming):
+                ready_nodes.append(node)
+
+        if ready_nodes:
+            return ready_nodes
+
+        return [node for node in self.entry_points if node not in completed_nodes]
