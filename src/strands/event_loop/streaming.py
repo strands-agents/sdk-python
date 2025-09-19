@@ -346,8 +346,7 @@ async def stream_messages(
     logger.debug("model=<%s> | streaming messages", model)
 
     messages = remove_blank_messages_content_text(messages)
-
-    chunks = model.stream(messages, tool_specs, system_prompt)
+    chunks = model.stream(messages, tool_specs if tool_specs else None, system_prompt)
 
     async for event in process_stream(chunks):
         yield event
