@@ -1788,3 +1788,25 @@ def test_custom_model_id_not_overridden_by_region_formatting(session_cls):
     model_id = model.get_config().get("model_id")
 
     assert model_id == custom_model_id
+
+
+def test_format_request_filters_output_schema(model, messages, model_id):
+    """Test that outputSchema is filtered out from tool specs in Bedrock requests."""
+    tool_spec_with_output_schema = {
+        "description": "Test tool with output schema",
+        "name": "test_tool",
+        "inputSchema": {"type": "object", "properties": {}},
+        "outputSchema": {"type": "object", "properties": {"result": {"type": "string"}}},
+    }
+
+    request = model.format_request(messages, [tool_spec_with_output_schema])
+
+    tool_spec = request["toolConfig"]["tools"][0]["toolSpec"]
+
+    # Verify outputSchema is not included
+    assert "outputSchema" not in tool_spec
+
+    # Verify other fields are preserved
+    assert tool_spec["name"] == "test_tool"
+    assert tool_spec["description"] == "Test tool with output schema"
+    assert tool_spec["inputSchema"] == {"type": "object", "properties": {}}

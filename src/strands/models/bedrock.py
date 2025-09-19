@@ -214,7 +214,16 @@ class BedrockModel(Model):
                 {
                     "toolConfig": {
                         "tools": [
-                            *[{"toolSpec": tool_spec} for tool_spec in tool_specs],
+                            *[
+                                {
+                                    "toolSpec": {
+                                        "name": tool_spec["name"],
+                                        "description": tool_spec["description"],
+                                        "inputSchema": tool_spec["inputSchema"],
+                                    }
+                                }
+                                for tool_spec in tool_specs
+                            ],
                             *(
                                 [{"cachePoint": {"type": self.config["cache_tools"]}}]
                                 if self.config.get("cache_tools")
