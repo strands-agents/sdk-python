@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, AsyncGenerator, AsyncIterable, Optional, cast
+from typing import Any, AsyncGenerator, AsyncIterable, Optional
 
 from ..models.model import Model
 from ..types._events import (
