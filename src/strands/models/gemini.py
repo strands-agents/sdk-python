@@ -130,10 +130,10 @@ class GeminiModel(Model):
                     name=content["toolResult"]["toolUseId"],
                     response={
                         "output": [
-                            self._format_request_content_part(
-                                {"text": json.dumps(tool_result_content["json"])}
-                                if "json" in tool_result_content
-                                else cast(ContentBlock, tool_result_content)
+                            tool_result_content
+                            if "json" in tool_result_content
+                            else self._format_request_content_part(
+                                cast(ContentBlock, tool_result_content)
                             ).to_json_dict()
                             for tool_result_content in content["toolResult"]["content"]
                         ],

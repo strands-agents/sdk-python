@@ -338,7 +338,7 @@ async def test_stream_request_with_tool_results(gemini_client, model, model_id):
                             "response": {
                                 "output": [
                                     {"text": "see image"},
-                                    {"text": '["see image"]'},
+                                    {"json": ["see image"]},
                                     {
                                         "inline_data": {
                                             "data": "YmFzZTY0ZW5jb2RlZGltYWdl",
