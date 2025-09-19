@@ -18,6 +18,9 @@ from mcp.types import JSONRPCMessage, JSONRPCRequest
 from opentelemetry import context, propagate
 from wrapt import ObjectProxy, register_post_import_hook, wrap_function_wrapper
 
+# Module-level flag to ensure instrumentation is applied only once
+_instrumentation_applied = False
+
 
 @dataclass(slots=True, frozen=True)
 class ItemWithContext:
@@ -48,7 +51,14 @@ def mcp_instrumentation() -> None:
     - Adding OpenTelemetry context to the _meta field of MCP requests
     - Extracting and activating context on the server side
     - Preserving context across async message processing boundaries
+
+    This function is idempotent - multiple calls will not accumulate wrappers.
     """
+    global _instrumentation_applied
+
+    # Return early if instrumentation has already been applied
+    if _instrumentation_applied:
+        return
 
     def patch_mcp_client(wrapped: Callable[..., Any], instance: Any, args: Any, kwargs: Any) -> Any:
         """Patch MCP client to inject OpenTelemetry context into tool calls.
@@ -166,6 +176,9 @@ def mcp_instrumentation() -> None:
         lambda _: wrap_function_wrapper("mcp.server.session", "ServerSession.__init__", session_init_wrapper()),
         "mcp.server.session",
     )
+
+    # Mark instrumentation as applied
+    _instrumentation_applied = True
 
 
 class TransportContextExtractingReader(ObjectProxy):

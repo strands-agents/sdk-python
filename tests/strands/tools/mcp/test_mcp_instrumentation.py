@@ -5,6 +5,7 @@ from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCRequest
 from opentelemetry import context, propagate
 
+from strands.tools.mcp.mcp_client import MCPClient
 from strands.tools.mcp.mcp_instrumentation import (
     ItemWithContext,
     SessionContextAttachingReader,
@@ -12,6 +13,17 @@ from strands.tools.mcp.mcp_instrumentation import (
     TransportContextExtractingReader,
     mcp_instrumentation,
 )
+
+
+@pytest.fixture(autouse=True)
+def reset_mcp_instrumentation():
+    """Reset MCP instrumentation state before each test."""
+    import strands.tools.mcp.mcp_instrumentation as mcp_inst
+
+    mcp_inst._instrumentation_applied = False
+    yield
+    # Reset after test too
+    mcp_inst._instrumentation_applied = False
 
 
 class TestItemWithContext:
@@ -328,6 +340,27 @@ class MockPydanticParams:
 
 
 class TestMCPInstrumentation:
+    def test_mcp_instrumentation_idempotent_with_multiple_clients(self):
+        """Test that mcp_instrumentation is only called once even with multiple MCPClient instances."""
+
+        # Mock the wrap_function_wrapper to count calls
+        with patch("strands.tools.mcp.mcp_instrumentation.wrap_function_wrapper") as mock_wrap:
+            # Mock transport
+            def mock_transport():
+                read_stream = AsyncMock()
+                write_stream = AsyncMock()
+                return read_stream, write_stream
+
+            # Create first MCPClient instance - should apply instrumentation
+            MCPClient(mock_transport)
+            first_call_count = mock_wrap.call_count
+
+            # Create second MCPClient instance - should NOT apply instrumentation again
+            MCPClient(mock_transport)
+
+            # wrap_function_wrapper should not be called again for the second client
+            assert mock_wrap.call_count == first_call_count
+
     def test_mcp_instrumentation_calls_wrap_function_wrapper(self):
         """Test that mcp_instrumentation calls the expected wrapper functions."""
         with (
