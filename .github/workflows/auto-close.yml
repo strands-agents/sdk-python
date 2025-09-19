@@ -11,6 +11,11 @@ on:
         default: 'false'
         type: boolean
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
 jobs:
   auto-close:
     runs-on: ubuntu-latest

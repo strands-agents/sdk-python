@@ -355,6 +355,7 @@ class WriterModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        *,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:

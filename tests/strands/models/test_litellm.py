@@ -289,6 +289,18 @@ async def test_structured_output(litellm_acompletion, model, test_output_model_c
     assert tru_result == exp_result
 
 
+@pytest.mark.asyncio
+async def test_structured_output_unsupported_model(litellm_acompletion, model, test_output_model_cls):
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+
+    with unittest.mock.patch.object(strands.models.litellm, "supports_response_schema", return_value=False):
+        with pytest.raises(ValueError, match="Model does not support response_format"):
+            stream = model.structured_output(test_output_model_cls, messages)
+            await stream.__anext__()
+
+    litellm_acompletion.assert_not_called()
+
+
 def test_config_validation_warns_on_unknown_keys(litellm_acompletion, captured_warnings):
     """Test that unknown config keys emit a warning."""
     LiteLLMModel(client_args={"api_key": "test"}, model_id="test-model", invalid_param="test")

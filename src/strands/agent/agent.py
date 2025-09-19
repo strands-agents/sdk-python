@@ -514,8 +514,11 @@ class Agent:
                     )
                 events = self.model.structured_output(output_model, temp_messages, system_prompt=self.system_prompt)
                 async for event in events:
-                    if "callback" in event:
-                        self.callback_handler(**cast(dict, event["callback"]))
+                    if isinstance(event, TypedEvent):
+                        event.prepare(invocation_state={})
+                        if event.is_callback_event:
+                            self.callback_handler(**event.as_dict())
+
                 structured_output_span.add_event(
                     "gen_ai.choice", attributes={"message": serialize(event["output"].model_dump())}
                 )

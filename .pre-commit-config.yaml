@@ -3,14 +3,14 @@ repos:
     hooks:
       - id: hatch-format
         name: Format code
-        entry: hatch run test-format
+        entry: hatch fmt --formatter --check
         language: system
         pass_filenames: false
         types: [python]
         stages: [pre-commit]
       - id: hatch-lint
         name: Lint code
-        entry: hatch run test-lint
+        entry: hatch fmt --linter --check
         language: system
         pass_filenames: false
         types: [python]

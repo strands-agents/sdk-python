@@ -94,10 +94,36 @@ async def test_stream(model, messages, tool_specs, system_prompt, alist):
 
 
 @pytest.mark.asyncio
-async def test_structured_output(model, alist):
+async def test_structured_output(model, messages, system_prompt, alist):
     response = model.structured_output(Person, prompt=messages, system_prompt=system_prompt)
     events = await alist(response)
 
     tru_output = events[-1]["output"]
     exp_output = Person(name="test", age=20)
     assert tru_output == exp_output
+
+
+@pytest.mark.asyncio
+async def test_stream_without_tool_choice_parameter(messages, alist):
+    """Test that model implementations without tool_choice parameter are still valid."""
+    class LegacyModel(SAModel):
+        def update_config(self, **model_config):
+            return model_config
+        
+        def get_config(self):
+            return
+        
+        async def structured_output(self, output_model, prompt=None, system_prompt=None, **kwargs):
+            yield {"output": output_model(name="test", age=20)}
+        
+        async def stream(self, messages, tool_specs=None, system_prompt=None):
+            yield {"messageStart": {"role": "assistant"}}
+            yield {"contentBlockDelta": {"delta": {"text": "Legacy model works"}}}
+            yield {"messageStop": {"stopReason": "end_turn"}}
+    
+    model = LegacyModel()
+    response = model.stream(messages)
+    events = await alist(response)
+    
+    assert len(events) == 3
+    assert events[1]["contentBlockDelta"]["delta"]["text"] == "Legacy model works"

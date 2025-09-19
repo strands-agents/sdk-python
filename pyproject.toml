@@ -170,7 +170,8 @@ test = "hatch test {args}"
 test-integ = "hatch test tests_integ {args}"
 
 prepare = [
-    "hatch run test-format",
+    "hatch run format",
+    "hatch run lint",
     "hatch run test-lint",
     "hatch test --all"
 ]

@@ -131,6 +131,20 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
             {"signature": "val"},
             {"reasoning_signature": "val", "reasoning": True},
         ),
+        # Reasoning - redactedContent - New
+        pytest.param(
+            {"delta": {"reasoningContent": {"redactedContent": b"encoded"}}},
+            {},
+            {"redactedContent": b"encoded"},
+            {"reasoningRedactedContent": b"encoded", "reasoning": True},
+        ),
+        # Reasoning - redactedContent - Existing
+        pytest.param(
+            {"delta": {"reasoningContent": {"redactedContent": b"data"}}},
+            {"redactedContent": b"encoded_"},
+            {"redactedContent": b"encoded_data"},
+            {"reasoningRedactedContent": b"data", "reasoning": True},
+        ),
         # Reasoning - Empty
         (
             {"delta": {"reasoningContent": {}}},
@@ -167,6 +181,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "",
                 "citationsContent": [],
+                "redactedContent": b"",
             },
             {
                 "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {"key": "value"}}}],
@@ -174,6 +189,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "",
                 "citationsContent": [],
+                "redactedContent": b"",
             },
         ),
         # Tool Use - Missing input
@@ -184,6 +200,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "",
                 "citationsContent": [],
+                "redactedContent": b"",
             },
             {
                 "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {}}}],
@@ -191,6 +208,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "",
                 "citationsContent": [],
+                "redactedContent": b"",
             },
         ),
         # Text
@@ -201,6 +219,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "test",
                 "reasoningText": "",
                 "citationsContent": [],
+                "redactedContent": b"",
             },
             {
                 "content": [{"text": "test"}],
@@ -208,6 +227,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "",
                 "citationsContent": [],
+                "redactedContent": b"",
             },
         ),
         # Citations
@@ -218,6 +238,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "",
                 "citationsContent": [{"citations": [{"text": "test", "source": "test"}]}],
+                "redactedContent": b"",
             },
             {
                 "content": [],
@@ -225,6 +246,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "",
                 "citationsContent": [{"citations": [{"text": "test", "source": "test"}]}],
+                "redactedContent": b"",
             },
         ),
         # Reasoning
@@ -236,6 +258,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "reasoningText": "test",
                 "signature": "123",
                 "citationsContent": [],
+                "redactedContent": b"",
             },
             {
                 "content": [{"reasoningContent": {"reasoningText": {"text": "test", "signature": "123"}}}],
@@ -244,6 +267,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "reasoningText": "",
                 "signature": "123",
                 "citationsContent": [],
+                "redactedContent": b"",
             },
         ),
         # Reasoning without signature
@@ -254,12 +278,33 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "test",
                 "citationsContent": [],
+                "redactedContent": b"",
             },
             {
                 "content": [{"reasoningContent": {"reasoningText": {"text": "test"}}}],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+        ),
+        # redactedContent
+        (
+            {
+                "content": [],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "redactedContent": b"encoded_data",
+                "citationsContent": [],
+            },
+            {
+                "content": [{"reasoningContent": {"redactedContent": b"encoded_data"}}],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "redactedContent": b"",
                 "citationsContent": [],
             },
         ),
@@ -271,6 +316,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "",
                 "citationsContent": [],
+                "redactedContent": b"",
             },
             {
                 "content": [],
@@ -278,6 +324,7 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
                 "text": "",
                 "reasoningText": "",
                 "citationsContent": [],
+                "redactedContent": b"",
             },
         ),
     ],
@@ -449,6 +496,23 @@ def test_extract_usage_metrics_with_cache_tokens():
                 },
             ],
         ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_process_stream(response, exp_events, agenerator, alist):
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+
+    tru_events = await alist(stream)
+    assert tru_events == exp_events
+
+    # Ensure that we're getting typed events coming out of process_stream
+    non_typed_events = [event for event in tru_events if not isinstance(event, TypedEvent)]
+    assert non_typed_events == []
+
+
+@pytest.mark.parametrize(
+    ("response", "exp_events"),
+    [
         # Redacted Message
         (
             [
@@ -471,92 +535,116 @@ def test_extract_usage_metrics_with_cache_tokens():
                 },
                 {
                     "metadata": {
-                        "usage": {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        "usage": {
+                            "inputTokens": 1,
+                            "outputTokens": 1,
+                            "totalTokens": 1,
+                        },
                         "metrics": {"latencyMs": 1},
                     }
                 },
             ],
             [
-                {
-                    "event": {
-                        "messageStart": {
-                            "role": "assistant",
-                        },
-                    },
-                },
-                {
-                    "event": {
-                        "contentBlockStart": {
-                            "start": {},
-                        },
-                    },
-                },
-                {
-                    "event": {
-                        "contentBlockDelta": {
-                            "delta": {
-                                "text": "Hello!",
-                            },
-                        },
-                    },
-                },
-                {
-                    "data": "Hello!",
-                    "delta": {
-                        "text": "Hello!",
-                    },
-                },
-                {
-                    "event": {
-                        "contentBlockStop": {},
-                    },
-                },
-                {
-                    "event": {
-                        "messageStop": {
-                            "stopReason": "guardrail_intervened",
-                        },
-                    },
-                },
+                {"event": {"messageStart": {"role": "assistant"}}},
+                {"event": {"contentBlockStart": {"start": {}}}},
+                {"event": {"contentBlockDelta": {"delta": {"text": "Hello!"}}}},
+                {"data": "Hello!", "delta": {"text": "Hello!"}},
+                {"event": {"contentBlockStop": {}}},
+                {"event": {"messageStop": {"stopReason": "guardrail_intervened"}}},
                 {
                     "event": {
                         "redactContent": {
-                            "redactAssistantContentMessage": "REDACTED.",
                             "redactUserContentMessage": "REDACTED",
-                        },
-                    },
+                            "redactAssistantContentMessage": "REDACTED.",
+                        }
+                    }
                 },
                 {
                     "event": {
                         "metadata": {
-                            "metrics": {
-                                "latencyMs": 1,
-                            },
                             "usage": {
                                 "inputTokens": 1,
                                 "outputTokens": 1,
                                 "totalTokens": 1,
                             },
-                        },
-                    },
+                            "metrics": {"latencyMs": 1},
+                        }
+                    }
                 },
                 {
                     "stop": (
                         "guardrail_intervened",
+                        {"role": "assistant", "content": [{"text": "REDACTED."}]},
+                        {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
+                        {"latencyMs": 1},
+                    )
+                },
+            ],
+        ),
+        (
+            [
+                {"messageStart": {"role": "assistant"}},
+                {
+                    "contentBlockStart": {"start": {}},
+                },
+                {
+                    "contentBlockDelta": {"delta": {"reasoningContent": {"redactedContent": b"encoded_data"}}},
+                },
+                {"contentBlockStop": {}},
+                {
+                    "messageStop": {"stopReason": "end_turn"},
+                },
+                {
+                    "metadata": {
+                        "usage": {
+                            "inputTokens": 1,
+                            "outputTokens": 1,
+                            "totalTokens": 1,
+                        },
+                        "metrics": {"latencyMs": 1},
+                    }
+                },
+            ],
+            [
+                {"event": {"messageStart": {"role": "assistant"}}},
+                {"event": {"contentBlockStart": {"start": {}}}},
+                {"event": {"contentBlockDelta": {"delta": {"reasoningContent": {"redactedContent": b"encoded_data"}}}}},
+                {
+                    "reasoningRedactedContent": b"encoded_data",
+                    "delta": {"reasoningContent": {"redactedContent": b"encoded_data"}},
+                    "reasoning": True,
+                },
+                {"event": {"contentBlockStop": {}}},
+                {"event": {"messageStop": {"stopReason": "end_turn"}}},
+                {
+                    "event": {
+                        "metadata": {
+                            "usage": {
+                                "inputTokens": 1,
+                                "outputTokens": 1,
+                                "totalTokens": 1,
+                            },
+                            "metrics": {"latencyMs": 1},
+                        }
+                    }
+                },
+                {
+                    "stop": (
+                        "end_turn",
                         {
                             "role": "assistant",
-                            "content": [{"text": "REDACTED."}],
+                            "content": [{"reasoningContent": {"redactedContent": b"encoded_data"}}],
                         },
                         {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
                         {"latencyMs": 1},
-                    ),
+                    )
                 },
             ],
         ),
     ],
 )
 @pytest.mark.asyncio
-async def test_process_stream(response, exp_events, agenerator, alist):
+async def test_process_stream_redacted(response, exp_events, agenerator, alist):
     stream = strands.event_loop.streaming.process_stream(agenerator(response))
 
     tru_events = await alist(stream)

@@ -36,7 +36,7 @@ Example:
         }
 
     agent = Agent(tools=[my_tool])
-    agent.my_tool(param1="hello", param2=123)
+    agent.tool.my_tool(param1="hello", param2=123)
     ```
 """
 

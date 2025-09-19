@@ -207,6 +207,30 @@ class Tracer:
 
         span.add_event(event_name, attributes=event_attributes)
 
+    def _get_event_name_for_message(self, message: Message) -> str:
+        """Determine the appropriate OpenTelemetry event name for a message.
+
+        According to OpenTelemetry semantic conventions v1.36.0, messages containing tool results
+        should be labeled as 'gen_ai.tool.message' regardless of their role field.
+        This ensures proper categorization of tool responses in traces.
+
+        Note: The GenAI namespace is experimental and may change in future versions.
+
+        Reference: https://github.com/open-telemetry/semantic-conventions/blob/v1.36.0/docs/gen-ai/gen-ai-events.md#event-gen_aitoolmessage
+
+        Args:
+            message: The message to determine the event name for
+
+        Returns:
+            The OpenTelemetry event name (e.g., 'gen_ai.user.message', 'gen_ai.tool.message')
+        """
+        # Check if the message contains a tool result
+        for content_block in message.get("content", []):
+            if "toolResult" in content_block:
+                return "gen_ai.tool.message"
+
+        return f"gen_ai.{message['role']}.message"
+
     def start_model_invoke_span(
         self,
         messages: Messages,
@@ -240,7 +264,7 @@ class Tracer:
         for message in messages:
             self._add_event(
                 span,
-                f"gen_ai.{message['role']}.message",
+                self._get_event_name_for_message(message),
                 {"content": serialize(message["content"])},
             )
         return span
@@ -379,7 +403,7 @@ class Tracer:
         for message in messages or []:
             self._add_event(
                 span,
-                f"gen_ai.{message['role']}.message",
+                self._get_event_name_for_message(message),
                 {"content": serialize(message["content"])},
             )
 
@@ -456,7 +480,7 @@ class Tracer:
         for message in messages:
             self._add_event(
                 span,
-                f"gen_ai.{message['role']}.message",
+                self._get_event_name_for_message(message),
                 {"content": serialize(message["content"])},
             )
 

@@ -114,6 +114,7 @@ class LiteLLMModel(OpenAIModel):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        *,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
@@ -204,6 +205,9 @@ class LiteLLMModel(OpenAIModel):
         Yields:
             Model events with the last being the structured output.
         """
+        if not supports_response_schema(self.get_config()["model_id"]):
+            raise ValueError("Model does not support response_format")
+
         response = await litellm.acompletion(
             **self.client_args,
             model=self.get_config()["model_id"],
@@ -211,8 +215,6 @@ class LiteLLMModel(OpenAIModel):
             response_format=output_model,
         )
 
-        if not supports_response_schema(self.get_config()["model_id"]):
-            raise ValueError("Model does not support response_format")
         if len(response.choices) > 1:
             raise ValueError("Multiple choices found in the response.")
 

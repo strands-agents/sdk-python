@@ -64,11 +64,9 @@ class OpenAIModel(Model):
         """
         validate_config_keys(model_config, self.OpenAIConfig)
         self.config = dict(model_config)
+        self.client_args = client_args or {}
 
         logger.debug("config=<%s> | initializing", self.config)
-
-        client_args = client_args or {}
-        self.client = openai.AsyncOpenAI(**client_args)
 
     @override
     def update_config(self, **model_config: Unpack[OpenAIConfig]) -> None:  # type: ignore[override]
@@ -359,6 +357,7 @@ class OpenAIModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        *,
         tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
@@ -379,58 +378,63 @@ class OpenAIModel(Model):
         logger.debug("formatted request=<%s>", request)
 
         logger.debug("invoking model")
-        response = await self.client.chat.completions.create(**request)
 
-        logger.debug("got response from model")
-        yield self.format_chunk({"chunk_type": "message_start"})
-        yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
+        # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying httpx
+        # client. The asyncio event loop does not allow connections to be shared. For more details, please refer to
+        # https://github.com/encode/httpx/discussions/2959.
+        async with openai.AsyncOpenAI(**self.client_args) as client:
+            response = await client.chat.completions.create(**request)
 
-        tool_calls: dict[int, list[Any]] = {}
+            logger.debug("got response from model")
+            yield self.format_chunk({"chunk_type": "message_start"})
+            yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
-        async for event in response:
-            # Defensive: skip events with empty or missing choices
-            if not getattr(event, "choices", None):
-                continue
-            choice = event.choices[0]
+            tool_calls: dict[int, list[Any]] = {}
 
-            if choice.delta.content:
-                yield self.format_chunk(
-                    {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
-                )
+            async for event in response:
+                # Defensive: skip events with empty or missing choices
+                if not getattr(event, "choices", None):
+                    continue
+                choice = event.choices[0]
 
-            if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
-                yield self.format_chunk(
-                    {
-                        "chunk_type": "content_delta",
-                        "data_type": "reasoning_content",
-                        "data": choice.delta.reasoning_content,
-                    }
-                )
+                if choice.delta.content:
+                    yield self.format_chunk(
+                        {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
+                    )
 
-            for tool_call in choice.delta.tool_calls or []:
-                tool_calls.setdefault(tool_call.index, []).append(tool_call)
+                if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
+                    yield self.format_chunk(
+                        {
+                            "chunk_type": "content_delta",
+                            "data_type": "reasoning_content",
+                            "data": choice.delta.reasoning_content,
+                        }
+                    )
 
-            if choice.finish_reason:
-                break
+                for tool_call in choice.delta.tool_calls or []:
+                    tool_calls.setdefault(tool_call.index, []).append(tool_call)
 
-        yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
+                if choice.finish_reason:
+                    break
 
-        for tool_deltas in tool_calls.values():
-            yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]})
+            yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
 
-            for tool_delta in tool_deltas:
-                yield self.format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_delta})
+            for tool_deltas in tool_calls.values():
+                yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]})
 
-            yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
+                for tool_delta in tool_deltas:
+                    yield self.format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_delta})
 
-        yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
+                yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
 
-        # Skip remaining events as we don't have use for anything except the final usage payload
-        async for event in response:
-            _ = event
+            yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
 
-        if event.usage:
-            yield self.format_chunk({"chunk_type": "metadata", "data": event.usage})
+            # Skip remaining events as we don't have use for anything except the final usage payload
+            async for event in response:
+                _ = event
+
+            if event.usage:
+                yield self.format_chunk({"chunk_type": "metadata", "data": event.usage})
 
         logger.debug("finished streaming response from model")
 
@@ -449,11 +453,15 @@ class OpenAIModel(Model):
         Yields:
             Model events with the last being the structured output.
         """
-        response: ParsedChatCompletion = await self.client.beta.chat.completions.parse(  # type: ignore
-            model=self.get_config()["model_id"],
-            messages=self.format_request(prompt, system_prompt=system_prompt)["messages"],
-            response_format=output_model,
-        )
+        # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying httpx
+        # client. The asyncio event loop does not allow connections to be shared. For more details, please refer to
+        # https://github.com/encode/httpx/discussions/2959.
+        async with openai.AsyncOpenAI(**self.client_args) as client:
+            response: ParsedChatCompletion = await client.beta.chat.completions.parse(
+                model=self.get_config()["model_id"],
+                messages=self.format_request(prompt, system_prompt=system_prompt)["messages"],
+                response_format=output_model,
+            )
 
         parsed: T | None = None
         # Find the first choice with tool_calls
