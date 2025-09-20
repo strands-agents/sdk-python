@@ -8,8 +8,8 @@ Submodules:
          standardized communication between agents.
 """
 
-from .base import MultiAgentBase, MultiAgentResult
-from .graph import GraphBuilder, GraphResult
+from .base import MultiAgentBase, MultiAgentResult, Status
+from .graph import Graph, GraphBuilder, GraphNode, GraphResult
 from .swarm import Swarm, SwarmResult
 
 __all__ = [
@@ -19,4 +19,7 @@ __all__ = [
     "MultiAgentResult",
     "Swarm",
     "SwarmResult",
+    "GraphNode",
+    "Status",
+    "Graph",
 ]

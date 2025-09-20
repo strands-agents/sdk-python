@@ -8,20 +8,30 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Union
+from typing import TYPE_CHECKING, Any, Union
 
-from ..agent import AgentResult
 from ..types.content import ContentBlock
 from ..types.event_loop import Metrics, Usage
+
+if TYPE_CHECKING:
+    from ..agent import AgentResult
+else:
+    # Import AgentResult for runtime use
+    try:
+        from ..agent import AgentResult
+    except ImportError:
+        AgentResult = None
 
 
 class Status(Enum):
     """Execution status for both graphs and nodes."""
 
+    INITIALIZING = "initializing"
     PENDING = "pending"
     EXECUTING = "executing"
     COMPLETED = "completed"
     FAILED = "failed"
+    INTERRUPTED = "interrupted"
 
 
 @dataclass
@@ -34,7 +44,7 @@ class NodeResult:
     """
 
     # Core result data - single AgentResult, nested MultiAgentResult, or Exception
-    result: Union[AgentResult, "MultiAgentResult", Exception]
+    result: Union["AgentResult", "MultiAgentResult", Exception]
 
     # Execution metadata
     execution_time: int = 0
@@ -45,17 +55,20 @@ class NodeResult:
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
     execution_count: int = 0
 
-    def get_agent_results(self) -> list[AgentResult]:
+    def get_agent_results(self) -> list["AgentResult"]:
         """Get all AgentResult objects from this node, flattened if nested."""
         if isinstance(self.result, Exception):
             return []  # No agent results for exceptions
-        elif isinstance(self.result, AgentResult):
+        elif AgentResult is not None and isinstance(self.result, AgentResult):
+            return [self.result]
+        elif hasattr(self.result, '__class__') and self.result.__class__.__name__ == 'AgentResult':
             return [self.result]
         else:
             # Flatten nested results from MultiAgentResult
             flattened = []
             for nested_node_result in self.result.results.values():
-                flattened.extend(nested_node_result.get_agent_results())
+                if isinstance(nested_node_result,NodeResult):
+                    flattened.extend(nested_node_result.get_agent_results())
             return flattened
 
 

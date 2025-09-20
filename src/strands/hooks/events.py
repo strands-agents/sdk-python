@@ -77,4 +77,4 @@ class MessageAddedEvent(HookEvent):
         message: The message that was added to the conversation history.
     """
 
-    message: Message
+    message: Message | None = None
