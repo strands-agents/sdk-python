@@ -189,7 +189,7 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
     expected_request = {
         "api_key": api_key,
         "model": model_id,
-        "messages": [{"role": "user", "content": [{"text": "calculate 2+2", "type": "text"}]}],
+        "messages": [{"role": "user", "content": "calculate 2+2"}],
         "stream": True,
         "stream_options": {"include_usage": True},
         "tools": [],
@@ -231,6 +231,66 @@ async def test_stream_empty(litellm_acompletion, api_key, model_id, model, agene
         "tools": [],
     }
     litellm_acompletion.assert_called_once_with(**expected_request)
+
+
+@pytest.mark.asyncio
+async def test_format_request_messages_with_tools():
+    """Test that format_request_messages correctly handles tool messages for Cerebras/Groq compatibility."""
+    messages = [
+        {
+            "role": "user", 
+            "content": [{"text": "What is 2+2?"}]
+        },
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "call_123",
+                        "name": "calculator",
+                        "input": {"expression": "2+2"}
+                    }
+                }
+            ]
+        },
+        {
+            "role": "tool",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "call_123",
+                        "content": [{"text": "4"}]
+                    }
+                }
+            ]
+        }
+    ]
+    
+    formatted = LiteLLMModel.format_request_messages(messages)
+    
+    expected = [
+        {"role": "user", "content": "What is 2+2?"},
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "function": {
+                        "name": "calculator",
+                        "arguments": '{"expression": "2+2"}'
+                    },
+                    "id": "call_123",
+                    "type": "function"
+                }
+            ]
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call_123",
+            "content": "4"
+        }
+    ]
+    
+    assert formatted == expected
 
 
 @pytest.mark.asyncio

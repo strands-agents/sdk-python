@@ -103,6 +103,157 @@ class LiteLLMModel(OpenAIModel):
 
         return super().format_request_message_content(content)
 
+    def _format_request_message_contents(self, role: str, content: ContentBlock) -> list[dict[str, Any]]:
+        """Format LiteLLM compatible message contents.
+
+        LiteLLM expects content to be a string for simple text messages, not a list of content blocks.
+        This method flattens the content structure to be compatible with LiteLLM providers like Cerebras and Groq.
+
+        Args:
+            role: Message role (e.g., "user", "assistant").
+            content: Content block to format.
+
+        Returns:
+            LiteLLM formatted message contents.
+
+        Raises:
+            TypeError: If the content block type cannot be converted to a LiteLLM-compatible format.
+        """
+        if "text" in content:
+            return [{"role": role, "content": content["text"]}]
+
+        if "image" in content:
+            # For images, we still need to use the structured format
+            return [{"role": role, "content": [self.format_request_message_content(content)]}]
+
+        if "toolUse" in content:
+            return [
+                {
+                    "role": role,
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": content["toolUse"]["name"],
+                                "arguments": json.dumps(content["toolUse"]["input"]),
+                            },
+                            "id": content["toolUse"]["toolUseId"],
+                            "type": "function",
+                        }
+                    ],
+                }
+            ]
+
+        if "toolResult" in content:
+            # For tool results, we need to format the content properly
+            tool_content_parts = []
+            for tool_content in content["toolResult"]["content"]:
+                if "json" in tool_content:
+                    tool_content_parts.append(json.dumps(tool_content["json"]))
+                elif "text" in tool_content:
+                    tool_content_parts.append(tool_content["text"])
+                else:
+                    tool_content_parts.append(str(tool_content))
+            
+            tool_content_string = " ".join(tool_content_parts)
+            return [
+                {
+                    "role": "tool",
+                    "tool_call_id": content["toolResult"]["toolUseId"],
+                    "content": tool_content_string,
+                }
+            ]
+
+        raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
+
+    @override
+    @classmethod
+    def format_request_messages(cls, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+        """Format LiteLLM compatible messages array.
+
+        This method overrides the parent class to ensure compatibility with LiteLLM providers
+        that expect string content instead of content block arrays.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            system_prompt: System prompt to provide context to the model.
+
+        Returns:
+            A LiteLLM compatible messages array.
+        """
+        formatted_messages: list[dict[str, Any]] = []
+        
+        # Add system prompt if provided
+        if system_prompt:
+            formatted_messages.append({"role": "system", "content": system_prompt})
+
+        for message in messages:
+            contents = message["content"]
+            
+            # Separate different types of content
+            text_contents = [content for content in contents if "text" in content and not any(block_type in content for block_type in ["toolResult", "toolUse"])]
+            tool_use_contents = [content for content in contents if "toolUse" in content]
+            tool_result_contents = [content for content in contents if "toolResult" in content]
+            other_contents = [content for content in contents if not any(block_type in content for block_type in ["text", "toolResult", "toolUse"])]
+
+            # Handle text content - flatten to string for Cerebras/Groq compatibility
+            if text_contents:
+                if len(text_contents) == 1:
+                    # Single text content - use string format
+                    formatted_messages.append({
+                        "role": message["role"],
+                        "content": text_contents[0]["text"]
+                    })
+                else:
+                    # Multiple text contents - concatenate
+                    combined_text = " ".join(content["text"] for content in text_contents)
+                    formatted_messages.append({
+                        "role": message["role"],
+                        "content": combined_text
+                    })
+
+            # Handle tool use content
+            for content in tool_use_contents:
+                formatted_messages.append({
+                    "role": message["role"],
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": content["toolUse"]["name"],
+                                "arguments": json.dumps(content["toolUse"]["input"]),
+                            },
+                            "id": content["toolUse"]["toolUseId"],
+                            "type": "function",
+                        }
+                    ],
+                })
+
+            # Handle tool result content
+            for content in tool_result_contents:
+                tool_content_parts = []
+                for tool_content in content["toolResult"]["content"]:
+                    if "json" in tool_content:
+                        tool_content_parts.append(json.dumps(tool_content["json"]))
+                    elif "text" in tool_content:
+                        tool_content_parts.append(tool_content["text"])
+                    else:
+                        tool_content_parts.append(str(tool_content))
+                
+                tool_content_string = " ".join(tool_content_parts)
+                formatted_messages.append({
+                    "role": "tool",
+                    "tool_call_id": content["toolResult"]["toolUseId"],
+                    "content": tool_content_string,
+                })
+
+            # Handle other content types (images, etc.) - use structured format
+            for content in other_contents:
+                formatted_messages.append({
+                    "role": message["role"],
+                    "content": [cls.format_request_message_content(content)]
+                })
+
+        return formatted_messages
+
     @override
     async def stream(
         self,
@@ -200,7 +351,7 @@ class LiteLLMModel(OpenAIModel):
         response = await litellm.acompletion(
             **self.client_args,
             model=self.get_config()["model_id"],
-            messages=self.format_request(prompt, system_prompt=system_prompt)["messages"],
+            messages=self.format_request_messages(prompt, system_prompt=system_prompt),
             response_format=output_model,
         )
 
