@@ -460,20 +460,12 @@ class MCPClient:
                 self._log_debug_with_thread("embedded resource has no 'resource' field - dropping")
                 return None
 
-            # Support both pydantic model and dict access
-            def _get(attr: str) -> Any:
-                if hasattr(resource, attr):
-                    return getattr(resource, attr)
-                if isinstance(resource, dict):
-                    return resource.get(attr)
-                return None
-
-            text_val = _get("text")
+            text_val = getattr(resource, "text", None)
             if text_val:
                 return {"text": text_val}
 
-            blob_val = _get("blob")
-            mime_type = _get("mimeType")
+            blob_val = getattr(resource, "blob", None)
+            mime_type = getattr(resource, "mimeType", None)
 
             if blob_val is not None:
                 # blob is a base64 string in current mcp schema
@@ -527,7 +519,7 @@ class MCPClient:
                 return None
             
             # Handle URI-only resources
-            uri = _get("uri")
+            uri = getattr(resource, "uri", None)
             if uri:
                 return {
                     "json": {
