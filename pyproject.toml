@@ -57,7 +57,7 @@ otel = ["opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0"]
 docs = [
     "sphinx>=5.0.0,<6.0.0",
     "sphinx-rtd-theme>=1.0.0,<2.0.0",
-    "sphinx-autodoc-typehints>=1.12.0,<2.0.0",
+    "sphinx-autodoc-typehints>=1.12.0,<4.0.0",
 ]
 
 a2a = [
