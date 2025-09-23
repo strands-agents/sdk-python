@@ -205,12 +205,21 @@ class LiteLLMModel(OpenAIModel):
         Yields:
             Model events with the last being the structured output.
         """
-        if not supports_response_schema(self.get_config()["model_id"]):
+        # Allow LiteLLM proxy usage to bypass supports_response_schema check.
+        # If a proxy is in use, we cannot reliably detect support by model_id alone,
+        # so prefer to let litellm/proxy handle response_format negotiation.
+        client_args = getattr(self, "client_args", {}) or {}
+        use_proxy = bool(client_args.get("use_litellm_proxy") or client_args.get("use_proxy"))
+        model_id = self.get_config().get("model_id")
+
+        if not use_proxy and (not model_id or not supports_response_schema(model_id)):
             raise ValueError("Model does not support response_format")
+
+        logger.debug("calling litellm.acompletion model=%s use_proxy=%s", model_id, use_proxy)
 
         response = await litellm.acompletion(
             **self.client_args,
-            model=self.get_config()["model_id"],
+            model=model_id,
             messages=self.format_request(prompt, system_prompt=system_prompt)["messages"],
             response_format=output_model,
         )

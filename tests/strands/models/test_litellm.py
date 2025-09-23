@@ -332,3 +332,33 @@ def test_tool_choice_none_no_warning(model, messages, captured_warnings):
     model.format_request(messages, tool_choice=None)
 
     assert len(captured_warnings) == 0
+
+
+class TestModel(pydantic.BaseModel):
+    name: str
+
+
+@pytest.mark.asyncio
+async def test_structured_output_with_proxy_bypasses_support_check(monkeypatch):
+    # Model configured with proxy, supports_response_schema returns False
+    model = LiteLLMModel(client_args={"api_key": "X", "use_litellm_proxy": True}, model_id="some/model")
+
+    # Force supports_response_schema to False to simulate "unknown" capability
+    monkeypatch.setattr(strands.models.litellm, "supports_response_schema", lambda _mid: False)
+
+    # Mock litellm.acompletion to return a response with a choice finishing with tool_calls
+    mock_choice = unittest.mock.Mock()
+    mock_choice.finish_reason = "tool_calls"
+    mock_choice.message = unittest.mock.Mock()
+    mock_choice.message.content = '{"name":"proxy-result"}'
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+
+    async def fake_acompletion(**kwargs):
+        return mock_response
+
+    monkeypatch.setattr(strands.models.litellm.litellm, "acompletion", fake_acompletion)
+
+    stream = model.structured_output(TestModel, [{"role": "user", "content": [{"text": "x"}]}])
+    events = [e async for e in stream]
+    assert events[-1] == {"output": TestModel(name="proxy-result")}
