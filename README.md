@@ -206,6 +206,42 @@ For detailed guidance & examples, explore our documentation:
 - [API Reference](https://strandsagents.com/latest/api-reference/agent/)
 - [Production & Deployment Guide](https://strandsagents.com/latest/user-guide/deploy/operating-agents-in-production/)
 
+## Generating Documentation
+
+This repository includes an `AGENTS.md` file that provides a comprehensive guide for AI agents to understand and work with the Strands Agents SDK. This guide can be automatically regenerated using a Strands Agent.
+
+### Regenerating AGENTS.md
+
+To regenerate the `AGENTS.md` file:
+
+1. **Install Strands Agents with file tools**:
+   ```bash
+   pip install strands-agents strands-agents-tools
+   ```
+
+2. **Create a documentation agent**:
+   ```python
+   from strands import Agent
+   from strands_tools import file_read, file_write
+   
+   # Create agent with file system tools
+   doc_agent = Agent(tools=[file_read, file_write])
+   
+   # Load the generation prompt
+   with open('scripts/generate_agents_guide.md', 'r') as f:
+       prompt = f.read()
+   
+   # Generate the documentation
+   doc_agent(prompt)
+   ```
+
+3. **Or use the generation script directly**:
+   ```bash
+   python scripts/generate_agents_guide.py
+   ```
+
+The generation prompt is located in `scripts/generate_agents_guide.md` and contains detailed instructions for analyzing the codebase and creating comprehensive documentation.
+
 ## Contributing ❤️
 
 We welcome contributions! See our [Contributing Guide](CONTRIBUTING.md) for details on:
