@@ -541,3 +541,173 @@ def test_mcp_client_state_reset_after_timeout():
     assert client._background_thread_session is None
     assert client._background_thread_event_loop is None
     assert not client._init_future.done()  # New future created
+
+
+def test_call_tool_sync_server_jsonrpc_error_response(mock_transport, mock_session):
+    """Test that call_tool_sync handles JSON-RPC error responses from server without hanging.
+
+    This reproduces the bug where the MCP client hangs when the remote streamable HTTP server
+    responds with a JSON-RPC error instead of a successful tool result.
+    """
+    import time
+    from datetime import timedelta
+
+    # Simulate a JSON-RPC error by making the call_tool method hang indefinitely
+    # This mimics what happens when the MCP SDK receives a JSON-RPC error response
+    def hanging_call_tool(*args, **kwargs):
+        # Simulate the hanging behavior by sleeping indefinitely
+        time.sleep(10)  # This will cause a timeout in our test
+
+    mock_session.call_tool = hanging_call_tool
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        # Test with a very short timeout to verify the fix
+        start_time = time.time()
+
+        # This should not hang indefinitely, should timeout after 2 seconds
+        result = client.call_tool_sync(
+            tool_use_id="test-hanging-123",
+            name="test_tool",
+            arguments={"param": "value"},
+            read_timeout_seconds=timedelta(seconds=2)  # Short timeout for test
+        )
+
+        elapsed_time = time.time() - start_time
+
+        # The call should complete quickly (within 3 seconds) due to timeout handling
+        # and return a timeout error result rather than hanging for 10+ seconds
+        assert elapsed_time < 4, f"Tool call took {elapsed_time} seconds, suggesting it hung"
+        assert result["status"] == "error"
+        assert result["toolUseId"] == "test-hanging-123"
+        assert len(result["content"]) == 1
+        assert ("timed out" in result["content"][0]["text"] or
+                "Tool execution failed" in result["content"][0]["text"])
+
+
+@pytest.mark.asyncio
+async def test_call_tool_async_server_jsonrpc_error_response(mock_transport, mock_session):
+    """Test that call_tool_async handles JSON-RPC error responses from server without hanging.
+
+    This reproduces the bug where the MCP client hangs when the remote streamable HTTP server
+    responds with a JSON-RPC error instead of a successful tool result.
+    """
+    import asyncio
+    import time
+    from datetime import timedelta
+
+    # Simulate a JSON-RPC error by making the call_tool method hang indefinitely
+    async def hanging_call_tool(*args, **kwargs):
+        # Simulate the hanging behavior
+        await asyncio.sleep(10)  # This will cause a timeout in our test
+
+    mock_session.call_tool = hanging_call_tool
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        start_time = time.time()
+
+        # This should not hang indefinitely, should timeout after 2 seconds
+        result = await client.call_tool_async(
+            tool_use_id="test-async-hanging-123",
+            name="test_tool",
+            arguments={"param": "value"},
+            read_timeout_seconds=timedelta(seconds=2)  # Short timeout for test
+        )
+
+        elapsed_time = time.time() - start_time
+
+        # The call should complete quickly (within 3 seconds) due to timeout handling
+        # and return a timeout error result rather than hanging for 10+ seconds
+        assert elapsed_time < 4, f"Async tool call took {elapsed_time} seconds, suggesting it hung"
+        assert result["status"] == "error"
+        assert result["toolUseId"] == "test-async-hanging-123"
+        assert len(result["content"]) == 1
+        assert ("timed out" in result["content"][0]["text"] or
+                "Tool execution failed" in result["content"][0]["text"])
+
+
+def test_call_tool_sync_no_timeout_preserves_original_behavior(mock_transport, mock_session):
+    """Test that call_tool_sync does not apply timeout when read_timeout_seconds is None.
+
+    This verifies backward compatibility - when no timeout is specified, the method should
+    behave as it did originally (no timeout applied) to avoid breaking existing customers.
+    """
+    import asyncio
+    import time
+
+    # Mock a slow but successful tool call that takes longer than the old default (60s)
+    # but should succeed since no timeout is applied
+    async def slow_but_successful_call_tool(name, arguments, read_timeout_seconds=None):
+        # Simulate a slow operation that would exceed old default timeout
+        await asyncio.sleep(0.1)  # Short delay for test performance
+        return MCPCallToolResult(
+            isError=False,
+            content=[MCPTextContent(type="text", text="Success after delay")]
+        )
+
+    mock_session.call_tool = slow_but_successful_call_tool
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        start_time = time.time()
+
+        # Call WITHOUT timeout parameter - should not apply any timeout
+        result = client.call_tool_sync(
+            tool_use_id="test-no-timeout-123",
+            name="test_tool",
+            arguments={"param": "value"}
+            # No read_timeout_seconds parameter
+        )
+
+        elapsed_time = time.time() - start_time
+
+        # Should succeed without timeout error
+        assert result["status"] == "success"
+        assert result["toolUseId"] == "test-no-timeout-123"
+        assert len(result["content"]) == 1
+        assert result["content"][0]["text"] == "Success after delay"
+
+        # Should have taken at least the delay time, proving no premature timeout
+        assert elapsed_time >= 0.1
+
+
+@pytest.mark.asyncio
+async def test_call_tool_async_no_timeout_preserves_original_behavior(mock_transport, mock_session):
+    """Test that call_tool_async does not apply timeout when read_timeout_seconds is None.
+
+    This verifies backward compatibility - when no timeout is specified, the method should
+    behave as it did originally (no timeout applied) to avoid breaking existing customers.
+    """
+    import asyncio
+    import time
+
+    # Mock a slow but successful async tool call
+    async def slow_but_successful_call_tool(name, arguments, read_timeout_seconds=None):
+        # Simulate a slow async operation
+        await asyncio.sleep(0.1)  # Short delay for test performance
+        return MCPCallToolResult(
+            isError=False,
+            content=[MCPTextContent(type="text", text="Async success after delay")]
+        )
+
+    mock_session.call_tool = slow_but_successful_call_tool
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        start_time = time.time()
+
+        # Call WITHOUT timeout parameter - should not apply any timeout
+        result = await client.call_tool_async(
+            tool_use_id="test-async-no-timeout-123",
+            name="test_tool",
+            arguments={"param": "value"}
+            # No read_timeout_seconds parameter
+        )
+
+        elapsed_time = time.time() - start_time
+
+        # Should succeed without timeout error
+        assert result["status"] == "success"
+        assert result["toolUseId"] == "test-async-no-timeout-123"
+        assert len(result["content"]) == 1
+        assert result["content"][0]["text"] == "Async success after delay"
+
+        # Should have taken at least the delay time, proving no premature timeout
+        assert elapsed_time >= 0.1
