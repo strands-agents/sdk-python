@@ -85,9 +85,9 @@ class AgentConfig:
             # Validate all tool names exist in the ToolBox
             available_tools = self._toolbox.list_tool_names()
             
-            if any(tool_name not in available_tools for tool_name in config_tools) and self._raise_exception_on_missing_tool:
-                missing_tool = next(tool_name for tool_name in config_tools if tool_name not in available_tools)
-                raise ValueError(f"Tool '{missing_tool}' not found in ToolBox. Available tools: {available_tools}")
+missing_tools = set(config_tools).difference(set(available_tools))
+    if missing_tools and self._raise_exception_on_missing_tool:
+        raise ValueError(f"Tool(s) '{missing_tools}' not found in ToolBox. Available tools: {available_tools}")
             
             # Store selected tools from the ToolBox (only ones that exist)
             all_tools = self._toolbox.list_tools()
