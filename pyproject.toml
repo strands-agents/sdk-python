@@ -255,10 +255,3 @@ style = [
     ["text", ""],
     ["disabled", "fg:#858585 italic"]
 ]
-
-[dependency-groups]
-dev = [
-    "moto>=5.1.13",
-    "pytest>=8.4.2",
-    "pytest-asyncio>=1.1.1",
-]

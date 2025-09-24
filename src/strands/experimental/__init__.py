@@ -4,6 +4,6 @@ This module implements experimental features that are subject to change in futur
 """
 
 from .agent_config import AgentConfig
-from .tool_pool import ToolPool
+from .tool_box import ToolBox
 
-__all__ = ["AgentConfig", "ToolPool"]
+__all__ = ["AgentConfig", "ToolBox"]

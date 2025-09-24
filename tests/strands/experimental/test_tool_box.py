@@ -1,11 +1,9 @@
-# ABOUTME: Tests for experimental ToolPool using existing AgentTool infrastructure
-# ABOUTME: Validates tool management, filtering, and integration with existing tools
-"""Tests for experimental ToolPool system."""
+"""Tests for experimental ToolBox system."""
 
 import pytest
 
 from strands.types.tools import AgentTool
-from strands.experimental.tool_pool import ToolPool
+from strands.experimental.tool_box import ToolBox
 
 
 class MockAgentTool(AgentTool):
@@ -32,59 +30,28 @@ class MockAgentTool(AgentTool):
         yield {"result": f"Mock result from {self._name}"}
 
 
-class TestToolPool:
-    """Test ToolPool functionality with existing AgentTool infrastructure."""
+class TestToolBox:
+    """Test ToolBox functionality with existing AgentTool infrastructure."""
     
     def test_tool_pool_creation(self):
-        """Test ToolPool can be created empty."""
+        """Test ToolBox can be created empty."""
         
-        pool = ToolPool()
+        pool = ToolBox()
         assert pool.list_tool_names() == []
     
     def test_tool_pool_with_initial_tools(self):
-        """Test ToolPool creation with initial AgentTool instances."""
+        """Test ToolBox creation with initial AgentTool instances."""
         
         tool1 = MockAgentTool("tool1", "python")
         tool2 = MockAgentTool("tool2", "javascript")
         
-        pool = ToolPool([tool1, tool2])
+        pool = ToolBox([tool1, tool2])
         assert set(pool.list_tool_names()) == {"tool1", "tool2"}
-    
-    def test_tool_pool_with_tool_functions(self):
-        """Test ToolPool creation with @tool decorated functions."""
-        
-        # Create mock tool functions
-        def tool1():
-            return "result1"
-        
-        def tool2():
-            return "result2"
-        
-        # Add tool specs to simulate @tool decorator
-        tool1._strands_tool_spec = {"name": "tool1", "description": "Tool 1", "inputSchema": {}}
-        tool2._strands_tool_spec = {"name": "tool2", "description": "Tool 2", "inputSchema": {}}
-        
-        pool = ToolPool([tool1, tool2])
-        assert set(pool.list_tool_names()) == {"tool1", "tool2"}
-    
-    def test_tool_pool_with_mixed_tools(self):
-        """Test ToolPool creation with mixed AgentTool instances and functions."""
-        
-        # AgentTool instance
-        agent_tool = MockAgentTool("agent_tool", "python")
-        
-        # @tool function
-        def func_tool():
-            return "result"
-        func_tool._strands_tool_spec = {"name": "func_tool", "description": "Function tool", "inputSchema": {}}
-        
-        pool = ToolPool([agent_tool, func_tool])
-        assert set(pool.list_tool_names()) == {"agent_tool", "func_tool"}
     
     def test_add_and_get_tool(self):
         """Test adding and retrieving AgentTool instances."""
         
-        pool = ToolPool()
+        pool = ToolBox()
         tool = MockAgentTool("test_tool", "python")
         
         pool.add_tool(tool)
@@ -92,14 +59,14 @@ class TestToolPool:
         assert pool.get_tool("test_tool") == tool
         assert pool.get_tool("nonexistent") is None
     
-    def test_get_tools(self):
-        """Test getting tools as AgentTool instances."""
+    def test_list_tools(self):
+        """Test listing tools as AgentTool instances."""
         
         tool1 = MockAgentTool("tool1", "python")
         tool2 = MockAgentTool("tool2", "javascript")
         
-        pool = ToolPool([tool1, tool2])
-        agent_tools = pool.get_tools()
+        pool = ToolBox([tool1, tool2])
+        agent_tools = pool.list_tools()
         
         assert len(agent_tools) == 2
         assert all(hasattr(t, 'tool_name') for t in agent_tools)
@@ -121,13 +88,13 @@ class TestToolPool:
             "inputSchema": {}
         }
         
-        pool = ToolPool()
+        pool = ToolBox()
         pool.add_tools_from_module(MockModule)
         
         assert "mock_tool" in pool.list_tool_names()
     
     def test_from_module_class_method(self):
-        """Test creating ToolPool from module."""
+        """Test creating ToolBox from module."""
         
         # Create mock module with tool function
         class MockModule:
@@ -148,7 +115,7 @@ class TestToolPool:
         MockModule.tool2._strands_tool_spec = {"name": "tool2", "description": "Tool 2", "inputSchema": {}}
         # not_a_tool doesn't have _strands_tool_spec
         
-        pool = ToolPool.from_module(MockModule)
+        pool = ToolBox.from_module(MockModule)
         
         assert set(pool.list_tool_names()) == {"tool1", "tool2"}
         assert "not_a_tool" not in pool.list_tool_names()
