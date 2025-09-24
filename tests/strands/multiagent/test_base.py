@@ -2,7 +2,13 @@
 
 import pytest
 
-from strands.multiagent.base import SharedContext
+from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult, SharedContext, Status
+from strands.types.content import ContentBlock
+
+
+class IncompleteMultiAgent(MultiAgentBase):
+    """Incomplete implementation for testing abstract base class."""
+    pass
 
 
 def test_shared_context_initialization():

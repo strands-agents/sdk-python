@@ -194,7 +194,7 @@ class LiteLLMModel(OpenAIModel):
         ]
 
     def format_request(
-        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None, tool_choice: ToolChoice | None = None
     ) -> dict[str, Any]:
         """Format a LiteLLM compatible chat streaming request.
 
@@ -202,6 +202,7 @@ class LiteLLMModel(OpenAIModel):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
 
         Returns:
             A LiteLLM compatible chat streaming request.
