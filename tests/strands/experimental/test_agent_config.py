@@ -158,12 +158,23 @@ class TestAgentConfig:
             }, tool_box=toolbox)
     
     def test_agent_config_tools_without_toolbox_error(self):
-        """Test that specifying tools without ToolBox raises error."""
-        with pytest.raises(ValueError, match="Tool names specified in config but no ToolBox provided"):
-            AgentConfig({
+        """Test that config can load tools from default toolbox when strands_tools is available."""
+        import unittest.mock
+        from strands.experimental.tool_box import ToolBox
+        
+        # Create a mock toolbox with the tools we want
+        mock_toolbox = ToolBox()
+        mock_file_read = self.MockTool("file_read")
+        mock_toolbox.add_tool(mock_file_read)
+        
+        # Patch the _create_default_toolbox method to return our mock
+        with unittest.mock.patch.object(AgentConfig, '_create_default_toolbox', return_value=mock_toolbox):
+            config = AgentConfig({
                 "model": "test-model",
-                "tools": ["calculator"]
+                "tools": ["file_read"]
             })
+            assert len(config.configured_tools) == 1
+            assert config.configured_tools[0].tool_name == "file_read"
     
     def test_agent_config_no_strands_tools_error(self):
         """Test that missing strands_tools without ToolBox raises ImportError."""
@@ -208,3 +219,23 @@ class TestAgentConfig:
                 "model": "test-model",
                 "tools": ["missing_tool"]
             }, tool_box=custom_toolbox, raise_exception_on_missing_tool=True)
+
+    def test_agent_config_loads_from_default_tools_without_toolbox(self):
+        """Test that config can load tools from default strands_tools without explicit toolbox."""
+        import unittest.mock
+        from strands.experimental.tool_box import ToolBox
+        
+        # Create a mock toolbox with the tools we want
+        mock_toolbox = ToolBox()
+        mock_file_read = self.MockTool("file_read")
+        mock_toolbox.add_tool(mock_file_read)
+        
+        # Patch the _create_default_toolbox method to return our mock
+        with unittest.mock.patch.object(AgentConfig, '_create_default_toolbox', return_value=mock_toolbox):
+            config = AgentConfig({
+                "model": "test-model", 
+                "tools": ["file_read"]
+            })
+            # Verify the tool was loaded from the default toolbox
+            assert len(config.configured_tools) == 1
+            assert config.configured_tools[0].tool_name == "file_read"

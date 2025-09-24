@@ -67,17 +67,15 @@ class AgentConfig:
         self.system_prompt = config_data.get('prompt')  # Only accept 'prompt' key
         self._raise_exception_on_missing_tool = raise_exception_on_missing_tool
         
-        # Process tools configuration if provided
-        config_tools = config_data.get('tools')
-        if config_tools is not None and tool_box is None:
-            raise ValueError("Tool names specified in config but no ToolBox provided")
-        
         # Handle tool selection from ToolBox
         if tool_box is not None:
             self._toolbox = tool_box
         else:
             # Create default ToolBox with strands_tools
             self._toolbox = self._create_default_toolbox()
+        
+        # Process tools configuration if provided
+        config_tools = config_data.get('tools')
         
         # Track configured tools separately from full tool pool
         self._configured_tools = []
