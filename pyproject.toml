@@ -134,6 +134,7 @@ dependencies = [
     "pytest-asyncio>=1.0.0,<1.3.0",
     "pytest-xdist>=3.0.0,<4.0.0",
     "moto>=5.1.0,<6.0.0",
+    "strands-agents-tools>=0.2.0,<1.0.0",
 ]
 
 [[tool.hatch.envs.hatch-test.matrix]]
