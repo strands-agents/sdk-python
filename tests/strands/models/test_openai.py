@@ -6,7 +6,7 @@ import pytest
 
 import strands
 from strands.models.openai import OpenAIModel
-from strands.types.exceptions import ContextWindowOverflowException
+from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
 
 @pytest.fixture
@@ -830,7 +830,6 @@ async def test_structured_output_context_overflow_exception(openai_client, model
 @pytest.mark.asyncio
 async def test_stream_rate_limit_as_throttle(openai_client, model, messages):
     """Test that all rate limit errors are converted to ModelThrottledException."""
-    from strands.types.exceptions import ModelThrottledException
 
     # Create a mock OpenAI RateLimitError (any type of rate limit)
     mock_error = openai.RateLimitError(
@@ -856,7 +855,6 @@ async def test_stream_rate_limit_as_throttle(openai_client, model, messages):
 @pytest.mark.asyncio
 async def test_stream_request_rate_limit_as_throttle(openai_client, model, messages):
     """Test that request-based rate limit errors are converted to ModelThrottledException."""
-    from strands.types.exceptions import ModelThrottledException
 
     # Create a mock OpenAI RateLimitError for request-based rate limiting
     mock_error = openai.RateLimitError(
@@ -882,7 +880,6 @@ async def test_stream_request_rate_limit_as_throttle(openai_client, model, messa
 @pytest.mark.asyncio
 async def test_structured_output_rate_limit_as_throttle(openai_client, model, messages, test_output_model_cls):
     """Test that structured output handles rate limit errors properly."""
-    from strands.types.exceptions import ModelThrottledException
 
     # Create a mock OpenAI RateLimitError
     mock_error = openai.RateLimitError(
