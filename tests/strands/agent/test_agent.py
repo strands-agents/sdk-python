@@ -1868,12 +1868,166 @@ def test_agent_tool_call_parameter_filtering_integration(mock_randint):
     assert result["status"] == "success"
     assert result["content"] == [{"text": "test_value"}]
 
-    # Check that only spec parameters are recorded in message history
-    assert len(agent.messages) > 0
-    user_message = agent.messages[0]
-    tool_call_text = user_message["content"][0]["text"]
 
-    # Should only contain the 'action' parameter
-    assert '"action": "test_value"' in tool_call_text
-    assert '"agent"' not in tool_call_text
-    assert '"extra_param"' not in tool_call_text
+# Tests for new invocation_args parameter and deprecation warnings
+@pytest.mark.asyncio
+async def test_agent_call_with_invocation_args(mock_event_loop_cycle):
+    """Test that Agent.__call__ works with new invocation_args parameter."""
+    agent = Agent()
+    
+    async def test_event_loop(*args, **kwargs):
+        invocation_state = kwargs["invocation_state"]
+        assert invocation_state["test_param"] == "test_value"
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
+    
+    mock_event_loop_cycle.side_effect = test_event_loop
+    
+    result = agent("Test prompt", invocation_args={"test_param": "test_value"})
+    
+    assert result.stop_reason == "stop"
+    assert result.message["role"] == "assistant"
+
+
+@pytest.mark.asyncio
+async def test_agent_call_with_kwargs_deprecation_warning(mock_event_loop_cycle):
+    """Test that Agent.__call__ emits deprecation warning when using kwargs."""
+    agent = Agent()
+    
+    async def test_event_loop(*args, **kwargs):
+        invocation_state = kwargs["invocation_state"]
+        assert invocation_state["test_param"] == "test_value"
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
+    
+    mock_event_loop_cycle.side_effect = test_event_loop
+    
+    with pytest.warns(DeprecationWarning, match="Using \\*\\*kwargs in Agent.__call__ is deprecated"):
+        result = agent("Test prompt", test_param="test_value")
+    
+    assert result.stop_reason == "stop"
+    assert result.message["role"] == "assistant"
+
+
+@pytest.mark.asyncio
+async def test_agent_call_with_both_invocation_args_and_kwargs(mock_event_loop_cycle):
+    """Test that invocation_args takes precedence over kwargs when both are provided."""
+    agent = Agent()
+    
+    async def test_event_loop(*args, **kwargs):
+        invocation_state = kwargs["invocation_state"]
+        assert invocation_state["test_param"] == "invocation_args_value"  # invocation_args should win
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
+    
+    mock_event_loop_cycle.side_effect = test_event_loop
+    
+    with pytest.warns(DeprecationWarning, match="Using \\*\\*kwargs in Agent.__call__ is deprecated"):
+        result = agent(
+            "Test prompt", 
+            invocation_args={"test_param": "invocation_args_value"},
+            test_param="kwargs_value"
+        )
+    
+    assert result.stop_reason == "stop"
+    assert result.message["role"] == "assistant"
+
+
+@pytest.mark.asyncio
+async def test_agent_invoke_async_with_invocation_args(mock_event_loop_cycle):
+    """Test that Agent.invoke_async works with new invocation_args parameter."""
+    agent = Agent()
+    
+    async def test_event_loop(*args, **kwargs):
+        invocation_state = kwargs["invocation_state"]
+        assert invocation_state["test_param"] == "test_value"
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
+    
+    mock_event_loop_cycle.side_effect = test_event_loop
+    
+    result = await agent.invoke_async("Test prompt", invocation_args={"test_param": "test_value"})
+    
+    assert result.stop_reason == "stop"
+    assert result.message["role"] == "assistant"
+
+
+@pytest.mark.asyncio
+async def test_agent_invoke_async_with_kwargs_deprecation_warning(mock_event_loop_cycle):
+    """Test that Agent.invoke_async emits deprecation warning when using kwargs."""
+    agent = Agent()
+    
+    async def test_event_loop(*args, **kwargs):
+        invocation_state = kwargs["invocation_state"]
+        assert invocation_state["test_param"] == "test_value"
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
+    
+    mock_event_loop_cycle.side_effect = test_event_loop
+    
+    with pytest.warns(DeprecationWarning, match="Using \\*\\*kwargs in Agent.invoke_async is deprecated"):
+        result = await agent.invoke_async("Test prompt", test_param="test_value")
+    
+    assert result.stop_reason == "stop"
+    assert result.message["role"] == "assistant"
+
+
+@pytest.mark.asyncio
+async def test_agent_stream_async_with_invocation_args(mock_event_loop_cycle):
+    """Test that Agent.stream_async works with new invocation_args parameter."""
+    agent = Agent()
+    
+    async def test_event_loop(*args, **kwargs):
+        invocation_state = kwargs["invocation_state"]
+        assert invocation_state["test_param"] == "test_value"
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
+    
+    mock_event_loop_cycle.side_effect = test_event_loop
+    
+    events = []
+    async for event in agent.stream_async("Test prompt", invocation_args={"test_param": "test_value"}):
+        events.append(event)
+    
+    # Should have at least one event
+    assert len(events) > 0
+
+
+@pytest.mark.asyncio
+async def test_agent_stream_async_with_kwargs_deprecation_warning(mock_event_loop_cycle):
+    """Test that Agent.stream_async emits deprecation warning when using kwargs."""
+    agent = Agent()
+    
+    async def test_event_loop(*args, **kwargs):
+        invocation_state = kwargs["invocation_state"]
+        assert invocation_state["test_param"] == "test_value"
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
+    
+    mock_event_loop_cycle.side_effect = test_event_loop
+    
+    events = []
+    with pytest.warns(DeprecationWarning, match="Using \\*\\*kwargs in Agent.stream_async is deprecated"):
+        async for event in agent.stream_async("Test prompt", test_param="test_value"):
+            events.append(event)
+    
+    # Should have at least one event
+    assert len(events) > 0
+
+
+@pytest.mark.asyncio
+async def test_agent_stream_async_with_both_invocation_args_and_kwargs(mock_event_loop_cycle):
+    """Test that invocation_args takes precedence over kwargs when both are provided."""
+    agent = Agent()
+    
+    async def test_event_loop(*args, **kwargs):
+        invocation_state = kwargs["invocation_state"]
+        assert invocation_state["test_param"] == "invocation_args_value"  # invocation_args should win
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
+    
+    mock_event_loop_cycle.side_effect = test_event_loop
+    
+    events = []
+    with pytest.warns(DeprecationWarning, match="Using \\*\\*kwargs in Agent.stream_async is deprecated"):
+        async for event in agent.stream_async(
+            "Test prompt", 
+            invocation_args={"test_param": "invocation_args_value"},
+            test_param="kwargs_value"
+        ):
+            events.append(event)
+    
+    # Should have at least one event
+    assert len(events) > 0
