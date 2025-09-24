@@ -11,5 +11,5 @@ __pycache__*
 .vscode
 dist
 repl_state
-.kirou
+.kiro
 uv.lock
