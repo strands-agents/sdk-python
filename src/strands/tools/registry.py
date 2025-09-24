@@ -55,23 +55,8 @@ class ToolRegistry:
         tool_names = []
 
         def add_tool(tool: Any) -> None:
-            # Case 1: String - could be file path or tool name from strands_tools
+            # Case 1: String file path
             if isinstance(tool, str):
-                # First try to import from strands_tools.{tool_name}
-                try:
-                    import importlib
-
-                    module_name = f"strands_tools.{tool}"
-                    tool_module = importlib.import_module(module_name)
-                    if hasattr(tool_module, tool):
-                        tool_obj = getattr(tool_module, tool)
-                        # Recursively process the imported tool object
-                        add_tool(tool_obj)
-                        return
-                except (ImportError, AttributeError):
-                    pass
-
-                # If not found in strands_tools, treat as file path
                 # Extract tool name from path
                 tool_name = os.path.basename(tool).split(".")[0]
                 self.load_tool_from_filepath(tool_name=tool_name, tool_path=tool)
