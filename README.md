@@ -37,7 +37,7 @@ Strands Agents is a simple yet powerful SDK that takes a model-driven approach t
 ## Feature Overview
 
 - **Lightweight & Flexible**: Simple agent loop that just works and is fully customizable
-- **Model Agnostic**: Support for Amazon Bedrock, Anthropic, LiteLLM, Llama, Ollama, OpenAI, Writer, and custom providers
+- **Model Agnostic**: Support for Amazon Bedrock, Anthropic, Gemini, LiteLLM, Llama, Ollama, OpenAI, Writer, and custom providers
 - **Advanced Capabilities**: Multi-agent systems, autonomous agents, and streaming support
 - **Built-in MCP**: Native support for Model Context Protocol (MCP) servers, enabling access to thousands of pre-built tools
 
@@ -129,6 +129,8 @@ from strands import Agent
 from strands.models import BedrockModel
 from strands.models.ollama import OllamaModel
 from strands.models.llamaapi import LlamaAPIModel
+from strands.models.gemini import GeminiModel
+from strands.models.llamacpp import LlamaCppModel
 
 # Bedrock
 bedrock_model = BedrockModel(
@@ -137,6 +139,15 @@ bedrock_model = BedrockModel(
   streaming=True, # Enable/disable streaming
 )
 agent = Agent(model=bedrock_model)
+agent("Tell me about Agentic AI")
+
+# Google Gemini
+gemini_model = GeminiModel(
+  api_key="your_gemini_api_key",
+  model_id="gemini-2.5-flash",
+  params={"temperature": 0.7}
+)
+agent = Agent(model=gemini_model)
 agent("Tell me about Agentic AI")
 
 # Ollama
@@ -158,11 +169,16 @@ response = agent("Tell me about Agentic AI")
 Built-in providers:
  - [Amazon Bedrock](https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/)
  - [Anthropic](https://strandsagents.com/latest/user-guide/concepts/model-providers/anthropic/)
+ - [Gemini](https://strandsagents.com/latest/user-guide/concepts/model-providers/gemini/)
+ - [Cohere](https://strandsagents.com/latest/user-guide/concepts/model-providers/cohere/)
  - [LiteLLM](https://strandsagents.com/latest/user-guide/concepts/model-providers/litellm/)
+ - [llama.cpp](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamacpp/)
  - [LlamaAPI](https://strandsagents.com/latest/user-guide/concepts/model-providers/llamaapi/)
+ - [MistralAI](https://strandsagents.com/latest/user-guide/concepts/model-providers/mistral/)
  - [Ollama](https://strandsagents.com/latest/user-guide/concepts/model-providers/ollama/)
  - [OpenAI](https://strandsagents.com/latest/user-guide/concepts/model-providers/openai/)
- - [Writer](https://strandsagents.com/latest/documentation/docs/user-guide/concepts/model-providers/writer/)
+ - [SageMaker](https://strandsagents.com/latest/user-guide/concepts/model-providers/sagemaker/)
+ - [Writer](https://strandsagents.com/latest/user-guide/concepts/model-providers/writer/)
 
 Custom providers can be implemented using [Custom Providers](https://strandsagents.com/latest/user-guide/concepts/model-providers/custom_model_provider/)
 

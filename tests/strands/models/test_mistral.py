@@ -437,7 +437,7 @@ def test_format_chunk_unknown(model):
 
 
 @pytest.mark.asyncio
-async def test_stream(mistral_client, model, agenerator, alist):
+async def test_stream(mistral_client, model, agenerator, alist, captured_warnings):
     mock_usage = unittest.mock.Mock()
     mock_usage.prompt_tokens = 100
     mock_usage.completion_tokens = 50
@@ -471,6 +471,41 @@ async def test_stream(mistral_client, model, agenerator, alist):
     }
 
     mistral_client.chat.stream_async.assert_called_once_with(**expected_request)
+
+    assert len(captured_warnings) == 0
+
+
+@pytest.mark.asyncio
+async def test_tool_choice_not_supported_warns(mistral_client, model, agenerator, alist, captured_warnings):
+    tool_choice = {"auto": {}}
+
+    mock_usage = unittest.mock.Mock()
+    mock_usage.prompt_tokens = 100
+    mock_usage.completion_tokens = 50
+    mock_usage.total_tokens = 150
+
+    mock_event = unittest.mock.Mock(
+        data=unittest.mock.Mock(
+            choices=[
+                unittest.mock.Mock(
+                    delta=unittest.mock.Mock(content="test stream", tool_calls=None),
+                    finish_reason="end_turn",
+                )
+            ]
+        ),
+        usage=mock_usage,
+    )
+
+    mistral_client.chat.stream_async = unittest.mock.AsyncMock(return_value=agenerator([mock_event]))
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    response = model.stream(messages, None, None, tool_choice=tool_choice)
+
+    # Consume the response
+    await alist(response)
+
+    assert len(captured_warnings) == 1
+    assert "ToolChoice was provided to this provider but is not supported" in str(captured_warnings[0].message)
 
 
 @pytest.mark.asyncio
@@ -539,3 +574,21 @@ async def test_structured_output_invalid_json(mistral_client, model, test_output
     with pytest.raises(ValueError, match="Failed to parse tool call arguments into model"):
         stream = model.structured_output(test_output_model_cls, prompt)
         await anext(stream)
+
+
+def test_config_validation_warns_on_unknown_keys(mistral_client, captured_warnings):
+    """Test that unknown config keys emit a warning."""
+    MistralModel(model_id="test-model", max_tokens=100, invalid_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "invalid_param" in str(captured_warnings[0].message)
+
+
+def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings):
+    """Test that update_config warns on unknown keys."""
+    model.update_config(wrong_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "wrong_param" in str(captured_warnings[0].message)

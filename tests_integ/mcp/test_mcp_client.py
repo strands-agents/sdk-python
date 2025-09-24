@@ -15,6 +15,7 @@ from strands import Agent
 from strands.tools.mcp.mcp_client import MCPClient
 from strands.tools.mcp.mcp_types import MCPTransport
 from strands.types.content import Message
+from strands.types.exceptions import MCPClientInitializationError
 from strands.types.tools import ToolUse
 
 
@@ -75,7 +76,7 @@ def test_mcp_client():
 
     sse_mcp_client = MCPClient(lambda: sse_client("http://127.0.0.1:8000/sse"))
     stdio_mcp_client = MCPClient(
-        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/echo_server.py"]))
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
     )
 
     with sse_mcp_client, stdio_mcp_client:
@@ -149,19 +150,19 @@ def test_mcp_client():
 
         # With the new MCPToolResult, structured content is in its own field
         assert "structuredContent" in result
-        assert result["structuredContent"]["result"] == {"echoed": "STRUCTURED_DATA_TEST"}
+        assert result["structuredContent"] == {"echoed": "STRUCTURED_DATA_TEST", "message_length": 20}
 
         # Verify the result is an MCPToolResult (at runtime it's just a dict, but type-wise it should be MCPToolResult)
         assert result["status"] == "success"
         assert result["toolUseId"] == tool_use_id
 
         assert len(result["content"]) == 1
-        assert json.loads(result["content"][0]["text"]) == {"echoed": "STRUCTURED_DATA_TEST"}
+        assert json.loads(result["content"][0]["text"]) == {"echoed": "STRUCTURED_DATA_TEST", "message_length": 20}
 
 
 def test_can_reuse_mcp_client():
     stdio_mcp_client = MCPClient(
-        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/echo_server.py"]))
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
     )
     with stdio_mcp_client:
         stdio_mcp_client.list_tools_sync()
@@ -184,7 +185,7 @@ async def test_mcp_client_async_structured_content():
     that appears in structuredContent field.
     """
     stdio_mcp_client = MCPClient(
-        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/echo_server.py"]))
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
     )
 
     with stdio_mcp_client:
@@ -199,20 +200,20 @@ async def test_mcp_client_async_structured_content():
         assert "structuredContent" in result
         # "result" nesting is not part of the MCP Structured Content specification,
         # but rather a FastMCP implementation detail
-        assert result["structuredContent"]["result"] == {"echoed": "ASYNC_STRUCTURED_TEST"}
+        assert result["structuredContent"] == {"echoed": "ASYNC_STRUCTURED_TEST", "message_length": 21}
 
         # Verify basic MCPToolResult structure
         assert result["status"] in ["success", "error"]
         assert result["toolUseId"] == tool_use_id
 
         assert len(result["content"]) == 1
-        assert json.loads(result["content"][0]["text"]) == {"echoed": "ASYNC_STRUCTURED_TEST"}
+        assert json.loads(result["content"][0]["text"]) == {"echoed": "ASYNC_STRUCTURED_TEST", "message_length": 21}
 
 
 def test_mcp_client_without_structured_content():
     """Test that MCP client works correctly when tools don't return structured content."""
     stdio_mcp_client = MCPClient(
-        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/echo_server.py"]))
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
     )
 
     with stdio_mcp_client:
@@ -268,3 +269,31 @@ def test_streamable_http_mcp_client():
 
 def _messages_to_content_blocks(messages: List[Message]) -> List[ToolUse]:
     return [block["toolUse"] for message in messages for block in message["content"] if "toolUse" in block]
+
+
+def test_mcp_client_timeout_integration():
+    """Integration test for timeout scenario that caused hanging."""
+    import threading
+
+    from mcp import StdioServerParameters, stdio_client
+
+    def slow_transport():
+        time.sleep(4)  # Longer than timeout
+        return stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
+
+    client = MCPClient(slow_transport, startup_timeout=2)
+    initial_threads = threading.active_count()
+
+    # First attempt should timeout
+    with pytest.raises(MCPClientInitializationError, match="background thread did not start in 2 seconds"):
+        with client:
+            pass
+
+    time.sleep(1)  # Allow cleanup
+    assert threading.active_count() == initial_threads  # No thread leak
+
+    # Should be able to recover by increasing timeout
+    client._startup_timeout = 60
+    with client:
+        tools = client.list_tools_sync()
+        assert len(tools) >= 0  # Should work now

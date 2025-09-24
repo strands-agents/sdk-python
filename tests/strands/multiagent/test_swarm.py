@@ -5,8 +5,7 @@ import pytest
 
 from strands.agent import Agent, AgentResult
 from strands.agent.state import AgentState
-from strands.hooks import AgentInitializedEvent
-from strands.hooks.registry import HookProvider, HookRegistry
+from strands.hooks.registry import HookRegistry
 from strands.multiagent.base import Status
 from strands.multiagent.swarm import SharedContext, Swarm, SwarmNode, SwarmResult, SwarmState
 from strands.session.session_manager import SessionManager
@@ -452,6 +451,82 @@ def test_swarm_auto_completion_without_handoff():
     no_handoff_agent.invoke_async.assert_called()
 
 
+def test_swarm_configurable_entry_point():
+    """Test swarm with configurable entry point."""
+    # Create multiple agents
+    agent1 = create_mock_agent("agent1", "Agent 1 response")
+    agent2 = create_mock_agent("agent2", "Agent 2 response")
+    agent3 = create_mock_agent("agent3", "Agent 3 response")
+
+    # Create swarm with agent2 as entry point
+    swarm = Swarm([agent1, agent2, agent3], entry_point=agent2)
+
+    # Verify entry point is set correctly
+    assert swarm.entry_point is agent2
+
+    # Execute swarm
+    result = swarm("Test task")
+
+    # Verify agent2 was the first to execute
+    assert result.status == Status.COMPLETED
+    assert len(result.node_history) == 1
+    assert result.node_history[0].node_id == "agent2"
+
+
+def test_swarm_invalid_entry_point():
+    """Test swarm with invalid entry point raises error."""
+    agent1 = create_mock_agent("agent1", "Agent 1 response")
+    agent2 = create_mock_agent("agent2", "Agent 2 response")
+    agent3 = create_mock_agent("agent3", "Agent 3 response")  # Not in swarm
+
+    # Try to create swarm with agent not in the swarm
+    with pytest.raises(ValueError, match="Entry point agent not found in swarm nodes"):
+        Swarm([agent1, agent2], entry_point=agent3)
+
+
+def test_swarm_default_entry_point():
+    """Test swarm uses first agent as default entry point."""
+    agent1 = create_mock_agent("agent1", "Agent 1 response")
+    agent2 = create_mock_agent("agent2", "Agent 2 response")
+
+    # Create swarm without specifying entry point
+    swarm = Swarm([agent1, agent2])
+
+    # Verify no explicit entry point is set
+    assert swarm.entry_point is None
+
+    # Execute swarm
+    result = swarm("Test task")
+
+    # Verify first agent was used as entry point
+    assert result.status == Status.COMPLETED
+    assert len(result.node_history) == 1
+    assert result.node_history[0].node_id == "agent1"
+
+
+def test_swarm_duplicate_agent_names():
+    """Test swarm rejects agents with duplicate names."""
+    agent1 = create_mock_agent("duplicate_name", "Agent 1 response")
+    agent2 = create_mock_agent("duplicate_name", "Agent 2 response")
+
+    # Try to create swarm with duplicate names
+    with pytest.raises(ValueError, match="Node ID 'duplicate_name' is not unique"):
+        Swarm([agent1, agent2])
+
+
+def test_swarm_entry_point_same_name_different_object():
+    """Test entry point validation with same name but different object."""
+    agent1 = create_mock_agent("agent1", "Agent 1 response")
+    agent2 = create_mock_agent("agent2", "Agent 2 response")
+
+    # Create a different agent with same name as agent1
+    different_agent_same_name = create_mock_agent("agent1", "Different agent response")
+
+    # Try to use the different agent as entry point
+    with pytest.raises(ValueError, match="Entry point agent not found in swarm nodes"):
+        Swarm([agent1, agent2], entry_point=different_agent_same_name)
+
+
 def test_swarm_validate_unsupported_features():
     """Test Swarm validation for session persistence and callbacks."""
     # Test with normal agent (should work)
@@ -471,15 +546,31 @@ def test_swarm_validate_unsupported_features():
     with pytest.raises(ValueError, match="Session persistence is not supported for Swarm agents yet"):
         Swarm([agent_with_session])
 
-    # Test with callbacks (should fail)
-    class TestHookProvider(HookProvider):
-        def register_hooks(self, registry, **kwargs):
-            registry.add_callback(AgentInitializedEvent, lambda e: None)
 
-    agent_with_hooks = create_mock_agent("agent_with_hooks")
-    agent_with_hooks._session_manager = None
-    agent_with_hooks.hooks = HookRegistry()
-    agent_with_hooks.hooks.add_hook(TestHookProvider())
+@pytest.mark.asyncio
+async def test_swarm_kwargs_passing(mock_strands_tracer, mock_use_span):
+    """Test that kwargs are passed through to underlying agents."""
+    kwargs_agent = create_mock_agent("kwargs_agent", "Response with kwargs")
+    kwargs_agent.invoke_async = Mock(side_effect=kwargs_agent.invoke_async)
 
-    with pytest.raises(ValueError, match="Agent callbacks are not supported for Swarm agents yet"):
-        Swarm([agent_with_hooks])
+    swarm = Swarm(nodes=[kwargs_agent])
+
+    test_kwargs = {"custom_param": "test_value", "another_param": 42}
+    result = await swarm.invoke_async("Test kwargs passing", test_kwargs)
+
+    assert kwargs_agent.invoke_async.call_args.kwargs == test_kwargs
+    assert result.status == Status.COMPLETED
+
+
+def test_swarm_kwargs_passing_sync(mock_strands_tracer, mock_use_span):
+    """Test that kwargs are passed through to underlying agents in sync execution."""
+    kwargs_agent = create_mock_agent("kwargs_agent", "Response with kwargs")
+    kwargs_agent.invoke_async = Mock(side_effect=kwargs_agent.invoke_async)
+
+    swarm = Swarm(nodes=[kwargs_agent])
+
+    test_kwargs = {"custom_param": "test_value", "another_param": 42}
+    result = swarm("Test kwargs passing sync", test_kwargs)
+
+    assert kwargs_agent.invoke_async.call_args.kwargs == test_kwargs
+    assert result.status == Status.COMPLETED

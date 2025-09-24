@@ -72,6 +72,10 @@ class MockedModelProvider(Model):
             stop_reason = "guardrail_intervened"
         else:
             for content in agent_message["content"]:
+                if "reasoningContent" in content:
+                    yield {"contentBlockStart": {"start": {}}}
+                    yield {"contentBlockDelta": {"delta": {"reasoningContent": content["reasoningContent"]}}}
+                    yield {"contentBlockStop": {}}
                 if "text" in content:
                     yield {"contentBlockStart": {"start": {}}}
                     yield {"contentBlockDelta": {"delta": {"text": content["text"]}}}

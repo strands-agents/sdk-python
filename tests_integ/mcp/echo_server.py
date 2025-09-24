@@ -15,9 +15,15 @@ Usage:
     $ python echo_server.py
 """
 
-from typing import Any, Dict
-
 from mcp.server import FastMCP
+from pydantic import BaseModel
+
+
+class EchoResponse(BaseModel):
+    """Response model for echo with structured content."""
+
+    echoed: str
+    message_length: int
 
 
 def start_echo_server():
@@ -37,8 +43,8 @@ def start_echo_server():
 
     # FastMCP automatically constructs structured output schema from method signature
     @mcp.tool(description="Echos response back with structured content", structured_output=True)
-    def echo_with_structured_content(to_echo: str) -> Dict[str, Any]:
-        return {"echoed": to_echo}
+    def echo_with_structured_content(to_echo: str) -> EchoResponse:
+        return EchoResponse(echoed=to_echo, message_length=len(to_echo))
 
     mcp.run(transport="stdio")
 

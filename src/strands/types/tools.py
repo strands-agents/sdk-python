@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
 
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 from .media import DocumentContent, ImageContent
 
@@ -27,11 +27,15 @@ class ToolSpec(TypedDict):
         description: A human-readable description of what the tool does.
         inputSchema: JSON Schema defining the expected input parameters.
         name: The unique name of the tool.
+        outputSchema: Optional JSON Schema defining the expected output format.
+            Note: Not all model providers support this field. Providers that don't
+            support it should filter it out before sending to their API.
     """
 
     description: str
     inputSchema: JSONSchema
     name: str
+    outputSchema: NotRequired[JSONSchema]
 
 
 class Tool(TypedDict):
@@ -132,6 +136,8 @@ class ToolContext:
         tool_use: The complete ToolUse object containing tool invocation details.
         agent: The Agent instance executing this tool, providing access to conversation history,
                model configuration, and other agent state.
+        invocation_state: Caller-provided kwargs that were passed to the agent when it was invoked (agent(),
+                          agent.invoke_async(), etc.).
 
     Note:
         This class is intended to be instantiated by the SDK. Direct construction by users
@@ -140,12 +146,18 @@ class ToolContext:
 
     tool_use: ToolUse
     agent: "Agent"
+    invocation_state: dict[str, Any]
 
+
+# Individual ToolChoice type aliases
+ToolChoiceAutoDict = dict[Literal["auto"], ToolChoiceAuto]
+ToolChoiceAnyDict = dict[Literal["any"], ToolChoiceAny]
+ToolChoiceToolDict = dict[Literal["tool"], ToolChoiceTool]
 
 ToolChoice = Union[
-    dict[Literal["auto"], ToolChoiceAuto],
-    dict[Literal["any"], ToolChoiceAny],
-    dict[Literal["tool"], ToolChoiceTool],
+    ToolChoiceAutoDict,
+    ToolChoiceAnyDict,
+    ToolChoiceToolDict,
 ]
 """
 Configuration for how the model should choose tools.
@@ -246,7 +258,8 @@ class AgentTool(ABC):
 
         Args:
             tool_use: The tool use request containing tool ID and parameters.
-            invocation_state: Context for the tool invocation, including agent state.
+            invocation_state: Caller-provided kwargs that were passed to the agent when it was invoked (agent(),
+                              agent.invoke_async(), etc.).
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:

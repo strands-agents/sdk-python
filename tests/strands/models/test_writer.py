@@ -353,7 +353,7 @@ async def test_stream_empty(writer_client, model, model_id):
 
 
 @pytest.mark.asyncio
-async def test_stream_with_empty_choices(writer_client, model, model_id):
+async def test_stream_with_empty_choices(writer_client, model, model_id, captured_warnings):
     mock_delta = unittest.mock.Mock(content="content", tool_calls=None)
     mock_usage = unittest.mock.Mock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
 
@@ -380,3 +380,58 @@ async def test_stream_with_empty_choices(writer_client, model, model_id):
         "stream_options": {"include_usage": True},
     }
     writer_client.chat.chat.assert_called_once_with(**expected_request)
+
+    # Ensure no warnings emitted
+    assert len(captured_warnings) == 0
+
+
+@pytest.mark.asyncio
+async def test_tool_choice_not_supported_warns(writer_client, model, model_id, captured_warnings, alist):
+    mock_delta = unittest.mock.Mock(content="content", tool_calls=None)
+    mock_usage = unittest.mock.Mock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
+
+    mock_event_1 = unittest.mock.Mock(spec=[])
+    mock_event_2 = unittest.mock.Mock(choices=[])
+    mock_event_3 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta)])
+    mock_event_4 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="stop", delta=mock_delta)])
+    mock_event_5 = unittest.mock.Mock(usage=mock_usage)
+
+    writer_client.chat.chat.return_value = mock_streaming_response(
+        [mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5]
+    )
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    response = model.stream(messages, None, None, tool_choice={"auto": {}})
+
+    # Consume the response
+    await alist(response)
+
+    expected_request = {
+        "model": model_id,
+        "messages": [{"role": "user", "content": [{"text": "test", "type": "text"}]}],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+    writer_client.chat.chat.assert_called_once_with(**expected_request)
+
+    # Ensure expected warning is invoked
+    assert len(captured_warnings) == 1
+    assert "ToolChoice was provided to this provider but is not supported" in str(captured_warnings[0].message)
+
+
+def test_config_validation_warns_on_unknown_keys(writer_client, captured_warnings):
+    """Test that unknown config keys emit a warning."""
+    WriterModel({"api_key": "test"}, model_id="test-model", invalid_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "invalid_param" in str(captured_warnings[0].message)
+
+
+def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings):
+    """Test that update_config warns on unknown keys."""
+    model.update_config(wrong_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "wrong_param" in str(captured_warnings[0].message)

@@ -27,16 +27,16 @@ def _flatten_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
         "properties": {},
     }
 
-    # Add title if present
     if "title" in schema:
         flattened["title"] = schema["title"]
 
-    # Add description from schema if present, or use model docstring
     if "description" in schema and schema["description"]:
         flattened["description"] = schema["description"]
 
     # Process properties
     required_props: list[str] = []
+    if "properties" not in schema and "$ref" in schema:
+        raise ValueError("Circular reference detected and not supported.")
     if "properties" in schema:
         required_props = []
         for prop_name, prop_value in schema["properties"].items():
@@ -76,9 +76,6 @@ def _flatten_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
 
     if len(required_props) > 0:
         flattened["required"] = required_props
-    else:
-        raise ValueError("Circular reference detected and not supported")
-
     return flattened
 
 
@@ -325,21 +322,7 @@ def _expand_nested_properties(schema: Dict[str, Any], model: Type[BaseModel]) ->
             continue
 
         field_type = field.annotation
-
-        # Handle Optional types
-        is_optional = False
-        if (
-            field_type is not None
-            and hasattr(field_type, "__origin__")
-            and field_type.__origin__ is Union
-            and hasattr(field_type, "__args__")
-        ):
-            # Look for Optional[BaseModel]
-            for arg in field_type.__args__:
-                if arg is type(None):
-                    is_optional = True
-                elif isinstance(arg, type) and issubclass(arg, BaseModel):
-                    field_type = arg
+        is_optional = not field.is_required()
 
         # If this is a BaseModel field, expand its properties with full details
         if isinstance(field_type, type) and issubclass(field_type, BaseModel):

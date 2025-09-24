@@ -42,5 +42,4 @@ class AgentResult:
         for item in content_array:
             if isinstance(item, dict) and "text" in item:
                 result += item.get("text", "") + "\n"
-
         return result

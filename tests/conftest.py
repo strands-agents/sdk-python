@@ -2,6 +2,7 @@ import configparser
 import logging
 import os
 import sys
+import warnings
 
 import boto3
 import moto
@@ -107,3 +108,13 @@ def generate():
             return events, stop.value
 
     return generate
+
+
+## Warnings
+
+
+@pytest.fixture
+def captured_warnings():
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        yield w

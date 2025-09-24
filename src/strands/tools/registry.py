@@ -127,11 +127,11 @@ class ToolRegistry:
             if not os.path.exists(tool_path):
                 raise FileNotFoundError(f"Tool file not found: {tool_path}")
 
-            loaded_tool = ToolLoader.load_tool(tool_path, tool_name)
-            loaded_tool.mark_dynamic()
-
-            # Because we're explicitly registering the tool we don't need an allowlist
-            self.register_tool(loaded_tool)
+            loaded_tools = ToolLoader.load_tools(tool_path, tool_name)
+            for t in loaded_tools:
+                t.mark_dynamic()
+                # Because we're explicitly registering the tool we don't need an allowlist
+                self.register_tool(t)
         except Exception as e:
             exception_str = str(e)
             logger.exception("tool_name=<%s> | failed to load tool", tool_name)
@@ -190,6 +190,13 @@ class ToolRegistry:
             tool.is_dynamic,
         )
 
+        # Check duplicate tool name, throw on duplicate tool names except if hot_reloading is enabled
+        if tool.tool_name in self.registry and not tool.supports_hot_reload:
+            raise ValueError(
+                f"Tool name '{tool.tool_name}' already exists. Cannot register tools with exact same name."
+            )
+
+        # Check for normalized name conflicts (- vs _)
         if self.registry.get(tool.tool_name) is None:
             normalized_name = tool.tool_name.replace("-", "_")
 

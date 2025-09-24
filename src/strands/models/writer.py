@@ -16,7 +16,8 @@ from typing_extensions import Unpack, override
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ModelThrottledException
 from ..types.streaming import StreamEvent
-from ..types.tools import ToolResult, ToolSpec, ToolUse
+from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
+from ._validation import validate_config_keys, warn_on_tool_choice_not_supported
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -53,6 +54,7 @@ class WriterModel(Model):
             client_args: Arguments for the Writer client (e.g., api_key, base_url, timeout, etc.).
             **model_config: Configuration options for the Writer model.
         """
+        validate_config_keys(model_config, self.WriterConfig)
         self.config = WriterModel.WriterConfig(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -67,6 +69,7 @@ class WriterModel(Model):
         Args:
             **model_config: Configuration overrides.
         """
+        validate_config_keys(model_config, self.WriterConfig)
         self.config.update(model_config)
 
     @override
@@ -352,6 +355,8 @@ class WriterModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        *,
+        tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Writer model.
@@ -360,6 +365,8 @@ class WriterModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation. **Note: This parameter is accepted for
+                interface consistency but is currently ignored for this model provider.**
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -368,6 +375,8 @@ class WriterModel(Model):
         Raises:
             ModelThrottledException: When the model service is throttling requests from the client.
         """
+        warn_on_tool_choice_not_supported(tool_choice)
+
         logger.debug("formatting request")
         request = self.format_request(messages, tool_specs, system_prompt)
         logger.debug("request=<%s>", request)

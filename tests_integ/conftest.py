@@ -22,6 +22,13 @@ def yellow_img(pytestconfig):
         return fp.read()
 
 
+@pytest.fixture
+def letter_pdf(pytestconfig):
+    path = pytestconfig.rootdir / "tests_integ/letter.pdf"
+    with open(path, "rb") as fp:
+        return fp.read()
+
+
 ## Async
 
 

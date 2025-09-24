@@ -34,8 +34,8 @@ def weather():
     class Weather(pydantic.BaseModel):
         """Extracts the time and weather from the user's message with the exact strings."""
 
-        time: str
-        weather: str
+        time: str = pydantic.Field(description="The time in HH:MM format (e.g., '12:00', '09:30')")
+        weather: str = pydantic.Field(description="The weather condition (e.g., 'sunny', 'rainy', 'cloudy')")
 
     return Weather(time="12:00", weather="sunny")
 
@@ -43,16 +43,22 @@ def weather():
 @pytest.fixture
 def yellow_color():
     class Color(pydantic.BaseModel):
-        """Describes a color."""
+        """Describes a color with its basic name.
 
-        name: str
+        Used to extract and normalize color names from text or images.
+        The color name should be a simple, common color like 'red', 'blue', 'yellow', etc.
+        """
 
-        @pydantic.field_validator("name", mode="after")
+        simple_color_name: str = pydantic.Field(
+            description="The basic color name (e.g., 'red', 'blue', 'yellow', 'green', 'orange', 'purple')"
+        )
+
+        @pydantic.field_validator("simple_color_name", mode="after")
         @classmethod
         def lower(_, value):
             return value.lower()
 
-    return Color(name="yellow")
+    return Color(simple_color_name="yellow")
 
 
 def test_agent_invoke(agent):

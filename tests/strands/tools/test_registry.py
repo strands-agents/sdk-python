@@ -120,3 +120,39 @@ def test_process_tools_flattens_lists_and_tuples_and_sets():
         "tool_f",
     ]
     assert tru_tool_names == exp_tool_names
+
+
+def test_register_tool_duplicate_name_without_hot_reload():
+    """Test that registering a tool with duplicate name raises ValueError when hot reload is not supported."""
+    tool_1 = PythonAgentTool(tool_name="duplicate_tool", tool_spec=MagicMock(), tool_func=lambda: None)
+    tool_2 = PythonAgentTool(tool_name="duplicate_tool", tool_spec=MagicMock(), tool_func=lambda: None)
+
+    tool_registry = ToolRegistry()
+    tool_registry.register_tool(tool_1)
+
+    with pytest.raises(
+        ValueError, match="Tool name 'duplicate_tool' already exists. Cannot register tools with exact same name."
+    ):
+        tool_registry.register_tool(tool_2)
+
+
+def test_register_tool_duplicate_name_with_hot_reload():
+    """Test that registering a tool with duplicate name succeeds when hot reload is supported."""
+    # Create mock tools with hot reload support
+    tool_1 = MagicMock(spec=PythonAgentTool)
+    tool_1.tool_name = "hot_reload_tool"
+    tool_1.supports_hot_reload = True
+    tool_1.is_dynamic = False
+
+    tool_2 = MagicMock(spec=PythonAgentTool)
+    tool_2.tool_name = "hot_reload_tool"
+    tool_2.supports_hot_reload = True
+    tool_2.is_dynamic = False
+
+    tool_registry = ToolRegistry()
+    tool_registry.register_tool(tool_1)
+
+    tool_registry.register_tool(tool_2)
+
+    # Verify the second tool replaced the first
+    assert tool_registry.registry["hot_reload_tool"] == tool_2

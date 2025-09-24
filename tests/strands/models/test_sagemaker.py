@@ -372,7 +372,7 @@ class TestSageMakerAIModel:
         assert tool_use_data["name"] == "get_weather"
 
     @pytest.mark.asyncio
-    async def test_stream_with_partial_json(self, sagemaker_client, model, messages):
+    async def test_stream_with_partial_json(self, sagemaker_client, model, messages, captured_warnings):
         """Test streaming response with partial JSON chunks."""
         # Mock the response from SageMaker with split JSON
         mock_response = {
@@ -403,6 +403,30 @@ class TestSageMakerAIModel:
         # Verify content
         text_delta = content_delta["contentBlockDelta"]["delta"]["text"]
         assert text_delta == "Paris is the capital of France."
+
+        # Ensure no warnings emitted
+        assert len(captured_warnings) == 0
+
+    @pytest.mark.asyncio
+    async def test_tool_choice_not_supported_warns(self, sagemaker_client, model, messages, captured_warnings, alist):
+        """Test that non-None toolChoice emits warning for unsupported providers."""
+        tool_choice = {"auto": {}}
+
+        """Test streaming response with partial JSON chunks."""
+        # Mock the response from SageMaker with split JSON
+        mock_response = {
+            "Body": [
+                {"PayloadPart": {"Bytes": '{"choices": [{"delta": {"content": "Paris is'.encode("utf-8")}},
+                {"PayloadPart": {"Bytes": ' the capital of France."}, "finish_reason": "stop"}]}'.encode("utf-8")}},
+            ]
+        }
+        sagemaker_client.invoke_endpoint_with_response_stream.return_value = mock_response
+
+        await alist(model.stream(messages, tool_choice=tool_choice))
+
+        # Ensure toolChoice parameter warning
+        assert len(captured_warnings) == 1
+        assert "ToolChoice was provided to this provider but is not supported" in str(captured_warnings[0].message)
 
     @pytest.mark.asyncio
     async def test_stream_non_streaming(self, sagemaker_client, model, messages):
@@ -572,3 +596,44 @@ class TestDataClasses:
         assert tool2.type == "function"
         assert tool2.function.name == "get_time"
         assert tool2.function.arguments == '{"timezone": "UTC"}'
+
+
+def test_config_validation_warns_on_unknown_keys_in_endpoint(boto_session, captured_warnings):
+    """Test that unknown config keys emit a warning."""
+    endpoint_config = {"endpoint_name": "test-endpoint", "region_name": "us-east-1", "invalid_param": "test"}
+    payload_config = {"max_tokens": 1024}
+
+    SageMakerAIModel(
+        endpoint_config=endpoint_config,
+        payload_config=payload_config,
+        boto_session=boto_session,
+    )
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "invalid_param" in str(captured_warnings[0].message)
+
+
+def test_config_validation_warns_on_unknown_keys_in_payload(boto_session, captured_warnings):
+    """Test that unknown config keys emit a warning."""
+    endpoint_config = {"endpoint_name": "test-endpoint", "region_name": "us-east-1"}
+    payload_config = {"max_tokens": 1024, "invalid_param": "test"}
+
+    SageMakerAIModel(
+        endpoint_config=endpoint_config,
+        payload_config=payload_config,
+        boto_session=boto_session,
+    )
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "invalid_param" in str(captured_warnings[0].message)
+
+
+def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings):
+    """Test that update_config warns on unknown keys."""
+    model.update_config(wrong_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "wrong_param" in str(captured_warnings[0].message)

@@ -204,10 +204,6 @@ def _validate_node_executor(
         if executor._session_manager is not None:
             raise ValueError("Session persistence is not supported for Graph agents yet.")
 
-        # Check for callbacks
-        if executor.hooks.has_callbacks():
-            raise ValueError("Agent callbacks are not supported for Graph agents yet.")
-
 
 class GraphBuilder:
     """Builder pattern for constructing graphs."""
@@ -411,18 +407,42 @@ class Graph(MultiAgentBase):
         """
         return self.state.shared_context
 
-    def __call__(self, task: str | list[ContentBlock], **kwargs: Any) -> GraphResult:
-        """Invoke the graph synchronously."""
+    def __call__(
+        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> GraphResult:
+        """Invoke the graph synchronously.
+
+        Args:
+            task: The task to execute
+            invocation_state: Additional state/context passed to underlying agents.
+                Defaults to None to avoid mutable default argument issues.
+            **kwargs: Keyword arguments allowing backward compatible future changes.
+        """
+        if invocation_state is None:
+            invocation_state = {}
 
         def execute() -> GraphResult:
-            return asyncio.run(self.invoke_async(task))
+            return asyncio.run(self.invoke_async(task, invocation_state))
 
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)
             return future.result()
 
-    async def invoke_async(self, task: str | list[ContentBlock], **kwargs: Any) -> GraphResult:
-        """Invoke the graph asynchronously."""
+    async def invoke_async(
+        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> GraphResult:
+        """Invoke the graph asynchronously.
+
+        Args:
+            task: The task to execute
+            invocation_state: Additional state/context passed to underlying agents.
+                Defaults to None to avoid mutable default argument issues - a new empty dict
+                is created if None is provided.
+            **kwargs: Keyword arguments allowing backward compatible future changes.
+        """
+        if invocation_state is None:
+            invocation_state = {}
+
         logger.debug("task=<%s> | starting graph execution", task)
 
         # Initialize state
@@ -446,7 +466,7 @@ class Graph(MultiAgentBase):
                     self.node_timeout or "None",
                 )
 
-                await self._execute_graph()
+                await self._execute_graph(invocation_state)
 
                 # Set final status based on execution results
                 if self.state.failed_nodes:
@@ -476,7 +496,7 @@ class Graph(MultiAgentBase):
             # Validate Agent-specific constraints for each node
             _validate_node_executor(node.executor)
 
-    async def _execute_graph(self) -> None:
+    async def _execute_graph(self, invocation_state: dict[str, Any]) -> None:
         """Unified execution flow with conditional routing."""
         ready_nodes = list(self.entry_points)
 
@@ -495,41 +515,32 @@ class Graph(MultiAgentBase):
             ready_nodes.clear()
 
             # Execute current batch of ready nodes concurrently
-            tasks = [
-                asyncio.create_task(self._execute_node(node))
-                for node in current_batch
-                if node not in self.state.completed_nodes
-            ]
+            tasks = [asyncio.create_task(self._execute_node(node, invocation_state)) for node in current_batch]
 
             for task in tasks:
                 await task
 
             # Find newly ready nodes after batch execution
-            ready_nodes.extend(self._find_newly_ready_nodes())
+            # We add all nodes in current batch as completed batch,
+            # because a failure would throw exception and code would not make it here
+            ready_nodes.extend(self._find_newly_ready_nodes(current_batch))
 
-    def _find_newly_ready_nodes(self) -> list["GraphNode"]:
+    def _find_newly_ready_nodes(self, completed_batch: list["GraphNode"]) -> list["GraphNode"]:
         """Find nodes that became ready after the last execution."""
         newly_ready = []
         for _node_id, node in self.nodes.items():
-            if (
-                node not in self.state.completed_nodes
-                and node not in self.state.failed_nodes
-                and self._is_node_ready_with_conditions(node)
-            ):
+            if self._is_node_ready_with_conditions(node, completed_batch):
                 newly_ready.append(node)
         return newly_ready
 
-    def _is_node_ready_with_conditions(self, node: GraphNode) -> bool:
+    def _is_node_ready_with_conditions(self, node: GraphNode, completed_batch: list["GraphNode"]) -> bool:
         """Check if a node is ready considering conditional edges."""
         # Get incoming edges to this node
         incoming_edges = [edge for edge in self.edges if edge.to_node == node]
 
-        if not incoming_edges:
-            return node in self.entry_points
-
         # Check if at least one incoming edge condition is satisfied
         for edge in incoming_edges:
-            if edge.from_node in self.state.completed_nodes:
+            if edge.from_node in completed_batch:
                 if edge.should_traverse(self.state):
                     logger.debug(
                         "from=<%s>, to=<%s> | edge ready via satisfied condition", edge.from_node.node_id, node.node_id
@@ -541,7 +552,7 @@ class Graph(MultiAgentBase):
                     )
         return False
 
-    async def _execute_node(self, node: GraphNode) -> None:
+    async def _execute_node(self, node: GraphNode, invocation_state: dict[str, Any]) -> None:
         """Execute a single node with error handling and timeout protection."""
         # Reset the node's state if reset_on_revisit is enabled and it's being revisited
         if self.reset_on_revisit and node in self.state.completed_nodes:
@@ -564,11 +575,11 @@ class Graph(MultiAgentBase):
                 if isinstance(node.executor, MultiAgentBase):
                     if self.node_timeout is not None:
                         multi_agent_result = await asyncio.wait_for(
-                            node.executor.invoke_async(node_input),
+                            node.executor.invoke_async(node_input, invocation_state),
                             timeout=self.node_timeout,
                         )
                     else:
-                        multi_agent_result = await node.executor.invoke_async(node_input)
+                        multi_agent_result = await node.executor.invoke_async(node_input, invocation_state)
 
                     # Create NodeResult with MultiAgentResult directly
                     node_result = NodeResult(
@@ -583,11 +594,11 @@ class Graph(MultiAgentBase):
                 elif isinstance(node.executor, Agent):
                     if self.node_timeout is not None:
                         agent_response = await asyncio.wait_for(
-                            node.executor.invoke_async(node_input),
+                            node.executor.invoke_async(node_input, **invocation_state),
                             timeout=self.node_timeout,
                         )
                     else:
-                        agent_response = await node.executor.invoke_async(node_input)
+                        agent_response = await node.executor.invoke_async(node_input, **invocation_state)
 
                     # Extract metrics from agent response
                     usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)

@@ -99,7 +99,7 @@ def test_reduce_context_with_summarization(summarizing_manager, mock_agent):
     assert len(mock_agent.messages) == 4
 
     # First message should be the summary
-    assert mock_agent.messages[0]["role"] == "assistant"
+    assert mock_agent.messages[0]["role"] == "user"
     first_content = mock_agent.messages[0]["content"][0]
     assert "text" in first_content and "This is a summary of the conversation." in first_content["text"]
 
@@ -438,7 +438,7 @@ def test_reduce_context_tool_pair_adjustment_works_with_forward_search():
     assert len(mock_agent.messages) == 2
 
     # First message should be the summary
-    assert mock_agent.messages[0]["role"] == "assistant"
+    assert mock_agent.messages[0]["role"] == "user"
     summary_content = mock_agent.messages[0]["content"][0]
     assert "text" in summary_content and "This is a summary of the conversation." in summary_content["text"]
 
