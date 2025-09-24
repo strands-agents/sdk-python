@@ -15,6 +15,7 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
+from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
 from ._validation import validate_config_keys
@@ -372,6 +373,10 @@ class OpenAIModel(Model):
 
         Yields:
             Formatted message chunks from the model.
+
+        Raises:
+            ContextWindowOverflowException: If the input exceeds the model's context window.
+            ModelThrottledException: If the request is throttled by OpenAI (rate limits).
         """
         logger.debug("formatting request")
         request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
@@ -383,7 +388,20 @@ class OpenAIModel(Model):
         # client. The asyncio event loop does not allow connections to be shared. For more details, please refer to
         # https://github.com/encode/httpx/discussions/2959.
         async with openai.AsyncOpenAI(**self.client_args) as client:
-            response = await client.chat.completions.create(**request)
+            try:
+                response = await client.chat.completions.create(**request)
+            except openai.BadRequestError as e:
+                # Check if this is a context length exceeded error
+                if hasattr(e, "code") and e.code == "context_length_exceeded":
+                    logger.warning("OpenAI threw context window overflow error")
+                    raise ContextWindowOverflowException(str(e)) from e
+                # Re-raise other BadRequestError exceptions
+                raise
+            except openai.RateLimitError as e:
+                # All rate limit errors should be treated as throttling, not context overflow
+                # Rate limits (including TPM) require waiting/retrying, not context reduction
+                logger.warning("OpenAI threw rate limit error")
+                raise ModelThrottledException(str(e)) from e
 
             logger.debug("got response from model")
             yield self.format_chunk({"chunk_type": "message_start"})
@@ -452,16 +470,33 @@ class OpenAIModel(Model):
 
         Yields:
             Model events with the last being the structured output.
+
+        Raises:
+            ContextWindowOverflowException: If the input exceeds the model's context window.
+            ModelThrottledException: If the request is throttled by OpenAI (rate limits).
         """
         # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying httpx
         # client. The asyncio event loop does not allow connections to be shared. For more details, please refer to
         # https://github.com/encode/httpx/discussions/2959.
         async with openai.AsyncOpenAI(**self.client_args) as client:
-            response: ParsedChatCompletion = await client.beta.chat.completions.parse(
-                model=self.get_config()["model_id"],
-                messages=self.format_request(prompt, system_prompt=system_prompt)["messages"],
-                response_format=output_model,
-            )
+            try:
+                response: ParsedChatCompletion = await client.beta.chat.completions.parse(
+                    model=self.get_config()["model_id"],
+                    messages=self.format_request(prompt, system_prompt=system_prompt)["messages"],
+                    response_format=output_model,
+                )
+            except openai.BadRequestError as e:
+                # Check if this is a context length exceeded error
+                if hasattr(e, "code") and e.code == "context_length_exceeded":
+                    logger.warning("OpenAI threw context window overflow error")
+                    raise ContextWindowOverflowException(str(e)) from e
+                # Re-raise other BadRequestError exceptions
+                raise
+            except openai.RateLimitError as e:
+                # All rate limit errors should be treated as throttling, not context overflow
+                # Rate limits (including TPM) require waiting/retrying, not context reduction
+                logger.warning("OpenAI threw rate limit error")
+                raise ModelThrottledException(str(e)) from e
 
         parsed: T | None = None
         # Find the first choice with tool_calls

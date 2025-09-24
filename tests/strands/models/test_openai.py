@@ -1,10 +1,12 @@
 import unittest.mock
 
+import openai
 import pydantic
 import pytest
 
 import strands
 from strands.models.openai import OpenAIModel
+from strands.types.exceptions import ContextWindowOverflowException
 
 
 @pytest.fixture
@@ -752,3 +754,152 @@ def test_tool_choice_none_no_warning(model, messages, captured_warnings):
     model.format_request(messages, tool_choice=None)
 
     assert len(captured_warnings) == 0
+
+
+@pytest.mark.asyncio
+async def test_stream_context_overflow_exception(openai_client, model, messages):
+    """Test that OpenAI context overflow errors are properly converted to ContextWindowOverflowException."""
+    # Create a mock OpenAI BadRequestError with context_length_exceeded code
+    mock_error = openai.BadRequestError(
+        message="This model's maximum context length is 4096 tokens. However, your messages resulted in 5000 tokens.",
+        response=unittest.mock.MagicMock(),
+        body={"error": {"code": "context_length_exceeded"}},
+    )
+    mock_error.code = "context_length_exceeded"
+
+    # Configure the mock client to raise the context overflow error
+    openai_client.chat.completions.create.side_effect = mock_error
+
+    # Test that the stream method converts the error properly
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    # Verify the exception message contains the original error
+    assert "maximum context length" in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_stream_other_bad_request_errors_passthrough(openai_client, model, messages):
+    """Test that other BadRequestError exceptions are not converted to ContextWindowOverflowException."""
+    # Create a mock OpenAI BadRequestError with a different error code
+    mock_error = openai.BadRequestError(
+        message="Invalid parameter value",
+        response=unittest.mock.MagicMock(),
+        body={"error": {"code": "invalid_parameter"}},
+    )
+    mock_error.code = "invalid_parameter"
+
+    # Configure the mock client to raise the non-context error
+    openai_client.chat.completions.create.side_effect = mock_error
+
+    # Test that other BadRequestError exceptions pass through unchanged
+    with pytest.raises(openai.BadRequestError) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    # Verify the original exception is raised, not ContextWindowOverflowException
+    assert exc_info.value == mock_error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_context_overflow_exception(openai_client, model, messages, test_output_model_cls):
+    """Test that structured output also handles context overflow properly."""
+    # Create a mock OpenAI BadRequestError with context_length_exceeded code
+    mock_error = openai.BadRequestError(
+        message="This model's maximum context length is 4096 tokens. However, your messages resulted in 5000 tokens.",
+        response=unittest.mock.MagicMock(),
+        body={"error": {"code": "context_length_exceeded"}},
+    )
+    mock_error.code = "context_length_exceeded"
+
+    # Configure the mock client to raise the context overflow error
+    openai_client.beta.chat.completions.parse.side_effect = mock_error
+
+    # Test that the structured_output method converts the error properly
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    # Verify the exception message contains the original error
+    assert "maximum context length" in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_stream_rate_limit_as_throttle(openai_client, model, messages):
+    """Test that all rate limit errors are converted to ModelThrottledException."""
+    from strands.types.exceptions import ModelThrottledException
+
+    # Create a mock OpenAI RateLimitError (any type of rate limit)
+    mock_error = openai.RateLimitError(
+        message="Request too large for gpt-4o on tokens per min (TPM): Limit 30000, Requested 117505.",
+        response=unittest.mock.MagicMock(),
+        body={"error": {"code": "rate_limit_exceeded"}},
+    )
+    mock_error.code = "rate_limit_exceeded"
+
+    # Configure the mock client to raise the rate limit error
+    openai_client.chat.completions.create.side_effect = mock_error
+
+    # Test that the stream method converts the error properly
+    with pytest.raises(ModelThrottledException) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    # Verify the exception message contains the original error
+    assert "tokens per min" in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_stream_request_rate_limit_as_throttle(openai_client, model, messages):
+    """Test that request-based rate limit errors are converted to ModelThrottledException."""
+    from strands.types.exceptions import ModelThrottledException
+
+    # Create a mock OpenAI RateLimitError for request-based rate limiting
+    mock_error = openai.RateLimitError(
+        message="Rate limit reached for requests per minute.",
+        response=unittest.mock.MagicMock(),
+        body={"error": {"code": "rate_limit_exceeded"}},
+    )
+    mock_error.code = "rate_limit_exceeded"
+
+    # Configure the mock client to raise the request rate limit error
+    openai_client.chat.completions.create.side_effect = mock_error
+
+    # Test that the stream method converts the error properly
+    with pytest.raises(ModelThrottledException) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    # Verify the exception message contains the original error
+    assert "Rate limit reached" in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_rate_limit_as_throttle(openai_client, model, messages, test_output_model_cls):
+    """Test that structured output handles rate limit errors properly."""
+    from strands.types.exceptions import ModelThrottledException
+
+    # Create a mock OpenAI RateLimitError
+    mock_error = openai.RateLimitError(
+        message="Request too large for gpt-4o on tokens per min (TPM): Limit 30000, Requested 117505.",
+        response=unittest.mock.MagicMock(),
+        body={"error": {"code": "rate_limit_exceeded"}},
+    )
+    mock_error.code = "rate_limit_exceeded"
+
+    # Configure the mock client to raise the rate limit error
+    openai_client.beta.chat.completions.parse.side_effect = mock_error
+
+    # Test that the structured_output method converts the error properly
+    with pytest.raises(ModelThrottledException) as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    # Verify the exception message contains the original error
+    assert "tokens per min" in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error
