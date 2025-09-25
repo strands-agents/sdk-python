@@ -190,6 +190,15 @@ class PythonAgentTool(AgentTool):
         return self._tool_spec
 
     @property
+    def supports_hot_reload(self) -> bool:
+        """Check if this tool supports automatic reloading when modified.
+
+        Returns:
+            Always true for function-based tools.
+        """
+        return True
+
+    @property
     def tool_type(self) -> str:
         """Identifies this as a Python-based tool implementation.
 
