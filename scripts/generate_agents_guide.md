@@ -19,12 +19,10 @@ You are tasked with creating a comprehensive `AGENTS.md` file that serves as a r
 1. **Read the existing AGENTS.md file** (if it exists) to understand the current structure and content
 
 2. **Read the project structure**:
-2. **Read the project structure**:
    - Examine `pyproject.toml` for dependencies and configuration
    - Analyze `src/strands/` directory structure
    - Review key implementation files in each module
 
-3. **Examine core components**:
 3. **Examine core components**:
    - `src/strands/agent/agent.py` - Core Agent class
    - `src/strands/models/` - Model provider implementations
@@ -33,7 +31,6 @@ You are tasked with creating a comprehensive `AGENTS.md` file that serves as a r
    - `src/strands/session/` - Session management
    - `src/strands/types/` - Type definitions
 
-4. **Review integration tests** for usage patterns:
 4. **Review integration tests** for usage patterns:
    - `tests_integ/` directory for real-world examples
    - Look for Agent instantiation patterns
