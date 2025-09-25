@@ -21,7 +21,6 @@ You are tasked with creating a comprehensive `AGENTS.md` file that serves as a r
 2. **Check out and read the strands-agents/docs repository** for comprehensive documentation context
 
 3. **Read the project structure**:
-3. **Read the project structure**:
    - Examine `pyproject.toml` for dependencies and configuration
    - Analyze `src/strands/` directory structure
    - Review key implementation files in each module
