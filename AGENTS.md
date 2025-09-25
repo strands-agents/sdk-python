@@ -339,16 +339,21 @@ async for event in agent.model.structured_output(
 ### Event Hooks System
 
 ```python
-from strands.hooks import HookProvider
+from strands.hooks import HookProvider, HookRegistry
+from strands.hooks.events import BeforeInvocationEvent, AfterInvocationEvent
 
-class CustomHookProvider(HookProvider):
-    def on_before_model_invocation(self, event: BeforeInvocationEvent):
-        print(f"About to call model with: {event.messages}")
-        
-    def on_after_tool_invocation(self, event: AfterToolInvocationEvent):
-        print(f"Tool {event.tool_name} returned: {event.result}")
+class LoggingHooks(HookProvider):
+    def register_hooks(self, registry: HookRegistry) -> None:
+        registry.add_callback(BeforeInvocationEvent, self.log_start)
+        registry.add_callback(AfterInvocationEvent, self.log_end)
 
-agent = Agent(hooks=[CustomHookProvider()])
+    def log_start(self, event: BeforeInvocationEvent) -> None:
+        print(f"Request started for agent")
+
+    def log_end(self, event: AfterInvocationEvent) -> None:
+        print(f"Request completed for agent")
+
+agent = Agent(hooks=[LoggingHooks()])
 ```
 
 ### Concurrent Tool Execution
