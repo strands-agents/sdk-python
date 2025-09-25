@@ -11,33 +11,20 @@ Key Features:
 """
 
 import threading
-from typing import Optional
 
 from ...hooks.registry import HookProvider, HookRegistry
 from ...multiagent.base import MultiAgentBase
 from ...session import SessionManager
 from .multiagent_events import (
-    AfterGraphInvocationEvent,
+    AfterMultiAgentInvocationEvent,
     AfterNodeInvocationEvent,
-    BeforeGraphInvocationEvent,
+    BeforeMultiAgentInvocationEvent,
     BeforeNodeInvocationEvent,
     MultiAgentInitializationEvent,
-    MultiAgentState,
 )
-from .multiagent_state_adapter import MultiAgentAdapter
 
 
-def _get_multiagent_state(
-    multiagent_state: Optional[MultiAgentState],
-    orchestrator: MultiAgentBase,
-) -> MultiAgentState:
-    if multiagent_state is not None:
-        return multiagent_state
-
-    return MultiAgentAdapter.create_multi_agent_state(orchestrator=orchestrator)
-
-
-class MultiAgentHook(HookProvider):
+class PersistentHook(HookProvider):
     """Hook provider for automatic multi-agent session persistence.
 
     This hook automatically persists multi-agent orchestrator state at key
@@ -48,7 +35,7 @@ class MultiAgentHook(HookProvider):
         session_id: Unique identifier for the session
     """
 
-    def __init__(self, session_manager: SessionManager, session_id: str):
+    def __init__(self, session_manager: SessionManager):
         """Initialize the multi-agent persistence hook.
 
         Args:
@@ -56,7 +43,6 @@ class MultiAgentHook(HookProvider):
             session_id: Unique identifier for the session
         """
         self._session_manager = session_manager
-        self._session_id = session_id
         self._lock = threading.RLock()
 
     def register_hooks(self, registry: HookRegistry, **kwargs: object) -> None:
@@ -67,17 +53,18 @@ class MultiAgentHook(HookProvider):
             **kwargs: Additional keyword arguments (unused)
         """
         registry.add_callback(MultiAgentInitializationEvent, self._on_initialization)
-        registry.add_callback(BeforeGraphInvocationEvent, self._on_before_graph)
+        registry.add_callback(BeforeMultiAgentInvocationEvent, self._on_initialization)
         registry.add_callback(BeforeNodeInvocationEvent, self._on_before_node)
         registry.add_callback(AfterNodeInvocationEvent, self._on_after_node)
-        registry.add_callback(AfterGraphInvocationEvent, self._on_after_graph)
+        registry.add_callback(AfterMultiAgentInvocationEvent, self._on_after_Execution)
 
     def _on_initialization(self, event: MultiAgentInitializationEvent):
         """Persist state when multi-agent orchestrator initializes."""
-        self._persist(_get_multiagent_state(event.state, event.orchestrator))
+        self._persist(event.orchestrator)
+        pass
 
-    def _on_before_graph(self, event: BeforeGraphInvocationEvent):
-        """Hook called before graph execution starts."""
+    def _on_before_Invocation(self, event: MultiAgentInitializationEvent):
+        """Persist state when multi-agent orchestrator initializes."""
         pass
 
     def _on_before_node(self, event: BeforeNodeInvocationEvent):
@@ -86,21 +73,20 @@ class MultiAgentHook(HookProvider):
 
     def _on_after_node(self, event: AfterNodeInvocationEvent):
         """Persist state after each node completes execution."""
-        multi_agent_state = _get_multiagent_state(multiagent_state=event.state, orchestrator=event.orchestrator)
-        self._persist(multi_agent_state)
+        self._persist(event.orchestrator)
 
-    def _on_after_graph(self, event: AfterGraphInvocationEvent):
+    def _on_after_Execution(self, event: AfterMultiAgentInvocationEvent):
         """Persist final state after graph execution completes."""
-        multiagent_state = _get_multiagent_state(multiagent_state=event.state, orchestrator=event.orchestrator)
-        self._persist(multiagent_state)
+        self._persist(event.orchestrator)
 
-    def _persist(self, multiagent_state: MultiAgentState) -> None:
+    def _persist(self, orchestrator: MultiAgentBase) -> None:
         """Persist the provided MultiAgentState using the configured SessionManager.
 
         This method is synchronized across threads/tasks to avoid write races.
 
         Args:
-            multiagent_state: State to persist
+            orchestrator: State to persist
         """
+        current_state = orchestrator.get_state_from_orchestrator()
         with self._lock:
-            self._session_manager.write_multi_agent_state(multiagent_state)
+            self._session_manager.write_multi_agent_state(current_state)
