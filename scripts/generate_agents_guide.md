@@ -50,7 +50,6 @@ Create an `AGENTS.md` file with the following structure:
 ```markdown
 # Strands Agents SDK - AI Agent Developer Guide
 
-**Generated:** [Current timestamp]
 **Repository:** https://github.com/strands-agents/sdk-python
 **Purpose:** Comprehensive guide for AI agents to understand and work with the Strands Agents Python SDK
 
@@ -93,7 +92,6 @@ Create an `AGENTS.md` file with the following structure:
 - **Be comprehensive but concise** - provide enough detail for understanding without overwhelming
 - **Include real code examples** from the codebase, not hypothetical ones
 - **Focus on practical usage** - what an AI agent needs to know to use the SDK effectively
-- **Update timestamps** to current date/time
 - **Reference https://strandsagents.com/latest/llms.txt** for additional documentation
 - **Maintain accuracy** - ensure all information reflects the current codebase state
 

@@ -1,6 +1,5 @@
 # Strands Agents SDK - AI Agent Developer Guide
 
-**Generated:** Tuesday, September 23, 2025 at 6:02 PM EDT  
 **Repository:** https://github.com/strands-agents/sdk-python  
 **Purpose:** Comprehensive guide for AI agents to understand and work with the Strands Agents Python SDK
 
