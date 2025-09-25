@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Lite
 
 from typing_extensions import NotRequired, TypedDict
 
+from ..hooks.interrupt import Interrupt
 from .media import DocumentContent, ImageContent
 
 if TYPE_CHECKING:
@@ -138,6 +139,7 @@ class ToolContext:
                model configuration, and other agent state.
         invocation_state: Caller-provided kwargs that were passed to the agent when it was invoked (agent(),
                           agent.invoke_async(), etc.).
+        interrupt: TODO
 
     Note:
         This class is intended to be instantiated by the SDK. Direct construction by users
@@ -147,6 +149,7 @@ class ToolContext:
     tool_use: ToolUse
     agent: "Agent"
     invocation_state: dict[str, Any]
+    interrupt: Interrupt
 
 
 # Individual ToolChoice type aliases

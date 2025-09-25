@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator
 from typing_extensions import override
 
 from ...telemetry.metrics import Trace
-from ...types._events import TypedEvent
+from ...types._events import ToolInterruptEvent, TypedEvent
 from ...types.tools import ToolResult, ToolUse
 from ._executor import ToolExecutor
 
@@ -45,3 +45,6 @@ class SequentialToolExecutor(ToolExecutor):
             )
             async for event in events:
                 yield event
+
+            if isinstance(event, ToolInterruptEvent):
+                break

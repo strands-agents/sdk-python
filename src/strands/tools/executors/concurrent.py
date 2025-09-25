@@ -72,7 +72,7 @@ class ConcurrentToolExecutor(ToolExecutor):
             yield event
             task_events[task_id].set()
 
-        asyncio.gather(*tasks)
+        await asyncio.gather(*tasks)
 
     async def _task(
         self,

@@ -61,6 +61,7 @@ from .conversation_manager import (
     ConversationManager,
     SlidingWindowConversationManager,
 )
+from .execution_state import ExecutionState
 from .state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -142,6 +143,17 @@ class Agent:
                 Raises:
                     AttributeError: If the tool doesn't exist.
                 """
+                if record_direct_tool_call is not None:
+                    should_record_direct_tool_call = record_direct_tool_call
+                else:
+                    should_record_direct_tool_call = self._agent.record_direct_tool_call
+
+                if should_record_direct_tool_call and self._agent.execution_state != ExecutionState.ASSISTANT:
+                    raise RuntimeError(
+                        f"execution_state=<{self._agent.execution_state}> "
+                        f"| recording direct tool calls is only allowed in ASSISTANT execution state"
+                    )
+
                 normalized_name = self._find_normalized_tool_name(name)
 
                 # Create unique tool ID and set up the tool request
@@ -166,11 +178,6 @@ class Agent:
                 with ThreadPoolExecutor() as executor:
                     future = executor.submit(tcall)
                     tool_result = future.result()
-
-                if record_direct_tool_call is not None:
-                    should_record_direct_tool_call = record_direct_tool_call
-                else:
-                    should_record_direct_tool_call = self._agent.record_direct_tool_call
 
                 if should_record_direct_tool_call:
                     # Create a record of this tool execution in the message history
@@ -348,6 +355,10 @@ class Agent:
             for hook in hooks:
                 self.hooks.add_hook(hook)
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
+
+        self.execution_state = ExecutionState.ASSISTANT
+
+        self.interrupts = {}
 
     @property
     def tool(self) -> ToolCaller:
@@ -543,6 +554,7 @@ class Agent:
         Args:
             prompt: User input in various formats:
                 - str: Simple text input
+                - ContentBlock: Multi-modal content block
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
@@ -567,6 +579,8 @@ class Agent:
                     yield event["data"]
             ```
         """
+        self._resume(prompt)
+
         callback_handler = kwargs.get("callback_handler", self.callback_handler)
 
         # Process input and get message to add (if any)
@@ -588,6 +602,11 @@ class Agent:
 
                 result = AgentResult(*event["stop"])
                 callback_handler(result=result)
+
+                if result.stop_reason == "interrupt":
+                    self.execution_state = ExecutionState.INTERRUPT
+                    self.interrupts = {interrupt.name: interrupt for interrupt in result.interrupts}
+
                 yield AgentResultEvent(result=result).as_dict()
 
                 self._end_agent_trace_span(response=result)
@@ -595,6 +614,16 @@ class Agent:
             except Exception as e:
                 self._end_agent_trace_span(error=e)
                 raise
+
+    def _resume(self, prompt: AgentInput) -> None:
+        if self.execution_state != ExecutionState.INTERRUPT:
+            return
+
+        if not isinstance(prompt, dict) or "resume" not in prompt:
+            raise ValueError("<TODO>.")
+
+        for interrupt in self.interrupts.values():
+            interrupt.resume = prompt["resume"][interrupt.name]
 
     async def _run_loop(self, messages: Messages, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
         """Execute the agent's event loop with the given message and parameters.
@@ -676,6 +705,8 @@ class Agent:
             if isinstance(prompt, str):
                 # String input - convert to user message
                 messages = [{"role": "user", "content": [{"text": prompt}]}]
+            elif isinstance(prompt, dict):
+                messages = [{"role": "user", "content": prompt}] if "resume" not in prompt else []
             elif isinstance(prompt, list):
                 if len(prompt) == 0:
                     # Empty list
@@ -695,7 +726,9 @@ class Agent:
         else:
             messages = []
         if messages is None:
-            raise ValueError("Input prompt must be of type: `str | list[Contentblock] | Messages | None`.")
+            raise ValueError(
+                "Input prompt must be of type: `str | ContentBlock | list[Contentblock] | Messages | None`."
+            )
         return messages
 
     def _record_tool_execution(
