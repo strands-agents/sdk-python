@@ -7,23 +7,14 @@ functions, supporting both individual callback registration and bulk registratio
 via hook provider objects.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Generator, Generic, Protocol, Type, TypeVar
 
 if TYPE_CHECKING:
     from ..agent import Agent
 
-
 @dataclass
-class HookEvent:
-    """Base class for all hook events.
-
-    Attributes:
-        agent: The agent instance that triggered this event.
-    """
-
-    agent: "Agent"
-
+class HookEventBase:
     @property
     def should_reverse_callbacks(self) -> bool:
         """Determine if callbacks for this event should be invoked in reverse order.
@@ -65,11 +56,27 @@ class HookEvent:
 
         raise AttributeError(f"Property {name} is not writable")
 
+@dataclass
+class MultiAgentHookEvent(HookEventBase):
+    pass
 
-TEvent = TypeVar("TEvent", bound=HookEvent, contravariant=True)
+
+@dataclass
+class HookEvent(HookEventBase):
+    """Base class for all hook events.
+
+    Attributes:
+        agent: The agent instance that triggered this event.
+    """
+
+    # agent: "Agent | None" = field(default=None, kw_only=True)
+    agent : "Agent"
+
+
+TEvent = TypeVar("TEvent", bound=HookEventBase, contravariant=True)
 """Generic for adding callback handlers - contravariant to allow adding handlers which take in base classes."""
 
-TInvokeEvent = TypeVar("TInvokeEvent", bound=HookEvent)
+TInvokeEvent = TypeVar("TInvokeEvent", bound=HookEventBase)
 """Generic for invoking events - non-contravariant to enable returning events."""
 
 
