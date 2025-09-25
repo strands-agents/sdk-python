@@ -1,0 +1,671 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://strandsagents.com/schemas/config/v1",
+  "title": "Strands Agents Configuration Schema",
+  "description": "Comprehensive schema for validating all Strands Agents configuration files including agents, graphs, swarms, and tools",
+  "oneOf": [
+    {"$ref": "#/$defs/agent-config"},
+    {"$ref": "#/$defs/graph-config"},
+    {"$ref": "#/$defs/swarm-config"},
+    {"$ref": "#/$defs/tools-config"}
+  ],
+  "$defs": {
+    "agent-config": {
+      "type": "object",
+      "description": "Agent configuration with top-level 'agent' key",
+      "properties": {
+        "agent": {"$ref": "#/$defs/agent-properties"},
+        "schemas": {"$ref": "#/$defs/global-schemas"},
+        "structured_output_defaults": {"$ref": "#/$defs/structured-output-defaults"}
+      },
+      "required": ["agent"],
+      "additionalProperties": false
+    },
+    "graph-config": {
+      "type": "object",
+      "description": "Graph configuration with top-level 'graph' key",
+      "properties": {
+        "graph": {"$ref": "#/$defs/graph-properties"}
+      },
+      "required": ["graph"],
+      "additionalProperties": false
+    },
+    "swarm-config": {
+      "type": "object",
+      "description": "Swarm configuration with top-level 'swarm' key",
+      "properties": {
+        "swarm": {"$ref": "#/$defs/swarm-properties"}
+      },
+      "required": ["swarm"],
+      "additionalProperties": false
+    },
+    "tools-config": {
+      "type": "object",
+      "description": "Tools configuration with top-level 'tools' key",
+      "properties": {
+        "tools": {"$ref": "#/$defs/tools-array"}
+      },
+      "required": ["tools"],
+      "additionalProperties": false
+    },
+    "agent-properties": {
+      "type": "object",
+      "description": "Core agent configuration properties",
+      "properties": {
+        "model": {
+          "oneOf": [
+            {"type": "string", "description": "Model identifier"},
+            {"$ref": "#/$defs/model-config"}
+          ],
+          "description": "Model configuration"
+        },
+        "system_prompt": {
+          "type": "string",
+          "description": "System prompt for the agent"
+        },
+        "name": {
+          "type": "string",
+          "description": "Agent name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Agent description"
+        },
+        "agent_id": {
+          "type": "string",
+          "description": "Unique agent identifier"
+        },
+        "tools": {
+          "type": "array",
+          "description": "Array of tool configurations",
+          "items": {"$ref": "#/$defs/tool-item"}
+        },
+        "messages": {
+          "type": "array",
+          "description": "Initial messages for the agent",
+          "items": {"$ref": "#/$defs/message-config"}
+        },
+        "callback_handler": {
+          "type": "object",
+          "description": "Callback handler configuration",
+          "additionalProperties": true
+        },
+        "conversation_manager": {
+          "type": "object",
+          "description": "Conversation manager configuration",
+          "additionalProperties": true
+        },
+        "record_direct_tool_call": {
+          "type": "boolean",
+          "description": "Whether to record direct tool calls",
+          "default": true
+        },
+        "load_tools_from_directory": {
+          "type": "boolean",
+          "description": "Whether to load tools from directory",
+          "default": false
+        },
+        "trace_attributes": {
+          "type": "object",
+          "description": "Tracing attributes",
+          "additionalProperties": true
+        },
+        "state": {
+          "type": "object",
+          "description": "Agent state configuration",
+          "additionalProperties": true
+        },
+        "hooks": {
+          "type": "array",
+          "description": "Hook configurations",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "session_manager": {
+          "type": "object",
+          "description": "Session manager configuration",
+          "additionalProperties": true
+        },
+        "structured_output": {"$ref": "#/$defs/structured-output-config"},
+        "temperature": {
+          "type": "number",
+          "description": "Model temperature parameter"
+        }
+      },
+      "required": ["model"],
+      "additionalProperties": true
+    },
+    "graph-properties": {
+      "type": "object",
+      "description": "Core graph configuration properties",
+      "properties": {
+        "graph_id": {
+          "type": "string",
+          "description": "Graph identifier"
+        },
+        "name": {
+          "type": "string",
+          "description": "Graph name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Graph description"
+        },
+        "max_node_executions": {
+          "oneOf": [
+            {"type": "integer", "minimum": 1},
+            {"type": "null"}
+          ],
+          "description": "Maximum number of node executions"
+        },
+        "execution_timeout": {
+          "oneOf": [
+            {"type": "number", "minimum": 0},
+            {"type": "null"}
+          ],
+          "description": "Total execution timeout in seconds"
+        },
+        "node_timeout": {
+          "oneOf": [
+            {"type": "number", "minimum": 0},
+            {"type": "null"}
+          ],
+          "description": "Individual node timeout in seconds"
+        },
+        "reset_on_revisit": {
+          "type": "boolean",
+          "description": "Whether to reset state on node revisit",
+          "default": false
+        },
+        "nodes": {
+          "type": "array",
+          "description": "Array of graph nodes",
+          "items": {"$ref": "#/$defs/graph-node"},
+          "minItems": 1
+        },
+        "edges": {
+          "type": "array",
+          "description": "Array of graph edges",
+          "items": {"$ref": "#/$defs/graph-edge"}
+        },
+        "entry_points": {
+          "type": "array",
+          "description": "Array of entry point node IDs",
+          "items": {"type": "string"},
+          "minItems": 1
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Additional metadata",
+          "properties": {
+            "version": {"type": "string"},
+            "created_from": {"type": "string"},
+            "tags": {
+              "type": "array",
+              "items": {"type": "string"}
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "required": ["nodes", "edges", "entry_points"],
+      "additionalProperties": true
+    },
+    "swarm-properties": {
+      "type": "object",
+      "description": "Core swarm configuration properties",
+      "properties": {
+        "max_handoffs": {
+          "type": "integer",
+          "description": "Maximum number of handoffs",
+          "default": 20
+        },
+        "max_iterations": {
+          "type": "integer",
+          "description": "Maximum number of iterations",
+          "default": 20
+        },
+        "execution_timeout": {
+          "type": "number",
+          "description": "Total execution timeout in seconds",
+          "default": 900.0
+        },
+        "node_timeout": {
+          "type": "number",
+          "description": "Individual node timeout in seconds",
+          "default": 300.0
+        },
+        "repetitive_handoff_detection_window": {
+          "type": "integer",
+          "description": "Window size for detecting repetitive handoffs",
+          "default": 0
+        },
+        "repetitive_handoff_min_unique_agents": {
+          "type": "integer",
+          "description": "Minimum unique agents required in detection window",
+          "default": 0
+        },
+        "agents": {
+          "type": "array",
+          "description": "Array of agent configurations",
+          "items": {"$ref": "#/$defs/swarm-agent"},
+          "minItems": 1
+        }
+      },
+      "required": ["agents"],
+      "additionalProperties": true
+    },
+    "tools-array": {
+      "type": "array",
+      "description": "Array of tool configurations",
+      "items": {"$ref": "#/$defs/tool-item"},
+      "minItems": 1
+    },
+    "graph-node": {
+      "type": "object",
+      "description": "Graph node configuration",
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "description": "Unique node identifier"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["agent", "swarm", "graph"],
+          "description": "Type of the node"
+        },
+        "config": {
+          "type": "object",
+          "description": "Node configuration (agent/swarm/graph specific)",
+          "additionalProperties": true
+        },
+        "reference": {
+          "type": "string",
+          "description": "Reference to external configuration"
+        }
+      },
+      "required": ["node_id", "type"],
+      "oneOf": [
+        {"required": ["config"]},
+        {"required": ["reference"]}
+      ],
+      "additionalProperties": false
+    },
+    "graph-edge": {
+      "type": "object",
+      "description": "Graph edge configuration",
+      "properties": {
+        "from_node": {
+          "type": "string",
+          "description": "Source node ID"
+        },
+        "to_node": {
+          "type": "string",
+          "description": "Target node ID"
+        },
+        "condition": {
+          "oneOf": [
+            {"$ref": "#/$defs/condition-config"},
+            {"type": "null"}
+          ],
+          "description": "Optional edge condition"
+        }
+      },
+      "required": ["from_node", "to_node"],
+      "additionalProperties": false
+    },
+    "swarm-agent": {
+      "type": "object",
+      "description": "Agent configuration within a swarm",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Agent name"
+        },
+        "description": {
+          "type": "string",
+          "description": "Agent description"
+        },
+        "model": {
+          "oneOf": [
+            {"type": "string"},
+            {"$ref": "#/$defs/model-config"}
+          ],
+          "description": "Model configuration"
+        },
+        "system_prompt": {
+          "type": "string",
+          "description": "System prompt for the agent"
+        },
+        "tools": {
+          "type": "array",
+          "description": "Array of tool configurations",
+          "items": {"$ref": "#/$defs/tool-item"}
+        },
+        "handoff_conditions": {
+          "type": "array",
+          "description": "Handoff conditions for the agent",
+          "items": {
+            "type": "object",
+            "properties": {
+              "condition": {"type": "string"},
+              "target_agent": {"type": "string"}
+            },
+            "required": ["condition", "target_agent"],
+            "additionalProperties": true
+          }
+        },
+        "agent_id": {"type": "string"},
+        "callback_handler": {"type": "object", "additionalProperties": true},
+        "conversation_manager": {"type": "object", "additionalProperties": true},
+        "record_direct_tool_call": {"type": "boolean", "default": true},
+        "load_tools_from_directory": {"type": "boolean", "default": false},
+        "trace_attributes": {"type": "object", "additionalProperties": true},
+        "state": {"type": "object", "additionalProperties": true},
+        "hooks": {"type": "array", "items": {"type": "object", "additionalProperties": true}},
+        "session_manager": {"type": "object", "additionalProperties": true},
+        "structured_output": {"$ref": "#/$defs/structured-output-config"},
+        "temperature": {"type": "number"}
+      },
+      "required": ["name", "model"],
+      "additionalProperties": true
+    },
+    "tool-item": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Simple tool reference (e.g., 'weather_tool.weather')"
+        },
+        {
+          "type": "object",
+          "description": "Complex tool configuration",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Tool name"
+            },
+            "description": {
+              "type": "string",
+              "description": "Tool description"
+            },
+            "module": {
+              "type": "string",
+              "description": "Module path for legacy tools"
+            },
+            "agent": {
+              "type": "object",
+              "description": "Agent configuration for agent-as-tool",
+              "additionalProperties": true
+            },
+            "graph": {
+              "type": "object",
+              "description": "Graph configuration for graph-as-tool",
+              "additionalProperties": true
+            },
+            "swarm": {
+              "type": "object",
+              "description": "Swarm configuration for swarm-as-tool",
+              "additionalProperties": true
+            },
+            "input_schema": {
+              "type": "object",
+              "description": "JSON Schema for tool inputs",
+              "additionalProperties": true
+            },
+            "args": {
+              "type": "object",
+              "description": "Tool arguments configuration",
+              "additionalProperties": true
+            },
+            "prompt": {
+              "type": "string",
+              "description": "Prompt template for the tool"
+            },
+            "entry_point": {
+              "type": "string",
+              "description": "Entry point for graph/swarm tools"
+            },
+            "entry_agent": {
+              "type": "string",
+              "description": "Entry agent for swarm tools"
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "condition-config": {
+      "type": "object",
+      "description": "Condition configuration for graph edges",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["function", "expression", "rule", "lambda", "template", "composite", "always"],
+          "description": "Type of condition"
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of the condition"
+        }
+      },
+      "required": ["type"],
+      "allOf": [
+        {
+          "if": {"properties": {"type": {"const": "function"}}},
+          "then": {
+            "properties": {
+              "module": {"type": "string", "description": "Module name"},
+              "function": {"type": "string", "description": "Function name"},
+              "timeout": {"type": "number", "description": "Execution timeout"},
+              "default": {"type": "boolean", "description": "Default value on error"}
+            },
+            "required": ["module", "function"]
+          }
+        },
+        {
+          "if": {"properties": {"type": {"const": "expression"}}},
+          "then": {
+            "properties": {
+              "expression": {"type": "string", "description": "Expression string"},
+              "default": {"type": "boolean", "description": "Default value on error"}
+            },
+            "required": ["expression"]
+          }
+        },
+        {
+          "if": {"properties": {"type": {"const": "rule"}}},
+          "then": {
+            "properties": {
+              "rules": {
+                "type": "array",
+                "description": "Array of rules",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "field": {"type": "string", "description": "Field path"},
+                    "operator": {
+                      "type": "string",
+                      "enum": ["equals", "not_equals", "greater_than", "less_than", "greater_equal", "less_equal", "contains", "starts_with", "ends_with", "regex_match"],
+                      "description": "Comparison operator"
+                    },
+                    "value": {"description": "Comparison value"}
+                  },
+                  "required": ["field", "operator", "value"],
+                  "additionalProperties": false
+                }
+              },
+              "logic": {
+                "type": "string",
+                "enum": ["and", "or"],
+                "description": "Logic operator for combining rules",
+                "default": "and"
+              }
+            },
+            "required": ["rules"]
+          }
+        },
+        {
+          "if": {"properties": {"type": {"const": "lambda"}}},
+          "then": {
+            "properties": {
+              "expression": {"type": "string", "description": "Lambda expression"},
+              "timeout": {"type": "number", "description": "Execution timeout"},
+              "default": {"type": "boolean", "description": "Default value on error"}
+            },
+            "required": ["expression"]
+          }
+        },
+        {
+          "if": {"properties": {"type": {"const": "template"}}},
+          "then": {
+            "properties": {
+              "template": {"type": "string", "description": "Template name"},
+              "parameters": {"type": "object", "description": "Template parameters", "additionalProperties": true}
+            },
+            "required": ["template"]
+          }
+        },
+        {
+          "if": {"properties": {"type": {"const": "composite"}}},
+          "then": {
+            "properties": {
+              "logic": {
+                "type": "string",
+                "enum": ["and", "or", "not"],
+                "description": "Logic operator for combining conditions"
+              },
+              "conditions": {
+                "type": "array",
+                "description": "Array of sub-conditions",
+                "items": {"$ref": "#/$defs/condition-config"}
+              }
+            },
+            "required": ["logic", "conditions"]
+          }
+        }
+      ],
+      "additionalProperties": true
+    },
+    "model-config": {
+      "type": "object",
+      "description": "Complex model configuration",
+      "properties": {
+        "model_id": {
+          "type": "string",
+          "description": "Model identifier"
+        },
+        "temperature": {
+          "type": "number",
+          "description": "Model temperature parameter"
+        },
+        "max_tokens": {
+          "type": "integer",
+          "description": "Maximum tokens to generate"
+        },
+        "top_p": {
+          "type": "number",
+          "description": "Top-p sampling parameter"
+        },
+        "top_k": {
+          "type": "integer",
+          "description": "Top-k sampling parameter"
+        }
+      },
+      "required": ["model_id"],
+      "additionalProperties": true
+    },
+    "message-config": {
+      "type": "object",
+      "description": "Message configuration",
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["system", "user", "assistant", "tool"],
+          "description": "Message role"
+        },
+        "content": {
+          "oneOf": [
+            {"type": "string"},
+            {"type": "array", "items": {"type": "object", "additionalProperties": true}}
+          ],
+          "description": "Message content"
+        },
+        "name": {
+          "type": "string",
+          "description": "Message name (for tool messages)"
+        },
+        "tool_call_id": {
+          "type": "string",
+          "description": "Tool call ID (for tool messages)"
+        }
+      },
+      "required": ["role", "content"],
+      "additionalProperties": true
+    },
+    "structured-output-config": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": "Simple schema reference"
+        },
+        {
+          "type": "object",
+          "description": "Detailed structured output configuration",
+          "properties": {
+            "schema": {
+              "type": "string",
+              "description": "Schema reference"
+            },
+            "validation": {
+              "type": "object",
+              "description": "Validation settings",
+              "properties": {
+                "strict": {"type": "boolean", "description": "Strict validation"},
+                "allow_extra_fields": {"type": "boolean", "description": "Allow extra fields"}
+              },
+              "additionalProperties": true
+            },
+            "error_handling": {
+              "type": "object",
+              "description": "Error handling settings",
+              "properties": {
+                "retry_on_validation_error": {"type": "boolean", "description": "Retry on validation error"},
+                "max_retries": {"type": "integer", "description": "Maximum retry attempts"}
+              },
+              "additionalProperties": true
+            }
+          },
+          "required": ["schema"],
+          "additionalProperties": true
+        }
+      ]
+    },
+    "global-schemas": {
+      "type": "array",
+      "description": "Global schema registry",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Schema name"
+          },
+          "schema": {
+            "type": "object",
+            "description": "JSON Schema definition",
+            "additionalProperties": true
+          }
+        },
+        "required": ["name", "schema"],
+        "additionalProperties": false
+      }
+    },
+    "structured-output-defaults": {
+      "type": "object",
+      "description": "Default structured output settings",
+      "additionalProperties": true
+    }
+  }
+}
