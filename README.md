@@ -219,23 +219,7 @@ To regenerate the `AGENTS.md` file:
    pip install strands-agents strands-agents-tools
    ```
 
-2. **Create a documentation agent**:
-   ```python
-   from strands import Agent
-   from strands_tools import file_read, file_write
-   
-   # Create agent with file system tools
-   doc_agent = Agent(tools=[file_read, file_write])
-   
-   # Load the generation prompt
-   with open('scripts/generate_agents_guide.md', 'r') as f:
-       prompt = f.read()
-   
-   # Generate the documentation
-   doc_agent(prompt)
-   ```
-
-3. **Or use the generation script directly**:
+2. **Run the included generation script**:
    ```bash
    python scripts/generate_agents_guide.py
    ```
