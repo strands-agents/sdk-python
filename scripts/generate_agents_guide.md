@@ -43,10 +43,9 @@ You are tasked with creating a comprehensive `AGENTS.md` file that serves as a r
    - Include reference to https://strandsagents.com/latest/llms.txt for comprehensive documentation links
    - Link to official documentation at https://strandsagents.com/
 
-7. **Check for team guidance**:
-   - Look for `TEAM_GUIDANCE.md` in the repository root
-   - If it exists, include its contents in a "Team Guidance" section
-   - If it doesn't exist, omit this section entirely
+7. **Check team guidance section below**:
+   - If the "Team Guidance Content" section below is empty, omit the Team Guidance section from the output
+   - If it contains content, include it in a "Team Guidance" section in the generated documentation
 
 ### Output Requirements:
 
@@ -122,5 +121,15 @@ The resulting AGENTS.md should enable an AI agent to:
 - Use the SDK effectively without reading every source file
 - Troubleshoot common issues
 - Access comprehensive documentation through llms.txt reference
+
+---
+
+## Team Guidance Content
+
+**Instructions for Team**: Fill in this section with any specific guidance, best practices, or important callouts for AI agents using the SDK. If this section is left empty, the generation script will omit the Team Guidance section from the output entirely.
+
+<!-- Team: Add your guidance content here -->
+
+---
 
 Begin by analyzing the current repository state and then systematically build the comprehensive guide.
