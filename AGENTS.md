@@ -117,7 +117,7 @@ class Agent:
         tool_executor: Optional[ToolExecutor] = None, # Execution strategy
         session_manager: Optional[SessionManager] = None, # Persistence
         hooks: Optional[list[HookProvider]] = None, # Event hooks
-        **kwargs
+        **kwargs  # See src/strands/agent/agent.py for additional parameters
     ):
         # Agent initialization with comprehensive configuration
     
@@ -358,7 +358,7 @@ agent = Agent(hooks=[CustomHookProvider()])
 from strands.tools.executors import ConcurrentToolExecutor
 
 # Execute multiple tools in parallel
-concurrent_executor = ConcurrentToolExecutor(max_workers=4)
+concurrent_executor = ConcurrentToolExecutor()
 agent = Agent(
     tools=[tool1, tool2, tool3],
     tool_executor=concurrent_executor
@@ -369,48 +369,7 @@ agent = Agent(
 
 ## Error Handling and Best Practices
 
-### Common Exception Types
-
-```python
-from strands.types.exceptions import (
-    ContextWindowOverflowException,  # Context too large
-    ModelThrottledException,         # Rate limiting
-    ValidationException,             # Input validation
-    ToolExecutionException          # Tool execution errors
-)
-
-try:
-    result = agent("Complex query...")
-except ContextWindowOverflowException:
-    # Handle context overflow
-    agent.conversation_manager.clear_history()
-except ModelThrottledException:
-    # Handle rate limiting
-    time.sleep(60)
-```
-
-### Performance Optimization
-
-1. **Use streaming for long responses**:
-   ```python
-   async for chunk in agent.stream("Generate a long report..."):
-       print(chunk.content, end="", flush=True)
-   ```
-
-2. **Configure appropriate context windows**:
-   ```python
-   from strands.agent.conversation_manager import SlidingWindowConversationManager
-   
-   conversation_manager = SlidingWindowConversationManager(max_messages=20)
-   agent = Agent(conversation_manager=conversation_manager)
-   ```
-
-3. **Use concurrent execution for independent tools**:
-   ```python
-   from strands.tools.executors import ConcurrentToolExecutor
-   
-   agent = Agent(tool_executor=ConcurrentToolExecutor(max_workers=4))
-   ```
+*This section is reserved for future team guidance.*
 
 ---
 
@@ -497,30 +456,6 @@ agent = Agent(tool_executor=ConcurrentToolExecutor(max_workers=4))
 ```
 
 ---
-
-## Troubleshooting Guide
-
-### Common Issues and Solutions
-
-1. **Context Window Overflow**:
-   - Use `SlidingWindowConversationManager`
-   - Implement conversation summarization
-   - Clear history periodically
-
-2. **Tool Loading Issues**:
-   - Ensure tools are properly decorated with `@tool`
-   - Check tool function signatures match expected patterns
-   - Verify tool directory structure for hot reloading
-
-3. **Model Provider Errors**:
-   - Verify API keys and credentials
-   - Check model availability in specified regions
-   - Ensure proper model permissions
-
-4. **MCP Integration Issues**:
-   - Verify MCP server is running and accessible
-   - Check transport configuration (stdio, HTTP, etc.)
-   - Ensure proper MCP protocol version compatibility
 
 ---
 

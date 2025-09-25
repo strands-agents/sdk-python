@@ -18,12 +18,15 @@ You are tasked with creating a comprehensive `AGENTS.md` file that serves as a r
 
 1. **Read the existing AGENTS.md file** (if it exists) to understand the current structure and content
 
-2. **Read the project structure**:
+2. **Check out and read the strands-agents/docs repository** for comprehensive documentation context
+
+3. **Read the project structure**:
+3. **Read the project structure**:
    - Examine `pyproject.toml` for dependencies and configuration
    - Analyze `src/strands/` directory structure
    - Review key implementation files in each module
 
-3. **Examine core components**:
+4. **Examine core components**:
    - `src/strands/agent/agent.py` - Core Agent class
    - `src/strands/models/` - Model provider implementations
    - `src/strands/tools/` - Tool system and decorators
@@ -31,13 +34,13 @@ You are tasked with creating a comprehensive `AGENTS.md` file that serves as a r
    - `src/strands/session/` - Session management
    - `src/strands/types/` - Type definitions
 
-4. **Review integration tests** for usage patterns:
+5. **Review integration tests** for usage patterns:
    - `tests_integ/` directory for real-world examples
    - Look for Agent instantiation patterns
    - Tool usage examples
    - Multi-agent system examples
 
-5. **Reference documentation**:
+6. **Reference documentation**:
    - Include reference to https://strandsagents.com/latest/llms.txt for comprehensive documentation links
    - Link to official documentation at https://strandsagents.com/
 
@@ -78,9 +81,6 @@ Create an `AGENTS.md` file with the following structure:
 
 ## Configuration Reference
 [Model provider configurations and options]
-
-## Troubleshooting Guide
-[Common issues and solutions]
 
 ## Documentation References
 [Reference to llms.txt and official docs]
