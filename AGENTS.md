@@ -226,7 +226,8 @@ agent = Agent(tools=[web_search])
 
 ```python
 from strands import Agent
-from strands.models import BedrockModel, OpenAIModel
+from strands.models.bedrock import BedrockModel
+from strands.models.openai import OpenAIModel
 
 # AWS Bedrock configuration
 bedrock_model = BedrockModel(
@@ -428,6 +429,8 @@ BedrockModel(
 
 **OpenAI:**
 ```python
+from strands.models.openai import OpenAIModel
+
 OpenAIModel(
     model_id="gpt-4",
     api_key="sk-...",
@@ -439,6 +442,8 @@ OpenAIModel(
 
 **Anthropic:**
 ```python
+from strands.models.anthropic import AnthropicModel
+
 AnthropicModel(
     model_id="claude-3-sonnet-20240229",
     api_key="sk-ant-...",
