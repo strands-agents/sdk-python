@@ -527,7 +527,7 @@ agent = Agent(tool_executor=ConcurrentToolExecutor(max_workers=4))
 ## Documentation & Resources
 
 - **Documentation**: https://strandsagents.com/
-- **Comprehensive Documentation Index**: See `llms.txt` in this repository for complete documentation links
+- **Comprehensive Documentation Index**: See https://strandsagents.com/latest/llms.txt for complete documentation links
 - **GitHub Repository**: https://github.com/strands-agents/sdk-python
 - **PyPI Package**: https://pypi.org/project/strands-agents/
 - **Sample Projects**: https://github.com/strands-agents/samples

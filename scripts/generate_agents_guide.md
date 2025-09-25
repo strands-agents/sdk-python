@@ -41,7 +41,7 @@ You are tasked with creating a comprehensive `AGENTS.md` file that serves as a r
    - Multi-agent system examples
 
 5. **Reference documentation**:
-   - Include reference to `llms.txt` for comprehensive documentation links
+   - Include reference to https://strandsagents.com/latest/llms.txt for comprehensive documentation links
    - Link to official documentation at https://strandsagents.com/
 
 ### Output Requirements:
@@ -98,7 +98,7 @@ Create an `AGENTS.md` file with the following structure:
 - **Include real code examples** from the codebase, not hypothetical ones
 - **Focus on practical usage** - what an AI agent needs to know to use the SDK effectively
 - **Update timestamps** to current date/time
-- **Reference llms.txt** for additional documentation
+- **Reference https://strandsagents.com/latest/llms.txt** for additional documentation
 - **Maintain accuracy** - ensure all information reflects the current codebase state
 
 ### Tools You Should Use:
