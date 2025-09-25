@@ -87,9 +87,6 @@ Create an `AGENTS.md` file with the following structure:
 ## Team Guidance Section
 **Note**: If the "Team Guidance Content" section below contains content, include it in a "Team Guidance" section in the generated documentation. If it's empty, omit this section entirely.
 
-## Testing and Development
-[Integration tests, development setup, and testing patterns]
-
 ## Configuration Reference
 [Model provider configurations and options]
 
