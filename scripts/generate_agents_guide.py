@@ -24,8 +24,11 @@ def main():
     # Generate the documentation
     result = doc_agent(prompt)
     
-    print("Documentation generation completed!")
-    print(f"Result: {result}")
+    # Write result to AGENTS.md file
+    with open('AGENTS.md', 'w') as f:
+        f.write(str(result))
+    
+    print("Documentation generation completed! Written to AGENTS.md")
 
 
 if __name__ == "__main__":
