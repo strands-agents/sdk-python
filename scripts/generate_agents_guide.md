@@ -85,7 +85,7 @@ Create an `AGENTS.md` file with the following structure:
 **Important**: Do not write specific guidance in this section. Keep it as "*This section is reserved for future team guidance.*" until the team provides specific content.
 
 ## Team Guidance Section
-**Note**: Check for a `TEAM_GUIDANCE.md` file in the repository root. If it exists, include its contents in a "Team Guidance" section. If it doesn't exist, omit this section entirely.
+**Note**: If the "Team Guidance Content" section below contains content, include it in a "Team Guidance" section in the generated documentation. If it's empty, omit this section entirely.
 
 ## Testing and Development
 [Integration tests, development setup, and testing patterns]
