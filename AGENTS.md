@@ -2,7 +2,6 @@
 
 **Generated:** Tuesday, September 23, 2025 at 6:02 PM EDT  
 **Repository:** https://github.com/strands-agents/sdk-python  
-**Current Branch:** add-agents-guide (commit: 2ba2298)  
 **Purpose:** Comprehensive guide for AI agents to understand and work with the Strands Agents Python SDK
 
 ---
@@ -522,31 +521,6 @@ agent = Agent(tool_executor=ConcurrentToolExecutor(max_workers=4))
    - Verify MCP server is running and accessible
    - Check transport configuration (stdio, HTTP, etc.)
    - Ensure proper MCP protocol version compatibility
-
----
-
-## Recent Development Activity
-
-**Latest 10 Commits:**
-1. `9213bc5`: feat: add default read timeout to Bedrock model
-2. `d66fcdb`: fix(models): patch litellm bug to honor use_litellm_proxy
-3. `6ab1aca`: fix(tools/loader): load all decorated @tool functions from file path
-4. `5420679`: feat: improve structured output tool circular reference handling
-5. `1f27488`: fix: do not block asyncio event loop between retries
-6. `f185c52`: feat: Warn on unknown model configuration properties
-7. `c142e7a`: docs: cleanup docs so the yields section renders correctly
-8. `8cb53d3`: fix(models): filter reasoningContent in Bedrock requests using DeepSeek
-9. `b568864`: fix(graph): fix cyclic graph behavior
-10. `faeb21a`: fix: Moved tool_spec retrieval to after before model invocation callback
-
-**Development Focus Areas:**
-- Enhanced Bedrock model support and performance
-- Bug fixes in model provider integrations
-- Improved tool loading and registration
-- Multi-agent system stability
-- Documentation and developer experience
-
----
 
 ---
 

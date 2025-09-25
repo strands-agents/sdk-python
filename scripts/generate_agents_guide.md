@@ -23,7 +23,6 @@ You are tasked with creating a comprehensive `AGENTS.md` file that serves as a r
    - Examine `pyproject.toml` for dependencies and configuration
    - Analyze `src/strands/` directory structure
    - Review key implementation files in each module
-   - Check recent git commits for development activity
 
 3. **Examine core components**:
 3. **Examine core components**:
@@ -54,7 +53,6 @@ Create an `AGENTS.md` file with the following structure:
 
 **Generated:** [Current timestamp]
 **Repository:** https://github.com/strands-agents/sdk-python
-**Current Branch:** [Current branch and commit]
 **Purpose:** Comprehensive guide for AI agents to understand and work with the Strands Agents Python SDK
 
 ## Executive Summary
@@ -87,9 +85,6 @@ Create an `AGENTS.md` file with the following structure:
 ## Troubleshooting Guide
 [Common issues and solutions]
 
-## Recent Development Activity
-[Latest commits and development focus]
-
 ## Documentation References
 [Reference to llms.txt and official docs]
 
@@ -109,7 +104,6 @@ Create an `AGENTS.md` file with the following structure:
 ### Tools You Should Use:
 
 - `file_read` to examine files and directories
-- `execute_bash` to run git commands for current state
 - `editor` to create or update the final AGENTS.md file
 
 ### Success Criteria:
