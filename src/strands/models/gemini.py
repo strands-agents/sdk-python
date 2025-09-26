@@ -443,9 +443,5 @@ class GeminiModel(Model):
         }
         request = self._format_request(prompt, None, system_prompt, params)
         client = genai.Client(**self.client_args).aio
-        try:
-            response = await client.models.generate_content(**request)
-            yield {"output": output_model.model_validate(response.parsed)}
-        finally:
-            # Note: genai.AsyncClient doesn't expose proper cleanup methods
-            pass
+        response = await client.models.generate_content(**request)
+        yield {"output": output_model.model_validate(response.parsed)}
