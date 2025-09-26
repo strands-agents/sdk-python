@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Agent Configuration",
+  "description": "Configuration schema for creating agents",
+  "type": "object",
+  "properties": {
+    "name": {
+      "description": "Name of the agent",
+      "type": ["string", "null"],
+      "default": null
+    },
+    "model": {
+      "description": "The model ID to use for this agent. If not specified, uses the default model.",
+      "type": ["string", "null"],
+      "default": null
+    },
+    "prompt": {
+      "description": "The system prompt for the agent. Provides high level context to the agent.",
+      "type": ["string", "null"],
+      "default": null
+    },
+    "tools": {
+      "description": "List of tools the agent can use. Can be module paths, file paths, or tool names.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    }
+  },
+  "additionalProperties": false
+}
