@@ -6,7 +6,44 @@ This module provides utilities for creating agents from configuration files or d
 import json
 from pathlib import Path
 
+import jsonschema
+from jsonschema import ValidationError
+
 from ..agent import Agent
+
+# JSON Schema for agent configuration
+AGENT_CONFIG_SCHEMA = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Agent Configuration",
+    "description": "Configuration schema for creating agents",
+    "type": "object",
+    "properties": {
+        "name": {
+            "description": "Name of the agent",
+            "type": ["string", "null"],
+            "default": None
+        },
+        "model": {
+            "description": "The model ID to use for this agent. If not specified, uses the default model.",
+            "type": ["string", "null"],
+            "default": None
+        },
+        "prompt": {
+            "description": "The system prompt for the agent. Provides high level context to the agent.",
+            "type": ["string", "null"],
+            "default": None
+        },
+        "tools": {
+            "description": "List of tools the agent can use. Can be module paths, file paths, or tool names.",
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "default": []
+        }
+    },
+    "additionalProperties": False
+}
 
 
 def config_to_agent(config: str | dict[str, any], **kwargs) -> Agent:
@@ -55,6 +92,14 @@ def config_to_agent(config: str | dict[str, any], **kwargs) -> Agent:
         config_dict = config.copy()
     else:
         raise ValueError("Config must be a file path string or dictionary")
+    
+    # Validate configuration against schema
+    try:
+        jsonschema.validate(config_dict, AGENT_CONFIG_SCHEMA)
+    except ValidationError as e:
+        # Provide more detailed error message
+        error_path = " -> ".join(str(p) for p in e.absolute_path) if e.absolute_path else "root"
+        raise ValueError(f"Configuration validation error at {error_path}: {e.message}") from e
     
     # Prepare Agent constructor arguments
     agent_kwargs = {}
