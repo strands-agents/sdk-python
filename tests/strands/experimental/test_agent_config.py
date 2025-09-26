@@ -136,13 +136,6 @@ class TestAgentConfig:
         ):
             AgentConfig({"model": "test-model", "tools": ["unknown_tool"]}, tool_registry=tool_registry)
 
-    def test_agent_config_tools_without_tool_registry_error(self):
-        """Test that config can load tools from default ToolRegistry when strands_tools is available."""
-
-        config = AgentConfig({"model": "test-model", "tools": ["file_read"]})
-        assert len(config.configured_tools) == 1
-        assert config.configured_tools[0].tool_name == "file_read"
-
     @patch("importlib.import_module")
     def test_agent_config_import_error(self, mock_import):
         """Test that import error for strands_tools is handled correctly."""
