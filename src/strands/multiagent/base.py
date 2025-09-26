@@ -4,15 +4,20 @@ Provides minimal foundation for multi-agent patterns (Swarm, Graph).
 """
 
 import asyncio
+import logging
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Union
+from typing import TYPE_CHECKING, Any, Union
 
-from ..agent import AgentResult
 from ..types.content import ContentBlock
 from ..types.event_loop import Metrics, Usage
+
+if TYPE_CHECKING:
+    from ..agent import AgentResult
+
+logger = logging.getLogger(__name__)
 
 
 class Status(Enum):
@@ -22,6 +27,7 @@ class Status(Enum):
     EXECUTING = "executing"
     COMPLETED = "completed"
     FAILED = "failed"
+    INTERRUPTED = "interrupted"
 
 
 @dataclass
@@ -34,7 +40,7 @@ class NodeResult:
     """
 
     # Core result data - single AgentResult, nested MultiAgentResult, or Exception
-    result: Union[AgentResult, "MultiAgentResult", Exception]
+    result: Union["AgentResult", "MultiAgentResult", Exception]
 
     # Execution metadata
     execution_time: int = 0
@@ -45,7 +51,7 @@ class NodeResult:
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
     execution_count: int = 0
 
-    def get_agent_results(self) -> list[AgentResult]:
+    def get_agent_results(self) -> list["AgentResult"]:
         """Get all AgentResult objects from this node, flattened if nested."""
         if isinstance(self.result, Exception):
             return []  # No agent results for exceptions
@@ -55,7 +61,8 @@ class NodeResult:
             # Flatten nested results from MultiAgentResult
             flattened = []
             for nested_node_result in self.result.results.values():
-                flattened.extend(nested_node_result.get_agent_results())
+                if isinstance(nested_node_result, NodeResult):
+                    flattened.extend(nested_node_result.get_agent_results())
             return flattened
 
 
@@ -117,3 +124,24 @@ class MultiAgentBase(ABC):
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)
             return future.result()
+
+    def _call_hook_safely(self, event_object: object) -> None:
+        """Invoke hook callbacks and swallow hook errors.
+
+        Args:
+            event_object: The event to dispatch to registered callbacks.
+        """
+        try:
+            self.hooks.invoke_callbacks(event_object)  # type: ignore
+        except Exception as e:
+            logger.exception("Hook invocation failed for %s: %s", type(event_object).__name__, e)
+
+    @abstractmethod
+    def get_state_from_orchestrator(self) -> dict:
+        """Return a JSON-serializable snapshot of the orchestrator state."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def apply_state_from_dict(self, payload: dict) -> None:
+        """Restore orchestrator state from a session dict."""
+        raise NotImplementedError
