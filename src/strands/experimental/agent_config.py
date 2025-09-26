@@ -66,13 +66,6 @@ def config_to_agent(config: Union[str, Dict[str, Any]], **kwargs) -> Agent:
         "prompt": "system_prompt", 
         "tools": "tools",
         "name": "name",
-        "agent_id": "agent_id",
-        "session_manager": "session_manager",
-        "conversation_manager": "conversation_manager",
-        "hooks": "hooks",
-        "callback_handler": "callback_handler",
-        "state": "state",
-        "trace_attributes": "trace_attributes",
     }
     
     # Only include non-None values from config

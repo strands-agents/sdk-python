@@ -109,12 +109,6 @@ class TestConfigToAgent:
         agent = config_to_agent(config)
         assert agent.name == "TestAgent"
 
-    def test_config_to_agent_with_agent_id(self):
-        """Test config_to_agent handles agent_id."""
-        config = {"model": "test-model", "agent_id": "test-agent-123"}
-        agent = config_to_agent(config)
-        assert agent.agent_id == "test-agent-123"
-
     def test_config_to_agent_ignores_none_values(self):
         """Test that None values in config are ignored."""
         config = {"model": "test-model", "prompt": None, "name": None}
