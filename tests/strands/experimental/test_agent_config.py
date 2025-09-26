@@ -45,15 +45,12 @@ class TestConfigToAgent:
         import json
 
         config_data = {"model": "test-model"}
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=True) as f:
             json.dump(config_data, f)
-            temp_path = f.name
+            f.flush()
 
-        try:
-            agent = config_to_agent(temp_path)
+            agent = config_to_agent(f.name)
             assert agent.model.config["model_id"] == "test-model"
-        finally:
-            os.unlink(temp_path)
 
     def test_config_to_agent_file_prefix_valid(self):
         """Test that file:// prefix is properly handled."""
