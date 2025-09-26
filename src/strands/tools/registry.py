@@ -202,7 +202,7 @@ class ToolRegistry:
 
             matching_tools = [
                 tool_name
-                for (tool_name, tool) in self.registry.items()
+                for (tool_name, _) in self.registry.items()
                 if tool_name.replace("-", "_") == normalized_name
             ]
 
