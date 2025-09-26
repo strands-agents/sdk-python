@@ -5,12 +5,11 @@ This module provides utilities for creating agents from configuration files or d
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Union
 
 from ..agent import Agent
 
 
-def config_to_agent(config: Union[str, Dict[str, Any]], **kwargs) -> Agent:
+def config_to_agent(config: str | dict[str, any], **kwargs) -> Agent:
     """Create an Agent from a configuration file or dictionary.
     
     Args:
