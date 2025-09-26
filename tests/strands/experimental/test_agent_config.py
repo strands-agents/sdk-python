@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
+from strands import tool
 from strands.experimental.agent_config import AgentConfig
 from strands.tools.registry import ToolRegistry
 from strands.types.tools import AgentTool
@@ -191,3 +192,38 @@ class TestAgentConfig:
                 tool_registry=custom_tool_registry,
                 raise_exception_on_missing_tool=True,
             )
+
+    @patch("strands.experimental.agent_config.AgentConfig._create_default_tool_registry")
+    def test_agent_config_tools_without_tool_registry_error(self, mock_create_registry):
+        """Test that config can load tools from default ToolRegistry when strands_tools is available."""
+        # Mock the default tool registry to return a registry with file_read tool
+        mock_registry = ToolRegistry()
+        
+        @tool
+        def file_read(path: str) -> str:
+            return f"content of {path}"
+        
+        mock_registry.process_tools([file_read])
+        mock_create_registry.return_value = mock_registry
+
+        config = AgentConfig({"model": "test-model", "tools": ["file_read"]})
+        assert len(config.configured_tools) == 1
+        assert config.configured_tools[0].tool_name == "file_read"
+
+    @patch("strands.experimental.agent_config.AgentConfig._create_default_tool_registry")
+    def test_agent_config_loads_from_default_tools_without_tool_registry(self, mock_create_registry):
+        """Test that config can load tools from default strands_tools without explicit tool registry."""
+        # Mock the default tool registry to return a registry with file_read tool
+        mock_registry = ToolRegistry()
+        
+        @tool
+        def file_read(path: str) -> str:
+            return f"content of {path}"
+        
+        mock_registry.process_tools([file_read])
+        mock_create_registry.return_value = mock_registry
+
+        config = AgentConfig({"model": "test-model", "tools": ["file_read"]})
+        # Verify the tool was loaded from the default tool registry
+        assert len(config.configured_tools) == 1
+        assert config.configured_tools[0].tool_name == "file_read"
