@@ -60,17 +60,34 @@ class TestAgentConfig:
     def test_agent_config_file_prefix_valid(self):
         """Test that file:// prefix is properly handled."""
         import json
+        import os
+        import platform
         import tempfile
 
         # Create a temporary config file
         config_data = {"model": "test-model", "prompt": "Test prompt"}
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=True) as f:
-            json.dump(config_data, f)
-            f.flush()  # Ensure data is written to disk
+        
+        if platform.system() == "Windows":
+            # Use mkstemp approach on Windows for better permission handling
+            fd, temp_path = tempfile.mkstemp(suffix=".json")
+            try:
+                with os.fdopen(fd, 'w') as f:
+                    json.dump(config_data, f)
+                
+                config = AgentConfig(f"file://{temp_path}", tool_registry=ToolRegistry())
+                assert config.model == "test-model"
+                assert config.system_prompt == "Test prompt"
+            finally:
+                os.unlink(temp_path)
+        else:
+            # Use NamedTemporaryFile on non-Windows platforms
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=True) as f:
+                json.dump(config_data, f)
+                f.flush()  # Ensure data is written to disk
 
-            config = AgentConfig(f"file://{f.name}", tool_registry=ToolRegistry())
-            assert config.model == "test-model"
-            assert config.system_prompt == "Test prompt"
+                config = AgentConfig(f"file://{f.name}", tool_registry=ToolRegistry())
+                assert config.model == "test-model"
+                assert config.system_prompt == "Test prompt"
 
     @patch("strands.agent.agent.Agent")
     def test_to_agent_calls_agent_constructor(self, mock_agent):
