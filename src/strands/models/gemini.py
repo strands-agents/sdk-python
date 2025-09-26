@@ -63,8 +63,7 @@ class GeminiModel(Model):
 
         logger.debug("config=<%s> | initializing", self.config)
 
-        client_args = client_args or {}
-        self.client = genai.Client(**client_args)
+        self.client_args = client_args or {}
 
     @override
     def update_config(self, **model_config: Unpack[GeminiConfig]) -> None:  # type: ignore[override]
@@ -366,8 +365,9 @@ class GeminiModel(Model):
         """
         request = self._format_request(messages, tool_specs, system_prompt, self.config.get("params"))
 
+        client = genai.Client(**self.client_args).aio
         try:
-            response = await self.client.aio.models.generate_content_stream(**request)
+            response = await client.models.generate_content_stream(**request)
 
             yield self._format_chunk({"chunk_type": "message_start"})
             yield self._format_chunk({"chunk_type": "content_start", "data_type": "text"})
@@ -442,5 +442,10 @@ class GeminiModel(Model):
             "response_schema": output_model.model_json_schema(),
         }
         request = self._format_request(prompt, None, system_prompt, params)
-        response = await self.client.aio.models.generate_content(**request)
-        yield {"output": output_model.model_validate(response.parsed)}
+        client = genai.Client(**self.client_args).aio
+        try:
+            response = await client.models.generate_content(**request)
+            yield {"output": output_model.model_validate(response.parsed)}
+        finally:
+            # Note: genai.AsyncClient doesn't expose proper cleanup methods
+            pass
