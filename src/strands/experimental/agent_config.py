@@ -19,6 +19,10 @@ def _load_schema() -> dict:
         return json.load(f)
 
 
+# Pre-compile validator for better performance
+_VALIDATOR = jsonschema.Draft7Validator(_load_schema())
+
+
 def config_to_agent(config: str | dict[str, any], **kwargs) -> Agent:
     """Create an Agent from a configuration file or dictionary.
     
@@ -68,8 +72,7 @@ def config_to_agent(config: str | dict[str, any], **kwargs) -> Agent:
     
     # Validate configuration against schema
     try:
-        schema = _load_schema()
-        jsonschema.validate(config_dict, schema)
+        _VALIDATOR.validate(config_dict)
     except ValidationError as e:
         # Provide more detailed error message
         error_path = " -> ".join(str(p) for p in e.absolute_path) if e.absolute_path else "root"
