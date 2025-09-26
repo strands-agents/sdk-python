@@ -1015,6 +1015,18 @@ def test_agent_cleanup_idempotent(agent):
     mock_provider.cleanup.assert_called_once()
 
 
+def test_agent_cleanup_early_return_avoids_thread_spawn(agent):
+    """Test that cleanup returns early when already called, avoiding thread spawn cost."""
+    # Mark cleanup as already called
+    agent._cleanup_called = True
+
+    with unittest.mock.patch("strands.agent.agent.run_async") as mock_run_async:
+        agent.cleanup()
+
+        # Verify run_async was not called since cleanup already happened
+        mock_run_async.assert_not_called()
+
+
 def test_agent__del__emits_warning_for_automatic_cleanup(agent):
     """Test that __del__ emits warning when cleanup wasn't called manually."""
     # Add a mock tool provider so cleanup will be called

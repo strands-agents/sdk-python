@@ -541,6 +541,9 @@ class Agent:
         Note: This method uses a "belt and braces" approach with automatic cleanup
         through __del__ as a fallback, but explicit cleanup is recommended.
         """
+        if self._cleanup_called:
+            return
+
         run_async(self.cleanup_async)
 
     async def cleanup_async(self) -> None:

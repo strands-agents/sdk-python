@@ -1,7 +1,7 @@
 """Tool provider interface."""
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 
 if TYPE_CHECKING:
     from ...types.tools import AgentTool
@@ -15,8 +15,11 @@ class ToolProvider(ABC):
     """
 
     @abstractmethod
-    async def load_tools(self) -> Sequence["AgentTool"]:
+    async def load_tools(self, **kwargs: Any) -> Sequence["AgentTool"]:
         """Load and return the tools in this provider.
+
+        Args:
+            **kwargs: Additional arguments for future compatibility.
 
         Returns:
             List of tools that are ready to use.
@@ -24,8 +27,11 @@ class ToolProvider(ABC):
         pass
 
     @abstractmethod
-    async def cleanup(self) -> None:
+    async def cleanup(self, **kwargs: Any) -> None:
         """Clean up resources used by the tools in this provider.
+
+        Args:
+            **kwargs: Additional arguments for future compatibility.
 
         Should be called when the tools are no longer needed.
         """
