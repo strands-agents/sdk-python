@@ -1,193 +1,87 @@
-"""Experimental agent configuration with enhanced instantiation patterns."""
+"""Experimental agent configuration utilities.
 
-import importlib
+This module provides utilities for creating agents from configuration files or dictionaries.
+"""
+
 import json
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import Any, Dict, Union
 
-from ..tools.registry import ToolRegistry
-
-if TYPE_CHECKING:
-    # Import here to avoid circular imports:
-    # experimental/agent_config.py -> agent.agent -> event_loop.event_loop ->
-    # experimental.hooks -> experimental.__init__.py -> AgentConfig
-    from ..agent.agent import Agent
-
-# File prefix for configuration file paths
-FILE_PREFIX = "file://"
-
-# Minimum viable list of tools to enable agent building
-# This list is experimental and will be revisited as tools evolve
-DEFAULT_TOOLS = ["file_read", "editor", "http_request", "shell", "use_agent"]
+from ..agent import Agent
 
 
-class AgentConfig:
-    """Agent configuration with to_agent() method and ToolRegistry integration.
-
-    Example config.json:
-    {
-        "model": "anthropic.claude-3-5-sonnet-20241022-v2:0",
-        "prompt": "You are a helpful assistant",
-        "tools": ["file_read", "editor"]
-    }
+def config_to_agent(config: Union[str, Dict[str, Any]], **kwargs) -> Agent:
+    """Create an Agent from a configuration file or dictionary.
+    
+    Args:
+        config: Either a file path (with optional file:// prefix) or a configuration dictionary
+        **kwargs: Additional keyword arguments to pass to the Agent constructor
+        
+    Returns:
+        Agent: A configured Agent instance
+        
+    Raises:
+        FileNotFoundError: If the configuration file doesn't exist
+        json.JSONDecodeError: If the configuration file contains invalid JSON
+        ValueError: If the configuration is invalid
+        
+    Examples:
+        Create agent from file:
+        >>> agent = config_to_agent("/path/to/config.json")
+        
+        Create agent from file with file:// prefix:
+        >>> agent = config_to_agent("file:///path/to/config.json")
+        
+        Create agent from dictionary:
+        >>> config = {"model": "anthropic.claude-3-5-sonnet-20241022-v2:0", "tools": ["calculator"]}
+        >>> agent = config_to_agent(config)
     """
-
-    def __init__(
-        self,
-        config_source: str | dict[str, Any],
-        tool_registry: ToolRegistry | None = None,
-        raise_exception_on_missing_tool: bool = True,
-    ):
-        """Initialize AgentConfig from file path or dictionary.
-
-        Args:
-            config_source: Path to JSON config file (must start with 'file://') or config dictionary
-            tool_registry: Optional ToolRegistry to select tools from when 'tools' is specified in config
-            raise_exception_on_missing_tool: If False, skip missing tools instead of raising ImportError
-
-        Example:
-            # Dictionary config
-            config = AgentConfig({
-                "model": "anthropic.claude-3-5-sonnet-20241022-v2:0",
-                "prompt": "You are a helpful assistant",
-                "tools": ["file_read", "editor"]
-            })
-
-            # File config
-            config = AgentConfig("file://config.json")
-        """
-        if isinstance(config_source, str):
-            # Require file:// prefix for file paths
-            if not config_source.startswith(FILE_PREFIX):
-                raise ValueError(f"File paths must be prefixed with '{FILE_PREFIX}'")
-
-            # Remove file:// prefix and load from file
-            file_path = config_source.removeprefix(FILE_PREFIX)
-            with open(file_path, "r") as f:
-                config_data = json.load(f)
-        else:
-            # Use dictionary directly
-            config_data = config_source
-
-        self.model = config_data.get("model")
-        self.system_prompt = config_data.get("prompt")  # Only accept 'prompt' key
-        self._raise_exception_on_missing_tool = raise_exception_on_missing_tool
-
-        # Handle tool selection from ToolRegistry
-        if tool_registry is not None:
-            self._tool_registry = tool_registry
-        else:
-            # Create default ToolRegistry with strands_tools
-            self._tool_registry = self._create_default_tool_registry()
-
-        # Process tools configuration if provided
-        config_tools = config_data.get("tools")
-
-        # Track configured tools separately from full tool pool
-        self._configured_tools = []
-
-        # Apply tool selection if specified
-        if config_tools is not None:
-            # Validate all tool names exist in the ToolRegistry
-            available_tools = self._tool_registry.registry.keys()
-
-            missing_tools = set(config_tools).difference(available_tools)
-            if missing_tools and self._raise_exception_on_missing_tool:
-                raise ValueError(
-                    f"Tool(s) '{missing_tools}' not found in ToolRegistry. Available tools: {available_tools}"
-                )
-
-            for tool_name in config_tools:
-                if tool_name in self._tool_registry.registry:
-                    tool = self._tool_registry.registry[tool_name]
-                    self._configured_tools.append(tool)
-        # If no tools specified in config, use no tools (empty list)
-
-    def _create_default_tool_registry(self) -> ToolRegistry:
-        """Create default ToolRegistry with strands_tools."""
-        tool_registry = ToolRegistry()
-
-        try:
-            tool_modules = [importlib.import_module(f"strands_tools.{tool}") for tool in DEFAULT_TOOLS]
-            tool_registry.process_tools(tool_modules)
-        except ImportError as e:
-            if self._raise_exception_on_missing_tool:
-                raise ImportError(
-                    "strands_tools is not available and no ToolRegistry was specified. "
-                    "Either install strands_tools with 'pip install strands-agents-tools' "
-                    "or provide your own ToolRegistry with your own tools."
-                ) from e
-
-        return tool_registry
-
-    @property
-    def tool_registry(self) -> ToolRegistry:
-        """Get the full ToolRegistry (superset of all available tools).
-
-        Returns:
-            ToolRegistry instance containing all available tools
-        """
-        return self._tool_registry
-
-    @property
-    def configured_tools(self) -> list:
-        """Get the configured tools (subset selected for this agent).
-
-        Returns:
-            List of tools configured for this agent
-        """
-        return self._configured_tools
-
-    def to_agent(self, **kwargs: Any) -> "Agent":
-        """Create an Agent instance from this configuration.
-
-        Args:
-            **kwargs: Additional parameters to override config values.
-                     Supports all Agent constructor parameters.
-
-        Returns:
-            Configured Agent instance
-
-        Example:
-            # Using default tools from strands_tools
-            config = AgentConfig({
-                "model": "anthropic.claude-3-5-sonnet-20241022-v2:0",
-                "prompt": "You are a helpful assistant",
-                "tools": ["file_read"]
-            })
-            agent = config.to_agent()
-            response = agent("Read the contents of README.md")
-
-            # Using custom ToolRegistry
-            from strands import tool
-
-            @tool
-            def custom_tool(input: str) -> str:
-                return f"Custom: {input}"
-
-            custom_tool_registry = ToolRegistry()
-            custom_tool_registry.process_tools([custom_tool])
-            config = AgentConfig({
-                "model": "anthropic.claude-3-5-sonnet-20241022-v2:0",
-                "prompt": "You are a custom assistant",
-                "tools": ["custom_tool"]
-            }, tool_registry=custom_tool_registry)
-            agent = config.to_agent()
-        """
-        # Import at runtime since TYPE_CHECKING import is not available during execution
-        from ..agent.agent import Agent
-
-        # Start with config values
-        agent_params = {}
-
-        if self.model is not None:
-            agent_params["model"] = self.model
-        if self.system_prompt is not None:
-            agent_params["system_prompt"] = self.system_prompt
-
-        # Use configured tools (subset of tool pool)
-        agent_params["tools"] = self._configured_tools
-
-        # Override with any other provided kwargs
-        agent_params.update(kwargs)
-
-        return Agent(**agent_params)
+    # Parse configuration
+    if isinstance(config, str):
+        # Handle file path
+        file_path = config
+        
+        # Remove file:// prefix if present
+        if file_path.startswith("file://"):
+            file_path = file_path[7:]
+            
+        # Load JSON from file
+        config_path = Path(file_path)
+        if not config_path.exists():
+            raise FileNotFoundError(f"Configuration file not found: {file_path}")
+            
+        with open(config_path, 'r') as f:
+            config_dict = json.load(f)
+    elif isinstance(config, dict):
+        config_dict = config.copy()
+    else:
+        raise ValueError("Config must be a file path string or dictionary")
+    
+    # Prepare Agent constructor arguments
+    agent_kwargs = {}
+    
+    # Map configuration keys to Agent constructor parameters
+    config_mapping = {
+        "model": "model",
+        "prompt": "system_prompt", 
+        "tools": "tools",
+        "name": "name",
+        "agent_id": "agent_id",
+        "session_manager": "session_manager",
+        "conversation_manager": "conversation_manager",
+        "hooks": "hooks",
+        "callback_handler": "callback_handler",
+        "state": "state",
+        "trace_attributes": "trace_attributes",
+    }
+    
+    # Only include non-None values from config
+    for config_key, agent_param in config_mapping.items():
+        if config_key in config_dict and config_dict[config_key] is not None:
+            agent_kwargs[agent_param] = config_dict[config_key]
+    
+    # Override with any additional kwargs provided
+    agent_kwargs.update(kwargs)
+    
+    # Create and return Agent
+    return Agent(**agent_kwargs)
