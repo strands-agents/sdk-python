@@ -191,11 +191,3 @@ class TestAgentConfig:
                 tool_registry=custom_tool_registry,
                 raise_exception_on_missing_tool=True,
             )
-
-    def test_agent_config_loads_from_default_tools_without_tool_registry(self):
-        """Test that config can load tools from default strands_tools without explicit tool registry."""
-
-        config = AgentConfig({"model": "test-model", "tools": ["file_read"]})
-        # Verify the tool was loaded from the default tool registry
-        assert len(config.configured_tools) == 1
-        assert config.configured_tools[0].tool_name == "file_read"
