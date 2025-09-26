@@ -55,21 +55,21 @@ def test_init_with_client_only(mock_mcp_client):
 
     assert provider._client is mock_mcp_client
     assert provider._tool_filters is None
-    assert provider._disambiguator is None
+    assert provider._prefix is None
     assert provider._tools is None
     assert provider._started is False
 
 
 def test_init_with_all_parameters(mock_mcp_client):
     """Test initialization with all parameters."""
-    filters = {"allowed": ["tool1"], "max_tools": 5}
-    disambiguator = "test_prefix"
+    filters = {"allowed": ["tool1"]}
+    prefix = "test_prefix"
 
-    provider = MCPToolProvider(client=mock_mcp_client, tool_filters=filters, disambiguator=disambiguator)
+    provider = MCPToolProvider(client=mock_mcp_client, tool_filters=filters, prefix=prefix)
 
     assert provider._client is mock_mcp_client
     assert provider._tool_filters == filters
-    assert provider._disambiguator == disambiguator
+    assert provider._prefix == prefix
     assert provider._tools is None
     assert provider._started is False
 
@@ -232,24 +232,8 @@ async def test_rejected_filter(mock_mcp_client):
 
 
 @pytest.mark.asyncio
-async def test_max_tools_filter(mock_mcp_client):
-    """Test max_tools filter functionality."""
-    tools_list = [create_mock_tool(f"tool_{i}") for i in range(5)]
-
-    mock_mcp_client.list_tools_sync.return_value = PaginatedList(tools_list)
-
-    filters: ToolFilters = {"max_tools": 3}
-    provider = MCPToolProvider(client=mock_mcp_client, tool_filters=filters)
-
-    tools = await provider.load_tools()
-
-    assert len(tools) == 3
-    assert all(tool.tool_name.startswith("tool_") for tool in tools)
-
-
-@pytest.mark.asyncio
-async def test_disambiguator_renames_tools(mock_mcp_client):
-    """Test that disambiguator properly renames tools."""
+async def test_prefix_renames_tools(mock_mcp_client):
+    """Test that prefix properly renames tools."""
     original_tool = MagicMock(spec=MCPAgentTool)
     original_tool.tool_name = "original_name"
     original_tool.mcp_tool = MagicMock()
@@ -263,7 +247,7 @@ async def test_disambiguator_renames_tools(mock_mcp_client):
         new_tool.tool_name = "prefix_original_name"
         mock_agent_tool_class.return_value = new_tool
 
-        provider = MCPToolProvider(client=mock_mcp_client, disambiguator="prefix")
+        provider = MCPToolProvider(client=mock_mcp_client, prefix="prefix")
 
         tools = await provider.load_tools()
 

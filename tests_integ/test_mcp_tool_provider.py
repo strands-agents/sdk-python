@@ -22,7 +22,7 @@ def test_mcp_tool_provider_filters():
         lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/echo_server.py"]))
     )
 
-    # Test string filter, regex filter, callable filter, max_tools, and disambiguator
+    # Test string filter, regex filter, callable filter, and prefix
     def short_names_only(tool) -> bool:
         return len(tool.tool_name) <= 20  # Allow most tools
 
@@ -32,7 +32,7 @@ def test_mcp_tool_provider_filters():
         "max_tools": 2,
     }
 
-    provider = MCPToolProvider(client=stdio_mcp_client, tool_filters=filters, disambiguator="test")
+    provider = MCPToolProvider(client=stdio_mcp_client, tool_filters=filters, prefix="test")
     agent = Agent(tools=[provider])
     tool_names = agent.tool_names
 
@@ -51,7 +51,7 @@ def test_mcp_tool_provider_execution():
     )
 
     filters: ToolFilters = {"allowed": ["echo"]}
-    provider = MCPToolProvider(client=stdio_mcp_client, tool_filters=filters, disambiguator="filtered")
+    provider = MCPToolProvider(client=stdio_mcp_client, tool_filters=filters, prefix="filtered")
     agent = Agent(
         tools=[provider],
     )
@@ -80,7 +80,7 @@ def test_mcp_tool_provider_reuse():
     )
 
     filters: ToolFilters = {"allowed": ["echo"]}
-    provider = MCPToolProvider(client=stdio_mcp_client, tool_filters=filters, disambiguator="shared")
+    provider = MCPToolProvider(client=stdio_mcp_client, tool_filters=filters, prefix="shared")
 
     # Create first agent with the provider
     agent1 = Agent(tools=[provider])
@@ -116,11 +116,11 @@ def test_mcp_tool_provider_multiple_servers():
         lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/echo_server.py"]))
     )
 
-    # Create providers with different disambiguators
-    provider1 = MCPToolProvider(client=client1, tool_filters={"allowed": ["echo"]}, disambiguator="server1")
+    # Create providers with different prefixes
+    provider1 = MCPToolProvider(client=client1, tool_filters={"allowed": ["echo"]}, prefix="server1")
     # Use correct tool name from echo_server.py
     provider2 = MCPToolProvider(
-        client=client2, tool_filters={"allowed": ["echo_with_structured_content"]}, disambiguator="server2"
+        client=client2, tool_filters={"allowed": ["echo_with_structured_content"]}, prefix="server2"
     )
 
     # Create agent with both providers

@@ -1,7 +1,7 @@
 """MCP Tool Provider implementation."""
 
 import logging
-from typing import Callable, Optional, Pattern, Sequence, Union
+from typing import Any, Callable, Optional, Pattern, Sequence, Union
 
 from typing_extensions import TypedDict
 
@@ -23,37 +23,39 @@ class ToolFilters(TypedDict, total=False):
     Tools are filtered in this order:
     1. If 'allowed' is specified, only tools matching these patterns are included
     2. Tools matching 'rejected' patterns are then excluded
-    3. If the result exceeds 'max_tools', it's truncated
     """
 
     allowed: list[_ToolFilterPattern]
     rejected: list[_ToolFilterPattern]
-    max_tools: int
 
 
 class MCPToolProvider(ToolProvider):
     """Tool provider for MCP clients with managed lifecycle."""
 
     def __init__(
-        self, *, client: MCPClient, tool_filters: Optional[ToolFilters] = None, disambiguator: Optional[str] = None
+        self,
+        *,
+        client: MCPClient,
+        tool_filters: Optional[ToolFilters] = None,
+        prefix: Optional[str] = None,
+        **kwargs: Any,
     ) -> None:
         """Initialize with an MCP client.
 
         Args:
             client: The MCP client to manage.
             tool_filters: Optional filters to apply to tools.
-            disambiguator: Optional prefix for tool names.
+            prefix: Optional prefix for tool names.
+            **kwargs: Additional arguments for future compatibility.
         """
-        logger.debug(
-            "tool_filters=<%s>, disambiguator=<%s> | initializing MCPToolProvider", tool_filters, disambiguator
-        )
+        logger.debug("tool_filters=<%s>, prefix=<%s> | initializing MCPToolProvider", tool_filters, prefix)
         self._client = client
         self._tool_filters = tool_filters
-        self._disambiguator = disambiguator
+        self._prefix = prefix
         self._tools: Optional[list[MCPAgentTool]] = None  # None = not loaded yet, [] = loaded but empty
         self._started = False
 
-    async def load_tools(self) -> Sequence[AgentTool]:
+    async def load_tools(self, **kwargs: Any) -> Sequence[AgentTool]:
         """Load and return tools from the MCP client.
 
         Returns:
@@ -77,12 +79,6 @@ class MCPToolProvider(ToolProvider):
             pagination_token = None
             page_count = 0
 
-            # Determine max_tools limit for early termination
-            max_tools_limit = None
-            if self._tool_filters and "max_tools" in self._tool_filters:
-                max_tools_limit = self._tool_filters["max_tools"]
-                logger.debug("max_tools_limit=<%d> | will stop when reached", max_tools_limit)
-
             while True:
                 logger.debug("page=<%d>, token=<%s> | fetching tools page", page_count, pagination_token)
                 paginated_tools = self._client.list_tools_sync(pagination_token)
@@ -91,14 +87,9 @@ class MCPToolProvider(ToolProvider):
                 for tool in paginated_tools:
                     # Apply filters
                     if self._should_include_tool(tool):
-                        # Apply disambiguation if needed
-                        processed_tool = self._apply_disambiguation(tool)
+                        # Apply prefix if needed
+                        processed_tool = self._apply_prefix(tool)
                         self._tools.append(processed_tool)
-
-                        # Check if we've reached max_tools limit
-                        if max_tools_limit is not None and len(self._tools) >= max_tools_limit:
-                            logger.debug("max_tools_reached=<%d> | stopping pagination early", len(self._tools))
-                            return self._tools
 
                 logger.debug(
                     "page=<%d>, page_tools=<%d>, total_filtered=<%d> | processed page",
@@ -134,14 +125,14 @@ class MCPToolProvider(ToolProvider):
 
         return True
 
-    def _apply_disambiguation(self, tool: MCPAgentTool) -> MCPAgentTool:
-        """Apply disambiguation to a single tool if needed."""
-        if not self._disambiguator:
+    def _apply_prefix(self, tool: MCPAgentTool) -> MCPAgentTool:
+        """Apply prefix to a single tool if needed."""
+        if not self._prefix:
             return tool
 
-        # Create new tool with disambiguated agent name but preserve original MCP name
+        # Create new tool with prefixed agent name but preserve original MCP name
         old_name = tool.tool_name
-        new_agent_name = f"{self._disambiguator}_{tool.mcp_tool.name}"
+        new_agent_name = f"{self._prefix}_{tool.mcp_tool.name}"
         new_tool = MCPAgentTool(tool.mcp_tool, tool.mcp_client, agent_facing_tool_name=new_agent_name)
         logger.debug("tool_rename=<%s->%s> | renamed tool", old_name, new_agent_name)
         return new_tool
@@ -160,7 +151,7 @@ class MCPToolProvider(ToolProvider):
                     return True
         return False
 
-    async def cleanup(self) -> None:
+    async def cleanup(self, **kwargs: Any) -> None:
         """Clean up the MCP client connection."""
         if not self._started:
             return
