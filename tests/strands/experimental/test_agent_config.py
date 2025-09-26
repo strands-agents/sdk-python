@@ -112,3 +112,21 @@ class TestConfigToAgent:
         agent = config_to_agent(config)
         assert agent.model.config["model_id"] == "test-model"
         # Agent should use its defaults for None values
+
+    def test_config_to_agent_validation_error_invalid_field(self):
+        """Test that invalid fields raise validation errors."""
+        config = {"model": "test-model", "invalid_field": "value"}
+        with pytest.raises(ValueError, match="Configuration validation error"):
+            config_to_agent(config)
+
+    def test_config_to_agent_validation_error_wrong_type(self):
+        """Test that wrong field types raise validation errors."""
+        config = {"model": "test-model", "tools": "not-a-list"}
+        with pytest.raises(ValueError, match="Configuration validation error"):
+            config_to_agent(config)
+
+    def test_config_to_agent_validation_error_invalid_tool_item(self):
+        """Test that invalid tool items raise validation errors."""
+        config = {"model": "test-model", "tools": ["valid-tool", 123]}
+        with pytest.raises(ValueError, match="Configuration validation error"):
+            config_to_agent(config)
