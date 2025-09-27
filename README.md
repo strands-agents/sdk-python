@@ -103,42 +103,6 @@ agent = Agent(load_tools_from_directory=True)
 response = agent("Use any tools you find in the tools directory")
 ```
 
-### Advanced Agent Invocation
-
-For advanced use cases, you can pass additional parameters using the `invocation_args` parameter:
-
-```python
-from strands import Agent
-
-agent = Agent()
-
-# Using the new invocation_args parameter (recommended)
-response = agent(
-    "Analyze this data", 
-    invocation_args={
-        "callback_handler": custom_handler,
-        "custom_param": "value"
-    }
-)
-
-# Async methods also support invocation_args
-async def analyze_data():
-    result = await agent.invoke_async(
-        "Analyze this data",
-        invocation_args={"custom_param": "value"}
-    )
-    return result
-
-# Streaming with invocation_args
-async for event in agent.stream_async(
-    "Analyze this data",
-    invocation_args={"custom_param": "value"}
-):
-    print(event)
-```
-
-> **Note**: The legacy `**kwargs` syntax is still supported but deprecated. Use `invocation_args` for new code to ensure compatibility with future versions.
-
 ### MCP Support
 
 Seamlessly integrate Model Context Protocol (MCP) servers:
