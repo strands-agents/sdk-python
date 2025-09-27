@@ -1,9 +1,19 @@
 """Experimental agent configuration utilities.
 
 This module provides utilities for creating agents from configuration files or dictionaries.
+
+Note: Configuration-based agent setup only works for tools that don't require code-based 
+instantiation. For tools that need constructor arguments or complex setup, use the 
+programmatic approach after creating the agent:
+
+    agent = config_to_agent("config.json")
+    # Add tools that need code-based instantiation
+    agent.process_tools([ToolWithConfigArg(HttpsConnection("localhost"))])
 """
 
+import importlib
 import json
+import os
 from pathlib import Path
 
 import jsonschema
@@ -11,20 +21,91 @@ from jsonschema import ValidationError
 
 from ..agent import Agent
 
-
-def _load_schema() -> dict:
-    """Load the agent configuration schema from file."""
-    schema_path = Path(__file__).parent / "schemas" / "agent-config-v1.json"
-    with open(schema_path, 'r') as f:
-        return json.load(f)
-
+# JSON Schema for agent configuration
+AGENT_CONFIG_SCHEMA = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Agent Configuration",
+    "description": "Configuration schema for creating agents",
+    "type": "object",
+    "properties": {
+        "name": {
+            "description": "Name of the agent",
+            "type": ["string", "null"],
+            "default": None
+        },
+        "model": {
+            "description": "The model ID to use for this agent. If not specified, uses the default model.",
+            "type": ["string", "null"],
+            "default": None
+        },
+        "prompt": {
+            "description": "The system prompt for the agent. Provides high level context to the agent.",
+            "type": ["string", "null"],
+            "default": None
+        },
+        "tools": {
+            "description": "List of tools the agent can use. Can be file paths, Python module names, or @tool annotated functions in files.",
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "default": []
+        }
+    },
+    "additionalProperties": False
+}
 
 # Pre-compile validator for better performance
-_VALIDATOR = jsonschema.Draft7Validator(_load_schema())
+_VALIDATOR = jsonschema.Draft7Validator(AGENT_CONFIG_SCHEMA)
+
+
+def _is_filepath(tool_path: str) -> bool:
+    """Check if the tool string is a file path."""
+    return os.path.exists(tool_path) or tool_path.endswith('.py')
+
+
+def _validate_tools(tools: list[str]) -> None:
+    """Validate that tools can be loaded as files or modules."""
+    for tool in tools:
+        if _is_filepath(tool):
+            # File path - will be handled by Agent's tool loading
+            continue
+            
+        try:
+            # Try to import as module
+            importlib.import_module(tool)
+        except ImportError:
+            # Not a file and not a module - check if it might be a function reference
+            if '.' in tool:
+                module_path, func_name = tool.rsplit('.', 1)
+                try:
+                    module = importlib.import_module(module_path)
+                    if not hasattr(module, func_name):
+                        raise ValueError(
+                            f"Tool '{tool}' not found. The configured tool is not annotated with @tool, "
+                            f"and is not a module or file. To properly import this tool, you must annotate it with @tool."
+                        )
+                except ImportError:
+                    raise ValueError(
+                        f"Tool '{tool}' not found. The configured tool is not annotated with @tool, "
+                        f"and is not a module or file. To properly import this tool, you must annotate it with @tool."
+                    )
+            else:
+                raise ValueError(
+                    f"Tool '{tool}' not found. The configured tool is not annotated with @tool, "
+                    f"and is not a module or file. To properly import this tool, you must annotate it with @tool."
+                )
 
 
 def config_to_agent(config: str | dict[str, any], **kwargs) -> Agent:
     """Create an Agent from a configuration file or dictionary.
+    
+    This function supports tools that can be loaded declaratively (file paths, module names,
+    or @tool annotated functions). For tools requiring code-based instantiation with constructor
+    arguments, add them programmatically after creating the agent:
+    
+        agent = config_to_agent("config.json")
+        agent.process_tools([ToolWithConfigArg(HttpsConnection("localhost"))])
     
     Args:
         config: Either a file path (with optional file:// prefix) or a configuration dictionary
@@ -36,7 +117,7 @@ def config_to_agent(config: str | dict[str, any], **kwargs) -> Agent:
     Raises:
         FileNotFoundError: If the configuration file doesn't exist
         json.JSONDecodeError: If the configuration file contains invalid JSON
-        ValueError: If the configuration is invalid
+        ValueError: If the configuration is invalid or tools cannot be loaded
         
     Examples:
         Create agent from file:
@@ -77,6 +158,10 @@ def config_to_agent(config: str | dict[str, any], **kwargs) -> Agent:
         # Provide more detailed error message
         error_path = " -> ".join(str(p) for p in e.absolute_path) if e.absolute_path else "root"
         raise ValueError(f"Configuration validation error at {error_path}: {e.message}") from e
+    
+    # Validate tools can be loaded
+    if "tools" in config_dict and config_dict["tools"]:
+        _validate_tools(config_dict["tools"])
     
     # Prepare Agent constructor arguments
     agent_kwargs = {}

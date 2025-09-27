@@ -130,3 +130,9 @@ class TestConfigToAgent:
         config = {"model": "test-model", "tools": ["valid-tool", 123]}
         with pytest.raises(ValueError, match="Configuration validation error"):
             config_to_agent(config)
+
+    def test_config_to_agent_validation_error_invalid_tool(self):
+        """Test that invalid tools raise helpful error messages."""
+        config = {"model": "test-model", "tools": ["nonexistent_tool"]}
+        with pytest.raises(ValueError, match="The configured tool is not annotated with @tool"):
+            config_to_agent(config)
