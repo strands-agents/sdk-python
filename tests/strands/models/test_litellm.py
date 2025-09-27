@@ -220,16 +220,15 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
 
     assert tru_events == exp_events
 
-    assert litellm_acompletion.call_args_list == [
-        call(
-            api_key=api_key,
-            messages=[{"role": "user", "content": [{"text": "calculate 2+2", "type": "text"}]}],
-            model=model_id,
-            stream=True,
-            stream_options={"include_usage": True},
-            tools=[],
-        )
-    ]
+    expected_request = {
+        "api_key": api_key,
+        "model": model_id,
+        "messages": [{"role": "user", "content": "calculate 2+2"}],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+        "tools": [],
+    }
+    litellm_acompletion.assert_called_once_with(**expected_request)
 
 
 @pytest.mark.asyncio
