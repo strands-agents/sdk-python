@@ -92,7 +92,7 @@ def _validate_tools(tools: list[str]) -> None:
                     )
             else:
                 raise ValueError(
-                    f"Tool '{tool}' not found. "
+                    f"Module '{tool}' not found. "
                     f"The configured tool is not annotated with @tool, and is not a module or file."
                 )
 
