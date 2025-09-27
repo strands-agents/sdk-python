@@ -127,11 +127,11 @@ class ToolRegistry:
             if not os.path.exists(tool_path):
                 raise FileNotFoundError(f"Tool file not found: {tool_path}")
 
-            loaded_tool = ToolLoader.load_tool(tool_path, tool_name)
-            loaded_tool.mark_dynamic()
-
-            # Because we're explicitly registering the tool we don't need an allowlist
-            self.register_tool(loaded_tool)
+            loaded_tools = ToolLoader.load_tools(tool_path, tool_name)
+            for t in loaded_tools:
+                t.mark_dynamic()
+                # Because we're explicitly registering the tool we don't need an allowlist
+                self.register_tool(t)
         except Exception as e:
             exception_str = str(e)
             logger.exception("tool_name=<%s> | failed to load tool", tool_name)

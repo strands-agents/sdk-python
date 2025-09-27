@@ -1,8 +1,14 @@
 import pytest
 
 from strands import Agent, tool
-from strands.experimental.hooks import AfterModelInvocationEvent, BeforeModelInvocationEvent
-from strands.hooks import AfterInvocationEvent, AgentInitializedEvent, BeforeInvocationEvent, MessageAddedEvent
+from strands.hooks import (
+    AfterInvocationEvent,
+    AfterModelCallEvent,
+    AgentInitializedEvent,
+    BeforeInvocationEvent,
+    BeforeModelCallEvent,
+    MessageAddedEvent,
+)
 from strands.multiagent.graph import GraphBuilder
 from strands.types.content import ContentBlock
 from tests.fixtures.mock_hook_provider import MockHookProvider
@@ -204,8 +210,8 @@ async def test_graph_execution_with_image(image_analysis_agent, summary_agent, y
         AgentInitializedEvent,
         BeforeInvocationEvent,
         MessageAddedEvent,
-        BeforeModelInvocationEvent,
-        AfterModelInvocationEvent,
+        BeforeModelCallEvent,
+        AfterModelCallEvent,
         MessageAddedEvent,
         AfterInvocationEvent,
     ]

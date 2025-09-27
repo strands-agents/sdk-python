@@ -9,8 +9,7 @@ import json
 from mcp import StdioServerParameters, stdio_client
 
 from strands import Agent
-from strands.experimental.hooks import AfterToolInvocationEvent
-from strands.hooks import HookProvider, HookRegistry
+from strands.hooks import AfterToolCallEvent, HookProvider, HookRegistry
 from strands.tools.mcp.mcp_client import MCPClient
 
 
@@ -22,9 +21,9 @@ class StructuredContentHookProvider(HookProvider):
 
     def register_hooks(self, registry: HookRegistry) -> None:
         """Register callback for after tool invocation events."""
-        registry.add_callback(AfterToolInvocationEvent, self.on_after_tool_invocation)
+        registry.add_callback(AfterToolCallEvent, self.on_after_tool_invocation)
 
-    def on_after_tool_invocation(self, event: AfterToolInvocationEvent) -> None:
+    def on_after_tool_invocation(self, event: AfterToolCallEvent) -> None:
         """Capture structured content tool results."""
         if event.tool_use["name"] == "echo_with_structured_content":
             self.captured_result = event.result
@@ -37,7 +36,7 @@ def test_mcp_client_hooks_structured_content():
 
     # Set up MCP client for echo server
     stdio_mcp_client = MCPClient(
-        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/echo_server.py"]))
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
     )
 
     with stdio_mcp_client:
@@ -58,8 +57,8 @@ def test_mcp_client_hooks_structured_content():
 
         # Verify structured content is present and correct
         assert "structuredContent" in result
-        assert result["structuredContent"]["result"] == {"echoed": test_data}
+        assert result["structuredContent"] == {"echoed": test_data, "message_length": 15}
 
         # Verify text content matches structured content
         text_content = json.loads(result["content"][0]["text"])
-        assert text_content == {"echoed": test_data}
+        assert text_content == {"echoed": test_data, "message_length": 15}

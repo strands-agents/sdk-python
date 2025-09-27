@@ -1,13 +1,15 @@
 import pytest
 
 from strands import Agent, tool
-from strands.experimental.hooks import (
-    AfterModelInvocationEvent,
-    AfterToolInvocationEvent,
-    BeforeModelInvocationEvent,
-    BeforeToolInvocationEvent,
+from strands.hooks import (
+    AfterInvocationEvent,
+    AfterModelCallEvent,
+    AfterToolCallEvent,
+    BeforeInvocationEvent,
+    BeforeModelCallEvent,
+    BeforeToolCallEvent,
+    MessageAddedEvent,
 )
-from strands.hooks import AfterInvocationEvent, BeforeInvocationEvent, MessageAddedEvent
 from strands.multiagent.swarm import Swarm
 from strands.types.content import ContentBlock
 from tests.fixtures.mock_hook_provider import MockHookProvider
@@ -102,10 +104,10 @@ def test_swarm_execution_with_string(researcher_agent, analyst_agent, writer_age
     researcher_hooks = hook_provider.extract_for(researcher_agent).event_types_received
     assert BeforeInvocationEvent in researcher_hooks
     assert MessageAddedEvent in researcher_hooks
-    assert BeforeModelInvocationEvent in researcher_hooks
-    assert BeforeToolInvocationEvent in researcher_hooks
-    assert AfterToolInvocationEvent in researcher_hooks
-    assert AfterModelInvocationEvent in researcher_hooks
+    assert BeforeModelCallEvent in researcher_hooks
+    assert BeforeToolCallEvent in researcher_hooks
+    assert AfterToolCallEvent in researcher_hooks
+    assert AfterModelCallEvent in researcher_hooks
     assert AfterInvocationEvent in researcher_hooks
 
 

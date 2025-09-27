@@ -1,16 +1,14 @@
 from typing import Iterator, Literal, Tuple, Type
 
 from strands import Agent
-from strands.experimental.hooks import (
-    AfterModelInvocationEvent,
-    AfterToolInvocationEvent,
-    BeforeModelInvocationEvent,
-    BeforeToolInvocationEvent,
-)
 from strands.hooks import (
     AfterInvocationEvent,
+    AfterModelCallEvent,
+    AfterToolCallEvent,
     AgentInitializedEvent,
     BeforeInvocationEvent,
+    BeforeModelCallEvent,
+    BeforeToolCallEvent,
     HookEvent,
     HookProvider,
     HookRegistry,
@@ -25,10 +23,10 @@ class MockHookProvider(HookProvider):
                 AgentInitializedEvent,
                 BeforeInvocationEvent,
                 AfterInvocationEvent,
-                AfterToolInvocationEvent,
-                BeforeToolInvocationEvent,
-                BeforeModelInvocationEvent,
-                AfterModelInvocationEvent,
+                BeforeToolCallEvent,
+                AfterToolCallEvent,
+                BeforeModelCallEvent,
+                AfterModelCallEvent,
                 MessageAddedEvent,
             ]
 

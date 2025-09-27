@@ -6,13 +6,12 @@ import pytest
 
 import strands
 import strands.telemetry
-from strands.experimental.hooks import (
-    AfterModelInvocationEvent,
-    AfterToolInvocationEvent,
-    BeforeModelInvocationEvent,
-    BeforeToolInvocationEvent,
+from strands.hooks import (
+    AfterModelCallEvent,
+    BeforeModelCallEvent,
+    HookRegistry,
+    MessageAddedEvent,
 )
-from strands.hooks import HookRegistry
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.tools.executors import SequentialToolExecutor
 from strands.tools.registry import ToolRegistry
@@ -26,8 +25,10 @@ from tests.fixtures.mock_hook_provider import MockHookProvider
 
 
 @pytest.fixture
-def mock_time():
-    with unittest.mock.patch.object(strands.event_loop.event_loop, "time") as mock:
+def mock_sleep():
+    with unittest.mock.patch.object(
+        strands.event_loop.event_loop.asyncio, "sleep", new_callable=unittest.mock.AsyncMock
+    ) as mock:
         yield mock
 
 
@@ -115,14 +116,7 @@ def hook_registry():
 
 @pytest.fixture
 def hook_provider(hook_registry):
-    provider = MockHookProvider(
-        event_types=[
-            BeforeToolInvocationEvent,
-            AfterToolInvocationEvent,
-            BeforeModelInvocationEvent,
-            AfterModelInvocationEvent,
-        ]
-    )
+    provider = MockHookProvider(event_types="all")
     hook_registry.add_hook(provider)
     return provider
 
@@ -186,7 +180,7 @@ async def test_event_loop_cycle_text_response(
 
 @pytest.mark.asyncio
 async def test_event_loop_cycle_text_response_throttling(
-    mock_time,
+    mock_sleep,
     agent,
     model,
     agenerator,
@@ -215,12 +209,12 @@ async def test_event_loop_cycle_text_response_throttling(
 
     assert tru_stop_reason == exp_stop_reason and tru_message == exp_message and tru_request_state == exp_request_state
     # Verify that sleep was called once with the initial delay
-    mock_time.sleep.assert_called_once()
+    mock_sleep.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_event_loop_cycle_exponential_backoff(
-    mock_time,
+    mock_sleep,
     agent,
     model,
     agenerator,
@@ -254,13 +248,13 @@ async def test_event_loop_cycle_exponential_backoff(
 
     # Verify that sleep was called with increasing delays
     # Initial delay is 4, then 8, then 16
-    assert mock_time.sleep.call_count == 3
-    assert mock_time.sleep.call_args_list == [call(4), call(8), call(16)]
+    assert mock_sleep.call_count == 3
+    assert mock_sleep.call_args_list == [call(4), call(8), call(16)]
 
 
 @pytest.mark.asyncio
 async def test_event_loop_cycle_text_response_throttling_exceeded(
-    mock_time,
+    mock_sleep,
     agent,
     model,
     alist,
@@ -281,7 +275,7 @@ async def test_event_loop_cycle_text_response_throttling_exceeded(
         )
         await alist(stream)
 
-    mock_time.sleep.assert_has_calls(
+    mock_sleep.assert_has_calls(
         [
             call(4),
             call(8),
@@ -687,7 +681,7 @@ async def test_event_loop_tracing_with_throttling_exception(
     ]
 
     # Mock the time.sleep function to speed up the test
-    with patch("strands.event_loop.event_loop.time.sleep"):
+    with patch("strands.event_loop.event_loop.asyncio.sleep", new_callable=unittest.mock.AsyncMock):
         stream = strands.event_loop.event_loop.event_loop_cycle(
             agent=agent,
             invocation_state={},
@@ -816,7 +810,7 @@ async def test_prepare_next_cycle_in_tool_execution(agent, model, tool_stream, a
 
 
 @pytest.mark.asyncio
-async def test_event_loop_cycle_exception_model_hooks(mock_time, agent, model, agenerator, alist, hook_provider):
+async def test_event_loop_cycle_exception_model_hooks(mock_sleep, agent, model, agenerator, alist, hook_provider):
     """Test that model hooks are correctly emitted even when throttled."""
     # Set up the model to raise throttling exceptions multiple times before succeeding
     exception = ModelThrottledException("ThrottlingException | ConverseStream")
@@ -840,26 +834,31 @@ async def test_event_loop_cycle_exception_model_hooks(mock_time, agent, model, a
 
     count, events = hook_provider.get_events()
 
-    assert count == 8
+    assert count == 9
 
     # 1st call - throttled
-    assert next(events) == BeforeModelInvocationEvent(agent=agent)
-    assert next(events) == AfterModelInvocationEvent(agent=agent, stop_response=None, exception=exception)
+    assert next(events) == BeforeModelCallEvent(agent=agent)
+    assert next(events) == AfterModelCallEvent(agent=agent, stop_response=None, exception=exception)
 
     # 2nd call - throttled
-    assert next(events) == BeforeModelInvocationEvent(agent=agent)
-    assert next(events) == AfterModelInvocationEvent(agent=agent, stop_response=None, exception=exception)
+    assert next(events) == BeforeModelCallEvent(agent=agent)
+    assert next(events) == AfterModelCallEvent(agent=agent, stop_response=None, exception=exception)
 
     # 3rd call - throttled
-    assert next(events) == BeforeModelInvocationEvent(agent=agent)
-    assert next(events) == AfterModelInvocationEvent(agent=agent, stop_response=None, exception=exception)
+    assert next(events) == BeforeModelCallEvent(agent=agent)
+    assert next(events) == AfterModelCallEvent(agent=agent, stop_response=None, exception=exception)
 
     # 4th call - successful
-    assert next(events) == BeforeModelInvocationEvent(agent=agent)
-    assert next(events) == AfterModelInvocationEvent(
+    assert next(events) == BeforeModelCallEvent(agent=agent)
+    assert next(events) == AfterModelCallEvent(
         agent=agent,
-        stop_response=AfterModelInvocationEvent.ModelStopResponse(
+        stop_response=AfterModelCallEvent.ModelStopResponse(
             message={"content": [{"text": "test text"}], "role": "assistant"}, stop_reason="end_turn"
         ),
         exception=None,
+    )
+
+    # Final message
+    assert next(events) == MessageAddedEvent(
+        agent=agent, message={"content": [{"text": "test text"}], "role": "assistant"}
     )

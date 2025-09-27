@@ -11,9 +11,16 @@ from botocore.exceptions import ClientError, EventStreamError
 
 import strands
 from strands.models import BedrockModel
-from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, DEFAULT_BEDROCK_REGION
+from strands.models.bedrock import (
+    _DEFAULT_BEDROCK_MODEL_ID,
+    DEFAULT_BEDROCK_MODEL_ID,
+    DEFAULT_BEDROCK_REGION,
+    DEFAULT_READ_TIMEOUT,
+)
 from strands.types.exceptions import ModelThrottledException
 from strands.types.tools import ToolSpec
+
+FORMATTED_DEFAULT_MODEL_ID = DEFAULT_BEDROCK_MODEL_ID.format("us")
 
 
 @pytest.fixture
@@ -119,7 +126,7 @@ def test__init__default_model_id(bedrock_client):
     model = BedrockModel()
 
     tru_model_id = model.get_config().get("model_id")
-    exp_model_id = DEFAULT_BEDROCK_MODEL_ID
+    exp_model_id = FORMATTED_DEFAULT_MODEL_ID
 
     assert tru_model_id == exp_model_id
 
@@ -216,6 +223,20 @@ def test__init__default_user_agent(bedrock_client):
         assert kwargs["service_name"] == "bedrock-runtime"
         assert isinstance(kwargs["config"], BotocoreConfig)
         assert kwargs["config"].user_agent_extra == "strands-agents"
+        assert kwargs["config"].read_timeout == DEFAULT_READ_TIMEOUT
+
+
+def test__init__default_read_timeout(bedrock_client):
+    """Set default read timeout when no boto_client_config is provided."""
+    with unittest.mock.patch("strands.models.bedrock.boto3.Session") as mock_session_cls:
+        mock_session = mock_session_cls.return_value
+        _ = BedrockModel()
+
+        # Verify the client was created with the correct read timeout
+        mock_session.client.assert_called_once()
+        args, kwargs = mock_session.client.call_args
+        assert isinstance(kwargs["config"], BotocoreConfig)
+        assert kwargs["config"].read_timeout == DEFAULT_READ_TIMEOUT
 
 
 def test__init__with_custom_boto_client_config_no_user_agent(bedrock_client):
@@ -394,6 +415,57 @@ def test_format_request_tool_specs(model, messages, model_id, tool_spec):
         "toolConfig": {
             "tools": [{"toolSpec": tool_spec}],
             "toolChoice": {"auto": {}},
+        },
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_tool_choice_auto(model, messages, model_id, tool_spec):
+    tool_choice = {"auto": {}}
+    tru_request = model.format_request(messages, [tool_spec], tool_choice=tool_choice)
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": [],
+        "toolConfig": {
+            "tools": [{"toolSpec": tool_spec}],
+            "toolChoice": tool_choice,
+        },
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_tool_choice_any(model, messages, model_id, tool_spec):
+    tool_choice = {"any": {}}
+    tru_request = model.format_request(messages, [tool_spec], tool_choice=tool_choice)
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": [],
+        "toolConfig": {
+            "tools": [{"toolSpec": tool_spec}],
+            "toolChoice": tool_choice,
+        },
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_tool_choice_tool(model, messages, model_id, tool_spec):
+    tool_choice = {"tool": {"name": "test_tool"}}
+    tru_request = model.format_request(messages, [tool_spec], tool_choice=tool_choice)
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": [],
+        "toolConfig": {
+            "tools": [{"toolSpec": tool_spec}],
+            "toolChoice": tool_choice,
         },
     }
 
@@ -1392,3 +1464,349 @@ def test_format_request_filters_sdk_unknown_member_content_blocks(model, model_i
 
     for block in content:
         assert "SDK_UNKNOWN_MEMBER" not in block
+
+
+@pytest.mark.asyncio
+async def test_stream_deepseek_filters_reasoning_content(bedrock_client, alist):
+    """Test that DeepSeek models filter reasoningContent from messages during streaming."""
+    model = BedrockModel(model_id="us.deepseek.r1-v1:0")
+
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Response"},
+                {"reasoningContent": {"reasoningText": {"text": "Thinking..."}}},
+            ],
+        },
+    ]
+
+    bedrock_client.converse_stream.return_value = {"stream": []}
+
+    await alist(model.stream(messages))
+
+    # Verify the request was made with filtered messages (no reasoningContent)
+    call_args = bedrock_client.converse_stream.call_args[1]
+    sent_messages = call_args["messages"]
+
+    assert len(sent_messages) == 2
+    assert sent_messages[0]["content"] == [{"text": "Hello"}]
+    assert sent_messages[1]["content"] == [{"text": "Response"}]
+
+
+@pytest.mark.asyncio
+async def test_stream_deepseek_skips_empty_messages(bedrock_client, alist):
+    """Test that DeepSeek models skip messages that would be empty after filtering reasoningContent."""
+    model = BedrockModel(model_id="us.deepseek.r1-v1:0")
+
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"reasoningContent": {"reasoningText": {"text": "Only reasoning..."}}}]},
+        {"role": "user", "content": [{"text": "Follow up"}]},
+    ]
+
+    bedrock_client.converse_stream.return_value = {"stream": []}
+
+    await alist(model.stream(messages))
+
+    # Verify the request was made with only non-empty messages
+    call_args = bedrock_client.converse_stream.call_args[1]
+    sent_messages = call_args["messages"]
+
+    assert len(sent_messages) == 2
+    assert sent_messages[0]["content"] == [{"text": "Hello"}]
+    assert sent_messages[1]["content"] == [{"text": "Follow up"}]
+
+
+def test_format_request_filters_image_content_blocks(model, model_id):
+    """Test that format_request filters extra fields from image content blocks."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {"bytes": b"image_data"},
+                        "filename": "test.png",  # Extra field that should be filtered
+                        "metadata": {"size": 1024},  # Extra field that should be filtered
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    image_block = formatted_request["messages"][0]["content"][0]["image"]
+    expected = {"format": "png", "source": {"bytes": b"image_data"}}
+    assert image_block == expected
+    assert "filename" not in image_block
+    assert "metadata" not in image_block
+
+
+def test_format_request_filters_nested_image_s3_fields(model, model_id):
+    """Test that s3Location is filtered out and only bytes source is preserved."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "image": {
+                        "format": "png",
+                        "source": {
+                            "bytes": b"image_data",
+                            "s3Location": {"bucket": "my-bucket", "key": "image.png", "extraField": "filtered"},
+                        },
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    image_source = formatted_request["messages"][0]["content"][0]["image"]["source"]
+
+    assert image_source == {"bytes": b"image_data"}
+    assert "s3Location" not in image_source
+
+
+def test_format_request_filters_document_content_blocks(model, model_id):
+    """Test that format_request filters extra fields from document content blocks."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "document": {
+                        "name": "test.pdf",
+                        "source": {"bytes": b"pdf_data"},
+                        "format": "pdf",
+                        "extraField": "should be removed",
+                        "metadata": {"pages": 10},
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    document_block = formatted_request["messages"][0]["content"][0]["document"]
+    expected = {"name": "test.pdf", "source": {"bytes": b"pdf_data"}, "format": "pdf"}
+    assert document_block == expected
+    assert "extraField" not in document_block
+    assert "metadata" not in document_block
+
+
+def test_format_request_filters_nested_reasoning_content(model, model_id):
+    """Test deep filtering of nested reasoningText fields."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "reasoningContent": {
+                        "reasoningText": {"text": "thinking...", "signature": "abc123", "extraField": "filtered"}
+                    }
+                }
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+    reasoning_text = formatted_request["messages"][0]["content"][0]["reasoningContent"]["reasoningText"]
+
+    assert reasoning_text == {"text": "thinking...", "signature": "abc123"}
+
+
+def test_format_request_filters_video_content_blocks(model, model_id):
+    """Test that format_request filters extra fields from video content blocks."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "video": {
+                        "format": "mp4",
+                        "source": {"bytes": b"video_data"},
+                        "duration": 120,  # Extra field that should be filtered
+                        "resolution": "1080p",  # Extra field that should be filtered
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    video_block = formatted_request["messages"][0]["content"][0]["video"]
+    expected = {"format": "mp4", "source": {"bytes": b"video_data"}}
+    assert video_block == expected
+    assert "duration" not in video_block
+    assert "resolution" not in video_block
+
+
+def test_format_request_filters_cache_point_content_blocks(model, model_id):
+    """Test that format_request filters extra fields from cachePoint content blocks."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "cachePoint": {
+                        "type": "default",
+                        "extraField": "should be removed",
+                    }
+                },
+            ],
+        }
+    ]
+
+    formatted_request = model.format_request(messages)
+
+    cache_point_block = formatted_request["messages"][0]["content"][0]["cachePoint"]
+    expected = {"type": "default"}
+    assert cache_point_block == expected
+    assert "extraField" not in cache_point_block
+
+
+def test_config_validation_warns_on_unknown_keys(bedrock_client, captured_warnings):
+    """Test that unknown config keys emit a warning."""
+    BedrockModel(model_id="test-model", invalid_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "invalid_param" in str(captured_warnings[0].message)
+
+
+def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings):
+    """Test that update_config warns on unknown keys."""
+    model.update_config(wrong_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "wrong_param" in str(captured_warnings[0].message)
+
+
+def test_tool_choice_supported_no_warning(model, messages, tool_spec, captured_warnings):
+    """Test that toolChoice doesn't emit warning for supported providers."""
+    tool_choice = {"auto": {}}
+    model.format_request(messages, [tool_spec], tool_choice=tool_choice)
+
+    assert len(captured_warnings) == 0
+
+
+def test_tool_choice_none_no_warning(model, messages, captured_warnings):
+    """Test that None toolChoice doesn't emit warning."""
+    model.format_request(messages, tool_choice=None)
+
+    assert len(captured_warnings) == 0
+
+
+def test_get_default_model_with_warning_supported_regions_shows_no_warning(captured_warnings):
+    """Test get_model_prefix_with_warning doesn't warn for supported region prefixes."""
+    BedrockModel._get_default_model_with_warning("us-west-2")
+    BedrockModel._get_default_model_with_warning("eu-west-2")
+    assert len(captured_warnings) == 0
+
+
+def test_get_default_model_for_supported_eu_region_returns_correct_model_id(captured_warnings):
+    model_id = BedrockModel._get_default_model_with_warning("eu-west-1")
+    assert model_id == "eu.anthropic.claude-sonnet-4-20250514-v1:0"
+    assert len(captured_warnings) == 0
+
+
+def test_get_default_model_for_supported_us_region_returns_correct_model_id(captured_warnings):
+    model_id = BedrockModel._get_default_model_with_warning("us-east-1")
+    assert model_id == "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    assert len(captured_warnings) == 0
+
+
+def test_get_default_model_for_supported_gov_region_returns_correct_model_id(captured_warnings):
+    model_id = BedrockModel._get_default_model_with_warning("us-gov-west-1")
+    assert model_id == "us-gov.anthropic.claude-sonnet-4-20250514-v1:0"
+    assert len(captured_warnings) == 0
+
+
+def test_get_model_prefix_for_ap_region_converts_to_apac_endpoint(captured_warnings):
+    """Test _get_default_model_with_warning warns for APAC regions since 'ap' is not in supported prefixes."""
+    model_id = BedrockModel._get_default_model_with_warning("ap-southeast-1")
+    assert model_id == "apac.anthropic.claude-sonnet-4-20250514-v1:0"
+
+
+def test_get_default_model_with_warning_unsupported_region_warns(captured_warnings):
+    """Test _get_default_model_with_warning warns for unsupported regions."""
+    BedrockModel._get_default_model_with_warning("ca-central-1")
+    assert len(captured_warnings) == 1
+    assert "This region ca-central-1 does not support" in str(captured_warnings[0].message)
+    assert "our default inference endpoint" in str(captured_warnings[0].message)
+
+
+def test_get_default_model_with_warning_no_warning_with_custom_model_id(captured_warnings):
+    """Test _get_default_model_with_warning doesn't warn when custom model_id provided."""
+    model_config = {"model_id": "custom-model"}
+    model_id = BedrockModel._get_default_model_with_warning("ca-central-1", model_config)
+
+    assert model_id == "custom-model"
+    assert len(captured_warnings) == 0
+
+
+def test_init_with_unsupported_region_warns(session_cls, captured_warnings):
+    """Test BedrockModel initialization warns for unsupported regions."""
+    BedrockModel(region_name="ca-central-1")
+
+    assert len(captured_warnings) == 1
+    assert "This region ca-central-1 does not support" in str(captured_warnings[0].message)
+
+
+def test_init_with_unsupported_region_custom_model_no_warning(session_cls, captured_warnings):
+    """Test BedrockModel initialization doesn't warn when custom model_id provided."""
+    BedrockModel(region_name="ca-central-1", model_id="custom-model")
+    assert len(captured_warnings) == 0
+
+
+def test_override_default_model_id_uses_the_overriden_value(captured_warnings):
+    with unittest.mock.patch("strands.models.bedrock.DEFAULT_BEDROCK_MODEL_ID", "custom-overridden-model"):
+        model_id = BedrockModel._get_default_model_with_warning("us-east-1")
+        assert model_id == "custom-overridden-model"
+
+
+def test_no_override_uses_formatted_default_model_id(captured_warnings):
+    model_id = BedrockModel._get_default_model_with_warning("us-east-1")
+    assert model_id == "us.anthropic.claude-sonnet-4-20250514-v1:0"
+    assert model_id != _DEFAULT_BEDROCK_MODEL_ID
+    assert len(captured_warnings) == 0
+
+
+def test_custom_model_id_not_overridden_by_region_formatting(session_cls):
+    """Test that custom model_id is not overridden by region formatting."""
+    custom_model_id = "custom.model.id"
+
+    model = BedrockModel(model_id=custom_model_id)
+    model_id = model.get_config().get("model_id")
+
+    assert model_id == custom_model_id
+
+
+def test_format_request_filters_output_schema(model, messages, model_id):
+    """Test that outputSchema is filtered out from tool specs in Bedrock requests."""
+    tool_spec_with_output_schema = {
+        "description": "Test tool with output schema",
+        "name": "test_tool",
+        "inputSchema": {"type": "object", "properties": {}},
+        "outputSchema": {"type": "object", "properties": {"result": {"type": "string"}}},
+    }
+
+    request = model.format_request(messages, [tool_spec_with_output_schema])
+
+    tool_spec = request["toolConfig"]["tools"][0]["toolSpec"]
+
+    # Verify outputSchema is not included
+    assert "outputSchema" not in tool_spec
+
+    # Verify other fields are preserved
+    assert tool_spec["name"] == "test_tool"
+    assert tool_spec["description"] == "Test tool with output schema"
+    assert tool_spec["inputSchema"] == {"type": "object", "properties": {}}

@@ -1,21 +1,20 @@
 import unittest.mock
 
+import openai
 import pydantic
 import pytest
 
 import strands
 from strands.models.openai import OpenAIModel
+from strands.types.exceptions import ContextWindowOverflowException, ModelThrottledException
 
 
 @pytest.fixture
-def openai_client_cls():
+def openai_client():
     with unittest.mock.patch.object(strands.models.openai.openai, "AsyncOpenAI") as mock_client_cls:
-        yield mock_client_cls
-
-
-@pytest.fixture
-def openai_client(openai_client_cls):
-    return openai_client_cls.return_value
+        mock_client = unittest.mock.AsyncMock()
+        mock_client_cls.return_value.__aenter__.return_value = mock_client
+        yield mock_client
 
 
 @pytest.fixture
@@ -68,15 +67,13 @@ def test_output_model_cls():
     return TestOutputModel
 
 
-def test__init__(openai_client_cls, model_id):
-    model = OpenAIModel({"api_key": "k1"}, model_id=model_id, params={"max_tokens": 1})
+def test__init__(model_id):
+    model = OpenAIModel(model_id=model_id, params={"max_tokens": 1})
 
     tru_config = model.get_config()
     exp_config = {"model_id": "m1", "params": {"max_tokens": 1}}
 
     assert tru_config == exp_config
-
-    openai_client_cls.assert_called_once_with(api_key="k1")
 
 
 def test_update_config(model, model_id):
@@ -179,6 +176,30 @@ def test_format_request_tool_message():
     assert tru_result == exp_result
 
 
+def test_format_request_tool_choice_auto():
+    tool_choice = {"auto": {}}
+
+    tru_result = OpenAIModel._format_request_tool_choice(tool_choice)
+    exp_result = {"tool_choice": "auto"}
+    assert tru_result == exp_result
+
+
+def test_format_request_tool_choice_any():
+    tool_choice = {"any": {}}
+
+    tru_result = OpenAIModel._format_request_tool_choice(tool_choice)
+    exp_result = {"tool_choice": "required"}
+    assert tru_result == exp_result
+
+
+def test_format_request_tool_choice_tool():
+    tool_choice = {"tool": {"name": "test_tool"}}
+
+    tru_result = OpenAIModel._format_request_tool_choice(tool_choice)
+    exp_result = {"tool_choice": {"type": "function", "function": {"name": "test_tool"}}}
+    assert tru_result == exp_result
+
+
 def test_format_request_messages(system_prompt):
     messages = [
         {
@@ -273,6 +294,123 @@ def test_format_request(model, messages, tool_specs, system_prompt):
                 "type": "function",
             },
         ],
+        "max_tokens": 1,
+    }
+    assert tru_request == exp_request
+
+
+def test_format_request_with_tool_choice_auto(model, messages, tool_specs, system_prompt):
+    tool_choice = {"auto": {}}
+    tru_request = model.format_request(messages, tool_specs, system_prompt, tool_choice)
+    exp_request = {
+        "messages": [
+            {
+                "content": system_prompt,
+                "role": "system",
+            },
+            {
+                "content": [{"text": "test", "type": "text"}],
+                "role": "user",
+            },
+        ],
+        "model": "m1",
+        "stream": True,
+        "stream_options": {"include_usage": True},
+        "tools": [
+            {
+                "function": {
+                    "description": "A test tool",
+                    "name": "test_tool",
+                    "parameters": {
+                        "properties": {
+                            "input": {"type": "string"},
+                        },
+                        "required": ["input"],
+                        "type": "object",
+                    },
+                },
+                "type": "function",
+            },
+        ],
+        "tool_choice": "auto",
+        "max_tokens": 1,
+    }
+    assert tru_request == exp_request
+
+
+def test_format_request_with_tool_choice_any(model, messages, tool_specs, system_prompt):
+    tool_choice = {"any": {}}
+    tru_request = model.format_request(messages, tool_specs, system_prompt, tool_choice)
+    exp_request = {
+        "messages": [
+            {
+                "content": system_prompt,
+                "role": "system",
+            },
+            {
+                "content": [{"text": "test", "type": "text"}],
+                "role": "user",
+            },
+        ],
+        "model": "m1",
+        "stream": True,
+        "stream_options": {"include_usage": True},
+        "tools": [
+            {
+                "function": {
+                    "description": "A test tool",
+                    "name": "test_tool",
+                    "parameters": {
+                        "properties": {
+                            "input": {"type": "string"},
+                        },
+                        "required": ["input"],
+                        "type": "object",
+                    },
+                },
+                "type": "function",
+            },
+        ],
+        "tool_choice": "required",
+        "max_tokens": 1,
+    }
+    assert tru_request == exp_request
+
+
+def test_format_request_with_tool_choice_tool(model, messages, tool_specs, system_prompt):
+    tool_choice = {"tool": {"name": "test_tool"}}
+    tru_request = model.format_request(messages, tool_specs, system_prompt, tool_choice)
+    exp_request = {
+        "messages": [
+            {
+                "content": system_prompt,
+                "role": "system",
+            },
+            {
+                "content": [{"text": "test", "type": "text"}],
+                "role": "user",
+            },
+        ],
+        "model": "m1",
+        "stream": True,
+        "stream_options": {"include_usage": True},
+        "tools": [
+            {
+                "function": {
+                    "description": "A test tool",
+                    "name": "test_tool",
+                    "parameters": {
+                        "properties": {
+                            "input": {"type": "string"},
+                        },
+                        "required": ["input"],
+                        "type": "object",
+                    },
+                },
+                "type": "function",
+            },
+        ],
+        "tool_choice": {"type": "function", "function": {"name": "test_tool"}},
         "max_tokens": 1,
     }
     assert tru_request == exp_request
@@ -583,3 +721,182 @@ async def test_structured_output(openai_client, model, test_output_model_cls, al
     tru_result = events[-1]
     exp_result = {"output": test_output_model_cls(name="John", age=30)}
     assert tru_result == exp_result
+
+
+def test_config_validation_warns_on_unknown_keys(openai_client, captured_warnings):
+    """Test that unknown config keys emit a warning."""
+    OpenAIModel({"api_key": "test"}, model_id="test-model", invalid_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "invalid_param" in str(captured_warnings[0].message)
+
+
+def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings):
+    """Test that update_config warns on unknown keys."""
+    model.update_config(wrong_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "wrong_param" in str(captured_warnings[0].message)
+
+
+def test_tool_choice_supported_no_warning(model, messages, captured_warnings):
+    """Test that toolChoice doesn't emit warning for supported providers."""
+    tool_choice = {"auto": {}}
+    model.format_request(messages, tool_choice=tool_choice)
+
+    assert len(captured_warnings) == 0
+
+
+def test_tool_choice_none_no_warning(model, messages, captured_warnings):
+    """Test that None toolChoice doesn't emit warning."""
+    model.format_request(messages, tool_choice=None)
+
+    assert len(captured_warnings) == 0
+
+
+@pytest.mark.asyncio
+async def test_stream_context_overflow_exception(openai_client, model, messages):
+    """Test that OpenAI context overflow errors are properly converted to ContextWindowOverflowException."""
+    # Create a mock OpenAI BadRequestError with context_length_exceeded code
+    mock_error = openai.BadRequestError(
+        message="This model's maximum context length is 4096 tokens. However, your messages resulted in 5000 tokens.",
+        response=unittest.mock.MagicMock(),
+        body={"error": {"code": "context_length_exceeded"}},
+    )
+    mock_error.code = "context_length_exceeded"
+
+    # Configure the mock client to raise the context overflow error
+    openai_client.chat.completions.create.side_effect = mock_error
+
+    # Test that the stream method converts the error properly
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    # Verify the exception message contains the original error
+    assert "maximum context length" in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_stream_other_bad_request_errors_passthrough(openai_client, model, messages):
+    """Test that other BadRequestError exceptions are not converted to ContextWindowOverflowException."""
+    # Create a mock OpenAI BadRequestError with a different error code
+    mock_error = openai.BadRequestError(
+        message="Invalid parameter value",
+        response=unittest.mock.MagicMock(),
+        body={"error": {"code": "invalid_parameter"}},
+    )
+    mock_error.code = "invalid_parameter"
+
+    # Configure the mock client to raise the non-context error
+    openai_client.chat.completions.create.side_effect = mock_error
+
+    # Test that other BadRequestError exceptions pass through unchanged
+    with pytest.raises(openai.BadRequestError) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    # Verify the original exception is raised, not ContextWindowOverflowException
+    assert exc_info.value == mock_error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_context_overflow_exception(openai_client, model, messages, test_output_model_cls):
+    """Test that structured output also handles context overflow properly."""
+    # Create a mock OpenAI BadRequestError with context_length_exceeded code
+    mock_error = openai.BadRequestError(
+        message="This model's maximum context length is 4096 tokens. However, your messages resulted in 5000 tokens.",
+        response=unittest.mock.MagicMock(),
+        body={"error": {"code": "context_length_exceeded"}},
+    )
+    mock_error.code = "context_length_exceeded"
+
+    # Configure the mock client to raise the context overflow error
+    openai_client.beta.chat.completions.parse.side_effect = mock_error
+
+    # Test that the structured_output method converts the error properly
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    # Verify the exception message contains the original error
+    assert "maximum context length" in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_stream_rate_limit_as_throttle(openai_client, model, messages):
+    """Test that all rate limit errors are converted to ModelThrottledException."""
+
+    # Create a mock OpenAI RateLimitError (any type of rate limit)
+    mock_error = openai.RateLimitError(
+        message="Request too large for gpt-4o on tokens per min (TPM): Limit 30000, Requested 117505.",
+        response=unittest.mock.MagicMock(),
+        body={"error": {"code": "rate_limit_exceeded"}},
+    )
+    mock_error.code = "rate_limit_exceeded"
+
+    # Configure the mock client to raise the rate limit error
+    openai_client.chat.completions.create.side_effect = mock_error
+
+    # Test that the stream method converts the error properly
+    with pytest.raises(ModelThrottledException) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    # Verify the exception message contains the original error
+    assert "tokens per min" in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_stream_request_rate_limit_as_throttle(openai_client, model, messages):
+    """Test that request-based rate limit errors are converted to ModelThrottledException."""
+
+    # Create a mock OpenAI RateLimitError for request-based rate limiting
+    mock_error = openai.RateLimitError(
+        message="Rate limit reached for requests per minute.",
+        response=unittest.mock.MagicMock(),
+        body={"error": {"code": "rate_limit_exceeded"}},
+    )
+    mock_error.code = "rate_limit_exceeded"
+
+    # Configure the mock client to raise the request rate limit error
+    openai_client.chat.completions.create.side_effect = mock_error
+
+    # Test that the stream method converts the error properly
+    with pytest.raises(ModelThrottledException) as exc_info:
+        async for _ in model.stream(messages):
+            pass
+
+    # Verify the exception message contains the original error
+    assert "Rate limit reached" in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
+async def test_structured_output_rate_limit_as_throttle(openai_client, model, messages, test_output_model_cls):
+    """Test that structured output handles rate limit errors properly."""
+
+    # Create a mock OpenAI RateLimitError
+    mock_error = openai.RateLimitError(
+        message="Request too large for gpt-4o on tokens per min (TPM): Limit 30000, Requested 117505.",
+        response=unittest.mock.MagicMock(),
+        body={"error": {"code": "rate_limit_exceeded"}},
+    )
+    mock_error.code = "rate_limit_exceeded"
+
+    # Configure the mock client to raise the rate limit error
+    openai_client.beta.chat.completions.parse.side_effect = mock_error
+
+    # Test that the structured_output method converts the error properly
+    with pytest.raises(ModelThrottledException) as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    # Verify the exception message contains the original error
+    assert "tokens per min" in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error

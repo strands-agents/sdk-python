@@ -177,6 +177,8 @@ def test_end_model_invoke_span(mock_span):
     mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 20)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 20)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 30)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 0)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 0)
     mock_span.add_event.assert_called_with(
         "gen_ai.choice",
         attributes={"message": json.dumps(message["content"]), "finish_reason": "end_turn"},
@@ -404,10 +406,70 @@ def test_end_agent_span(mock_span):
     mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 100)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 100)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 150)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 0)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 0)
     mock_span.add_event.assert_any_call(
         "gen_ai.choice",
         attributes={"message": "Agent response", "finish_reason": "end_turn"},
     )
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
+
+
+def test_end_model_invoke_span_with_cache_metrics(mock_span):
+    """Test ending a model invoke span with cache metrics."""
+    tracer = Tracer()
+    message = {"role": "assistant", "content": [{"text": "Response"}]}
+    usage = Usage(
+        inputTokens=10,
+        outputTokens=20,
+        totalTokens=30,
+        cacheReadInputTokens=5,
+        cacheWriteInputTokens=3,
+    )
+    stop_reason: StopReason = "end_turn"
+
+    tracer.end_model_invoke_span(mock_span, message, usage, stop_reason)
+
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 10)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 10)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 20)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 20)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 30)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 5)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 3)
+    mock_span.set_status.assert_called_once_with(StatusCode.OK)
+    mock_span.end.assert_called_once()
+
+
+def test_end_agent_span_with_cache_metrics(mock_span):
+    """Test ending an agent span with cache metrics."""
+    tracer = Tracer()
+
+    # Mock AgentResult with metrics including cache tokens
+    mock_metrics = mock.MagicMock()
+    mock_metrics.accumulated_usage = {
+        "inputTokens": 50,
+        "outputTokens": 100,
+        "totalTokens": 150,
+        "cacheReadInputTokens": 25,
+        "cacheWriteInputTokens": 10,
+    }
+
+    mock_response = mock.MagicMock()
+    mock_response.metrics = mock_metrics
+    mock_response.stop_reason = "end_turn"
+    mock_response.__str__ = mock.MagicMock(return_value="Agent response")
+
+    tracer.end_agent_span(mock_span, mock_response)
+
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 50)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 50)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 100)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 100)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 150)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 25)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 10)
     mock_span.set_status.assert_called_once_with(StatusCode.OK)
     mock_span.end.assert_called_once()
 
@@ -684,3 +746,204 @@ def test_serialize_vs_json_dumps():
     custom_result = serialize({"text": japanese_text})
     assert japanese_text in custom_result
     assert "\\u" not in custom_result
+
+
+@pytest.mark.parametrize(
+    "message, expected_event_name, description",
+    [
+        # Regular role-based messages
+        (
+            {"role": "user", "content": [{"text": "Hello"}]},
+            "gen_ai.user.message",
+            "regular user message",
+        ),
+        (
+            {"role": "assistant", "content": [{"text": "Hello"}]},
+            "gen_ai.assistant.message",
+            "regular assistant message",
+        ),
+        (
+            {"role": "system", "content": [{"text": "You are a helpful assistant"}]},
+            "gen_ai.system.message",
+            "regular system message",
+        ),
+        # Messages with tool results should always be labeled as tool messages
+        (
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "toolResult": {
+                            "toolUseId": "123",
+                            "status": "success",
+                            "content": [{"text": "Tool response"}],
+                        }
+                    }
+                ],
+            },
+            "gen_ai.tool.message",
+            "user message containing tool result",
+        ),
+        (
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "toolResult": {
+                            "toolUseId": "123",
+                            "status": "success",
+                            "content": [{"text": "Tool response"}],
+                        }
+                    }
+                ],
+            },
+            "gen_ai.tool.message",
+            "assistant message containing tool result",
+        ),
+        # Mixed content with tool results
+        (
+            {
+                "role": "user",
+                "content": [
+                    {"text": "Here are the results:"},
+                    {
+                        "toolResult": {
+                            "toolUseId": "123",
+                            "status": "success",
+                            "content": [{"text": "Tool response"}],
+                        }
+                    },
+                ],
+            },
+            "gen_ai.tool.message",
+            "message with both text and tool result",
+        ),
+        # Multiple tool results
+        (
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "toolResult": {
+                            "toolUseId": "123",
+                            "status": "success",
+                            "content": [{"text": "First tool"}],
+                        }
+                    },
+                    {
+                        "toolResult": {
+                            "toolUseId": "456",
+                            "status": "success",
+                            "content": [{"text": "Second tool"}],
+                        }
+                    },
+                ],
+            },
+            "gen_ai.tool.message",
+            "message with multiple tool results",
+        ),
+        # Edge cases
+        (
+            {"role": "user", "content": []},
+            "gen_ai.user.message",
+            "message with empty content",
+        ),
+        (
+            {"role": "assistant"},
+            "gen_ai.assistant.message",
+            "message with no content key",
+        ),
+    ],
+)
+def test_get_event_name_for_message(message, expected_event_name, description):
+    """Test getting event name for various message types using data-driven approach."""
+    tracer = Tracer()
+
+    event_name = tracer._get_event_name_for_message(message)
+
+    assert event_name == expected_event_name, f"Failed for {description}"
+
+
+def test_start_model_invoke_span_with_tool_result_message(mock_tracer):
+    """Test that start_model_invoke_span correctly labels tool result messages."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        # Message that contains a tool result
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"toolResult": {"toolUseId": "123", "status": "success", "content": [{"text": "Weather is sunny"}]}}
+                ],
+            }
+        ]
+
+        span = tracer.start_model_invoke_span(messages=messages, model_id="test-model")
+
+        # Should use gen_ai.tool.message event name instead of gen_ai.user.message
+        mock_span.add_event.assert_called_with(
+            "gen_ai.tool.message", attributes={"content": json.dumps(messages[0]["content"])}
+        )
+        assert span is not None
+
+
+def test_start_agent_span_with_tool_result_message(mock_tracer):
+    """Test that start_agent_span correctly labels tool result messages."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        # Message that contains a tool result
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"toolResult": {"toolUseId": "123", "status": "success", "content": [{"text": "Weather is sunny"}]}}
+                ],
+            }
+        ]
+
+        span = tracer.start_agent_span(messages=messages, agent_name="WeatherAgent", model_id="test-model")
+
+        # Should use gen_ai.tool.message event name instead of gen_ai.user.message
+        mock_span.add_event.assert_called_with(
+            "gen_ai.tool.message", attributes={"content": json.dumps(messages[0]["content"])}
+        )
+        assert span is not None
+
+
+def test_start_event_loop_cycle_span_with_tool_result_message(mock_tracer):
+    """Test that start_event_loop_cycle_span correctly labels tool result messages."""
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        # Message that contains a tool result
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"toolResult": {"toolUseId": "123", "status": "success", "content": [{"text": "Weather is sunny"}]}}
+                ],
+            }
+        ]
+
+        event_loop_kwargs = {"event_loop_cycle_id": "cycle-123"}
+        span = tracer.start_event_loop_cycle_span(event_loop_kwargs, messages=messages)
+
+        # Should use gen_ai.tool.message event name instead of gen_ai.user.message
+        mock_span.add_event.assert_called_with(
+            "gen_ai.tool.message", attributes={"content": json.dumps(messages[0]["content"])}
+        )
+        assert span is not None

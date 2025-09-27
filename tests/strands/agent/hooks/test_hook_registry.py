@@ -9,20 +9,20 @@ from strands.hooks import HookEvent, HookProvider, HookRegistry
 
 
 @dataclass
-class TestEvent(HookEvent):
+class NormalTestEvent(HookEvent):
     @property
     def should_reverse_callbacks(self) -> bool:
         return False
 
 
 @dataclass
-class TestAfterEvent(HookEvent):
+class AfterTestEvent(HookEvent):
     @property
     def should_reverse_callbacks(self) -> bool:
         return True
 
 
-class TestHookProvider(HookProvider):
+class HookProviderForTests(HookProvider):
     """Test hook provider for testing hook registry."""
 
     def __init__(self):
@@ -38,13 +38,13 @@ def hook_registry():
 
 
 @pytest.fixture
-def test_event():
-    return TestEvent(agent=Mock())
+def normal_event():
+    return NormalTestEvent(agent=Mock())
 
 
 @pytest.fixture
-def test_after_event():
-    return TestAfterEvent(agent=Mock())
+def after_event():
+    return AfterTestEvent(agent=Mock())
 
 
 def test_hook_registry_init():
@@ -53,26 +53,26 @@ def test_hook_registry_init():
     assert registry._registered_callbacks == {}
 
 
-def test_add_callback(hook_registry, test_event):
+def test_add_callback(hook_registry, normal_event):
     """Test that callbacks can be added to the registry."""
     callback = unittest.mock.Mock()
-    hook_registry.add_callback(TestEvent, callback)
+    hook_registry.add_callback(NormalTestEvent, callback)
 
-    assert TestEvent in hook_registry._registered_callbacks
-    assert callback in hook_registry._registered_callbacks[TestEvent]
+    assert NormalTestEvent in hook_registry._registered_callbacks
+    assert callback in hook_registry._registered_callbacks[NormalTestEvent]
 
 
-def test_add_multiple_callbacks_same_event(hook_registry, test_event):
+def test_add_multiple_callbacks_same_event(hook_registry, normal_event):
     """Test that multiple callbacks can be added for the same event type."""
     callback1 = unittest.mock.Mock()
     callback2 = unittest.mock.Mock()
 
-    hook_registry.add_callback(TestEvent, callback1)
-    hook_registry.add_callback(TestEvent, callback2)
+    hook_registry.add_callback(NormalTestEvent, callback1)
+    hook_registry.add_callback(NormalTestEvent, callback2)
 
-    assert len(hook_registry._registered_callbacks[TestEvent]) == 2
-    assert callback1 in hook_registry._registered_callbacks[TestEvent]
-    assert callback2 in hook_registry._registered_callbacks[TestEvent]
+    assert len(hook_registry._registered_callbacks[NormalTestEvent]) == 2
+    assert callback1 in hook_registry._registered_callbacks[NormalTestEvent]
+    assert callback2 in hook_registry._registered_callbacks[NormalTestEvent]
 
 
 def test_add_hook(hook_registry):
@@ -83,58 +83,58 @@ def test_add_hook(hook_registry):
     assert hook_provider.register_hooks.call_count == 1
 
 
-def test_get_callbacks_for_normal_event(hook_registry, test_event):
+def test_get_callbacks_for_normal_event(hook_registry, normal_event):
     """Test that get_callbacks_for returns callbacks in the correct order for normal events."""
     callback1 = unittest.mock.Mock()
     callback2 = unittest.mock.Mock()
 
-    hook_registry.add_callback(TestEvent, callback1)
-    hook_registry.add_callback(TestEvent, callback2)
+    hook_registry.add_callback(NormalTestEvent, callback1)
+    hook_registry.add_callback(NormalTestEvent, callback2)
 
-    callbacks = list(hook_registry.get_callbacks_for(test_event))
+    callbacks = list(hook_registry.get_callbacks_for(normal_event))
 
     assert len(callbacks) == 2
     assert callbacks[0] == callback1
     assert callbacks[1] == callback2
 
 
-def test_get_callbacks_for_after_event(hook_registry, test_after_event):
+def test_get_callbacks_for_after_event(hook_registry, after_event):
     """Test that get_callbacks_for returns callbacks in reverse order for after events."""
     callback1 = Mock()
     callback2 = Mock()
 
-    hook_registry.add_callback(TestAfterEvent, callback1)
-    hook_registry.add_callback(TestAfterEvent, callback2)
+    hook_registry.add_callback(AfterTestEvent, callback1)
+    hook_registry.add_callback(AfterTestEvent, callback2)
 
-    callbacks = list(hook_registry.get_callbacks_for(test_after_event))
+    callbacks = list(hook_registry.get_callbacks_for(after_event))
 
     assert len(callbacks) == 2
     assert callbacks[0] == callback2  # Reverse order
     assert callbacks[1] == callback1  # Reverse order
 
 
-def test_invoke_callbacks(hook_registry, test_event):
+def test_invoke_callbacks(hook_registry, normal_event):
     """Test that invoke_callbacks calls all registered callbacks for an event."""
     callback1 = Mock()
     callback2 = Mock()
 
-    hook_registry.add_callback(TestEvent, callback1)
-    hook_registry.add_callback(TestEvent, callback2)
+    hook_registry.add_callback(NormalTestEvent, callback1)
+    hook_registry.add_callback(NormalTestEvent, callback2)
 
-    hook_registry.invoke_callbacks(test_event)
+    hook_registry.invoke_callbacks(normal_event)
 
-    callback1.assert_called_once_with(test_event)
-    callback2.assert_called_once_with(test_event)
+    callback1.assert_called_once_with(normal_event)
+    callback2.assert_called_once_with(normal_event)
 
 
-def test_invoke_callbacks_no_registered_callbacks(hook_registry, test_event):
+def test_invoke_callbacks_no_registered_callbacks(hook_registry, normal_event):
     """Test that invoke_callbacks doesn't fail when there are no registered callbacks."""
     # No callbacks registered
-    hook_registry.invoke_callbacks(test_event)
+    hook_registry.invoke_callbacks(normal_event)
     # Test passes if no exception is raised
 
 
-def test_invoke_callbacks_after_event(hook_registry, test_after_event):
+def test_invoke_callbacks_after_event(hook_registry, after_event):
     """Test that invoke_callbacks calls callbacks in reverse order for after events."""
     call_order: List[str] = []
 
@@ -144,24 +144,24 @@ def test_invoke_callbacks_after_event(hook_registry, test_after_event):
     def callback2(_event):
         call_order.append("callback2")
 
-    hook_registry.add_callback(TestAfterEvent, callback1)
-    hook_registry.add_callback(TestAfterEvent, callback2)
+    hook_registry.add_callback(AfterTestEvent, callback1)
+    hook_registry.add_callback(AfterTestEvent, callback2)
 
-    hook_registry.invoke_callbacks(test_after_event)
+    hook_registry.invoke_callbacks(after_event)
 
     assert call_order == ["callback2", "callback1"]  # Reverse order
 
 
-def test_has_callbacks(hook_registry, test_event):
+def test_has_callbacks(hook_registry, normal_event):
     """Test that has_callbacks returns correct boolean values."""
     # Empty registry should return False
     assert not hook_registry.has_callbacks()
 
     # Registry with callbacks should return True
     callback = Mock()
-    hook_registry.add_callback(TestEvent, callback)
+    hook_registry.add_callback(NormalTestEvent, callback)
     assert hook_registry.has_callbacks()
 
     # Test with multiple event types
-    hook_registry.add_callback(TestAfterEvent, Mock())
+    hook_registry.add_callback(AfterTestEvent, Mock())
     assert hook_registry.has_callbacks()

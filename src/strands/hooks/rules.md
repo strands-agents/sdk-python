@@ -9,6 +9,7 @@
 
 - All hook events have a suffix of `Event`
 - Paired events follow the naming convention of `Before{Item}Event` and `After{Item}Event`
+- Pre actions in the name. i.e. prefer `BeforeToolCallEvent` over `BeforeToolEvent`.
 
 ## Paired Events
 
@@ -17,4 +18,4 @@
 
 ## Writable Properties
 
-For events with writable properties, those values are re-read after invoking the hook callbacks and used in subsequent processing. For example, `BeforeToolInvocationEvent.selected_tool` is writable - after invoking the callback for `BeforeToolInvocationEvent`, the `selected_tool` takes effect for the tool call.
+For events with writable properties, those values are re-read after invoking the hook callbacks and used in subsequent processing. For example, `BeforeToolEvent.selected_tool` is writable - after invoking the callback for `BeforeToolEvent`, the `selected_tool` takes effect for the tool call.

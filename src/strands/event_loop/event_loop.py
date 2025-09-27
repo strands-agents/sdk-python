@@ -8,20 +8,14 @@ The event loop allows agents to:
 4. Manage recursive execution cycles
 """
 
+import asyncio
 import logging
-import time
 import uuid
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from opentelemetry import trace as trace_api
 
-from ..experimental.hooks import (
-    AfterModelInvocationEvent,
-    BeforeModelInvocationEvent,
-)
-from ..hooks import (
-    MessageAddedEvent,
-)
+from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import get_tracer
 from ..tools._validator import validate_and_prepare_tools
@@ -132,13 +126,13 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
             model_id=model_id,
         )
         with trace_api.use_span(model_invoke_span):
-            tool_specs = agent.tool_registry.get_all_tool_specs()
-
             agent.hooks.invoke_callbacks(
-                BeforeModelInvocationEvent(
+                BeforeModelCallEvent(
                     agent=agent,
                 )
             )
+
+            tool_specs = agent.tool_registry.get_all_tool_specs()
 
             try:
                 async for event in stream_messages(agent.model, agent.system_prompt, agent.messages, tool_specs):
@@ -149,9 +143,9 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
                 invocation_state.setdefault("request_state", {})
 
                 agent.hooks.invoke_callbacks(
-                    AfterModelInvocationEvent(
+                    AfterModelCallEvent(
                         agent=agent,
-                        stop_response=AfterModelInvocationEvent.ModelStopResponse(
+                        stop_response=AfterModelCallEvent.ModelStopResponse(
                             stop_reason=stop_reason,
                             message=message,
                         ),
@@ -170,7 +164,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
                     tracer.end_span_with_error(model_invoke_span, str(e), e)
 
                 agent.hooks.invoke_callbacks(
-                    AfterModelInvocationEvent(
+                    AfterModelCallEvent(
                         agent=agent,
                         exception=e,
                     )
@@ -189,7 +183,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
                         MAX_ATTEMPTS,
                         attempt + 1,
                     )
-                    time.sleep(current_delay)
+                    await asyncio.sleep(current_delay)
                     current_delay = min(current_delay * 2, MAX_DELAY)
 
                     yield EventLoopThrottleEvent(delay=current_delay)

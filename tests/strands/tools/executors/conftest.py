@@ -4,8 +4,7 @@ import unittest.mock
 import pytest
 
 import strands
-from strands.experimental.hooks import AfterToolInvocationEvent, BeforeToolInvocationEvent
-from strands.hooks import HookRegistry
+from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent, HookRegistry
 from strands.tools.registry import ToolRegistry
 
 
@@ -26,8 +25,8 @@ def tool_hook(hook_events):
 @pytest.fixture
 def hook_registry(tool_hook):
     registry = HookRegistry()
-    registry.add_callback(BeforeToolInvocationEvent, tool_hook)
-    registry.add_callback(AfterToolInvocationEvent, tool_hook)
+    registry.add_callback(BeforeToolCallEvent, tool_hook)
+    registry.add_callback(AfterToolCallEvent, tool_hook)
     return registry
 
 

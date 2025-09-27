@@ -1,4 +1,5 @@
 import unittest.mock
+from unittest.mock import call
 
 import pydantic
 import pytest
@@ -56,6 +57,39 @@ def test_update_config(model, model_id):
     exp_model_id = model_id
 
     assert tru_model_id == exp_model_id
+
+
+@pytest.mark.parametrize(
+    "client_args, model_id, expected_model_id",
+    [
+        ({"use_litellm_proxy": True}, "openai/gpt-4", "litellm_proxy/openai/gpt-4"),
+        ({"use_litellm_proxy": False}, "openai/gpt-4", "openai/gpt-4"),
+        ({"use_litellm_proxy": None}, "openai/gpt-4", "openai/gpt-4"),
+        ({}, "openai/gpt-4", "openai/gpt-4"),
+        (None, "openai/gpt-4", "openai/gpt-4"),
+        ({"use_litellm_proxy": True}, "litellm_proxy/openai/gpt-4", "litellm_proxy/openai/gpt-4"),
+        ({"use_litellm_proxy": False}, "litellm_proxy/openai/gpt-4", "litellm_proxy/openai/gpt-4"),
+    ],
+)
+def test__init__use_litellm_proxy_prefix(client_args, model_id, expected_model_id):
+    """Test litellm_proxy prefix behavior for various configurations."""
+    model = LiteLLMModel(client_args=client_args, model_id=model_id)
+    assert model.get_config()["model_id"] == expected_model_id
+
+
+@pytest.mark.parametrize(
+    "client_args, initial_model_id, new_model_id, expected_model_id",
+    [
+        ({"use_litellm_proxy": True}, "openai/gpt-4", "anthropic/claude-3", "litellm_proxy/anthropic/claude-3"),
+        ({"use_litellm_proxy": False}, "openai/gpt-4", "anthropic/claude-3", "anthropic/claude-3"),
+        (None, "openai/gpt-4", "anthropic/claude-3", "anthropic/claude-3"),
+    ],
+)
+def test_update_config_proxy_prefix(client_args, initial_model_id, new_model_id, expected_model_id):
+    """Test that update_config applies proxy prefix correctly."""
+    model = LiteLLMModel(client_args=client_args, model_id=initial_model_id)
+    model.update_config(model_id=new_model_id)
+    assert model.get_config()["model_id"] == expected_model_id
 
 
 @pytest.mark.parametrize(
@@ -186,15 +220,16 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
 
     assert tru_events == exp_events
 
-    expected_request = {
-        "api_key": api_key,
-        "model": model_id,
-        "messages": [{"role": "user", "content": "calculate 2+2"}],
-        "stream": True,
-        "stream_options": {"include_usage": True},
-        "tools": [],
-    }
-    litellm_acompletion.assert_called_once_with(**expected_request)
+    assert litellm_acompletion.call_args_list == [
+        call(
+            api_key=api_key,
+            messages=[{"role": "user", "content": [{"text": "calculate 2+2", "type": "text"}]}],
+            model=model_id,
+            stream=True,
+            stream_options={"include_usage": True},
+            tools=[],
+        )
+    ]
 
 
 @pytest.mark.asyncio
@@ -234,66 +269,6 @@ async def test_stream_empty(litellm_acompletion, api_key, model_id, model, agene
 
 
 @pytest.mark.asyncio
-async def test_format_request_messages_with_tools():
-    """Test that format_request_messages correctly handles tool messages for Cerebras/Groq compatibility."""
-    messages = [
-        {
-            "role": "user", 
-            "content": [{"text": "What is 2+2?"}]
-        },
-        {
-            "role": "assistant",
-            "content": [
-                {
-                    "toolUse": {
-                        "toolUseId": "call_123",
-                        "name": "calculator",
-                        "input": {"expression": "2+2"}
-                    }
-                }
-            ]
-        },
-        {
-            "role": "tool",
-            "content": [
-                {
-                    "toolResult": {
-                        "toolUseId": "call_123",
-                        "content": [{"text": "4"}]
-                    }
-                }
-            ]
-        }
-    ]
-    
-    formatted = LiteLLMModel.format_request_messages(messages)
-    
-    expected = [
-        {"role": "user", "content": "What is 2+2?"},
-        {
-            "role": "assistant",
-            "tool_calls": [
-                {
-                    "function": {
-                        "name": "calculator",
-                        "arguments": '{"expression": "2+2"}'
-                    },
-                    "id": "call_123",
-                    "type": "function"
-                }
-            ]
-        },
-        {
-            "role": "tool",
-            "tool_call_id": "call_123",
-            "content": "4"
-        }
-    ]
-    
-    assert formatted == expected
-
-
-@pytest.mark.asyncio
 async def test_structured_output(litellm_acompletion, model, test_output_model_cls, alist):
     messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
 
@@ -312,3 +287,48 @@ async def test_structured_output(litellm_acompletion, model, test_output_model_c
 
     exp_result = {"output": test_output_model_cls(name="John", age=30)}
     assert tru_result == exp_result
+
+
+@pytest.mark.asyncio
+async def test_structured_output_unsupported_model(litellm_acompletion, model, test_output_model_cls):
+    messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
+
+    with unittest.mock.patch.object(strands.models.litellm, "supports_response_schema", return_value=False):
+        with pytest.raises(ValueError, match="Model does not support response_format"):
+            stream = model.structured_output(test_output_model_cls, messages)
+            await stream.__anext__()
+
+    litellm_acompletion.assert_not_called()
+
+
+def test_config_validation_warns_on_unknown_keys(litellm_acompletion, captured_warnings):
+    """Test that unknown config keys emit a warning."""
+    LiteLLMModel(client_args={"api_key": "test"}, model_id="test-model", invalid_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "invalid_param" in str(captured_warnings[0].message)
+
+
+def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings):
+    """Test that update_config warns on unknown keys."""
+    model.update_config(wrong_param="test")
+
+    assert len(captured_warnings) == 1
+    assert "Invalid configuration parameters" in str(captured_warnings[0].message)
+    assert "wrong_param" in str(captured_warnings[0].message)
+
+
+def test_tool_choice_supported_no_warning(model, messages, captured_warnings):
+    """Test that toolChoice doesn't emit warning for supported providers."""
+    tool_choice = {"auto": {}}
+    model.format_request(messages, tool_choice=tool_choice)
+
+    assert len(captured_warnings) == 0
+
+
+def test_tool_choice_none_no_warning(model, messages, captured_warnings):
+    """Test that None toolChoice doesn't emit warning."""
+    model.format_request(messages, tool_choice=None)
+
+    assert len(captured_warnings) == 0

@@ -3,10 +3,12 @@ import unittest.mock
 from unittest.mock import ANY, MagicMock, call
 
 import pytest
+from pydantic import BaseModel
 
 import strands
 from strands import Agent
 from strands.agent import AgentResult
+from strands.models import BedrockModel
 from strands.types._events import TypedEvent
 from strands.types.exceptions import ModelThrottledException
 from tests.fixtures.mocked_model_provider import MockedModelProvider
@@ -31,8 +33,10 @@ async def streaming_tool():
 
 
 @pytest.fixture
-def mock_time():
-    with unittest.mock.patch.object(strands.event_loop.event_loop, "time") as mock:
+def mock_sleep():
+    with unittest.mock.patch.object(
+        strands.event_loop.event_loop.asyncio, "sleep", new_callable=unittest.mock.AsyncMock
+    ) as mock:
         yield mock
 
 
@@ -322,7 +326,7 @@ async def test_stream_e2e_success(alist):
 
 
 @pytest.mark.asyncio
-async def test_stream_e2e_throttle_and_redact(alist, mock_time):
+async def test_stream_e2e_throttle_and_redact(alist, mock_sleep):
     model = MagicMock()
     model.stream.side_effect = [
         ModelThrottledException("ThrottlingException | ConverseStream"),
@@ -386,10 +390,88 @@ async def test_stream_e2e_throttle_and_redact(alist, mock_time):
 
 
 @pytest.mark.asyncio
+async def test_stream_e2e_reasoning_redacted_content(alist):
+    mock_provider = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {"reasoningContent": {"redactedContent": b"test_redacted_data"}},
+                    {"text": "Response with redacted reasoning"},
+                ],
+            },
+        ]
+    )
+
+    mock_callback = unittest.mock.Mock()
+    agent = Agent(model=mock_provider, callback_handler=mock_callback)
+
+    stream = agent.stream_async("Test redacted content")
+
+    tru_events = await alist(stream)
+    exp_events = [
+        {"init_event_loop": True},
+        {"start": True},
+        {"start_event_loop": True},
+        {"event": {"messageStart": {"role": "assistant"}}},
+        {"event": {"contentBlockStart": {"start": {}}}},
+        {"event": {"contentBlockDelta": {"delta": {"reasoningContent": {"redactedContent": b"test_redacted_data"}}}}},
+        {
+            **any_props,
+            "reasoningRedactedContent": b"test_redacted_data",
+            "delta": {"reasoningContent": {"redactedContent": b"test_redacted_data"}},
+            "reasoning": True,
+        },
+        {"event": {"contentBlockStop": {}}},
+        {"event": {"contentBlockStart": {"start": {}}}},
+        {"event": {"contentBlockDelta": {"delta": {"text": "Response with redacted reasoning"}}}},
+        {
+            **any_props,
+            "data": "Response with redacted reasoning",
+            "delta": {"text": "Response with redacted reasoning"},
+        },
+        {"event": {"contentBlockStop": {}}},
+        {"event": {"messageStop": {"stopReason": "end_turn"}}},
+        {
+            "message": {
+                "content": [
+                    {"reasoningContent": {"redactedContent": b"test_redacted_data"}},
+                    {"text": "Response with redacted reasoning"},
+                ],
+                "role": "assistant",
+            }
+        },
+        {
+            "result": AgentResult(
+                stop_reason="end_turn",
+                message={
+                    "content": [
+                        {"reasoningContent": {"redactedContent": b"test_redacted_data"}},
+                        {"text": "Response with redacted reasoning"},
+                    ],
+                    "role": "assistant",
+                },
+                metrics=ANY,
+                state={},
+            )
+        },
+    ]
+    assert tru_events == exp_events
+
+    exp_calls = [call(**event) for event in exp_events]
+    act_calls = mock_callback.call_args_list
+    assert act_calls == exp_calls
+
+    # Ensure that all events coming out of the agent are *not* typed events
+    typed_events = [event for event in tru_events if isinstance(event, TypedEvent)]
+    assert typed_events == []
+
+
+@pytest.mark.asyncio
 async def test_event_loop_cycle_text_response_throttling_early_end(
     agenerator,
     alist,
-    mock_time,
+    mock_sleep,
 ):
     model = MagicMock()
     model.stream.side_effect = [
@@ -438,3 +520,132 @@ async def test_event_loop_cycle_text_response_throttling_early_end(
     # Ensure that all events coming out of the agent are *not* typed events
     typed_events = [event for event in tru_events if isinstance(event, TypedEvent)]
     assert typed_events == []
+
+
+@pytest.mark.asyncio
+async def test_structured_output(agenerator):
+    # we use bedrock here as it uses the tool implementation
+    model = BedrockModel()
+    model.stream = MagicMock()
+    model.stream.return_value = agenerator(
+        [
+            {
+                "contentBlockStart": {
+                    "start": {"toolUse": {"toolUseId": "tooluse_efwXnrK_S6qTyxzcq1IUMQ", "name": "Person"}},
+                    "contentBlockIndex": 0,
+                }
+            },
+            {"contentBlockDelta": {"delta": {"toolUse": {"input": ""}}, "contentBlockIndex": 0}},
+            {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"na'}}, "contentBlockIndex": 0}},
+            {"contentBlockDelta": {"delta": {"toolUse": {"input": 'me"'}}, "contentBlockIndex": 0}},
+            {"contentBlockDelta": {"delta": {"toolUse": {"input": ': "J'}}, "contentBlockIndex": 0}},
+            {"contentBlockDelta": {"delta": {"toolUse": {"input": 'ohn"'}}, "contentBlockIndex": 0}},
+            {"contentBlockDelta": {"delta": {"toolUse": {"input": ', "age": 3'}}, "contentBlockIndex": 0}},
+            {"contentBlockDelta": {"delta": {"toolUse": {"input": "1}"}}, "contentBlockIndex": 0}},
+            {"contentBlockStop": {"contentBlockIndex": 0}},
+            {"messageStop": {"stopReason": "tool_use"}},
+            {
+                "metadata": {
+                    "usage": {"inputTokens": 407, "outputTokens": 53, "totalTokens": 460},
+                    "metrics": {"latencyMs": 1572},
+                }
+            },
+        ]
+    )
+
+    mock_callback = unittest.mock.Mock()
+    agent = Agent(model=model, callback_handler=mock_callback)
+
+    class Person(BaseModel):
+        name: str
+        age: float
+
+    await agent.structured_output_async(Person, "John is 31")
+
+    exp_events = [
+        {
+            "event": {
+                "contentBlockStart": {
+                    "start": {"toolUse": {"toolUseId": "tooluse_efwXnrK_S6qTyxzcq1IUMQ", "name": "Person"}},
+                    "contentBlockIndex": 0,
+                }
+            }
+        },
+        {"event": {"contentBlockDelta": {"delta": {"toolUse": {"input": ""}}, "contentBlockIndex": 0}}},
+        {
+            "delta": {"toolUse": {"input": ""}},
+            "current_tool_use": {
+                "toolUseId": "tooluse_efwXnrK_S6qTyxzcq1IUMQ",
+                "name": "Person",
+                "input": {"name": "John", "age": 31},
+            },
+        },
+        {"event": {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"na'}}, "contentBlockIndex": 0}}},
+        {
+            "delta": {"toolUse": {"input": '{"na'}},
+            "current_tool_use": {
+                "toolUseId": "tooluse_efwXnrK_S6qTyxzcq1IUMQ",
+                "name": "Person",
+                "input": {"name": "John", "age": 31},
+            },
+        },
+        {"event": {"contentBlockDelta": {"delta": {"toolUse": {"input": 'me"'}}, "contentBlockIndex": 0}}},
+        {
+            "delta": {"toolUse": {"input": 'me"'}},
+            "current_tool_use": {
+                "toolUseId": "tooluse_efwXnrK_S6qTyxzcq1IUMQ",
+                "name": "Person",
+                "input": {"name": "John", "age": 31},
+            },
+        },
+        {"event": {"contentBlockDelta": {"delta": {"toolUse": {"input": ': "J'}}, "contentBlockIndex": 0}}},
+        {
+            "delta": {"toolUse": {"input": ': "J'}},
+            "current_tool_use": {
+                "toolUseId": "tooluse_efwXnrK_S6qTyxzcq1IUMQ",
+                "name": "Person",
+                "input": {"name": "John", "age": 31},
+            },
+        },
+        {"event": {"contentBlockDelta": {"delta": {"toolUse": {"input": 'ohn"'}}, "contentBlockIndex": 0}}},
+        {
+            "delta": {"toolUse": {"input": 'ohn"'}},
+            "current_tool_use": {
+                "toolUseId": "tooluse_efwXnrK_S6qTyxzcq1IUMQ",
+                "name": "Person",
+                "input": {"name": "John", "age": 31},
+            },
+        },
+        {"event": {"contentBlockDelta": {"delta": {"toolUse": {"input": ', "age": 3'}}, "contentBlockIndex": 0}}},
+        {
+            "delta": {"toolUse": {"input": ', "age": 3'}},
+            "current_tool_use": {
+                "toolUseId": "tooluse_efwXnrK_S6qTyxzcq1IUMQ",
+                "name": "Person",
+                "input": {"name": "John", "age": 31},
+            },
+        },
+        {"event": {"contentBlockDelta": {"delta": {"toolUse": {"input": "1}"}}, "contentBlockIndex": 0}}},
+        {
+            "delta": {"toolUse": {"input": "1}"}},
+            "current_tool_use": {
+                "toolUseId": "tooluse_efwXnrK_S6qTyxzcq1IUMQ",
+                "name": "Person",
+                "input": {"name": "John", "age": 31},
+            },
+        },
+        {"event": {"contentBlockStop": {"contentBlockIndex": 0}}},
+        {"event": {"messageStop": {"stopReason": "tool_use"}}},
+        {
+            "event": {
+                "metadata": {
+                    "usage": {"inputTokens": 407, "outputTokens": 53, "totalTokens": 460},
+                    "metrics": {"latencyMs": 1572},
+                }
+            }
+        },
+    ]
+
+    exp_calls = [call(**event) for event in exp_events]
+    act_calls = mock_callback.call_args_list
+    assert act_calls == exp_calls

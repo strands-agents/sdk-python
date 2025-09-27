@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import os
+import warnings
 from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union, cast
 
 import boto3
@@ -17,18 +18,21 @@ from typing_extensions import TypedDict, Unpack, override
 
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
-from ..types.content import ContentBlock, Message, Messages
+from ..types.content import ContentBlock, Messages
 from ..types.exceptions import (
     ContextWindowOverflowException,
     ModelThrottledException,
 )
 from ..types.streaming import CitationsDelta, StreamEvent
-from ..types.tools import ToolResult, ToolSpec
+from ..types.tools import ToolChoice, ToolSpec
+from ._validation import validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
 
+# See: `BedrockModel._get_default_model_with_warning` for why we need both
 DEFAULT_BEDROCK_MODEL_ID = "us.anthropic.claude-sonnet-4-20250514-v1:0"
+_DEFAULT_BEDROCK_MODEL_ID = "{}.anthropic.claude-sonnet-4-20250514-v1:0"
 DEFAULT_BEDROCK_REGION = "us-west-2"
 
 BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES = [
@@ -43,6 +47,8 @@ _MODELS_INCLUDE_STATUS = [
 ]
 
 T = TypeVar("T", bound=BaseModel)
+
+DEFAULT_READ_TIMEOUT = 120
 
 
 class BedrockModel(Model):
@@ -127,12 +133,15 @@ class BedrockModel(Model):
         if region_name and boto_session:
             raise ValueError("Cannot specify both `region_name` and `boto_session`.")
 
-        self.config = BedrockModel.BedrockConfig(model_id=DEFAULT_BEDROCK_MODEL_ID, include_tool_result_status="auto")
+        session = boto_session or boto3.Session()
+        resolved_region = region_name or session.region_name or os.environ.get("AWS_REGION") or DEFAULT_BEDROCK_REGION
+        self.config = BedrockModel.BedrockConfig(
+            model_id=BedrockModel._get_default_model_with_warning(resolved_region, model_config),
+            include_tool_result_status="auto",
+        )
         self.update_config(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
-
-        session = boto_session or boto3.Session()
 
         # Add strands-agents to the request user agent
         if boto_client_config:
@@ -146,9 +155,7 @@ class BedrockModel(Model):
 
             client_config = boto_client_config.merge(BotocoreConfig(user_agent_extra=new_user_agent))
         else:
-            client_config = BotocoreConfig(user_agent_extra="strands-agents")
-
-        resolved_region = region_name or session.region_name or os.environ.get("AWS_REGION") or DEFAULT_BEDROCK_REGION
+            client_config = BotocoreConfig(user_agent_extra="strands-agents", read_timeout=DEFAULT_READ_TIMEOUT)
 
         self.client = session.client(
             service_name="bedrock-runtime",
@@ -166,6 +173,7 @@ class BedrockModel(Model):
         Args:
             **model_config: Configuration overrides.
         """
+        validate_config_keys(model_config, self.BedrockConfig)
         self.config.update(model_config)
 
     @override
@@ -177,22 +185,12 @@ class BedrockModel(Model):
         """
         return self.config
 
-    def _should_include_tool_result_status(self) -> bool:
-        """Determine whether to include tool result status based on current config."""
-        include_status = self.config.get("include_tool_result_status", "auto")
-
-        if include_status is True:
-            return True
-        elif include_status is False:
-            return False
-        else:  # "auto"
-            return any(model in self.config["model_id"] for model in _MODELS_INCLUDE_STATUS)
-
     def format_request(
         self,
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        tool_choice: ToolChoice | None = None,
     ) -> dict[str, Any]:
         """Format a Bedrock converse stream request.
 
@@ -200,6 +198,7 @@ class BedrockModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
 
         Returns:
             A Bedrock converse stream request.
@@ -215,14 +214,23 @@ class BedrockModel(Model):
                 {
                     "toolConfig": {
                         "tools": [
-                            *[{"toolSpec": tool_spec} for tool_spec in tool_specs],
+                            *[
+                                {
+                                    "toolSpec": {
+                                        "name": tool_spec["name"],
+                                        "description": tool_spec["description"],
+                                        "inputSchema": tool_spec["inputSchema"],
+                                    }
+                                }
+                                for tool_spec in tool_specs
+                            ],
                             *(
                                 [{"cachePoint": {"type": self.config["cache_tools"]}}]
                                 if self.config.get("cache_tools")
                                 else []
                             ),
                         ],
-                        "toolChoice": {"auto": {}},
+                        **({"toolChoice": tool_choice if tool_choice else {"auto": {}}}),
                     }
                 }
                 if tool_specs
@@ -271,14 +279,12 @@ class BedrockModel(Model):
             ),
         }
 
-    def _format_bedrock_messages(self, messages: Messages) -> Messages:
+    def _format_bedrock_messages(self, messages: Messages) -> list[dict[str, Any]]:
         """Format messages for Bedrock API compatibility.
 
         This function ensures messages conform to Bedrock's expected format by:
         - Filtering out SDK_UNKNOWN_MEMBER content blocks
-        - Cleaning tool result content blocks by removing additional fields that may be
-          useful for retaining information in hooks but would cause Bedrock validation
-          exceptions when presented with unexpected fields
+        - Eagerly filtering content blocks to only include Bedrock-supported fields
         - Ensuring all message content blocks are properly formatted for the Bedrock API
 
         Args:
@@ -288,15 +294,19 @@ class BedrockModel(Model):
             Messages formatted for Bedrock API compatibility
 
         Note:
-            Bedrock will throw validation exceptions when presented with additional
-            unexpected fields in tool result blocks.
-            https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolResultBlock.html
+            Unlike other APIs that ignore unknown fields, Bedrock only accepts a strict
+            subset of fields for each content block type and throws validation exceptions
+            when presented with unexpected fields. Therefore, we must eagerly filter all
+            content blocks to remove any additional fields before sending to Bedrock.
+            https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ContentBlock.html
         """
-        cleaned_messages = []
+        cleaned_messages: list[dict[str, Any]] = []
+
         filtered_unknown_members = False
+        dropped_deepseek_reasoning_content = False
 
         for message in messages:
-            cleaned_content: list[ContentBlock] = []
+            cleaned_content: list[dict[str, Any]] = []
 
             for content_block in message["content"]:
                 # Filter out SDK_UNKNOWN_MEMBER content blocks
@@ -304,39 +314,208 @@ class BedrockModel(Model):
                     filtered_unknown_members = True
                     continue
 
-                if "toolResult" in content_block:
-                    # Create a new content block with only the cleaned toolResult
-                    tool_result: ToolResult = content_block["toolResult"]
+                # DeepSeek models have issues with reasoningContent
+                # TODO: Replace with systematic model configuration registry (https://github.com/strands-agents/sdk-python/issues/780)
+                if "deepseek" in self.config["model_id"].lower() and "reasoningContent" in content_block:
+                    dropped_deepseek_reasoning_content = True
+                    continue
 
-                    if self._should_include_tool_result_status():
-                        # Include status field
-                        cleaned_tool_result = ToolResult(
-                            content=tool_result["content"],
-                            toolUseId=tool_result["toolUseId"],
-                            status=tool_result["status"],
-                        )
-                    else:
-                        # Remove status field
-                        cleaned_tool_result = ToolResult(  # type: ignore[typeddict-item]
-                            toolUseId=tool_result["toolUseId"], content=tool_result["content"]
-                        )
+                # Format content blocks for Bedrock API compatibility
+                formatted_content = self._format_request_message_content(content_block)
+                cleaned_content.append(formatted_content)
 
-                    cleaned_block: ContentBlock = {"toolResult": cleaned_tool_result}
-                    cleaned_content.append(cleaned_block)
-                else:
-                    # Keep other content blocks as-is
-                    cleaned_content.append(content_block)
-
-            # Create new message with cleaned content
-            cleaned_message: Message = Message(content=cleaned_content, role=message["role"])
-            cleaned_messages.append(cleaned_message)
+            # Create new message with cleaned content (skip if empty)
+            if cleaned_content:
+                cleaned_messages.append({"content": cleaned_content, "role": message["role"]})
 
         if filtered_unknown_members:
             logger.warning(
                 "Filtered out SDK_UNKNOWN_MEMBER content blocks from messages, consider upgrading boto3 version"
             )
+        if dropped_deepseek_reasoning_content:
+            logger.debug(
+                "Filtered DeepSeek reasoningContent content blocks from messages - https://api-docs.deepseek.com/guides/reasoning_model#multi-round-conversation"
+            )
 
         return cleaned_messages
+
+    def _should_include_tool_result_status(self) -> bool:
+        """Determine whether to include tool result status based on current config."""
+        include_status = self.config.get("include_tool_result_status", "auto")
+
+        if include_status is True:
+            return True
+        elif include_status is False:
+            return False
+        else:  # "auto"
+            return any(model in self.config["model_id"] for model in _MODELS_INCLUDE_STATUS)
+
+    def _format_request_message_content(self, content: ContentBlock) -> dict[str, Any]:
+        """Format a Bedrock content block.
+
+        Bedrock strictly validates content blocks and throws exceptions for unknown fields.
+        This function extracts only the fields that Bedrock supports for each content type.
+
+        Args:
+            content: Content block to format.
+
+        Returns:
+            Bedrock formatted content block.
+
+        Raises:
+            TypeError: If the content block type is not supported by Bedrock.
+        """
+        # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CachePointBlock.html
+        if "cachePoint" in content:
+            return {"cachePoint": {"type": content["cachePoint"]["type"]}}
+
+        # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_DocumentBlock.html
+        if "document" in content:
+            document = content["document"]
+            result: dict[str, Any] = {}
+
+            # Handle required fields (all optional due to total=False)
+            if "name" in document:
+                result["name"] = document["name"]
+            if "format" in document:
+                result["format"] = document["format"]
+
+            # Handle source
+            if "source" in document:
+                result["source"] = {"bytes": document["source"]["bytes"]}
+
+            # Handle optional fields
+            if "citations" in document and document["citations"] is not None:
+                result["citations"] = {"enabled": document["citations"]["enabled"]}
+            if "context" in document:
+                result["context"] = document["context"]
+
+            return {"document": result}
+
+        # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_GuardrailConverseContentBlock.html
+        if "guardContent" in content:
+            guard = content["guardContent"]
+            guard_text = guard["text"]
+            result = {"text": {"text": guard_text["text"], "qualifiers": guard_text["qualifiers"]}}
+            return {"guardContent": result}
+
+        # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ImageBlock.html
+        if "image" in content:
+            image = content["image"]
+            source = image["source"]
+            formatted_source = {}
+            if "bytes" in source:
+                formatted_source = {"bytes": source["bytes"]}
+            result = {"format": image["format"], "source": formatted_source}
+            return {"image": result}
+
+        # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ReasoningContentBlock.html
+        if "reasoningContent" in content:
+            reasoning = content["reasoningContent"]
+            result = {}
+
+            if "reasoningText" in reasoning:
+                reasoning_text = reasoning["reasoningText"]
+                result["reasoningText"] = {}
+                if "text" in reasoning_text:
+                    result["reasoningText"]["text"] = reasoning_text["text"]
+                # Only include signature if truthy (avoid empty strings)
+                if reasoning_text.get("signature"):
+                    result["reasoningText"]["signature"] = reasoning_text["signature"]
+
+            if "redactedContent" in reasoning:
+                result["redactedContent"] = reasoning["redactedContent"]
+
+            return {"reasoningContent": result}
+
+        # Pass through text and other simple content types
+        if "text" in content:
+            return {"text": content["text"]}
+
+        # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolResultBlock.html
+        if "toolResult" in content:
+            tool_result = content["toolResult"]
+            formatted_content: list[dict[str, Any]] = []
+            for tool_result_content in tool_result["content"]:
+                if "json" in tool_result_content:
+                    # Handle json field since not in ContentBlock but valid in ToolResultContent
+                    formatted_content.append({"json": tool_result_content["json"]})
+                else:
+                    formatted_content.append(
+                        self._format_request_message_content(cast(ContentBlock, tool_result_content))
+                    )
+
+            result = {
+                "content": formatted_content,
+                "toolUseId": tool_result["toolUseId"],
+            }
+            if "status" in tool_result and self._should_include_tool_result_status():
+                result["status"] = tool_result["status"]
+            return {"toolResult": result}
+
+        # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ToolUseBlock.html
+        if "toolUse" in content:
+            tool_use = content["toolUse"]
+            return {
+                "toolUse": {
+                    "input": tool_use["input"],
+                    "name": tool_use["name"],
+                    "toolUseId": tool_use["toolUseId"],
+                }
+            }
+
+        # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_VideoBlock.html
+        if "video" in content:
+            video = content["video"]
+            source = video["source"]
+            formatted_source = {}
+            if "bytes" in source:
+                formatted_source = {"bytes": source["bytes"]}
+            result = {"format": video["format"], "source": formatted_source}
+            return {"video": result}
+
+        # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CitationsContentBlock.html
+        if "citationsContent" in content:
+            citations = content["citationsContent"]
+            result = {}
+
+            if "citations" in citations:
+                result["citations"] = []
+                for citation in citations["citations"]:
+                    filtered_citation: dict[str, Any] = {}
+                    if "location" in citation:
+                        location = citation["location"]
+                        filtered_location = {}
+                        # Filter location fields to only include Bedrock-supported ones
+                        if "documentIndex" in location:
+                            filtered_location["documentIndex"] = location["documentIndex"]
+                        if "start" in location:
+                            filtered_location["start"] = location["start"]
+                        if "end" in location:
+                            filtered_location["end"] = location["end"]
+                        filtered_citation["location"] = filtered_location
+                    if "sourceContent" in citation:
+                        filtered_source_content: list[dict[str, Any]] = []
+                        for source_content in citation["sourceContent"]:
+                            if "text" in source_content:
+                                filtered_source_content.append({"text": source_content["text"]})
+                        if filtered_source_content:
+                            filtered_citation["sourceContent"] = filtered_source_content
+                    if "title" in citation:
+                        filtered_citation["title"] = citation["title"]
+                    result["citations"].append(filtered_citation)
+
+            if "content" in citations:
+                filtered_content: list[dict[str, Any]] = []
+                for generated_content in citations["content"]:
+                    if "text" in generated_content:
+                        filtered_content.append({"text": generated_content["text"]})
+                if filtered_content:
+                    result["content"] = filtered_content
+
+            return {"citationsContent": result}
+
+        raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
     def _has_blocked_guardrail(self, guardrail_data: dict[str, Any]) -> bool:
         """Check if guardrail data contains any blocked policies.
@@ -386,7 +565,8 @@ class BedrockModel(Model):
                 {
                     "redactContent": {
                         "redactAssistantContentMessage": self.config.get(
-                            "guardrail_redact_output_message", "[Assistant output redacted.]"
+                            "guardrail_redact_output_message",
+                            "[Assistant output redacted.]",
                         )
                     }
                 }
@@ -400,6 +580,8 @@ class BedrockModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        *,
+        tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Bedrock model.
@@ -411,6 +593,7 @@ class BedrockModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -429,7 +612,7 @@ class BedrockModel(Model):
         loop = asyncio.get_event_loop()
         queue: asyncio.Queue[Optional[StreamEvent]] = asyncio.Queue()
 
-        thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt)
+        thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt, tool_choice)
         task = asyncio.create_task(thread)
 
         while True:
@@ -447,6 +630,7 @@ class BedrockModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        tool_choice: ToolChoice | None = None,
     ) -> None:
         """Stream conversation with the Bedrock model.
 
@@ -458,6 +642,7 @@ class BedrockModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
 
         Raises:
             ContextWindowOverflowException: If the input exceeds the model's context window.
@@ -465,7 +650,7 @@ class BedrockModel(Model):
         """
         try:
             logger.debug("formatting request")
-            request = self.format_request(messages, tool_specs, system_prompt)
+            request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
             logger.debug("request=<%s>", request)
 
             logger.debug("invoking model")
@@ -699,7 +884,11 @@ class BedrockModel(Model):
 
     @override
     async def structured_output(
-        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
+        self,
+        output_model: Type[T],
+        prompt: Messages,
+        system_prompt: Optional[str] = None,
+        **kwargs: Any,
     ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
@@ -714,7 +903,13 @@ class BedrockModel(Model):
         """
         tool_spec = convert_pydantic_to_tool_spec(output_model)
 
-        response = self.stream(messages=prompt, tool_specs=[tool_spec], system_prompt=system_prompt, **kwargs)
+        response = self.stream(
+            messages=prompt,
+            tool_specs=[tool_spec],
+            system_prompt=system_prompt,
+            tool_choice=cast(ToolChoice, {"any": {}}),
+            **kwargs,
+        )
         async for event in streaming.process_stream(response):
             yield event
 
@@ -737,3 +932,46 @@ class BedrockModel(Model):
             raise ValueError("No valid tool use or tool use input was found in the Bedrock response.")
 
         yield {"output": output_model(**output_response)}
+
+    @staticmethod
+    def _get_default_model_with_warning(region_name: str, model_config: Optional[BedrockConfig] = None) -> str:
+        """Get the default Bedrock modelId based on region.
+
+        If the region is not **known** to support inference then we show a helpful warning
+        that compliments the exception that Bedrock will throw.
+        If the customer provided a model_id in their config or they overrode the `DEFAULT_BEDROCK_MODEL_ID`
+        then we should not process further.
+
+        Args:
+            region_name (str): region for bedrock model
+            model_config (Optional[dict[str, Any]]): Model Config that caller passes in on init
+        """
+        if DEFAULT_BEDROCK_MODEL_ID != _DEFAULT_BEDROCK_MODEL_ID.format("us"):
+            return DEFAULT_BEDROCK_MODEL_ID
+
+        model_config = model_config or {}
+        if model_config.get("model_id"):
+            return model_config["model_id"]
+
+        prefix_inference_map = {"ap": "apac"}  # some inference endpoints can be a bit different than the region prefix
+
+        prefix = "-".join(region_name.split("-")[:-2]).lower()  # handles `us-east-1` or `us-gov-east-1`
+        if prefix not in {"us", "eu", "ap", "us-gov"}:
+            warnings.warn(
+                f"""
+            ================== WARNING ==================
+
+                This region {region_name} does not support
+                our default inference endpoint: {_DEFAULT_BEDROCK_MODEL_ID.format(prefix)}.
+                Update the agent to pass in a 'model_id' like so:
+                ```
+                Agent(..., model='valid_model_id', ...)
+                ````
+                Documentation: https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-support.html
+
+            ==================================================
+            """,
+                stacklevel=2,
+            )
+
+        return _DEFAULT_BEDROCK_MODEL_ID.format(prefix_inference_map.get(prefix, prefix))

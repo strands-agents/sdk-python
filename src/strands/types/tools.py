@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
 
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 from .media import DocumentContent, ImageContent
 
@@ -27,11 +27,15 @@ class ToolSpec(TypedDict):
         description: A human-readable description of what the tool does.
         inputSchema: JSON Schema defining the expected input parameters.
         name: The unique name of the tool.
+        outputSchema: Optional JSON Schema defining the expected output format.
+            Note: Not all model providers support this field. Providers that don't
+            support it should filter it out before sending to their API.
     """
 
     description: str
     inputSchema: JSONSchema
     name: str
+    outputSchema: NotRequired[JSONSchema]
 
 
 class Tool(TypedDict):
@@ -145,10 +149,15 @@ class ToolContext:
     invocation_state: dict[str, Any]
 
 
+# Individual ToolChoice type aliases
+ToolChoiceAutoDict = dict[Literal["auto"], ToolChoiceAuto]
+ToolChoiceAnyDict = dict[Literal["any"], ToolChoiceAny]
+ToolChoiceToolDict = dict[Literal["tool"], ToolChoiceTool]
+
 ToolChoice = Union[
-    dict[Literal["auto"], ToolChoiceAuto],
-    dict[Literal["any"], ToolChoiceAny],
-    dict[Literal["tool"], ToolChoiceTool],
+    ToolChoiceAutoDict,
+    ToolChoiceAnyDict,
+    ToolChoiceToolDict,
 ]
 """
 Configuration for how the model should choose tools.

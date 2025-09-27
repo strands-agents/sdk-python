@@ -14,7 +14,8 @@ from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
 from ..types.streaming import StreamEvent
-from ..types.tools import ToolSpec
+from ..types.tools import ToolChoice, ToolSpec
+from ._validation import validate_config_keys
 from .openai import OpenAIModel
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,9 @@ class LiteLLMModel(OpenAIModel):
             **model_config: Configuration options for the LiteLLM model.
         """
         self.client_args = client_args or {}
+        validate_config_keys(model_config, self.LiteLLMConfig)
         self.config = dict(model_config)
+        self._apply_proxy_prefix()
 
         logger.debug("config=<%s> | initializing", self.config)
 
@@ -60,7 +63,9 @@ class LiteLLMModel(OpenAIModel):
         Args:
             **model_config: Configuration overrides.
         """
+        validate_config_keys(model_config, self.LiteLLMConfig)
         self.config.update(model_config)
+        self._apply_proxy_prefix()
 
     @override
     def get_config(self) -> LiteLLMConfig:
@@ -260,6 +265,8 @@ class LiteLLMModel(OpenAIModel):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        *,
+        tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the LiteLLM model.
@@ -268,13 +275,14 @@ class LiteLLMModel(OpenAIModel):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Formatted message chunks from the model.
         """
         logger.debug("formatting request")
-        request = self.format_request(messages, tool_specs, system_prompt)
+        request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
         logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")
@@ -348,6 +356,9 @@ class LiteLLMModel(OpenAIModel):
         Yields:
             Model events with the last being the structured output.
         """
+        if not supports_response_schema(self.get_config()["model_id"]):
+            raise ValueError("Model does not support response_format")
+
         response = await litellm.acompletion(
             **self.client_args,
             model=self.get_config()["model_id"],
@@ -355,8 +366,6 @@ class LiteLLMModel(OpenAIModel):
             response_format=output_model,
         )
 
-        if not supports_response_schema(self.get_config()["model_id"]):
-            raise ValueError("Model does not support response_format")
         if len(response.choices) > 1:
             raise ValueError("Multiple choices found in the response.")
 
@@ -374,3 +383,14 @@ class LiteLLMModel(OpenAIModel):
 
         # If no tool_calls found, raise an error
         raise ValueError("No tool_calls found in response")
+
+    def _apply_proxy_prefix(self) -> None:
+        """Apply litellm_proxy/ prefix to model_id when use_litellm_proxy is True.
+
+        This is a workaround for https://github.com/BerriAI/litellm/issues/13454
+        where use_litellm_proxy parameter is not honored.
+        """
+        if self.client_args.get("use_litellm_proxy") and "model_id" in self.config:
+            model_id = self.get_config()["model_id"]
+            if not model_id.startswith("litellm_proxy/"):
+                self.config["model_id"] = f"litellm_proxy/{model_id}"

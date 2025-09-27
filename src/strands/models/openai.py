@@ -15,8 +15,10 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..types.content import ContentBlock, Messages
+from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
-from ..types.tools import ToolResult, ToolSpec, ToolUse
+from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
+from ._validation import validate_config_keys
 from .model import Model
 
 logger = logging.getLogger(__name__)
@@ -61,12 +63,11 @@ class OpenAIModel(Model):
                 For a complete list of supported arguments, see https://pypi.org/project/openai/.
             **model_config: Configuration options for the OpenAI model.
         """
+        validate_config_keys(model_config, self.OpenAIConfig)
         self.config = dict(model_config)
+        self.client_args = client_args or {}
 
         logger.debug("config=<%s> | initializing", self.config)
-
-        client_args = client_args or {}
-        self.client = openai.AsyncOpenAI(**client_args)
 
     @override
     def update_config(self, **model_config: Unpack[OpenAIConfig]) -> None:  # type: ignore[override]
@@ -75,6 +76,7 @@ class OpenAIModel(Model):
         Args:
             **model_config: Configuration overrides.
         """
+        validate_config_keys(model_config, self.OpenAIConfig)
         self.config.update(model_config)
 
     @override
@@ -172,6 +174,30 @@ class OpenAIModel(Model):
         }
 
     @classmethod
+    def _format_request_tool_choice(cls, tool_choice: ToolChoice | None) -> dict[str, Any]:
+        """Format a tool choice for OpenAI compatibility.
+
+        Args:
+            tool_choice: Tool choice configuration in Bedrock format.
+
+        Returns:
+            OpenAI compatible tool choice format.
+        """
+        if not tool_choice:
+            return {}
+
+        match tool_choice:
+            case {"auto": _}:
+                return {"tool_choice": "auto"}  # OpenAI SDK doesn't define constants for these values
+            case {"any": _}:
+                return {"tool_choice": "required"}
+            case {"tool": {"name": tool_name}}:
+                return {"tool_choice": {"type": "function", "function": {"name": tool_name}}}
+            case _:
+                # This should not happen with proper typing, but handle gracefully
+                return {"tool_choice": "auto"}
+
+    @classmethod
     def format_request_messages(cls, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
         """Format an OpenAI compatible messages array.
 
@@ -213,7 +239,11 @@ class OpenAIModel(Model):
         return [message for message in formatted_messages if message["content"] or "tool_calls" in message]
 
     def format_request(
-        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+        self,
+        messages: Messages,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        system_prompt: Optional[str] = None,
+        tool_choice: ToolChoice | None = None,
     ) -> dict[str, Any]:
         """Format an OpenAI compatible chat streaming request.
 
@@ -221,6 +251,7 @@ class OpenAIModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
 
         Returns:
             An OpenAI compatible chat streaming request.
@@ -245,6 +276,7 @@ class OpenAIModel(Model):
                 }
                 for tool_spec in tool_specs or []
             ],
+            **(self._format_request_tool_choice(tool_choice)),
             **cast(dict[str, Any], self.config.get("params", {})),
         }
 
@@ -326,6 +358,8 @@ class OpenAIModel(Model):
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
+        *,
+        tool_choice: ToolChoice | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the OpenAI model.
@@ -334,68 +368,91 @@ class OpenAIModel(Model):
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Formatted message chunks from the model.
+
+        Raises:
+            ContextWindowOverflowException: If the input exceeds the model's context window.
+            ModelThrottledException: If the request is throttled by OpenAI (rate limits).
         """
         logger.debug("formatting request")
-        request = self.format_request(messages, tool_specs, system_prompt)
+        request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
         logger.debug("formatted request=<%s>", request)
 
         logger.debug("invoking model")
-        response = await self.client.chat.completions.create(**request)
 
-        logger.debug("got response from model")
-        yield self.format_chunk({"chunk_type": "message_start"})
-        yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
+        # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying httpx
+        # client. The asyncio event loop does not allow connections to be shared. For more details, please refer to
+        # https://github.com/encode/httpx/discussions/2959.
+        async with openai.AsyncOpenAI(**self.client_args) as client:
+            try:
+                response = await client.chat.completions.create(**request)
+            except openai.BadRequestError as e:
+                # Check if this is a context length exceeded error
+                if hasattr(e, "code") and e.code == "context_length_exceeded":
+                    logger.warning("OpenAI threw context window overflow error")
+                    raise ContextWindowOverflowException(str(e)) from e
+                # Re-raise other BadRequestError exceptions
+                raise
+            except openai.RateLimitError as e:
+                # All rate limit errors should be treated as throttling, not context overflow
+                # Rate limits (including TPM) require waiting/retrying, not context reduction
+                logger.warning("OpenAI threw rate limit error")
+                raise ModelThrottledException(str(e)) from e
 
-        tool_calls: dict[int, list[Any]] = {}
+            logger.debug("got response from model")
+            yield self.format_chunk({"chunk_type": "message_start"})
+            yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
-        async for event in response:
-            # Defensive: skip events with empty or missing choices
-            if not getattr(event, "choices", None):
-                continue
-            choice = event.choices[0]
+            tool_calls: dict[int, list[Any]] = {}
 
-            if choice.delta.content:
-                yield self.format_chunk(
-                    {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
-                )
+            async for event in response:
+                # Defensive: skip events with empty or missing choices
+                if not getattr(event, "choices", None):
+                    continue
+                choice = event.choices[0]
 
-            if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
-                yield self.format_chunk(
-                    {
-                        "chunk_type": "content_delta",
-                        "data_type": "reasoning_content",
-                        "data": choice.delta.reasoning_content,
-                    }
-                )
+                if choice.delta.content:
+                    yield self.format_chunk(
+                        {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
+                    )
 
-            for tool_call in choice.delta.tool_calls or []:
-                tool_calls.setdefault(tool_call.index, []).append(tool_call)
+                if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
+                    yield self.format_chunk(
+                        {
+                            "chunk_type": "content_delta",
+                            "data_type": "reasoning_content",
+                            "data": choice.delta.reasoning_content,
+                        }
+                    )
 
-            if choice.finish_reason:
-                break
+                for tool_call in choice.delta.tool_calls or []:
+                    tool_calls.setdefault(tool_call.index, []).append(tool_call)
 
-        yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
+                if choice.finish_reason:
+                    break
 
-        for tool_deltas in tool_calls.values():
-            yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]})
+            yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
 
-            for tool_delta in tool_deltas:
-                yield self.format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_delta})
+            for tool_deltas in tool_calls.values():
+                yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]})
 
-            yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
+                for tool_delta in tool_deltas:
+                    yield self.format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_delta})
 
-        yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
+                yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
 
-        # Skip remaining events as we don't have use for anything except the final usage payload
-        async for event in response:
-            _ = event
+            yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
 
-        if event.usage:
-            yield self.format_chunk({"chunk_type": "metadata", "data": event.usage})
+            # Skip remaining events as we don't have use for anything except the final usage payload
+            async for event in response:
+                _ = event
+
+            if event.usage:
+                yield self.format_chunk({"chunk_type": "metadata", "data": event.usage})
 
         logger.debug("finished streaming response from model")
 
@@ -413,12 +470,33 @@ class OpenAIModel(Model):
 
         Yields:
             Model events with the last being the structured output.
+
+        Raises:
+            ContextWindowOverflowException: If the input exceeds the model's context window.
+            ModelThrottledException: If the request is throttled by OpenAI (rate limits).
         """
-        response: ParsedChatCompletion = await self.client.beta.chat.completions.parse(  # type: ignore
-            model=self.get_config()["model_id"],
-            messages=self.format_request(prompt, system_prompt=system_prompt)["messages"],
-            response_format=output_model,
-        )
+        # We initialize an OpenAI context on every request so as to avoid connection sharing in the underlying httpx
+        # client. The asyncio event loop does not allow connections to be shared. For more details, please refer to
+        # https://github.com/encode/httpx/discussions/2959.
+        async with openai.AsyncOpenAI(**self.client_args) as client:
+            try:
+                response: ParsedChatCompletion = await client.beta.chat.completions.parse(
+                    model=self.get_config()["model_id"],
+                    messages=self.format_request(prompt, system_prompt=system_prompt)["messages"],
+                    response_format=output_model,
+                )
+            except openai.BadRequestError as e:
+                # Check if this is a context length exceeded error
+                if hasattr(e, "code") and e.code == "context_length_exceeded":
+                    logger.warning("OpenAI threw context window overflow error")
+                    raise ContextWindowOverflowException(str(e)) from e
+                # Re-raise other BadRequestError exceptions
+                raise
+            except openai.RateLimitError as e:
+                # All rate limit errors should be treated as throttling, not context overflow
+                # Rate limits (including TPM) require waiting/retrying, not context reduction
+                logger.warning("OpenAI threw rate limit error")
+                raise ModelThrottledException(str(e)) from e
 
         parsed: T | None = None
         # Find the first choice with tool_calls

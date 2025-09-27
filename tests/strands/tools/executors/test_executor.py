@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import strands
-from strands.experimental.hooks import AfterToolInvocationEvent, BeforeToolInvocationEvent
+from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
 from strands.telemetry.metrics import Trace
 from strands.tools.executors._executor import ToolExecutor
 from strands.types._events import ToolResultEvent, ToolStreamEvent
@@ -50,13 +50,13 @@ async def test_executor_stream_yields_result(
 
     tru_hook_events = hook_events
     exp_hook_events = [
-        BeforeToolInvocationEvent(
+        BeforeToolCallEvent(
             agent=agent,
             selected_tool=weather_tool,
             tool_use=tool_use,
             invocation_state=invocation_state,
         ),
-        AfterToolInvocationEvent(
+        AfterToolCallEvent(
             agent=agent,
             selected_tool=weather_tool,
             tool_use=tool_use,
@@ -153,7 +153,7 @@ async def test_executor_stream_yields_tool_error(
     assert tru_results == exp_results
 
     tru_hook_after_event = hook_events[-1]
-    exp_hook_after_event = AfterToolInvocationEvent(
+    exp_hook_after_event = AfterToolCallEvent(
         agent=agent,
         selected_tool=exception_tool,
         tool_use=tool_use,
@@ -180,7 +180,7 @@ async def test_executor_stream_yields_unknown_tool(executor, agent, tool_results
     assert tru_results == exp_results
 
     tru_hook_after_event = hook_events[-1]
-    exp_hook_after_event = AfterToolInvocationEvent(
+    exp_hook_after_event = AfterToolCallEvent(
         agent=agent,
         selected_tool=None,
         tool_use=tool_use,

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, cast
 
 from opentelemetry import trace as trace_api
 
-from ...experimental.hooks import AfterToolInvocationEvent, BeforeToolInvocationEvent
+from ...hooks import AfterToolCallEvent, BeforeToolCallEvent
 from ...telemetry.metrics import Trace
 from ...telemetry.tracer import get_tracer
 from ...types._events import ToolResultEvent, ToolStreamEvent, TypedEvent
@@ -73,7 +73,7 @@ class ToolExecutor(abc.ABC):
         )
 
         before_event = agent.hooks.invoke_callbacks(
-            BeforeToolInvocationEvent(
+            BeforeToolCallEvent(
                 agent=agent,
                 selected_tool=tool_func,
                 tool_use=tool_use,
@@ -106,7 +106,7 @@ class ToolExecutor(abc.ABC):
                     "content": [{"text": f"Unknown tool: {tool_name}"}],
                 }
                 after_event = agent.hooks.invoke_callbacks(
-                    AfterToolInvocationEvent(
+                    AfterToolCallEvent(
                         agent=agent,
                         selected_tool=selected_tool,
                         tool_use=tool_use,
@@ -137,7 +137,7 @@ class ToolExecutor(abc.ABC):
             result = cast(ToolResult, event)
 
             after_event = agent.hooks.invoke_callbacks(
-                AfterToolInvocationEvent(
+                AfterToolCallEvent(
                     agent=agent,
                     selected_tool=selected_tool,
                     tool_use=tool_use,
@@ -157,7 +157,7 @@ class ToolExecutor(abc.ABC):
                 "content": [{"text": f"Error: {str(e)}"}],
             }
             after_event = agent.hooks.invoke_callbacks(
-                AfterToolInvocationEvent(
+                AfterToolCallEvent(
                     agent=agent,
                     selected_tool=selected_tool,
                     tool_use=tool_use,

@@ -36,7 +36,7 @@ Example:
         }
 
     agent = Agent(tools=[my_tool])
-    agent.my_tool(param1="hello", param2=123)
+    agent.tool.my_tool(param1="hello", param2=123)
     ```
 """
 
@@ -447,7 +447,7 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
         """
         # This is a tool use call - process accordingly
         tool_use_id = tool_use.get("toolUseId", "unknown")
-        tool_input = tool_use.get("input", {})
+        tool_input: dict[str, Any] = tool_use.get("input", {})
 
         try:
             # Validate input against the Pydantic model

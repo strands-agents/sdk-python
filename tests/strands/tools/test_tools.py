@@ -487,7 +487,7 @@ def test_tool_type(identity_tool):
 
 @pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
 def test_supports_hot_reload(identity_tool):
-    assert not identity_tool.supports_hot_reload
+    assert identity_tool.supports_hot_reload
 
 
 @pytest.mark.parametrize("identity_tool", ["identity_invoke", "identity_invoke_async"], indirect=True)
