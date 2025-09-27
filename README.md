@@ -40,6 +40,7 @@ Strands Agents is a simple yet powerful SDK that takes a model-driven approach t
 - **Model Agnostic**: Support for Amazon Bedrock, Anthropic, Gemini, LiteLLM, Llama, Ollama, OpenAI, Writer, and custom providers
 - **Advanced Capabilities**: Multi-agent systems, autonomous agents, and streaming support
 - **Built-in MCP**: Native support for Model Context Protocol (MCP) servers, enabling access to thousands of pre-built tools
+- **Continuous Learning**: Train agents through trajectory capture and reward-based learning for domain-specific optimization
 
 ## Quick Start
 
@@ -217,6 +218,38 @@ Built-in providers:
  - [Writer](https://strandsagents.com/latest/user-guide/concepts/model-providers/writer/)
 
 Custom providers can be implemented using [Custom Providers](https://strandsagents.com/latest/user-guide/concepts/model-providers/custom_model_provider/)
+
+### Continuous Learning & Training
+
+Train agents through trajectory capture and reward-based learning for domain-specific optimization:
+
+```python
+from strands.training import StrandsAgent, StrandsEnv, AgentTrainer, math_reward_fn
+from strands_tools import calculator
+
+# Define agent configuration
+agent_args = {"tools": [calculator], "system_prompt": "You are a helpful assistant."}
+
+# Create trainer with exact API from feature request
+trainer = AgentTrainer(
+    agent_class=StrandsAgent,
+    env_class=StrandsEnv,
+    agent_args=agent_args,
+    env_args={"reward_fn": math_reward_fn()},
+    config={"epochs": 10, "batch_size": 4},
+    train_dataset=train_dataset,
+    val_dataset=validation_dataset,
+)
+
+# Train the agent
+results = trainer.train()
+```
+
+**Key Benefits:**
+- **Performance Improvement**: Learn from execution experience to optimize tool usage and workflows
+- **Cost Optimization**: Train smaller, domain-specific models that match large API model performance
+- **Operational Independence**: Eliminate rate limiting and API dependency constraints
+- **Domain Specialization**: Adapt to specific business contexts and industry requirements
 
 ### Example tools
 
