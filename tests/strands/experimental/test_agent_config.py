@@ -136,3 +136,15 @@ class TestConfigToAgent:
         config = {"model": "test-model", "tools": ["nonexistent_tool"]}
         with pytest.raises(ValueError, match="The configured tool is not annotated with @tool"):
             config_to_agent(config)
+
+    def test_config_to_agent_validation_error_missing_module(self):
+        """Test that missing modules raise helpful error messages."""
+        config = {"model": "test-model", "tools": ["nonexistent.module.tool"]}
+        with pytest.raises(ValueError, match="Module 'nonexistent.module' not found"):
+            config_to_agent(config)
+
+    def test_config_to_agent_validation_error_missing_function(self):
+        """Test that missing functions in existing modules raise helpful error messages."""
+        config = {"model": "test-model", "tools": ["json.nonexistent_function"]}
+        with pytest.raises(ValueError, match="Function 'nonexistent_function' not found in module 'json'"):
+            config_to_agent(config)
