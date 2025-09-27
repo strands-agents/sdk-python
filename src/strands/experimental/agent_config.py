@@ -82,18 +82,18 @@ def _validate_tools(tools: list[str]) -> None:
                     module = importlib.import_module(module_path)
                     if not hasattr(module, func_name):
                         raise ValueError(
-                            f"Tool '{tool}' not found. The configured tool is not annotated with @tool, "
-                            f"and is not a module or file. To properly import this tool, you must annotate it with @tool."
+                            f"Function '{func_name}' not found in module '{module_path}'. "
+                            f"Ensure the function exists and is annotated with @tool."
                         )
                 except ImportError:
                     raise ValueError(
-                        f"Tool '{tool}' not found. The configured tool is not annotated with @tool, "
-                        f"and is not a module or file. To properly import this tool, you must annotate it with @tool."
+                        f"Module '{module_path}' not found. "
+                        f"Ensure the module exists and is importable, or use a valid file path."
                     )
             else:
                 raise ValueError(
-                    f"Tool '{tool}' not found. The configured tool is not annotated with @tool, "
-                    f"and is not a module or file. To properly import this tool, you must annotate it with @tool."
+                    f"Tool '{tool}' not found. "
+                    f"The configured tool is not annotated with @tool, and is not a module or file."
                 )
 
 
