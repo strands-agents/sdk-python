@@ -75,3 +75,34 @@ class SessionException(Exception):
     """Exception raised when session operations fail."""
 
     pass
+
+class AgentDelegationException(Exception):
+    """ Exception raised when an agent delegates to a sub-agent. 
+    This exception provides a clean control flow mechanism for agent delegation, 
+    allowing immediate termination of the orchestrator and transfer of exectuion
+    to the specific sub-agent.
+    Note: using exception for control flow is intentional here as it provides a clean
+    way to short-circuit the event loop without refactoring the entire execution pipeline.
+    while exceptions are typically for errors, in this case we use it in a similiar usecase
+    as if we were using it in stopIteran in generators - it's a strutured way to signal
+    completion of a specidic control fl;ow path.
+    For delegation opnerations(which are not high frequency in nature) this approach
+    maintains simplicity and avoids complex return value handling throughout the tool execution stack
+    """
+    def __init__(
+        self,
+        target_agent:str,
+        message:str,
+        context:dict[str,Any] | None = None,
+        delegation_chain:list[str] | None = None,
+        transfer_state: bool= True,
+        transfer_messages: bool= True, 
+    )-> None:
+        self.target_agent=target_agent
+        self.message=message
+        self.context=context or {}
+        self.delegation_chain= delegation_chain or []
+        self.transfer_state=transfer_state
+        self.transfer_message=transfer_messages
+        super().__init__(f"Delgating to an Agent: {target_agent}")
+        
