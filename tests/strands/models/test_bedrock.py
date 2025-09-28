@@ -1,3 +1,4 @@
+import base64
 import os
 import sys
 import unittest.mock
@@ -419,6 +420,73 @@ def test_format_request_tool_specs(model, messages, model_id, tool_spec):
     }
 
     assert tru_request == exp_request
+
+
+def test_format_request_document_base64_bytes(model, model_id):
+    pdf_bytes = b"%PDF-1.4 test pdf"
+    encoded = base64.b64encode(pdf_bytes).decode("ascii")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "document": {
+                        "name": "testing.pdf",
+                        "format": "pdf",
+                        "source": {"bytes": encoded},
+                    }
+                }
+            ],
+        }
+    ]
+
+    request = model.format_request(messages)
+
+    doc_source = request["messages"][0]["content"][0]["document"]["source"]
+    assert doc_source["bytes"] == pdf_bytes
+
+
+def test_format_request_document_plain_text_raises(model):
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "document": {
+                        "name": "testing.pdf",
+                        "format": "pdf",
+                        "source": {"bytes": "this is not base64"},
+                    }
+                }
+            ],
+        }
+    ]
+
+    with pytest.raises(TypeError):
+        model.format_request(messages)
+
+
+def test_format_request_document_raw_bytes(model):
+    pdf_bytes = b"%PDF-1.4 test pdf"
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "document": {
+                        "name": "testing.pdf",
+                        "format": "pdf",
+                        "source": {"bytes": pdf_bytes},
+                    }
+                }
+            ],
+        }
+    ]
+
+    request = model.format_request(messages)
+
+    doc_source = request["messages"][0]["content"][0]["document"]["source"]
+    assert doc_source["bytes"] == pdf_bytes
 
 
 def test_format_request_tool_choice_auto(model, messages, model_id, tool_spec):

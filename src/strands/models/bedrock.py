@@ -4,6 +4,8 @@
 """
 
 import asyncio
+import base64
+import binascii
 import json
 import logging
 import os
@@ -350,6 +352,45 @@ class BedrockModel(Model):
         else:  # "auto"
             return any(model in self.config["model_id"] for model in _MODELS_INCLUDE_STATUS)
 
+    def _coerce_to_bytes(self, value: Any, *, expected_fmt: Optional[str] = None) -> bytes:
+        """Normalize bytes-like inputs to raw bytes for Bedrock requests.
+
+        Args:
+            value: Input that should represent binary data.
+            expected_fmt: Optional file format hint used for error messaging.
+
+        Returns:
+            Raw bytes suitable for Bedrock's `source` payloads.
+
+        Raises:
+            TypeError: If the provided value cannot be interpreted as bytes.
+        """
+        if hasattr(value, "read") and callable(value.read):
+            data = value.read()
+            if isinstance(data, bytes):
+                return data
+            if isinstance(data, str):
+                return data.encode("utf-8")
+            return bytes(data)
+
+        if isinstance(value, (bytes, bytearray, memoryview)):
+            return bytes(value)
+
+        # Base64-encoded strings (optionally data URLs)
+        if isinstance(value, str):
+            data_str = value
+            if data_str.startswith("data:") and ";base64," in data_str:
+                data_str = data_str.split(",", 1)[1]
+
+            try:
+                return base64.b64decode(data_str, validate=True)
+            except binascii.Error as exc:
+                raise TypeError(
+                    f"document.source.bytes must be raw bytes or a base64-encoded string (format={expected_fmt!r})."
+                ) from exc
+
+        raise TypeError(f"Unsupported type for bytes conversion: {type(value).__name__}")
+
     def _format_request_message_content(self, content: ContentBlock) -> dict[str, Any]:
         """Format a Bedrock content block.
 
@@ -382,7 +423,14 @@ class BedrockModel(Model):
 
             # Handle source
             if "source" in document:
-                result["source"] = {"bytes": document["source"]["bytes"]}
+                source = document["source"]
+
+                if "bytes" in source:
+                    result["source"] = {
+                        "bytes": self._coerce_to_bytes(source["bytes"], expected_fmt=document.get("format"))
+                    }
+                else:
+                    raise TypeError("document.source must include 'bytes'")
 
             # Handle optional fields
             if "citations" in document and document["citations"] is not None:
@@ -405,7 +453,7 @@ class BedrockModel(Model):
             source = image["source"]
             formatted_source = {}
             if "bytes" in source:
-                formatted_source = {"bytes": source["bytes"]}
+                formatted_source = {"bytes": self._coerce_to_bytes(source["bytes"], expected_fmt=image.get("format"))}
             result = {"format": image["format"], "source": formatted_source}
             return {"image": result}
 
@@ -470,7 +518,7 @@ class BedrockModel(Model):
             source = video["source"]
             formatted_source = {}
             if "bytes" in source:
-                formatted_source = {"bytes": source["bytes"]}
+                formatted_source = {"bytes": self._coerce_to_bytes(source["bytes"], expected_fmt=video.get("format"))}
             result = {"format": video["format"], "source": formatted_source}
             return {"video": result}
 
