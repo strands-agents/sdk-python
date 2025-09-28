@@ -372,6 +372,7 @@ class MCPClient:
             status=status,
             toolUseId=tool_use_id,
             content=mapped_contents,
+            _meta=call_tool_result.meta,
         )
 
         if call_tool_result.structuredContent:

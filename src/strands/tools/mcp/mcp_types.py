@@ -55,9 +55,12 @@ class MCPToolResult(ToolResult):
     that provides structured results beyond the standard text/image/document content.
 
     Attributes:
+        _meta:
+            See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+            for notes on _meta usage.
         structuredContent: Optional JSON object containing structured data returned
             by the MCP tool. This allows MCP tools to return complex data structures
             that can be processed programmatically by agents or other tools.
     """
-
+    _meta: NotRequired[Dict[str, Any]]
     structuredContent: NotRequired[Dict[str, Any]]
