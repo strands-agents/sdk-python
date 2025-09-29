@@ -192,3 +192,43 @@ class AfterModelCallEvent(HookEvent):
     def should_reverse_callbacks(self) -> bool:
         """True to invoke callbacks in reverse order."""
         return True
+
+
+@dataclass
+class SubAgentAddedEvent(HookEvent):
+    """Event triggered when a sub-agent is added to an orchestrator.
+
+    This event is fired after a sub-agent has been successfully added to an
+    orchestrator agent's sub-agents collection and the corresponding delegation
+    tool has been generated. Hook providers can use this event for logging,
+    monitoring, or custom sub-agent management logic.
+
+    Attributes:
+        orchestrator: The agent that added the sub-agent.
+        sub_agent: The agent that was added as a sub-agent.
+        sub_agent_name: The name of the added sub-agent.
+    """
+
+    orchestrator: Any
+    sub_agent: Any
+    sub_agent_name: str
+
+
+@dataclass
+class SubAgentRemovedEvent(HookEvent):
+    """Event triggered when a sub-agent is removed from an orchestrator.
+
+    This event is fired after a sub-agent has been successfully removed from an
+    orchestrator agent's sub-agents collection and the corresponding delegation
+    tool has been cleaned up. Hook providers can use this event for cleanup,
+    logging, or custom sub-agent management logic.
+
+    Attributes:
+        orchestrator: The agent that removed the sub-agent.
+        sub_agent_name: The name of the removed sub-agent.
+        removed_agent: The agent that was removed (if available).
+    """
+
+    orchestrator: Any
+    sub_agent_name: str
+    removed_agent: Any

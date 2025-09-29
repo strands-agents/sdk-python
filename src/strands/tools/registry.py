@@ -212,6 +212,30 @@ class ToolRegistry:
                     " Cannot add a duplicate tool which differs by a '-' or '_'"
                 )
 
+        # Special handling for delegation tools
+        is_delegation_tool = tool.tool_name.startswith("handoff_to_")
+
+        if is_delegation_tool:
+            # Delegation tools can coexist with regular tools
+            # but not with other delegation tools
+            existing_delegation_tools = [
+                name for name in self.registry.keys()
+                if name.startswith("handoff_to_")
+            ]
+
+            if tool.tool_name in existing_delegation_tools and not tool.supports_hot_reload:
+                raise ValueError(
+                    f"Delegation tool '{tool.tool_name}' already exists. "
+                    "Cannot register delegation tools with exact same name."
+                )
+
+            logger.debug(
+                "tool_name=<%s>, is_delegation_tool=<%s>, existing_delegation_tools=<%s> | delegation tool validation",
+                tool.tool_name,
+                is_delegation_tool,
+                existing_delegation_tools,
+            )
+
         # Register in main registry
         self.registry[tool.tool_name] = tool
 

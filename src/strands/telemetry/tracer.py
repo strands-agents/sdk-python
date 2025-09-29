@@ -486,6 +486,46 @@ class Tracer:
 
         return span
 
+    def start_delegation_span(
+        self,
+        from_agent: str,
+        to_agent: str,
+        message: str,
+        delegation_depth: int,
+        parent_span: Optional[trace_api.Span] = None,
+        transfer_state: bool = True,
+        transfer_messages: bool = True,
+    ) -> trace_api.Span:
+        """Start a delegation trace span.
+
+        Args:
+            from_agent: Name of the delegating agent
+            to_agent: Name of the target agent
+            message: Delegation message
+            delegation_depth: Current depth in delegation chain
+            parent_span: Parent span for this delegation
+            transfer_state: Whether state was transferred
+            transfer_messages: Whether messages were transferred
+
+        Returns:
+            OpenTelemetry span for the delegation
+        """
+        span_name = f"delegation.{from_agent}.{to_agent}"
+        span = self._start_span(span_name, parent_span=parent_span)
+
+        span.set_attributes({
+            "delegation.from": from_agent,
+            "delegation.to": to_agent,
+            "delegation.message": message,
+            "delegation.depth": delegation_depth,
+            "delegation.state_transferred": transfer_state,
+            "delegation.messages_transferred": transfer_messages,
+            "gen_ai.operation.name": "agent_delegation",
+            "gen_ai.system": "strands_agents"
+        })
+
+        return span
+
     def end_agent_span(
         self,
         span: Span,

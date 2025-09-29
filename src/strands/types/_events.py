@@ -351,3 +351,129 @@ class ForceStopEvent(TypedEvent):
 class AgentResultEvent(TypedEvent):
     def __init__(self, result: "AgentResult"):
         super().__init__({"result": result})
+
+
+class DelegationStartEvent(TypedEvent):
+    """Event emitted when agent delegation begins."""
+
+    def __init__(self, from_agent: str, to_agent: str, message: str) -> None:
+        """Initialize with delegation start information.
+
+        Args:
+            from_agent: The agent that is initiating the delegation
+            to_agent: The agent that will receive the delegation
+            message: The message being delegated
+        """
+        super().__init__({
+            "delegation_start": {
+                "from_agent": from_agent,
+                "to_agent": to_agent,
+                "message": message
+            }
+        })
+
+    @property
+    def from_agent(self) -> str:
+        """The agent that is initiating the delegation."""
+        return cast(str, self.get("delegation_start", {}).get("from_agent"))
+
+    @property
+    def to_agent(self) -> str:
+        """The agent that will receive the delegation."""
+        return cast(str, self.get("delegation_start", {}).get("to_agent"))
+
+    @property
+    def message(self) -> str:
+        """The message being delegated."""
+        return cast(str, self.get("delegation_start", {}).get("message"))
+
+
+class DelegationCompleteEvent(TypedEvent):
+    """Event emitted when agent delegation completes."""
+
+    def __init__(self, target_agent: str, result: "AgentResult") -> None:
+        """Initialize with delegation completion information.
+
+        Args:
+            target_agent: The agent that was delegated to
+            result: The result from the delegated agent execution
+        """
+        super().__init__({
+            "delegation_complete": {
+                "target_agent": target_agent,
+                "result": result
+            }
+        })
+
+    @property
+    def target_agent(self) -> str:
+        """The agent that was delegated to."""
+        return cast(str, self.get("delegation_complete", {}).get("target_agent"))
+
+    @property
+    def result(self) -> "AgentResult":
+        """The result from the delegated agent execution."""
+        return cast("AgentResult", self.get("delegation_complete", {}).get("result"))
+
+
+class DelegationProxyEvent(TypedEvent):
+    """Event emitted when proxying sub-agent events during delegation."""
+
+    def __init__(self, original_event: TypedEvent, from_agent: str, to_agent: str) -> None:
+        """Initialize with delegation proxy information.
+
+        Args:
+            original_event: The original event from the delegated agent
+            from_agent: The orchestrator agent that initiated delegation
+            to_agent: The target agent that is receiving the delegation
+        """
+        super().__init__({
+            "delegation_proxy": {
+                "from_agent": from_agent,
+                "to_agent": to_agent,
+                "original_event": original_event
+            }
+        })
+
+    @property
+    def original_event(self) -> TypedEvent:
+        """The original event being proxied from the delegated agent."""
+        return cast(TypedEvent, self.get("delegation_proxy", {}).get("original_event"))
+
+    @property
+    def from_agent(self) -> str:
+        """The orchestrator agent that initiated the delegation."""
+        return cast(str, self.get("delegation_proxy", {}).get("from_agent"))
+
+    @property
+    def to_agent(self) -> str:
+        """The target agent that is receiving the delegation."""
+        return cast(str, self.get("delegation_proxy", {}).get("to_agent"))
+
+
+class DelegationTimeoutEvent(TypedEvent):
+    """Event emitted when delegation times out."""
+
+    def __init__(self, target_agent: str, timeout_seconds: float) -> None:
+        """Initialize with delegation timeout information.
+
+        Args:
+            target_agent: The agent that timed out during delegation
+            timeout_seconds: The timeout duration in seconds
+        """
+        super().__init__({
+            "delegation_timeout": {
+                "target_agent": target_agent,
+                "timeout_seconds": timeout_seconds
+            }
+        })
+
+    @property
+    def target_agent(self) -> str:
+        """The agent that timed out during delegation."""
+        return cast(str, self.get("delegation_timeout", {}).get("target_agent"))
+
+    @property
+    def timeout_seconds(self) -> float:
+        """The timeout duration in seconds."""
+        return cast(float, self.get("delegation_timeout", {}).get("timeout_seconds"))

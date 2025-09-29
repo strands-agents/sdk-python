@@ -16,6 +16,7 @@ from ...telemetry.metrics import Trace
 from ...telemetry.tracer import get_tracer
 from ...types._events import ToolResultEvent, ToolStreamEvent, TypedEvent
 from ...types.content import Message
+from ...types.exceptions import AgentDelegationException
 from ...types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolResult, ToolUse
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -149,12 +150,15 @@ class ToolExecutor(abc.ABC):
             yield ToolResultEvent(after_event.result)
             tool_results.append(after_event.result)
 
+        except AgentDelegationException:
+            # Re-raise immediately - don't treat as tool execution error
+            raise
         except Exception as e:
             logger.exception("tool_name=<%s> | failed to process tool", tool_name)
             error_result: ToolResult = {
                 "toolUseId": str(tool_use.get("toolUseId")),
                 "status": "error",
-                "content": [{"text": f"Error: {str(e)}"}],
+                "content": [{"text": f"Tool execution failed: {str(e)}"}],
             }
             after_event = agent.hooks.invoke_callbacks(
                 AfterToolCallEvent(
