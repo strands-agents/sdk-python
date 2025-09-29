@@ -72,7 +72,7 @@ class LiteLLMModel(OpenAIModel):
         self._apply_proxy_prefix()
 
     @override
-    def get_config(self) -> LiteLLMConfig:
+    def get_config(self) -> LiteLLMConfig:  # type: ignore[override]
         """Get the LiteLLM model configuration.
 
         Returns:
