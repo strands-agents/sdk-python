@@ -424,3 +424,174 @@ result = agent("Create profile for John Doe, 25, engineer", structured_output_ty
 ---
 
 This guide covers the core functionality of structured output with Strands Agents. For more advanced use cases and examples, refer to the test files and additional documentation.
+
+## Appendix: Model Provider Code Examples
+
+For quick reference to the model provider configuration examples shown in this document, use the links below:
+
+- **Bedrock**: [View configuration example](#bedrock) ✅
+- **Anthropic**: [View configuration example](#anthropic) ✅
+- **LiteLLM**: [View configuration example](#litellm) ✅
+- **Mistral**: [View configuration example](#mistral) ✅
+- **OpenAI**: [View configuration example](#openai) ✅
+- **Writer**: [View configuration example](#writer) ❌
+- **Cohere**: [View configuration example](#cohere) ✅
+
+Each section contains complete code examples showing how to configure and use that specific model provider with structured output, including authentication setup, parameter configuration, and usage patterns.
+
+
+# Model Providers:
+## Tested with the following model providers:
+
+### Bedrock
+```python
+
+from strands import Agent
+import os
+
+agent = Agent(tools=[calculator])
+response = agent("What is 2+2", MathResult)
+print(response)
+assert response.structured_output
+response.structured_output
+```
+
+
+### Anthropic
+```python
+
+from strands import Agent
+from strands.models.anthropic import AnthropicModel
+import os
+
+
+model = AnthropicModel(
+    client_args={
+        "api_key": os.getenv("ANTHROPIC_API_KEY"),
+    },
+    max_tokens=1028,
+    model_id="claude-sonnet-4-20250514",
+    params={
+        "temperature": 0.7,
+    }
+)
+
+agent = Agent(model=model, tools=[calculator])
+response = agent("What is 2+2", MathResult)
+print(response)
+assert response.structured_output
+response.structured_output
+```
+
+### LiteLLM
+```python
+from strands import Agent
+from strands.models.litellm import LiteLLMModel
+from strands_tools import calculator
+
+model = LiteLLMModel(
+    client_args={
+       "api_key": os.getenv("ANTHROPIC_API_KEY"),
+    },
+    # **model_config
+    model_id="anthropic/claude-3-7-sonnet-20250219",
+    params={
+        "max_tokens": 1000,
+        "temperature": 0.7,
+    }
+)
+
+agent = Agent(model=model, tools=[calculator])
+response = agent("What is 2+2", MathResult)
+print(response)
+assert response.structured_output
+response.structured_output
+```
+
+### Mistral
+```python
+from strands import Agent
+from strands.models.mistral import MistralModel
+from strands_tools import calculator
+
+model = MistralModel(
+    api_key=os.getenv("MISTRAL_API_KEY"),
+    # **model_config
+    model_id="mistral-medium-2508",
+)
+
+agent = Agent(model=model, tools=[calculator])
+response = agent("What is 2+2", MathResult)
+print(response)
+assert response.structured_output
+response.structured_output
+```
+
+### OpenAI
+```python
+from strands import Agent
+from strands.models.openai import OpenAIModel
+from strands_tools import calculator
+
+model = OpenAIModel(
+    client_args={
+        "api_key": os.getenv('OPENAI_API_KEY')
+    },
+    # **model_config
+    model_id="gpt-4o",
+    params={
+        "max_tokens": 1000,
+        "temperature": 0.7,
+    }
+)
+
+agent = Agent(model=model, tools=[calculator])
+response = agent("What is 2+2", MathResult)
+print(response)
+assert response.structured_output
+response.structured_output
+```
+
+### Writer
+```python
+from strands import Agent
+from strands.models.writer import WriterModel
+from strands_tools import calculator
+
+model = WriterModel(
+    client_args={"api_key": os.getenv('WRITER_API_KEY')},
+    # **model_config
+    model_id="palmyra-x5",
+)
+
+agent = Agent(model=model, tools=[calculator])
+
+response = agent("What is 2+2", MathResult)
+print(response)
+assert response.structured_output
+response.structured_output
+```
+
+
+### Cohere
+```python
+from strands import Agent
+from strands.models.openai import OpenAIModel
+from strands_tools import calculator
+
+model = OpenAIModel(
+    client_args={
+        "api_key": os.getenv('COHERE_API_KEY'),
+        "base_url": "https://api.cohere.ai/compatibility/v1",  # Cohere compatibility endpoint
+    },
+    model_id="command-a-03-2025",  # or see https://docs.cohere.com/docs/models
+    params={
+        "stream_options": None
+    }
+)
+
+response = agent("What is 2+2", MathResult)
+print(response)
+assert response.structured_output
+response.structured_output
+```
