@@ -10,15 +10,19 @@ The event loop allows agents to:
 
 import asyncio
 import logging
+import time
 import uuid
-from typing import TYPE_CHECKING, Any, AsyncGenerator
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
 from opentelemetry import trace as trace_api
 
+
 from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
+from ..output.modes import NativeMode
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import get_tracer
 from ..tools._validator import validate_and_prepare_tools
+from ..tools.structured_output.structured_output_handler import StructuredOutputHandler
 from ..types._events import (
     EventLoopStopEvent,
     EventLoopThrottleEvent,
@@ -27,6 +31,7 @@ from ..types._events import (
     ModelStopReason,
     StartEvent,
     StartEventLoopEvent,
+    StructuredOutputEvent,
     ToolResultMessageEvent,
     TypedEvent,
 )
@@ -43,13 +48,15 @@ from ._recover_message_on_max_tokens_reached import recover_message_on_max_token
 from .streaming import stream_messages
 
 if TYPE_CHECKING:
-    from ..agent import Agent
+    from ..agent.agent import Agent
+    from ..output.base import OutputSchema
 
 logger = logging.getLogger(__name__)
 
 MAX_ATTEMPTS = 6
 INITIAL_DELAY = 4
 MAX_DELAY = 240  # 4 minutes
+_MAX_STRUCTURED_OUTPUT_ATTEMPTS = 3
 
 
 async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
@@ -95,6 +102,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
     attributes = {"event_loop_cycle_id": str(invocation_state.get("event_loop_cycle_id"))}
     cycle_start_time, cycle_trace = agent.event_loop_metrics.start_cycle(attributes=attributes)
     invocation_state["event_loop_cycle_trace"] = cycle_trace
+    output_schema: OutputSchema = invocation_state.get("output_schema")
 
     yield StartEvent()
     yield StartEventLoopEvent()
@@ -132,10 +140,17 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
                 )
             )
 
-            tool_specs = agent.tool_registry.get_all_tool_specs()
+            if invocation_state.get("_structured_output_only"):
+                tool_specs = output_schema.mode.get_tool_specs(output_schema.type) if output_schema else []
+            else:
+                tool_specs = agent.tool_registry.get_all_tool_specs()
+
+            tool_choice = invocation_state.get("tool_choice")
 
             try:
-                async for event in stream_messages(agent.model, agent.system_prompt, agent.messages, tool_specs):
+                async for event in stream_messages(
+                    agent.model, agent.system_prompt, agent.messages, tool_specs, tool_choice
+                ):
                     if not isinstance(event, ModelStopReason):
                         yield event
 
@@ -220,7 +235,6 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
                 )
             )
 
-        # If the model is requesting to use tools
         if stop_reason == "tool_use":
             # Handle tool execution
             events = _handle_tool_execution(
@@ -264,8 +278,38 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
         yield ForceStopEvent(reason=e)
         logger.exception("cycle failed")
         raise EventLoopException(e, invocation_state["request_state"]) from e
+    finally:
+        if output_schema:
+            handler = StructuredOutputHandler(output_schema)
+            handler.cleanup_all_state(invocation_state)
 
-    yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
+    # Force structured output tool call if LLM didn't use it automatically
+    if output_schema and stop_reason != "tool_use":
+        invocation_state.setdefault("_structured_output_attempts", 0)
+        if invocation_state["_structured_output_attempts"] >= _MAX_STRUCTURED_OUTPUT_ATTEMPTS:
+            logger.warning(
+                f"Structured output forcing exceeded maximum attempts ({_MAX_STRUCTURED_OUTPUT_ATTEMPTS}), returning without structured output"
+            )
+            yield EventLoopStopEvent(
+                stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"], None
+            )
+            return
+
+        invocation_state["_structured_output_attempts"] += 1
+        logger.debug(
+            f"Forcing structured output tool, attempt {invocation_state['_structured_output_attempts']}/{_MAX_STRUCTURED_OUTPUT_ATTEMPTS}"
+        )
+
+        forced_invocation_state = invocation_state.copy()
+        forced_invocation_state["tool_choice"] = {"any": {}}
+        forced_invocation_state["_structured_output_only"] = True
+
+        events = recurse_event_loop(agent=agent, invocation_state=forced_invocation_state)
+        async for typed_event in events:
+            yield typed_event
+        return
+
+    yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"], None)
 
 
 async def recurse_event_loop(agent: "Agent", invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
@@ -311,7 +355,6 @@ async def _handle_tool_execution(
     invocation_state: dict[str, Any],
 ) -> AsyncGenerator[TypedEvent, None]:
     """Handles the execution of tools requested by the model during an event loop cycle.
-
     Args:
         stop_reason: The reason the model stopped generating.
         message: The message from the model that may contain tool use requests.
@@ -320,7 +363,6 @@ async def _handle_tool_execution(
         cycle_span: Span object for tracing the cycle (type may vary).
         cycle_start_time: Start time of the current cycle.
         invocation_state: Additional keyword arguments, including request state.
-
     Yields:
         Tool stream events along with events yielded from a recursive call to the event loop. The last event is a tuple
         containing:
@@ -336,7 +378,9 @@ async def _handle_tool_execution(
     validate_and_prepare_tools(message, tool_uses, tool_results, invalid_tool_use_ids)
     tool_uses = [tool_use for tool_use in tool_uses if tool_use.get("toolUseId") not in invalid_tool_use_ids]
     if not tool_uses:
-        yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
+        yield EventLoopStopEvent(
+            stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"], None
+        )
         return
 
     tool_events = agent.tool_executor._execute(
@@ -345,7 +389,13 @@ async def _handle_tool_execution(
     async for tool_event in tool_events:
         yield tool_event
 
-    # Store parent cycle ID for the next cycle
+    structured_output_result = None
+    if output_schema := invocation_state.get("output_schema"):
+        handler = StructuredOutputHandler(output_schema)
+        if structured_output_result := handler.extract_result(invocation_state, tool_uses):
+            yield StructuredOutputEvent(structured_output=structured_output_result)
+            invocation_state["request_state"]["stop_event_loop"] = True
+
     invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
 
     tool_result_message: Message = {
@@ -355,6 +405,7 @@ async def _handle_tool_execution(
 
     agent.messages.append(tool_result_message)
     agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=tool_result_message))
+
     yield ToolResultMessageEvent(message=tool_result_message)
 
     if cycle_span:
@@ -363,7 +414,9 @@ async def _handle_tool_execution(
 
     if invocation_state["request_state"].get("stop_event_loop", False):
         agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
-        yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
+        yield EventLoopStopEvent(
+            stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"], structured_output_result
+        )
         return
 
     events = recurse_event_loop(agent=agent, invocation_state=invocation_state)

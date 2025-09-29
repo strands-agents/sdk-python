@@ -220,6 +220,7 @@ class EventLoopStopEvent(TypedEvent):
         message: Message,
         metrics: "EventLoopMetrics",
         request_state: Any,
+        structured_output: Any = None,
     ) -> None:
         """Initialize with the final execution results.
 
@@ -228,13 +229,26 @@ class EventLoopStopEvent(TypedEvent):
             message: Final message from the model
             metrics: Execution metrics and performance data
             request_state: Final state of the agent execution
+            structured_output: Optional structured output result
         """
-        super().__init__({"stop": (stop_reason, message, metrics, request_state)})
+        super().__init__({"stop": (stop_reason, message, metrics, request_state, structured_output)})
 
     @property
     @override
     def is_callback_event(self) -> bool:
         return False
+
+
+class StructuredOutputEvent(TypedEvent):
+    """Event emitted when structured output is detected and processed."""
+
+    def __init__(self, structured_output: Any) -> None:
+        """Initialize with the structured output result.
+
+        Args:
+            structured_output: The parsed structured output instance
+        """
+        super().__init__({"structured_output": structured_output})
 
 
 class EventLoopThrottleEvent(TypedEvent):
