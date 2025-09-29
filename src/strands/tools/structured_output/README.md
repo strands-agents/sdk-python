@@ -244,60 +244,8 @@ result1 = agent("Create profile for John", structured_output_type=UserProfile)
 result2 = agent("What's his age?")  # Remembers John from previous call
 ```
 
-## Use Cases
 
-### 1. Data Extraction and Processing
-
-```python
-class ContactInfo(BaseModel):
-    name: str
-    email: str
-    phone: Optional[str] = None
-    company: Optional[str] = None
-
-# Extract structured data from unstructured text
-agent = Agent()
-result = agent(
-    "Please extract: John Smith works at TechCorp, email john@techcorp.com, phone 555-1234",
-    structured_output_type=ContactInfo
-)
-```
-
-### 2. Task Management
-
-```python
-class TaskList(BaseModel):
-    project_name: str
-    tasks: List[str]
-    priority: str = Field(pattern="^(high|medium|low)$")
-    due_date: str
-    estimated_hours: int
-
-agent = Agent()
-result = agent(
-    "Create a project plan for website redesign: update homepage, fix mobile layout, "
-    "optimize images, due next Friday, high priority, estimate 40 hours total",
-    structured_output_type=TaskList
-)
-```
-
-### 3. Content Analysis
-
-```python
-class SentimentAnalysis(BaseModel):
-    text: str
-    sentiment: str = Field(pattern="^(positive|negative|neutral)$")
-    confidence: float = Field(ge=0.0, le=1.0)
-    key_phrases: List[str]
-
-agent = Agent()
-result = agent(
-    "Analyze: 'I love this product! It works perfectly and exceeded my expectations.'",
-    structured_output_type=SentimentAnalysis
-)
-```
-
-### 4. Multiple Output Types in One Agent
+### Multiple Output Types in One Agent
 
 ```python
 from typing import Optional
