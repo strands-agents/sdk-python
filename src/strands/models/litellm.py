@@ -139,9 +139,10 @@ class LiteLLMModel(OpenAIModel):
 
         logger.debug("got response from model")
         yield self.format_chunk({"chunk_type": "message_start"})
-        yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
         tool_calls: dict[int, list[Any]] = {}
+        started_reasoning = False
+        started_text = False
 
         async for event in response:
             # Defensive: skip events with empty or missing choices
@@ -149,12 +150,11 @@ class LiteLLMModel(OpenAIModel):
                 continue
             choice = event.choices[0]
 
-            if choice.delta.content:
-                yield self.format_chunk(
-                    {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
-                )
-
             if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
+                if not started_reasoning:
+                    yield self.format_chunk({"chunk_type": "content_start", "data_type": "reasoning_content"})
+                    started_reasoning = True
+
                 yield self.format_chunk(
                     {
                         "chunk_type": "content_delta",
@@ -163,13 +163,26 @@ class LiteLLMModel(OpenAIModel):
                     }
                 )
 
+            if choice.delta.content:
+                if started_reasoning:
+                    yield self.format_chunk({"chunk_type": "content_stop", "data_type": "reasoning_content"})
+                    started_reasoning = False
+
+                if not started_text:
+                    yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
+                    started_text = True
+
+                yield self.format_chunk(
+                    {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
+                )
+
             for tool_call in choice.delta.tool_calls or []:
                 tool_calls.setdefault(tool_call.index, []).append(tool_call)
 
             if choice.finish_reason:
+                if started_text:
+                    yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
                 break
-
-        yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
 
         for tool_deltas in tool_calls.values():
             yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]})
