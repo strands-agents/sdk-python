@@ -2,6 +2,7 @@
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, cast
 
 import boto3
@@ -10,7 +11,7 @@ from botocore.exceptions import ClientError
 
 from .. import _identifier
 from ..types.exceptions import SessionException
-from ..types.session import Session, SessionAgent, SessionMessage
+from ..types.session import Session, SessionAgent, SessionMessage, SessionType
 from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
 
@@ -46,6 +47,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         boto_session: Optional[boto3.Session] = None,
         boto_client_config: Optional[BotocoreConfig] = None,
         region_name: Optional[str] = None,
+        session_type: SessionType = SessionType.AGENT,
         **kwargs: Any,
     ):
         """Initialize S3SessionManager with S3 storage.
@@ -58,6 +60,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             boto_session: Optional boto3 session
             boto_client_config: Optional boto3 client configuration
             region_name: AWS region for S3 storage
+            session_type: Type of session (AGENT or MULTI_AGENT)
             **kwargs: Additional keyword arguments for future extensibility.
         """
         self.bucket = bucket
@@ -78,7 +81,12 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             client_config = BotocoreConfig(user_agent_extra="strands-agents")
 
         self.client = session.client(service_name="s3", config=client_config)
-        super().__init__(session_id=session_id, session_repository=self)
+        super().__init__(session_id=session_id, session_type=session_type, session_repository=self)
+
+    # This avoids leading // or / when self.prefix =""
+    def _join_key(self, *parts: str) -> str:
+        cleaned = [part.strip("/ ") for part in parts if part and part.strip("/ ")]
+        return "/".join(cleaned)
 
     def _get_session_path(self, session_id: str) -> str:
         """Get session S3 prefix.
@@ -90,7 +98,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             ValueError: If session id contains a path separator.
         """
         session_id = _identifier.validate(session_id, _identifier.Identifier.SESSION)
-        return f"{self.prefix}/{SESSION_PREFIX}{session_id}/"
+        return self._join_key(self.prefix, f"{SESSION_PREFIX}{session_id}")
 
     def _get_agent_path(self, session_id: str, agent_id: str) -> str:
         """Get agent S3 prefix.
@@ -294,3 +302,33 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
 
         except ClientError as e:
             raise SessionException(f"S3 error reading messages: {e}") from e
+
+    def write_multi_agent_json(self, state: dict[str, Any]) -> None:
+        """Write multi-agent state to S3.
+
+        Args:
+            state: Multi-agent state dictionary to persist
+        """
+        session_prefix = self._get_session_path(self.session_id)
+        state_key = self._join_key(session_prefix, "multi_agent_state.json")
+        self._write_s3_object(state_key, state)
+
+        # Touch updated_at on session.json (best-effort)
+        session_key = self._join_key(session_prefix, "session.json")
+        try:
+            metadata = self._read_s3_object(session_key) or {}
+            metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._write_s3_object(session_key, metadata)
+        except SessionException:
+            # If session.json is missing or unreadable, don't fail persistence
+            logger.warning("Could not update session.json updated_at for session %s", self.session_id)
+
+    def read_multi_agent_json(self) -> dict[str, Any]:
+        """Read multi-agent state from S3.
+
+        Returns:
+            Multi-agent state dictionary or empty dict if not found
+        """
+        session_prefix = self._get_session_path(self.session_id)
+        state_key = self._join_key(session_prefix, "multi_agent_state.json")
+        return self._read_s3_object(state_key) or {}
