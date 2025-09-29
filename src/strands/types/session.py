@@ -21,6 +21,7 @@ class SessionType(str, Enum):
     """
 
     AGENT = "AGENT"
+    MULTI_AGENT = "MULTI_AGENT"
 
 
 def encode_bytes_values(obj: Any) -> Any:

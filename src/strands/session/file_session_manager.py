@@ -6,11 +6,12 @@ import logging
 import os
 import shutil
 import tempfile
+from datetime import datetime, timezone
 from typing import Any, Optional, cast
 
 from .. import _identifier
 from ..types.exceptions import SessionException
-from ..types.session import Session, SessionAgent, SessionMessage
+from ..types.session import Session, SessionAgent, SessionMessage, SessionType
 from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
 
@@ -38,19 +39,27 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
     ```
     """
 
-    def __init__(self, session_id: str, storage_dir: Optional[str] = None, **kwargs: Any):
+    def __init__(
+        self,
+        session_id: str,
+        storage_dir: Optional[str] = None,
+        *,
+        session_type: SessionType = SessionType.AGENT,
+        **kwargs: Any,
+    ):
         """Initialize FileSession with filesystem storage.
 
         Args:
             session_id: ID for the session.
                 ID is not allowed to contain path separators (e.g., a/b).
             storage_dir: Directory for local filesystem storage (defaults to temp dir).
+            session_type: single agent or multiagent.
             **kwargs: Additional keyword arguments for future extensibility.
         """
         self.storage_dir = storage_dir or os.path.join(tempfile.gettempdir(), "strands/sessions")
         os.makedirs(self.storage_dir, exist_ok=True)
 
-        super().__init__(session_id=session_id, session_repository=self)
+        super().__init__(session_id=session_id, session_repository=self, session_type=session_type)
 
     def _get_session_path(self, session_id: str) -> str:
         """Get session directory path.
@@ -108,8 +117,12 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
     def _write_file(self, path: str, data: dict[str, Any]) -> None:
         """Write JSON file."""
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
+        tmp = f"{path}.tmp"
+        with open(tmp, "w", encoding="utf-8", newline="\n") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
 
     def create_session(self, session: Session, **kwargs: Any) -> Session:
         """Create a new session."""
@@ -118,8 +131,9 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
             raise SessionException(f"Session {session.session_id} already exists")
 
         # Create directory structure
-        os.makedirs(session_dir, exist_ok=True)
-        os.makedirs(os.path.join(session_dir, "agents"), exist_ok=True)
+        if self.session_type == SessionType.AGENT:
+            os.makedirs(session_dir, exist_ok=True)
+            os.makedirs(os.path.join(session_dir, "agents"), exist_ok=True)
 
         # Write session file
         session_file = os.path.join(session_dir, "session.json")
@@ -249,3 +263,33 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         messages = await asyncio.gather(*tasks)
 
         return messages
+
+    def write_multi_agent_json(self, state: dict[str, Any], **kwargs: Any) -> None:
+        """Write multi-agent state to filesystem.
+
+        Args:
+            state: Multi-agent state dictionary to persist
+            **kwargs: Additional keyword arguments for future extensibility
+        """
+        state_path = os.path.join(self._get_session_path(self.session_id), "multi_agent_state.json")
+        self._write_file(state_path, state)
+
+        # Update session update metadata
+        session_dir = self._get_session_path(self.session.session_id)
+        session_file = os.path.join(session_dir, "session.json")
+        with open(session_file, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+            metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._write_file(session_file, metadata)
+
+    def read_multi_agent_json(self) -> dict[str, Any]:
+        """Read multi-agent state from filesystem.
+
+        Returns:
+            Multi-agent state dictionary or None if not found
+        """
+        state_path = os.path.join(self._get_session_path(self.session_id), "multi_agent_state.json")
+        if not os.path.exists(state_path):
+            return {}
+        state_data = self._read_file(state_path)
+        return state_data

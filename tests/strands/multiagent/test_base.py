@@ -28,6 +28,10 @@ def test_node_result_initialization_and_properties(agent_result):
     assert node_result.accumulated_metrics == {"latencyMs": 0.0}
     assert node_result.execution_count == 0
 
+    # Test default status
+    default_node = NodeResult(result=agent_result)
+    assert default_node.status == Status.PENDING
+
     # With custom metrics
     custom_usage = {"inputTokens": 100, "outputTokens": 200, "totalTokens": 300}
     custom_metrics = {"latencyMs": 250.0}
@@ -85,6 +89,16 @@ def test_node_result_get_agent_results(agent_result):
     assert "Response 1" in response_texts
     assert "Response 2" in response_texts
 
+    # Test with object that has AgentResult class name but isn't AgentResult
+    from unittest.mock import Mock
+
+    mock_result = Mock()
+    mock_result.__class__.__name__ = "AgentResult"
+    node_result = NodeResult(result=mock_result)
+    agent_results = node_result.get_agent_results()
+    assert len(agent_results) == 1
+    assert agent_results[0] == mock_result
+
 
 def test_multi_agent_result_initialization(agent_result):
     """Test MultiAgentResult initialization with defaults and custom values."""
@@ -95,6 +109,7 @@ def test_multi_agent_result_initialization(agent_result):
     assert result.accumulated_metrics == {"latencyMs": 0.0}
     assert result.execution_count == 0
     assert result.execution_time == 0
+    assert result.status == Status.PENDING
 
     # Custom values``
     node_result = NodeResult(result=agent_result)
@@ -141,6 +156,12 @@ def test_multi_agent_base_abstract_behavior():
         async def invoke_async(self, task: str) -> MultiAgentResult:
             return MultiAgentResult(results={})
 
+        def get_state_from_orchestrator(self) -> dict:
+            return {}
+
+        def apply_state_from_dict(self, payload: dict) -> None:
+            pass
+
     # Should not raise an exception - __call__ is provided by base class
     agent = CompleteMultiAgent()
     assert isinstance(agent, MultiAgentBase)
@@ -163,6 +184,12 @@ def test_multi_agent_base_call_method():
                 status=Status.COMPLETED, results={"test": NodeResult(result=Exception("test"), status=Status.COMPLETED)}
             )
 
+        def get_state_from_orchestrator(self) -> dict:
+            return {}
+
+        def apply_state_from_dict(self, payload: dict) -> None:
+            pass
+
     agent = TestMultiAgent()
 
     # Test with string task
@@ -173,3 +200,42 @@ def test_multi_agent_base_call_method():
     assert agent.received_kwargs == {"param1": "value1", "param2": "value2"}
     assert isinstance(result, MultiAgentResult)
     assert result.status == Status.COMPLETED
+
+
+def test_summarize_node_result_for_persist(agent_result):
+    """Test summarize_node_result_for_persist method."""
+    from unittest.mock import Mock
+
+    agent = Mock(spec=MultiAgentBase)
+
+    # Test with NodeResult containing AgentResult
+    node_result = NodeResult(result=agent_result)
+    summary = MultiAgentBase.summarize_node_result_for_persist(agent, node_result)
+    assert "agent_outputs" in summary
+    assert isinstance(summary["agent_outputs"], list)
+
+    # Test with already normalized dict
+    normalized = {"agent_outputs": ["test1", "test2"]}
+    summary = MultiAgentBase.summarize_node_result_for_persist(agent, normalized)
+    assert summary == {"agent_outputs": ["test1", "test2"]}
+
+    # Test fallback case
+    summary = MultiAgentBase.summarize_node_result_for_persist(agent, "simple string")
+    assert summary == {"agent_outputs": ["simple string"]}
+
+
+def test_call_hook_safely():
+    """Test _call_hook_safely method handles exceptions."""
+    from unittest.mock import Mock
+
+    agent = Mock(spec=MultiAgentBase)
+    agent.hooks = Mock()
+    event = Mock()
+
+    # Test successful hook call
+    MultiAgentBase._call_hook_safely(agent, event)
+    agent.hooks.invoke_callbacks.assert_called_once_with(event)
+
+    # Test hook exception handling
+    agent.hooks.invoke_callbacks.side_effect = Exception("Hook error")
+    MultiAgentBase._call_hook_safely(agent, event)

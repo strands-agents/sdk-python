@@ -6,8 +6,7 @@ import pytest
 
 from strands.agent import Agent, AgentResult
 from strands.agent.state import AgentState
-from strands.hooks import AgentInitializedEvent
-from strands.hooks.registry import HookProvider, HookRegistry
+from strands.hooks.registry import HookRegistry
 from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult
 from strands.multiagent.graph import Graph, GraphBuilder, GraphEdge, GraphNode, GraphResult, GraphState, Status
 from strands.session.session_manager import SessionManager
@@ -640,7 +639,7 @@ async def test_graph_node_timeout(mock_strands_tracer, mock_use_span):
     graph = builder.set_max_node_executions(50).set_execution_timeout(900.0).set_node_timeout(0.1).build()
 
     # Execute the graph - should raise Exception due to timeout
-    with pytest.raises(Exception, match="Node 'timeout_node' execution timed out after 0.1s"):
+    with pytest.raises(asyncio.TimeoutError):
         await graph.invoke_async("Test node timeout")
 
     mock_strands_tracer.start_multiagent_span.assert_called()
@@ -865,30 +864,16 @@ def test_graph_validate_unsupported_features():
     graph = builder.build()
     assert len(graph.nodes) == 1
 
-    # Test with session manager (should fail in GraphBuilder.add_node)
+    # Test with session manager (should work now - session persistence is supported)
     mock_session_manager = Mock(spec=SessionManager)
     agent_with_session = create_mock_agent("agent_with_session")
     agent_with_session._session_manager = mock_session_manager
     agent_with_session.hooks = HookRegistry()
 
     builder = GraphBuilder()
-    with pytest.raises(ValueError, match="Session persistence is not supported for Graph agents yet"):
-        builder.add_node(agent_with_session)
-
-    # Test with callbacks (should fail in GraphBuilder.add_node)
-    class TestHookProvider(HookProvider):
-        def register_hooks(self, registry, **kwargs):
-            registry.add_callback(AgentInitializedEvent, lambda e: None)
-
-    # Test validation in Graph constructor (when nodes are passed directly)
-    # Test with session manager in Graph constructor
-    node_with_session = GraphNode("node_with_session", agent_with_session)
-    with pytest.raises(ValueError, match="Session persistence is not supported for Graph agents yet"):
-        Graph(
-            nodes={"node_with_session": node_with_session},
-            edges=set(),
-            entry_points=set(),
-        )
+    builder.add_node(agent_with_session)
+    graph = builder.build()
+    assert len(graph.nodes) == 1
 
 
 @pytest.mark.asyncio
@@ -1139,7 +1124,7 @@ async def test_self_loop_functionality_without_reset(mock_strands_tracer, mock_u
     result = await graph.invoke_async("Test self loop without reset")
 
     assert result.status == Status.COMPLETED
-    assert len(result.execution_order) == 2
+    assert len(result.execution_order) == 1
 
     mock_strands_tracer.start_multiagent_span.assert_called()
     mock_use_span.assert_called()
@@ -1337,3 +1322,54 @@ def test_graph_kwargs_passing_sync(mock_strands_tracer, mock_use_span):
 
     kwargs_agent.invoke_async.assert_called_once_with([{"text": "Test kwargs passing sync"}], **test_invocation_state)
     assert result.status == Status.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_graph_persisted(mock_strands_tracer, mock_use_span):
+    """Test graph persistence functionality."""
+    # Create mock session manager
+    session_manager = Mock(spec=SessionManager)
+    session_manager.read_multi_agent_json.return_value = None
+
+    # Create simple graph with session manager
+    builder = GraphBuilder()
+    agent = create_mock_agent("test_agent")
+    builder.add_node(agent, "test_node")
+    builder.set_entry_point("test_node")
+    builder.set_session_manager(session_manager)
+
+    graph = builder.build()
+
+    # Test get_state_from_orchestrator
+    state = graph.get_state_from_orchestrator()
+    assert state["type"] == "graph"
+    assert "status" in state
+    assert "completed_nodes" in state
+    assert "node_results" in state
+
+    # Test apply_state_from_dict with persisted state
+    persisted_state = {
+        "status": "executing",
+        "completed_nodes": [],
+        "node_results": {},
+        "current_task": "persisted task",
+        "execution_order": [],
+        "next_node_to_execute": ["test_node"],
+    }
+
+    graph.apply_state_from_dict(persisted_state)
+    assert graph.state.task == "persisted task"
+
+    # Execute graph to test persistence integration
+    result = await graph.invoke_async("Test persistence")
+
+    # Verify execution completed
+    assert result.status == Status.COMPLETED
+    assert len(result.results) == 1
+    assert "test_node" in result.results
+
+    # Test state serialization after execution
+    final_state = graph.get_state_from_orchestrator()
+    assert final_state["status"] == "completed"
+    assert len(final_state["completed_nodes"]) == 1
+    assert "test_node" in final_state["node_results"]

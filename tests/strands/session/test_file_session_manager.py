@@ -408,3 +408,45 @@ def test__get_message_path_invalid_message_id(message_id, file_manager):
     """Test that message_id that is not an integer raises ValueError."""
     with pytest.raises(ValueError, match=r"message_id=<.*> \| message id must be an integer"):
         file_manager._get_message_path("session1", "agent1", message_id)
+
+
+def test_write_read_multi_agent_json(file_manager, sample_session):
+    """Test writing and reading multi-agent state."""
+    file_manager.create_session(sample_session)
+
+    # Write multi-agent state
+    state = {"type": "graph", "status": "completed", "nodes": ["node1", "node2"]}
+    file_manager.write_multi_agent_json(state)
+
+    # Read multi-agent state
+    result = file_manager.read_multi_agent_json()
+    assert result == state
+
+
+def test_read_multi_agent_json_nonexistent(file_manager):
+    """Test reading multi-agent state when file doesn't exist."""
+    result = file_manager.read_multi_agent_json()
+    assert result == {}
+
+
+def test_list_messages_missing_directory(file_manager, sample_session, sample_agent):
+    """Test listing messages when messages directory is missing."""
+    file_manager.create_session(sample_session)
+    file_manager.create_agent(sample_session.session_id, sample_agent)
+
+    # Remove messages directory
+    messages_dir = os.path.join(
+        file_manager._get_agent_path(sample_session.session_id, sample_agent.agent_id), "messages"
+    )
+    os.rmdir(messages_dir)
+
+    with pytest.raises(SessionException, match="Messages directory missing"):
+        file_manager.list_messages(sample_session.session_id, sample_agent.agent_id)
+
+
+def test_create_existing_session(file_manager, sample_session):
+    """Test creating a session that already exists."""
+    file_manager.create_session(sample_session)
+
+    with pytest.raises(SessionException, match="already exists"):
+        file_manager.create_session(sample_session)

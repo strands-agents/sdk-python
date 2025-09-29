@@ -24,7 +24,13 @@ logger = logging.getLogger(__name__)
 class RepositorySessionManager(SessionManager):
     """Session manager for persisting agents in a SessionRepository."""
 
-    def __init__(self, session_id: str, session_repository: SessionRepository, **kwargs: Any):
+    def __init__(
+        self,
+        session_id: str,
+        session_repository: SessionRepository,
+        session_type: SessionType = SessionType.AGENT,
+        **kwargs: Any,
+    ):
         """Initialize the RepositorySessionManager.
 
         If no session with the specified session_id exists yet, it will be created
@@ -34,22 +40,27 @@ class RepositorySessionManager(SessionManager):
             session_id: ID to use for the session. A new session with this id will be created if it does
                 not exist in the repository yet
             session_repository: Underlying session repository to use to store the sessions state.
+            session_type: Type of session (AGENT or MULTI_AGENT)
             **kwargs: Additional keyword arguments for future extensibility.
 
         """
+        super().__init__(session_type=session_type)
+
         self.session_repository = session_repository
         self.session_id = session_id
         session = session_repository.read_session(session_id)
         # Create a session if it does not exist yet
         if session is None:
             logger.debug("session_id=<%s> | session not found, creating new session", self.session_id)
-            session = Session(session_id=session_id, session_type=SessionType.AGENT)
+            session = Session(session_id=session_id, session_type=session_type)
             session_repository.create_session(session)
 
         self.session = session
+        self.session_type = session.session_type
 
-        # Keep track of the latest message of each agent in case we need to redact it.
-        self._latest_agent_message: dict[str, Optional[SessionMessage]] = {}
+        if self.session_type == SessionType.AGENT:
+            # Keep track of the latest message of each agent in case we need to redact it.
+            self._latest_agent_message: dict[str, Optional[SessionMessage]] = {}
 
     def append_message(self, message: Message, agent: "Agent", **kwargs: Any) -> None:
         """Append a message to the agent's session.

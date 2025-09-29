@@ -1,87 +1,82 @@
 """Multi-agent execution lifecycle events for hook system integration.
 
-This module defines event classes that are triggered at key points during
-multi-agent orchestrator execution, enabling hooks to respond to lifecycle
-events for purposes like persistence, monitoring, and debugging.
-
-Event Types:
-- Initialization: When orchestrator starts up
-- Before/After Graph: Start/end of overall execution
-- Before/After Node: Start/end of individual node execution
+These events are fired by orchestrators (Graph/Swarm) at key points so
+hooks can persist, monitor, or debug execution. No intermediate state model
+is used—hooks read from the orchestrator directly.
 """
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from ...hooks.registry import HookEvent
-from .multiagent_state import MultiAgentState
+from ...hooks.registry import BaseHookEvent
 
 if TYPE_CHECKING:
     from ...multiagent.base import MultiAgentBase
 
 
 @dataclass
-class MultiAgentInitializationEvent(HookEvent):
+class MultiAgentInitializationEvent(BaseHookEvent):
     """Event triggered when multi-agent orchestrator initializes.
 
     Attributes:
         orchestrator: The multi-agent orchestrator instance
-        state: Current state of the orchestrator
+        invocation_state: Configuration that user pass in
     """
 
     orchestrator: "MultiAgentBase"
-    state: MultiAgentState
+    invocation_state: dict[str, Any] | None = None
 
 
 @dataclass
-class BeforeGraphInvocationEvent(HookEvent):
+class BeforeMultiAgentInvocationEvent(BaseHookEvent):
     """Event triggered before orchestrator execution begins.
 
     Attributes:
         orchestrator: The multi-agent orchestrator instance
-        state: Current state before execution starts
+        invocation_state: Configuration that user pass in
     """
 
     orchestrator: "MultiAgentBase"
-    state: MultiAgentState
+    invocation_state: dict[str, Any] | None = None
 
 
 @dataclass
-class BeforeNodeInvocationEvent(HookEvent):
+class BeforeNodeInvocationEvent(BaseHookEvent):
     """Event triggered before individual node execution.
 
     Attributes:
         orchestrator: The multi-agent orchestrator instance
-        next_node_to_execute: ID of the node about to be executed
+        invocation_state: Configuration that user pass in
     """
 
     orchestrator: "MultiAgentBase"
     next_node_to_execute: str
+    invocation_state: dict[str, Any] | None = None
 
 
 @dataclass
-class AfterNodeInvocationEvent(HookEvent):
+class AfterNodeInvocationEvent(BaseHookEvent):
     """Event triggered after individual node execution completes.
 
     Attributes:
         orchestrator: The multi-agent orchestrator instance
         executed_node: ID of the node that just completed execution
-        state: Updated state after node execution
+        invocation_state: Configuration that user pass in
     """
 
     orchestrator: "MultiAgentBase"
     executed_node: str
-    state: MultiAgentState
+    invocation_state: dict[str, Any] | None = None
 
 
 @dataclass
-class AfterGraphInvocationEvent(HookEvent):
+class AfterMultiAgentInvocationEvent(BaseHookEvent):
     """Event triggered after orchestrator execution completes.
 
     Attributes:
         orchestrator: The multi-agent orchestrator instance
-        state: Final state after execution completes
+        invocation_state: Configuration that user pass in
     """
 
     orchestrator: "MultiAgentBase"
-    state: MultiAgentState
+    invocation_state: dict[str, Any] | None = None
