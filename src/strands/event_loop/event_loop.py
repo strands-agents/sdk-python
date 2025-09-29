@@ -299,7 +299,10 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
         logger.debug(
             f"Forcing structured output tool, attempt {invocation_state['_structured_output_attempts']}/{_MAX_STRUCTURED_OUTPUT_ATTEMPTS}"
         )
-
+        agent.messages.append({
+            "role": "user", 
+            "content": [{"text": "You must format the previous response as structured output."}]
+        })
         forced_invocation_state = invocation_state.copy()
         forced_invocation_state["tool_choice"] = {"any": {}}
         forced_invocation_state["_structured_output_only"] = True
