@@ -33,6 +33,7 @@ from pydantic import BaseModel
 from .. import _identifier
 from ..event_loop.event_loop import event_loop_cycle
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
+from ..tools.structured_output.structured_output_context import StructuredOutputContext
 from ..hooks import (
     AfterInvocationEvent,
     AgentInitializedEvent,
@@ -283,7 +284,7 @@ class Agent:
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
         self.system_prompt = system_prompt
-        self.default_output_schema = resolve_output_schema(structured_output_type)
+        self._default_output_schema = resolve_output_schema(structured_output_type)
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
@@ -598,7 +599,7 @@ class Agent:
 
         # runtime override or agent default TODO in the future, when we expose 'output_schema, we should consider allowing for halfway configuration. for example, the user should be able to define `output_mode` on the Agent level but `structured_output_type` on the `output_mode`
         output_schema: Optional[OutputSchema] = (
-            resolve_output_schema(structured_output_type) or self.default_output_schema
+            resolve_output_schema(structured_output_type) or self._default_output_schema
         )
 
         # Process input and get message to add (if any)
@@ -636,6 +637,7 @@ class Agent:
         Args:
             messages: The input messages to add to the conversation.
             invocation_state: Additional parameters to pass to the event loop.
+            output_schema: Optional output schema for structured output.
 
         Yields:
             Events from the event loop cycle.
@@ -648,10 +650,10 @@ class Agent:
             for message in messages:
                 self._append_message(message)
 
-            invocation_state["output_schema"] = output_schema
+            structured_output_context = StructuredOutputContext(output_schema) if output_schema else None
 
             # Execute the event loop cycle with retry logic for context limits
-            events = self._execute_event_loop_cycle(invocation_state)
+            events = self._execute_event_loop_cycle(invocation_state, structured_output_context)
             async for event in events:
                 # Signal from the model provider that the message sent by the user should be redacted,
                 # likely due to a guardrail.
@@ -672,29 +674,36 @@ class Agent:
             self.conversation_manager.apply_management(self)
             self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
-    async def _execute_event_loop_cycle(self, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
+    async def _execute_event_loop_cycle(
+        self, invocation_state: dict[str, Any], structured_output_context: Optional[StructuredOutputContext] = None
+    ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the event loop cycle with retry logic for context window limits.
 
         This internal method handles the execution of the event loop cycle and implements
         retry logic for handling context window overflow exceptions by reducing the
         conversation context and retrying.
 
+        Args:
+            invocation_state: Additional parameters to pass to the event loop.
+            structured_output_context: Optional structured output context for this invocation.
+
         Yields:
             Events of the loop cycle.
         """
         # Add `Agent` to invocation_state to keep backwards-compatibility
         invocation_state["agent"] = self
-        output_schema: OutputSchema = invocation_state.get("output_schema")
 
-        if output_schema and isinstance(output_schema.mode, ToolMode):
-            for tool_instance in output_schema.mode.get_tool_instances(output_schema.type):
-                self.tool_registry.register_dynamic_tool(tool_instance)
+        if structured_output_context and structured_output_context.output_schema:
+            output_schema = structured_output_context.output_schema
+            if isinstance(output_schema.mode, ToolMode):
+                for tool_instance in output_schema.mode.get_tool_instances(output_schema.type):
+                    self.tool_registry.register_dynamic_tool(tool_instance)
 
         try:
-            # Execute the main event loop cycle
             events = event_loop_cycle(
                 agent=self,
                 invocation_state=invocation_state,
+                structured_output_context=structured_output_context,
             )
             async for event in events:
                 yield event
@@ -707,7 +716,7 @@ class Agent:
             if self._session_manager:
                 self._session_manager.sync_agent(self)
 
-            events = self._execute_event_loop_cycle(invocation_state)
+            events = self._execute_event_loop_cycle(invocation_state, structured_output_context)
             async for event in events:
                 yield event
 

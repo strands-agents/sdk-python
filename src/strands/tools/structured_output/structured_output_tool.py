@@ -13,11 +13,10 @@ from typing_extensions import override
 
 from ...types._events import ToolResultEvent
 from ...types.tools import AgentTool, ToolGenerator, ToolResult, ToolSpec, ToolUse
+from .structured_output_context import StructuredOutputContext
 from .structured_output_utils import convert_pydantic_to_tool_spec
 
 logger = logging.getLogger(__name__)
-
-BASE_KEY = "_structured_output"
 
 _TOOL_SPEC_CACHE: dict[Type[BaseModel], ToolSpec] = {}
 
@@ -95,23 +94,20 @@ class StructuredOutputTool(AgentTool):
 
         Args:
             tool_use: The tool use request containing the data to validate.
-            invocation_state: Context for the tool invocation, including agent state.
-            **kwargs: Additional keyword arguments for future extensibility.
+            invocation_state: Context for the tool invocation (kept for compatibility).
+            **kwargs: Additional keyword arguments, including structured_output_context.
 
         Yields:
             Tool events with the last being the tool result (success or error).
         """
         tool_input = tool_use.get("input", {})
         tool_use_id = str(tool_use.get("toolUseId", ""))
-
+        
+        context: StructuredOutputContext = kwargs.get("structured_output_context")
         try:
             validated_object = self._structured_output_type(**tool_input)
-
             logger.debug("tool_name=<%s> | structured output validated", self._tool_name)
-
-            # Store in invocation state with namespaced key
-            key = f"{BASE_KEY}_{tool_use_id}"
-            invocation_state[key] = validated_object
+            context.store_result(tool_use_id, validated_object)
 
             result: ToolResult = {
                 "toolUseId": tool_use_id,
@@ -146,8 +142,6 @@ class StructuredOutputTool(AgentTool):
             yield ToolResultEvent(result)
 
         except Exception as e:
-            key = f"{BASE_KEY}_{tool_use_id}"
-            invocation_state.pop(key, None)
             error_message = f"Unexpected error validating {self._tool_name}: {str(e)}"
             logger.exception(error_message)
 
