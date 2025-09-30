@@ -323,15 +323,10 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         state_key = self._join_key(session_prefix, "multi_agent_state.json")
         self._write_s3_object(state_key, state)
 
-        # Touch updated_at on session.json (best-effort)
         session_key = self._join_key(session_prefix, "session.json")
-        try:
-            metadata = self._read_s3_object(session_key) or {}
-            metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
-            self._write_s3_object(session_key, metadata)
-        except SessionException:
-            # If session.json is missing or unreadable, don't fail persistence
-            logger.warning("Could not update session.json updated_at for session %s", self.session_id)
+        metadata = self._read_s3_object(session_key) or {}
+        metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
+        self._write_s3_object(session_key, metadata)
 
     def read_multi_agent_json(self) -> dict[str, Any]:
         """Read multi-agent state from S3.

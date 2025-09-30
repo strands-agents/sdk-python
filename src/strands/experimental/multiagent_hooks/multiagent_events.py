@@ -28,33 +28,6 @@ class MultiAgentInitializationEvent(BaseHookEvent):
 
 
 @dataclass
-class BeforeMultiAgentInvocationEvent(BaseHookEvent):
-    """Event triggered before orchestrator execution begins.
-
-    Attributes:
-        orchestrator: The multi-agent orchestrator instance
-        invocation_state: Configuration that user pass in
-    """
-
-    orchestrator: "MultiAgentBase"
-    invocation_state: dict[str, Any] | None = None
-
-
-@dataclass
-class BeforeNodeInvocationEvent(BaseHookEvent):
-    """Event triggered before individual node execution.
-
-    Attributes:
-        orchestrator: The multi-agent orchestrator instance
-        invocation_state: Configuration that user pass in
-    """
-
-    orchestrator: "MultiAgentBase"
-    next_node_to_execute: str
-    invocation_state: dict[str, Any] | None = None
-
-
-@dataclass
 class AfterNodeInvocationEvent(BaseHookEvent):
     """Event triggered after individual node execution completes.
 
