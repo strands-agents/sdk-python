@@ -59,6 +59,7 @@ bidirectional-streaming = [
     "smithy-aws-core>=0.0.1",
     "pytz",
     "aws_sdk_bedrock_runtime",
+    "python>=3.12"
 ]
 otel = ["opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0"]
 docs = [
