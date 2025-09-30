@@ -1,4 +1,3 @@
-import json
 from unittest import SkipTest
 
 import pytest
@@ -65,7 +64,6 @@ def test_structured_output_is_forced(skip_for, model):
 
 def test_stream_reasoning(skip_for, model):
     skip_for([cohere, gemini, llama, mistral, openai, writer], "reasoning is not supported")
-
 
     agent = Agent(model)
     result = agent("Please reason about the equation 2+2.")
