@@ -7,11 +7,14 @@ functions, supporting both individual callback registration and bulk registratio
 via hook provider objects.
 """
 
+import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Generator, Generic, Protocol, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Generator, Generic, Optional, Protocol, Type, TypeVar
 
 if TYPE_CHECKING:
     from ..agent import Agent
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -184,7 +187,7 @@ class HookRegistry:
         """
         hook.register_hooks(self)
 
-    def invoke_callbacks(self, event: TInvokeEvent) -> TInvokeEvent:
+    def invoke_callbacks(self, event: TInvokeEvent, supress_exceptions: Optional[bool] = False) -> TInvokeEvent:
         """Invoke all registered callbacks for the given event.
 
         This method finds all callbacks registered for the event's type and
@@ -194,6 +197,7 @@ class HookRegistry:
 
         Args:
             event: The event to dispatch to registered callbacks.
+            supress_exceptions: Except exception or not.
 
         Returns:
             The event dispatched to registered callbacks.
@@ -203,9 +207,17 @@ class HookRegistry:
             event = StartRequestEvent(agent=my_agent)
             registry.invoke_callbacks(event)
             ```
+
         """
         for callback in self.get_callbacks_for(event):
-            callback(event)
+            if supress_exceptions:
+                try:
+                    callback(event)
+                except Exception as e:
+                    logger.exception("Hook invocation failed for %s: %s", type(event).__name__, e)
+                    pass
+            else:
+                callback(event)
 
         return event
 

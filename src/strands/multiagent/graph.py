@@ -14,7 +14,6 @@ Key Features:
 - Supports nested graphs (Graph as a node in another Graph)
 """
 
-import ast
 import asyncio
 import copy
 import logging
@@ -30,10 +29,8 @@ from ..agent.state import AgentState
 from ..experimental.multiagent_hooks import (
     AfterMultiAgentInvocationEvent,
     AfterNodeInvocationEvent,
-    BeforeMultiAgentInvocationEvent,
     MultiAgentInitializationEvent,
 )
-from ..experimental.multiagent_hooks.persistence_hooks import PersistentHook
 from ..hooks import HookRegistry
 from ..session import SessionManager
 from ..telemetry import get_tracer
@@ -102,23 +99,6 @@ class GraphState:
                 return False, f"Execution timed out: {execution_timeout}s"
 
         return True, "Continuing"
-
-    @staticmethod
-    def _normalize_persisted_like_dict(data: dict[str, Any]) -> dict[str, Any]:
-        """Normalize dictionary data to standard agent_outputs format.
-
-        Args:
-            data: Dictionary containing result data
-
-        Returns:
-            Normalized dict with 'agent_outputs' key
-        """
-        if "agent_outputs" in data and isinstance(data["agent_outputs"], list):
-            return {"agent_outputs": [str(x) for x in data["agent_outputs"]]}
-
-        if "summary" in data:
-            return {"agent_outputs": [str(data["summary"])]}
-        return {"agent_outputs": [str(data)]}
 
 
 @dataclass
@@ -356,11 +336,6 @@ class GraphBuilder:
         # Validate entry points and check for cycles
         self._validate_graph()
 
-        # Build hook auto-inject
-        hooks = HookRegistry()
-        if self._session_manager is not None:
-            hooks.add_hook(PersistentHook(session_manager=self._session_manager))
-
         return Graph(
             nodes=self.nodes.copy(),
             edges=self.edges.copy(),
@@ -370,7 +345,6 @@ class GraphBuilder:
             node_timeout=self._node_timeout,
             reset_on_revisit=self._reset_on_revisit,
             session_manager=self._session_manager,
-            hooks=hooks,
         )
 
     def _validate_graph(self) -> None:
@@ -386,30 +360,16 @@ class GraphBuilder:
             logger.warning("Graph without execution limits may run indefinitely if cycles exist")
 
 
-def _iterate_previous_outputs(raw: Any) -> list[tuple[str, str]]:
+def _iterate_previous_outputs(raw: NodeResult | dict[str, Any]) -> list[tuple[str, str]]:
     """Return a list of (agent_name, text) from NodeResult or persisted dict."""
     # Live NodeResult
     if hasattr(raw, "get_agent_results") and callable(raw.get_agent_results):
-        try:
-            return [(getattr(r, "agent_name", "Agent"), str(r)) for r in raw.get_agent_results()]
-        except Exception:
-            pass
+        return [(getattr(r, "agent_name", "Agent"), str(r)) for r in raw.get_agent_results()]
 
-    # Convert string to dict if possible
-    data = raw
-    if isinstance(raw, str):
-        try:
-            data = ast.literal_eval(raw)
-        except Exception:
-            return [("Agent", raw)]
+    if isinstance(raw, dict) and "agent_outputs" in raw:
+        return [("Agent", str(x)) for x in raw["agent_outputs"]]
 
-    # Extract from dict
-    if isinstance(data, dict):
-        if isinstance(data.get("agent_outputs"), list):
-            return [("Agent", str(x)) for x in data["agent_outputs"]]
-        if "summary" in data:
-            return [("Agent", str(data["summary"]))]
-
+    # Fallback
     return [("Agent", str(raw))]
 
 
@@ -457,14 +417,18 @@ class Graph(MultiAgentBase):
         self.tracer = get_tracer()
         self.session_manager = session_manager
         self.hooks = hooks or HookRegistry()
+        if self.session_manager is not None:
+            self.hooks.add_hook(self.session_manager)
 
-        # Concurrncy lock
+        # Concurrent lock
         self._lock = asyncio.Lock()
         # Resume flag
         self._resume_from_persisted = False
         self._resume_next_nodes: list[GraphNode] = []
 
         self._load_and_apply_persisted_state()
+        if not self._resume_from_persisted and self.state.status == Status.PENDING:
+            self.hooks.invoke_callbacks(MultiAgentInitializationEvent(orchestrator=self), supress_exceptions=True)
 
     def __call__(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
@@ -503,12 +467,6 @@ class Graph(MultiAgentBase):
             invocation_state = {}
 
         logger.debug("task=<%s> | starting graph execution", task)
-
-        if not self._resume_from_persisted and self.state.status == Status.PENDING:
-            # TODO: to check if we need do something on BeforeGraphInvocationEvent
-            self._call_hook_safely(MultiAgentInitializationEvent(orchestrator=self))
-
-        self._call_hook_safely(BeforeMultiAgentInvocationEvent(orchestrator=self))
 
         if not self._resume_from_persisted:
             start_time = time.time()
@@ -554,7 +512,7 @@ class Graph(MultiAgentBase):
                 raise
             finally:
                 self.state.execution_time = round((time.time() - self.state.start_time) * 1000)
-                self._call_hook_safely(AfterMultiAgentInvocationEvent(orchestrator=self))
+                self.hooks.invoke_callbacks(AfterMultiAgentInvocationEvent(orchestrator=self), supress_exceptions=True)
                 self._resume_from_persisted = False
                 self._resume_next_nodes.clear()
             return self._build_result()
@@ -643,6 +601,29 @@ class Graph(MultiAgentBase):
     async def _execute_node(self, node: GraphNode, invocation_state: dict[str, Any]) -> None:
         """Execute a single node with error handling and timeout protection."""
         # Reset the node's state if reset_on_revisit is enabled and it's being revisited
+
+        async def _record_failure(exception: Exception) -> None:
+            execution_time = round((time.time() - start_time) * 1000)
+            fail_result = NodeResult(
+                result=exception,
+                execution_time=execution_time,
+                status=Status.FAILED,
+                accumulated_usage=Usage(inputTokens=0, outputTokens=0, totalTokens=0),
+                accumulated_metrics=Metrics(latencyMs=execution_time),
+                execution_count=1,
+            )
+            async with self._lock:
+                node.execution_status = Status.FAILED
+                node.result = fail_result
+                node.execution_time = execution_time
+                self.state.failed_nodes.add(node)
+                self.state.results[node.node_id] = fail_result
+
+            self.hooks.invoke_callbacks(
+                AfterNodeInvocationEvent(orchestrator=self, executed_node=node.node_id),
+                supress_exceptions=True,
+            )
+
         if self.reset_on_revisit and node in self.state.completed_nodes:
             logger.debug("node_id=<%s> | resetting node state for revisit", node.node_id)
             node.reset_executor_state()
@@ -719,31 +700,23 @@ class Graph(MultiAgentBase):
             logger.debug(
                 "node_id=<%s>, execution_time=<%dms> | node completed successfully", node.node_id, node.execution_time
             )
-            self._call_hook_safely(AfterNodeInvocationEvent(orchestrator=self, executed_node=node.node_id))
+            self.hooks.invoke_callbacks(
+                AfterNodeInvocationEvent(orchestrator=self, executed_node=node.node_id), supress_exceptions=True
+            )
+
+        except asyncio.TimeoutError:
+            timeout_msg = f"Node '{node.node_id}' execution timed out after {self.node_timeout}s"
+            logger.exception(
+                "node=<%s>, timeout=<%s>s | node execution timed out after timeout",
+                node.node_id,
+                self.node_timeout,
+            )
+            await _record_failure(asyncio.TimeoutError(timeout_msg))
+            raise
 
         except Exception as e:
             logger.error("node_id=<%s>, error=<%s> | node failed", node.node_id, e)
-            execution_time = round((time.time() - start_time) * 1000)
-
-            fail_result = NodeResult(
-                result=e,
-                execution_time=execution_time,
-                status=Status.FAILED,
-                accumulated_usage=Usage(inputTokens=0, outputTokens=0, totalTokens=0),
-                accumulated_metrics=Metrics(latencyMs=execution_time),
-                execution_count=1,
-            )
-
-            async with self._lock:
-                node.execution_status = Status.FAILED
-                node.result = fail_result
-                node.execution_time = execution_time
-                self.state.failed_nodes.add(node)
-                self.state.results[node.node_id] = fail_result
-
-            # Need to persist failure multiagent_state too
-            self._call_hook_safely(AfterNodeInvocationEvent(orchestrator=self, executed_node=node.node_id))
-
+            await _record_failure(e)
             raise
 
     def _accumulate_metrics(self, node_result: NodeResult) -> None:
@@ -855,8 +828,7 @@ class Graph(MultiAgentBase):
             "status": status_str,
             "completed_nodes": [n.node_id for n in self.state.completed_nodes],
             "node_results": {
-                k: self.summarize_node_result_for_persist(v)  # CHANGED: normalized text-only outputs
-                for k, v in (self.state.results or {}).items()
+                k: self.serialize_node_result_for_persist(v) for k, v in (self.state.results or {}).items()
             },
             "next_node_to_execute": next_nodes,
             "current_task": self.state.task,
@@ -869,13 +841,13 @@ class Graph(MultiAgentBase):
         try:
             json_data = self.session_manager.read_multi_agent_json()
         except Exception as e:
-            logger.warning("Skipping resume; failed to load state: %s", e)
-            return
+            logger.exception("Resume failed; failed to load state: %s", e)
+            raise
         if not json_data:
             return
 
         try:
-            self.apply_state_from_dict(json_data)
+            self.deserialize_state(json_data)
             self._resume_from_persisted = True
 
             next_node_ids = json_data.get("next_node_to_execute") or []
@@ -925,7 +897,7 @@ class Graph(MultiAgentBase):
 
         return [node for node in self.entry_points if node not in completed_nodes]
 
-    def get_state_from_orchestrator(self) -> dict:
+    def serialize_state(self) -> dict:
         """Return a JSON-serializable snapshot of the orchestrator state.
 
         Returns:
@@ -933,7 +905,7 @@ class Graph(MultiAgentBase):
         """
         return self._to_dict()
 
-    def apply_state_from_dict(self, payload: dict) -> None:
+    def deserialize_state(self, payload: dict) -> None:
         """Restore orchestrator state from a session dict.
 
         Args:

@@ -7,8 +7,6 @@ import pytest
 from strands.experimental.multiagent_hooks.multiagent_events import (
     AfterMultiAgentInvocationEvent,
     AfterNodeInvocationEvent,
-    BeforeMultiAgentInvocationEvent,
-    BeforeNodeInvocationEvent,
     MultiAgentInitializationEvent,
 )
 from strands.hooks.registry import BaseHookEvent
@@ -35,48 +33,6 @@ def test_multi_agent_initialization_event_with_invocation_state(orchestrator):
     event = MultiAgentInitializationEvent(orchestrator=orchestrator, invocation_state=invocation_state)
 
     assert event.orchestrator is orchestrator
-    assert event.invocation_state == invocation_state
-
-
-def test_before_multi_agent_invocation_event_with_orchestrator_only(orchestrator):
-    """Test BeforeMultiAgentInvocationEvent creation with orchestrator only."""
-    event = BeforeMultiAgentInvocationEvent(orchestrator=orchestrator)
-
-    assert event.orchestrator is orchestrator
-    assert event.invocation_state is None
-    assert isinstance(event, BaseHookEvent)
-
-
-def test_before_multi_agent_invocation_event_with_invocation_state(orchestrator):
-    """Test BeforeMultiAgentInvocationEvent creation with invocation state."""
-    invocation_state = {"config": "test"}
-    event = BeforeMultiAgentInvocationEvent(orchestrator=orchestrator, invocation_state=invocation_state)
-
-    assert event.orchestrator is orchestrator
-    assert event.invocation_state == invocation_state
-
-
-def test_before_node_invocation_event_with_required_fields(orchestrator):
-    """Test BeforeNodeInvocationEvent creation with required fields."""
-    next_node = "node_1"
-    event = BeforeNodeInvocationEvent(orchestrator=orchestrator, next_node_to_execute=next_node)
-
-    assert event.orchestrator is orchestrator
-    assert event.next_node_to_execute == next_node
-    assert event.invocation_state is None
-    assert isinstance(event, BaseHookEvent)
-
-
-def test_before_node_invocation_event_with_invocation_state(orchestrator):
-    """Test BeforeNodeInvocationEvent creation with invocation state."""
-    next_node = "node_2"
-    invocation_state = {"step": 1}
-    event = BeforeNodeInvocationEvent(
-        orchestrator=orchestrator, next_node_to_execute=next_node, invocation_state=invocation_state
-    )
-
-    assert event.orchestrator is orchestrator
-    assert event.next_node_to_execute == next_node
     assert event.invocation_state == invocation_state
 
 

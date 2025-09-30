@@ -37,7 +37,7 @@ class NodeResult:
     """
 
     # Core result data - single AgentResult, nested MultiAgentResult, or Exception
-    result: Union["AgentResult", "MultiAgentResult", Exception]
+    result: Union[AgentResult, "MultiAgentResult", Exception]
 
     # Execution metadata
     execution_time: int = 0
@@ -48,32 +48,51 @@ class NodeResult:
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
     execution_count: int = 0
 
-    def get_agent_results(self) -> list["AgentResult"]:
+    def get_agent_results(self) -> list[AgentResult]:
         """Get all AgentResult objects from this node, flattened if nested."""
         if isinstance(self.result, Exception):
             return []  # No agent results for exceptions
-        elif isinstance(self.result, AgentResult):
+        if isinstance(self.result, AgentResult):
             return [self.result]
-        # else:
-        #     # Flatten nested results from MultiAgentResult
-        #     flattened = []
-        #     for nested_node_result in self.result.results.values():
-        #         if isinstance(nested_node_result, NodeResult):
-        #             flattened.extend(nested_node_result.get_agent_results())
-        #     return flattened
-
         if getattr(self.result, "__class__", None) and self.result.__class__.__name__ == "AgentResult":
             return [self.result]  # type: ignore[list-item]
 
         # If this is a nested MultiAgentResult, flatten children
         if hasattr(self.result, "results") and isinstance(self.result.results, dict):
-            flattened: list["AgentResult"] = []
+            flattened: list[AgentResult] = []
             for nested in self.result.results.values():
                 if isinstance(nested, NodeResult):
                     flattened.extend(nested.get_agent_results())
             return flattened
 
         return []
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert NodeResult to JSON-serializable dict, ignoring state field."""
+        result_data: Any = None
+        if isinstance(self.result, Exception):
+            result_data = {"type": "exception", "message": str(self.result)}
+        elif isinstance(self.result, AgentResult):
+            # Serialize AgentResult without state field
+            result_data = {
+                "type": "agent_result",
+                "stop_reason": self.result.stop_reason,
+                "message": self.result.message,  # Message type is JSON serializable
+                # Skip metrics and state - not JSON serializable
+            }
+        elif hasattr(self.result, "to_dict"):
+            result_data = self.result.to_dict()
+        else:
+            result_data = str(self.result)
+
+        return {
+            "result": result_data,
+            "execution_time": self.execution_time,
+            "status": self.status.value,
+            "accumulated_usage": dict(self.accumulated_usage),
+            "accumulated_metrics": dict(self.accumulated_metrics),
+            "execution_count": self.execution_count,
+        }
 
 
 @dataclass
@@ -91,6 +110,17 @@ class MultiAgentResult:
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
     execution_count: int = 0
     execution_time: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert MultiAgentResult to JSON-serializable dict."""
+        return {
+            "status": self.status.value,
+            "results": {k: v.to_dict() for k, v in self.results.items()},
+            "accumulated_usage": dict(self.accumulated_usage),
+            "accumulated_metrics": dict(self.accumulated_metrics),
+            "execution_count": self.execution_count,
+            "execution_time": self.execution_time,
+        }
 
 
 class MultiAgentBase(ABC):
@@ -135,65 +165,30 @@ class MultiAgentBase(ABC):
             future = executor.submit(execute)
             return future.result()
 
-    def _call_hook_safely(self, event_object: object) -> None:
-        """Invoke hook callbacks and swallow hook errors.
-
-        Args:
-            event_object: The event to dispatch to registered callbacks.
-        """
-        try:
-            self.hooks.invoke_callbacks(event_object)  # type: ignore
-        except Exception as e:
-            logger.exception("Hook invocation failed for %s: %s", type(event_object).__name__, e)
-
     @abstractmethod
-    def get_state_from_orchestrator(self) -> dict:
+    def serialize_state(self) -> dict:
         """Return a JSON-serializable snapshot of the orchestrator state."""
         raise NotImplementedError
 
     @abstractmethod
-    def apply_state_from_dict(self, payload: dict) -> None:
+    def deserialize_state(self, payload: dict) -> None:
         """Restore orchestrator state from a session dict."""
         raise NotImplementedError
 
-    def summarize_node_result_for_persist(self, raw: NodeResult) -> dict[str, Any]:
-        """Summarize node result for efficient persistence.
+    def serialize_node_result_for_persist(self, raw: NodeResult) -> dict[str, Any]:
+        """Serialize node result for persistence.
 
         Args:
-            raw: Raw node result to summarize
+            raw: Raw node result to serialize
 
         Returns:
-            Normalized dict with 'agent_outputs' key containing string results
+            JSON-serializable dict representation
         """
+        if isinstance(raw, dict):
+            return raw
 
-        def _extract_text_from_agent_result(ar: Any) -> str:
-            try:
-                msg = getattr(ar, "message", None)
-                if isinstance(msg, dict):
-                    blocks = msg.get("content") or []
-                    texts = []
-                    for b in blocks:
-                        t = b.get("text")
-                        if t:
-                            texts.append(str(t))
-                    if texts:
-                        return "\n".join(texts)
-                return str(ar)
-            except Exception:
-                return str(ar)
+        if hasattr(raw, "to_dict") and callable(raw.to_dict):
+            return raw.to_dict()
 
-        # If it's a NodeResult with AgentResults, flatten
-        if hasattr(raw, "get_agent_results") and callable(raw.get_agent_results):
-            try:
-                ars = raw.get_agent_results()  # list[AgentResult]
-                if ars:
-                    return {"agent_outputs": [_extract_text_from_agent_result(a) for a in ars]}
-            except Exception:
-                pass
-
-        # If already normalized
-        if isinstance(raw, dict) and isinstance(raw.get("agent_outputs"), list):
-            return {"agent_outputs": [str(x) for x in raw["agent_outputs"]]}
-
-        # Fallback
+        # Fallback for strings and other types
         return {"agent_outputs": [str(raw)]}

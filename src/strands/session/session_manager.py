@@ -1,8 +1,14 @@
 """Session manager interface for agent session management."""
 
+import threading
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
+from ..experimental.multiagent_hooks.multiagent_events import (
+    AfterMultiAgentInvocationEvent,
+    AfterNodeInvocationEvent,
+    MultiAgentInitializationEvent,
+)
 from ..hooks.events import AfterInvocationEvent, AgentInitializedEvent, MessageAddedEvent
 from ..hooks.registry import HookProvider, HookRegistry
 from ..types.content import Message
@@ -10,6 +16,7 @@ from ..types.session import SessionType
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
+    from ..multiagent.base import MultiAgentBase
 
 
 class SessionManager(HookProvider, ABC):
@@ -28,6 +35,7 @@ class SessionManager(HookProvider, ABC):
             session_type: Type of session (AGENT or MULTI_AGENT)
         """
         self.session_type: SessionType = session_type
+        self._lock = threading.RLock()
 
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register hooks for persisting the agent to the session."""
@@ -43,6 +51,17 @@ class SessionManager(HookProvider, ABC):
 
             # After an agent was invoked, sync it with the session to capture any conversation manager state updates
             registry.add_callback(AfterInvocationEvent, lambda event: self.sync_agent(event.agent))
+
+        elif self.session_type == SessionType.MULTI_AGENT:
+            registry.add_callback(
+                MultiAgentInitializationEvent, lambda event: self._persist_multi_agent_state(event.orchestrator)
+            )
+            registry.add_callback(
+                AfterNodeInvocationEvent, lambda event: self._persist_multi_agent_state(event.orchestrator)
+            )
+            registry.add_callback(
+                AfterMultiAgentInvocationEvent, lambda event: self._persist_multi_agent_state(event.orchestrator)
+            )
 
     @abstractmethod
     def redact_latest_message(self, redact_message: Message, agent: "Agent", **kwargs: Any) -> None:
@@ -81,6 +100,16 @@ class SessionManager(HookProvider, ABC):
             agent: Agent to initialize
             **kwargs: Additional keyword arguments for future extensibility.
         """
+
+    def _persist_multi_agent_state(self, orchestrator: "MultiAgentBase") -> None:
+        """Thread-safe persistence of multi-agent state.
+
+        Args:
+            orchestrator: Multi-agent orchestrator to persist
+        """
+        with self._lock:
+            state = orchestrator.serialize_state()
+            self.write_multi_agent_json(state)
 
     # Multiagent abstract functions
     @abstractmethod

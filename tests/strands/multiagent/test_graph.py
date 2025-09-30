@@ -1341,7 +1341,7 @@ async def test_graph_persisted(mock_strands_tracer, mock_use_span):
     graph = builder.build()
 
     # Test get_state_from_orchestrator
-    state = graph.get_state_from_orchestrator()
+    state = graph.serialize_state()
     assert state["type"] == "graph"
     assert "status" in state
     assert "completed_nodes" in state
@@ -1357,7 +1357,7 @@ async def test_graph_persisted(mock_strands_tracer, mock_use_span):
         "next_node_to_execute": ["test_node"],
     }
 
-    graph.apply_state_from_dict(persisted_state)
+    graph.deserialize_state(persisted_state)
     assert graph.state.task == "persisted task"
 
     # Execute graph to test persistence integration
@@ -1369,7 +1369,7 @@ async def test_graph_persisted(mock_strands_tracer, mock_use_span):
     assert "test_node" in result.results
 
     # Test state serialization after execution
-    final_state = graph.get_state_from_orchestrator()
+    final_state = graph.serialize_state()
     assert final_state["status"] == "completed"
     assert len(final_state["completed_nodes"]) == 1
     assert "test_node" in final_state["node_results"]
