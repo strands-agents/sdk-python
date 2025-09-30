@@ -526,11 +526,3 @@ class MCPClient:
                     self._log_debug_with_thread("Failed to set exception on future: %s", str(e))
 
         self._pending_futures.clear()
-
-    def get_last_exception(self) -> Exception | None:
-        """Get the last runtime exception that occurred in the background thread.
-
-        Returns:
-            Exception | None: The last exception or None if no exception occurred
-        """
-        return self._last_runtime_exception
