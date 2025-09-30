@@ -41,8 +41,6 @@ class StructuredOutputContext:
         tool_choice: Tool choice configuration for forcing.
     """
     
-    MAX_STRUCTURED_OUTPUT_ATTEMPTS = 3
-    """Maximum number of attempts to force structured output before giving up."""
     
     def __init__(self, output_schema: Optional["OutputSchema"] = None):
         """Initialize a new structured output context.
@@ -56,6 +54,7 @@ class StructuredOutputContext:
         self.output_schema: Optional["OutputSchema"] = output_schema
         self.forced_mode: bool = False
         self.tool_choice: Optional[ToolChoice] = None
+        self.MAX_STRUCTURED_OUTPUT_ATTEMPTS: int = 3
         
         # Initialize expected tool names from output schema
         self.expected_tool_names: Set[str] = set()
