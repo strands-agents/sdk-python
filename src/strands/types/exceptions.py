@@ -49,6 +49,15 @@ class ContextWindowOverflowException(Exception):
 class MCPClientInitializationError(Exception):
     """Raised when the MCP server fails to initialize properly."""
 
+
+class MCPConnectionError(Exception):
+    """Raised when the MCP connection fails during runtime.
+
+    This exception indicates that the MCP background thread has died or
+    the connection has been lost after successful initialization. This is
+    different from MCPClientInitializationError which occurs during startup.
+    """
+
     pass
 
 
