@@ -246,7 +246,7 @@ class ToolRegistry:
                 tool_dirs.append(directory)
                 logger.debug("tools_dir=<%s> | found tools directory", directory)
             else:
-                logger.debug(
+                logger.warning(
                     "tools_dir=<%s> | tools directory not found."
                     "You must create a local tools directory to enable hot-reloading of tools",
                     directory,
