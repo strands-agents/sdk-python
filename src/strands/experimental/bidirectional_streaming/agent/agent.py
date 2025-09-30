@@ -1,30 +1,22 @@
 """Bidirectional Agent for real-time streaming conversations.
 
-AGENT PURPOSE:
--------------
-Provides type-safe constructor and session management for real-time audio/text 
-interaction. Serves as the bidirectional equivalent to invoke_async() → stream_async() 
-but establishes sessions that continue indefinitely with concurrent task management.
+Provides real-time audio and text interaction through persistent streaming sessions.
+Unlike traditional request-response patterns, this agent maintains long-running 
+conversations where users can interrupt, provide additional input, and receive 
+continuous responses including audio output.
 
-ARCHITECTURAL APPROACH:
-----------------------
-While invoke_async() creates single request-response cycles that terminate after 
-stop_reason: "end_turn" with sequential tool processing, start_conversation() 
-establishes persistent sessions with concurrent processing of model events, tool 
-execution, and user input without session termination.
-
-DESIGN CHOICE:
--------------
-Uses dedicated BidirectionalAgent class (Option 1 from design document) for:
-- Type safety with no conditional behavior based on model type
-- Separation of concerns - solely focused on bidirectional streaming  
-- Future proofing - allows changes without implications to existing Agent class
+Key capabilities:
+- Persistent conversation sessions with concurrent processing
+- Real-time audio input/output streaming  
+- Mid-conversation interruption and tool execution
+- Event-driven communication with model providers
 """
 
 import asyncio
 import logging
-from typing import AsyncIterable, List, Optional
+from typing import AsyncIterable, List, Optional, Union
 
+from strands.tools.executors import ConcurrentToolExecutor
 from strands.tools.registry import ToolRegistry
 from strands.types.content import Messages
 
@@ -39,8 +31,8 @@ logger = logging.getLogger(__name__)
 class BidirectionalAgent:
     """Agent for bidirectional streaming conversations.
     
-    Provides type-safe constructor and session management for real-time 
-    audio/text interaction with concurrent processing capabilities.
+    Enables real-time audio and text interaction with AI models through persistent
+    sessions. Supports concurrent tool execution and interruption handling.
     """
     
     def __init__(
@@ -69,60 +61,63 @@ class BidirectionalAgent:
         self.tool_registry.initialize_tools()
         
         # Initialize tool executor for concurrent execution
-        from strands.tools.executors import ConcurrentToolExecutor
         self.tool_executor = ConcurrentToolExecutor()
         
         # Session management
         self._session = None
         self._output_queue = asyncio.Queue()
     
-    async def start_conversation(self) -> None:
-        """Initialize persistent bidirectional session for real-time interaction.
+    async def start(self) -> None:
+        """Start a persistent bidirectional conversation session.
         
-        Creates provider-specific session and starts concurrent background tasks
-        for model events, tool execution, and session lifecycle management.
+        Initializes the streaming session and starts background tasks for processing
+        model events, tool execution, and session management.
         
         Raises:
             ValueError: If conversation already active.
             ConnectionError: If session creation fails.
         """
         if self._session and self._session.active:
-            raise ValueError("Conversation already active. Call end_conversation() first.")
+            raise ValueError("Conversation already active. Call end() first.")
         
         log_flow("conversation_start", "initializing session")
         self._session = await start_bidirectional_connection(self)
         log_event("conversation_ready")
     
-    async def send_text(self, text: str) -> None:
-        """Send text input during active session without interrupting model generation.
+    async def send(self, input_data: Union[str, AudioInputEvent]) -> None:
+        """Send input to the model (text or audio).
+        
+        Unified method for sending both text and audio input to the model during
+        an active conversation session.
         
         Args:
-            text: Text message to send to the model.
+            input_data: Either a string for text input or AudioInputEvent for audio input.
             
         Raises:
-            ValueError: If no active session.
+            ValueError: If no active session or invalid input type.
         """
         self._validate_active_session()
-        log_event("text_sent", length=len(text))
-        await self._session.model_session.send_text_content(text)
+        
+        if isinstance(input_data, str):
+            # Handle text input
+            log_event("text_sent", length=len(input_data))
+            await self._session.model_session.send_text_content(input_data)
+        elif isinstance(input_data, dict) and "audioData" in input_data:
+            # Handle audio input (AudioInputEvent)
+            await self._session.model_session.send_audio_content(input_data)
+        else:
+            raise ValueError(
+                "Input must be either a string (text) or AudioInputEvent "
+                "(dict with audioData, format, sampleRate, channels)"
+            )
     
-    async def send_audio(self, audio_input: AudioInputEvent) -> None:
-        """Send audio input during active session for real-time speech interaction.
-        
-        Args:
-            audio_input: AudioInputEvent containing audio data and configuration.
-            
-        Raises:
-            ValueError: If no active session.
-        """
-        self._validate_active_session()
-        await self._session.model_session.send_audio_content(audio_input)
+
         
     async def receive(self) -> AsyncIterable[BidirectionalStreamEvent]:
-        """Receive output events from the model including audio, text.
+        """Receive events from the model including audio, text, and tool calls.
         
-        Provides access to model output events processed by background tasks.
-        Events include audio output, text responses, tool calls, and session updates.
+        Yields model output events processed by background tasks including audio output,
+        text responses, tool calls, and session updates.
         
         Yields:
             BidirectionalStreamEvent: Events from the model session.
@@ -135,10 +130,10 @@ class BidirectionalAgent:
                 continue
     
     async def interrupt(self) -> None:
-        """Interrupt current model generation and switch to listening mode.
+        """Interrupt the current model generation and clear audio buffers.
         
-        Sends interruption signal to immediately stop generation and clear 
-        pending audio output for responsive conversational experience.
+        Sends interruption signal to stop generation immediately and clears 
+        pending audio output for responsive conversation flow.
         
         Raises:
             ValueError: If no active session.
@@ -146,11 +141,11 @@ class BidirectionalAgent:
         self._validate_active_session()
         await self._session.model_session.send_interrupt()
     
-    async def end_conversation(self) -> None:
-        """End session and cleanup resources including background tasks.
+    async def end(self) -> None:
+        """End the conversation session and cleanup all resources.
         
-        Performs graceful session termination with proper resource cleanup
-        including background task cancellation and connection closure.
+        Terminates the streaming session, cancels background tasks, and 
+        closes the connection to the model provider.
         """
         if self._session:
             await stop_bidirectional_connection(self._session)
@@ -163,5 +158,5 @@ class BidirectionalAgent:
             ValueError: If no active session.
         """
         if not self._session or not self._session.active:
-            raise ValueError("No active conversation. Call start_conversation() first.")
+            raise ValueError("No active conversation. Call start() first.")
 

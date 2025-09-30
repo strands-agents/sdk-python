@@ -1,24 +1,14 @@
 """Bidirectional model interface for real-time streaming conversations.
 
-INTERFACE PURPOSE:
------------------
-Declares bidirectional capabilities separate from existing Model hierarchy to maintain 
-clean separation of concerns. Models choose to implement this interface explicitly 
-for bidirectional streaming support.
+Defines the interface for models that support bidirectional streaming capabilities.
+Provides abstractions for different model providers with connection-based communication
+patterns that support real-time audio and text interaction.
 
-PROVIDER ABSTRACTION:
---------------------
-Abstracts incompatible initialization patterns: Nova Sonic's event-driven sequences, 
-Google's WebSocket setup, OpenAI's dual protocol support. Normalizes different tool 
-calling approaches and handles provider-specific session management with varying 
-time limits and connection patterns.
-
-SESSION-BASED APPROACH:
-----------------------
-Unlike existing Model interface's stateless request-response pattern where each 
-stream() call processes complete messages independently, BidirectionalModel introduces 
-session-based approach where create_bidirectional_connection() establishes persistent 
-connections supporting real-time bidirectional communication during active generation.
+Features:
+- connection-based persistent connections
+- Real-time bidirectional communication
+- Provider-agnostic event normalization  
+- Tool execution integration
 """
 
 import abc
@@ -32,51 +22,54 @@ from ..types.bidirectional_streaming import AudioInputEvent
 logger = logging.getLogger(__name__)
 
 class BidirectionalModelSession(abc.ABC):
-    """Model-specific session interface for bidirectional communication."""
+    """Abstract interface for model-specific bidirectional communication connections.
+    
+    Defines the contract for managing persistent streaming connections with individual
+    model providers, handling audio/text input, receiving events, and managing
+    tool execution results.
+    """
     
     @abc.abstractmethod
     async def receive_events(self) -> AsyncIterable[Dict[str, Any]]:
-        """Receive events from model in provider-agnostic format.
+        """Receive events from the model in standardized format.
         
-        Normalizes different provider event formats so the event loop
-        can process all providers uniformly.
+        Converts provider-specific events to a common format that can be
+        processed uniformly by the event loop.
         """
         raise NotImplementedError
     
     @abc.abstractmethod
     async def send_audio_content(self, audio_input: AudioInputEvent) -> None:
-        """Send audio content to model during session.
+        """Send audio content to the model during an active connection.
         
-        Manages complex audio encoding and provider-specific event sequences
-        while presenting simple AudioInputEvent interface to Agent.
+        Handles audio encoding and provider-specific formatting while presenting
+        a simple AudioInputEvent interface.
         """
         raise NotImplementedError
     
     @abc.abstractmethod
     async def send_text_content(self, text: str, **kwargs) -> None:
-        """Send text content processed concurrently with ongoing generation.
+        """Send text content to the model during ongoing generation.
         
-        Enables natural interruption and follow-up questions without session restart.
+        Allows natural interruption and follow-up questions without requiring
+        connection restart.
         """
         raise NotImplementedError
     
     @abc.abstractmethod
     async def send_interrupt(self) -> None:
-        """Send interruption signal to immediately stop generation.
+        """Send interruption signal to stop generation immediately.
         
-        Critical for responsive conversational experiences where users
-        can naturally interrupt mid-response.
+        Enables responsive conversational experiences where users can
+        naturally interrupt during model responses.
         """
         raise NotImplementedError
     
     @abc.abstractmethod
     async def send_tool_result(self, tool_use_id: str, result: Dict[str, Any]) -> None:
-        """Send tool execution result to model in provider-specific format.
+        """Send tool execution result to the model.
         
-        Each provider handles result formatting according to their protocol:
-        - Nova Sonic: toolResult events with JSON content
-        - Google Live API: toolResponse with specific structure  
-        - OpenAI Realtime: function call responses with call_id correlation
+        Formats and sends tool results according to the provider's specific protocol.
         """
         raise NotImplementedError
     
@@ -87,15 +80,15 @@ class BidirectionalModelSession(abc.ABC):
     
     @abc.abstractmethod
     async def close(self) -> None:
-        """Close session and cleanup resources with graceful termination."""
+        """Close the connection and cleanup resources."""
         raise NotImplementedError
 
 
 class BidirectionalModel(abc.ABC):
     """Interface for models that support bidirectional streaming.
     
-    Separate from Model to maintain clean separation of concerns.
-    Models choose to implement this interface explicitly.
+    Defines the contract for creating persistent streaming connections that support
+    real-time audio and text communication with AI models.
     """
     
     @abc.abstractmethod
@@ -106,10 +99,10 @@ class BidirectionalModel(abc.ABC):
         messages: Optional[Messages] = None,
         **kwargs
     ) -> BidirectionalModelSession:
-        """Create bidirectional session with model-specific implementation.
+        """Create a bidirectional connection with the model.
         
-        Abstracts complex provider-specific initialization while presenting
-        uniform interface to Agent.
+        Establishes a persistent connection for real-time communication while
+        abstracting provider-specific initialization requirements.
         """
         raise NotImplementedError
 

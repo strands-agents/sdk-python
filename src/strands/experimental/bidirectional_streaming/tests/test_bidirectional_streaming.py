@@ -1,11 +1,20 @@
-"""Simple bidirectional streaming test with enhanced interruption support."""
+"""Test suite for bidirectional streaming with real-time audio interaction.
+
+Tests the complete bidirectional streaming system including audio input/output,
+interruption handling, and concurrent tool execution using Nova Sonic.
+"""
 
 import asyncio
+import sys
+from pathlib import Path
+
+# Add the src directory to Python path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 import time
 import pyaudio
 
-from src.strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
-from src.strands.experimental.bidirectional_streaming.models.novasonic import NovaSonicBidirectionalModel
+from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
+from strands.experimental.bidirectional_streaming.models.novasonic import NovaSonicBidirectionalModel
 from strands_tools import calculator
 
 
@@ -139,9 +148,10 @@ async def send(agent, context):
                 audio_event = {
                     "audioData": audio_bytes,
                     "format": "pcm",
-                    "sampleRate": 16000
+                    "sampleRate": 16000,
+                    "channels": 1
                 }
-                await agent.send_audio(audio_event)
+                await agent.send(audio_event)
             except asyncio.QueueEmpty:
                 await asyncio.sleep(0.01)  # Restored to working timing
             except asyncio.CancelledError:
@@ -165,14 +175,14 @@ async def main(duration=180):
         system_prompt="You are a helpful assistant."
     )
 
-    await agent.start_conversation()
+    await agent.start()
 
     # Create shared context for all tasks
     context = {
         "active": True,
         "audio_in": asyncio.Queue(),
         "audio_out": asyncio.Queue(),
-        "session": agent._session,
+        "connection": agent._session,
         "duration": duration,
         "start_time": time.time(),
         "interrupted": False,
@@ -196,7 +206,7 @@ async def main(duration=180):
     finally:
         print("Cleaning up...")
         context["active"] = False
-        await agent.end_conversation()
+        await agent.end()
 
 
 if __name__ == "__main__":

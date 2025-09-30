@@ -1,43 +1,20 @@
 """Bidirectional streaming types for real-time audio/text conversations.
 
-PROBLEM ADDRESSED:
------------------
-Strands currently uses a request-response architecture without bidirectional streaming 
-support. Users cannot interrupt ongoing responses, provide additional context during 
-processing, or engage in real-time conversations. Each interaction requires a complete 
-request-response cycle.
+Type definitions for bidirectional streaming that extends Strands' existing streaming
+capabilities with real-time audio and persistent connection support.
 
-ARCHITECTURAL TRANSFORMATION:
-----------------------------
-Current Limitations: Strands' unidirectional architecture follows sequential 
-request-response cycles that prevent real-time interaction. This represents a 
-pull-based architecture where the model receives the request, processes it, and 
-sends a response back.
+Key features:
+- Audio input/output events with standardized formats
+- Interruption detection and handling
+- connection lifecycle management
+- Provider-agnostic event types
+- Backwards compatibility with existing StreamEvent types
 
-Bidirectional Solution: Uses persistent session-based connections with continuous 
-input and output flow. This implements a push-based architecture where the model 
-sends updates to the client as soon as response becomes available, without explicit 
-client requests.
-
-KEY CHARACTERISTICS:
--------------------
-- Persistent Sessions: Connections remain open for extended periods (Nova Sonic: 8 minutes, 
-  Google Live API: 15 minutes, OpenAI Realtime: 30 minutes) maintaining conversation context
-- Bidirectional Communication: Users can send input while models generate responses
-- Interruption Handling: Users can interrupt ongoing model responses in real-time without 
-  terminating the session
-- Tool Execution: Tools execute concurrently within the conversation flow rather than 
-  requiring requests rebuilding
-
-PROVIDER NORMALIZATION:
-----------------------
-Must normalize incompatible audio formats: Nova Sonic's hex-encoded base64, Google's 
-LINEAR16 PCM, OpenAI's Base64-encoded PCM16. Requires unified interruption event types 
-to handle Nova Sonic's stopReason = INTERRUPTED events, Google's VAD cancellation, and 
-OpenAI's conversation.item.truncate.
-
-This module extends existing StreamEvent types while maintaining backward compatibility 
-with existing Strands streaming patterns.
+Audio format normalization:
+- Supports PCM, WAV, Opus, and MP3 formats
+- Standardizes sample rates (16kHz, 24kHz, 48kHz)
+- Normalizes channel configurations (mono/stereo)
+- Abstracts provider-specific encodings
 """
 
 from typing import Any, Dict, Literal, Optional
@@ -56,8 +33,8 @@ DEFAULT_CHANNELS = 1
 class AudioOutputEvent(TypedDict):
     """Audio output event from the model.
     
-    Standardizes audio output across different providers using raw bytes
-    instead of provider-specific encodings (base64, hex, etc.).
+    Provides standardized audio output format across different providers using
+    raw bytes instead of provider-specific encodings.
     
     Attributes:
         audioData: Raw audio bytes (not base64 or hex encoded).
@@ -77,7 +54,7 @@ class AudioOutputEvent(TypedDict):
 class AudioInputEvent(TypedDict):
     """Audio input event for sending audio to the model.
     
-    Used when sending audio data through send_audio() method.
+    Used for sending audio data through the send() method.
     
     Attributes:
         audioData: Raw audio bytes to send to model.
@@ -117,45 +94,44 @@ class InterruptionDetectedEvent(TypedDict):
 
 
 class BidirectionalConnectionStartEvent(TypedDict, total=False):
-    """Session start event for bidirectional streaming.
+    """connection start event for bidirectional streaming.
     
     Attributes:
-        sessionId: Unique session identifier.
-        metadata: Provider-specific session metadata.
+        connectionId: Unique connection identifier.
+        metadata: Provider-specific connection metadata.
     """
     
-    sessionId: Optional[str]
+    connectionId: Optional[str]
     metadata: Optional[Dict[str, Any]]
 
 
 class BidirectionalConnectionEndEvent(TypedDict):
-    """Session end event for bidirectional streaming.
+    """connection end event for bidirectional streaming.
     
     Attributes:
-        reason: Reason for session end from predefined set.
-        sessionId: Unique session identifier.
-        metadata: Provider-specific session metadata.
+        reason: Reason for connection end from predefined set.
+        connectionId: Unique connection identifier.
+        metadata: Provider-specific connection metadata.
     """
     
     reason: Literal['user_request', 'timeout', 'error']
-    sessionId: Optional[str]
+    connectionId: Optional[str]
     metadata: Optional[Dict[str, Any]]
 
 
 class BidirectionalStreamEvent(StreamEvent, total=False):
     """Bidirectional stream event extending existing StreamEvent.
     
-    Inherits all existing StreamEvent fields (contentBlockDelta, toolUse, 
-    messageStart, etc.) while adding bidirectional-specific events.
-    Maintains full backward compatibility with existing Strands streaming.
+    Extends the existing StreamEvent type with bidirectional-specific events
+    while maintaining full backward compatibility with existing Strands streaming.
     
     Attributes:
         audioOutput: Audio output from the model.
         audioInput: Audio input sent to the model.
         textOutput: Text output from the model.
         interruptionDetected: User interruption detection.
-        BidirectionalConnectionStart: Session start event.
-        BidirectionalConnectionEnd: Session end event.
+        BidirectionalConnectionStart: connection start event.
+        BidirectionalConnectionEnd: connection end event.
     """
     
     audioOutput: AudioOutputEvent

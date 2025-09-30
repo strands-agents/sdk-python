@@ -1,16 +1,14 @@
 """Bidirectional session management for concurrent streaming conversations.
 
-SESSION PURPOSE:
----------------
-Session wrapper for bidirectional communication that manages concurrent tasks for 
-model events, tool execution, and audio processing while providing simple interface 
-for Agent interaction.
+Manages bidirectional communication sessions with concurrent processing of model events,
+tool execution, and audio processing. Provides coordination between background tasks
+while maintaining a simple interface for agent interaction.
 
-CONCURRENT ARCHITECTURE:
------------------------
-Unlike existing event_loop_cycle() that processes events sequentially where tool
-execution blocks conversation, this module coordinates concurrent tasks through
-asyncio queues and background task management.
+Features:
+- Concurrent task management for model events and tool execution
+- Interruption handling with audio buffer clearing
+- Tool execution with cancellation support
+- Session lifecycle management
 """
 
 import asyncio
@@ -35,10 +33,10 @@ SUPERVISION_INTERVAL = 0.1
 
 
 class BidirectionalConnection:
-    """Session wrapper for bidirectional communication.
+    """Session wrapper for bidirectional communication with concurrent task management.
     
-    Manages concurrent tasks for model events, tool execution, and audio processing
-    while providing simple interface for Agent interaction.
+    Coordinates background tasks for model event processing, tool execution, and audio
+    handling while providing a simple interface for agent interactions.
     """
     
     def __init__(self, model_session: BidirectionalModelSession, agent):
@@ -66,8 +64,8 @@ class BidirectionalConnection:
 async def start_bidirectional_connection(agent) -> BidirectionalConnection:
     """Initialize bidirectional session with concurrent background tasks.
     
-    Creates provider-specific session and starts concurrent tasks for model events,
-    tool execution, and session lifecycle management.
+    Creates a model-specific session and starts background tasks for processing
+    model events, executing tools, and managing the session lifecycle.
     
     Args:
         agent: BidirectionalAgent instance.
@@ -147,11 +145,10 @@ async def stop_bidirectional_connection(session: BidirectionalConnection) -> Non
 
 
 async def bidirectional_event_loop_cycle(session: BidirectionalConnection) -> None:
-    """Main bidirectional event loop coordinator - runs continuously during session.
+    """Main event loop coordinator that runs continuously during the session.
     
-    Coordinates background tasks and manages session lifecycle. Unlike the 
-    sequential event_loop_cycle() that processes events one by one, this coordinator
-    manages concurrent tasks and session state.
+    Monitors background tasks, manages session state, and handles session lifecycle.
+    Provides supervision for concurrent model event processing and tool execution.
     
     Args:
         session: BidirectionalConnection to coordinate.
@@ -185,10 +182,10 @@ async def bidirectional_event_loop_cycle(session: BidirectionalConnection) -> No
 
 
 async def _handle_interruption(session: BidirectionalConnection) -> None:
-    """Handle interruption detection with comprehensive task cancellation.
+    """Handle interruption detection with task cancellation and audio buffer clearing.
     
-    Sets interruption flag, cancels pending tool tasks, and aggressively 
-    clears audio output queue following Nova Sonic example patterns.
+    Cancels pending tool tasks and clears audio output queues to ensure responsive
+    interruption handling during conversations.
     
     Args:
         session: BidirectionalConnection to handle interruption for.
@@ -251,10 +248,10 @@ async def _handle_interruption(session: BidirectionalConnection) -> None:
 
 
 async def _process_model_events(session: BidirectionalConnection) -> None:
-    """Process model events using existing Strands event types.
+    """Process model events and convert them to Strands format.
     
-    This background task handles all model responses and converts
-    them to existing StreamEvent format for integration with Strands.
+    Background task that handles all model responses, converts provider-specific
+    events to standardized formats, and manages interruption detection.
     
     Args:
         session: BidirectionalConnection containing model session.
@@ -309,11 +306,11 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
 
 
 async def _process_tool_execution(session: BidirectionalConnection) -> None:
-    """Execute tools concurrently using existing Strands infrastructure with barge-in support.
+    """Execute tools concurrently with interruption support.
     
-    This background task manages tool execution without blocking
-    model event processing or user interaction. Includes proper
-    task cleanup and cancellation handling.
+    Background task that manages tool execution without blocking model event
+    processing or user interaction. Includes proper task cleanup and cancellation
+    handling for interruptions.
     
     Args:
         session: BidirectionalConnection containing tool queue.
@@ -396,11 +393,10 @@ def _convert_to_strands_event(provider_event: Dict) -> Dict:
 
 
 async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use: Dict) -> None:
-    """Execute tool using existing Strands infrastructure with barge-in support.
+    """Execute tool using Strands infrastructure with interruption support.
     
-    Model-agnostic tool execution that uses existing Strands tool system,
-    handles interruption during execution, and delegates result formatting 
-    to provider-specific session.
+    Executes tools using the existing Strands tool system, handles interruption
+    during execution, and sends results back to the model provider.
     
     Args:
         session: BidirectionalConnection for context.

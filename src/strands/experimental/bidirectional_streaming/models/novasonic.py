@@ -1,23 +1,15 @@
 """Nova Sonic bidirectional model provider for real-time streaming conversations.
 
-PROVIDER PURPOSE:
-----------------
-Implements BidirectionalModel and BidirectionalModelSession interfaces for Nova Sonic,
-handling the complex three-tier event management and structured event cleanup sequences
-required by Nova Sonic's InvokeModelWithBidirectionalStream protocol.
+Implements the BidirectionalModel interface for Amazon's Nova Sonic, handling the
+complex event sequencing and audio processing required by Nova Sonic's 
+InvokeModelWithBidirectionalStream protocol.
 
-NOVA SONIC SPECIFICS:
---------------------
-- Requires hierarchical event sequences: sessionStart → promptStart → content streaming
-- Uses hex-encoded base64 audio format that needs conversion to raw bytes
-- Implements toolUse/toolResult with content containers and identifier tracking
-- Manages 8-minute session limits with proper cleanup sequences
-- Handles stopReason: "INTERRUPTED" events for interruption detection
-
-INTEGRATION APPROACH:
---------------------
-Adapts existing Nova Sonic sample patterns to work with Strands bidirectional
-infrastructure while maintaining provider-specific protocol requirements.
+Nova Sonic specifics:
+- Hierarchical event sequences: connectionStart → promptStart → content streaming
+- Base64-encoded audio format with hex encoding
+- Tool execution with content containers and identifier tracking
+- 8-minute connection limits with proper cleanup sequences
+- Interruption detection through stopReason events
 """
 
 import asyncio
@@ -85,10 +77,15 @@ RESPONSE_TIMEOUT = 1.0
 
 
 class NovaSonicSession(BidirectionalModelSession):
-    """Nova Sonic session handling protocol-specific details."""
+    """Nova Sonic connection implementation handling the provider's specific protocol.
+    
+    Manages Nova Sonic's complex event sequencing, audio format conversion, and
+    tool execution patterns while providing the standard BidirectionalModelSession
+    interface.
+    """
     
     def __init__(self, stream, config: Dict[str, Any]):
-        """Initialize Nova Sonic session.
+        """Initialize Nova Sonic connection.
         
         Args:
             stream: Nova Sonic bidirectional stream.
@@ -103,8 +100,8 @@ class NovaSonicSession(BidirectionalModelSession):
         self.audio_content_name = str(uuid.uuid4())
         self.text_content_name = str(uuid.uuid4())
         
-        # Audio session state
-        self.audio_session_active = False
+        # Audio connection state
+        self.audio_connection_active = False
         self.last_audio_time = None
         self.silence_threshold = SILENCE_THRESHOLD
         self.silence_task = None
@@ -114,7 +111,7 @@ class NovaSonicSession(BidirectionalModelSession):
             logger.error("Stream is None")
             raise ValueError("Stream cannot be None")
         
-        logger.debug("Nova Sonic session initialized with prompt: %s", self.prompt_name)
+        logger.debug("Nova Sonic connection initialized with prompt: %s", self.prompt_name)
     
     async def initialize(
         self,
@@ -122,7 +119,7 @@ class NovaSonicSession(BidirectionalModelSession):
         tools: Optional[List[ToolSpec]] = None,
         messages: Optional[Messages] = None
     ) -> None:
-        """Initialize Nova Sonic session with required protocol sequence."""
+        """Initialize Nova Sonic connection with required protocol sequence."""
         try:
             system_prompt = system_prompt or "You are a helpful assistant. Keep responses brief."
             
@@ -131,7 +128,7 @@ class NovaSonicSession(BidirectionalModelSession):
             log_flow("nova_init", f"sending {len(init_events)} events")
             await self._send_initialization_events(init_events)
             
-            log_event("nova_session_initialized")
+            log_event("nova_connection_initialized")
             self._response_task = asyncio.create_task(self._process_responses())
             
         except Exception as e:
@@ -142,7 +139,7 @@ class NovaSonicSession(BidirectionalModelSession):
                                    messages: Optional[Messages]) -> List[str]:
         """Build the sequence of initialization events."""
         events = [
-            self._get_session_start_event(),
+            self._get_connection_start_event(),
             self._get_prompt_start_event(tools)
         ]
         
@@ -223,13 +220,13 @@ class NovaSonicSession(BidirectionalModelSession):
             
         log_flow("nova_events", "starting event stream")
         
-        # Emit session start event to Strands event system
-        session_start: BidirectionalConnectionStartEvent = {
-            "sessionId": self.prompt_name,
+        # Emit connection start event to Strands event system
+        connection_start: BidirectionalConnectionStartEvent = {
+            "connectionId": self.prompt_name,
             "metadata": {"provider": "nova_sonic", "model_id": self.config.get("model_id")}
         }
         yield {
-            "BidirectionalConnectionStart": session_start
+            "BidirectionalConnectionStart": connection_start
         }
         
         # Initialize event queue if not already done
@@ -255,22 +252,22 @@ class NovaSonicSession(BidirectionalModelSession):
             logger.error("Error receiving Nova Sonic event: %s", e)
             logger.error(traceback.format_exc())
         finally:
-            # Emit session end event when exiting
-            session_end: BidirectionalConnectionEndEvent = {
-                "sessionId": self.prompt_name,
-                "reason": "session_complete",
+            # Emit connection end event when exiting
+            connection_end: BidirectionalConnectionEndEvent = {
+                "connectionId": self.prompt_name,
+                "reason": "connection_complete",
                 "metadata": {"provider": "nova_sonic"}
             }
             yield {
-                "BidirectionalConnectionEnd": session_end
+                "BidirectionalConnectionEnd": connection_end
             }
     
-    async def start_audio_session(self) -> None:
-        """Start audio input session (call once before sending audio chunks)."""
-        if self.audio_session_active:
+    async def start_audio_connection(self) -> None:
+        """Start audio input connection (call once before sending audio chunks)."""
+        if self.audio_connection_active:
             return
             
-        log_event("nova_audio_session_start")
+        log_event("nova_audio_connection_start")
         
         audio_content_start = json.dumps({
             "event": {
@@ -286,16 +283,16 @@ class NovaSonicSession(BidirectionalModelSession):
         })
         
         await self._send_nova_event(audio_content_start)
-        self.audio_session_active = True
+        self.audio_connection_active = True
     
     async def send_audio_content(self, audio_input: AudioInputEvent) -> None:
         """Send audio using Nova Sonic protocol-specific format."""
         if not self._active:
             return
         
-        # Start audio session if not already active
-        if not self.audio_session_active:
-            await self.start_audio_session()
+        # Start audio connection if not already active
+        if not self.audio_connection_active:
+            await self.start_audio_connection()
         
         # Update last audio time and cancel any pending silence task
         self.last_audio_time = time.time()
@@ -322,10 +319,10 @@ class NovaSonicSession(BidirectionalModelSession):
         self.silence_task = asyncio.create_task(self._check_silence())
     
     async def _check_silence(self):
-        """Check for silence and automatically end audio session."""
+        """Check for silence and automatically end audio connection."""
         try:
             await asyncio.sleep(self.silence_threshold)
-            if self.audio_session_active and self.last_audio_time:
+            if self.audio_connection_active and self.last_audio_time:
                 elapsed = time.time() - self.last_audio_time
                 if elapsed >= self.silence_threshold:
                     log_event("nova_silence_detected", elapsed=elapsed)
@@ -334,11 +331,11 @@ class NovaSonicSession(BidirectionalModelSession):
             pass
     
     async def end_audio_input(self) -> None:
-        """End current audio input session to trigger Nova Sonic processing."""
-        if not self.audio_session_active:
+        """End current audio input connection to trigger Nova Sonic processing."""
+        if not self.audio_connection_active:
             return
             
-        log_event("nova_audio_session_end")
+        log_event("nova_audio_connection_end")
         
         audio_content_end = json.dumps({
             "event": {
@@ -350,7 +347,7 @@ class NovaSonicSession(BidirectionalModelSession):
         })
         
         await self._send_nova_event(audio_content_end)
-        self.audio_session_active = False
+        self.audio_connection_active = False
     
     async def send_text_content(self, text: str, **kwargs) -> None:
         """Send text content using Nova Sonic format."""
@@ -407,11 +404,11 @@ class NovaSonicSession(BidirectionalModelSession):
         await self.send_tool_result(tool_use_id, error_result)
     
     async def close(self) -> None:
-        """Close Nova Sonic session with proper cleanup sequence."""
+        """Close Nova Sonic connection with proper cleanup sequence."""
         if not self._active:
             return
         
-        log_flow("nova_cleanup", "starting session close")
+        log_flow("nova_cleanup", "starting connection close")
         self._active = False
         
         # Cancel response processing task if running
@@ -423,14 +420,14 @@ class NovaSonicSession(BidirectionalModelSession):
                 pass
         
         try:
-            # End audio session if active
-            if self.audio_session_active:
+            # End audio connection if active
+            if self.audio_connection_active:
                 await self.end_audio_input()
             
             # Send cleanup events
             cleanup_events = [
                 self._get_prompt_end_event(),
-                self._get_session_end_event()
+                self._get_connection_end_event()
             ]
             
             for event in cleanup_events:
@@ -448,7 +445,7 @@ class NovaSonicSession(BidirectionalModelSession):
         except Exception as e:
             log_event("nova_cleanup_error", error=str(e))
         finally:
-            log_event("nova_session_closed")
+            log_event("nova_connection_closed")
     
     def _convert_nova_event(self, nova_event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Convert Nova Sonic events to provider-agnostic format."""
@@ -542,8 +539,8 @@ class NovaSonicSession(BidirectionalModelSession):
             return None
     
     # Nova Sonic event template methods
-    def _get_session_start_event(self) -> str:
-        """Generate Nova Sonic session start event."""
+    def _get_connection_start_event(self) -> str:
+        """Generate Nova Sonic connection start event."""
         return json.dumps({
             "event": {
                 "sessionStart": {
@@ -676,11 +673,11 @@ class NovaSonicSession(BidirectionalModelSession):
             }
         })
     
-    def _get_session_end_event(self) -> str:
-        """Generate session end event."""
+    def _get_connection_end_event(self) -> str:
+        """Generate connection end event."""
         return json.dumps({
             "event": {
-                "sessionEnd": {}
+                "connectionEnd": {}
             }
         })
     
@@ -703,7 +700,11 @@ class NovaSonicSession(BidirectionalModelSession):
 
 
 class NovaSonicBidirectionalModel(BidirectionalModel):
-    """Nova Sonic model implementing bidirectional capabilities."""
+    """Nova Sonic model implementation for bidirectional streaming.
+    
+    Provides access to Amazon's Nova Sonic model through the bidirectional
+    streaming interface, handling AWS authentication and connection management.
+    """
     
     def __init__(self, model_id: str = "amazon.nova-sonic-v1:0", region: str = "us-east-1", **config):
         """Initialize Nova Sonic bidirectional model.
@@ -727,8 +728,8 @@ class NovaSonicBidirectionalModel(BidirectionalModel):
         messages: Optional[Messages] = None,
         **kwargs
     ) -> BidirectionalModelSession:
-        """Create Nova Sonic bidirectional session."""
-        log_flow("nova_session_create", "starting")
+        """Create Nova Sonic bidirectional connection."""
+        log_flow("nova_connection_create", "starting")
         
         # Initialize client if needed
         if not self._client:
@@ -741,16 +742,16 @@ class NovaSonicBidirectionalModel(BidirectionalModel):
                     InvokeModelWithBidirectionalStreamOperationInput(model_id=self.model_id)
                 ))
             
-            # Create and initialize session
-            session = NovaSonicSession(stream, self.config)
-            await time_it_async("initialize_session", 
-                lambda: session.initialize(system_prompt, tools, messages))
+            # Create and initialize connection
+            connection = NovaSonicSession(stream, self.config)
+            await time_it_async("initialize_connection", 
+                lambda: connection.initialize(system_prompt, tools, messages))
             
-            log_event("nova_session_created")
-            return session
+            log_event("nova_connection_created")
+            return connection
         except Exception as e:
-            log_event("nova_session_create_error", error=str(e))
-            logger.error("Failed to create Nova Sonic session: %s", e)
+            log_event("nova_connection_create_error", error=str(e))
+            logger.error("Failed to create Nova Sonic connection: %s", e)
             raise
     
     async def _initialize_client(self) -> None:
