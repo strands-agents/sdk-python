@@ -597,7 +597,6 @@ class Agent:
         """
         callback_handler = kwargs.get("callback_handler", self.callback_handler)
 
-        # runtime override or agent default TODO in the future, when we expose 'output_schema, we should consider allowing for halfway configuration. for example, the user should be able to define `output_mode` on the Agent level but `structured_output_model` on the `output_mode`
         output_schema: Optional[OutputSchema] = (
             resolve_output_schema(structured_output_model) or self._default_output_schema
         )
