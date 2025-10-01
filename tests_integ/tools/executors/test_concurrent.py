@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 
@@ -59,3 +60,14 @@ async def test_agent_invoke_async_tool_executor(agent, tool_events):
         {"name": "time_tool", "event": "end"},
     ]
     assert tru_events == exp_events
+
+
+@pytest.mark.asyncio
+async def test_agent_invoke_async_tool_executor_cancelled(cancel_hook, tool_executor, time_tool, tool_events):
+    agent = Agent(tools=[time_tool], tool_executor=tool_executor, hooks=[cancel_hook])
+
+    await agent.invoke_async("What is the time in New York?")
+    messages = json.dumps(agent.messages)
+
+    assert len(tool_events) == 0
+    assert "cancelled tool call" in messages

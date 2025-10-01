@@ -31,6 +31,15 @@ def tracer():
         yield mock_get_tracer.return_value
 
 
+@pytest.fixture
+def cancel_hook(agent):
+    def callback(event):
+        event.cancel = "Tool execution cancelled by user"
+        return event
+
+    return callback
+
+
 @pytest.mark.asyncio
 async def test_executor_stream_yields_result(
     executor, agent, tool_results, invocation_state, hook_events, weather_tool, alist
@@ -215,3 +224,27 @@ async def test_executor_stream_with_trace(
 
     cycle_trace.add_child.assert_called_once()
     assert isinstance(cycle_trace.add_child.call_args[0][0], Trace)
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_cancel(executor, agent, cancel_hook, tool_results, invocation_state, alist):
+    agent.hooks.add_callback(BeforeToolCallEvent, cancel_hook)
+    tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+
+    tru_events = await alist(stream)
+    exp_events = [
+        ToolResultEvent(
+            {
+                "toolUseId": "1",
+                "status": "error",
+                "content": [{"text": "Tool execution cancelled by user"}],
+            },
+        ),
+    ]
+    assert tru_events == exp_events
+
+    tru_results = tool_results
+    exp_results = [exp_events[-1].tool_result]
+    assert tru_results == exp_results

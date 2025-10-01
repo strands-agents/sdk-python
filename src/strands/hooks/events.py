@@ -97,14 +97,17 @@ class BeforeToolCallEvent(HookEvent):
             to change which tool gets executed. This may be None if tool lookup failed.
         tool_use: The tool parameters that will be passed to selected_tool.
         invocation_state: Keyword arguments that will be passed to the tool.
+        cancel: A user defined message that when set, will cancel the tool call.
+            The message will be placed into a tool result with an error status.
     """
 
     selected_tool: Optional[AgentTool]
     tool_use: ToolUse
     invocation_state: dict[str, Any]
+    cancel: Optional[str] = None
 
     def _can_write(self, name: str) -> bool:
-        return name in ["selected_tool", "tool_use"]
+        return name in ["cancel", "selected_tool", "tool_use"]
 
 
 @dataclass

@@ -81,6 +81,24 @@ class ToolExecutor(abc.ABC):
             )
         )
 
+        if before_event.cancel:
+            after_event = agent.hooks.invoke_callbacks(
+                AfterToolCallEvent(
+                    agent=agent,
+                    tool_use=tool_use,
+                    invocation_state=invocation_state,
+                    result={
+                        "toolUseId": str(tool_use.get("toolUseId")),
+                        "status": "error",
+                        "content": [{"text": before_event.cancel}],
+                    },
+                    selected_tool=None,
+                )
+            )
+            yield ToolResultEvent(after_event.result)
+            tool_results.append(after_event.result)
+            return
+
         try:
             selected_tool = before_event.selected_tool
             tool_use = before_event.tool_use
@@ -123,7 +141,7 @@ class ToolExecutor(abc.ABC):
                 # so that we don't needlessly yield ToolStreamEvents for non-generator callbacks.
                 # In which case, as soon as we get a ToolResultEvent we're done and for ToolStreamEvent
                 # we yield it directly; all other cases (non-sdk AgentTools), we wrap events in
-                # ToolStreamEvent and the last even is just the result
+                # ToolStreamEvent and the last event is just the result.
 
                 if isinstance(event, ToolResultEvent):
                     # below the last "event" must point to the tool_result
