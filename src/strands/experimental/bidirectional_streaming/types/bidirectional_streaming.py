@@ -71,6 +71,23 @@ class AudioInputEvent(TypedDict):
     channels: Literal[1, 2]
 
 
+class ImageInputEvent(TypedDict):
+    """Image input event for sending images/video frames to the model.
+    
+    Used for sending image data through the send() method. Supports both
+    raw image bytes and base64-encoded data.
+    
+    Attributes:
+        imageData: Image bytes (raw or base64-encoded string).
+        mimeType: MIME type (e.g., "image/jpeg", "image/png").
+        encoding: How the imageData is encoded.
+    """
+    
+    imageData: bytes | str
+    mimeType: str
+    encoding: Literal["base64", "raw"]
+
+
 class TextOutputEvent(TypedDict):
     """Text output event from the model during bidirectional streaming.
 
@@ -130,6 +147,7 @@ class BidirectionalStreamEvent(StreamEvent, total=False):
     Attributes:
         audioOutput: Audio output from the model.
         audioInput: Audio input sent to the model.
+        imageInput: Image input sent to the model.
         textOutput: Text output from the model.
         interruptionDetected: User interruption detection.
         BidirectionalConnectionStart: connection start event.
@@ -138,6 +156,7 @@ class BidirectionalStreamEvent(StreamEvent, total=False):
 
     audioOutput: AudioOutputEvent
     audioInput: AudioInputEvent
+    imageInput: ImageInputEvent
     textOutput: TextOutputEvent
     interruptionDetected: InterruptionDetectedEvent
     BidirectionalConnectionStart: BidirectionalConnectionStartEvent

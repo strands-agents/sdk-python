@@ -29,6 +29,7 @@ from ..types.bidirectional_streaming import (
     AudioOutputEvent,
     BidirectionalConnectionEndEvent,
     BidirectionalConnectionStartEvent,
+    ImageInputEvent,
     InterruptionDetectedEvent,
     TextOutputEvent,
 )
@@ -233,6 +234,39 @@ class GeminiLiveSession(BidirectionalModelSession):
             
         except Exception as e:
             logger.error("Error sending audio content: %s", e)
+    
+    async def send_image_content(self, image_input: ImageInputEvent) -> None:
+        """Send image content using Gemini Live API.
+        
+        Sends image frames following the same pattern as the GitHub example.
+        Images are sent as base64-encoded data with MIME type.
+        """
+        if not self._active:
+            return
+        
+        try:
+            # Prepare the message based on encoding
+            if image_input["encoding"] == "base64":
+                # Data is already base64 encoded
+                if isinstance(image_input["imageData"], bytes):
+                    data_str = image_input["imageData"].decode()
+                else:
+                    data_str = image_input["imageData"]
+            else:
+                # Raw bytes - need to base64 encode
+                data_str = base64.b64encode(image_input["imageData"]).decode()
+            
+            # Create the message in the format expected by Gemini Live
+            msg = {
+                "mime_type": image_input["mimeType"],
+                "data": data_str
+            }
+            
+            # Send using the same method as the GitHub example
+            await self.live_session.send(input=msg)
+            
+        except Exception as e:
+            logger.error("Error sending image content: %s", e)
     
     async def send_text_content(self, text: str, **kwargs) -> None:
         """Send text content using Gemini Live API."""

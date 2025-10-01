@@ -1,10 +1,17 @@
-"""Test suite for bidirectional streaming with real-time audio interaction.
+"""Test suite for bidirectional streaming with real-time audio and video interaction.
 
 Tests the complete bidirectional streaming system including audio input/output,
-interruption handling, and concurrent tool execution using Nova Sonic.
+image/video input from camera, interruption handling, and concurrent tool execution.
+
+Requirements:
+- pip install opencv-python pillow pyaudio
+- Camera access permissions
+- GOOGLE_AI_API_KEY environment variable for Gemini Live
 """
 
 import asyncio
+import base64
+import io
 import logging
 import sys
 from pathlib import Path
@@ -12,6 +19,15 @@ from pathlib import Path
 # Add the src directory to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 import time
+
+try:
+    import cv2
+    import PIL.Image
+    CAMERA_AVAILABLE = True
+except ImportError as e:
+    print(f"Camera dependencies not available: {e}")
+    print("Install with: pip install opencv-python pillow")
+    CAMERA_AVAILABLE = False
 
 import pyaudio
 from strands_tools import calculator
@@ -164,6 +180,72 @@ async def receive(agent, context):
         pass
 
 
+def _get_frame(cap):
+    """Capture and process a frame from camera."""
+    if not CAMERA_AVAILABLE:
+        return None
+        
+    # Read the frame
+    ret, frame = cap.read()
+    # Check if the frame was read successfully
+    if not ret:
+        return None
+    # Fix: Convert BGR to RGB color space
+    # OpenCV captures in BGR but PIL expects RGB format
+    # This prevents the blue tint in the video feed
+    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    img = PIL.Image.fromarray(frame_rgb)  # Now using RGB frame
+    img.thumbnail([1024, 1024])
+
+    image_io = io.BytesIO()
+    img.save(image_io, format="jpeg")
+    image_io.seek(0)
+
+    mime_type = "image/jpeg"
+    image_bytes = image_io.read()
+    return {"mime_type": mime_type, "data": base64.b64encode(image_bytes).decode()}
+
+
+async def get_frames(context):
+    """Capture frames from camera and send to agent."""
+    if not CAMERA_AVAILABLE:
+        print("Camera not available - skipping video capture")
+        return
+        
+    # This takes about a second, and will block the whole program
+    # causing the audio pipeline to overflow if you don't to_thread it.
+    cap = await asyncio.to_thread(cv2.VideoCapture, 0)  # 0 represents the default camera
+    
+    print("Camera initialized. Starting video capture...")
+
+    try:
+        while context["active"] and time.time() - context["start_time"] < context["duration"]:
+            frame = await asyncio.to_thread(_get_frame, cap)
+            if frame is None:
+                break
+
+            # Send frame to agent as image input
+            try:
+                image_event = {
+                    "imageData": frame["data"],
+                    "mimeType": frame["mime_type"],
+                    "encoding": "base64"
+                }
+                await context["agent"].send(image_event)
+                print("📸 Frame sent to model")
+            except Exception as e:
+                logger.error(f"Error sending frame: {e}")
+
+            # Wait 1 second between frames (1 FPS like the example)
+            await asyncio.sleep(1.0)
+
+    except asyncio.CancelledError:
+        pass
+    finally:
+        # Release the VideoCapture object
+        cap.release()
+
+
 async def send(agent, context):
     """Send audio input to agent."""
     try:
@@ -183,9 +265,10 @@ async def send(agent, context):
 
 
 async def main(duration=180):
-    """Main function for bidirectional streaming test."""
-    print("Starting bidirectional streaming test...")
+    """Main function for bidirectional streaming test with camera support."""
+    print("Starting bidirectional streaming test with camera...")
     print("Audio optimizations: 1024-byte buffers, balanced smooth playback + responsive interruption")
+    print("Video: Camera frames sent at 1 FPS to model")
 
     # Initialize model and agent
     # Get API key from environment variable
@@ -224,14 +307,20 @@ async def main(duration=180):
         "duration": duration,
         "start_time": time.time(),
         "interrupted": False,
+        "agent": agent,  # Add agent reference for camera task
     }
 
-    print("Speak into microphone. Press Ctrl+C to exit.")
+    print("Speak into microphone and show things to camera. Press Ctrl+C to exit.")
 
     try:
-        # Run all tasks concurrently
+        # Run all tasks concurrently including camera
         await asyncio.gather(
-            play(context), record(context), receive(agent, context), send(agent, context), return_exceptions=True
+            play(context), 
+            record(context), 
+            receive(agent, context), 
+            send(agent, context),
+            get_frames(context),  # Add camera task
+            return_exceptions=True
         )
     except KeyboardInterrupt:
         print("\nInterrupted by user")
