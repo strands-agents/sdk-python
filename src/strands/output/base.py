@@ -44,16 +44,16 @@ class OutputSchema:
 
     def __init__(
         self,
-        type: Type[BaseModel],
+        model: Type[BaseModel],
         mode: Optional[OutputMode] = None,
     ):
         """Initialize output schema.
 
         Args:
-            type: Pydantic model type for structured output
+            model: Pydantic model type for structured output
             mode: Output mode to use (defaults to ToolMode)
         """
-        self.type = type
+        self.model = model
         if mode is None:
             from .modes import ToolMode
 
@@ -70,4 +70,4 @@ class OutputSchema:
         Returns:
             List of tool specifications for the output type
         """
-        return self.mode.get_tool_specs(self.type)
+        return self.mode.get_tool_specs(self.model)

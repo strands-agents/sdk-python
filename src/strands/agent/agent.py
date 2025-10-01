@@ -695,7 +695,7 @@ class Agent:
         if structured_output_context and structured_output_context.output_schema:
             output_schema = structured_output_context.output_schema
             if isinstance(output_schema.mode, ToolMode):
-                for tool_instance in output_schema.mode.get_tool_instances(output_schema.type):
+                for tool_instance in output_schema.mode.get_tool_instances(output_schema.model):
                     self.tool_registry.register_dynamic_tool(tool_instance)
 
         try:
