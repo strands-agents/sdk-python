@@ -171,7 +171,7 @@ class MultiAgentBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def deserialize_state(self, payload: dict) -> None:
+    def deserialize_state(self, payload: dict[str, Any]) -> None:
         """Restore orchestrator state from a session dict."""
         raise NotImplementedError
 
