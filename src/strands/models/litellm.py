@@ -12,7 +12,6 @@ from litellm.utils import supports_response_schema
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
-from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Messages
 from ..types.streaming import StreamEvent
@@ -228,7 +227,7 @@ class LiteLLMModel(OpenAIModel):
             messages=self.format_request(prompt, system_prompt=system_prompt)["messages"],
             response_format=output_model,
         )
-        
+
         if len(response.choices) > 1:
             raise ValueError("Multiple choices found in the response.")
         if not response.choices or response.choices[0].finish_reason != "tool_calls":
@@ -249,9 +248,9 @@ class LiteLLMModel(OpenAIModel):
         """Get structured output using tool calling fallback."""
         tool_spec = convert_pydantic_to_tool_spec(output_model)
         request = self.format_request(prompt, [tool_spec], system_prompt, cast(ToolChoice, {"any": {}}))
-        args = {**self.client_args, **request, 'stream': False}
+        args = {**self.client_args, **request, "stream": False}
         response = await litellm.acompletion(**args)
-        
+
         if len(response.choices) > 1:
             raise ValueError("Multiple choices found in the response.")
         if not response.choices or response.choices[0].finish_reason != "tool_calls":
@@ -266,9 +265,6 @@ class LiteLLMModel(OpenAIModel):
             return output_model(**tool_call_data)
         except (json.JSONDecodeError, TypeError, ValueError) as e:
             raise ValueError(f"Failed to parse or load content into model: {e}") from e
-
-
-                
 
     def _apply_proxy_prefix(self) -> None:
         """Apply litellm_proxy/ prefix to model_id when use_litellm_proxy is True.

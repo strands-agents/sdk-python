@@ -295,7 +295,7 @@ async def test_structured_output_unsupported_model(litellm_acompletion, model, t
 
     mock_tool_call = unittest.mock.Mock()
     mock_tool_call.function.arguments = '{"name": "John", "age": 30}'
-    
+
     mock_choice = unittest.mock.Mock()
     mock_choice.finish_reason = "tool_calls"
     mock_choice.message.tool_calls = [mock_tool_call]

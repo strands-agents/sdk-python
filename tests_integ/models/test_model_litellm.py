@@ -1,6 +1,7 @@
+import unittest.mock
+
 import pydantic
 import pytest
-import unittest.mock
 
 import strands
 from strands import Agent
@@ -43,16 +44,21 @@ def weather():
 
 class Location(pydantic.BaseModel):
     """Location information."""
+
     city: str = pydantic.Field(description="The city name")
     country: str = pydantic.Field(description="The country name")
 
+
 class WeatherCondition(pydantic.BaseModel):
     """Weather condition details."""
+
     condition: str = pydantic.Field(description="The weather condition (e.g., 'sunny', 'rainy', 'cloudy')")
     temperature: int = pydantic.Field(description="Temperature in Celsius")
 
+
 class NestedWeather(pydantic.BaseModel):
     """Weather report with nested location and condition information."""
+
     time: str = pydantic.Field(description="The time in HH:MM format")
     location: Location = pydantic.Field(description="Location information")
     weather: WeatherCondition = pydantic.Field(description="Weather condition details")
@@ -60,11 +66,10 @@ class NestedWeather(pydantic.BaseModel):
 
 @pytest.fixture
 def nested_weather():
-
     return NestedWeather(
         time="12:00",
         location=Location(city="New York", country="USA"),
-        weather=WeatherCondition(condition="sunny", temperature=25)
+        weather=WeatherCondition(condition="sunny", temperature=25),
     )
 
 
@@ -163,24 +168,30 @@ def test_structured_output_multi_modal_input(agent, yellow_img, yellow_color):
     exp_color = yellow_color
     assert tru_color == exp_color
 
+
 def test_structured_output_unsupported_model(model, nested_weather):
     # Mock supports_response_schema to return False to test fallback mechanism
-    with unittest.mock.patch.multiple(
-        'strands.models.litellm',
-        supports_response_schema=unittest.mock.DEFAULT,
-    ) as mocks, \
-    unittest.mock.patch.object(model, '_structured_output_using_tool', wraps=model._structured_output_using_tool) as mock_tool, \
-    unittest.mock.patch.object(model, '_structured_output_using_response_schema', wraps=model._structured_output_using_response_schema) as mock_schema:
-        
-        mocks['supports_response_schema'].return_value = False
-        
+    with (
+        unittest.mock.patch.multiple(
+            "strands.models.litellm",
+            supports_response_schema=unittest.mock.DEFAULT,
+        ) as mocks,
+        unittest.mock.patch.object(
+            model, "_structured_output_using_tool", wraps=model._structured_output_using_tool
+        ) as mock_tool,
+        unittest.mock.patch.object(
+            model, "_structured_output_using_response_schema", wraps=model._structured_output_using_response_schema
+        ) as mock_schema,
+    ):
+        mocks["supports_response_schema"].return_value = False
+
         # Test that structured output still works via tool calling fallback
         agent = Agent(model=model)
         prompt = "The time is 12:00 in New York, USA and the weather is sunny with temperature 25 degrees Celsius"
         tru_weather = agent.structured_output(NestedWeather, prompt)
         exp_weather = nested_weather
         assert tru_weather == exp_weather
-        
+
         # Verify that the tool method was called and schema method was not
         mock_tool.assert_called_once()
         mock_schema.assert_not_called()
