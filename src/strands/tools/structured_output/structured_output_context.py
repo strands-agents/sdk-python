@@ -52,7 +52,7 @@ class StructuredOutputContext:
         self.results: Dict[str, BaseModel] = {}
         self.output_schema: Optional["OutputSchema"] = output_schema
         self.forced_mode: bool = False
-        self.tool_choice: Optional[ToolChoice] = None
+        self.tool_choice: ToolChoice | None = None
         self.MAX_STRUCTURED_OUTPUT_ATTEMPTS: int = 3
 
         self.expected_tool_names: Set[str] = set()
@@ -68,7 +68,7 @@ class StructuredOutputContext:
         """
         self.results[tool_use_id] = result
 
-    def get_result(self, tool_use_id: str) -> Optional[BaseModel]:
+    def get_result(self, tool_use_id: str) -> BaseModel | None:
         """Retrieve a stored structured output result.
 
         Args:
@@ -79,7 +79,7 @@ class StructuredOutputContext:
         """
         return self.results.get(tool_use_id)
 
-    def pop_result(self, tool_use_id: str) -> Optional[BaseModel]:
+    def pop_result(self, tool_use_id: str) -> BaseModel | None:
         """Retrieve and remove a stored structured output result.
 
         Args:
@@ -107,7 +107,7 @@ class StructuredOutputContext:
         """
         return self.attempts <= self.MAX_STRUCTURED_OUTPUT_ATTEMPTS
 
-    def set_forced_mode(self, tool_choice: Optional[Dict] = None) -> None:
+    def set_forced_mode(self, tool_choice: dict | None = None) -> None:
         """Mark this context as being in forced structured output mode.
 
         Args:
@@ -130,7 +130,7 @@ class StructuredOutputContext:
             return False
         return any(tool_use.get("name") in self.expected_tool_names for tool_use in tool_uses)
 
-    def extract_result(self, tool_uses: list[ToolUse]) -> Optional[BaseModel]:
+    def extract_result(self, tool_uses: list[ToolUse]) -> BaseModel | None:
         """Extract and remove structured output result from stored results.
 
         This method searches through the provided tool_uses for structured output tools,

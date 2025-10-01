@@ -608,7 +608,7 @@ class Agent:
 
         with trace_api.use_span(self.trace_span):
             try:
-                events = self._run_loop(messages, kwargs, output_schema=output_schema)
+                events = self._run_loop(messages, kwargs, output_schema)
 
                 async for event in events:
                     event.prepare(invocation_state=kwargs)
