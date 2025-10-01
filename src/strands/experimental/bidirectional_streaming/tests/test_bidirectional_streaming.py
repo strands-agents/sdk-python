@@ -5,6 +5,7 @@ interruption handling, and concurrent tool execution using Nova Sonic.
 """
 
 import asyncio
+import logging
 import sys
 from pathlib import Path
 
@@ -17,6 +18,13 @@ from strands_tools import calculator
 
 from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
 from strands.experimental.bidirectional_streaming.models.novasonic import NovaSonicBidirectionalModel
+from strands.experimental.bidirectional_streaming.models.gemini_live import GeminiLiveBidirectionalModel
+
+# Configure logging - debug only for Gemini Live, info for everything else
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+gemini_logger = logging.getLogger('strands.experimental.bidirectional_streaming.models.gemini_live')
+gemini_logger.setLevel(logging.DEBUG)
+logger = logging.getLogger(__name__)
 
 
 async def play(context):
@@ -78,12 +86,25 @@ async def play(context):
 async def record(context):
     """Record audio input from microphone."""
     audio = pyaudio.PyAudio()
+    
+    # List all available audio devices
+    print("Available audio devices:")
+    for i in range(audio.get_device_count()):
+        device_info = audio.get_device_info_by_index(i)
+        if device_info['maxInputChannels'] > 0:  # Only show input devices
+            print(f"  Device {i}: {device_info['name']} (inputs: {device_info['maxInputChannels']})")
+    
+    # Get default input device info
+    default_device = audio.get_default_input_device_info()
+    print(f"\nUsing default input device: {default_device['name']} (Device {default_device['index']})")
+    
     microphone = audio.open(
         channels=1,
         format=pyaudio.paInt16,
         frames_per_buffer=1024,
         input=True,
         rate=16000,
+        input_device_index=6,  # Use default, or specify a device index
     )
 
     try:
@@ -132,6 +153,12 @@ async def receive(agent, context):
                     print(f"User: {text_content}")
                 elif role.upper() == "ASSISTANT":
                     print(f"Assistant: {text_content}")
+            
+            # Handle turn complete events (if we add them back)
+            elif "turnComplete" in event:
+                logger.debug("Turn complete event received - model ready for next input")
+                # Reset interrupted state since the turn is complete
+                context["interrupted"] = False
 
     except asyncio.CancelledError:
         pass
@@ -161,7 +188,29 @@ async def main(duration=180):
     print("Audio optimizations: 1024-byte buffers, balanced smooth playback + responsive interruption")
 
     # Initialize model and agent
-    model = NovaSonicBidirectionalModel(region="us-east-1")
+    # Get API key from environment variable
+    import os
+    api_key = os.getenv("GOOGLE_AI_API_KEY")
+    
+    if api_key:
+        # Use Gemini Live with proper configuration
+        logger.info("Initializing Gemini Live model with API key")
+        
+        # Use a model ID that works with v1alpha API
+        model = GeminiLiveBidirectionalModel(
+            model_id="gemini-2.5-flash-native-audio-preview-09-2025",  # Add models/ prefix
+            api_key=api_key,
+            params={
+                "response_modalities": ["AUDIO"]
+            }
+        )
+        logger.info("Gemini Live model initialized successfully")
+        print("Using Gemini Live model")
+    else:
+        # Fallback to Nova Sonic
+        logger.info("No Gemini API key found, using Nova Sonic")
+        model = NovaSonicBidirectionalModel(region="us-east-1")
+        print("Using Nova Sonic model (no Gemini API key found)")
     agent = BidirectionalAgent(model=model, tools=[calculator], system_prompt="You are a helpful assistant.")
 
     await agent.start()
