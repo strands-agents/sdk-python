@@ -12,6 +12,8 @@ from litellm.utils import supports_response_schema
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
+from ..event_loop import streaming
+from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Messages
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
@@ -196,6 +198,10 @@ class LiteLLMModel(OpenAIModel):
     ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
+        Some models do not support native structured output via response_format.
+        In cases of proxies, we may not have a way to determine support, so we
+        fallback to using tool calling to achieve structured output.
+
         Args:
             output_model: The output model to use for the agent.
             prompt: The prompt messages to use for the agent.
@@ -205,33 +211,64 @@ class LiteLLMModel(OpenAIModel):
         Yields:
             Model events with the last being the structured output.
         """
-        if not supports_response_schema(self.get_config()["model_id"]):
-            raise ValueError("Model does not support response_format")
+        if supports_response_schema(self.get_config()["model_id"]):
+            result = await self._structured_output_using_response_schema(output_model, prompt, system_prompt)
+        else:
+            result = await self._structured_output_using_tool(output_model, prompt, system_prompt)
 
+        yield {"output": result}
+
+    async def _structured_output_using_response_schema(
+        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None
+    ) -> T:
+        """Get structured output using native response_format support."""
         response = await litellm.acompletion(
             **self.client_args,
             model=self.get_config()["model_id"],
             messages=self.format_request(prompt, system_prompt=system_prompt)["messages"],
             response_format=output_model,
         )
-
+        
         if len(response.choices) > 1:
             raise ValueError("Multiple choices found in the response.")
+        if not response.choices or response.choices[0].finish_reason != "tool_calls":
+            raise ValueError("No tool_calls found in response")
 
-        # Find the first choice with tool_calls
-        for choice in response.choices:
-            if choice.finish_reason == "tool_calls":
-                try:
-                    # Parse the tool call content as JSON
-                    tool_call_data = json.loads(choice.message.content)
-                    # Instantiate the output model with the parsed data
-                    yield {"output": output_model(**tool_call_data)}
-                    return
-                except (json.JSONDecodeError, TypeError, ValueError) as e:
-                    raise ValueError(f"Failed to parse or load content into model: {e}") from e
+        choice = response.choices[0]
+        try:
+            # Parse the message content as JSON
+            tool_call_data = json.loads(choice.message.content)
+            # Instantiate the output model with the parsed data
+            return output_model(**tool_call_data)
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            raise ValueError(f"Failed to parse or load content into model: {e}") from e
 
-        # If no tool_calls found, raise an error
-        raise ValueError("No tool_calls found in response")
+    async def _structured_output_using_tool(
+        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None
+    ) -> T:
+        """Get structured output using tool calling fallback."""
+        tool_spec = convert_pydantic_to_tool_spec(output_model)
+        request = self.format_request(prompt, [tool_spec], system_prompt, cast(ToolChoice, {"any": {}}))
+        args = {**self.client_args, **request, 'stream': False}
+        response = await litellm.acompletion(**args)
+        
+        if len(response.choices) > 1:
+            raise ValueError("Multiple choices found in the response.")
+        if not response.choices or response.choices[0].finish_reason != "tool_calls":
+            raise ValueError("No tool_calls found in response")
+
+        choice = response.choices[0]
+        try:
+            # Parse the tool call content as JSON
+            tool_call = choice.message.tool_calls[0]
+            tool_call_data = json.loads(tool_call.function.arguments)
+            # Instantiate the output model with the parsed data
+            return output_model(**tool_call_data)
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            raise ValueError(f"Failed to parse or load content into model: {e}") from e
+
+
+                
 
     def _apply_proxy_prefix(self) -> None:
         """Apply litellm_proxy/ prefix to model_id when use_litellm_proxy is True.
