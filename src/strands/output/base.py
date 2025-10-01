@@ -3,6 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Type, Union, Optional, TYPE_CHECKING
 from pydantic import BaseModel
+from functools import cached_property
 
 
 if TYPE_CHECKING:
@@ -58,3 +59,15 @@ class OutputSchema:
 
             mode = ToolMode()
         self.mode = mode
+
+    @cached_property
+    def tool_specs(self) -> list["ToolSpec"]:
+        """Get cached tool specifications for this output schema.
+
+        This property computes tool specs once and caches them for reuse,
+        avoiding repeated computation for the same output schema type.
+
+        Returns:
+            List of tool specifications for the output type
+        """
+        return self.mode.get_tool_specs(self.type)

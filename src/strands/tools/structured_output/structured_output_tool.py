@@ -102,7 +102,7 @@ class StructuredOutputTool(AgentTool):
         """
         tool_input = tool_use.get("input", {})
         tool_use_id = str(tool_use.get("toolUseId", ""))
-        
+
         context: StructuredOutputContext = kwargs.get("structured_output_context")
         try:
             validated_object = self._structured_output_type(**tool_input)

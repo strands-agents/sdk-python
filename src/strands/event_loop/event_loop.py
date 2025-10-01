@@ -59,9 +59,9 @@ MAX_DELAY = 240  # 4 minutes
 
 
 async def event_loop_cycle(
-    agent: "Agent", 
+    agent: "Agent",
     invocation_state: dict[str, Any],
-    structured_output_context: Optional[StructuredOutputContext] = None
+    structured_output_context: Optional[StructuredOutputContext] = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Execute a single cycle of the event loop.
 
@@ -144,7 +144,11 @@ async def event_loop_cycle(
             )
 
             if structured_output_context and structured_output_context.forced_mode:
-                tool_specs = structured_output_context.output_schema.mode.get_tool_specs(structured_output_context.output_schema.type) if structured_output_context.output_schema else []
+                tool_specs = (
+                    structured_output_context.output_schema.tool_specs
+                    if structured_output_context.output_schema
+                    else []
+                )
             else:
                 tool_specs = agent.tool_registry.get_all_tool_specs()
 
@@ -293,18 +297,19 @@ async def event_loop_cycle(
                 stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"], None
             )
             return
-        
+
         structured_output_context.increment_attempts()
         structured_output_context.set_forced_mode()
         logger.debug(
             f"Forcing structured output tool, attempt {structured_output_context.attempts}/{structured_output_context.MAX_STRUCTURED_OUTPUT_ATTEMPTS}"
         )
-        agent.messages.append({
-            "role": "user", 
-            "content": [{"text": "You must format the previous response as structured output."}]
-        })
-                
-        events = recurse_event_loop(agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context)
+        agent.messages.append(
+            {"role": "user", "content": [{"text": "You must format the previous response as structured output."}]}
+        )
+
+        events = recurse_event_loop(
+            agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
+        )
         async for typed_event in events:
             yield typed_event
         return
@@ -313,9 +318,9 @@ async def event_loop_cycle(
 
 
 async def recurse_event_loop(
-    agent: "Agent", 
+    agent: "Agent",
     invocation_state: dict[str, Any],
-    structured_output_context: Optional[StructuredOutputContext] = None
+    structured_output_context: Optional[StructuredOutputContext] = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Make a recursive call to event_loop_cycle with the current state.
 
@@ -342,7 +347,9 @@ async def recurse_event_loop(
 
     yield StartEvent()
 
-    events = event_loop_cycle(agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context)
+    events = event_loop_cycle(
+        agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
+    )
     async for event in events:
         yield event
 
@@ -389,9 +396,7 @@ async def _handle_tool_execution(
         )
         return
 
-    tool_kwargs = {
-        "structured_output_context": structured_output_context
-    }
+    tool_kwargs = {"structured_output_context": structured_output_context}
 
     tool_events = agent.tool_executor._execute(
         agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, **tool_kwargs
@@ -428,6 +433,8 @@ async def _handle_tool_execution(
         )
         return
 
-    events = recurse_event_loop(agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context)
+    events = recurse_event_loop(
+        agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
+    )
     async for event in events:
         yield event
