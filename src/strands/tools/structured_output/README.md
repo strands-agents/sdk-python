@@ -43,7 +43,7 @@ class UserProfile(BaseModel):
 agent = Agent()
 result = agent(
     "Create a profile for John Doe who is a 25 year old dentist",
-    structured_output_type=UserProfile
+    structured_output_model=UserProfile
 )
 
 # Access the structured result
@@ -67,7 +67,7 @@ basic_result = basic_agent("What can you do for me?")
 agent = Agent()
 result = agent(
     "Create a profile for Jake Johnson, age 28, software engineer",
-    structured_output_type=UserProfile
+    structured_output_model=UserProfile
 )
 # result.structured_output contains validated UserProfile object
 ```
@@ -108,7 +108,7 @@ result = agent(
     "Create an employee profile for Sarah Smith, ID 12345, Engineering dept, "
     "living at 123 Main St, Seattle, WA 98101, email sarah@company.com, "
     "skills: Python, AWS, Docker, hired 2024-01-15, salary 80-120k",
-    structured_output_type=Employee
+    structured_output_model=Employee
 )
 ```
 
@@ -137,7 +137,7 @@ class Name(BaseModel):
 
 # The agent will retry if validation fails
 agent = Agent()
-result = agent("What's Aaron's name?", structured_output_type=Name)
+result = agent("What's Aaron's name?", structured_output_model=Name)
 # Will automatically retry until validation passes
 ```
 
@@ -158,7 +158,7 @@ async def async_example():
         is reasonable too. I'd definitely buy it again and recommend it to others.
         Rating: 5 stars"
         """,
-        structured_output_type=ProductReview
+        structured_output_model=ProductReview
     )
     
     return result.structured_output
@@ -185,7 +185,7 @@ agent = Agent()
 print("Real-time text: ", end="", flush=True)
 async for event in agent.stream_async(
     "Generate a weather forecast for Seattle: 68°F, partly cloudy, 55% humidity, 8 mph winds",
-    structured_output_type=WeatherForecast
+    structured_output_model=WeatherForecast
 ):
     if "data" in event:
         # Real-time text streaming
@@ -209,7 +209,7 @@ class MathResult(BaseModel):
 
 # Agent with tools and structured output
 agent = Agent(tools=[calculator])
-result = agent("What is 42 ^ 9", structured_output_type=MathResult)
+result = agent("What is 42 ^ 9", structured_output_model=MathResult)
 
 print(result.structured_output.operation)  # "42^9"
 print(result.structured_output.result)     # 406671383849472
@@ -219,7 +219,7 @@ print(result.structured_output.result)     # 406671383849472
 
 ```python
 # Set default output type for all calls
-agent = Agent(structured_output_type=UserProfile)
+agent = Agent(structured_output_model=UserProfile)
 
 # All calls will use UserProfile unless overridden
 result1 = agent("Create a profile for John Doe, 25, dentist")
@@ -240,7 +240,7 @@ session_manager = FileSessionManager(session_id=session_id)
 agent = Agent(session_manager=session_manager)
 
 # Conversation persists across calls
-result1 = agent("Create profile for John", structured_output_type=UserProfile)
+result1 = agent("Create profile for John", structured_output_model=UserProfile)
 result2 = agent("What's his age?")  # Remembers John from previous call
 ```
 
@@ -265,8 +265,8 @@ class Task(BaseModel):
 agent = Agent()
 
 # Different output types in same conversation
-person_result = agent("Extract: John Doe, 35, john@test.com", structured_output_type=Person)
-task_result = agent("Create task: Review code, high priority, completed", structured_output_type=Task)
+person_result = agent("Extract: John Doe, 35, john@test.com", structured_output_model=Person)
+task_result = agent("Create task: Review code, high priority, completed", structured_output_model=Task)
 ```
 
 ## Best Practices
@@ -299,11 +299,11 @@ class GoodModel(BaseModel):
 result = agent(
     "Create a user profile for Sarah Johnson, age 28, software engineer at Google, "
     "currently active, lives in San Francisco",
-    structured_output_type=UserProfile
+    structured_output_model=UserProfile
 )
 
 # Less clear prompt
-result = agent("Make a profile for Sarah", structured_output_type=UserProfile)
+result = agent("Make a profile for Sarah", structured_output_model=UserProfile)
 ```
 
 ## Troubleshooting
@@ -366,7 +366,7 @@ agent = Agent(
     }
 )
 
-result = agent("Create profile for John Doe, 25, engineer", structured_output_type=UserProfile)
+result = agent("Create profile for John Doe, 25, engineer", structured_output_model=UserProfile)
 ```
 
 ---

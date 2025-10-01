@@ -24,33 +24,33 @@ _TOOL_SPEC_CACHE: dict[Type[BaseModel], ToolSpec] = {}
 class StructuredOutputTool(AgentTool):
     """Tool implementation for structured output validation."""
 
-    def __init__(self, structured_output_type: Type[BaseModel]) -> None:
+    def __init__(self, structured_output_model: Type[BaseModel]) -> None:
         """Initialize a structured output tool.
 
         Args:
-            structured_output_type: The Pydantic model class that defines the expected output structure.
+            structured_output_model: The Pydantic model class that defines the expected output structure.
         """
         super().__init__()
-        self._structured_output_type = structured_output_type
-        self._tool_spec = self._get_tool_spec(structured_output_type)
+        self._structured_output_type = structured_output_model
+        self._tool_spec = self._get_tool_spec(structured_output_model)
         self._tool_spec["description"] = (
             f"IMPORTANT: This StructuredOutputTool should only be invoked as the last and final tool before returning the completed result to the caller. <description>{self._tool_spec.get('description', '')}</description>"
         )
         self._tool_name = self._tool_spec.get("name", "StructuredOutputTool")
 
     @classmethod
-    def _get_tool_spec(cls, structured_output_type: Type[BaseModel]) -> ToolSpec:
+    def _get_tool_spec(cls, structured_output_model: Type[BaseModel]) -> ToolSpec:
         """Get a cached tool spec for the given output type.
 
         Args:
-            structured_output_type: The Pydantic model class that defines the expected output structure.
+            structured_output_model: The Pydantic model class that defines the expected output structure.
 
         Returns:
             Cached tool specification for the output type.
         """
-        if structured_output_type not in _TOOL_SPEC_CACHE:
-            _TOOL_SPEC_CACHE[structured_output_type] = convert_pydantic_to_tool_spec(structured_output_type)
-        return deepcopy(_TOOL_SPEC_CACHE[structured_output_type])
+        if structured_output_model not in _TOOL_SPEC_CACHE:
+            _TOOL_SPEC_CACHE[structured_output_model] = convert_pydantic_to_tool_spec(structured_output_model)
+        return deepcopy(_TOOL_SPEC_CACHE[structured_output_model])
 
     @property
     def tool_name(self) -> str:
@@ -80,7 +80,7 @@ class StructuredOutputTool(AgentTool):
         return "structured_output"
 
     @property
-    def structured_output_type(self) -> Type[BaseModel]:
+    def structured_output_model(self) -> Type[BaseModel]:
         """Get the Pydantic model type for this tool.
 
         Returns:

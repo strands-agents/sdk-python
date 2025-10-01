@@ -214,7 +214,7 @@ class Agent:
         messages: Optional[Messages] = None,
         tools: Optional[list[Union[str, dict[str, str], Any]]] = None,
         system_prompt: Optional[str] = None,
-        structured_output_type: Optional[Type[BaseModel]] = None,
+        structured_output_model: Optional[Type[BaseModel]] = None,
         callback_handler: Optional[
             Union[Callable[..., Any], _DefaultCallbackHandlerSentinel]
         ] = _DEFAULT_CALLBACK_HANDLER,
@@ -250,7 +250,7 @@ class Agent:
                 If provided, only these tools will be available. If None, all tools will be available.
             system_prompt: System prompt to guide model behavior.
                 If None, the model will behave according to its default settings.
-            structured_output_type: Pydantic model type(s) for structured output.
+            structured_output_model: Pydantic model type(s) for structured output.
                 When specified, all agent calls will attempt to return structured output of this type.
                 This can be overridden on the agent invocation.
                 Defaults to None (no structured output).
@@ -284,7 +284,7 @@ class Agent:
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
         self.system_prompt = system_prompt
-        self._default_output_schema = resolve_output_schema(structured_output_type)
+        self._default_output_schema = resolve_output_schema(structured_output_model)
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
@@ -384,7 +384,7 @@ class Agent:
         return list(all_tools.keys())
 
     def __call__(
-        self, prompt: AgentInput = None, structured_output_type: Optional[Type[BaseModel]] = None, **kwargs: Any
+        self, prompt: AgentInput = None, structured_output_model: Optional[Type[BaseModel]] = None, **kwargs: Any
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
@@ -400,7 +400,7 @@ class Agent:
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
-            structured_output_type: Pydantic model type(s) for structured output (overrides agent default).
+            structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             **kwargs: Additional parameters to pass through the event loop.
 
         Returns:
@@ -410,18 +410,18 @@ class Agent:
                 - message: The final message from the model
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
-                - structured_output: Parsed structured output when structured_output_type was specified
+                - structured_output: Parsed structured output when structured_output_model was specified
         """
 
         def execute() -> AgentResult:
-            return asyncio.run(self.invoke_async(prompt, structured_output_type, **kwargs))
+            return asyncio.run(self.invoke_async(prompt, structured_output_model, **kwargs))
 
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)
             return future.result()
 
     async def invoke_async(
-        self, prompt: AgentInput = None, structured_output_type: Optional[Type[BaseModel]] = None, **kwargs: Any
+        self, prompt: AgentInput = None, structured_output_model: Optional[Type[BaseModel]] = None, **kwargs: Any
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
@@ -437,7 +437,7 @@ class Agent:
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
-            structured_output_type: Pydantic model type(s) for structured output (overrides agent default).
+            structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             **kwargs: Additional parameters to pass through the event loop.
 
         Returns:
@@ -448,7 +448,7 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
-        events = self.stream_async(prompt, structured_output_type=structured_output_type, **kwargs)
+        events = self.stream_async(prompt, structured_output_model=structured_output_model, **kwargs)
         async for event in events:
             _ = event
 
@@ -456,7 +456,7 @@ class Agent:
 
     @deprecated(
         "Agent.structured_output method is deprecated."
-        " You should pass in `structured_output_type` directly into the agent invocation."
+        " You should pass in `structured_output_model` directly into the agent invocation."
         " see the <LINK> for more details"
     )
     def structured_output(self, output_model: Type[T], prompt: AgentInput = None) -> T:
@@ -490,7 +490,7 @@ class Agent:
 
     @deprecated(
         "Agent.structured_output_async method is deprecated."
-        " You should pass in `structured_output_type` directly into the agent invocation."
+        " You should pass in `structured_output_model` directly into the agent invocation."
         " see the <LINK> for more details"
     )
     async def structured_output_async(self, output_model: Type[T], prompt: AgentInput = None) -> T:
@@ -556,7 +556,7 @@ class Agent:
     async def stream_async(
         self,
         prompt: AgentInput = None,
-        structured_output_type: Optional[Type[BaseModel]] = None,
+        structured_output_model: Optional[Type[BaseModel]] = None,
         **kwargs: Any,
     ) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
@@ -573,7 +573,7 @@ class Agent:
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
-            structured_output_type: Pydantic model type(s) for structured output (overrides agent default).
+            structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             **kwargs: Additional parameters to pass to the event loop.
 
         Yields:
@@ -597,9 +597,9 @@ class Agent:
         """
         callback_handler = kwargs.get("callback_handler", self.callback_handler)
 
-        # runtime override or agent default TODO in the future, when we expose 'output_schema, we should consider allowing for halfway configuration. for example, the user should be able to define `output_mode` on the Agent level but `structured_output_type` on the `output_mode`
+        # runtime override or agent default TODO in the future, when we expose 'output_schema, we should consider allowing for halfway configuration. for example, the user should be able to define `output_mode` on the Agent level but `structured_output_model` on the `output_mode`
         output_schema: Optional[OutputSchema] = (
-            resolve_output_schema(structured_output_type) or self._default_output_schema
+            resolve_output_schema(structured_output_model) or self._default_output_schema
         )
 
         # Process input and get message to add (if any)
