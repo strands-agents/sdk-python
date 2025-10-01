@@ -18,7 +18,6 @@ from opentelemetry import trace as trace_api
 
 
 from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
-from ..output.modes import NativeMode
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import get_tracer
 from ..tools._validator import validate_and_prepare_tools
