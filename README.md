@@ -143,7 +143,9 @@ agent("Tell me about Agentic AI")
 
 # Google Gemini
 gemini_model = GeminiModel(
-  api_key="your_gemini_api_key",
+  client_args={
+    "api_key": "your_gemini_api_key",
+  },
   model_id="gemini-2.5-flash",
   params={"temperature": 0.7}
 )
