@@ -113,7 +113,7 @@ class _ToolCaller:
         """Lookup the tool represented by name, replacing characters with underscores as necessary."""
         tool_registry = self._agent.tool_registry.registry
 
-        if tool_registry.get(name, None):
+        if tool_registry.get(name):
             return name
 
         # If the desired name contains underscores, it might be a placeholder for characters that can't be
