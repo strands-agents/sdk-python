@@ -166,7 +166,7 @@ class MultiAgentBase(ABC):
             return future.result()
 
     @abstractmethod
-    def serialize_state(self) -> dict:
+    def serialize_state(self) -> dict[str, Any]:
         """Return a JSON-serializable snapshot of the orchestrator state."""
         raise NotImplementedError
 
