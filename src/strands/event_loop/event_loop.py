@@ -17,7 +17,7 @@ from opentelemetry import trace as trace_api
 
 from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
 from ..telemetry.metrics import Trace
-from ..telemetry.tracer import get_tracer
+from ..telemetry.tracer import Tracer, get_tracer
 from ..tools._validator import validate_and_prepare_tools
 from ..types._events import (
     EventLoopStopEvent,
@@ -37,7 +37,7 @@ from ..types.exceptions import (
     MaxTokensReachedException,
     ModelThrottledException,
 )
-from ..types.streaming import Metrics, StopReason
+from ..types.streaming import StopReason
 from ..types.tools import ToolResult, ToolUse
 from ._recover_message_on_max_tokens_reached import recover_message_on_max_tokens_reached
 from .streaming import stream_messages
@@ -106,104 +106,15 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
     )
     invocation_state["event_loop_cycle_span"] = cycle_span
 
-    # Create a trace for the stream_messages call
-    stream_trace = Trace("stream_messages", parent_id=cycle_trace.id)
-    cycle_trace.add_child(stream_trace)
+    model_events = _handle_model_execution(agent, cycle_span, cycle_trace, invocation_state, tracer)
+    async for model_event in model_events:
+        if not isinstance(model_event, ModelStopReason):
+            yield model_event
 
-    # Process messages with exponential backoff for throttling
-    message: Message
-    stop_reason: StopReason
-    usage: Any
-    metrics: Metrics
-
-    # Retry loop for handling throttling exceptions
-    current_delay = INITIAL_DELAY
-    for attempt in range(MAX_ATTEMPTS):
-        model_id = agent.model.config.get("model_id") if hasattr(agent.model, "config") else None
-        model_invoke_span = tracer.start_model_invoke_span(
-            messages=agent.messages,
-            parent_span=cycle_span,
-            model_id=model_id,
-        )
-        with trace_api.use_span(model_invoke_span):
-            agent.hooks.invoke_callbacks(
-                BeforeModelCallEvent(
-                    agent=agent,
-                )
-            )
-
-            tool_specs = agent.tool_registry.get_all_tool_specs()
-
-            try:
-                async for event in stream_messages(agent.model, agent.system_prompt, agent.messages, tool_specs):
-                    if not isinstance(event, ModelStopReason):
-                        yield event
-
-                stop_reason, message, usage, metrics = event["stop"]
-                invocation_state.setdefault("request_state", {})
-
-                agent.hooks.invoke_callbacks(
-                    AfterModelCallEvent(
-                        agent=agent,
-                        stop_response=AfterModelCallEvent.ModelStopResponse(
-                            stop_reason=stop_reason,
-                            message=message,
-                        ),
-                    )
-                )
-
-                if stop_reason == "max_tokens":
-                    message = recover_message_on_max_tokens_reached(message)
-
-                if model_invoke_span:
-                    tracer.end_model_invoke_span(model_invoke_span, message, usage, stop_reason)
-                break  # Success! Break out of retry loop
-
-            except Exception as e:
-                if model_invoke_span:
-                    tracer.end_span_with_error(model_invoke_span, str(e), e)
-
-                agent.hooks.invoke_callbacks(
-                    AfterModelCallEvent(
-                        agent=agent,
-                        exception=e,
-                    )
-                )
-
-                if isinstance(e, ModelThrottledException):
-                    if attempt + 1 == MAX_ATTEMPTS:
-                        yield ForceStopEvent(reason=e)
-                        raise e
-
-                    logger.debug(
-                        "retry_delay_seconds=<%s>, max_attempts=<%s>, current_attempt=<%s> "
-                        "| throttling exception encountered "
-                        "| delaying before next retry",
-                        current_delay,
-                        MAX_ATTEMPTS,
-                        attempt + 1,
-                    )
-                    await asyncio.sleep(current_delay)
-                    current_delay = min(current_delay * 2, MAX_DELAY)
-
-                    yield EventLoopThrottleEvent(delay=current_delay)
-                else:
-                    raise e
+    stop_reason, message, *_ = model_event["stop"]
+    yield ModelMessageEvent(message=message)
 
     try:
-        # Add message in trace and mark the end of the stream messages trace
-        stream_trace.add_message(message)
-        stream_trace.end()
-
-        # Add the response message to the conversation
-        agent.messages.append(message)
-        agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=message))
-        yield ModelMessageEvent(message=message)
-
-        # Update metrics
-        agent.event_loop_metrics.update_usage(usage)
-        agent.event_loop_metrics.update_metrics(metrics)
-
         if stop_reason == "max_tokens":
             """
             Handle max_tokens limit reached by the model.
@@ -223,7 +134,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
         # If the model is requesting to use tools
         if stop_reason == "tool_use":
             # Handle tool execution
-            events = _handle_tool_execution(
+            tool_events = _handle_tool_execution(
                 stop_reason,
                 message,
                 agent=agent,
@@ -232,8 +143,8 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
                 cycle_start_time=cycle_start_time,
                 invocation_state=invocation_state,
             )
-            async for typed_event in events:
-                yield typed_event
+            async for tool_event in tool_events:
+                yield tool_event
 
             return
 
@@ -299,6 +210,113 @@ async def recurse_event_loop(agent: "Agent", invocation_state: dict[str, Any]) -
         yield event
 
     recursive_trace.end()
+
+
+async def _handle_model_execution(
+    agent: "Agent",
+    cycle_span: Any,
+    cycle_trace: Trace,
+    invocation_state: dict[str, Any],
+    tracer: Tracer,
+) -> AsyncGenerator[TypedEvent, None]:
+    """<TODO>."""
+    # Create a trace for the stream_messages call
+    stream_trace = Trace("stream_messages", parent_id=cycle_trace.id)
+    cycle_trace.add_child(stream_trace)
+
+    # Retry loop for handling throttling exceptions
+    current_delay = INITIAL_DELAY
+    for attempt in range(MAX_ATTEMPTS):
+        model_id = agent.model.config.get("model_id") if hasattr(agent.model, "config") else None
+        model_invoke_span = tracer.start_model_invoke_span(
+            messages=agent.messages,
+            parent_span=cycle_span,
+            model_id=model_id,
+        )
+        with trace_api.use_span(model_invoke_span):
+            agent.hooks.invoke_callbacks(
+                BeforeModelCallEvent(
+                    agent=agent,
+                )
+            )
+
+            tool_specs = agent.tool_registry.get_all_tool_specs()
+
+            try:
+                async for event in stream_messages(agent.model, agent.system_prompt, agent.messages, tool_specs):
+                    yield event
+
+                stop_reason, message, usage, metrics = event["stop"]
+                invocation_state.setdefault("request_state", {})
+
+                agent.hooks.invoke_callbacks(
+                    AfterModelCallEvent(
+                        agent=agent,
+                        stop_response=AfterModelCallEvent.ModelStopResponse(
+                            stop_reason=stop_reason,
+                            message=message,
+                        ),
+                    )
+                )
+
+                if stop_reason == "max_tokens":
+                    message = recover_message_on_max_tokens_reached(message)
+
+                if model_invoke_span:
+                    tracer.end_model_invoke_span(model_invoke_span, message, usage, stop_reason)
+                break  # Success! Break out of retry loop
+
+            except Exception as e:
+                if model_invoke_span:
+                    tracer.end_span_with_error(model_invoke_span, str(e), e)
+
+                agent.hooks.invoke_callbacks(
+                    AfterModelCallEvent(
+                        agent=agent,
+                        exception=e,
+                    )
+                )
+
+                if isinstance(e, ModelThrottledException):
+                    if attempt + 1 == MAX_ATTEMPTS:
+                        yield ForceStopEvent(reason=e)
+                        raise e
+
+                    logger.debug(
+                        "retry_delay_seconds=<%s>, max_attempts=<%s>, current_attempt=<%s> "
+                        "| throttling exception encountered "
+                        "| delaying before next retry",
+                        current_delay,
+                        MAX_ATTEMPTS,
+                        attempt + 1,
+                    )
+                    await asyncio.sleep(current_delay)
+                    current_delay = min(current_delay * 2, MAX_DELAY)
+
+                    yield EventLoopThrottleEvent(delay=current_delay)
+                else:
+                    raise e
+
+    try:
+        # Add message in trace and mark the end of the stream messages trace
+        stream_trace.add_message(message)
+        stream_trace.end()
+
+        # Add the response message to the conversation
+        agent.messages.append(message)
+        agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=message))
+
+        # Update metrics
+        agent.event_loop_metrics.update_usage(usage)
+        agent.event_loop_metrics.update_metrics(metrics)
+
+    except Exception as e:
+        if cycle_span:
+            tracer.end_span_with_error(cycle_span, str(e), e)
+
+        yield ForceStopEvent(reason=e)
+        logger.exception("cycle failed")
+        raise EventLoopException(e, invocation_state["request_state"]) from e
 
 
 async def _handle_tool_execution(
