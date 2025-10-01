@@ -226,6 +226,7 @@ class ToolExecutor(abc.ABC):
         cycle_trace: Trace,
         cycle_span: Any,
         invocation_state: dict[str, Any],
+        **kwargs: Any,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the given tools according to this executor's strategy.
 
@@ -236,6 +237,7 @@ class ToolExecutor(abc.ABC):
             cycle_trace: Trace object for the current event loop cycle.
             cycle_span: Span object for tracing the cycle.
             invocation_state: Context for the tool invocation.
+            **kwargs: Additional keyword arguments for tool execution.
 
         Yields:
             Events from the tool execution stream.

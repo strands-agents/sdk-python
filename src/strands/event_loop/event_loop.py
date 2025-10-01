@@ -10,15 +10,18 @@ The event loop allows agents to:
 
 import asyncio
 import logging
+import time
 import uuid
-from typing import TYPE_CHECKING, Any, AsyncGenerator
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
 from opentelemetry import trace as trace_api
+
 
 from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import get_tracer
 from ..tools._validator import validate_and_prepare_tools
+from ..tools.structured_output.structured_output_context import StructuredOutputContext
 from ..types._events import (
     EventLoopStopEvent,
     EventLoopThrottleEvent,
@@ -27,6 +30,7 @@ from ..types._events import (
     ModelStopReason,
     StartEvent,
     StartEventLoopEvent,
+    StructuredOutputEvent,
     ToolResultMessageEvent,
     TypedEvent,
 )
@@ -43,7 +47,8 @@ from ._recover_message_on_max_tokens_reached import recover_message_on_max_token
 from .streaming import stream_messages
 
 if TYPE_CHECKING:
-    from ..agent import Agent
+    from ..agent.agent import Agent
+    from ..output.base import OutputSchema
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +57,11 @@ INITIAL_DELAY = 4
 MAX_DELAY = 240  # 4 minutes
 
 
-async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
+async def event_loop_cycle(
+    agent: "Agent",
+    invocation_state: dict[str, Any],
+    structured_output_context: Optional[StructuredOutputContext] = None,
+) -> AsyncGenerator[TypedEvent, None]:
     """Execute a single cycle of the event loop.
 
     This core function processes a single conversation turn, handling model inference, tool execution, and error
@@ -73,6 +82,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
             - request_state: State maintained across cycles
             - event_loop_cycle_id: Unique ID for this cycle
             - event_loop_cycle_span: Current tracing Span for this cycle
+        structured_output_context: Optional context for structured output management.
 
     Yields:
         Model and tool stream events. The last event is a tuple containing:
@@ -132,10 +142,21 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
                 )
             )
 
-            tool_specs = agent.tool_registry.get_all_tool_specs()
+            if structured_output_context and structured_output_context.forced_mode:
+                tool_specs = (
+                    structured_output_context.output_schema.tool_specs
+                    if structured_output_context.output_schema
+                    else []
+                )
+            else:
+                tool_specs = agent.tool_registry.get_all_tool_specs()
+
+            tool_choice = structured_output_context.tool_choice if structured_output_context else None
 
             try:
-                async for event in stream_messages(agent.model, agent.system_prompt, agent.messages, tool_specs):
+                async for event in stream_messages(
+                    agent.model, agent.system_prompt, agent.messages, tool_specs, tool_choice
+                ):
                     if not isinstance(event, ModelStopReason):
                         yield event
 
@@ -220,7 +241,6 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
                 )
             )
 
-        # If the model is requesting to use tools
         if stop_reason == "tool_use":
             # Handle tool execution
             events = _handle_tool_execution(
@@ -231,6 +251,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
                 cycle_span=cycle_span,
                 cycle_start_time=cycle_start_time,
                 invocation_state=invocation_state,
+                structured_output_context=structured_output_context,
             )
             async for typed_event in events:
                 yield typed_event
@@ -265,10 +286,41 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
         logger.exception("cycle failed")
         raise EventLoopException(e, invocation_state["request_state"]) from e
 
-    yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
+    # Force structured output tool call if LLM didn't use it automatically
+    if structured_output_context and structured_output_context.output_schema and stop_reason == "end_turn":
+        if not structured_output_context.can_retry():
+            logger.warning(
+                f"Structured output forcing exceeded maximum attempts ({structured_output_context.MAX_STRUCTURED_OUTPUT_ATTEMPTS}), returning without structured output"
+            )
+            yield EventLoopStopEvent(
+                stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"], None
+            )
+            return
+
+        structured_output_context.increment_attempts()
+        structured_output_context.set_forced_mode()
+        logger.debug(
+            f"Forcing structured output tool, attempt {structured_output_context.attempts}/{structured_output_context.MAX_STRUCTURED_OUTPUT_ATTEMPTS}"
+        )
+        agent.messages.append(
+            {"role": "user", "content": [{"text": "You must format the previous response as structured output."}]}
+        )
+
+        events = recurse_event_loop(
+            agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
+        )
+        async for typed_event in events:
+            yield typed_event
+        return
+
+    yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"], None)
 
 
-async def recurse_event_loop(agent: "Agent", invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
+async def recurse_event_loop(
+    agent: "Agent",
+    invocation_state: dict[str, Any],
+    structured_output_context: Optional[StructuredOutputContext] = None,
+) -> AsyncGenerator[TypedEvent, None]:
     """Make a recursive call to event_loop_cycle with the current state.
 
     This function is used when the event loop needs to continue processing after tool execution.
@@ -276,7 +328,7 @@ async def recurse_event_loop(agent: "Agent", invocation_state: dict[str, Any]) -
     Args:
         agent: Agent for which the recursive call is being made.
         invocation_state: Arguments to pass through event_loop_cycle
-
+        structured_output_context: Optional context for structured output management.
 
     Yields:
         Results from event_loop_cycle where the last result contains:
@@ -294,7 +346,9 @@ async def recurse_event_loop(agent: "Agent", invocation_state: dict[str, Any]) -
 
     yield StartEvent()
 
-    events = event_loop_cycle(agent=agent, invocation_state=invocation_state)
+    events = event_loop_cycle(
+        agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
+    )
     async for event in events:
         yield event
 
@@ -309,9 +363,9 @@ async def _handle_tool_execution(
     cycle_span: Any,
     cycle_start_time: float,
     invocation_state: dict[str, Any],
+    structured_output_context: Optional[StructuredOutputContext] = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Handles the execution of tools requested by the model during an event loop cycle.
-
     Args:
         stop_reason: The reason the model stopped generating.
         message: The message from the model that may contain tool use requests.
@@ -320,7 +374,7 @@ async def _handle_tool_execution(
         cycle_span: Span object for tracing the cycle (type may vary).
         cycle_start_time: Start time of the current cycle.
         invocation_state: Additional keyword arguments, including request state.
-
+        structured_output_context: Optional context for structured output management.
     Yields:
         Tool stream events along with events yielded from a recursive call to the event loop. The last event is a tuple
         containing:
@@ -336,16 +390,25 @@ async def _handle_tool_execution(
     validate_and_prepare_tools(message, tool_uses, tool_results, invalid_tool_use_ids)
     tool_uses = [tool_use for tool_use in tool_uses if tool_use.get("toolUseId") not in invalid_tool_use_ids]
     if not tool_uses:
-        yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
+        yield EventLoopStopEvent(
+            stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"], None
+        )
         return
 
+    tool_kwargs = {"structured_output_context": structured_output_context}
+
     tool_events = agent.tool_executor._execute(
-        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state
+        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, **tool_kwargs
     )
     async for tool_event in tool_events:
         yield tool_event
 
-    # Store parent cycle ID for the next cycle
+    structured_output_result = None
+    if structured_output_context and structured_output_context.output_schema:
+        if structured_output_result := structured_output_context.extract_result(tool_uses):
+            yield StructuredOutputEvent(structured_output=structured_output_result)
+            invocation_state["request_state"]["stop_event_loop"] = True
+
     invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
 
     tool_result_message: Message = {
@@ -355,6 +418,7 @@ async def _handle_tool_execution(
 
     agent.messages.append(tool_result_message)
     agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=tool_result_message))
+
     yield ToolResultMessageEvent(message=tool_result_message)
 
     if cycle_span:
@@ -363,9 +427,13 @@ async def _handle_tool_execution(
 
     if invocation_state["request_state"].get("stop_event_loop", False):
         agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
-        yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
+        yield EventLoopStopEvent(
+            stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"], structured_output_result
+        )
         return
 
-    events = recurse_event_loop(agent=agent, invocation_state=invocation_state)
+    events = recurse_event_loop(
+        agent=agent, invocation_state=invocation_state, structured_output_context=structured_output_context
+    )
     async for event in events:
         yield event

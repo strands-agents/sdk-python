@@ -26,6 +26,7 @@ class ConcurrentToolExecutor(ToolExecutor):
         cycle_trace: Trace,
         cycle_span: Any,
         invocation_state: dict[str, Any],
+        **kwargs: Any,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute tools concurrently.
 
@@ -36,6 +37,7 @@ class ConcurrentToolExecutor(ToolExecutor):
             cycle_trace: Trace object for the current event loop cycle.
             cycle_span: Span object for tracing the cycle.
             invocation_state: Context for the tool invocation.
+            **kwargs: Additional keyword arguments for tool execution.
 
         Yields:
             Events from the tool execution stream.
@@ -57,6 +59,7 @@ class ConcurrentToolExecutor(ToolExecutor):
                     task_queue,
                     task_events[task_id],
                     stop_event,
+                    **kwargs,
                 )
             )
             for task_id, tool_use in enumerate(tool_uses)
@@ -86,6 +89,7 @@ class ConcurrentToolExecutor(ToolExecutor):
         task_queue: asyncio.Queue,
         task_event: asyncio.Event,
         stop_event: object,
+        **kwargs: Any,
     ) -> None:
         """Execute a single tool and put results in the task queue.
 
@@ -100,10 +104,11 @@ class ConcurrentToolExecutor(ToolExecutor):
             task_queue: Queue to put tool events into.
             task_event: Event to signal when task can continue.
             stop_event: Sentinel object to signal task completion.
+            **kwargs: Additional keyword arguments for tool execution.
         """
         try:
             events = ToolExecutor._stream_with_trace(
-                agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state
+                agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state, **kwargs
             )
             async for event in events:
                 task_queue.put_nowait((task_id, event))

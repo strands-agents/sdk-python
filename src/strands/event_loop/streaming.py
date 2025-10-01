@@ -331,6 +331,7 @@ async def stream_messages(
     system_prompt: Optional[str],
     messages: Messages,
     tool_specs: list[ToolSpec],
+    tool_choice: Optional[Any] = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Streams messages to the model and processes the response.
 
@@ -339,6 +340,7 @@ async def stream_messages(
         system_prompt: The system prompt to send.
         messages: List of messages to send.
         tool_specs: The list of tool specs.
+        tool_choice: Optional tool choice constraint for forcing specific tool usage.
 
     Yields:
         The reason for stopping, the final message, and the usage metrics
@@ -346,7 +348,7 @@ async def stream_messages(
     logger.debug("model=<%s> | streaming messages", model)
 
     messages = remove_blank_messages_content_text(messages)
-    chunks = model.stream(messages, tool_specs if tool_specs else None, system_prompt)
+    chunks = model.stream(messages, tool_specs if tool_specs else None, system_prompt, tool_choice=tool_choice)
 
     async for event in process_stream(chunks):
         yield event

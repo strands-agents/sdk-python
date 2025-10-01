@@ -25,6 +25,7 @@ class SequentialToolExecutor(ToolExecutor):
         cycle_trace: Trace,
         cycle_span: Any,
         invocation_state: dict[str, Any],
+        **kwargs: Any,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute tools sequentially.
 
@@ -35,13 +36,14 @@ class SequentialToolExecutor(ToolExecutor):
             cycle_trace: Trace object for the current event loop cycle.
             cycle_span: Span object for tracing the cycle.
             invocation_state: Context for the tool invocation.
+            **kwargs: Additional keyword arguments for tool execution.
 
         Yields:
             Events from the tool execution stream.
         """
         for tool_use in tool_uses:
             events = ToolExecutor._stream_with_trace(
-                agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state
+                agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state, **kwargs
             )
             async for event in events:
                 yield event

@@ -48,6 +48,7 @@ def test__init__(mock_metrics, simple_message: Message):
     assert result.message == simple_message
     assert result.metrics == mock_metrics
     assert result.state == state
+    assert result.structured_output is None
 
 
 def test__str__simple(mock_metrics, simple_message: Message):

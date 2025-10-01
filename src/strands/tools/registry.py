@@ -496,6 +496,25 @@ class ToolRegistry:
         tools: List[ToolSpec] = [tool_spec for tool_spec in all_tools.values()]
         return tools
 
+    def register_dynamic_tool(self, tool: AgentTool) -> None:
+        """Register a tool dynamically for temporary use.
+
+        Args:
+            tool: The tool to register dynamically
+        """
+        self.dynamic_tools[tool.tool_name] = tool
+        logger.debug(f"Registered dynamic tool: {tool.tool_name}")
+
+    def unregister_dynamic_tool(self, tool_name: str) -> None:
+        """Unregister a dynamically registered tool.
+
+        Args:
+            tool_name: Name of the tool to unregister
+        """
+        if tool_name in self.dynamic_tools:
+            del self.dynamic_tools[tool_name]
+            logger.debug(f"Unregistered dynamic tool: {tool_name}")
+
     def validate_tool_spec(self, tool_spec: ToolSpec) -> None:
         """Validate tool specification against required schema.
 
