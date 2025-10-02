@@ -21,7 +21,7 @@ from ....tools._validator import validate_and_prepare_tools
 from ....types.content import Message
 from ....types.tools import ToolResult, ToolUse
 from ..models.bidirectional_model import BidirectionalModelSession
-from ..utils.debug import log_event, log_flow
+
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ async def start_bidirectional_connection(agent: "BidirectionalAgent") -> Bidirec
     Returns:
         BidirectionalConnection: Active session with background tasks running.
     """
-    log_flow("session_start", "initializing model session")
+    logger.debug("Starting bidirectional session - initializing model session")
 
     # Create provider-specific session
     model_session = await agent.model.create_bidirectional_connection(
@@ -85,7 +85,7 @@ async def start_bidirectional_connection(agent: "BidirectionalAgent") -> Bidirec
 
     # Start concurrent background processors IMMEDIATELY after session creation
     # This is critical - Nova Sonic needs response processing during initialization
-    log_flow("background_tasks", "starting processors")
+    logger.debug("Starting background processors for concurrent processing")
     session.background_tasks = [
         asyncio.create_task(_process_model_events(session)),  # Handle model responses
         asyncio.create_task(_process_tool_execution(session)),  # Execute tools concurrently
@@ -94,7 +94,7 @@ async def start_bidirectional_connection(agent: "BidirectionalAgent") -> Bidirec
     # Start main coordination cycle
     session.main_cycle_task = asyncio.create_task(bidirectional_event_loop_cycle(session))
 
-    log_event("session_ready", tasks=len(session.background_tasks))
+    logger.debug("Session ready with %d background tasks", len(session.background_tasks))
     return session
 
 
@@ -107,7 +107,7 @@ async def stop_bidirectional_connection(session: BidirectionalConnection) -> Non
     if not session.active:
         return
 
-    log_flow("session_cleanup", "starting")
+    logger.debug("Session cleanup starting")
     session.active = False
 
     # Cancel pending tool tasks
@@ -134,7 +134,7 @@ async def stop_bidirectional_connection(session: BidirectionalConnection) -> Non
 
     # Close model session
     await session.model_session.close()
-    log_event("session_closed")
+    logger.debug("Session closed")
 
 
 async def bidirectional_event_loop_cycle(session: BidirectionalConnection) -> None:
@@ -150,7 +150,7 @@ async def bidirectional_event_loop_cycle(session: BidirectionalConnection) -> No
         try:
             # Check if background processors are still running
             if all(task.done() for task in session.background_tasks):
-                log_event("session_end", reason="all_processors_completed")
+                logger.debug("Session end - all processors completed")
                 session.active = False
                 break
 
@@ -159,7 +159,7 @@ async def bidirectional_event_loop_cycle(session: BidirectionalConnection) -> No
                 if task.done() and not task.cancelled():
                     exception = task.exception()
                     if exception:
-                        log_event("session_error", processor=i, error=str(exception))
+                        logger.error("Session error in processor %d: %s", i, str(exception))
                         session.active = False
                         raise exception
 
@@ -169,7 +169,7 @@ async def bidirectional_event_loop_cycle(session: BidirectionalConnection) -> No
         except asyncio.CancelledError:
             break
         except Exception as e:
-            log_event("event_loop_error", error=str(e))
+            logger.error("Event loop error: %s", str(e))
             session.active = False
             raise
 
@@ -187,10 +187,10 @@ async def _handle_interruption(session: BidirectionalConnection) -> None:
     async with session.interruption_lock:
         # If already interrupted, skip duplicate processing
         if session.interrupted:
-            log_event("interruption_already_in_progress")
+            logger.debug("Interruption already in progress")
             return
 
-        log_event("interruption_detected")
+        logger.debug("Interruption detected")
         session.interrupted = True
 
         # Cancel all pending tool execution tasks
@@ -199,10 +199,10 @@ async def _handle_interruption(session: BidirectionalConnection) -> None:
             if not task.done():
                 task.cancel()
                 cancelled_tools += 1
-                log_event("tool_task_cancelled", task_id=task_id)
+                logger.debug("Tool task cancelled: %s", task_id)
 
         if cancelled_tools > 0:
-            log_event("tool_tasks_cancelled", count=cancelled_tools)
+            logger.debug("Tool tasks cancelled: %d", cancelled_tools)
 
         # Clear all queued audio output events
         cleared_count = 0
@@ -233,14 +233,14 @@ async def _handle_interruption(session: BidirectionalConnection) -> None:
             session.agent._output_queue.put_nowait(event)
 
         if audio_cleared > 0:
-            log_event("agent_audio_queue_cleared", count=audio_cleared)
+            logger.debug("Agent audio queue cleared: %d events", audio_cleared)
 
         if cleared_count > 0:
-            log_event("session_audio_queue_cleared", count=cleared_count)
+            logger.debug("Session audio queue cleared: %d events", cleared_count)
 
         # Reset interruption flag after clearing (automatic recovery)
         session.interrupted = False
-        log_event("interruption_handled", tools_cancelled=cancelled_tools, audio_cleared=cleared_count)
+        logger.debug("Interruption handled - tools cancelled: %d, audio cleared: %d", cancelled_tools, cleared_count)
 
 
 async def _process_model_events(session: BidirectionalConnection) -> None:
@@ -252,7 +252,7 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
     Args:
         session: BidirectionalConnection containing model session.
     """
-    log_flow("model_events", "processor started")
+    logger.debug("Model events processor started")
     try:
         async for provider_event in session.model_session.receive_events():
             if not session.active:
@@ -261,12 +261,12 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
             # Basic validation - skip invalid events
             if not isinstance(provider_event, dict):
                 continue
-
+            
             strands_event = provider_event
 
             # Handle interruption detection (provider converts raw patterns to interruptionDetected)
             if strands_event.get("interruptionDetected"):
-                log_event("interruption_forwarded")
+                logger.debug("Interruption forwarded")
                 await _handle_interruption(session)
                 # Forward interruption event to agent for application-level handling
                 await session.agent._output_queue.put(strands_event)
@@ -274,7 +274,7 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
 
             # Queue tool requests for concurrent execution
             if strands_event.get("toolUse"):
-                log_event("tool_queued", name=strands_event["toolUse"].get("name"))
+                logger.debug("Tool queued: %s", strands_event["toolUse"].get("name"))
                 await session.tool_queue.put(strands_event["toolUse"])
                 continue
 
@@ -284,39 +284,39 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
 
             # Update Agent conversation history using existing patterns
             if strands_event.get("messageStop"):
-                log_event("message_added_to_history")
+                logger.debug("Message added to history")
                 session.agent.messages.append(strands_event["messageStop"]["message"])
-
+            
             # Handle user audio transcripts - add to message history
             if strands_event.get("textOutput") and strands_event["textOutput"].get("role") == "user":
                 user_transcript = strands_event["textOutput"]["text"]
                 if user_transcript.strip():  # Only add non-empty transcripts
                     user_message = {"role": "user", "content": user_transcript}
                     session.agent.messages.append(user_message)
-                    log_event("user_transcript_added_to_history")
+                    logger.debug("User transcript added to history")
 
     except Exception as e:
-        log_event("model_events_error", error=str(e))
+        logger.error("Model events error: %s", str(e))
         traceback.print_exc()
     finally:
-        log_flow("model_events", "processor stopped")
+        logger.debug("Model events processor stopped")
 
 
 async def _process_tool_execution(session: BidirectionalConnection) -> None:
     """Execute tools concurrently with interruption support.
 
     Background task that manages tool execution without blocking model event
-    processing or user interaction. Uses proper asyncio cancellation for
+    processing or user interaction. Uses proper asyncio cancellation for 
     interruption handling rather than manual state checks.
 
     Args:
         session: BidirectionalConnection containing tool queue.
     """
-    log_flow("tool_execution", "processor started")
+    logger.debug("Tool execution processor started")
     while session.active:
         try:
             tool_use = await asyncio.wait_for(session.tool_queue.get(), timeout=TOOL_QUEUE_TIMEOUT)
-            log_event("tool_execution_started", name=tool_use.get("name"), id=tool_use.get("toolUseId"))
+            logger.debug("Tool execution started: %s (id: %s)", tool_use.get("name"), tool_use.get("toolUseId"))
 
             task_id = str(uuid.uuid4())
             task = asyncio.create_task(_execute_tool_with_strands(session, tool_use))
@@ -330,13 +330,13 @@ async def _process_tool_execution(session: BidirectionalConnection) -> None:
 
                     # Log completion status
                     if completed_task.cancelled():
-                        log_event("tool_task_cleanup_cancelled", task_id=task_id)
+                        logger.debug("Tool task cleanup cancelled: %s", task_id)
                     elif completed_task.exception():
-                        log_event("tool_task_cleanup_error", task_id=task_id, error=str(completed_task.exception()))
+                        logger.error("Tool task cleanup error: %s - %s", task_id, str(completed_task.exception()))
                     else:
-                        log_event("tool_task_cleanup_success", task_id=task_id)
+                        logger.debug("Tool task cleanup success: %s", task_id)
                 except Exception as e:
-                    log_event("tool_task_cleanup_failed", task_id=task_id, error=str(e))
+                    logger.error("Tool task cleanup failed: %s - %s", task_id, str(e))
 
             task.add_done_callback(cleanup_task)
 
@@ -350,15 +350,18 @@ async def _process_tool_execution(session: BidirectionalConnection) -> None:
                     del session.pending_tool_tasks[task_id]
 
             if completed_tasks:
-                log_event("periodic_task_cleanup", count=len(completed_tasks))
+                logger.debug("Periodic task cleanup: %d tasks", len(completed_tasks))
 
             continue
         except Exception as e:
-            log_event("tool_execution_error", error=str(e))
+            logger.error("Tool execution error: %s", str(e))
             if not session.active:
                 break
 
-    log_flow("tool_execution", "processor stopped")
+    logger.debug("Tool execution processor stopped")
+
+
+
 
 
 async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use: dict) -> None:
@@ -390,7 +393,7 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
         valid_tool_uses = [tu for tu in tool_uses if tu.get("toolUseId") not in invalid_tool_use_ids]
 
         if not valid_tool_uses:
-            log_event("tool_validation_failed", name=tool_name, id=tool_id)
+            logger.warning("Tool validation failed: %s (id: %s)", tool_name, tool_id)
             return
 
         # Execute tools directly (simpler approach for bidirectional)
@@ -408,29 +411,29 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
                     tool_results.append(tool_result)
 
                 except Exception as e:
-                    log_event("tool_execution_failed", name=tool_name, error=str(e))
+                    logger.error("Tool execution failed: %s - %s", tool_name, str(e))
                     tool_result = _create_error_result(tool_use["toolUseId"], str(e))
                     tool_results.append(tool_result)
             else:
-                log_event("tool_not_found", name=tool_name)
+                logger.warning("Tool not found: %s", tool_name)
 
         # Send results through provider-specific session
         for result in tool_results:
             await session.model_session.send_tool_result(tool_use.get("toolUseId"), result)
 
-        log_event("tool_execution_completed", name=tool_name, results=len(tool_results))
+        logger.debug("Tool execution completed: %s (%d results)", tool_name, len(tool_results))
 
     except asyncio.CancelledError:
         # Task was cancelled due to interruption - this is expected behavior
-        log_event("tool_task_cancelled_gracefully", name=tool_name, id=tool_id)
+        logger.debug("Tool task cancelled gracefully: %s (id: %s)", tool_name, tool_id)
         raise  # Re-raise to properly handle cancellation
     except Exception as e:
-        log_event("tool_execution_error", name=tool_use.get("name"), error=str(e))
-
+        logger.error("Tool execution error: %s - %s", tool_use.get("name"), str(e))
+        
         try:
             await session.model_session.send_tool_result(tool_use.get("toolUseId"), {"error": str(e)})
         except Exception as send_error:
-            log_event("tool_error_send_failed", error=str(send_error))
+            logger.error("Tool error send failed: %s", str(send_error))
 
 
 def _extract_callable_function(tool_func: any) -> any:

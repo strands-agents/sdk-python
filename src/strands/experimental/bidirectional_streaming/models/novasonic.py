@@ -36,7 +36,7 @@ from ..types.bidirectional_streaming import (
     InterruptionDetectedEvent,
     TextOutputEvent,
 )
-from ..utils.debug import log_event, log_flow, time_it_async
+
 from .bidirectional_model import BidirectionalModel, BidirectionalModelSession
 
 logger = logging.getLogger(__name__)
@@ -121,10 +121,10 @@ class NovaSonicSession(BidirectionalModelSession):
 
             init_events = self._build_initialization_events(system_prompt, tools or [], messages)
 
-            log_flow("nova_init", f"sending {len(init_events)} events")
+            logger.debug(f"Nova Sonic initialization - sending {len(init_events)} events")
             await self._send_initialization_events(init_events)
 
-            log_event("nova_connection_initialized")
+            logger.info("Nova Sonic connection initialized successfully")
             self._response_task = asyncio.create_task(self._process_responses())
 
         except Exception as e:
@@ -147,12 +147,12 @@ class NovaSonicSession(BidirectionalModelSession):
     async def _send_initialization_events(self, events: list[str]) -> None:
         """Send initialization events with required delays."""
         for i, event in enumerate(events):
-            await time_it_async(f"send_init_event_{i + 1}", lambda event=event: self._send_nova_event(event))
+            await self._send_nova_event(event)
             await asyncio.sleep(EVENT_DELAY)
 
     async def _process_responses(self) -> None:
         """Process Nova Sonic responses continuously."""
-        log_flow("nova_responses", "processor started")
+        logger.debug("Nova Sonic response processor started")
 
         try:
             while self._active:
@@ -167,14 +167,14 @@ class NovaSonicSession(BidirectionalModelSession):
                     await asyncio.sleep(0.1)
                     continue
                 except Exception as e:
-                    log_event("nova_response_error", error=str(e))
+                    logger.warning(f"Nova Sonic response error: {e}")
                     await asyncio.sleep(0.1)
                     continue
 
         except Exception as e:
-            log_event("nova_fatal_error", error=str(e))
+            logger.error(f"Nova Sonic fatal error: {e}")
         finally:
-            log_flow("nova_responses", "processor stopped")
+            logger.debug("Nova Sonic response processor stopped")
 
     async def _handle_response_data(self, response_data: str) -> None:
         """Handle decoded response data from Nova Sonic."""
@@ -190,21 +190,21 @@ class NovaSonicSession(BidirectionalModelSession):
 
                 await self._event_queue.put(nova_event)
         except json.JSONDecodeError as e:
-            log_event("nova_json_error", error=str(e))
+            logger.warning(f"Nova Sonic JSON decode error: {e}")
 
     def _log_event_type(self, nova_event: dict[str, any]) -> None:
         """Log specific Nova Sonic event types for debugging."""
         if "usageEvent" in nova_event:
-            log_event("nova_usage", usage=nova_event["usageEvent"])
+            logger.debug("Nova usage: %s", nova_event["usageEvent"])
         elif "textOutput" in nova_event:
-            log_event("nova_text_output")
+            logger.debug("Nova text output")
         elif "toolUse" in nova_event:
             tool_use = nova_event["toolUse"]
-            log_event("nova_tool_use", name=tool_use["toolName"], id=tool_use["toolUseId"])
+            logger.debug("Nova tool use: %s (id: %s)", tool_use["toolName"], tool_use["toolUseId"])
         elif "audioOutput" in nova_event:
             audio_content = nova_event["audioOutput"]["content"]
             audio_bytes = base64.b64decode(audio_content)
-            log_event("nova_audio_output", bytes=len(audio_bytes))
+            logger.debug("Nova audio output: %d bytes", len(audio_bytes))
 
     async def receive_events(self) -> AsyncIterable[dict[str, any]]:
         """Receive Nova Sonic events and convert to provider-agnostic format."""
@@ -212,7 +212,7 @@ class NovaSonicSession(BidirectionalModelSession):
             logger.error("Stream is None")
             return
 
-        log_flow("nova_events", "starting event stream")
+        logger.debug("Nova events - starting event stream")
 
         # Emit connection start event to Strands event system
         connection_start: BidirectionalConnectionStartEvent = {
@@ -257,7 +257,7 @@ class NovaSonicSession(BidirectionalModelSession):
         if self.audio_connection_active:
             return
 
-        log_event("nova_audio_connection_start")
+        logger.debug("Nova audio connection start")
 
         audio_content_start = json.dumps(
             {
@@ -319,7 +319,7 @@ class NovaSonicSession(BidirectionalModelSession):
             if self.audio_connection_active and self.last_audio_time:
                 elapsed = time.time() - self.last_audio_time
                 if elapsed >= self.silence_threshold:
-                    log_event("nova_silence_detected", elapsed=elapsed)
+                    logger.debug("Nova silence detected: %.2f seconds", elapsed)
                     await self.end_audio_input()
         except asyncio.CancelledError:
             pass
@@ -329,7 +329,7 @@ class NovaSonicSession(BidirectionalModelSession):
         if not self.audio_connection_active:
             return
 
-        log_event("nova_audio_connection_end")
+        logger.debug("Nova audio connection end")
 
         audio_content_end = json.dumps(
             {"event": {"contentEnd": {"promptName": self.prompt_name, "contentName": self.audio_content_name}}}
@@ -375,7 +375,7 @@ class NovaSonicSession(BidirectionalModelSession):
         if not self._active:
             return
 
-        log_event("nova_tool_result_send", id=tool_use_id)
+        logger.debug("Nova tool result send: %s", tool_use_id)
         content_name = str(uuid.uuid4())
         events = [
             self._get_tool_content_start_event(content_name, tool_use_id),
@@ -384,14 +384,16 @@ class NovaSonicSession(BidirectionalModelSession):
         ]
 
         for i, event in enumerate(events):
-            await time_it_async(f"send_tool_event_{i + 1}", lambda event=event: self._send_nova_event(event))
+            await self._send_nova_event(event)
+
+
 
     async def close(self) -> None:
         """Close Nova Sonic connection with proper cleanup sequence."""
         if not self._active:
             return
 
-        log_flow("nova_cleanup", "starting connection close")
+        logger.debug("Nova cleanup - starting connection close")
         self._active = False
 
         # Cancel response processing task if running
@@ -423,9 +425,9 @@ class NovaSonicSession(BidirectionalModelSession):
                 logger.warning("Error closing Nova Sonic stream: %s", e)
 
         except Exception as e:
-            log_event("nova_cleanup_error", error=str(e))
+            logger.error("Nova cleanup error: %s", str(e))
         finally:
-            log_event("nova_connection_closed")
+            logger.debug("Nova connection closed")
 
     def _convert_nova_event(self, nova_event: dict[str, any]) -> dict[str, any] | None:
         """Convert Nova Sonic events to provider-agnostic format."""
@@ -452,7 +454,7 @@ class NovaSonicSession(BidirectionalModelSession):
 
             # Check for Nova Sonic interruption pattern (matches working sample)
             if '{ "interrupted" : true }' in text_content:
-                log_event("nova_interruption_in_text")
+                logger.debug("Nova interruption detected in text")
                 interruption: InterruptionDetectedEvent = {"reason": "user_input"}
                 return {"interruptionDetected": interruption}
 
@@ -480,7 +482,7 @@ class NovaSonicSession(BidirectionalModelSession):
 
         # Handle interruption
         elif nova_event.get("stopReason") == "INTERRUPTED":
-            log_event("nova_interruption_stop_reason")
+            logger.debug("Nova interruption stop reason")
 
             interruption: InterruptionDetectedEvent = {"reason": "user_input"}
 
@@ -664,29 +666,26 @@ class NovaSonicBidirectionalModel(BidirectionalModel):
         **kwargs,
     ) -> BidirectionalModelSession:
         """Create Nova Sonic bidirectional connection."""
-        log_flow("nova_connection_create", "starting")
+        logger.debug("Nova connection create - starting")
 
         # Initialize client if needed
         if not self._client:
-            await time_it_async("initialize_client", lambda: self._initialize_client())
+            await self._initialize_client()
 
         # Start Nova Sonic bidirectional stream
         try:
-            stream = await time_it_async(
-                "invoke_model_with_bidirectional_stream",
-                lambda: self._client.invoke_model_with_bidirectional_stream(
-                    InvokeModelWithBidirectionalStreamOperationInput(model_id=self.model_id)
-                ),
+            stream = await self._client.invoke_model_with_bidirectional_stream(
+                InvokeModelWithBidirectionalStreamOperationInput(model_id=self.model_id)
             )
 
             # Create and initialize connection
             connection = NovaSonicSession(stream, self.config)
-            await time_it_async("initialize_connection", lambda: connection.initialize(system_prompt, tools, messages))
+            await connection.initialize(system_prompt, tools, messages)
 
-            log_event("nova_connection_created")
+            logger.debug("Nova connection created")
             return connection
         except Exception as e:
-            log_event("nova_connection_create_error", error=str(e))
+            logger.error("Nova connection create error: %s", str(e))
             logger.error("Failed to create Nova Sonic connection: %s", e)
             raise
 

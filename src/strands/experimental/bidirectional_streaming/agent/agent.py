@@ -22,7 +22,7 @@ from ....types.content import Messages
 from ..event_loop.bidirectional_event_loop import start_bidirectional_connection, stop_bidirectional_connection
 from ..models.bidirectional_model import BidirectionalModel
 from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent
-from ..utils.debug import log_event, log_flow
+
 
 logger = logging.getLogger(__name__)
 
@@ -79,9 +79,9 @@ class BidirectionalAgent:
         if self._session and self._session.active:
             raise ValueError("Conversation already active. Call end() first.")
 
-        log_flow("conversation_start", "initializing session")
+        logger.debug("Conversation start - initializing session")
         self._session = await start_bidirectional_connection(self)
-        log_event("conversation_ready")
+        logger.debug("Conversation ready")
 
     async def send(self, input_data: str | AudioInputEvent) -> None:
         """Send input to the model (text or audio).
@@ -102,7 +102,7 @@ class BidirectionalAgent:
             # Add user text message to history
             self.messages.append({"role": "user", "content": input_data})
 
-            log_event("text_sent", length=len(input_data))
+            logger.debug("Text sent: %d characters", len(input_data))
             await self._session.model_session.send_text_content(input_data)
         elif isinstance(input_data, dict) and "audioData" in input_data:
             # Handle audio input
