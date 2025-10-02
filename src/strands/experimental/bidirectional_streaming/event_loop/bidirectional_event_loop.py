@@ -21,6 +21,7 @@ from typing import Any, Dict
 from ....tools._validator import validate_and_prepare_tools
 from ....types.content import Message
 from ....types.tools import ToolResult, ToolUse
+from ..agent.agent import BidirectionalAgent
 from ..models.bidirectional_model import BidirectionalModelSession
 from ..utils.debug import log_event, log_flow
 
@@ -61,7 +62,7 @@ class BidirectionalConnection:
         self.interrupted = False
 
 
-async def start_bidirectional_connection(agent: "BidirectionalAgent") -> BidirectionalConnection:
+async def start_bidirectional_connection(agent: BidirectionalAgent) -> BidirectionalConnection:
     """Initialize bidirectional session with concurrent background tasks.
 
     Creates a model-specific session and starts background tasks for processing
@@ -325,7 +326,7 @@ async def _process_tool_execution(session: BidirectionalConnection) -> None:
             session.pending_tool_tasks[task_id] = task
 
             # 🔥 ADD CLEANUP CALLBACK (Nova Sonic pattern)
-            def cleanup_task(completed_task):
+            def cleanup_task(completed_task, task_id=task_id):
                 try:
                     # Remove from pending tasks
                     if task_id in session.pending_tool_tasks:

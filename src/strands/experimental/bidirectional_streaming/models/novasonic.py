@@ -147,7 +147,7 @@ class NovaSonicSession(BidirectionalModelSession):
     async def _send_initialization_events(self, events: List[str]) -> None:
         """Send initialization events with required delays."""
         for i, event in enumerate(events):
-            await time_it_async(f"send_init_event_{i + 1}", lambda: self._send_nova_event(event))
+            await time_it_async(f"send_init_event_{i + 1}", lambda event=event: self._send_nova_event(event))
             await asyncio.sleep(EVENT_DELAY)
 
     async def _process_responses(self) -> None:
@@ -384,7 +384,7 @@ class NovaSonicSession(BidirectionalModelSession):
         ]
 
         for i, event in enumerate(events):
-            await time_it_async(f"send_tool_event_{i + 1}", lambda: self._send_nova_event(event))
+            await time_it_async(f"send_tool_event_{i + 1}", lambda event=event: self._send_nova_event(event))
 
     async def send_tool_error(self, tool_use_id: str, error: str) -> None:
         """Send tool error using Nova Sonic format."""
