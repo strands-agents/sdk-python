@@ -569,54 +569,57 @@ class Graph(MultiAgentBase):
     async def _execute_nodes_parallel(
         self, nodes: list["GraphNode"], invocation_state: dict[str, Any]
     ) -> AsyncIterator[dict[str, Any]]:
-        """Execute multiple nodes in parallel and merge their event streams."""
-        # Create async generators for each node
-        node_generators = [self._execute_node(node, invocation_state) for node in nodes]
+        """Execute multiple nodes in parallel and merge their event streams in real-time.
 
-        # Track which generators are still active
-        active_generators = {i: gen for i, gen in enumerate(node_generators)}
+        Uses a shared queue where each node's stream runs independently and pushes events
+        as they occur, enabling true real-time event propagation without round-robin delays.
+        """
+        # Create a shared queue for all events
+        event_queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
 
-        # Use asyncio.as_completed to process events as they arrive
-        while active_generators:
-            # Create tasks for the next event from each active generator
-            tasks: list[asyncio.Task[dict[str, Any]]] = []
-            task_to_index: dict[asyncio.Task[dict[str, Any]], int] = {}
-            for i, gen in active_generators.items():
-                task: asyncio.Task[dict[str, Any]] = asyncio.create_task(cast(Any, gen.__anext__()))
-                task_to_index[task] = i  # Store the node index mapping
-                tasks.append(task)
+        # Track active node tasks
+        active_tasks: set[asyncio.Task[None]] = set()
 
-            if not tasks:
-                break
+        async def stream_node_to_queue(node: GraphNode, node_index: int) -> None:
+            """Stream events from a node to the shared queue."""
+            try:
+                async for event in self._execute_node(node, invocation_state):
+                    await event_queue.put(event)
+            except Exception as e:
+                # Node execution failed - the _execute_node method has already recorded the failure
+                # Log and continue to allow other nodes to complete
+                logger.debug(
+                    "node_id=<%s>, error=<%s> | node streaming failed",
+                    node.node_id,
+                    str(e),
+                )
+            finally:
+                # Signal that this node is done by putting None
+                await event_queue.put(None)
 
-            # Wait for the first event to arrive
-            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        # Start all node streams as independent tasks
+        for i, node in enumerate(nodes):
+            task = asyncio.create_task(stream_node_to_queue(node, i))
+            active_tasks.add(task)
 
-            # Process completed tasks
-            for task in done:
-                node_index = task_to_index[task]
-                try:
-                    event = await task
-                    yield event
-                except StopAsyncIteration:
-                    # This generator is exhausted, remove it
-                    if node_index in active_generators:
-                        del active_generators[node_index]
-                except Exception:
-                    # Node execution failed, remove it but continue with other nodes
-                    # The _execute_node method has already recorded the failure
-                    if node_index in active_generators:
-                        del active_generators[node_index]
-                    # Don't re-raise here - let other nodes complete
-                    # The graph-level logic will determine if the overall execution should fail
+        # Track how many nodes have completed
+        completed_count = 0
+        total_nodes = len(nodes)
 
-            # Cancel pending tasks
-            for task in pending:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
+        # Consume events from the queue as they arrive
+        while completed_count < total_nodes:
+            event = await event_queue.get()
+
+            if event is None:
+                # A node has completed
+                completed_count += 1
+            else:
+                # Forward the event immediately
+                yield event
+
+        # Wait for all tasks to complete (should be immediate since they've all signaled completion)
+        if active_tasks:
+            await asyncio.gather(*active_tasks, return_exceptions=True)
 
     def _find_newly_ready_nodes(self, completed_batch: list["GraphNode"]) -> list["GraphNode"]:
         """Find nodes that became ready after the last execution."""
