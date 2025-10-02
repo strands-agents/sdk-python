@@ -219,7 +219,25 @@ async def _handle_model_execution(
     invocation_state: dict[str, Any],
     tracer: Tracer,
 ) -> AsyncGenerator[TypedEvent, None]:
-    """<TODO>."""
+    """Handle model execution with retry logic for throttling exceptions.
+
+    Executes the model inference with automatic retry handling for throttling exceptions.
+    Manages tracing, hooks, and metrics collection throughout the process.
+
+    Args:
+        agent: The agent executing the model.
+        cycle_span: Span object for tracing the cycle.
+        cycle_trace: Trace object for the current event loop cycle.
+        invocation_state: State maintained across cycles.
+        tracer: Tracer instance for span management.
+
+    Yields:
+        Model stream events and throttle events during retries.
+
+    Raises:
+        ModelThrottledException: If max retry attempts are exceeded.
+        Exception: Any other model execution errors.
+    """
     # Create a trace for the stream_messages call
     stream_trace = Trace("stream_messages", parent_id=cycle_trace.id)
     cycle_trace.add_child(stream_trace)
