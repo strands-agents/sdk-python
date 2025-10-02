@@ -37,6 +37,7 @@ StopReason = Literal[
     "content_filtered",
     "end_turn",
     "guardrail_intervened",
+    "interrupt",
     "max_tokens",
     "stop_sequence",
     "tool_use",
@@ -46,6 +47,7 @@ StopReason = Literal[
 - "content_filtered": Content was filtered due to policy violation
 - "end_turn": Normal completion of the response
 - "guardrail_intervened": Guardrail system intervened
+- "interrupt": Agent was interrupted for human input
 - "max_tokens": Maximum token limit reached
 - "stop_sequence": Stop sequence encountered
 - "tool_use": Model requested to use a tool

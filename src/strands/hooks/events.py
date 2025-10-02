@@ -9,6 +9,7 @@ from typing import Any, Optional
 from ..types.content import Message
 from ..types.streaming import StopReason
 from ..types.tools import AgentTool, ToolResult, ToolUse
+from .interrupt import InterruptEvent
 from .registry import HookEvent
 
 
@@ -84,7 +85,7 @@ class MessageAddedEvent(HookEvent):
 
 
 @dataclass
-class BeforeToolCallEvent(HookEvent):
+class BeforeToolCallEvent(HookEvent, InterruptEvent):
     """Event triggered before a tool is invoked.
 
     This event is fired just before the agent executes a tool, allowing hook
@@ -108,7 +109,7 @@ class BeforeToolCallEvent(HookEvent):
     cancel_tool: bool | str = False
 
     def _can_write(self, name: str) -> bool:
-        return name in ["cancel_tool", "selected_tool", "tool_use"]
+        return name in ["interrupt", "cancel_tool", "selected_tool", "tool_use"]
 
 
 @dataclass

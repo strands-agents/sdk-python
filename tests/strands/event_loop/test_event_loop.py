@@ -9,7 +9,9 @@ import strands.telemetry
 from strands.hooks import (
     AfterModelCallEvent,
     BeforeModelCallEvent,
+    BeforeToolCallEvent,
     HookRegistry,
+    Interrupt,
     MessageAddedEvent,
 )
 from strands.telemetry.metrics import EventLoopMetrics
@@ -138,6 +140,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.event_loop_metrics = EventLoopMetrics()
     mock.hooks = hook_registry
     mock.tool_executor = tool_executor
+    mock._interrupts = {}
 
     return mock
 
@@ -169,7 +172,7 @@ async def test_event_loop_cycle_text_response(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
@@ -201,7 +204,7 @@ async def test_event_loop_cycle_text_response_throttling(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
@@ -239,7 +242,7 @@ async def test_event_loop_cycle_exponential_backoff(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _ = events[-1]["stop"]
 
     # Verify the final response
     assert tru_stop_reason == "end_turn"
@@ -330,7 +333,7 @@ async def test_event_loop_cycle_tool_result(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
@@ -445,7 +448,7 @@ async def test_event_loop_cycle_stop(
         invocation_state={"request_state": {"stop_event_loop": True}},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _ = events[-1]["stop"]
 
     exp_stop_reason = "tool_use"
     exp_message = {
@@ -747,7 +750,7 @@ async def test_request_state_initialization(alist):
         invocation_state={},
     )
     events = await alist(stream)
-    _, _, _, tru_request_state = events[-1]["stop"]
+    _, _, _, tru_request_state, _ = events[-1]["stop"]
 
     # Verify request_state was initialized to empty dict
     assert tru_request_state == {}
@@ -759,7 +762,7 @@ async def test_request_state_initialization(alist):
         invocation_state={"request_state": initial_request_state},
     )
     events = await alist(stream)
-    _, _, _, tru_request_state = events[-1]["stop"]
+    _, _, _, tru_request_state, _ = events[-1]["stop"]
 
     # Verify existing request_state was preserved
     assert tru_request_state == initial_request_state
@@ -862,3 +865,168 @@ async def test_event_loop_cycle_exception_model_hooks(mock_sleep, agent, model, 
     assert next(events) == MessageAddedEvent(
         agent=agent, message={"content": [{"text": "test text"}], "role": "assistant"}
     )
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_interrupt(agent, model, tool_stream, agenerator, alist):
+    def interrupt_callback(event):
+        event.interrupt("test reason")
+
+    agent.hooks.add_callback(BeforeToolCallEvent, interrupt_callback)
+
+    model.stream.side_effect = [agenerator(tool_stream)]
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={})
+    events = await alist(stream)
+
+    tru_stop_reason, _, _, _, tru_interrupts = events[-1]["stop"]
+    exp_stop_reason = "interrupt"
+    exp_interrupts = [
+        Interrupt(
+            name="tool_for_testing",
+            event_name="BeforeToolCallEvent",
+            reasons=["test reason"],
+            activated=True,
+        ),
+    ]
+
+    assert tru_stop_reason == exp_stop_reason and tru_interrupts == exp_interrupts
+
+    tru_result_message = agent.messages[-1]
+    exp_result_message = {
+        "role": "user",
+        "content": [
+            {
+                "toolResult": {
+                    "toolUseId": "t1",
+                    "status": "error",
+                    "content": [
+                        {
+                            "json": {
+                                "interrupt": {
+                                    "name": "tool_for_testing",
+                                    "event_name": "BeforeToolCallEvent",
+                                    "reasons": ["test reason"],
+                                },
+                            },
+                        },
+                    ],
+                }
+            }
+        ],
+    }
+    assert tru_result_message == exp_result_message
+
+
+@pytest.mark.asyncio
+async def test_event_loop_cycle_interrupt_resume(agent, model, tool, tool_times_2, agenerator, alist):
+    agent._interrupts = {
+        ("tool_for_testing", "BeforeToolCallEvent"): Interrupt(
+            name="tool_for_testing",
+            event_name="BeforeToolCallEvent",
+            reasons=["test reason"],
+            response="test response",
+        ),
+    }
+
+    agent.messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "t1",
+                        "name": "tool_for_testing",
+                        "input": {"random_string": "test input"},
+                    }
+                },
+                {
+                    "toolUse": {
+                        "toolUseId": "t2",
+                        "name": "tool_times_2",
+                        "input": {},
+                    }
+                },
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {
+                    "toolResult": {
+                        "toolUseId": "t1",
+                        "status": "error",
+                        "content": [
+                            {
+                                "json": {
+                                    "interrupt": {
+                                        "name": "tool_for_testing",
+                                        "event_name": "BeforeToolCallEvent",
+                                        "reasons": ["test reason"],
+                                    },
+                                },
+                            },
+                        ],
+                    },
+                },
+                {
+                    "toolResult": {
+                        "toolUseId": "t2",
+                        "status": "success",
+                        "content": [{"text": "t2 result"}],
+                    },
+                },
+            ],
+        },
+    ]
+
+    interrupt_response = {}
+
+    def interrupt_callback(event):
+        interrupt_response["response"] = event.interrupt("test reason")
+
+    agent.hooks.add_callback(BeforeToolCallEvent, interrupt_callback)
+
+    model.stream.side_effect = [agenerator([{"contentBlockStop": {}}])]
+
+    stream = strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={})
+    events = await alist(stream)
+
+    tru_stop_reason, _, _, _, _ = events[-1]["stop"]
+    exp_stop_reason = "end_turn"
+    assert tru_stop_reason == exp_stop_reason
+
+    tru_result_message = agent.messages[-2]
+    exp_result_message = {
+        "role": "user",
+        "content": [
+            {
+                "toolResult": {
+                    "toolUseId": "t1",
+                    "status": "success",
+                    "content": [
+                        {
+                            "json": {
+                                "interrupt": {
+                                    "name": "tool_for_testing",
+                                    "event_name": "BeforeToolCallEvent",
+                                    "reasons": ["test reason"],
+                                },
+                            },
+                        },
+                        {"text": "test input"},
+                    ],
+                }
+            },
+            {
+                "toolResult": {
+                    "toolUseId": "t2",
+                    "status": "success",
+                    "content": [{"text": "t2 result"}],
+                },
+            },
+        ],
+    }
+    assert tru_result_message == exp_result_message
+
+    assert not agent._interrupts

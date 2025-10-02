@@ -1877,3 +1877,157 @@ def test_agent_tool_call_parameter_filtering_integration(mock_randint):
     assert '"action": "test_value"' in tool_call_text
     assert '"agent"' not in tool_call_text
     assert '"extra_param"' not in tool_call_text
+
+
+def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
+    mock_model.mock_stream.return_value = agenerator(
+        [
+            {"contentBlockStart": {"start": {"text": ""}}},
+            {"contentBlockDelta": {"delta": {"text": "resumed"}}},
+            {"contentBlockStop": {}},
+        ]
+    )
+
+    agent = Agent(
+        messages=[
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "t1",
+                            "name": "tool_decorated",
+                            "input": {"random_string": "test input"},
+                        }
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "toolResult": {
+                            "toolUseId": "t1",
+                            "status": "error",
+                            "content": [
+                                {
+                                    "json": {
+                                        "interrupt": {
+                                            "name": "tool_decorated",
+                                            "event_name": "BeforeToolCallEvent",
+                                            "reasons": ["test reason"],
+                                        },
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+        ],
+        model=mock_model,
+        tools=[tool_decorated],
+    )
+
+    prompt = [
+        {
+            "interruptResponse": {
+                "name": "tool_decorated",
+                "event_name": "BeforeToolCallEvent",
+                "response": "user response",
+            }
+        }
+    ]
+    agent(prompt)
+
+    tru_result_message = agent.messages[-2]
+    exp_result_message = {
+        "role": "user",
+        "content": [
+            {
+                "toolResult": {
+                    "toolUseId": "t1",
+                    "status": "success",
+                    "content": [
+                        {
+                            "json": {
+                                "interrupt": {
+                                    "name": "tool_decorated",
+                                    "event_name": "BeforeToolCallEvent",
+                                    "reasons": ["test reason"],
+                                },
+                            },
+                        },
+                        {"text": "test input"},
+                    ],
+                },
+            },
+        ],
+    }
+    assert tru_result_message == exp_result_message
+
+    assert not agent._interrupts
+
+
+def test_agent__call__resume_interrupt_invalid_prompt(mock_model):
+    agent = Agent(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "toolResult": {
+                            "status": "error",
+                            "content": [
+                                {
+                                    "json": {
+                                        "interrupt": {
+                                            "name": "test_interrupt",
+                                            "event_name": "test_event",
+                                            "reasons": ["test reason"],
+                                        }
+                                    }
+                                }
+                            ],
+                        }
+                    }
+                ],
+            }
+        ],
+        model=mock_model,
+    )
+
+    with pytest.raises(TypeError, match="must resume from interrupt with list of interruptResponse's"):
+        agent("invalid")
+
+
+def test_agent__call__resume_interrupt_missing_responses(mock_model):
+    agent = Agent(
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "toolResult": {
+                            "status": "error",
+                            "content": [
+                                {
+                                    "json": {
+                                        "interrupt": {
+                                            "name": "test_interrupt",
+                                            "event_name": "test_event",
+                                            "reasons": ["test reason"],
+                                        }
+                                    }
+                                }
+                            ],
+                        }
+                    }
+                ],
+            }
+        ],
+        model=mock_model,
+    )
+
+    with pytest.raises(ValueError, match="missing responses for interrupts"):
+        agent([])

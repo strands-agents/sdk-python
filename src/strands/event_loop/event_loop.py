@@ -27,6 +27,7 @@ from ..types._events import (
     ModelStopReason,
     StartEvent,
     StartEventLoopEvent,
+    ToolInterruptEvent,
     ToolResultMessageEvent,
     TypedEvent,
 )
@@ -106,13 +107,18 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
     )
     invocation_state["event_loop_cycle_span"] = cycle_span
 
-    model_events = _handle_model_execution(agent, cycle_span, cycle_trace, invocation_state, tracer)
-    async for model_event in model_events:
-        if not isinstance(model_event, ModelStopReason):
-            yield model_event
+    if agent._interrupts:
+        stop_reason: StopReason = "tool_use"
+        message = agent.messages[-2]
 
-    stop_reason, message, *_ = model_event["stop"]
-    yield ModelMessageEvent(message=message)
+    else:
+        model_events = _handle_model_execution(agent, cycle_span, cycle_trace, invocation_state, tracer)
+        async for model_event in model_events:
+            if not isinstance(model_event, ModelStopReason):
+                yield model_event
+
+        stop_reason, message, *_ = model_event["stop"]
+        yield ModelMessageEvent(message=message)
 
     try:
         if stop_reason == "max_tokens":
@@ -371,25 +377,31 @@ async def _handle_tool_execution(
 
     validate_and_prepare_tools(message, tool_uses, tool_results, invalid_tool_use_ids)
     tool_uses = [tool_use for tool_use in tool_uses if tool_use.get("toolUseId") not in invalid_tool_use_ids]
+
+    # Filter to only the interrupted tools when resuming from interrupt
+    if agent._interrupts:
+        tool_names = {name for name, _ in agent._interrupts.keys()}
+        tool_uses = [tool_use for tool_use in tool_uses if tool_use["name"] in tool_names]
+
     if not tool_uses:
         yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
         return
 
+    tool_interrupts = []
     tool_events = agent.tool_executor._execute(
         agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state
     )
     async for tool_event in tool_events:
+        if isinstance(tool_event, ToolInterruptEvent):
+            tool_interrupts.append(tool_event["tool_interrupt_event"]["interrupt"])
+
         yield tool_event
 
     # Store parent cycle ID for the next cycle
     invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
 
-    tool_result_message: Message = {
-        "role": "user",
-        "content": [{"toolResult": result} for result in tool_results],
-    }
+    tool_result_message = _convert_tool_results_to_message(agent, tool_results)
 
-    agent.messages.append(tool_result_message)
     agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=tool_result_message))
     yield ToolResultMessageEvent(message=tool_result_message)
 
@@ -397,11 +409,52 @@ async def _handle_tool_execution(
         tracer = get_tracer()
         tracer.end_event_loop_cycle_span(span=cycle_span, message=message, tool_result_message=tool_result_message)
 
+    if tool_interrupts:
+        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+        yield EventLoopStopEvent(
+            "interrupt", message, agent.event_loop_metrics, invocation_state["request_state"], tool_interrupts
+        )
+        return
+
     if invocation_state["request_state"].get("stop_event_loop", False):
         agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
         yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
         return
 
+    agent._interrupts = {}
+
     events = recurse_event_loop(agent=agent, invocation_state=invocation_state)
     async for event in events:
         yield event
+
+
+def _convert_tool_results_to_message(agent: "Agent", results: list[ToolResult]) -> Message:
+    """Convert tool results to a message.
+
+    For normal execution, we create a new user message with the tool results and append it to the agent's message
+    history. When resuming from an interrupt, we instead extend the existing results message in history with the
+    resumed results.
+
+    Args:
+        agent: The agent instance containing interrupt state and message history.
+        results: List of tool results to convert or extend into a message.
+
+    Returns:
+        Tool results message.
+    """
+    if not agent._interrupts:
+        message: Message = {
+            "role": "user",
+            "content": [{"toolResult": result} for result in results],
+        }
+        agent.messages.append(message)
+        return message
+
+    message = agent.messages[-1]
+
+    results_map = {result["toolUseId"]: result for result in results}
+    for content in message["content"]:
+        tool_use_id = content["toolResult"]["toolUseId"]
+        content["toolResult"] = results_map.get(tool_use_id, content["toolResult"])
+
+    return message

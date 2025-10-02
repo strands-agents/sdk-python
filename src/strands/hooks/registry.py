@@ -10,6 +10,8 @@ via hook provider objects.
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generator, Generic, Protocol, Type, TypeVar
 
+from .interrupt import InterruptException
+
 if TYPE_CHECKING:
     from ..agent import Agent
 
@@ -205,7 +207,12 @@ class HookRegistry:
             ```
         """
         for callback in self.get_callbacks_for(event):
-            callback(event)
+            try:
+                callback(event)
+            except InterruptException:
+                # All callbacks are allowed to finish executing during an interrupt. The state of the interrupt is
+                # stored as an instance variable on the hook event.
+                pass
 
         return event
 
