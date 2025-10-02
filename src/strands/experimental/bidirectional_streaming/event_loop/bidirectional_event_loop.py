@@ -20,7 +20,7 @@ import uuid
 from ....tools._validator import validate_and_prepare_tools
 from ....types.content import Message
 from ....types.tools import ToolResult, ToolUse
-from ..agent.agent import BidirectionalAgent
+
 from ..models.bidirectional_model import BidirectionalModelSession
 from ..utils.debug import log_event, log_flow
 
@@ -38,7 +38,7 @@ class BidirectionalConnection:
     handling while providing a simple interface for agent interactions.
     """
 
-    def __init__(self, model_session: BidirectionalModelSession, agent: BidirectionalAgent) -> None:
+    def __init__(self, model_session: BidirectionalModelSession, agent: "BidirectionalAgent") -> None:
         """Initialize session with model session and agent reference.
 
         Args:
@@ -59,9 +59,10 @@ class BidirectionalConnection:
 
         # Interruption handling (model-agnostic)
         self.interrupted = False
+        self.interruption_lock = asyncio.Lock()
 
 
-async def start_bidirectional_connection(agent: BidirectionalAgent) -> BidirectionalConnection:
+async def start_bidirectional_connection(agent: "BidirectionalAgent") -> BidirectionalConnection:
     """Initialize bidirectional session with conycurrent background tasks.
 
     Creates a model-specific session and starts background tasks for processing
@@ -181,66 +182,73 @@ async def _handle_interruption(session: BidirectionalConnection) -> None:
     """Handle interruption detection with task cancellation and audio buffer clearing.
 
     Cancels pending tool tasks and clears audio output queues to ensure responsive
-    interruption handling during conversations.
+    interruption handling during conversations. Protected by async lock to prevent
+    concurrent execution and race conditions.
 
     Args:
         session: BidirectionalConnection to handle interruption for.
     """
-    log_event("interruption_detected")
-    session.interrupted = True
+    async with session.interruption_lock:
+        # If already interrupted, skip duplicate processing
+        if session.interrupted:
+            log_event("interruption_already_in_progress")
+            return
 
-    # Cancel all pending tool execution tasks
-    cancelled_tools = 0
-    for task_id, task in list(session.pending_tool_tasks.items()):
-        if not task.done():
-            task.cancel()
-            cancelled_tools += 1
-            log_event("tool_task_cancelled", task_id=task_id)
+        log_event("interruption_detected")
+        session.interrupted = True
 
-    if cancelled_tools > 0:
-        log_event("tool_tasks_cancelled", count=cancelled_tools)
+        # Cancel all pending tool execution tasks
+        cancelled_tools = 0
+        for task_id, task in list(session.pending_tool_tasks.items()):
+            if not task.done():
+                task.cancel()
+                cancelled_tools += 1
+                log_event("tool_task_cancelled", task_id=task_id)
 
-    # Clear all queued audio output events
-    cleared_count = 0
-    while True:
-        try:
-            session.audio_output_queue.get_nowait()
-            cleared_count += 1
-        except asyncio.QueueEmpty:
-            break
+        if cancelled_tools > 0:
+            log_event("tool_tasks_cancelled", count=cancelled_tools)
 
-    # Also clear the agent's audio output queue if it exists
-    if hasattr(session.agent, "_output_queue"):
-        audio_cleared = 0
-        # Create a temporary list to hold non-audio events
-        temp_events = []
-        try:
-            while True:
-                event = session.agent._output_queue.get_nowait()
-                if event.get("audioOutput"):
-                    audio_cleared += 1
-                else:
-                    # Keep non-audio events
-                    temp_events.append(event)
-        except asyncio.QueueEmpty:
-            pass
+        # Clear all queued audio output events
+        cleared_count = 0
+        while True:
+            try:
+                session.audio_output_queue.get_nowait()
+                cleared_count += 1
+            except asyncio.QueueEmpty:
+                break
 
-        # Put back non-audio events
-        for event in temp_events:
-            session.agent._output_queue.put_nowait(event)
+        # Also clear the agent's audio output queue if it exists
+        if hasattr(session.agent, "_output_queue"):
+            audio_cleared = 0
+            # Create a temporary list to hold non-audio events
+            temp_events = []
+            try:
+                while True:
+                    event = session.agent._output_queue.get_nowait()
+                    if event.get("audioOutput"):
+                        audio_cleared += 1
+                    else:
+                        # Keep non-audio events
+                        temp_events.append(event)
+            except asyncio.QueueEmpty:
+                pass
 
-        if audio_cleared > 0:
-            log_event("agent_audio_queue_cleared", count=audio_cleared)
+            # Put back non-audio events
+            for event in temp_events:
+                session.agent._output_queue.put_nowait(event)
 
-    if cleared_count > 0:
-        log_event("session_audio_queue_cleared", count=cleared_count)
+            if audio_cleared > 0:
+                log_event("agent_audio_queue_cleared", count=audio_cleared)
 
-    # Brief sleep to allow audio system to settle (matches Nova Sonic timing)
-    await asyncio.sleep(0.05)
+        if cleared_count > 0:
+            log_event("session_audio_queue_cleared", count=cleared_count)
 
-    # Reset interruption flag after clearing (automatic recovery)
-    session.interrupted = False
-    log_event("interruption_handled", tools_cancelled=cancelled_tools, audio_cleared=cleared_count)
+        # Brief sleep to allow audio system to settle (matches Nova Sonic timing)
+        await asyncio.sleep(0.05)
+
+        # Reset interruption flag after clearing (automatic recovery)
+        session.interrupted = False
+        log_event("interruption_handled", tools_cancelled=cancelled_tools, audio_cleared=cleared_count)
 
 
 async def _process_model_events(session: BidirectionalConnection) -> None:

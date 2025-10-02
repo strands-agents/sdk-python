@@ -15,8 +15,8 @@ import time
 import pyaudio
 from strands_tools import calculator
 
-from ..agent.agent import BidirectionalAgent
-from ..models.novasonic import NovaSonicBidirectionalModel
+from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
+from strands.experimental.bidirectional_streaming.models.novasonic import NovaSonicBidirectionalModel
 
 
 async def play(context):

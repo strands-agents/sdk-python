@@ -24,7 +24,7 @@ from typing import AsyncIterable
 from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
 from aws_sdk_bedrock_runtime.config import Config, HTTPAuthSchemeResolver, SigV4AuthScheme
 from aws_sdk_bedrock_runtime.models import BidirectionalInputPayloadPart, InvokeModelWithBidirectionalStreamInputChunk
-from smithy_aws_core.credentials_resolvers.environment import EnvironmentCredentialsResolver
+from smithy_aws_core.identity.environment import EnvironmentCredentialsResolver
 
 from ....types.content import Messages
 from ....types.tools import ToolSpec, ToolUse
@@ -703,8 +703,8 @@ class NovaSonicBidirectionalModel(BidirectionalModel):
                 endpoint_uri=f"https://bedrock-runtime.{self.region}.amazonaws.com",
                 region=self.region,
                 aws_credentials_identity_resolver=EnvironmentCredentialsResolver(),
-                http_auth_scheme_resolver=HTTPAuthSchemeResolver(),
-                http_auth_schemes={"aws.auth#sigv4": SigV4AuthScheme()},
+                auth_scheme_resolver=HTTPAuthSchemeResolver(),
+                auth_schemes={"aws.auth#sigv4": SigV4AuthScheme(service="bedrock")},
             )
 
             self._client = BedrockRuntimeClient(config=config)
