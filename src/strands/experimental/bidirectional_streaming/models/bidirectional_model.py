@@ -13,7 +13,7 @@ Features:
 
 import abc
 import logging
-from typing import Any, AsyncIterable, Dict, List, Optional
+from typing import AsyncIterable
 
 from ....types.content import Messages
 from ....types.tools import ToolSpec
@@ -31,7 +31,7 @@ class BidirectionalModelSession(abc.ABC):
     """
 
     @abc.abstractmethod
-    async def receive_events(self) -> AsyncIterable[Dict[str, Any]]:
+    async def receive_events(self) -> AsyncIterable[dict[str, any]]:
         """Receive events from the model in standardized format.
 
         Converts provider-specific events to a common format that can be
@@ -67,7 +67,7 @@ class BidirectionalModelSession(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def send_tool_result(self, tool_use_id: str, result: Dict[str, Any]) -> None:
+    async def send_tool_result(self, tool_use_id: str, result: dict[str, any]) -> None:
         """Send tool execution result to the model.
 
         Formats and sends tool results according to the provider's specific protocol.
@@ -95,9 +95,9 @@ class BidirectionalModel(abc.ABC):
     @abc.abstractmethod
     async def create_bidirectional_connection(
         self,
-        system_prompt: Optional[str] = None,
-        tools: Optional[List[ToolSpec]] = None,
-        messages: Optional[Messages] = None,
+        system_prompt: str | None = None,
+        tools: list[ToolSpec] | None = None,
+        messages: Messages | None = None,
         **kwargs,
     ) -> BidirectionalModelSession:
         """Create a bidirectional connection with the model.

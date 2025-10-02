@@ -14,7 +14,7 @@ Key capabilities:
 
 import asyncio
 import logging
-from typing import AsyncIterable, List, Optional, Union
+from typing import AsyncIterable
 
 from ....tools.executors import ConcurrentToolExecutor
 from ....tools.registry import ToolRegistry
@@ -37,9 +37,9 @@ class BidirectionalAgent:
     def __init__(
         self,
         model: BidirectionalModel,
-        tools: Optional[List] = None,
-        system_prompt: Optional[str] = None,
-        messages: Optional[Messages] = None,
+        tools: list | None = None,
+        system_prompt: str | None = None,
+        messages: Messages | None = None,
     ):
         """Initialize bidirectional agent with required model and optional configuration.
 
@@ -83,7 +83,7 @@ class BidirectionalAgent:
         self._session = await start_bidirectional_connection(self)
         log_event("conversation_ready")
 
-    async def send(self, input_data: Union[str, AudioInputEvent]) -> None:
+    async def send(self, input_data: str | AudioInputEvent) -> None:
         """Send input to the model (text or audio).
 
         Unified method for sending both text and audio input to the model during

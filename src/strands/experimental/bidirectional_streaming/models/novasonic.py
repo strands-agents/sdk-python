@@ -19,7 +19,7 @@ import logging
 import time
 import traceback
 import uuid
-from typing import Any, AsyncIterable, Dict, List, Optional
+from typing import AsyncIterable
 
 from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
 from aws_sdk_bedrock_runtime.config import Config, HTTPAuthSchemeResolver, SigV4AuthScheme
@@ -80,7 +80,7 @@ class NovaSonicSession(BidirectionalModelSession):
     interface.
     """
 
-    def __init__(self, stream, config: Dict[str, Any]):
+    def __init__(self, stream, config: dict[str, any]):
         """Initialize Nova Sonic connection.
 
         Args:
@@ -111,9 +111,9 @@ class NovaSonicSession(BidirectionalModelSession):
 
     async def initialize(
         self,
-        system_prompt: Optional[str] = None,
-        tools: Optional[List[ToolSpec]] = None,
-        messages: Optional[Messages] = None,
+        system_prompt: str | None = None,
+        tools: list[ToolSpec] | None = None,
+        messages: Messages | None = None,
     ) -> None:
         """Initialize Nova Sonic connection with required protocol sequence."""
         try:
@@ -132,8 +132,8 @@ class NovaSonicSession(BidirectionalModelSession):
             raise
 
     def _build_initialization_events(
-        self, system_prompt: str, tools: List[ToolSpec], messages: Optional[Messages]
-    ) -> List[str]:
+        self, system_prompt: str, tools: list[ToolSpec], messages: Messages | None
+    ) -> list[str]:
         """Build the sequence of initialization events."""
         events = [self._get_connection_start_event(), self._get_prompt_start_event(tools)]
 
@@ -144,7 +144,7 @@ class NovaSonicSession(BidirectionalModelSession):
 
         return events
 
-    async def _send_initialization_events(self, events: List[str]) -> None:
+    async def _send_initialization_events(self, events: list[str]) -> None:
         """Send initialization events with required delays."""
         for i, event in enumerate(events):
             await time_it_async(f"send_init_event_{i + 1}", lambda event=event: self._send_nova_event(event))
@@ -192,7 +192,7 @@ class NovaSonicSession(BidirectionalModelSession):
         except json.JSONDecodeError as e:
             log_event("nova_json_error", error=str(e))
 
-    def _log_event_type(self, nova_event: Dict[str, Any]) -> None:
+    def _log_event_type(self, nova_event: dict[str, any]) -> None:
         """Log specific Nova Sonic event types for debugging."""
         if "usageEvent" in nova_event:
             log_event("nova_usage", usage=nova_event["usageEvent"])
@@ -206,7 +206,7 @@ class NovaSonicSession(BidirectionalModelSession):
             audio_bytes = base64.b64decode(audio_content)
             log_event("nova_audio_output", bytes=len(audio_bytes))
 
-    async def receive_events(self) -> AsyncIterable[Dict[str, Any]]:
+    async def receive_events(self) -> AsyncIterable[dict[str, any]]:
         """Receive Nova Sonic events and convert to provider-agnostic format."""
         if not self.stream:
             logger.error("Stream is None")
@@ -370,7 +370,7 @@ class NovaSonicSession(BidirectionalModelSession):
         }
         await self._send_nova_event(interrupt_event)
 
-    async def send_tool_result(self, tool_use_id: str, result: Dict[str, Any]) -> None:
+    async def send_tool_result(self, tool_use_id: str, result: dict[str, any]) -> None:
         """Send tool result using Nova Sonic toolResult format."""
         if not self._active:
             return
@@ -433,7 +433,7 @@ class NovaSonicSession(BidirectionalModelSession):
         finally:
             log_event("nova_connection_closed")
 
-    def _convert_nova_event(self, nova_event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _convert_nova_event(self, nova_event: dict[str, any]) -> dict[str, any] | None:
         """Convert Nova Sonic events to provider-agnostic format."""
         # Handle audio output
         if "audioOutput" in nova_event:
@@ -512,7 +512,7 @@ class NovaSonicSession(BidirectionalModelSession):
         """Generate Nova Sonic connection start event."""
         return json.dumps({"event": {"sessionStart": {"inferenceConfiguration": NOVA_INFERENCE_CONFIG}}})
 
-    def _get_prompt_start_event(self, tools: List[ToolSpec]) -> str:
+    def _get_prompt_start_event(self, tools: list[ToolSpec]) -> str:
         """Generate Nova Sonic prompt start event with tool configuration."""
         prompt_start_event = {
             "event": {
@@ -531,7 +531,7 @@ class NovaSonicSession(BidirectionalModelSession):
 
         return json.dumps(prompt_start_event)
 
-    def _build_tool_configuration(self, tools: List[ToolSpec]) -> List[Dict]:
+    def _build_tool_configuration(self, tools: list[ToolSpec]) -> list[dict]:
         """Build tool configuration from tool specs."""
         tool_config = []
         for tool in tools:
@@ -546,7 +546,7 @@ class NovaSonicSession(BidirectionalModelSession):
             )
         return tool_config
 
-    def _get_system_prompt_events(self, system_prompt: str) -> List[str]:
+    def _get_system_prompt_events(self, system_prompt: str) -> list[str]:
         """Generate system prompt events."""
         content_name = str(uuid.uuid4())
         return [
@@ -599,7 +599,7 @@ class NovaSonicSession(BidirectionalModelSession):
             {"event": {"textInput": {"promptName": self.prompt_name, "contentName": content_name, "content": text}}}
         )
 
-    def _get_tool_result_event(self, content_name: str, result: Dict[str, Any]) -> str:
+    def _get_tool_result_event(self, content_name: str, result: dict[str, any]) -> str:
         """Generate tool result event."""
         return json.dumps(
             {
@@ -664,9 +664,9 @@ class NovaSonicBidirectionalModel(BidirectionalModel):
 
     async def create_bidirectional_connection(
         self,
-        system_prompt: Optional[str] = None,
-        tools: Optional[List[ToolSpec]] = None,
-        messages: Optional[Messages] = None,
+        system_prompt: str | None = None,
+        tools: list[ToolSpec] | None = None,
+        messages: Messages | None = None,
         **kwargs,
     ) -> BidirectionalModelSession:
         """Create Nova Sonic bidirectional connection."""

@@ -16,7 +16,6 @@ import json
 import logging
 import traceback
 import uuid
-from typing import Any, Dict
 
 from ....tools._validator import validate_and_prepare_tools
 from ....types.content import Message
@@ -56,14 +55,14 @@ class BidirectionalConnection:
         self.audio_output_queue = asyncio.Queue()
 
         # Task management for cleanup
-        self.pending_tool_tasks: Dict[str, asyncio.Task] = {}
+        self.pending_tool_tasks: dict[str, asyncio.Task] = {}
 
         # Interruption handling (model-agnostic)
         self.interrupted = False
 
 
 async def start_bidirectional_connection(agent: BidirectionalAgent) -> BidirectionalConnection:
-    """Initialize bidirectional session with concurrent background tasks.
+    """Initialize bidirectional session with conycurrent background tasks.
 
     Creates a model-specific session and starts background tasks for processing
     model events, executing tools, and managing the session lifecycle.
@@ -365,7 +364,7 @@ async def _process_tool_execution(session: BidirectionalConnection) -> None:
     log_flow("tool_execution", "processor stopped")
 
 
-def _convert_to_strands_event(provider_event: Dict) -> Dict:
+def _convert_to_strands_event(provider_event: dict) -> dict:
     """Pass-through for events already normalized by provider sessions.
 
     Providers convert their raw events to standard format before reaching here.
@@ -385,7 +384,7 @@ def _convert_to_strands_event(provider_event: Dict) -> Dict:
     return provider_event
 
 
-async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use: Dict) -> None:
+async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use: dict) -> None:
     """Execute tool using Strands infrastructure with interruption support.
 
     Executes tools using the existing Strands tool system, handles interruption
@@ -501,11 +500,11 @@ def _extract_callable_function(tool_func):
         raise ValueError(f"Tool function not callable: {type(tool_func).__name__}")
 
 
-def _create_success_result(tool_use_id: str, result) -> Dict[str, Any]:
+def _create_success_result(tool_use_id: str, result) -> dict[str, any]:
     """Create a successful tool result."""
     return {"toolUseId": tool_use_id, "status": "success", "content": [{"text": json.dumps(result)}]}
 
 
-def _create_error_result(tool_use_id: str, error: str) -> Dict[str, Any]:
+def _create_error_result(tool_use_id: str, error: str) -> dict[str, any]:
     """Create an error tool result."""
     return {"toolUseId": tool_use_id, "status": "error", "content": [{"text": f"Error: {error}"}]}
