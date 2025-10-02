@@ -1,5 +1,6 @@
 """Exception-related type definitions for the SDK."""
 
+from copy import deepcopy
 from typing import Any
 
 
@@ -75,3 +76,48 @@ class SessionException(Exception):
     """Exception raised when session operations fail."""
 
     pass
+
+
+class AgentDelegationException(Exception):
+    """Exception raised when an agent delegates to a sub-agent.
+
+    This exception provides a clean control flow mechanism for agent delegation,
+    allowing immediate termination of the orchestrator and transfer of execution
+    to the specified sub-agent.
+
+    Design Note:
+    Using exceptions for control flow is intentional here as it provides a clean
+    way to short-circuit the event loop without refactoring the entire execution
+    pipeline. While exceptions are typically for errors, this use case is similar
+    to StopIteration in generators - it's a structured way to signal completion
+    of a specific control flow path. For delegation operations (which are not
+    high-frequency in nature), this approach maintains simplicity and avoids
+    introducing complex return value handling throughout the tool execution stack.
+    """
+
+    def __init__(
+        self,
+        target_agent: str,
+        message: str,
+        context: dict[str, Any] | None = None,
+        delegation_chain: list[str] | None = None,
+        transfer_state: bool = True,
+        transfer_messages: bool = True,
+    ) -> None:
+        """Initialize delegation exception.
+
+        Args:
+            target_agent: Name of the agent to delegate to
+            message: Message to pass to the target agent
+            context: Additional context to transfer
+            delegation_chain: Chain of delegations to prevent circular references
+            transfer_state: Whether to transfer agent.state to sub-agent
+            transfer_messages: Whether to transfer conversation history to sub-agent
+        """
+        self.target_agent = target_agent
+        self.message = message
+        self.context = deepcopy(context) if context is not None else {}
+        self.delegation_chain = deepcopy(delegation_chain) if delegation_chain is not None else []
+        self.transfer_state = transfer_state
+        self.transfer_messages = transfer_messages
+        super().__init__(f"Delegating to agent: {target_agent}")
