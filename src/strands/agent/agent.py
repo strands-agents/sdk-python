@@ -14,7 +14,6 @@ import json
 import logging
 import random
 from concurrent.futures import ThreadPoolExecutor
-from turtle import Turtle
 from typing import (
     Any,
     AsyncGenerator,
@@ -226,16 +225,15 @@ class Agent:
         hooks: Optional[list[HookProvider]] = None,
         session_manager: Optional[SessionManager] = None,
         tool_executor: Optional[ToolExecutor] = None,
-        
         sub_agents: Optional[list["Agent"]] = None,
         delegation_timeout: Optional[float] = 300.0,
         delegation_state_transfer: bool = True,
         delegation_message_transfer: bool = True,
         delegation_state_serializer: Optional[Callable[[Any], Any]] = None,
         max_delegation_depth: int = 10,
-        delegation_streaming_proxy: bool = True
+        delegation_streaming_proxy: bool = True,
     ):
-        f"""Initialize the Agent with the specified configuration.
+        """Initialize the Agent with the specified configuration.
 
         Args:
             model: Provider for running inference or a string representing the model-id for Bedrock to use.
@@ -296,6 +294,7 @@ class Agent:
             delegation_streaming_proxy: Whether to proxy streaming events from sub-agents.
                 Defaults to True. When True, streaming events from sub-agents are
                 proxied back to the original caller for real-time visibility.
+
         Raises:
             ValueError: If agent id contains path separators.
         """
@@ -375,9 +374,9 @@ class Agent:
             for hook in hooks:
                 self.hooks.add_hook(hook)
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
-        
+
         # Initialization of the sub-agents and delegation configuration
-        
+
         self._sub_agents: dict[str, "Agent"] = {}
         self.delegation_timeout = delegation_timeout
         self.delegation_state_transfer = delegation_state_transfer
@@ -385,13 +384,12 @@ class Agent:
         self.delegation_state_serializer = delegation_state_serializer
         self.max_delegation_depth = max_delegation_depth
         self.delegation_streaming_proxy = delegation_streaming_proxy
-        
+
         if sub_agents:
             self._validate_sub_agents(sub_agents)
             for sub_agent in sub_agents:
                 self._sub_agents[sub_agent.name] = sub_agent
             self._generate_delegation_tools(list(self._sub_agents.values()))
-            
 
     @property
     def tool(self) -> ToolCaller:
@@ -871,15 +869,15 @@ class Agent:
         self.messages.append(message)
         self.hooks.invoke_callbacks(MessageAddedEvent(agent=self, message=message))
 
-
     @property
-    def sub_agents(self)->dict[str,"Agent"]:
+    def sub_agents(self) -> dict[str, "Agent"]:
         """Get a copy of the registered sub-agents.
+
         Returns:
             Dictionary mapping agent names to Agent instances
         """
         return self._sub_agents.copy()
-    
+
     def add_sub_agent(self, agent: "Agent") -> None:
         """Add a new sub-agent dynamically.
 
@@ -895,20 +893,17 @@ class Agent:
             self._generate_delegation_tools([agent])
 
             # Invoke hook for consistency with agent lifecycle
-            if hasattr(self, 'hooks'):
+            if hasattr(self, "hooks"):
                 try:
                     from ..hooks import SubAgentAddedEvent
+
                     self.hooks.invoke_callbacks(
-                        SubAgentAddedEvent(
-                            orchestrator=self,
-                            sub_agent=agent,
-                            sub_agent_name=agent.name
-                        )
+                        SubAgentAddedEvent(agent=self, sub_agent=agent, sub_agent_name=agent.name)
                     )
                 except ImportError:
                     # Hooks module not available, skip hook invocation
                     pass
-                
+
     def remove_sub_agent(self, agent_name: str) -> bool:
         """Remove a sub-agent and its delegation tool.
 
@@ -928,15 +923,12 @@ class Agent:
                 del self.tool_registry.registry[tool_name]
 
             # Invoke hook for cleanup
-            if hasattr(self, 'hooks'):
+            if hasattr(self, "hooks"):
                 try:
                     from ..hooks import SubAgentRemovedEvent
+
                     self.hooks.invoke_callbacks(
-                        SubAgentRemovedEvent(
-                            orchestrator=self,
-                            sub_agent_name=agent_name,
-                            removed_agent=removed_agent
-                        )
+                        SubAgentRemovedEvent(agent=self, sub_agent_name=agent_name, removed_agent=removed_agent)
                     )
                 except ImportError:
                     # Hooks module not available, skip hook invocation
@@ -944,6 +936,7 @@ class Agent:
 
             return True
         return False
+
     def _validate_sub_agents(self, sub_agents: Optional[list["Agent"]]) -> None:
         """Validate sub-agent configuration.
 
@@ -973,17 +966,20 @@ class Agent:
                 raise ValueError(f"Tool name conflict: {tool_name} already exists")
 
         # Check for model compatibility if applicable
-        if hasattr(self, 'model') and hasattr(self.model, 'config'):
-            orchestrator_provider = self.model.config.get('provider')
+        if hasattr(self, "model") and hasattr(self.model, "config"):
+            orchestrator_provider = self.model.config.get("provider")
             if orchestrator_provider:
                 for agent in sub_agents:
-                    if hasattr(agent, 'model') and hasattr(agent.model, 'config'):
-                        sub_agent_provider = agent.model.config.get('provider')
+                    if hasattr(agent, "model") and hasattr(agent.model, "config"):
+                        sub_agent_provider = agent.model.config.get("provider")
                         if sub_agent_provider and sub_agent_provider != orchestrator_provider:
                             # Just a warning, not an error, as cross-provider delegation may be intentional
                             logger.warning(
-                                f"Model provider mismatch: {self.name} uses {orchestrator_provider}, "
-                                f"but sub-agent {agent.name} uses {sub_agent_provider}"
+                                "Model provider mismatch: %s uses %s, but sub-agent %s uses %s",
+                                self.name,
+                                orchestrator_provider,
+                                agent.name,
+                                sub_agent_provider,
                             )
 
     def _generate_delegation_tools(self, sub_agents: list["Agent"]) -> None:
@@ -993,17 +989,18 @@ class Agent:
             sub_agents: List of sub-agents to generate tools for
         """
         from strands.tools import tool
-        
+
         for sub_agent in sub_agents:
             tool_name = f"handoff_to_{sub_agent.name.lower().replace('-', '_')}"
-            @tool
+
+            @tool(name=tool_name)
             def delegation_tool(
                 message: str,
                 context: dict[str, Any] | None = None,
                 transfer_state: bool | None = None,
                 transfer_messages: bool | None = None,
-                _target_agent: str = sub_agent.name,
-                _delegation_chain: list[str] | None = None,
+                target_agent: str = sub_agent.name,
+                delegation_chain: list[str] | None = None,
             ) -> dict[str, Any]:
                 """Transfer control completely to specified sub-agent.
 
@@ -1022,88 +1019,79 @@ class Agent:
                 Returns:
                     This tool raises AgentDelegationException and does not return normally.
                 """
-                current_depth = len(_delegation_chain or [])
-                if hasattr(self, 'max_delegation_depth') and current_depth >= self.max_delegation_depth:
+                current_depth = len(delegation_chain or [])
+                print(f"DEBUG: Delegation tool called for {target_agent}, current_depth: {current_depth}")
+                if hasattr(self, "max_delegation_depth") and current_depth >= self.max_delegation_depth:
                     raise ValueError(f"Maximum delegation depth ({self.max_delegation_depth}) exceeded")
+                print(f"DEBUG: About to raise AgentDelegationException for {target_agent}")
                 raise AgentDelegationException(
-                    target_agent=_target_agent,
+                    target_agent=target_agent,
                     message=message,
                     context=context or {},
-                    delegation_chain=(_delegation_chain or []) + [self.name],
-                    transfer_state=transfer_state if transfer_state is not None
-                    else self.delegation_state_transfer,
-                    transfer_messages=transfer_messages if transfer_messages is not None else self.delegation_message_transfer
+                    delegation_chain=(delegation_chain or []) + [self.name],
+                    transfer_state=transfer_state if transfer_state is not None else self.delegation_state_transfer,
+                    transfer_messages=transfer_messages
+                    if transfer_messages is not None
+                    else self.delegation_message_transfer,
                 )
-            
-            delegation_tool.tool_name = tool_name
-            delegation_tool.__name__ = tool_name
+
             
             agent_description = sub_agent.description or f"Specialized agent named {sub_agent.name}"
             capabilities_hint = ""
-            if hasattr(sub_agent, 'tools') and sub_agent.tools:
-                tool_names = [getattr(tool, 'tool_name', getattr(tool, '__name__', str(tool)))
-                            for tool in sub_agent.tools[:3]]  # Show first 3 tools as hint
+            if hasattr(sub_agent, "tools") and sub_agent.tools:
+                tool_names = [
+                    getattr(tool, "tool_name", getattr(tool, "__name__", str(tool))) for tool in sub_agent.tools[:3]
+                ]  # Show first 3 tools as hint
                 if tool_names:
                     capabilities_hint = f" Capabilities include: {', '.join(tool_names)}."
 
             # ENHANCED: Tool docstring enrichment with sophisticated LLM routing hints
-            delegation_tool.__doc__ = f"""Transfer control completely to {sub_agent.name} ({agent_description}).{capabilities_hint}
-
-            This tool completely delegates the current request to {sub_agent.name}.
-            The orchestrator will terminate and {sub_agent.name}'s response will
-            become the final response with no additional processing.
-
-            DELEGATION CRITERIA:
-            Use this tool when the user request requires {sub_agent.name}'s specialized expertise.
-            Ideal for scenarios involving {agent_description.lower()}.
-
-            Args:
-                message: Message to pass to {sub_agent.name} (required). Be specific about the user's original request.
-                context: Additional context to transfer (optional). Include relevant background information.
-                transfer_state: Whether to transfer orchestrator.state (optional). Defaults to agent configuration.
-                transfer_messages: Whether to transfer conversation history (optional). Defaults to agent configuration.
-                _target_agent: Internal target agent identifier (hidden)
-                _delegation_chain: Internal delegation tracking (hidden)
-
-            EXAMPLE USAGE:
-                "Handle this customer billing inquiry" → delegates to billing specialist
-                "Debug this API error" → delegates to technical support agent
-            """
+            delegation_tool.__doc__ = (
+                f"Transfer control completely to {sub_agent.name} ({agent_description}).{capabilities_hint}\n\n"
+                f"This tool completely delegates the current request to {sub_agent.name}.\n"
+                f"The orchestrator will terminate and {sub_agent.name}'s response will\n"
+                "become the final response with no additional processing.\n\n"
+                f"DELEGATION CRITERIA:\n"
+                f"Use this tool when the user request requires {sub_agent.name}'s specialized expertise.\n"
+                f"Ideal for scenarios involving {agent_description.lower()}.\n\n"
+                "Args:\n"
+                f"    message: Message to pass to {sub_agent.name} (required). Be specific about the user's original request.\n"
+                "    context: Additional context to transfer (optional). Include relevant background information.\n"
+                "    transfer_state: Whether to transfer orchestrator.state (optional). Defaults to agent configuration.\n"
+                "    transfer_messages: Whether to transfer conversation history (optional). Defaults to agent configuration.\n"
+                "    target_agent: Internal target agent identifier (hidden)\n"
+                "    delegation_chain: Internal delegation tracking (hidden)\n\n"
+                "EXAMPLE USAGE:\n"
+                '    "Handle this customer billing inquiry" → delegates to billing specialist\n'
+                '    "Debug this API error" → delegates to technical support agent\n'
+            )
 
             # Set JSON schema for better validation and model understanding
-            if hasattr(delegation_tool, '__schema__'):
-                delegation_tool.__schema__ = {
-                    "type": "object",
-                    "properties": {
-                        "message": {
-                            "type": "string",
-                            "description": f"Message to pass to {sub_agent.name}"
-                        },
-                        "context": {
-                            "type": ["object", "null"],
-                            "description": "Additional context to transfer"
-                        },
-                        "transfer_state": {
-                            "type": ["boolean", "null"],
-                            "description": "Whether to transfer orchestrator.state"
-                        },
-                        "transfer_messages": {
-                            "type": ["boolean", "null"],
-                            "description": "Whether to transfer conversation history"
-                        },
-                        "_target_agent": {
-                            "type": "string",
-                            "description": "Internal target agent identifier"
-                        },
-                        "_delegation_chain": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "description": "Internal delegation tracking"
-                        }
+            # DecoratedFunctionTool doesn't have __schema__ by default, but Python allows
+            # setting arbitrary attributes dynamically
+            delegation_tool.__schema__ = {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "description": f"Message to pass to {sub_agent.name}"},
+                    "context": {"type": ["object", "null"], "description": "Additional context to transfer"},
+                    "transfer_state": {
+                        "type": ["boolean", "null"],
+                        "description": "Whether to transfer orchestrator.state",
                     },
-                    "required": ["message"],
-                    "additionalProperties": False
-                }
+                    "transfer_messages": {
+                        "type": ["boolean", "null"],
+                        "description": "Whether to transfer conversation history",
+                    },
+                    "target_agent": {"type": "string", "description": "Internal target agent identifier"},
+                    "delegation_chain": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Internal delegation tracking",
+                    },
+                },
+                "required": ["message"],
+                "additionalProperties": False,
+            }
 
             # Register the tool
             self.tool_registry.register_tool(delegation_tool)

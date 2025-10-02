@@ -1,5 +1,6 @@
 """Exception-related type definitions for the SDK."""
 
+from copy import deepcopy
 from typing import Any
 
 
@@ -76,6 +77,7 @@ class SessionException(Exception):
 
     pass
 
+
 class AgentDelegationException(Exception):
     """Exception raised when an agent delegates to a sub-agent.
 
@@ -114,9 +116,8 @@ class AgentDelegationException(Exception):
         """
         self.target_agent = target_agent
         self.message = message
-        self.context = context or {}
-        self.delegation_chain = delegation_chain or []
+        self.context = deepcopy(context) if context is not None else {}
+        self.delegation_chain = deepcopy(delegation_chain) if delegation_chain is not None else []
         self.transfer_state = transfer_state
         self.transfer_messages = transfer_messages
         super().__init__(f"Delegating to agent: {target_agent}")
-        

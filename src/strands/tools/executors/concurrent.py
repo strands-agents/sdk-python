@@ -7,6 +7,7 @@ from typing_extensions import override
 
 from ...telemetry.metrics import Trace
 from ...types._events import TypedEvent
+from ...types.exceptions import AgentDelegationException
 from ...types.tools import ToolResult, ToolUse
 from ._executor import ToolExecutor
 
@@ -69,6 +70,15 @@ class ConcurrentToolExecutor(ToolExecutor):
                 task_count -= 1
                 continue
 
+            # Check if event is an exception that needs to be raised
+            if isinstance(event, Exception):
+                print(f"DEBUG: Concurrent executor main thread got exception: {type(event).__name__}: {event}")
+                if isinstance(event, AgentDelegationException):
+                    print(f"DEBUG: Raising AgentDelegationException from concurrent executor")
+                    raise event
+                else:
+                    raise event
+
             yield event
             task_events[task_id].set()
 
@@ -101,6 +111,8 @@ class ConcurrentToolExecutor(ToolExecutor):
             task_event: Event to signal when task can continue.
             stop_event: Sentinel object to signal task completion.
         """
+        from ...types.exceptions import AgentDelegationException
+
         try:
             events = ToolExecutor._stream_with_trace(
                 agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state
@@ -110,5 +122,13 @@ class ConcurrentToolExecutor(ToolExecutor):
                 await task_event.wait()
                 task_event.clear()
 
+        except AgentDelegationException as e:
+            print(f"DEBUG: Concurrent executor caught AgentDelegationException for {e.target_agent}")
+            # Put delegation exception in the queue to be handled by main thread
+            task_queue.put_nowait((task_id, e))
+        except Exception as e:
+            print(f"DEBUG: Concurrent executor caught generic exception: {type(e).__name__}: {e}")
+            # Put other exceptions in the queue as well
+            task_queue.put_nowait((task_id, e))
         finally:
             task_queue.put_nowait((task_id, stop_event))

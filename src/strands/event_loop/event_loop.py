@@ -182,10 +182,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
 
                 # Return delegation result as final response
                 yield EventLoopStopEvent(
-                    "delegation_complete",
-                    delegation_result.message,
-                    delegation_result.metrics,
-                    delegation_result.state
+                    "delegation_complete", delegation_result.message, delegation_result.metrics, delegation_result.state
                 )
                 return
 
@@ -354,16 +351,26 @@ async def _handle_delegation(
         ValueError: If delegation fails or target agent not found
         asyncio.TimeoutError: If delegation times out
     """
-    from ..agent.agent_result import AgentResult
-
     # Find the target sub-agent
     target_agent = agent._sub_agents.get(delegation_exception.target_agent)
     if not target_agent:
         raise ValueError(f"Target agent '{delegation_exception.target_agent}' not found")
 
+    print(f"DEBUG: Delegation chain: {delegation_exception.delegation_chain}")
+    print(f"DEBUG: Current agent name: {agent.name}")
+    print(f"DEBUG: Target agent name: {target_agent.name}")
+
     # Check for circular delegation
-    if agent.name in delegation_exception.delegation_chain:
-        raise ValueError(f"Circular delegation detected: {' -> '.join(delegation_exception.delegation_chain + [agent.name])}")
+    # The delegation chain contains agents that have already been visited in this delegation chain
+    # If the target agent is already in the chain, it means we're trying to delegate to an agent that was already part of the chain
+    if target_agent.name in delegation_exception.delegation_chain:
+        raise ValueError(
+            f"Circular delegation detected: {' -> '.join(delegation_exception.delegation_chain + [target_agent.name])}"
+        )
+
+    # Additional check: prevent self-delegation (agent delegating to itself)
+    if agent.name == delegation_exception.target_agent:
+        raise ValueError(f"Self-delegation detected: {agent.name} cannot delegate to itself")
 
     # Create delegation trace
     delegation_trace = Trace("agent_delegation", parent_id=cycle_trace.id)
@@ -380,16 +387,13 @@ async def _handle_delegation(
 
     try:
         # STATE TRANSFER: Handle agent.state with explicit rules
-        if delegation_exception.transfer_state and hasattr(agent, 'state'):
+        if delegation_exception.transfer_state and hasattr(agent, "state"):
             # Use custom serializer if provided, otherwise use deepcopy
             if agent.delegation_state_serializer:
                 try:
                     target_agent.state = agent.delegation_state_serializer(agent.state)
                 except Exception as e:
-                    delegation_trace.add_event("state_serialization_error", {
-                        "error": str(e),
-                        "fallback_to_deepcopy": True
-                    })
+                    delegation_trace.metadata["state_serialization_error"] = {"error": str(e), "fallback_to_deepcopy": True}
                     target_agent.state = copy.deepcopy(agent.state)
             else:
                 # Deep copy the orchestrator's state to sub-agent
@@ -416,14 +420,10 @@ async def _handle_delegation(
                     if isinstance(msg_content, list):
                         # Filter out any embedded tool content from user messages
                         clean_content = [
-                            item for item in msg_content
-                            if isinstance(item, dict) and item.get("type") == "text"
+                            item for item in msg_content if isinstance(item, dict) and item.get("type") == "text"
                         ]
                         if clean_content:
-                            filtered_messages.append({
-                                "role": "user",
-                                "content": clean_content
-                            })
+                            filtered_messages.append({"role": "user", "content": clean_content})
                     else:
                         filtered_messages.append(msg)
                     continue
@@ -433,15 +433,17 @@ async def _handle_delegation(
                     if isinstance(msg_content, list):
                         # Sophisticated content analysis for assistant messages
                         has_internal_tool_content = any(
-                            (content.get("type") == "toolUse" and not content.get("name", "").startswith("handoff_to_")) or
-                            ("toolResult" in content and content.get("toolResult", {}).get("status") == "error")
-                            for content in msg_content if isinstance(content, dict)
+                            (content.get("type") == "toolUse" and not content.get("name", "").startswith("handoff_to_"))
+                            or ("toolResult" in content and content.get("toolResult", {}).get("status") == "error")
+                            for content in msg_content
+                            if isinstance(content, dict)
                         )
 
                         # Check if message contains meaningful text response
                         has_meaningful_text = any(
                             content.get("type") == "text" and content.get("text", "").strip()
-                            for content in msg_content if isinstance(content, dict)
+                            for content in msg_content
+                            if isinstance(content, dict)
                         )
 
                         # Include if it has meaningful text and no internal tool noise
@@ -450,14 +452,10 @@ async def _handle_delegation(
                         elif has_meaningful_text and has_internal_tool_content:
                             # Clean the message by removing tool content but keeping text
                             clean_content = [
-                                item for item in msg_content
-                                if isinstance(item, dict) and item.get("type") == "text"
+                                item for item in msg_content if isinstance(item, dict) and item.get("type") == "text"
                             ]
                             if clean_content:
-                                filtered_messages.append({
-                                    "role": "assistant",
-                                    "content": clean_content
-                                })
+                                filtered_messages.append({"role": "assistant", "content": clean_content})
                     else:
                         # Simple text content - include as-is
                         filtered_messages.append(msg)
@@ -465,12 +463,14 @@ async def _handle_delegation(
             # Track filtering effectiveness for observability
             original_count = len(agent.messages)
             filtered_count = len(filtered_messages)
-            delegation_trace.add_event("message_filtering_applied", {
+            delegation_trace.metadata["message_filtering_applied"] = {
                 "original_message_count": original_count,
                 "filtered_message_count": filtered_count,
                 "noise_removed": original_count - filtered_count,
-                "compression_ratio": f"{(filtered_count / original_count * 100):.1f}%" if original_count > 0 else "0%"
-            })
+                "compression_ratio": f"{(filtered_count / original_count * 100):.1f}%"
+                if original_count > 0
+                else "0%",
+            }
 
             target_agent.messages = filtered_messages
         else:
@@ -480,7 +480,7 @@ async def _handle_delegation(
         # Always add delegation context message for clarity
         delegation_context = {
             "role": "user",
-            "content": [{"text": f"Delegated from {agent.name}: {delegation_exception.message}"}]
+            "content": [{"text": f"Delegated from {agent.name}: {delegation_exception.message}"}],
         }
         target_agent.messages.append(delegation_context)
 
@@ -488,12 +488,16 @@ async def _handle_delegation(
         if delegation_exception.context:
             context_message = {
                 "role": "user",
-                "content": [{"text": f"Additional context: {json.dumps(delegation_exception.context)}"}]
+                "content": [{"text": f"Additional context: {json.dumps(delegation_exception.context)}"}],
             }
             target_agent.messages.append(context_message)
 
         # STREAMING PROXY: Check if we should proxy streaming events
-        if agent.delegation_streaming_proxy and hasattr(invocation_state, 'is_streaming') and invocation_state.get('is_streaming'):
+        if (
+            agent.delegation_streaming_proxy
+            and hasattr(invocation_state, "is_streaming")
+            and invocation_state.get("is_streaming")
+        ):
             # Use streaming execution with event proxying
             final_event = None
             async for event in _handle_delegation_with_streaming(
@@ -505,35 +509,35 @@ async def _handle_delegation(
             ):
                 final_event = event
             # Extract result from the final event
-            result = final_event.original_event.result if hasattr(final_event, 'original_event') and hasattr(final_event.original_event, 'result') else None
+            result = (
+                final_event.original_event.result
+                if hasattr(final_event, "original_event") and hasattr(final_event.original_event, "result")
+                else None
+            )
         else:
             # Execute the sub-agent with timeout support (non-streaming)
             if agent.delegation_timeout is not None:
-                result = await asyncio.wait_for(
-                    target_agent.invoke_async(),
-                    timeout=agent.delegation_timeout
-                )
+                result = await asyncio.wait_for(target_agent.invoke_async(), timeout=agent.delegation_timeout)
             else:
                 result = await target_agent.invoke_async()
 
         # Record delegation completion
-        delegation_trace.add_event("delegation_complete", {
+        delegation_trace.metadata["delegation_complete"] = {
             "from_agent": agent.name,
             "to_agent": delegation_exception.target_agent,
             "message": delegation_exception.message,
             "state_transferred": delegation_exception.transfer_state,
             "messages_transferred": delegation_exception.transfer_messages,
-            "streaming_proxied": agent.delegation_streaming_proxy
-        })
+            "streaming_proxied": agent.delegation_streaming_proxy,
+        }
 
         return result
 
     except asyncio.TimeoutError:
-        delegation_trace.add_event("delegation_timeout", {
-            "target_agent": delegation_exception.target_agent,
-            "timeout_seconds": agent.delegation_timeout
-        })
-        raise TimeoutError(f"Delegation to {delegation_exception.target_agent} timed out after {agent.delegation_timeout} seconds")
+        delegation_trace.metadata["delegation_timeout"] = {"target_agent": delegation_exception.target_agent, "timeout_seconds": agent.delegation_timeout}
+        raise TimeoutError(
+            f"Delegation to {delegation_exception.target_agent} timed out after {agent.delegation_timeout} seconds"
+        ) from None
 
     finally:
         delegation_trace.end()
@@ -568,7 +572,7 @@ async def _handle_delegation_with_streaming(
     Raises:
         asyncio.TimeoutError: If delegation times out during streaming
     """
-    from ..types._events import DelegationProxyEvent, AgentResultEvent
+    from ..types._events import AgentResultEvent
 
     # Store streamed events and final result
     streamed_events = []
@@ -577,23 +581,18 @@ async def _handle_delegation_with_streaming(
     try:
         # Stream events from sub-agent with timeout
         if agent.delegation_timeout is not None:
-            async for event in asyncio.wait_for(
-                target_agent.stream_async(),
-                timeout=agent.delegation_timeout
-            ):
+            async for event in asyncio.wait_for(target_agent.stream_async(), timeout=agent.delegation_timeout):
                 # Proxy the event with delegation context
                 proxy_event = DelegationProxyEvent(
-                    original_event=event,
-                    from_agent=agent.name,
-                    to_agent=delegation_exception.target_agent
+                    original_event=event, from_agent=agent.name, to_agent=delegation_exception.target_agent
                 )
 
                 streamed_events.append(proxy_event)
-                delegation_trace.add_event("stream_event_proxied", {
+                delegation_trace.metadata["stream_event_proxied"] = {
                     "event_type": type(event).__name__,
                     "from_agent": agent.name,
-                    "to_agent": delegation_exception.target_agent
-                })
+                    "to_agent": delegation_exception.target_agent,
+                }
 
                 # Integrate with parent event loop by yielding proxy events
                 # This requires the parent event loop to be aware of delegation proxying
@@ -607,17 +606,15 @@ async def _handle_delegation_with_streaming(
             # No timeout - stream indefinitely
             async for event in target_agent.stream_async():
                 proxy_event = DelegationProxyEvent(
-                    original_event=event,
-                    from_agent=agent.name,
-                    to_agent=delegation_exception.target_agent
+                    original_event=event, from_agent=agent.name, to_agent=delegation_exception.target_agent
                 )
 
                 streamed_events.append(proxy_event)
-                delegation_trace.add_event("stream_event_proxied", {
+                delegation_trace.metadata["stream_event_proxied"] = {
                     "event_type": type(event).__name__,
                     "from_agent": agent.name,
-                    "to_agent": delegation_exception.target_agent
-                })
+                    "to_agent": delegation_exception.target_agent,
+                }
 
                 yield proxy_event
 
@@ -625,22 +622,25 @@ async def _handle_delegation_with_streaming(
                     final_result = event.get("result")
 
     except asyncio.TimeoutError:
-        delegation_trace.add_event("delegation_timeout", {
+        delegation_trace.metadata["delegation_timeout"] = {
             "target_agent": delegation_exception.target_agent,
             "timeout_seconds": agent.delegation_timeout,
-            "during_streaming": True
-        })
-        raise TimeoutError(f"Delegation to {delegation_exception.target_agent} timed out after {agent.delegation_timeout} seconds during streaming")
+            "during_streaming": True,
+        }
+        raise TimeoutError(
+            f"Delegation to {delegation_exception.target_agent} "
+            f"timed out after {agent.delegation_timeout} seconds during streaming"
+        ) from None
 
     # ENHANCED: Streaming proxy correctness - eliminate fallback to blocking invoke_async
     # The streaming proxy should never fall back to blocking calls for real-time UX
     if final_result is None:
         # This indicates a streaming protocol issue - all proper agent streams should end with AgentResultEvent
-        delegation_trace.add_event("streaming_protocol_error", {
+        delegation_trace.metadata["streaming_protocol_error"] = {
             "error": "Stream ended without AgentResultEvent",
             "events_proxied": len(streamed_events),
-            "fallback_prevented": True
-        })
+            "fallback_prevented": True,
+        }
 
         # Instead of falling back to blocking invoke_async, raise a structured error
         # This maintains real-time UX guarantees and forces proper stream implementation
@@ -653,13 +653,13 @@ async def _handle_delegation_with_streaming(
 
     # Validate streaming completeness for real-time UX guarantees
     if not streamed_events:
-        delegation_trace.add_event("streaming_completeness_warning", {
+        delegation_trace.metadata["streaming_completeness_warning"] = {
             "warning": "No events were streamed during delegation",
             "target_agent": delegation_exception.target_agent,
-            "final_result_obtained": final_result is not None
-        })
+            "final_result_obtained": final_result is not None,
+        }
 
-    return final_result
+    return
 
 
 async def _handle_tool_execution(
@@ -700,12 +700,46 @@ async def _handle_tool_execution(
         yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
         return
 
-    tool_events = agent.tool_executor._execute(
-        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state
-    )
-    async for tool_event in tool_events:
-        yield tool_event
+    print(f"DEBUG: About to execute tools for {len(tool_uses)} tool uses")
+    try:
+        tool_events = agent.tool_executor._execute(
+            agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state
+        )
+        # Need to properly handle async generator exceptions
+        try:
+            async for tool_event in tool_events:
+                yield tool_event
+            print(f"DEBUG: Tool execution completed successfully")
+        except AgentDelegationException as delegation_exc:
+            print(f"DEBUG: Caught delegation exception from async generator for {delegation_exc.target_agent}")
+            # Re-raise to be caught by outer try-catch
+            raise delegation_exc
+    except AgentDelegationException as delegation_exc:
+        print(f"DEBUG: Caught delegation exception for {delegation_exc.target_agent}")
+        # Handle delegation during tool execution
+        delegation_result = await _handle_delegation(
+            agent=agent,
+            delegation_exception=delegation_exc,
+            invocation_state=invocation_state,
+            cycle_trace=cycle_trace,
+            cycle_span=cycle_span,
+        )
 
+        # Yield delegation completion event and return result
+        yield DelegationCompleteEvent(
+            target_agent=delegation_exc.target_agent,
+            result=delegation_result,
+        )
+
+        # Return delegation result as final response
+        print(f"DEBUG: About to yield EventLoopStopEvent for delegation completion")
+        yield EventLoopStopEvent(
+            "delegation_complete", delegation_result.message, delegation_result.metrics, delegation_result.state
+        )
+        print(f"DEBUG: After yielding EventLoopStopEvent, about to return")
+        return
+
+    print("DEBUG: This should NOT be printed if delegation worked correctly")
     # Store parent cycle ID for the next cycle
     invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
 

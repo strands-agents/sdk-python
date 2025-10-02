@@ -218,10 +218,7 @@ class ToolRegistry:
         if is_delegation_tool:
             # Delegation tools can coexist with regular tools
             # but not with other delegation tools
-            existing_delegation_tools = [
-                name for name in self.registry.keys()
-                if name.startswith("handoff_to_")
-            ]
+            existing_delegation_tools = [name for name in self.registry.keys() if name.startswith("handoff_to_")]
 
             if tool.tool_name in existing_delegation_tools and not tool.supports_hot_reload:
                 raise ValueError(

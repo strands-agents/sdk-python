@@ -55,6 +55,7 @@ class ToolExecutor(abc.ABC):
         Yields:
             Tool events with the last being the tool result.
         """
+        print(f"DEBUG: Tool executor _stream called for tool {tool_use.get('name')}")
         logger.debug("tool_use=<%s> | streaming", tool_use)
         tool_name = tool_use["name"]
 
@@ -150,10 +151,12 @@ class ToolExecutor(abc.ABC):
             yield ToolResultEvent(after_event.result)
             tool_results.append(after_event.result)
 
-        except AgentDelegationException:
+        except AgentDelegationException as e:
             # Re-raise immediately - don't treat as tool execution error
+            print(f"DEBUG: Tool executor caught AgentDelegationException for {e.target_agent}, re-raising")
             raise
         except Exception as e:
+            print(f"DEBUG: Tool executor caught generic exception for {tool_name}: {type(e).__name__}: {e}")
             logger.exception("tool_name=<%s> | failed to process tool", tool_name)
             error_result: ToolResult = {
                 "toolUseId": str(tool_use.get("toolUseId")),
@@ -197,6 +200,8 @@ class ToolExecutor(abc.ABC):
         Yields:
             Tool events with the last being the tool result.
         """
+        from ...types.exceptions import AgentDelegationException
+
         tool_name = tool_use["name"]
 
         tracer = get_tracer()
@@ -205,20 +210,27 @@ class ToolExecutor(abc.ABC):
         tool_trace = Trace(f"Tool: {tool_name}", parent_id=cycle_trace.id, raw_name=tool_name)
         tool_start_time = time.time()
 
-        with trace_api.use_span(tool_call_span):
-            async for event in ToolExecutor._stream(agent, tool_use, tool_results, invocation_state, **kwargs):
-                yield event
+        # Handle delegation exceptions outside of tracing context to avoid swallowing
+        try:
+            with trace_api.use_span(tool_call_span):
+                async for event in ToolExecutor._stream(agent, tool_use, tool_results, invocation_state, **kwargs):
+                    yield event
 
-            result_event = cast(ToolResultEvent, event)
-            result = result_event.tool_result
+                result_event = cast(ToolResultEvent, event)
+                result = result_event.tool_result
 
-            tool_success = result.get("status") == "success"
-            tool_duration = time.time() - tool_start_time
-            message = Message(role="user", content=[{"toolResult": result}])
-            agent.event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, tool_success, message)
-            cycle_trace.add_child(tool_trace)
+                tool_success = result.get("status") == "success"
+                tool_duration = time.time() - tool_start_time
+                message = Message(role="user", content=[{"toolResult": result}])
+                agent.event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, tool_success, message)
+                cycle_trace.add_child(tool_trace)
 
-            tracer.end_tool_call_span(tool_call_span, result)
+                tracer.end_tool_call_span(tool_call_span, result)
+        except AgentDelegationException as e:
+            print(f"DEBUG: _stream_with_trace caught AgentDelegationException for {e.target_agent}, re-raising")
+            # End span with delegation information before re-raising
+            tracer.end_tool_call_span(tool_call_span, {"status": "delegated", "target_agent": e.target_agent})
+            raise
 
     @abc.abstractmethod
     # pragma: no cover

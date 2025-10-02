@@ -513,16 +513,18 @@ class Tracer:
         span_name = f"delegation.{from_agent}.{to_agent}"
         span = self._start_span(span_name, parent_span=parent_span)
 
-        span.set_attributes({
-            "delegation.from": from_agent,
-            "delegation.to": to_agent,
-            "delegation.message": message,
-            "delegation.depth": delegation_depth,
-            "delegation.state_transferred": transfer_state,
-            "delegation.messages_transferred": transfer_messages,
-            "gen_ai.operation.name": "agent_delegation",
-            "gen_ai.system": "strands_agents"
-        })
+        span.set_attributes(
+            {
+                "delegation.from": from_agent,
+                "delegation.to": to_agent,
+                "delegation.message": message,
+                "delegation.depth": delegation_depth,
+                "delegation.state_transferred": transfer_state,
+                "delegation.messages_transferred": transfer_messages,
+                "gen_ai.operation.name": "agent_delegation",
+                "gen_ai.system": "strands_agents",
+            }
+        )
 
         return span
 

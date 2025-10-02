@@ -209,7 +209,7 @@ class SubAgentAddedEvent(HookEvent):
         sub_agent_name: The name of the added sub-agent.
     """
 
-    orchestrator: Any
+    # orchestrator field inherited from parent as 'agent'
     sub_agent: Any
     sub_agent_name: str
 
@@ -229,6 +229,6 @@ class SubAgentRemovedEvent(HookEvent):
         removed_agent: The agent that was removed (if available).
     """
 
-    orchestrator: Any
+    # orchestrator field inherited from parent as 'agent'
     sub_agent_name: str
     removed_agent: Any

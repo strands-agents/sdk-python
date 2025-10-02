@@ -364,13 +364,7 @@ class DelegationStartEvent(TypedEvent):
             to_agent: The agent that will receive the delegation
             message: The message being delegated
         """
-        super().__init__({
-            "delegation_start": {
-                "from_agent": from_agent,
-                "to_agent": to_agent,
-                "message": message
-            }
-        })
+        super().__init__({"delegation_start": {"from_agent": from_agent, "to_agent": to_agent, "message": message}})
 
     @property
     def from_agent(self) -> str:
@@ -398,12 +392,7 @@ class DelegationCompleteEvent(TypedEvent):
             target_agent: The agent that was delegated to
             result: The result from the delegated agent execution
         """
-        super().__init__({
-            "delegation_complete": {
-                "target_agent": target_agent,
-                "result": result
-            }
-        })
+        super().__init__({"delegation_complete": {"target_agent": target_agent, "result": result}})
 
     @property
     def target_agent(self) -> str:
@@ -427,13 +416,9 @@ class DelegationProxyEvent(TypedEvent):
             from_agent: The orchestrator agent that initiated delegation
             to_agent: The target agent that is receiving the delegation
         """
-        super().__init__({
-            "delegation_proxy": {
-                "from_agent": from_agent,
-                "to_agent": to_agent,
-                "original_event": original_event
-            }
-        })
+        super().__init__(
+            {"delegation_proxy": {"from_agent": from_agent, "to_agent": to_agent, "original_event": original_event}}
+        )
 
     @property
     def original_event(self) -> TypedEvent:
@@ -461,12 +446,7 @@ class DelegationTimeoutEvent(TypedEvent):
             target_agent: The agent that timed out during delegation
             timeout_seconds: The timeout duration in seconds
         """
-        super().__init__({
-            "delegation_timeout": {
-                "target_agent": target_agent,
-                "timeout_seconds": timeout_seconds
-            }
-        })
+        super().__init__({"delegation_timeout": {"target_agent": target_agent, "timeout_seconds": timeout_seconds}})
 
     @property
     def target_agent(self) -> str:
