@@ -350,6 +350,19 @@ class Swarm(MultiAgentBase):
             finally:
                 self.state.execution_time = round((time.time() - start_time) * 1000)
 
+    async def _stream_with_timeout(
+        self, async_generator: AsyncIterator[dict[str, Any]], timeout: float, timeout_message: str
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Wrap an async generator with timeout functionality."""
+        while True:
+            try:
+                event = await asyncio.wait_for(async_generator.__anext__(), timeout=timeout)
+                yield event
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                raise Exception(timeout_message) from None
+
     def _setup_swarm(self, nodes: list[Agent]) -> None:
         """Initialize swarm configuration."""
         # Validate nodes before setup
@@ -610,9 +623,17 @@ class Swarm(MultiAgentBase):
 
                 # Execute node with timeout protection
                 try:
-                    # For now, execute without timeout for async generators
-                    # TODO: Implement proper timeout for async generators if needed
-                    async for event in self._execute_node(current_node, self.state.task, invocation_state):
+                    # Execute with timeout wrapper for async generator streaming
+                    node_stream = (
+                        self._stream_with_timeout(
+                            self._execute_node(current_node, self.state.task, invocation_state),
+                            self.node_timeout,
+                            f"Node '{current_node.node_id}' execution timed out after {self.node_timeout}s",
+                        )
+                        if self.node_timeout is not None
+                        else self._execute_node(current_node, self.state.task, invocation_state)
+                    )
+                    async for event in node_stream:
                         yield event
 
                     self.state.node_history.append(current_node)
@@ -639,17 +660,16 @@ class Swarm(MultiAgentBase):
                         self.state.completion_status = Status.COMPLETED
                         break
 
-                except asyncio.TimeoutError:
-                    logger.exception(
-                        "node=<%s>, timeout=<%s>s | node execution timed out",
-                        current_node.node_id,
-                        self.node_timeout,
-                    )
-                    self.state.completion_status = Status.FAILED
-                    break
-
-                except Exception:
-                    logger.exception("node=<%s> | node execution failed", current_node.node_id)
+                except Exception as e:
+                    # Check if this is a timeout exception
+                    if "timed out after" in str(e):
+                        logger.exception(
+                            "node=<%s>, timeout=<%s>s | node execution timed out",
+                            current_node.node_id,
+                            self.node_timeout,
+                        )
+                    else:
+                        logger.exception("node=<%s> | node execution failed", current_node.node_id)
                     self.state.completion_status = Status.FAILED
                     break
 
@@ -691,14 +711,20 @@ class Swarm(MultiAgentBase):
             # Execute node with streaming
             node.reset_executor_state()
 
-            # Stream agent events with node context
+            # Stream agent events with node context and capture final result
+            result = None
             async for event in node.executor.stream_async(node_input, **invocation_state):
                 # Forward agent events with node context
                 wrapped_event = MultiAgentNodeStreamEvent(node_name, event)
                 yield wrapped_event.as_dict()
+                # Capture the final result event
+                if "result" in event:
+                    result = event["result"]
 
-            # Get the final result for metrics (we need to call invoke_async again for the result)
-            result = await node.executor.invoke_async(node_input, **invocation_state)
+            # Use the captured result from streaming to avoid double execution
+            if result is None:
+                raise ValueError(f"Node '{node_name}' did not produce a result event")
+
             execution_time = round((time.time() - start_time) * 1000)
 
             # Create NodeResult

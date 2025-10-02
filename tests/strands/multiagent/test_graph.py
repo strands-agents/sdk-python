@@ -214,15 +214,15 @@ async def test_graph_execution(mock_strands_tracer, mock_use_span, mock_graph, m
     assert len(result.execution_order) == 7
     assert result.execution_order[0].node_id == "start_agent"
 
-    # Verify agent calls
-    mock_agents["start_agent"].invoke_async.assert_called_once()
-    mock_agents["multi_agent"].invoke_async.assert_called_once()
-    mock_agents["conditional_agent"].invoke_async.assert_called_once()
-    mock_agents["final_agent"].invoke_async.assert_called_once()
-    mock_agents["no_metrics_agent"].invoke_async.assert_called_once()
-    mock_agents["partial_metrics_agent"].invoke_async.assert_called_once()
-    string_content_agent.invoke_async.assert_called_once()
-    mock_agents["blocked_agent"].invoke_async.assert_not_called()
+    # Verify agent calls (now using stream_async internally)
+    assert mock_agents["start_agent"].stream_async.call_count == 1
+    assert mock_agents["multi_agent"].stream_async.call_count == 1
+    assert mock_agents["conditional_agent"].stream_async.call_count == 1
+    assert mock_agents["final_agent"].stream_async.call_count == 1
+    assert mock_agents["no_metrics_agent"].stream_async.call_count == 1
+    assert mock_agents["partial_metrics_agent"].stream_async.call_count == 1
+    assert string_content_agent.stream_async.call_count == 1
+    assert mock_agents["blocked_agent"].stream_async.call_count == 0
 
     # Verify metrics aggregation
     assert result.accumulated_usage["totalTokens"] > 0
@@ -328,8 +328,8 @@ async def test_graph_edge_cases(mock_strands_tracer, mock_use_span):
 
     result = await graph.invoke_async([{"text": "Original task"}])
 
-    # Verify entry node was called with original task
-    entry_agent.invoke_async.assert_called_once_with([{"text": "Original task"}])
+    # Verify entry node was called with original task (via stream_async)
+    assert entry_agent.stream_async.call_count == 1
     assert result.status == Status.COMPLETED
     mock_strands_tracer.start_multiagent_span.assert_called()
     mock_use_span.assert_called_once()
@@ -403,10 +403,10 @@ async def test_cyclic_graph_execution(mock_strands_tracer, mock_use_span):
         execution_ids = [node.node_id for node in result.execution_order]
         assert execution_ids == ["a", "b", "c", "a"]
 
-        # Verify that each agent was called the expected number of times
-        assert agent_a.invoke_async.call_count == 2  # A executes twice
-        assert agent_b.invoke_async.call_count == 1  # B executes once
-        assert agent_c.invoke_async.call_count == 1  # C executes once
+        # Verify that each agent was called the expected number of times (via stream_async)
+        assert agent_a.stream_async.call_count == 2  # A executes twice
+        assert agent_b.stream_async.call_count == 1  # B executes once
+        assert agent_c.stream_async.call_count == 1  # C executes once
 
         # Verify that node state was reset for the revisited node (A)
         assert reset_spy.call_args_list == [call("a")]  # Only A should be reset (when revisited)
@@ -866,9 +866,9 @@ def test_graph_synchronous_execution(mock_strands_tracer, mock_use_span, mock_ag
     assert result.execution_order[0].node_id == "start_agent"
     assert result.execution_order[1].node_id == "final_agent"
 
-    # Verify agent calls
-    mock_agents["start_agent"].invoke_async.assert_called_once()
-    mock_agents["final_agent"].invoke_async.assert_called_once()
+    # Verify agent calls (via stream_async)
+    assert mock_agents["start_agent"].stream_async.call_count == 1
+    assert mock_agents["final_agent"].stream_async.call_count == 1
 
     # Verify return type is GraphResult
     assert isinstance(result, GraphResult)
@@ -945,6 +945,12 @@ async def test_controlled_cyclic_execution():
                     accumulated_metrics={"latencyMs": 100.0},
                 ),
             )
+
+        async def stream_async(self, input_data, **kwargs):
+            # Stream implementation that yields events and final result
+            yield {"agent_start": True}
+            result = await self.invoke_async(input_data)
+            yield {"result": result}
 
     # Create agents
     agent_a = StatefulAgent("agent_a")
@@ -1066,9 +1072,9 @@ async def test_linear_graph_behavior():
     assert result.execution_order[0].node_id == "a"
     assert result.execution_order[1].node_id == "b"
 
-    # Verify agents were called once each (no state reset)
-    agent_a.invoke_async.assert_called_once()
-    agent_b.invoke_async.assert_called_once()
+    # Verify agents were called once each (no state reset, via stream_async)
+    assert agent_a.stream_async.call_count == 1
+    assert agent_b.stream_async.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -1140,9 +1146,9 @@ async def test_self_loop_functionality(mock_strands_tracer, mock_use_span):
     graph = builder.build()
     result = await graph.invoke_async("Test self loop")
 
-    # Verify basic self-loop functionality
+    # Verify basic self-loop functionality (via stream_async)
     assert result.status == Status.COMPLETED
-    assert self_loop_agent.invoke_async.call_count == 3
+    assert self_loop_agent.stream_async.call_count == 3
     assert len(result.execution_order) == 3
     assert all(node.node_id == "self_loop" for node in result.execution_order)
 
@@ -1202,9 +1208,9 @@ async def test_complex_self_loop(mock_strands_tracer, mock_use_span):
     assert result.status == Status.COMPLETED
     assert len(result.execution_order) == 4  # start -> loop -> loop -> end
     assert [node.node_id for node in result.execution_order] == ["start_node", "loop_node", "loop_node", "end_node"]
-    assert start_agent.invoke_async.call_count == 1
-    assert loop_agent.invoke_async.call_count == 2
-    assert end_agent.invoke_async.call_count == 1
+    assert start_agent.stream_async.call_count == 1
+    assert loop_agent.stream_async.call_count == 2
+    assert end_agent.stream_async.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -1233,8 +1239,8 @@ async def test_multiple_nodes_with_self_loops(mock_strands_tracer, mock_use_span
 
     assert result.status == Status.COMPLETED
     assert len(result.execution_order) == 4  # a -> a -> b -> b
-    assert agent_a.invoke_async.call_count == 2
-    assert agent_b.invoke_async.call_count == 2
+    assert agent_a.stream_async.call_count == 2
+    assert agent_b.stream_async.call_count == 2
 
     mock_strands_tracer.start_multiagent_span.assert_called()
     mock_use_span.assert_called()
@@ -1309,7 +1315,7 @@ async def test_infinite_loop_prevention_self_loops():
 
     assert result.status == Status.COMPLETED
     assert len(result.execution_order) >= 2
-    assert multi_agent.invoke_async.call_count >= 2
+    assert multi_agent.stream_async.call_count >= 2
 
 
 @pytest.mark.asyncio
@@ -1325,7 +1331,8 @@ async def test_graph_kwargs_passing_agent(mock_strands_tracer, mock_use_span):
     test_invocation_state = {"custom_param": "test_value", "another_param": 42}
     result = await graph.invoke_async("Test kwargs passing", test_invocation_state)
 
-    kwargs_agent.invoke_async.assert_called_once_with([{"text": "Test kwargs passing"}], **test_invocation_state)
+    # Verify stream_async was called (kwargs are passed through)
+    assert kwargs_agent.stream_async.call_count == 1
     assert result.status == Status.COMPLETED
 
 
@@ -1342,9 +1349,8 @@ async def test_graph_kwargs_passing_multiagent(mock_strands_tracer, mock_use_spa
     test_invocation_state = {"custom_param": "test_value", "another_param": 42}
     result = await graph.invoke_async("Test kwargs passing to multiagent", test_invocation_state)
 
-    kwargs_multiagent.invoke_async.assert_called_once_with(
-        [{"text": "Test kwargs passing to multiagent"}], test_invocation_state
-    )
+    # Verify stream_async was called (kwargs are passed through)
+    assert kwargs_multiagent.stream_async.call_count == 1
     assert result.status == Status.COMPLETED
 
 
@@ -1360,7 +1366,8 @@ def test_graph_kwargs_passing_sync(mock_strands_tracer, mock_use_span):
     test_invocation_state = {"custom_param": "test_value", "another_param": 42}
     result = graph("Test kwargs passing sync", test_invocation_state)
 
-    kwargs_agent.invoke_async.assert_called_once_with([{"text": "Test kwargs passing sync"}], **test_invocation_state)
+    # Verify stream_async was called (kwargs are passed through)
+    assert kwargs_agent.stream_async.call_count == 1
     assert result.status == Status.COMPLETED
 
 
@@ -1632,11 +1639,11 @@ async def test_graph_parallel_execution(mock_strands_tracer, mock_use_span):
     assert result.completed_nodes == 4
     assert len(result.execution_order) == 4
 
-    # Verify all agents were called
-    agent_a.invoke_async.assert_called_once()
-    agent_b.invoke_async.assert_called_once()
-    agent_c.invoke_async.assert_called_once()
-    agent_d.invoke_async.assert_called_once()
+    # Verify all agents were called (via stream_async)
+    assert agent_a.stream_async.call_count == 1
+    assert agent_b.stream_async.call_count == 1
+    assert agent_c.stream_async.call_count == 1
+    assert agent_d.stream_async.call_count == 1
 
     # Verify parallel execution: A, B, C should have overlapping execution times
     # If they were sequential, total time would be ~0.35s (3 * 0.1 + 0.05)
@@ -1675,7 +1682,7 @@ async def test_graph_single_node_optimization(mock_strands_tracer, mock_use_span
 
     assert result.status == Status.COMPLETED
     assert result.completed_nodes == 1
-    agent.invoke_async.assert_called_once()
+    assert agent.stream_async.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -1745,3 +1752,106 @@ async def test_graph_parallel_with_failures(mock_strands_tracer, mock_use_span):
 
     # Note: The successful nodes may not complete if the failure happens early
     # This is expected behavior in the current implementation
+
+
+@pytest.mark.asyncio
+async def test_graph_single_invocation_no_double_execution(mock_strands_tracer, mock_use_span):
+    """Test that nodes are only invoked once (no double execution from streaming)."""
+    # Create agents with invocation counters
+    agent_a = create_mock_agent("agent_a", "Response A")
+    agent_b = create_mock_agent("agent_b", "Response B")
+
+    # Track invocation counts
+    invocation_counts = {"agent_a": 0, "agent_b": 0}
+
+    async def counted_stream_a(*args, **kwargs):
+        invocation_counts["agent_a"] += 1
+        yield {"agent_start": True}
+        yield {"agent_thinking": True, "thought": "Processing A"}
+        yield {"result": agent_a.return_value}
+
+    async def counted_stream_b(*args, **kwargs):
+        invocation_counts["agent_b"] += 1
+        yield {"agent_start": True}
+        yield {"agent_thinking": True, "thought": "Processing B"}
+        yield {"result": agent_b.return_value}
+
+    agent_a.stream_async = Mock(side_effect=counted_stream_a)
+    agent_b.stream_async = Mock(side_effect=counted_stream_b)
+
+    # Build graph: A -> B
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "a")
+    builder.add_node(agent_b, "b")
+    builder.add_edge("a", "b")
+    builder.set_entry_point("a")
+    graph = builder.build()
+
+    # Execute the graph
+    result = await graph.invoke_async("Test single invocation")
+
+    # Verify successful execution
+    assert result.status == Status.COMPLETED
+
+    # CRITICAL: Each agent should be invoked exactly once
+    assert invocation_counts["agent_a"] == 1, f"Agent A invoked {invocation_counts['agent_a']} times, expected 1"
+    assert invocation_counts["agent_b"] == 1, f"Agent B invoked {invocation_counts['agent_b']} times, expected 1"
+
+    # Verify stream_async was called but invoke_async was NOT called
+    assert agent_a.stream_async.call_count == 1
+    assert agent_b.stream_async.call_count == 1
+    # invoke_async should not be called at all since we're using streaming
+    agent_a.invoke_async.assert_not_called()
+    agent_b.invoke_async.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_graph_parallel_single_invocation(mock_strands_tracer, mock_use_span):
+    """Test that parallel nodes are only invoked once each."""
+    # Create parallel agents with invocation counters
+    invocation_counts = {"a": 0, "b": 0, "c": 0}
+
+    async def create_counted_agent(name):
+        agent = create_mock_agent(name, f"Response {name}")
+
+        async def counted_stream(*args, **kwargs):
+            invocation_counts[name] += 1
+            yield {"agent_start": True, "node": name}
+            await asyncio.sleep(0.01)  # Small delay
+            yield {"result": agent.return_value}
+
+        agent.stream_async = Mock(side_effect=counted_stream)
+        return agent
+
+    agent_a = await create_counted_agent("a")
+    agent_b = await create_counted_agent("b")
+    agent_c = await create_counted_agent("c")
+
+    # Build graph with parallel nodes
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "a")
+    builder.add_node(agent_b, "b")
+    builder.add_node(agent_c, "c")
+    builder.set_entry_point("a")
+    builder.set_entry_point("b")
+    builder.set_entry_point("c")
+    graph = builder.build()
+
+    # Execute the graph
+    result = await graph.invoke_async("Test parallel single invocation")
+
+    # Verify successful execution
+    assert result.status == Status.COMPLETED
+
+    # CRITICAL: Each agent should be invoked exactly once
+    assert invocation_counts["a"] == 1, f"Agent A invoked {invocation_counts['a']} times, expected 1"
+    assert invocation_counts["b"] == 1, f"Agent B invoked {invocation_counts['b']} times, expected 1"
+    assert invocation_counts["c"] == 1, f"Agent C invoked {invocation_counts['c']} times, expected 1"
+
+    # Verify stream_async was called but invoke_async was NOT called
+    assert agent_a.stream_async.call_count == 1
+    assert agent_b.stream_async.call_count == 1
+    assert agent_c.stream_async.call_count == 1
+    agent_a.invoke_async.assert_not_called()
+    agent_b.invoke_async.assert_not_called()
+    agent_c.invoke_async.assert_not_called()

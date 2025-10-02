@@ -673,7 +673,8 @@ class Graph(MultiAgentBase):
             # Execute with timeout protection and stream events
             try:
                 if isinstance(node.executor, MultiAgentBase):
-                    # For nested multi-agent systems, stream their events
+                    # For nested multi-agent systems, stream their events and collect result
+                    multi_agent_result = None
                     if self.node_timeout is not None:
                         # Implement timeout for async generator streaming
                         async for event in self._stream_with_timeout(
@@ -684,14 +685,22 @@ class Graph(MultiAgentBase):
                             # Forward nested multi-agent events with node context
                             wrapped_event = MultiAgentNodeStreamEvent(node.node_id, event)
                             yield wrapped_event.as_dict()
+                            # Capture the final result event
+                            if "result" in event:
+                                multi_agent_result = event["result"]
                     else:
                         async for event in node.executor.stream_async(node_input, invocation_state):
                             # Forward nested multi-agent events with node context
                             wrapped_event = MultiAgentNodeStreamEvent(node.node_id, event)
                             yield wrapped_event.as_dict()
+                            # Capture the final result event
+                            if "result" in event:
+                                multi_agent_result = event["result"]
 
-                    # Get the final result for metrics
-                    multi_agent_result = await node.executor.invoke_async(node_input, invocation_state)
+                    # Use the captured result from streaming (no double execution)
+                    if multi_agent_result is None:
+                        raise ValueError(f"Node '{node.node_id}' did not produce a result event")
+
                     node_result = NodeResult(
                         result=multi_agent_result,
                         execution_time=multi_agent_result.execution_time,
@@ -702,7 +711,8 @@ class Graph(MultiAgentBase):
                     )
 
                 elif isinstance(node.executor, Agent):
-                    # For agents, stream their events
+                    # For agents, stream their events and collect result
+                    agent_response = None
                     if self.node_timeout is not None:
                         # Implement timeout for async generator streaming
                         async for event in self._stream_with_timeout(
@@ -713,14 +723,22 @@ class Graph(MultiAgentBase):
                             # Forward agent events with node context
                             wrapped_event = MultiAgentNodeStreamEvent(node.node_id, event)
                             yield wrapped_event.as_dict()
+                            # Capture the final result event
+                            if "result" in event:
+                                agent_response = event["result"]
                     else:
                         async for event in node.executor.stream_async(node_input, **invocation_state):
                             # Forward agent events with node context
                             wrapped_event = MultiAgentNodeStreamEvent(node.node_id, event)
                             yield wrapped_event.as_dict()
+                            # Capture the final result event
+                            if "result" in event:
+                                agent_response = event["result"]
 
-                    # Get the final result for metrics
-                    agent_response = await node.executor.invoke_async(node_input, **invocation_state)
+                    # Use the captured result from streaming (no double execution)
+                    if agent_response is None:
+                        raise ValueError(f"Node '{node.node_id}' did not produce a result event")
+
                     usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
                     metrics = Metrics(latencyMs=0)
                     if hasattr(agent_response, "metrics") and agent_response.metrics:
