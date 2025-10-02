@@ -87,7 +87,8 @@ class BidirectionalAgent:
         """Send input to the model (text or audio).
 
         Unified method for sending both text and audio input to the model during
-        an active conversation session.
+        an active conversation session. User input is automatically added to
+        conversation history for complete message tracking.
 
         Args:
             input_data: Either a string for text input or AudioInputEvent for audio input.
@@ -98,10 +99,13 @@ class BidirectionalAgent:
         self._validate_active_session()
 
         if isinstance(input_data, str):
+            # Add user text message to history
+            self.messages.append({"role": "user", "content": input_data})
+
             log_event("text_sent", length=len(input_data))
             await self._session.model_session.send_text_content(input_data)
         elif isinstance(input_data, dict) and "audioData" in input_data:
-            # Handle audio input (AudioInputEvent)
+            # Handle audio input
             await self._session.model_session.send_audio_content(input_data)
         else:
             raise ValueError(

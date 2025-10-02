@@ -261,7 +261,7 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
             # Basic validation - skip invalid events
             if not isinstance(provider_event, dict):
                 continue
-            
+
             strands_event = provider_event
 
             # Handle interruption detection (provider converts raw patterns to interruptionDetected)
@@ -287,6 +287,14 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
                 log_event("message_added_to_history")
                 session.agent.messages.append(strands_event["messageStop"]["message"])
 
+            # Handle user audio transcripts - add to message history
+            if strands_event.get("textOutput") and strands_event["textOutput"].get("role") == "user":
+                user_transcript = strands_event["textOutput"]["text"]
+                if user_transcript.strip():  # Only add non-empty transcripts
+                    user_message = {"role": "user", "content": user_transcript}
+                    session.agent.messages.append(user_message)
+                    log_event("user_transcript_added_to_history")
+
     except Exception as e:
         log_event("model_events_error", error=str(e))
         traceback.print_exc()
@@ -298,7 +306,7 @@ async def _process_tool_execution(session: BidirectionalConnection) -> None:
     """Execute tools concurrently with interruption support.
 
     Background task that manages tool execution without blocking model event
-    processing or user interaction. Uses proper asyncio cancellation for 
+    processing or user interaction. Uses proper asyncio cancellation for
     interruption handling rather than manual state checks.
 
     Args:
@@ -351,9 +359,6 @@ async def _process_tool_execution(session: BidirectionalConnection) -> None:
                 break
 
     log_flow("tool_execution", "processor stopped")
-
-
-
 
 
 async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use: dict) -> None:
@@ -421,9 +426,9 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
         raise  # Re-raise to properly handle cancellation
     except Exception as e:
         log_event("tool_execution_error", name=tool_use.get("name"), error=str(e))
-        
+
         try:
-            await session.model_session.send_tool_error(tool_use.get("toolUseId"), str(e))
+            await session.model_session.send_tool_result(tool_use.get("toolUseId"), {"error": str(e)})
         except Exception as send_error:
             log_event("tool_error_send_failed", error=str(send_error))
 

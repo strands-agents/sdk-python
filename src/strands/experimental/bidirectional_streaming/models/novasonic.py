@@ -386,12 +386,6 @@ class NovaSonicSession(BidirectionalModelSession):
         for i, event in enumerate(events):
             await time_it_async(f"send_tool_event_{i + 1}", lambda event=event: self._send_nova_event(event))
 
-    async def send_tool_error(self, tool_use_id: str, error: str) -> None:
-        """Send tool error using Nova Sonic format."""
-        log_event("nova_tool_error_send", id=tool_use_id, error=error)
-        error_result = {"error": error}
-        await self.send_tool_result(tool_use_id, error_result)
-
     async def close(self) -> None:
         """Close Nova Sonic connection with proper cleanup sequence."""
         if not self._active:

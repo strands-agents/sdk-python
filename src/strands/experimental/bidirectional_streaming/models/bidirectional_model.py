@@ -71,12 +71,8 @@ class BidirectionalModelSession(abc.ABC):
         """Send tool execution result to the model.
 
         Formats and sends tool results according to the provider's specific protocol.
+        Handles both successful results and error cases.
         """
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    async def send_tool_error(self, tool_use_id: str, error: str) -> None:
-        """Send tool execution error to model in provider-specific format."""
         raise NotImplementedError
 
     @abc.abstractmethod
