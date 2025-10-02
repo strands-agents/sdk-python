@@ -64,6 +64,7 @@ class ConcurrentToolExecutor(ToolExecutor):
         ]
 
         task_count = len(tasks)
+        collected_exceptions = []
         while task_count:
             task_id, event = await task_queue.get()
             if event is stop_event:
@@ -73,14 +74,31 @@ class ConcurrentToolExecutor(ToolExecutor):
             # Check if event is an exception that needs to be raised
             if isinstance(event, Exception):
                 print(f"DEBUG: Concurrent executor main thread got exception: {type(event).__name__}: {event}")
-                if isinstance(event, AgentDelegationException):
-                    print(f"DEBUG: Raising AgentDelegationException from concurrent executor")
-                    raise event
-                else:
-                    raise event
+                collected_exceptions.append(event)
+                task_events[task_id].set()
+                continue
 
             yield event
             task_events[task_id].set()
+
+        # After all tasks complete, check if we collected any exceptions
+        if collected_exceptions:
+            # Prioritize delegation exceptions if present
+            delegation_exceptions = [e for e in collected_exceptions if isinstance(e, AgentDelegationException)]
+            if delegation_exceptions:
+                # If there are delegation exceptions, raise the first one
+                print(f"DEBUG: Raising AgentDelegationException from concurrent executor (collected {len(collected_exceptions)} exceptions total)")
+                raise delegation_exceptions[0]
+            else:
+                # For non-delegation exceptions, raise a combined exception with all details
+                if len(collected_exceptions) == 1:
+                    raise collected_exceptions[0]
+                else:
+                    # Create a combined exception to report all concurrent errors
+                    error_summary = "; ".join([f"{type(e).__name__}: {str(e)}" for e in collected_exceptions])
+                    combined_exception = RuntimeError(f"Multiple tool execution errors occurred: {error_summary}")
+                    combined_exception.__cause__ = collected_exceptions[0]  # Keep the first as primary cause
+                    raise combined_exception
 
         asyncio.gather(*tasks)
 

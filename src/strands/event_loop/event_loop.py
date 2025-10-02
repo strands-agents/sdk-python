@@ -10,6 +10,7 @@ The event loop allows agents to:
 
 import asyncio
 import copy
+import inspect
 import json
 import logging
 import uuid
@@ -328,6 +329,97 @@ async def recurse_event_loop(agent: "Agent", invocation_state: dict[str, Any]) -
     recursive_trace.end()
 
 
+def _filter_delegation_messages(messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Filter and optimize messages for delegation to reduce noise and token usage.
+
+    This function implements sophisticated message filtering to preserve important
+    context while removing internal tool chatter and noise that would be irrelevant
+    to the delegated agent.
+
+    Args:
+        messages: List of messages from the orchestrator agent
+
+    Returns:
+        Tuple of (filtered_messages, filtering_stats) where:
+        - filtered_messages: Optimized list of messages for delegation
+        - filtering_stats: Dictionary with filtering metrics for observability
+
+    The filtering logic works as follows:
+    - System messages: Always included (essential for context)
+    - User messages: Always included, but cleaned to remove embedded tool content
+    - Assistant messages: Filtered to remove internal tool noise while preserving meaningful text
+    """
+    filtered_messages = []
+    for msg in messages:
+        msg_role = msg.get("role", "")
+        msg_content = msg.get("content", [])
+
+        # Always include system prompts for context preservation
+        if msg_role == "system":
+            filtered_messages.append(msg)
+            continue
+
+        # Always include user messages for conversational continuity
+        if msg_role == "user":
+            # For user messages, ensure content is clean text
+            if isinstance(msg_content, list):
+                # Filter out any embedded tool content from user messages
+                clean_content = [
+                    item for item in msg_content if isinstance(item, dict) and item.get("type") == "text"
+                ]
+                if clean_content:
+                    filtered_messages.append({"role": "user", "content": clean_content})
+            else:
+                filtered_messages.append(msg)
+            continue
+
+        # For assistant messages, filter out internal tool chatter
+        if msg_role == "assistant":
+            if isinstance(msg_content, list):
+                # Sophisticated content analysis for assistant messages
+                has_internal_tool_content = any(
+                    (content.get("type") == "toolUse" and not content.get("name", "").startswith("handoff_to_"))
+                    or ("toolResult" in content and content.get("toolResult", {}).get("status") == "error")
+                    for content in msg_content
+                    if isinstance(content, dict)
+                )
+
+                # Check if message contains meaningful text response
+                has_meaningful_text = any(
+                    content.get("type") == "text" and content.get("text", "").strip()
+                    for content in msg_content
+                    if isinstance(content, dict)
+                )
+
+                # Include if it has meaningful text and no internal tool noise
+                if has_meaningful_text and not has_internal_tool_content:
+                    filtered_messages.append(msg)
+                elif has_meaningful_text and has_internal_tool_content:
+                    # Clean the message by removing tool content but keeping text
+                    clean_content = [
+                        item for item in msg_content if isinstance(item, dict) and item.get("type") == "text"
+                    ]
+                    if clean_content:
+                        filtered_messages.append({"role": "assistant", "content": clean_content})
+            else:
+                # Simple text content - include as-is
+                filtered_messages.append(msg)
+
+    # Calculate filtering statistics for observability
+    original_count = len(messages)
+    filtered_count = len(filtered_messages)
+    filtering_stats = {
+        "original_message_count": original_count,
+        "filtered_message_count": filtered_count,
+        "noise_removed": original_count - filtered_count,
+        "compression_ratio": f"{(filtered_count / original_count * 100):.1f}%"
+        if original_count > 0
+        else "0%",
+    }
+
+    return filtered_messages, filtering_stats
+
+
 async def _handle_delegation(
     agent: "Agent",
     delegation_exception: AgentDelegationException,
@@ -382,7 +474,15 @@ async def _handle_delegation(
         original_session_id = agent._session_manager.session_id
         # Create nested session for sub-agent
         sub_session_id = f"{original_session_id}/delegation/{uuid.uuid4().hex}"
-        target_agent._session_manager = type(agent._session_manager)(session_id=sub_session_id)
+
+        # Validate session manager constructor compatibility before creating sub-session
+        session_mgr_class = type(agent._session_manager)
+        if hasattr(session_mgr_class, '__init__'):
+            sig = inspect.signature(session_mgr_class.__init__)
+            if 'session_id' not in sig.parameters:
+                raise TypeError(f"Session manager {type(agent._session_manager).__name__} doesn't accept session_id parameter")
+
+        target_agent._session_manager = session_mgr_class(session_id=sub_session_id)
         await target_agent._session_manager.save_agent(target_agent)
 
     try:
@@ -402,75 +502,10 @@ async def _handle_delegation(
 
         # ENHANCED: Message filtering on transfer - sophisticated context optimization
         if delegation_exception.transfer_messages:
-            # Copy conversation history from orchestrator to sub-agent
-            # Apply intelligent filtering to reduce noise and token usage
-            filtered_messages = []
-            for msg in agent.messages:
-                msg_role = msg.get("role", "")
-                msg_content = msg.get("content", [])
-
-                # Always include system prompts for context preservation
-                if msg_role == "system":
-                    filtered_messages.append(msg)
-                    continue
-
-                # Always include user messages for conversational continuity
-                if msg_role == "user":
-                    # For user messages, ensure content is clean text
-                    if isinstance(msg_content, list):
-                        # Filter out any embedded tool content from user messages
-                        clean_content = [
-                            item for item in msg_content if isinstance(item, dict) and item.get("type") == "text"
-                        ]
-                        if clean_content:
-                            filtered_messages.append({"role": "user", "content": clean_content})
-                    else:
-                        filtered_messages.append(msg)
-                    continue
-
-                # For assistant messages, filter out internal tool chatter
-                if msg_role == "assistant":
-                    if isinstance(msg_content, list):
-                        # Sophisticated content analysis for assistant messages
-                        has_internal_tool_content = any(
-                            (content.get("type") == "toolUse" and not content.get("name", "").startswith("handoff_to_"))
-                            or ("toolResult" in content and content.get("toolResult", {}).get("status") == "error")
-                            for content in msg_content
-                            if isinstance(content, dict)
-                        )
-
-                        # Check if message contains meaningful text response
-                        has_meaningful_text = any(
-                            content.get("type") == "text" and content.get("text", "").strip()
-                            for content in msg_content
-                            if isinstance(content, dict)
-                        )
-
-                        # Include if it has meaningful text and no internal tool noise
-                        if has_meaningful_text and not has_internal_tool_content:
-                            filtered_messages.append(msg)
-                        elif has_meaningful_text and has_internal_tool_content:
-                            # Clean the message by removing tool content but keeping text
-                            clean_content = [
-                                item for item in msg_content if isinstance(item, dict) and item.get("type") == "text"
-                            ]
-                            if clean_content:
-                                filtered_messages.append({"role": "assistant", "content": clean_content})
-                    else:
-                        # Simple text content - include as-is
-                        filtered_messages.append(msg)
+            filtered_messages, filtering_stats = _filter_delegation_messages(agent.messages)
 
             # Track filtering effectiveness for observability
-            original_count = len(agent.messages)
-            filtered_count = len(filtered_messages)
-            delegation_trace.metadata["message_filtering_applied"] = {
-                "original_message_count": original_count,
-                "filtered_message_count": filtered_count,
-                "noise_removed": original_count - filtered_count,
-                "compression_ratio": f"{(filtered_count / original_count * 100):.1f}%"
-                if original_count > 0
-                else "0%",
-            }
+            delegation_trace.metadata["message_filtering_applied"] = filtering_stats
 
             target_agent.messages = filtered_messages
         else:
@@ -653,11 +688,20 @@ async def _handle_delegation_with_streaming(
 
     # Validate streaming completeness for real-time UX guarantees
     if not streamed_events:
-        delegation_trace.metadata["streaming_completeness_warning"] = {
-            "warning": "No events were streamed during delegation",
+        # Instead of just logging a warning and continuing (which breaks real-time UX),
+        # raise an error to force proper streaming implementation
+        delegation_trace.metadata["streaming_completeness_error"] = {
+            "error": "No events were streamed during delegation - this violates real-time UX guarantees",
             "target_agent": delegation_exception.target_agent,
             "final_result_obtained": final_result is not None,
+            "requirement": "Sub-agent must implement proper streaming interface with real-time event emission",
         }
+
+        raise RuntimeError(
+            f"Delegation streaming completeness error: {delegation_exception.target_agent} "
+            f"produced no streaming events. This violates real-time UX guarantees. "
+            f"Sub-agent must implement proper streaming interface with event emission."
+        )
 
     return
 

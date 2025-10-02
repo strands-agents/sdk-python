@@ -993,6 +993,14 @@ class Agent:
         for sub_agent in sub_agents:
             tool_name = f"handoff_to_{sub_agent.name.lower().replace('-', '_')}"
 
+            # Create closure configuration to avoid memory leak from capturing self
+            delegation_config = {
+                "orchestrator_name": self.name,
+                "max_delegation_depth": getattr(self, "max_delegation_depth", None),
+                "delegation_state_transfer": self.delegation_state_transfer,
+                "delegation_message_transfer": self.delegation_message_transfer,
+            }
+
             @tool(name=tool_name)
             def delegation_tool(
                 message: str,
@@ -1001,6 +1009,7 @@ class Agent:
                 transfer_messages: bool | None = None,
                 target_agent: str = sub_agent.name,
                 delegation_chain: list[str] | None = None,
+                delegation_config: dict[str, Any] = delegation_config,
             ) -> dict[str, Any]:
                 """Transfer control completely to specified sub-agent.
 
@@ -1013,26 +1022,26 @@ class Agent:
                     context: Additional context to transfer (optional)
                     transfer_state: Override the default state transfer behavior (optional)
                     transfer_messages: Override the default message transfer behavior (optional)
-                    _target_agent: Internal target agent identifier
-                    _delegation_chain: Internal delegation tracking
+                    target_agent: Internal target agent identifier
+                    delegation_chain: Internal delegation tracking
+                    delegation_config: Delegation configuration (internal)
 
                 Returns:
                     This tool raises AgentDelegationException and does not return normally.
                 """
                 current_depth = len(delegation_chain or [])
-                print(f"DEBUG: Delegation tool called for {target_agent}, current_depth: {current_depth}")
-                if hasattr(self, "max_delegation_depth") and current_depth >= self.max_delegation_depth:
-                    raise ValueError(f"Maximum delegation depth ({self.max_delegation_depth}) exceeded")
-                print(f"DEBUG: About to raise AgentDelegationException for {target_agent}")
+                if delegation_config["max_delegation_depth"] and current_depth >= delegation_config["max_delegation_depth"]:
+                    raise ValueError(f"Maximum delegation depth ({delegation_config['max_delegation_depth']}) exceeded")
+
                 raise AgentDelegationException(
                     target_agent=target_agent,
                     message=message,
                     context=context or {},
-                    delegation_chain=(delegation_chain or []) + [self.name],
-                    transfer_state=transfer_state if transfer_state is not None else self.delegation_state_transfer,
+                    delegation_chain=(delegation_chain or []) + [delegation_config["orchestrator_name"]],
+                    transfer_state=transfer_state if transfer_state is not None else delegation_config["delegation_state_transfer"],
                     transfer_messages=transfer_messages
                     if transfer_messages is not None
-                    else self.delegation_message_transfer,
+                    else delegation_config["delegation_message_transfer"],
                 )
 
             
@@ -1045,25 +1054,19 @@ class Agent:
                 if tool_names:
                     capabilities_hint = f" Capabilities include: {', '.join(tool_names)}."
 
-            # ENHANCED: Tool docstring enrichment with sophisticated LLM routing hints
+            # Concise tool docstring to avoid prompt bloat
             delegation_tool.__doc__ = (
-                f"Transfer control completely to {sub_agent.name} ({agent_description}).{capabilities_hint}\n\n"
-                f"This tool completely delegates the current request to {sub_agent.name}.\n"
-                f"The orchestrator will terminate and {sub_agent.name}'s response will\n"
-                "become the final response with no additional processing.\n\n"
-                f"DELEGATION CRITERIA:\n"
-                f"Use this tool when the user request requires {sub_agent.name}'s specialized expertise.\n"
-                f"Ideal for scenarios involving {agent_description.lower()}.\n\n"
-                "Args:\n"
-                f"    message: Message to pass to {sub_agent.name} (required). Be specific about the user's original request.\n"
-                "    context: Additional context to transfer (optional). Include relevant background information.\n"
-                "    transfer_state: Whether to transfer orchestrator.state (optional). Defaults to agent configuration.\n"
-                "    transfer_messages: Whether to transfer conversation history (optional). Defaults to agent configuration.\n"
-                "    target_agent: Internal target agent identifier (hidden)\n"
-                "    delegation_chain: Internal delegation tracking (hidden)\n\n"
-                "EXAMPLE USAGE:\n"
-                '    "Handle this customer billing inquiry" → delegates to billing specialist\n'
-                '    "Debug this API error" → delegates to technical support agent\n'
+                f"Delegate to {sub_agent.name} ({agent_description}).{capabilities_hint}\n"
+                f"Transfers control completely - orchestrator terminates and {sub_agent.name}'s response becomes final.\n\n"
+                f"Use for: {agent_description.lower()}.\n"
+                f"Args:\n"
+                f"    message: Message for {sub_agent.name} (required)\n"
+                f"    context: Additional context (optional)\n"
+                f"    transfer_state: Transfer orchestrator.state (optional)\n"
+                f"    transfer_messages: Transfer conversation history (optional)\n"
+                f"    target_agent: Internal identifier (hidden)\n"
+                f"    delegation_chain: Delegation tracking (hidden)\n"
+                f"    delegation_config: Delegation configuration (internal)"
             )
 
             # Set JSON schema for better validation and model understanding
