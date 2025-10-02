@@ -264,23 +264,13 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
             
             strands_event = provider_event
 
-            # Handle interruption detection (multiple patterns)
+            # Handle interruption detection (provider converts raw patterns to interruptionDetected)
             if strands_event.get("interruptionDetected"):
                 log_event("interruption_forwarded")
                 await _handle_interruption(session)
                 # Forward interruption event to agent for application-level handling
                 await session.agent._output_queue.put(strands_event)
                 continue
-
-            # Check for text-based interruption
-            if strands_event.get("textOutput"):
-                text_content = strands_event["textOutput"].get("content", "")
-                if '{ "interrupted" : true }' in text_content:
-                    log_event("text_interruption_detected")
-                    await _handle_interruption(session)
-                    # Still forward the text event
-                    await session.agent._output_queue.put(strands_event)
-                    continue
 
             # Queue tool requests for concurrent execution
             if strands_event.get("toolUse"):
@@ -308,8 +298,8 @@ async def _process_tool_execution(session: BidirectionalConnection) -> None:
     """Execute tools concurrently with interruption support.
 
     Background task that manages tool execution without blocking model event
-    processing or user interaction. Includes proper task cleanup and cancellation
-    handling for interruptions.
+    processing or user interaction. Uses proper asyncio cancellation for 
+    interruption handling rather than manual state checks.
 
     Args:
         session: BidirectionalConnection containing tool queue.
@@ -319,9 +309,6 @@ async def _process_tool_execution(session: BidirectionalConnection) -> None:
         try:
             tool_use = await asyncio.wait_for(session.tool_queue.get(), timeout=TOOL_QUEUE_TIMEOUT)
             log_event("tool_execution_started", name=tool_use.get("name"), id=tool_use.get("toolUseId"))
-
-            if not session.active:
-                break
 
             task_id = str(uuid.uuid4())
             task = asyncio.create_task(_execute_tool_with_strands(session, tool_use))
@@ -372,8 +359,9 @@ async def _process_tool_execution(session: BidirectionalConnection) -> None:
 async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use: dict) -> None:
     """Execute tool using Strands infrastructure with interruption support.
 
-    Executes tools using the existing Strands tool system, handles interruption
-    during execution, and sends results back to the model provider.
+    Executes tools using the existing Strands tool system with proper asyncio
+    cancellation handling. Tool execution is stopped via task cancellation,
+    not manual state checks.
 
     Args:
         session: BidirectionalConnection for context.
@@ -383,11 +371,6 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
     tool_id = tool_use.get("toolUseId")
 
     try:
-        # Skip execution if session is interrupted or inactive
-        if session.interrupted or not session.active:
-            log_event("tool_execution_cancelled_before_start", name=tool_name, id=tool_id)
-            return
-
         # Create message structure for existing tool system
         tool_message: Message = {"role": "assistant", "content": [{"toolUse": tool_use}]}
 
@@ -407,11 +390,6 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
 
         # Execute tools directly (simpler approach for bidirectional)
         for tool_use in valid_tool_uses:
-            # Return early if session was interrupted during execution
-            if session.interrupted or not session.active:
-                log_event("tool_execution_cancelled_during", name=tool_name, id=tool_id)
-                return
-
             tool_func = session.agent.tool_registry.registry.get(tool_use["name"])
 
             if tool_func:
@@ -419,38 +397,17 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
                     actual_func = _extract_callable_function(tool_func)
 
                     # Execute tool function with provided input
-                    # For async tools, we could wrap with asyncio.wait_for with cancellation
-                    # For sync tools, we execute directly but check interruption after
                     result = actual_func(**tool_use.get("input", {}))
-
-                    # Discard result if session was interrupted during execution
-                    if session.interrupted or not session.active:
-                        log_event("tool_result_discarded_interruption", name=tool_name, id=tool_id)
-                        return
 
                     tool_result = _create_success_result(tool_use["toolUseId"], result)
                     tool_results.append(tool_result)
 
-                except asyncio.CancelledError:
-                    # Tool was cancelled due to interruption
-                    log_event("tool_execution_cancelled", name=tool_name, id=tool_id)
-                    return
                 except Exception as e:
-                    # Discard error result if session was interrupted
-                    if session.interrupted or not session.active:
-                        log_event("tool_error_discarded_interruption", name=tool_name, id=tool_id)
-                        return
-
                     log_event("tool_execution_failed", name=tool_name, error=str(e))
                     tool_result = _create_error_result(tool_use["toolUseId"], str(e))
                     tool_results.append(tool_result)
             else:
                 log_event("tool_not_found", name=tool_name)
-
-        # Skip sending results if session was interrupted
-        if session.interrupted or not session.active:
-            log_event("tool_results_discarded_interruption", name=tool_name, count=len(tool_results))
-            return
 
         # Send results through provider-specific session
         for result in tool_results:
@@ -464,13 +421,11 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
         raise  # Re-raise to properly handle cancellation
     except Exception as e:
         log_event("tool_execution_error", name=tool_use.get("name"), error=str(e))
-
-        # Only send error if not interrupted
-        if not session.interrupted and session.active:
-            try:
-                await session.model_session.send_tool_error(tool_use.get("toolUseId"), str(e))
-            except Exception as send_error:
-                log_event("tool_error_send_failed", error=str(send_error))
+        
+        try:
+            await session.model_session.send_tool_error(tool_use.get("toolUseId"), str(e))
+        except Exception as send_error:
+            log_event("tool_error_send_failed", error=str(send_error))
 
 
 def _extract_callable_function(tool_func: any) -> any:
