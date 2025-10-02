@@ -17,7 +17,7 @@ from typing import AsyncIterable
 
 from ....types.content import Messages
 from ....types.tools import ToolSpec
-from ..types.bidirectional_streaming import AudioInputEvent
+from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class BidirectionalModelSession(abc.ABC):
     """
 
     @abc.abstractmethod
-    async def receive_events(self) -> AsyncIterable[dict[str, any]]:
+    async def receive_events(self) -> AsyncIterable[BidirectionalStreamEvent]:
         """Receive events from the model in standardized format.
 
         Converts provider-specific events to a common format that can be
@@ -71,7 +71,7 @@ class BidirectionalModelSession(abc.ABC):
         """Send tool execution result to the model.
 
         Formats and sends tool results according to the provider's specific protocol.
-        Handles both successful results and error cases.
+        Handles both successful results and error cases through the result dictionary.
         """
         raise NotImplementedError
 
