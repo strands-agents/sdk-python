@@ -1,5 +1,6 @@
 """File-based session manager for local filesystem storage."""
 
+import asyncio
 import json
 import logging
 import os
@@ -231,11 +232,20 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         else:
             message_files = message_files[offset:]
 
-        # Load only the message files
-        messages: list[SessionMessage] = []
-        for filename in message_files:
+        return asyncio.run(self._load_messages_concurrently(messages_dir, message_files))
+
+    async def _load_messages_concurrently(self, messages_dir: str, message_files: list[str]) -> list[SessionMessage]:
+        """Load multiple message files concurrently using async."""
+        if not message_files:
+            return []
+
+        async def load_message(filename: str) -> SessionMessage:
             file_path = os.path.join(messages_dir, filename)
-            message_data = self._read_file(file_path)
-            messages.append(SessionMessage.from_dict(message_data))
+            loop = asyncio.get_event_loop()
+            message_data = await loop.run_in_executor(None, self._read_file, file_path)
+            return SessionMessage.from_dict(message_data)
+
+        tasks = [load_message(filename) for filename in message_files]
+        messages = await asyncio.gather(*tasks)
 
         return messages
