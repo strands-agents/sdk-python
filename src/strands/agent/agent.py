@@ -272,6 +272,7 @@ class Agent:
         Raises:
             ValueError: If agent id contains path separators.
         """
+        self.invocation_state: dict[str, Any] | None = None
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
 
@@ -374,7 +375,9 @@ class Agent:
         all_tools = self.tool_registry.get_all_tools_config()
         return list(all_tools.keys())
 
-    def __call__(self, prompt: AgentInput = None, **kwargs: Any) -> AgentResult:
+    def __call__(
+        self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
         This method implements the conversational interface with multiple input patterns:
@@ -389,6 +392,7 @@ class Agent:
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
+            invocation_state: [New] Additional parameters to pass through the event loop.
             **kwargs: Additional parameters to pass through the event loop.
 
         Returns:
@@ -399,15 +403,24 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
+        if kwargs:
+            logger.warning("`Kwargs` parameter is deprecated, use the `invocation_state` parameter instead.")
+            self.invocation_state = kwargs
+            if invocation_state is not None:
+                self.invocation_state["invocation_state"] = invocation_state
+        else:
+            self.invocation_state = invocation_state
 
         def execute() -> AgentResult:
-            return asyncio.run(self.invoke_async(prompt, **kwargs))
+            return asyncio.run(self.invoke_async(prompt, invocation_state=self.invocation_state))
 
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)
             return future.result()
 
-    async def invoke_async(self, prompt: AgentInput = None, **kwargs: Any) -> AgentResult:
+    async def invoke_async(
+        self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
         This method implements the conversational interface with multiple input patterns:
@@ -422,6 +435,7 @@ class Agent:
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
+            invocation_state: [New] Additional parameters to pass through the event loop.
             **kwargs: Additional parameters to pass through the event loop.
 
         Returns:
@@ -432,7 +446,15 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
-        events = self.stream_async(prompt, **kwargs)
+        if kwargs:
+            logger.warning("`Kwargs` parameter is deprecated, use the `invocation_state` parameter instead.")
+            self.invocation_state = kwargs
+            if invocation_state is not None:
+                self.invocation_state["invocation_state"] = invocation_state
+        else:
+            self.invocation_state = invocation_state
+
+        events = self.stream_async(prompt, invocation_state=self.invocation_state)
         async for event in events:
             _ = event
 
@@ -528,9 +550,7 @@ class Agent:
                 self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
     async def stream_async(
-        self,
-        prompt: AgentInput = None,
-        **kwargs: Any,
+        self, prompt: AgentInput = None, *, invocation_state: Optional[dict[str, Any]] = None, **kwargs: Any
     ) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
 
@@ -546,6 +566,7 @@ class Agent:
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
+            invocation_state: [New] Additional parameters to pass through the event loop.
             **kwargs: Additional parameters to pass to the event loop.
 
         Yields:
@@ -567,7 +588,18 @@ class Agent:
                     yield event["data"]
             ```
         """
-        callback_handler = kwargs.get("callback_handler", self.callback_handler)
+        if kwargs:
+            logger.warning("`Kwargs` parameter is deprecated, use the `invocation_state` parameter instead.")
+            self.invocation_state = kwargs
+            if invocation_state is not None:
+                self.invocation_state["invocation_state"] = invocation_state
+        else:
+            self.invocation_state = invocation_state or {}
+
+        # Get callback handler from merged state or use default
+        callback_handler = self.invocation_state.get("invocation_state", {}).get(
+            "callback_handler", self.invocation_state.get("callback_handler", self.callback_handler)
+        )
 
         # Process input and get message to add (if any)
         messages = self._convert_prompt_to_messages(prompt)
@@ -576,10 +608,10 @@ class Agent:
 
         with trace_api.use_span(self.trace_span):
             try:
-                events = self._run_loop(messages, invocation_state=kwargs)
+                events = self._run_loop(messages, invocation_state=self.invocation_state)
 
                 async for event in events:
-                    event.prepare(invocation_state=kwargs)
+                    event.prepare(invocation_state=self.invocation_state)
 
                     if event.is_callback_event:
                         as_dict = event.as_dict()
