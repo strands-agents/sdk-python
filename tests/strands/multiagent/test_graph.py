@@ -40,7 +40,13 @@ def create_mock_agent(name, response_text="Default response", metrics=None, agen
     async def mock_invoke_async(*args, **kwargs):
         return mock_result
 
+    async def mock_stream_async(*args, **kwargs):
+        # Simple mock stream that yields a start event and then the result
+        yield {"agent_start": True}
+        yield {"result": mock_result}
+
     agent.invoke_async = MagicMock(side_effect=mock_invoke_async)
+    agent.stream_async = Mock(side_effect=mock_stream_async)
 
     return agent
 
@@ -66,7 +72,14 @@ def create_mock_multi_agent(name, response_text="Multi-agent response"):
         execution_count=1,
         execution_time=150,
     )
+
+    async def mock_multi_stream_async(*args, **kwargs):
+        # Simple mock stream that yields a start event and then the result
+        yield {"multi_agent_start": True}
+        yield {"result": mock_result}
+
     multi_agent.invoke_async = AsyncMock(return_value=mock_result)
+    multi_agent.stream_async = Mock(side_effect=mock_multi_stream_async)
     multi_agent.execute = Mock(return_value=mock_result)
     return multi_agent
 
@@ -277,7 +290,13 @@ async def test_graph_execution_with_failures(mock_strands_tracer, mock_use_span)
     async def mock_invoke_failure(*args, **kwargs):
         raise Exception("Simulated failure")
 
+    async def mock_stream_failure(*args, **kwargs):
+        # Simple mock stream that fails
+        yield {"agent_start": True}
+        raise Exception("Simulated failure")
+
     failing_agent.invoke_async = mock_invoke_failure
+    failing_agent.stream_async = Mock(side_effect=mock_stream_failure)
 
     success_agent = create_mock_agent("success_agent", "Success")
 
@@ -623,7 +642,13 @@ async def test_graph_node_timeout(mock_strands_tracer, mock_use_span):
         await asyncio.sleep(0.2)  # Longer than node timeout
         return timeout_agent.return_value
 
+    async def timeout_stream(*args, **kwargs):
+        yield {"agent_start": True}
+        await asyncio.sleep(0.2)  # Longer than node timeout
+        yield {"result": timeout_agent.return_value}
+
     timeout_agent.invoke_async = AsyncMock(side_effect=timeout_invoke)
+    timeout_agent.stream_async = Mock(side_effect=timeout_stream)
 
     builder = GraphBuilder()
     builder.add_node(timeout_agent, "timeout_node")
@@ -1337,3 +1362,386 @@ def test_graph_kwargs_passing_sync(mock_strands_tracer, mock_use_span):
 
     kwargs_agent.invoke_async.assert_called_once_with([{"text": "Test kwargs passing sync"}], **test_invocation_state)
     assert result.status == Status.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_graph_streaming_events(mock_strands_tracer, mock_use_span):
+    """Test that graph streaming emits proper events during execution."""
+    # Create agents with custom streaming behavior
+    agent_a = create_mock_agent("agent_a", "Response A")
+    agent_b = create_mock_agent("agent_b", "Response B")
+
+    # Track events from agent streams
+    agent_a_events = [
+        {"agent_thinking": True, "thought": "Processing task A"},
+        {"agent_progress": True, "step": "analyzing"},
+        {"result": agent_a.return_value},
+    ]
+
+    agent_b_events = [
+        {"agent_thinking": True, "thought": "Processing task B"},
+        {"agent_progress": True, "step": "computing"},
+        {"result": agent_b.return_value},
+    ]
+
+    async def stream_a(*args, **kwargs):
+        for event in agent_a_events:
+            yield event
+
+    async def stream_b(*args, **kwargs):
+        for event in agent_b_events:
+            yield event
+
+    agent_a.stream_async = Mock(side_effect=stream_a)
+    agent_b.stream_async = Mock(side_effect=stream_b)
+
+    # Build graph: A -> B
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "a")
+    builder.add_node(agent_b, "b")
+    builder.add_edge("a", "b")
+    builder.set_entry_point("a")
+    graph = builder.build()
+
+    # Collect all streaming events
+    events = []
+    async for event in graph.stream_async("Test streaming"):
+        events.append(event)
+
+    # Verify event structure and order
+    assert len(events) > 0
+
+    # Should have node start/complete events and forwarded agent events
+    node_start_events = [e for e in events if e.get("multi_agent_node_start")]
+    node_complete_events = [e for e in events if e.get("multi_agent_node_complete")]
+    node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
+    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
+
+    # Should have start/complete events for both nodes
+    assert len(node_start_events) == 2
+    assert len(node_complete_events) == 2
+
+    # Should have forwarded agent events
+    assert len(node_stream_events) >= 4  # At least 2 events per agent
+
+    # Should have final result
+    assert len(result_events) == 1
+
+    # Verify node start events have correct structure
+    for event in node_start_events:
+        assert "node_id" in event
+        assert "node_type" in event
+        assert event["node_type"] == "agent"
+
+    # Verify node complete events have execution time
+    for event in node_complete_events:
+        assert "node_id" in event
+        assert "execution_time" in event
+        assert isinstance(event["execution_time"], int)
+
+    # Verify forwarded events maintain node context
+    for event in node_stream_events:
+        assert "node_id" in event
+        assert event["node_id"] in ["a", "b"]
+
+    # Verify final result
+    final_result = result_events[0]["result"]
+    assert final_result.status == Status.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_graph_streaming_parallel_events(mock_strands_tracer, mock_use_span):
+    """Test that parallel graph execution properly streams events from concurrent nodes."""
+    # Create agents that execute in parallel
+    agent_a = create_mock_agent("agent_a", "Response A")
+    agent_b = create_mock_agent("agent_b", "Response B")
+    agent_c = create_mock_agent("agent_c", "Response C")
+
+    # Track timing and events
+    execution_order = []
+
+    async def stream_with_timing(node_id, delay=0.05):
+        execution_order.append(f"{node_id}_start")
+        yield {"node_start": True, "node": node_id}
+        await asyncio.sleep(delay)
+        yield {"node_progress": True, "node": node_id}
+        execution_order.append(f"{node_id}_end")
+        yield {"result": create_mock_agent(node_id, f"Response {node_id}").return_value}
+
+    agent_a.stream_async = Mock(side_effect=lambda *args, **kwargs: stream_with_timing("A", 0.05))
+    agent_b.stream_async = Mock(side_effect=lambda *args, **kwargs: stream_with_timing("B", 0.05))
+    agent_c.stream_async = Mock(side_effect=lambda *args, **kwargs: stream_with_timing("C", 0.05))
+
+    # Build graph with parallel nodes
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "a")
+    builder.add_node(agent_b, "b")
+    builder.add_node(agent_c, "c")
+    # All are entry points (parallel execution)
+    builder.set_entry_point("a")
+    builder.set_entry_point("b")
+    builder.set_entry_point("c")
+    graph = builder.build()
+
+    # Collect streaming events
+    events = []
+    start_time = time.time()
+    async for event in graph.stream_async("Test parallel streaming"):
+        events.append(event)
+    total_time = time.time() - start_time
+
+    # Verify parallel execution timing
+    assert total_time < 0.2, f"Expected parallel execution, took {total_time}s"
+
+    # Verify we get events from all nodes
+    node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
+    nodes_with_events = set(e["node_id"] for e in node_stream_events)
+    assert nodes_with_events == {"a", "b", "c"}
+
+    # Verify start events for all nodes
+    node_start_events = [e for e in events if e.get("multi_agent_node_start")]
+    start_node_ids = set(e["node_id"] for e in node_start_events)
+    assert start_node_ids == {"a", "b", "c"}
+
+
+@pytest.mark.asyncio
+async def test_graph_streaming_with_failures(mock_strands_tracer, mock_use_span):
+    """Test graph streaming behavior when nodes fail."""
+    # Create a failing agent
+    failing_agent = Mock(spec=Agent)
+    failing_agent.name = "failing_agent"
+    failing_agent.id = "fail_node"
+    failing_agent._session_manager = None
+    failing_agent.hooks = HookRegistry()
+
+    async def failing_stream(*args, **kwargs):
+        yield {"agent_start": True}
+        yield {"agent_thinking": True, "thought": "About to fail"}
+        await asyncio.sleep(0.01)
+        raise Exception("Simulated streaming failure")
+
+    async def failing_invoke(*args, **kwargs):
+        raise Exception("Simulated failure")
+
+    failing_agent.stream_async = Mock(side_effect=failing_stream)
+    failing_agent.invoke_async = failing_invoke
+
+    # Create successful agent
+    success_agent = create_mock_agent("success_agent", "Success")
+
+    # Build graph
+    builder = GraphBuilder()
+    builder.add_node(failing_agent, "fail")
+    builder.add_node(success_agent, "success")
+    builder.set_entry_point("fail")
+    builder.set_entry_point("success")
+    graph = builder.build()
+
+    # Collect events until failure
+    events = []
+    try:
+        async for event in graph.stream_async("Test streaming with failure"):
+            events.append(event)
+        raise AssertionError("Expected an exception")
+    except Exception:
+        # Should get some events before failure
+        assert len(events) > 0
+
+        # Should have node start events
+        node_start_events = [e for e in events if e.get("multi_agent_node_start")]
+        assert len(node_start_events) >= 1
+
+        # Should have some forwarded events before failure
+        node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
+        assert len(node_stream_events) >= 1
+
+
+@pytest.mark.asyncio
+async def test_graph_parallel_execution(mock_strands_tracer, mock_use_span):
+    """Test that nodes without dependencies execute in parallel."""
+
+    # Create agents that track execution timing
+    execution_times = {}
+
+    async def create_timed_agent(name, delay=0.1):
+        agent = create_mock_agent(name, f"{name} response")
+
+        async def timed_invoke(*args, **kwargs):
+            start_time = time.time()
+            execution_times[name] = {"start": start_time}
+            await asyncio.sleep(delay)  # Simulate work
+            end_time = time.time()
+            execution_times[name]["end"] = end_time
+            return agent.return_value
+
+        async def timed_stream(*args, **kwargs):
+            # Simulate streaming by yielding some events then the final result
+            start_time = time.time()
+            execution_times[name] = {"start": start_time}
+
+            # Yield a start event
+            yield {"agent_start": True, "node": name}
+
+            await asyncio.sleep(delay)  # Simulate work
+
+            end_time = time.time()
+            execution_times[name]["end"] = end_time
+
+            # Yield final result event
+            yield {"result": agent.return_value}
+
+        agent.invoke_async = AsyncMock(side_effect=timed_invoke)
+        # Create a mock that returns the async generator directly
+        agent.stream_async = Mock(side_effect=timed_stream)
+        return agent
+
+    # Create agents that should execute in parallel
+    agent_a = await create_timed_agent("agent_a", 0.1)
+    agent_b = await create_timed_agent("agent_b", 0.1)
+    agent_c = await create_timed_agent("agent_c", 0.1)
+
+    # Create a dependent agent that should execute after the parallel ones
+    agent_d = await create_timed_agent("agent_d", 0.05)
+
+    # Build graph: A, B, C execute in parallel, then D depends on all of them
+    builder = GraphBuilder()
+    builder.add_node(agent_a, "a")
+    builder.add_node(agent_b, "b")
+    builder.add_node(agent_c, "c")
+    builder.add_node(agent_d, "d")
+
+    # D depends on A, B, and C
+    builder.add_edge("a", "d")
+    builder.add_edge("b", "d")
+    builder.add_edge("c", "d")
+
+    # A, B, C are entry points (no dependencies)
+    builder.set_entry_point("a")
+    builder.set_entry_point("b")
+    builder.set_entry_point("c")
+
+    graph = builder.build()
+
+    # Execute the graph
+    start_time = time.time()
+    result = await graph.invoke_async("Test parallel execution")
+    total_time = time.time() - start_time
+
+    # Verify successful execution
+    assert result.status == Status.COMPLETED
+    assert result.completed_nodes == 4
+    assert len(result.execution_order) == 4
+
+    # Verify all agents were called
+    agent_a.invoke_async.assert_called_once()
+    agent_b.invoke_async.assert_called_once()
+    agent_c.invoke_async.assert_called_once()
+    agent_d.invoke_async.assert_called_once()
+
+    # Verify parallel execution: A, B, C should have overlapping execution times
+    # If they were sequential, total time would be ~0.35s (3 * 0.1 + 0.05)
+    # If parallel, total time should be ~0.15s (max(0.1, 0.1, 0.1) + 0.05)
+    assert total_time < 0.4, f"Expected parallel execution to be faster, took {total_time}s"
+
+    # Verify timing overlap for parallel nodes
+    a_start = execution_times["agent_a"]["start"]
+    b_start = execution_times["agent_b"]["start"]
+    c_start = execution_times["agent_c"]["start"]
+
+    # All parallel nodes should start within a small time window
+    max_start_diff = max(a_start, b_start, c_start) - min(a_start, b_start, c_start)
+    assert max_start_diff < 0.1, f"Parallel nodes should start nearly simultaneously, diff: {max_start_diff}s"
+
+    # D should start after A, B, C have finished
+    d_start = execution_times["agent_d"]["start"]
+    a_end = execution_times["agent_a"]["end"]
+    b_end = execution_times["agent_b"]["end"]
+    c_end = execution_times["agent_c"]["end"]
+
+    latest_parallel_end = max(a_end, b_end, c_end)
+    assert d_start >= latest_parallel_end - 0.02, "Dependent node should start after parallel nodes complete"
+
+
+@pytest.mark.asyncio
+async def test_graph_single_node_optimization(mock_strands_tracer, mock_use_span):
+    """Test that single node execution uses direct path (optimization)."""
+    agent = create_mock_agent("single_agent", "Single response")
+
+    builder = GraphBuilder()
+    builder.add_node(agent, "single")
+    graph = builder.build()
+
+    result = await graph.invoke_async("Test single node")
+
+    assert result.status == Status.COMPLETED
+    assert result.completed_nodes == 1
+    agent.invoke_async.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_graph_parallel_with_failures(mock_strands_tracer, mock_use_span):
+    """Test parallel execution with some nodes failing."""
+    # Create a failing agent
+    failing_agent = Mock(spec=Agent)
+    failing_agent.name = "failing_agent"
+    failing_agent.id = "fail_node"
+    failing_agent._session_manager = None
+    failing_agent.hooks = HookRegistry()
+
+    async def mock_invoke_failure(*args, **kwargs):
+        await asyncio.sleep(0.05)  # Small delay
+        raise Exception("Simulated failure")
+
+    async def mock_stream_failure_parallel(*args, **kwargs):
+        # Simple mock stream that fails
+        yield {"agent_start": True}
+        await asyncio.sleep(0.05)  # Small delay
+        raise Exception("Simulated failure")
+
+    failing_agent.invoke_async = mock_invoke_failure
+    failing_agent.stream_async = Mock(side_effect=mock_stream_failure_parallel)
+
+    # Create successful agents that take longer than the failing agent
+    success_agent_a = create_mock_agent("success_a", "Success A")
+    success_agent_b = create_mock_agent("success_b", "Success B")
+
+    # Override their stream methods to take longer
+    async def slow_stream_a(*args, **kwargs):
+        yield {"agent_start": True, "node": "success_a"}
+        await asyncio.sleep(0.1)  # Longer than failing agent
+        yield {"result": success_agent_a.return_value}
+
+    async def slow_stream_b(*args, **kwargs):
+        yield {"agent_start": True, "node": "success_b"}
+        await asyncio.sleep(0.1)  # Longer than failing agent
+        yield {"result": success_agent_b.return_value}
+
+    success_agent_a.stream_async = Mock(side_effect=slow_stream_a)
+    success_agent_b.stream_async = Mock(side_effect=slow_stream_b)
+
+    # Build graph with parallel execution where one fails
+    builder = GraphBuilder()
+    builder.add_node(failing_agent, "fail")
+    builder.add_node(success_agent_a, "success_a")
+    builder.add_node(success_agent_b, "success_b")
+
+    # All are entry points (parallel)
+    builder.set_entry_point("fail")
+    builder.set_entry_point("success_a")
+    builder.set_entry_point("success_b")
+
+    graph = builder.build()
+
+    # Execute should succeed with partial failures - some nodes succeed, some fail
+    result = await graph.invoke_async("Test parallel with failure")
+
+    # The graph should fail since one node failed (current behavior)
+    assert result.status == Status.FAILED
+    assert result.failed_nodes == 1  # One failed node
+
+    # Verify failed node is tracked
+    assert "fail" in result.results
+    assert result.results["fail"].status == Status.FAILED
+
+    # Note: The successful nodes may not complete if the failure happens early
+    # This is expected behavior in the current implementation

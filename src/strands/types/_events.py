@@ -351,3 +351,62 @@ class ForceStopEvent(TypedEvent):
 class AgentResultEvent(TypedEvent):
     def __init__(self, result: "AgentResult"):
         super().__init__({"result": result})
+
+
+class MultiAgentNodeStartEvent(TypedEvent):
+    """Event emitted when a node begins execution in multi-agent context."""
+
+    def __init__(self, node_id: str, node_type: str) -> None:
+        """Initialize with node information.
+
+        Args:
+            node_id: Unique identifier for the node
+            node_type: Type of node ("agent", "swarm", "graph")
+        """
+        super().__init__({"multi_agent_node_start": True, "node_id": node_id, "node_type": node_type})
+
+
+class MultiAgentNodeCompleteEvent(TypedEvent):
+    """Event emitted when a node completes execution."""
+
+    def __init__(self, node_id: str, execution_time: int) -> None:
+        """Initialize with completion information.
+
+        Args:
+            node_id: Unique identifier for the node
+            execution_time: Execution time in milliseconds
+        """
+        super().__init__({"multi_agent_node_complete": True, "node_id": node_id, "execution_time": execution_time})
+
+
+class MultiAgentHandoffEvent(TypedEvent):
+    """Event emitted during agent handoffs in Swarm."""
+
+    def __init__(self, from_node: str, to_node: str, message: str) -> None:
+        """Initialize with handoff information.
+
+        Args:
+            from_node: Node ID handing off control
+            to_node: Node ID receiving control
+            message: Handoff message explaining the transfer
+        """
+        super().__init__({"multi_agent_handoff": True, "from_node": from_node, "to_node": to_node, "message": message})
+
+
+class MultiAgentNodeStreamEvent(TypedEvent):
+    """Event emitted during node execution - forwards agent events with node context."""
+
+    def __init__(self, node_id: str, agent_event: dict[str, Any]) -> None:
+        """Initialize with node context and agent event.
+
+        Args:
+            node_id: Unique identifier for the node generating the event
+            agent_event: The original agent event data
+        """
+        super().__init__(
+            {
+                "multi_agent_node_stream": True,
+                "node_id": node_id,
+                **agent_event,  # Forward all original agent event data
+            }
+        )

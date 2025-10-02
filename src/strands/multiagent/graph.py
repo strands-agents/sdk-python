@@ -20,13 +20,18 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional, Tuple
+from typing import Any, AsyncIterator, Callable, Optional, Tuple, cast
 
 from opentelemetry import trace as trace_api
 
 from ..agent import Agent
 from ..agent.state import AgentState
 from ..telemetry import get_tracer
+from ..types._events import (
+    MultiAgentNodeCompleteEvent,
+    MultiAgentNodeStartEvent,
+    MultiAgentNodeStreamEvent,
+)
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
@@ -411,12 +416,38 @@ class Graph(MultiAgentBase):
     ) -> GraphResult:
         """Invoke the graph asynchronously.
 
+        This method uses stream_async internally and consumes all events until completion,
+        following the same pattern as the Agent class.
+
         Args:
             task: The task to execute
             invocation_state: Additional state/context passed to underlying agents.
-                Defaults to None to avoid mutable default argument issues - a new empty dict
-                is created if None is provided.
+                Defaults to None to avoid mutable default argument issues.
             **kwargs: Keyword arguments allowing backward compatible future changes.
+        """
+        events = self.stream_async(task, invocation_state, **kwargs)
+        async for event in events:
+            _ = event
+
+        return cast(GraphResult, event["result"])
+
+    async def stream_async(
+        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Stream events during graph execution.
+
+        Args:
+            task: The task to execute
+            invocation_state: Additional state/context passed to underlying agents.
+                Defaults to None to avoid mutable default argument issues.
+            **kwargs: Keyword arguments allowing backward compatible future changes.
+
+        Yields:
+            Dictionary events containing graph execution information including:
+            - MultiAgentNodeStartEvent: When a node begins execution
+            - MultiAgentNodeStreamEvent: Forwarded agent events with node context
+            - MultiAgentNodeCompleteEvent: When a node completes execution
+            - Final result event
         """
         if invocation_state is None:
             invocation_state = {}
@@ -444,15 +475,22 @@ class Graph(MultiAgentBase):
                     self.node_timeout or "None",
                 )
 
-                await self._execute_graph(invocation_state)
+                async for event in self._execute_graph(invocation_state):
+                    yield event
 
                 # Set final status based on execution results
                 if self.state.failed_nodes:
                     self.state.status = Status.FAILED
-                elif self.state.status == Status.EXECUTING:  # Only set to COMPLETED if still executing and no failures
+                elif self.state.status == Status.EXECUTING:
                     self.state.status = Status.COMPLETED
 
                 logger.debug("status=<%s> | graph execution completed", self.state.status)
+
+                # Yield final result (consistent with Agent's AgentResultEvent format)
+                result = self._build_result()
+
+                # Use the same event format as Agent for consistency
+                yield {"result": result}
 
             except Exception:
                 logger.exception("graph execution failed")
@@ -460,7 +498,30 @@ class Graph(MultiAgentBase):
                 raise
             finally:
                 self.state.execution_time = round((time.time() - start_time) * 1000)
-            return self._build_result()
+
+    async def _stream_with_timeout(
+        self, async_generator: AsyncIterator[dict[str, Any]], timeout: float, timeout_message: str
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Wrap an async generator with timeout functionality."""
+
+        # Create a task for the entire generator with timeout
+        async def generator_with_timeout() -> AsyncIterator[dict[str, Any]]:
+            try:
+                async for event in async_generator:
+                    yield event
+            except asyncio.TimeoutError:
+                raise Exception(timeout_message) from None
+
+        # Use asyncio.wait_for on each individual event
+        generator = generator_with_timeout()
+        while True:
+            try:
+                event = await asyncio.wait_for(generator.__anext__(), timeout=timeout)
+                yield event
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                raise Exception(timeout_message) from None
 
     def _validate_graph(self, nodes: dict[str, GraphNode]) -> None:
         """Validate graph nodes for duplicate instances."""
@@ -474,8 +535,8 @@ class Graph(MultiAgentBase):
             # Validate Agent-specific constraints for each node
             _validate_node_executor(node.executor)
 
-    async def _execute_graph(self, invocation_state: dict[str, Any]) -> None:
-        """Unified execution flow with conditional routing."""
+    async def _execute_graph(self, invocation_state: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
+        """Execute graph and yield events."""
         ready_nodes = list(self.entry_points)
 
         while ready_nodes:
@@ -487,21 +548,75 @@ class Graph(MultiAgentBase):
             if not should_continue:
                 self.state.status = Status.FAILED
                 logger.debug("reason=<%s> | stopping execution", reason)
-                return  # Let the top-level exception handler deal with it
+                return
 
             current_batch = ready_nodes.copy()
             ready_nodes.clear()
 
-            # Execute current batch of ready nodes concurrently
-            tasks = [asyncio.create_task(self._execute_node(node, invocation_state)) for node in current_batch]
-
-            for task in tasks:
-                await task
+            # Execute current batch of ready nodes in parallel
+            if len(current_batch) == 1:
+                # Single node - execute directly to avoid overhead
+                async for event in self._execute_node(current_batch[0], invocation_state):
+                    yield event
+            else:
+                # Multiple nodes - execute in parallel and merge events
+                async for event in self._execute_nodes_parallel(current_batch, invocation_state):
+                    yield event
 
             # Find newly ready nodes after batch execution
-            # We add all nodes in current batch as completed batch,
-            # because a failure would throw exception and code would not make it here
             ready_nodes.extend(self._find_newly_ready_nodes(current_batch))
+
+    async def _execute_nodes_parallel(
+        self, nodes: list["GraphNode"], invocation_state: dict[str, Any]
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Execute multiple nodes in parallel and merge their event streams."""
+        # Create async generators for each node
+        node_generators = [self._execute_node(node, invocation_state) for node in nodes]
+
+        # Track which generators are still active
+        active_generators = {i: gen for i, gen in enumerate(node_generators)}
+
+        # Use asyncio.as_completed to process events as they arrive
+        while active_generators:
+            # Create tasks for the next event from each active generator
+            tasks: list[asyncio.Task[dict[str, Any]]] = []
+            task_to_index: dict[asyncio.Task[dict[str, Any]], int] = {}
+            for i, gen in active_generators.items():
+                task: asyncio.Task[dict[str, Any]] = asyncio.create_task(cast(Any, gen.__anext__()))
+                task_to_index[task] = i  # Store the node index mapping
+                tasks.append(task)
+
+            if not tasks:
+                break
+
+            # Wait for the first event to arrive
+            done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+
+            # Process completed tasks
+            for task in done:
+                node_index = task_to_index[task]
+                try:
+                    event = await task
+                    yield event
+                except StopAsyncIteration:
+                    # This generator is exhausted, remove it
+                    if node_index in active_generators:
+                        del active_generators[node_index]
+                except Exception:
+                    # Node execution failed, remove it but continue with other nodes
+                    # The _execute_node method has already recorded the failure
+                    if node_index in active_generators:
+                        del active_generators[node_index]
+                    # Don't re-raise here - let other nodes complete
+                    # The graph-level logic will determine if the overall execution should fail
+
+            # Cancel pending tasks
+            for task in pending:
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
 
     def _find_newly_ready_nodes(self, completed_batch: list["GraphNode"]) -> list["GraphNode"]:
         """Find nodes that became ready after the last execution."""
@@ -530,38 +645,52 @@ class Graph(MultiAgentBase):
                     )
         return False
 
-    async def _execute_node(self, node: GraphNode, invocation_state: dict[str, Any]) -> None:
-        """Execute a single node with error handling and timeout protection."""
+    async def _execute_node(self, node: GraphNode, invocation_state: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
+        """Execute a single node."""
         # Reset the node's state if reset_on_revisit is enabled and it's being revisited
         if self.reset_on_revisit and node in self.state.completed_nodes:
             logger.debug("node_id=<%s> | resetting node state for revisit", node.node_id)
             node.reset_executor_state()
-            # Remove from completed nodes since we're re-executing it
             self.state.completed_nodes.remove(node)
 
         node.execution_status = Status.EXECUTING
         logger.debug("node_id=<%s> | executing node", node.node_id)
+
+        # Emit node start event
+        start_event = MultiAgentNodeStartEvent(
+            node_id=node.node_id, node_type="agent" if isinstance(node.executor, Agent) else "multiagent"
+        )
+        yield start_event.as_dict()
 
         start_time = time.time()
         try:
             # Build node input from satisfied dependencies
             node_input = self._build_node_input(node)
 
-            # Execute with timeout protection (only if node_timeout is set)
+            # Execute with timeout protection and stream events
             try:
-                # Execute based on node type and create unified NodeResult
                 if isinstance(node.executor, MultiAgentBase):
+                    # For nested multi-agent systems, stream their events
                     if self.node_timeout is not None:
-                        multi_agent_result = await asyncio.wait_for(
-                            node.executor.invoke_async(node_input, invocation_state),
-                            timeout=self.node_timeout,
-                        )
+                        # Implement timeout for async generator streaming
+                        async for event in self._stream_with_timeout(
+                            node.executor.stream_async(node_input, invocation_state),
+                            self.node_timeout,
+                            f"Node '{node.node_id}' execution timed out after {self.node_timeout}s",
+                        ):
+                            # Forward nested multi-agent events with node context
+                            wrapped_event = MultiAgentNodeStreamEvent(node.node_id, event)
+                            yield wrapped_event.as_dict()
                     else:
-                        multi_agent_result = await node.executor.invoke_async(node_input, invocation_state)
+                        async for event in node.executor.stream_async(node_input, invocation_state):
+                            # Forward nested multi-agent events with node context
+                            wrapped_event = MultiAgentNodeStreamEvent(node.node_id, event)
+                            yield wrapped_event.as_dict()
 
-                    # Create NodeResult with MultiAgentResult directly
+                    # Get the final result for metrics
+                    multi_agent_result = await node.executor.invoke_async(node_input, invocation_state)
                     node_result = NodeResult(
-                        result=multi_agent_result,  # type is MultiAgentResult
+                        result=multi_agent_result,
                         execution_time=multi_agent_result.execution_time,
                         status=Status.COMPLETED,
                         accumulated_usage=multi_agent_result.accumulated_usage,
@@ -570,15 +699,25 @@ class Graph(MultiAgentBase):
                     )
 
                 elif isinstance(node.executor, Agent):
+                    # For agents, stream their events
                     if self.node_timeout is not None:
-                        agent_response = await asyncio.wait_for(
-                            node.executor.invoke_async(node_input, **invocation_state),
-                            timeout=self.node_timeout,
-                        )
+                        # Implement timeout for async generator streaming
+                        async for event in self._stream_with_timeout(
+                            node.executor.stream_async(node_input, **invocation_state),
+                            self.node_timeout,
+                            f"Node '{node.node_id}' execution timed out after {self.node_timeout}s",
+                        ):
+                            # Forward agent events with node context
+                            wrapped_event = MultiAgentNodeStreamEvent(node.node_id, event)
+                            yield wrapped_event.as_dict()
                     else:
-                        agent_response = await node.executor.invoke_async(node_input, **invocation_state)
+                        async for event in node.executor.stream_async(node_input, **invocation_state):
+                            # Forward agent events with node context
+                            wrapped_event = MultiAgentNodeStreamEvent(node.node_id, event)
+                            yield wrapped_event.as_dict()
 
-                    # Extract metrics from agent response
+                    # Get the final result for metrics
+                    agent_response = await node.executor.invoke_async(node_input, **invocation_state)
                     usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
                     metrics = Metrics(latencyMs=0)
                     if hasattr(agent_response, "metrics") and agent_response.metrics:
@@ -588,7 +727,7 @@ class Graph(MultiAgentBase):
                             metrics = agent_response.metrics.accumulated_metrics
 
                     node_result = NodeResult(
-                        result=agent_response,  # type is AgentResult
+                        result=agent_response,
                         execution_time=round((time.time() - start_time) * 1000),
                         status=Status.COMPLETED,
                         accumulated_usage=usage,
@@ -601,7 +740,7 @@ class Graph(MultiAgentBase):
             except asyncio.TimeoutError:
                 timeout_msg = f"Node '{node.node_id}' execution timed out after {self.node_timeout}s"
                 logger.exception(
-                    "node=<%s>, timeout=<%s>s | node execution timed out after timeout",
+                    "node=<%s>, timeout=<%s>s | node execution timed out",
                     node.node_id,
                     self.node_timeout,
                 )
@@ -618,8 +757,14 @@ class Graph(MultiAgentBase):
             # Accumulate metrics
             self._accumulate_metrics(node_result)
 
+            # Emit node complete event
+            complete_event = MultiAgentNodeCompleteEvent(node_id=node.node_id, execution_time=node.execution_time)
+            yield complete_event.as_dict()
+
             logger.debug(
-                "node_id=<%s>, execution_time=<%dms> | node completed successfully", node.node_id, node.execution_time
+                "node_id=<%s>, execution_time=<%dms> | node completed successfully",
+                node.node_id,
+                node.execution_time,
             )
 
         except Exception as e:
@@ -628,7 +773,7 @@ class Graph(MultiAgentBase):
 
             # Create a NodeResult for the failed node
             node_result = NodeResult(
-                result=e,  # Store exception as result
+                result=e,
                 execution_time=execution_time,
                 status=Status.FAILED,
                 accumulated_usage=Usage(inputTokens=0, outputTokens=0, totalTokens=0),
@@ -640,7 +785,11 @@ class Graph(MultiAgentBase):
             node.result = node_result
             node.execution_time = execution_time
             self.state.failed_nodes.add(node)
-            self.state.results[node.node_id] = node_result  # Store in results for consistency
+            self.state.results[node.node_id] = node_result
+
+            # Still emit complete event even for failures
+            complete_event = MultiAgentNodeCompleteEvent(node_id=node.node_id, execution_time=execution_time)
+            yield complete_event.as_dict()
 
             raise
 
