@@ -80,7 +80,7 @@ class NovaSonicSession(BidirectionalModelSession):
     interface.
     """
 
-    def __init__(self, stream, config: dict[str, any]):
+    def __init__(self, stream: any, config: dict[str, any]) -> None:
         """Initialize Nova Sonic connection.
 
         Args:
@@ -312,7 +312,7 @@ class NovaSonicSession(BidirectionalModelSession):
         # Start silence detection task
         self.silence_task = asyncio.create_task(self._check_silence())
 
-    async def _check_silence(self):
+    async def _check_silence(self) -> None:
         """Check for silence and automatically end audio connection."""
         try:
             await asyncio.sleep(self.silence_threshold)
@@ -647,7 +647,7 @@ class NovaSonicBidirectionalModel(BidirectionalModel):
     streaming interface, handling AWS authentication and connection management.
     """
 
-    def __init__(self, model_id: str = "amazon.nova-sonic-v1:0", region: str = "us-east-1", **config):
+    def __init__(self, model_id: str = "amazon.nova-sonic-v1:0", region: str = "us-east-1", **config: any) -> None:
         """Initialize Nova Sonic bidirectional model.
 
         Args:

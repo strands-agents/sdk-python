@@ -38,7 +38,7 @@ class BidirectionalConnection:
     handling while providing a simple interface for agent interactions.
     """
 
-    def __init__(self, model_session: BidirectionalModelSession, agent):
+    def __init__(self, model_session: BidirectionalModelSession, agent: BidirectionalAgent) -> None:
         """Initialize session with model session and agent reference.
 
         Args:
@@ -325,7 +325,7 @@ async def _process_tool_execution(session: BidirectionalConnection) -> None:
             session.pending_tool_tasks[task_id] = task
 
             # 🔥 ADD CLEANUP CALLBACK (Nova Sonic pattern)
-            def cleanup_task(completed_task, task_id=task_id):
+            def cleanup_task(completed_task: asyncio.Task, task_id: str = task_id) -> None:
                 try:
                     # Remove from pending tasks
                     if task_id in session.pending_tool_tasks:
@@ -488,7 +488,7 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
                 log_event("tool_error_send_failed", error=str(send_error))
 
 
-def _extract_callable_function(tool_func):
+def _extract_callable_function(tool_func: any) -> any:
     """Extract the callable function from different tool object types."""
     if hasattr(tool_func, "_tool_func"):
         return tool_func._tool_func
@@ -500,7 +500,7 @@ def _extract_callable_function(tool_func):
         raise ValueError(f"Tool function not callable: {type(tool_func).__name__}")
 
 
-def _create_success_result(tool_use_id: str, result) -> dict[str, any]:
+def _create_success_result(tool_use_id: str, result: any) -> dict[str, any]:
     """Create a successful tool result."""
     return {"toolUseId": tool_use_id, "status": "success", "content": [{"text": json.dumps(result)}]}
 
