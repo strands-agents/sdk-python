@@ -98,7 +98,6 @@ class BidirectionalAgent:
         self._validate_active_session()
 
         if isinstance(input_data, str):
-            # Handle text input
             log_event("text_sent", length=len(input_data))
             await self._session.model_session.send_text_content(input_data)
         elif isinstance(input_data, dict) and "audioData" in input_data:

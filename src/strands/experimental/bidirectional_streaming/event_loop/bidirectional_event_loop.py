@@ -189,7 +189,7 @@ async def _handle_interruption(session: BidirectionalConnection) -> None:
     log_event("interruption_detected")
     session.interrupted = True
 
-    # 🔥 CANCEL ALL PENDING TOOL TASKS (Nova Sonic pattern)
+    # Cancel all pending tool execution tasks
     cancelled_tools = 0
     for task_id, task in list(session.pending_tool_tasks.items()):
         if not task.done():
@@ -200,7 +200,7 @@ async def _handle_interruption(session: BidirectionalConnection) -> None:
     if cancelled_tools > 0:
         log_event("tool_tasks_cancelled", count=cancelled_tools)
 
-    # 🔥 AGGRESSIVELY CLEAR AUDIO OUTPUT QUEUE (Nova Sonic pattern)
+    # Clear all queued audio output events
     cleared_count = 0
     while True:
         try:
@@ -258,8 +258,11 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
             if not session.active:
                 break
 
-            # Convert provider events to Strands format
-            strands_event = _convert_to_strands_event(provider_event)
+            # Basic validation - skip invalid events
+            if not isinstance(provider_event, dict):
+                continue
+            
+            strands_event = provider_event
 
             # Handle interruption detection (multiple patterns)
             if strands_event.get("interruptionDetected"):
@@ -269,7 +272,7 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
                 await session.agent._output_queue.put(strands_event)
                 continue
 
-            # Check for text-based interruption (Nova Sonic pattern)
+            # Check for text-based interruption
             if strands_event.get("textOutput"):
                 text_content = strands_event["textOutput"].get("content", "")
                 if '{ "interrupted" : true }' in text_content:
@@ -324,7 +327,6 @@ async def _process_tool_execution(session: BidirectionalConnection) -> None:
             task = asyncio.create_task(_execute_tool_with_strands(session, tool_use))
             session.pending_tool_tasks[task_id] = task
 
-            # 🔥 ADD CLEANUP CALLBACK (Nova Sonic pattern)
             def cleanup_task(completed_task: asyncio.Task, task_id: str = task_id) -> None:
                 try:
                     # Remove from pending tasks
@@ -346,7 +348,7 @@ async def _process_tool_execution(session: BidirectionalConnection) -> None:
         except asyncio.TimeoutError:
             if not session.active:
                 break
-            # 🔥 PERIODIC CLEANUP OF COMPLETED TASKS
+            # Remove completed tasks from tracking
             completed_tasks = [task_id for task_id, task in session.pending_tool_tasks.items() if task.done()]
             for task_id in completed_tasks:
                 if task_id in session.pending_tool_tasks:
@@ -364,24 +366,7 @@ async def _process_tool_execution(session: BidirectionalConnection) -> None:
     log_flow("tool_execution", "processor stopped")
 
 
-def _convert_to_strands_event(provider_event: dict) -> dict:
-    """Pass-through for events already normalized by provider sessions.
 
-    Providers convert their raw events to standard format before reaching here.
-    This just validates and passes through the normalized events.
-
-    Args:
-        provider_event: Already normalized event from provider session.
-
-    Returns:
-        Dict: The same event, validated and passed through.
-    """
-    # Basic validation - ensure we have a dict
-    if not isinstance(provider_event, dict):
-        return {}
-
-    # Pass through - conversion already done by provider session
-    return provider_event
 
 
 async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use: dict) -> None:
@@ -398,7 +383,7 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
     tool_id = tool_use.get("toolUseId")
 
     try:
-        # 🔥 CHECK FOR INTERRUPTION BEFORE STARTING (Nova Sonic pattern)
+        # Skip execution if session is interrupted or inactive
         if session.interrupted or not session.active:
             log_event("tool_execution_cancelled_before_start", name=tool_name, id=tool_id)
             return
@@ -422,7 +407,7 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
 
         # Execute tools directly (simpler approach for bidirectional)
         for tool_use in valid_tool_uses:
-            # 🔥 CHECK FOR INTERRUPTION DURING EXECUTION
+            # Return early if session was interrupted during execution
             if session.interrupted or not session.active:
                 log_event("tool_execution_cancelled_during", name=tool_name, id=tool_id)
                 return
@@ -433,12 +418,12 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
                 try:
                     actual_func = _extract_callable_function(tool_func)
 
-                    # 🔥 WRAP TOOL EXECUTION IN CANCELLATION CHECK
+                    # Execute tool function with provided input
                     # For async tools, we could wrap with asyncio.wait_for with cancellation
                     # For sync tools, we execute directly but check interruption after
                     result = actual_func(**tool_use.get("input", {}))
 
-                    # 🔥 CHECK FOR INTERRUPTION AFTER TOOL EXECUTION
+                    # Discard result if session was interrupted during execution
                     if session.interrupted or not session.active:
                         log_event("tool_result_discarded_interruption", name=tool_name, id=tool_id)
                         return
@@ -451,7 +436,7 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
                     log_event("tool_execution_cancelled", name=tool_name, id=tool_id)
                     return
                 except Exception as e:
-                    # 🔥 CHECK FOR INTERRUPTION EVEN ON ERROR
+                    # Discard error result if session was interrupted
                     if session.interrupted or not session.active:
                         log_event("tool_error_discarded_interruption", name=tool_name, id=tool_id)
                         return
@@ -462,7 +447,7 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
             else:
                 log_event("tool_not_found", name=tool_name)
 
-        # 🔥 FINAL INTERRUPTION CHECK BEFORE SENDING RESULTS
+        # Skip sending results if session was interrupted
         if session.interrupted or not session.active:
             log_event("tool_results_discarded_interruption", name=tool_name, count=len(tool_results))
             return
