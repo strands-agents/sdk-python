@@ -20,7 +20,6 @@ import uuid
 from ....tools._validator import validate_and_prepare_tools
 from ....types.content import Message
 from ....types.tools import ToolResult, ToolUse
-
 from ..models.bidirectional_model import BidirectionalModelSession
 from ..utils.debug import log_event, log_flow
 
@@ -95,10 +94,7 @@ async def start_bidirectional_connection(agent: "BidirectionalAgent") -> Bidirec
     # Start main coordination cycle
     session.main_cycle_task = asyncio.create_task(bidirectional_event_loop_cycle(session))
 
-    # Give background tasks a moment to start
-    await asyncio.sleep(0.1)
     log_event("session_ready", tasks=len(session.background_tasks))
-
     return session
 
 
@@ -217,34 +213,30 @@ async def _handle_interruption(session: BidirectionalConnection) -> None:
             except asyncio.QueueEmpty:
                 break
 
-        # Also clear the agent's audio output queue if it exists
-        if hasattr(session.agent, "_output_queue"):
-            audio_cleared = 0
-            # Create a temporary list to hold non-audio events
-            temp_events = []
-            try:
-                while True:
-                    event = session.agent._output_queue.get_nowait()
-                    if event.get("audioOutput"):
-                        audio_cleared += 1
-                    else:
-                        # Keep non-audio events
-                        temp_events.append(event)
-            except asyncio.QueueEmpty:
-                pass
+        # Also clear the agent's audio output queue
+        audio_cleared = 0
+        # Create a temporary list to hold non-audio events
+        temp_events = []
+        try:
+            while True:
+                event = session.agent._output_queue.get_nowait()
+                if event.get("audioOutput"):
+                    audio_cleared += 1
+                else:
+                    # Keep non-audio events
+                    temp_events.append(event)
+        except asyncio.QueueEmpty:
+            pass
 
-            # Put back non-audio events
-            for event in temp_events:
-                session.agent._output_queue.put_nowait(event)
+        # Put back non-audio events
+        for event in temp_events:
+            session.agent._output_queue.put_nowait(event)
 
-            if audio_cleared > 0:
-                log_event("agent_audio_queue_cleared", count=audio_cleared)
+        if audio_cleared > 0:
+            log_event("agent_audio_queue_cleared", count=audio_cleared)
 
         if cleared_count > 0:
             log_event("session_audio_queue_cleared", count=cleared_count)
-
-        # Brief sleep to allow audio system to settle (matches Nova Sonic timing)
-        await asyncio.sleep(0.05)
 
         # Reset interruption flag after clearing (automatic recovery)
         session.interrupted = False
