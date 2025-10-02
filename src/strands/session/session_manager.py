@@ -119,7 +119,6 @@ class SessionManager(HookProvider, ABC):
         Args:
             state: Multi-agent state dictionary to persist
         """
-        raise NotImplementedError
 
     @abstractmethod
     def read_multi_agent_json(self) -> dict[str, Any]:
