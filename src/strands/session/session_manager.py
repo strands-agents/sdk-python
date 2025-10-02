@@ -127,4 +127,3 @@ class SessionManager(HookProvider, ABC):
         Returns:
             Multi-agent state dictionary or empty dict if not found
         """
-        raise NotImplementedError
