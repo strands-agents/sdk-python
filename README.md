@@ -179,6 +179,7 @@ Built-in providers:
  - [MistralAI](https://strandsagents.com/latest/user-guide/concepts/model-providers/mistral/)
  - [Ollama](https://strandsagents.com/latest/user-guide/concepts/model-providers/ollama/)
  - [OpenAI](https://strandsagents.com/latest/user-guide/concepts/model-providers/openai/)
+ - [OpenAI Responses API](https://strandsagents.com/latest/user-guide/concepts/model-providers/openai/)
  - [SageMaker](https://strandsagents.com/latest/user-guide/concepts/model-providers/sagemaker/)
  - [Writer](https://strandsagents.com/latest/user-guide/concepts/model-providers/writer/)
 
