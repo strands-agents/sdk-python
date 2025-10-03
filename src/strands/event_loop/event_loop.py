@@ -59,7 +59,7 @@ MAX_DELAY = 240  # 4 minutes
 async def event_loop_cycle(
     agent: "Agent",
     invocation_state: dict[str, Any],
-    structured_output_context: Optional[StructuredOutputContext] = None,
+    structured_output_context: StructuredOutputContext | None = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Execute a single cycle of the event loop.
 
@@ -306,7 +306,7 @@ async def event_loop_cycle(
 async def recurse_event_loop(
     agent: "Agent",
     invocation_state: dict[str, Any],
-    structured_output_context: Optional[StructuredOutputContext] = None,
+    structured_output_context: StructuredOutputContext | None = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Make a recursive call to event_loop_cycle with the current state.
 

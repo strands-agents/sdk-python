@@ -381,7 +381,7 @@ class Agent:
         return list(all_tools.keys())
 
     def __call__(
-        self, prompt: AgentInput = None, structured_output_model: Optional[Type[BaseModel]] = None, **kwargs: Any
+        self, prompt: AgentInput = None, structured_output_model: Type[BaseModel] | None = None, **kwargs: Any
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
@@ -418,7 +418,7 @@ class Agent:
             return future.result()
 
     async def invoke_async(
-        self, prompt: AgentInput = None, structured_output_model: Optional[Type[BaseModel]] = None, **kwargs: Any
+        self, prompt: AgentInput = None, structured_output_model: Type[BaseModel] | None = None, **kwargs: Any
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
@@ -553,7 +553,7 @@ class Agent:
     async def stream_async(
         self,
         prompt: AgentInput = None,
-        structured_output_model: Optional[Type[BaseModel]] = None,
+        structured_output_model: Type[BaseModel] | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
@@ -667,7 +667,7 @@ class Agent:
             self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
     async def _execute_event_loop_cycle(
-        self, invocation_state: dict[str, Any], structured_output_context: Optional[StructuredOutputContext] = None
+        self, invocation_state: dict[str, Any], structured_output_context: StructuredOutputContext | None = None
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the event loop cycle with retry logic for context window limits.
 

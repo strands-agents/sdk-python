@@ -41,7 +41,7 @@ class StructuredOutputContext:
         stop_loop: Whether to stop the event loop after extracting structured output.
     """
 
-    def __init__(self, structured_output_model: Optional[Type[BaseModel]] = None):
+    def __init__(self, structured_output_model: Type[BaseModel] | None = None):
         """Initialize a new structured output context.
 
         Args:
@@ -50,7 +50,7 @@ class StructuredOutputContext:
         self.MAX_STRUCTURED_OUTPUT_ATTEMPTS: int = 3
         self.attempts: int = 0
         self.results: Dict[str, BaseModel] = {}
-        self.structured_output_model: Optional[Type[BaseModel]] = structured_output_model
+        self.structured_output_model: Type[BaseModel] | None = structured_output_model
         self.structured_output_tool: StructuredOutputTool | None = None
         self.forced_mode: bool = False
         self.tool_choice: ToolChoice | None = None
