@@ -7,7 +7,7 @@ import strands
 from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
 from strands.telemetry.metrics import Trace
 from strands.tools.executors._executor import ToolExecutor
-from strands.types._events import ToolResultEvent, ToolStreamEvent
+from strands.types._events import ToolCancelEvent, ToolResultEvent, ToolStreamEvent
 from strands.types.tools import ToolUse
 
 
@@ -218,11 +218,13 @@ async def test_executor_stream_with_trace(
 
 
 @pytest.mark.parametrize(
-    ("cancel_tool", "result_text"),
+    ("cancel_tool", "cancel_message"),
     [(True, "tool cancelled by user"), ("user cancel message", "user cancel message")],
 )
 @pytest.mark.asyncio
-async def test_executor_stream_cancel(cancel_tool, result_text, executor, agent, tool_results, invocation_state, alist):
+async def test_executor_stream_cancel(
+    cancel_tool, cancel_message, executor, agent, tool_results, invocation_state, alist
+):
     def cancel_callback(event):
         event.cancel_tool = cancel_tool
         return event
@@ -234,11 +236,12 @@ async def test_executor_stream_cancel(cancel_tool, result_text, executor, agent,
 
     tru_events = await alist(stream)
     exp_events = [
+        ToolCancelEvent(tool_use, cancel_message),
         ToolResultEvent(
             {
                 "toolUseId": "1",
                 "status": "error",
-                "content": [{"text": result_text}],
+                "content": [{"text": cancel_message}],
             },
         ),
     ]

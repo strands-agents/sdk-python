@@ -14,7 +14,7 @@ from opentelemetry import trace as trace_api
 from ...hooks import AfterToolCallEvent, BeforeToolCallEvent
 from ...telemetry.metrics import Trace
 from ...telemetry.tracer import get_tracer
-from ...types._events import ToolResultEvent, ToolStreamEvent, TypedEvent
+from ...types._events import ToolCancelEvent, ToolResultEvent, ToolStreamEvent, TypedEvent
 from ...types.content import Message
 from ...types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolResult, ToolUse
 
@@ -82,13 +82,15 @@ class ToolExecutor(abc.ABC):
         )
 
         if before_event.cancel_tool:
-            cancel_tool = (
+            cancel_message = (
                 before_event.cancel_tool if isinstance(before_event.cancel_tool, str) else "tool cancelled by user"
             )
+            yield ToolCancelEvent(tool_use, cancel_message)
+
             cancel_result: ToolResult = {
                 "toolUseId": str(tool_use.get("toolUseId")),
                 "status": "error",
-                "content": [{"text": cancel_tool}],
+                "content": [{"text": cancel_message}],
             }
             after_event = agent.hooks.invoke_callbacks(
                 AfterToolCallEvent(
