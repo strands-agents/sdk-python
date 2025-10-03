@@ -394,9 +394,21 @@ class BedrockModel(Model):
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_GuardrailConverseContentBlock.html
         if "guardContent" in content:
-            guard = content["guardContent"]
-            guard_text = guard["text"]
-            result = {"text": {"text": guard_text["text"], "qualifiers": guard_text["qualifiers"]}}
+            # content["guardContent"] can be a dict-like structure. Annotate as Any for mypy.
+            guard: Any = content["guardContent"]
+            guard_text: Any = guard.get("text")
+
+            # Guard text may be provided either as a plain string or as a dict with 'text' and optional 'qualifiers'.
+            if isinstance(guard_text, str):
+                result = {"text": {"text": guard_text}}
+            else:
+                # treat as mapping-like when not a string, be defensive using .get()
+                text_val = guard_text.get("text") if isinstance(guard_text, dict) else None
+                result = {"text": {"text": text_val}}
+                qualifiers = guard_text.get("qualifiers") if isinstance(guard_text, dict) else None
+                if qualifiers is not None:
+                    result["text"]["qualifiers"] = qualifiers
+
             return {"guardContent": result}
 
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ImageBlock.html
