@@ -98,8 +98,8 @@ class BeforeToolCallEvent(HookEvent):
         tool_use: The tool parameters that will be passed to selected_tool.
         invocation_state: Keyword arguments that will be passed to the tool.
         cancel_tool: A user defined message that when set, will cancel the tool call.
-            The message will be placed into a tool result with an error status. Alternatively, customers can set the
-            field to `True` and Strands will populate a default cancel message.
+            The message will be placed into a tool result with an error status. If set to `True`, Strands will cancel
+            the tool call and use a default cancel message.
     """
 
     selected_tool: Optional[AgentTool]
