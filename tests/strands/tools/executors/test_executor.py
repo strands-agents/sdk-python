@@ -228,11 +228,8 @@ async def test_executor_stream_with_trace(
 
 @pytest.mark.parametrize(
     ("cancel_hook", "result_text"),
-    [
-        (True, "tool cancelled by user"),
-        ("user cancel message", "user cancel message")
-    ],
-    indirect="cancel_hook",
+    [(True, "tool cancelled by user"), ("user cancel message", "user cancel message")],
+    indirect=["cancel_hook"],
 )
 @pytest.mark.asyncio
 async def test_executor_stream_cancel(cancel_hook, result_text, executor, agent, tool_results, invocation_state, alist):

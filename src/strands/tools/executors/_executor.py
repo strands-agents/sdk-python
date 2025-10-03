@@ -93,7 +93,8 @@ class ToolExecutor(abc.ABC):
                         "content": [
                             {
                                 "text": (
-                                    before_event.cancel_tool if isinstance(before_event.cancel_tool, str)
+                                    before_event.cancel_tool
+                                    if isinstance(before_event.cancel_tool, str)
                                     else "tool cancelled by user"
                                 ),
                             },
