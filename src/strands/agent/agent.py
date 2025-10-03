@@ -272,7 +272,6 @@ class Agent:
         Raises:
             ValueError: If agent id contains path separators.
         """
-        self.invocation_state: dict[str, Any] | None = None
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
 
@@ -392,8 +391,8 @@ class Agent:
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
-            invocation_state: [New] Additional parameters to pass through the event loop.
-            **kwargs: Additional parameters to pass through the event loop.
+            invocation_state: Additional parameters to pass through the event loop.
+            **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
             Result object containing:
@@ -403,16 +402,9 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
-        if kwargs:
-            logger.warning("`Kwargs` parameter is deprecated, use the `invocation_state` parameter instead.")
-            self.invocation_state = kwargs
-            if invocation_state is not None:
-                self.invocation_state["invocation_state"] = invocation_state
-        else:
-            self.invocation_state = invocation_state
 
         def execute() -> AgentResult:
-            return asyncio.run(self.invoke_async(prompt, invocation_state=self.invocation_state))
+            return asyncio.run(self.invoke_async(prompt, invocation_state=invocation_state, **kwargs))
 
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)
@@ -435,8 +427,8 @@ class Agent:
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
-            invocation_state: [New] Additional parameters to pass through the event loop.
-            **kwargs: Additional parameters to pass through the event loop.
+            invocation_state: Additional parameters to pass through the event loop.
+            **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
             Result: object containing:
@@ -446,15 +438,7 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
-        if kwargs:
-            logger.warning("`Kwargs` parameter is deprecated, use the `invocation_state` parameter instead.")
-            self.invocation_state = kwargs
-            if invocation_state is not None:
-                self.invocation_state["invocation_state"] = invocation_state
-        else:
-            self.invocation_state = invocation_state
-
-        events = self.stream_async(prompt, invocation_state=self.invocation_state)
+        events = self.stream_async(prompt, invocation_state=invocation_state, **kwargs)
         async for event in events:
             _ = event
 
@@ -566,8 +550,8 @@ class Agent:
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
-            invocation_state: [New] Additional parameters to pass through the event loop.
-            **kwargs: Additional parameters to pass to the event loop.
+            invocation_state: Additional parameters to pass through the event loop.
+            **kwargs: Additional parameters to pass to the event loop.[Deprecating]
 
         Yields:
             An async iterator that yields events. Each event is a dictionary containing
@@ -588,17 +572,20 @@ class Agent:
                     yield event["data"]
             ```
         """
+        merged_state = {}
         if kwargs:
-            logger.warning("`Kwargs` parameter is deprecated, use the `invocation_state` parameter instead.")
-            self.invocation_state = kwargs
+            logger.warning("`**kwargs` parameter is deprecated, use `invocation_state` instead.")
+            merged_state.update(kwargs)
             if invocation_state is not None:
-                self.invocation_state["invocation_state"] = invocation_state
+                merged_state["invocation_state"] = invocation_state
         else:
-            self.invocation_state = invocation_state or {}
+            if invocation_state is not None:
+                merged_state["invocation_state"] = invocation_state
 
         # Get callback handler from merged state or use default
-        callback_handler = self.invocation_state.get("invocation_state", {}).get(
-            "callback_handler", self.invocation_state.get("callback_handler", self.callback_handler)
+        invocation_state_dict = merged_state.get("invocation_state") or {}
+        callback_handler = invocation_state_dict.get(
+            "callback_handler", merged_state.get("callback_handler", self.callback_handler)
         )
 
         # Process input and get message to add (if any)
@@ -608,10 +595,10 @@ class Agent:
 
         with trace_api.use_span(self.trace_span):
             try:
-                events = self._run_loop(messages, invocation_state=self.invocation_state)
+                events = self._run_loop(messages, invocation_state=merged_state)
 
                 async for event in events:
-                    event.prepare(invocation_state=self.invocation_state)
+                    event.prepare(invocation_state=merged_state)
 
                     if event.is_callback_event:
                         as_dict = event.as_dict()
