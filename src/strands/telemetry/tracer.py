@@ -10,6 +10,7 @@ import os
 from datetime import date, datetime, timezone
 from typing import Any, Dict, Mapping, Optional
 
+
 import opentelemetry.trace as trace_api
 from opentelemetry.instrumentation.threading import ThreadingInstrumentor
 from opentelemetry.trace import Span, StatusCode
@@ -307,7 +308,7 @@ class Tracer:
                         [
                             {
                                 "role": message["role"],
-                                "parts": [{"type": "text", "content": serialize(message["content"])}],
+                                "parts": [{"type": "text", "content": message["content"]}],
                                 "finish_reason": str(stop_reason),
                             }
                         ]
@@ -362,7 +363,7 @@ class Tracer:
                                         "type": "tool_call",
                                         "name": tool["name"],
                                         "id": tool["toolUseId"],
-                                        "arguments": [{"content": serialize(tool["input"])}],
+                                        "arguments": [{"content": tool["input"]}],
                                     }
                                 ],
                             }
@@ -417,7 +418,7 @@ class Tracer:
                                         {
                                             "type": "tool_call_response",
                                             "id": tool_result.get("toolUseId", ""),
-                                            "result": serialize(tool_result.get("content")),
+                                            "result": tool_result.get("content"),
                                         }
                                     ],
                                 }
@@ -504,7 +505,7 @@ class Tracer:
                             [
                                 {
                                     "role": tool_result_message["role"],
-                                    "parts": [{"type": "text", "content": serialize(tool_result_message["content"])}],
+                                    "parts": [{"type": "text", "content": tool_result_message["content"]}],
                                 }
                             ]
                         )
@@ -640,11 +641,7 @@ class Tracer:
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
-                {
-                    "gen_ai.input.messages": serialize(
-                        [{"role": "user", "parts": [{"type": "text", "content": content}]}]
-                    )
-                },
+                {"gen_ai.input.messages": serialize([{"role": "user", "parts": [{"type": "text", "content": task}]}])},
             )
         else:
             self._add_event(
@@ -722,7 +719,7 @@ class Tracer:
             input_messages: list = []
             for message in messages:
                 input_messages.append(
-                    {"role": message["role"], "parts": [{"type": "text", "content": serialize(message["content"])}]}
+                    {"role": message["role"], "parts": [{"type": "text", "content": message["content"]}]}
                 )
             self._add_event(
                 span, "gen_ai.client.inference.operation.details", {"gen_ai.input.messages": serialize(input_messages)}
