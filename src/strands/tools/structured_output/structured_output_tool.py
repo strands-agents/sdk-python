@@ -22,6 +22,7 @@ _TOOL_SPEC_CACHE: dict[Type[BaseModel], ToolSpec] = {}
 if TYPE_CHECKING:
     from .structured_output_context import StructuredOutputContext
 
+
 class StructuredOutputTool(AgentTool):
     """Tool implementation for structured output validation."""
 

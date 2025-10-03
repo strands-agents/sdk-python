@@ -622,7 +622,10 @@ class Agent:
                 raise
 
     async def _run_loop(
-        self, messages: Messages, invocation_state: dict[str, Any], structured_output_model: Type[BaseModel] | None = None
+        self,
+        messages: Messages,
+        invocation_state: dict[str, Any],
+        structured_output_model: Type[BaseModel] | None = None,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the agent's event loop with the given message and parameters.
 
@@ -642,7 +645,9 @@ class Agent:
             for message in messages:
                 self._append_message(message)
 
-            structured_output_context = StructuredOutputContext(structured_output_model or self._default_structured_output_model)
+            structured_output_context = StructuredOutputContext(
+                structured_output_model or self._default_structured_output_model
+            )
 
             # Execute the event loop cycle with retry logic for context limits
             events = self._execute_event_loop_cycle(invocation_state, structured_output_context)

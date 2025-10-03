@@ -122,9 +122,7 @@ class ToolExecutor(abc.ABC):
                 return
             if structured_output_context.structured_output_model:
                 kwargs["structured_output_context"] = structured_output_context
-            async for event in selected_tool.stream(
-                tool_use, invocation_state, **kwargs
-            ):
+            async for event in selected_tool.stream(tool_use, invocation_state, **kwargs):
                 # Internal optimization; for built-in AgentTools, we yield TypedEvents out of .stream()
                 # so that we don't needlessly yield ToolStreamEvents for non-generator callbacks.
                 # In which case, as soon as we get a ToolResultEvent we're done and for ToolStreamEvent

@@ -141,7 +141,11 @@ async def event_loop_cycle(
                 )
             )
 
-            tool_specs = [structured_output_context.get_tool_spec()] if structured_output_context.forced_mode else agent.tool_registry.get_all_tool_specs()
+            tool_specs = (
+                [structured_output_context.get_tool_spec()]
+                if structured_output_context.forced_mode
+                else agent.tool_registry.get_all_tool_specs()
+            )
             try:
                 async for event in stream_messages(
                     agent.model, agent.system_prompt, agent.messages, tool_specs, structured_output_context.tool_choice
