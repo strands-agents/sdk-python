@@ -6,20 +6,21 @@ with the existing tool execution and error handling infrastructure.
 
 import logging
 from copy import deepcopy
-from typing import Any, Type
+from typing import TYPE_CHECKING, Any, Type
 
 from pydantic import BaseModel, ValidationError
 from typing_extensions import override
 
 from ...types._events import ToolResultEvent
 from ...types.tools import AgentTool, ToolGenerator, ToolResult, ToolSpec, ToolUse
-from .structured_output_context import StructuredOutputContext
 from .structured_output_utils import convert_pydantic_to_tool_spec
 
 logger = logging.getLogger(__name__)
 
 _TOOL_SPEC_CACHE: dict[Type[BaseModel], ToolSpec] = {}
 
+if TYPE_CHECKING:
+    from .structured_output_context import StructuredOutputContext
 
 class StructuredOutputTool(AgentTool):
     """Tool implementation for structured output validation."""

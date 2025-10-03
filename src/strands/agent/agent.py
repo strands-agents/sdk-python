@@ -44,9 +44,6 @@ from ..hooks import (
 )
 from ..models.bedrock import BedrockModel
 from ..models.model import Model
-from ..output.base import OutputSchema
-from ..output.modes import ToolMode
-from ..output.utils import resolve_output_schema
 from ..session.session_manager import SessionManager
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer, serialize
@@ -284,7 +281,7 @@ class Agent:
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
         self.system_prompt = system_prompt
-        self._default_output_schema = resolve_output_schema(structured_output_model)
+        self._default_structured_output_model = structured_output_model
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
@@ -597,10 +594,6 @@ class Agent:
         """
         callback_handler = kwargs.get("callback_handler", self.callback_handler)
 
-        output_schema: Optional[OutputSchema] = (
-            resolve_output_schema(structured_output_model) or self._default_output_schema
-        )
-
         # Process input and get message to add (if any)
         messages = self._convert_prompt_to_messages(prompt)
 
@@ -608,7 +601,7 @@ class Agent:
 
         with trace_api.use_span(self.trace_span):
             try:
-                events = self._run_loop(messages, kwargs, output_schema)
+                events = self._run_loop(messages, kwargs, structured_output_model)
 
                 async for event in events:
                     event.prepare(invocation_state=kwargs)
@@ -629,14 +622,14 @@ class Agent:
                 raise
 
     async def _run_loop(
-        self, messages: Messages, invocation_state: dict[str, Any], output_schema: Optional[OutputSchema] = None
+        self, messages: Messages, invocation_state: dict[str, Any], structured_output_model: Type[BaseModel] | None = None
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the agent's event loop with the given message and parameters.
 
         Args:
             messages: The input messages to add to the conversation.
             invocation_state: Additional parameters to pass to the event loop.
-            output_schema: Optional output schema for structured output.
+            structured_output_model: Optional Pydantic model type for structured output.
 
         Yields:
             Events from the event loop cycle.
@@ -649,7 +642,7 @@ class Agent:
             for message in messages:
                 self._append_message(message)
 
-            structured_output_context = StructuredOutputContext(output_schema) if output_schema else None
+            structured_output_context = StructuredOutputContext(structured_output_model or self._default_structured_output_model)
 
             # Execute the event loop cycle with retry logic for context limits
             events = self._execute_event_loop_cycle(invocation_state, structured_output_context)
@@ -692,11 +685,9 @@ class Agent:
         # Add `Agent` to invocation_state to keep backwards-compatibility
         invocation_state["agent"] = self
 
-        if structured_output_context and structured_output_context.output_schema:
-            output_schema = structured_output_context.output_schema
-            if isinstance(output_schema.mode, ToolMode):
-                for tool_instance in output_schema.mode.get_tool_instances(output_schema.model):
-                    self.tool_registry.register_dynamic_tool(tool_instance)
+        # TODO as per comment consider passing this directly in the event_loop.py
+        if structured_output_context and structured_output_context.structured_output_tool:
+            self.tool_registry.register_dynamic_tool(structured_output_context.structured_output_tool)
 
         try:
             events = event_loop_cycle(

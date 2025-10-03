@@ -1,6 +1,6 @@
 """Sequential tool executor implementation."""
 
-from typing import TYPE_CHECKING, Any, AsyncGenerator
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
 from typing_extensions import override
 
@@ -11,6 +11,7 @@ from ._executor import ToolExecutor
 
 if TYPE_CHECKING:  # pragma: no cover
     from ...agent import Agent
+    from ...tools.structured_output.structured_output_context import StructuredOutputContext
 
 
 class SequentialToolExecutor(ToolExecutor):
@@ -25,7 +26,7 @@ class SequentialToolExecutor(ToolExecutor):
         cycle_trace: Trace,
         cycle_span: Any,
         invocation_state: dict[str, Any],
-        **kwargs: Any,
+        structured_output_context: "StructuredOutputContext",
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute tools sequentially.
 
@@ -36,14 +37,14 @@ class SequentialToolExecutor(ToolExecutor):
             cycle_trace: Trace object for the current event loop cycle.
             cycle_span: Span object for tracing the cycle.
             invocation_state: Context for the tool invocation.
-            **kwargs: Additional keyword arguments for tool execution.
+            structured_output_context: Context for structured output handling.
 
         Yields:
             Events from the tool execution stream.
         """
         for tool_use in tool_uses:
             events = ToolExecutor._stream_with_trace(
-                agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state, **kwargs
+                agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
             )
             async for event in events:
                 yield event

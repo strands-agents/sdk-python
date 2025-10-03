@@ -7,7 +7,7 @@ thread pools, etc.).
 import abc
 import logging
 import time
-from typing import TYPE_CHECKING, Any, AsyncGenerator, cast
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional, cast
 
 from opentelemetry import trace as trace_api
 
@@ -20,6 +20,7 @@ from ...types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolResult, T
 
 if TYPE_CHECKING:  # pragma: no cover
     from ...agent import Agent
+    from ...tools.structured_output.structured_output_context import StructuredOutputContext
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,7 @@ class ToolExecutor(abc.ABC):
         tool_use: ToolUse,
         tool_results: list[ToolResult],
         invocation_state: dict[str, Any],
+        structured_output_context: "StructuredOutputContext",
         **kwargs: Any,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Stream tool events.
@@ -49,6 +51,7 @@ class ToolExecutor(abc.ABC):
             tool_use: Metadata and inputs for the tool to be executed.
             tool_results: List of tool results from each tool execution.
             invocation_state: Context for the tool invocation.
+            structured_output_context: Context for structured output management.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -117,8 +120,11 @@ class ToolExecutor(abc.ABC):
                 yield ToolResultEvent(after_event.result)
                 tool_results.append(after_event.result)
                 return
-
-            async for event in selected_tool.stream(tool_use, invocation_state, **kwargs):
+            if structured_output_context.structured_output_model:
+                kwargs["structured_output_context"] = structured_output_context
+            async for event in selected_tool.stream(
+                tool_use, invocation_state, **kwargs
+            ):
                 # Internal optimization; for built-in AgentTools, we yield TypedEvents out of .stream()
                 # so that we don't needlessly yield ToolStreamEvents for non-generator callbacks.
                 # In which case, as soon as we get a ToolResultEvent we're done and for ToolStreamEvent
@@ -177,6 +183,7 @@ class ToolExecutor(abc.ABC):
         cycle_trace: Trace,
         cycle_span: Any,
         invocation_state: dict[str, Any],
+        structured_output_context: "StructuredOutputContext",
         **kwargs: Any,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute tool with tracing and metrics collection.
@@ -188,6 +195,7 @@ class ToolExecutor(abc.ABC):
             cycle_trace: Trace object for the current event loop cycle.
             cycle_span: Span object for tracing the cycle.
             invocation_state: Context for the tool invocation.
+            structured_output_context: Context for structured output management.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -202,7 +210,9 @@ class ToolExecutor(abc.ABC):
         tool_start_time = time.time()
 
         with trace_api.use_span(tool_call_span):
-            async for event in ToolExecutor._stream(agent, tool_use, tool_results, invocation_state, **kwargs):
+            async for event in ToolExecutor._stream(
+                agent, tool_use, tool_results, invocation_state, structured_output_context, **kwargs
+            ):
                 yield event
 
             result_event = cast(ToolResultEvent, event)
@@ -226,7 +236,7 @@ class ToolExecutor(abc.ABC):
         cycle_trace: Trace,
         cycle_span: Any,
         invocation_state: dict[str, Any],
-        **kwargs: Any,
+        structured_output_context: "StructuredOutputContext",
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the given tools according to this executor's strategy.
 
@@ -237,7 +247,7 @@ class ToolExecutor(abc.ABC):
             cycle_trace: Trace object for the current event loop cycle.
             cycle_span: Span object for tracing the cycle.
             invocation_state: Context for the tool invocation.
-            **kwargs: Additional keyword arguments for tool execution.
+            structured_output_context: Context for structured output management.
 
         Yields:
             Events from the tool execution stream.

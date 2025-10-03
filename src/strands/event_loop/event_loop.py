@@ -48,7 +48,6 @@ from .streaming import stream_messages
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
-    from ..output.base import OutputSchema
 
 logger = logging.getLogger(__name__)
 
@@ -142,20 +141,10 @@ async def event_loop_cycle(
                 )
             )
 
-            if structured_output_context and structured_output_context.forced_mode:
-                tool_specs = (
-                    structured_output_context.output_schema.tool_specs
-                    if structured_output_context.output_schema
-                    else []
-                )
-            else:
-                tool_specs = agent.tool_registry.get_all_tool_specs()
-
-            tool_choice = structured_output_context.tool_choice if structured_output_context else None
-
+            tool_specs = [structured_output_context.get_tool_spec()] if structured_output_context.forced_mode else agent.tool_registry.get_all_tool_specs()
             try:
                 async for event in stream_messages(
-                    agent.model, agent.system_prompt, agent.messages, tool_specs, tool_choice
+                    agent.model, agent.system_prompt, agent.messages, tool_specs, structured_output_context.tool_choice
                 ):
                     if not isinstance(event, ModelStopReason):
                         yield event
@@ -287,7 +276,7 @@ async def event_loop_cycle(
         raise EventLoopException(e, invocation_state["request_state"]) from e
 
     # Force structured output tool call if LLM didn't use it automatically
-    if structured_output_context and structured_output_context.output_schema and stop_reason == "end_turn":
+    if structured_output_context.structured_output_model and stop_reason == "end_turn":
         if not structured_output_context.can_retry():
             logger.warning(
                 f"Structured output forcing exceeded maximum attempts ({structured_output_context.MAX_STRUCTURED_OUTPUT_ATTEMPTS}), returning without structured output"
@@ -296,13 +285,11 @@ async def event_loop_cycle(
                 stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"], None
             )
             return
-
-        structured_output_context.increment_attempts()
-        structured_output_context.set_forced_mode()
+        structured_output_context.setup_retry()
         logger.debug(
             f"Forcing structured output tool, attempt {structured_output_context.attempts}/{structured_output_context.MAX_STRUCTURED_OUTPUT_ATTEMPTS}"
         )
-        agent.messages.append(
+        agent._append_message(
             {"role": "user", "content": [{"text": "You must format the previous response as structured output."}]}
         )
 
@@ -363,7 +350,7 @@ async def _handle_tool_execution(
     cycle_span: Any,
     cycle_start_time: float,
     invocation_state: dict[str, Any],
-    structured_output_context: Optional[StructuredOutputContext] = None,
+    structured_output_context: StructuredOutputContext,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Handles the execution of tools requested by the model during an event loop cycle.
     Args:
@@ -395,19 +382,17 @@ async def _handle_tool_execution(
         )
         return
 
-    tool_kwargs = {"structured_output_context": structured_output_context}
-
     tool_events = agent.tool_executor._execute(
-        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, **tool_kwargs
+        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
     )
     async for tool_event in tool_events:
         yield tool_event
 
     structured_output_result = None
-    if structured_output_context and structured_output_context.output_schema:
+    if structured_output_context.structured_output_model:
         if structured_output_result := structured_output_context.extract_result(tool_uses):
             yield StructuredOutputEvent(structured_output=structured_output_result)
-            invocation_state["request_state"]["stop_event_loop"] = True
+            structured_output_context.stop_loop = True
 
     invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
 
@@ -425,7 +410,7 @@ async def _handle_tool_execution(
         tracer = get_tracer()
         tracer.end_event_loop_cycle_span(span=cycle_span, message=message, tool_result_message=tool_result_message)
 
-    if invocation_state["request_state"].get("stop_event_loop", False):
+    if invocation_state["request_state"].get("stop_event_loop", False) or structured_output_context.stop_loop:
         agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
         yield EventLoopStopEvent(
             stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"], structured_output_result

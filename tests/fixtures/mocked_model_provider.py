@@ -1,5 +1,5 @@
 import json
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Iterable, Optional, Type, TypedDict, TypeVar, Union
+from typing import Any, AsyncGenerator, Iterable, Optional, Type, TypedDict, TypeVar, Union
 
 from pydantic import BaseModel
 
@@ -8,9 +8,6 @@ from strands.types.content import Message, Messages
 from strands.types.event_loop import StopReason
 from strands.types.streaming import StreamEvent
 from strands.types.tools import ToolSpec
-
-if TYPE_CHECKING:
-    from strands.output.base import OutputSchema
 
 T = TypeVar("T", bound=BaseModel)
 
