@@ -31,15 +31,6 @@ def tracer():
         yield mock_get_tracer.return_value
 
 
-@pytest.fixture
-def cancel_hook(request):
-    def callback(event):
-        event.cancel_tool = request.param
-        return event
-
-    return callback
-
-
 @pytest.mark.asyncio
 async def test_executor_stream_yields_result(
     executor, agent, tool_results, invocation_state, hook_events, weather_tool, alist
@@ -227,13 +218,16 @@ async def test_executor_stream_with_trace(
 
 
 @pytest.mark.parametrize(
-    ("cancel_hook", "result_text"),
+    ("cancel_tool", "result_text"),
     [(True, "tool cancelled by user"), ("user cancel message", "user cancel message")],
-    indirect=["cancel_hook"],
 )
 @pytest.mark.asyncio
-async def test_executor_stream_cancel(cancel_hook, result_text, executor, agent, tool_results, invocation_state, alist):
-    agent.hooks.add_callback(BeforeToolCallEvent, cancel_hook)
+async def test_executor_stream_cancel(cancel_tool, result_text, executor, agent, tool_results, invocation_state, alist):
+    def cancel_callback(event):
+        event.cancel_tool = cancel_tool
+        return event
+
+    agent.hooks.add_callback(BeforeToolCallEvent, cancel_callback)
     tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
 
     stream = executor._stream(agent, tool_use, tool_results, invocation_state)
