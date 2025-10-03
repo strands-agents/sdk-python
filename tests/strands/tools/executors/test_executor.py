@@ -32,9 +32,9 @@ def tracer():
 
 
 @pytest.fixture
-def cancel_hook(agent):
+def cancel_hook(request):
     def callback(event):
-        event.cancel = "Tool execution cancelled by user"
+        event.cancel_tool = request.param
         return event
 
     return callback
@@ -226,8 +226,16 @@ async def test_executor_stream_with_trace(
     assert isinstance(cycle_trace.add_child.call_args[0][0], Trace)
 
 
+@pytest.mark.parametrize(
+    ("cancel_hook", "result_text"),
+    [
+        (True, "tool cancelled by user"),
+        ("user cancel message", "user cancel message")
+    ],
+    indirect="cancel_hook",
+)
 @pytest.mark.asyncio
-async def test_executor_stream_cancel(executor, agent, cancel_hook, tool_results, invocation_state, alist):
+async def test_executor_stream_cancel(cancel_hook, result_text, executor, agent, tool_results, invocation_state, alist):
     agent.hooks.add_callback(BeforeToolCallEvent, cancel_hook)
     tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
 
@@ -239,7 +247,7 @@ async def test_executor_stream_cancel(executor, agent, cancel_hook, tool_results
             {
                 "toolUseId": "1",
                 "status": "error",
-                "content": [{"text": "Tool execution cancelled by user"}],
+                "content": [{"text": result_text}],
             },
         ),
     ]

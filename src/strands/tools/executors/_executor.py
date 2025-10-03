@@ -81,7 +81,7 @@ class ToolExecutor(abc.ABC):
             )
         )
 
-        if before_event.cancel:
+        if before_event.cancel_tool:
             after_event = agent.hooks.invoke_callbacks(
                 AfterToolCallEvent(
                     agent=agent,
@@ -90,7 +90,14 @@ class ToolExecutor(abc.ABC):
                     result={
                         "toolUseId": str(tool_use.get("toolUseId")),
                         "status": "error",
-                        "content": [{"text": before_event.cancel}],
+                        "content": [
+                            {
+                                "text": (
+                                    before_event.cancel_tool if isinstance(before_event.cancel_tool, str)
+                                    else "tool cancelled by user"
+                                ),
+                            },
+                        ],
                     },
                     selected_tool=None,
                 )

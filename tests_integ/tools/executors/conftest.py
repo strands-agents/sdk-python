@@ -10,6 +10,6 @@ def cancel_hook():
             registry.add_callback(BeforeToolCallEvent, self.cancel)
 
         def cancel(self, event):
-            event.cancel = "cancelled tool call"
+            event.cancel_tool = "cancelled tool call"
 
     return Hook()
