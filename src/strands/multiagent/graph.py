@@ -503,20 +503,9 @@ class Graph(MultiAgentBase):
         self, async_generator: AsyncIterator[dict[str, Any]], timeout: float, timeout_message: str
     ) -> AsyncIterator[dict[str, Any]]:
         """Wrap an async generator with timeout functionality."""
-
-        # Create a task for the entire generator with timeout
-        async def generator_with_timeout() -> AsyncIterator[dict[str, Any]]:
-            try:
-                async for event in async_generator:
-                    yield event
-            except asyncio.TimeoutError:
-                raise Exception(timeout_message) from None
-
-        # Use asyncio.wait_for on each individual event
-        generator = generator_with_timeout()
         while True:
             try:
-                event = await asyncio.wait_for(generator.__anext__(), timeout=timeout)
+                event = await asyncio.wait_for(async_generator.__anext__(), timeout=timeout)
                 yield event
             except StopAsyncIteration:
                 break
