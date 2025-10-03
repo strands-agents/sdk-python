@@ -2,6 +2,7 @@
 Tests for the SDK tool watcher module.
 """
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -96,3 +97,24 @@ def test_on_modified_error_handling(mock_reload_tool):
 
     # Verify that reload_tool was called
     mock_reload_tool.assert_called_once_with("test_tool")
+
+
+@patch("strands.tools.watcher.ToolWatcher._shared_observer")
+@patch.object(ToolRegistry, "get_tools_dirs")
+def test_start_uses_correct_path_for_observer_schedule(mock_get_tools_dirs, mock_observer):
+    """Test that start method schedules observer with correct path (str(tools_dir) not dir_str)."""
+
+    # Mock the tools directories
+    tools_dir = Path("/test/tools")
+    mock_get_tools_dirs.return_value = [tools_dir]
+
+    tool_registry = ToolRegistry()
+    watcher = ToolWatcher(tool_registry)
+
+    # Call start method
+    watcher.start()
+
+    # Verify that schedule was called with str(tools_dir)
+    mock_observer.schedule.assert_called_once()
+    args = mock_observer.schedule.call_args[0]
+    assert args[1] == str(tools_dir)  # Second argument should be the string path

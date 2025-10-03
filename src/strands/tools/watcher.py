@@ -86,7 +86,6 @@ class ToolWatcher:
             if event.src_path.endswith(".py"):
                 tool_path = Path(event.src_path)
                 tool_name = tool_path.stem
-
                 if tool_name not in ["__init__"]:
                     # Delegate to all registered handlers for this directory
                     for handler in ToolWatcher._registry_handlers.get(self.dir_path, {}).values():
@@ -122,7 +121,8 @@ class ToolWatcher:
             if dir_str not in ToolWatcher._watched_dirs:
                 # First time seeing this directory, create a master handler
                 master_handler = self.MasterChangeHandler(dir_str)
-                ToolWatcher._shared_observer.schedule(master_handler, dir_str, recursive=False)
+
+                ToolWatcher._shared_observer.schedule(master_handler, str(tools_dir), recursive=False)
                 ToolWatcher._watched_dirs.add(dir_str)
                 logger.debug("tools_dir=<%s> | started watching tools directory", tools_dir)
             else:
