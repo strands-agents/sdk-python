@@ -128,7 +128,7 @@ class AfterToolCallEvent(HookEvent):
         invocation_state: Keyword arguments that were passed to the tool
         result: The result of the tool invocation. Either a ToolResult on success
             or an Exception if the tool execution failed.
-        tool_cancelled: Flag indicating whether the tool call was cancelled by the user.
+        cancel_message: The cancellation message if the user cancelled the tool call.
     """
 
     selected_tool: Optional[AgentTool]
@@ -136,7 +136,7 @@ class AfterToolCallEvent(HookEvent):
     invocation_state: dict[str, Any]
     result: ToolResult
     exception: Optional[Exception] = None
-    tool_cancelled: bool = False
+    cancel_message: str | None = None
 
     def _can_write(self, name: str) -> bool:
         return name == "result"

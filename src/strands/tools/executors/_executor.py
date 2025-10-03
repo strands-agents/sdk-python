@@ -99,7 +99,7 @@ class ToolExecutor(abc.ABC):
                     invocation_state=invocation_state,
                     selected_tool=None,
                     result=cancel_result,
-                    tool_cancelled=True,
+                    cancel_message=cancel_message,
                 )
             )
             yield ToolResultEvent(after_event.result)
