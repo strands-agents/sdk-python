@@ -23,6 +23,7 @@ from ..telemetry.metrics import Trace
 from ..telemetry.tracer import get_tracer
 from ..tools._validator import validate_and_prepare_tools
 from ..types._events import (
+    AgentResultEvent,
     DelegationCompleteEvent,
     DelegationProxyEvent,
     EventLoopStopEvent,
@@ -141,11 +142,27 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
             tool_specs = agent.tool_registry.get_all_tool_specs()
 
             try:
+                # Track the ModelStopReason event to extract stop information after streaming
+                final_event = None
                 async for event in stream_messages(agent.model, agent.system_prompt, agent.messages, tool_specs):
-                    if not isinstance(event, ModelStopReason):
+                    if isinstance(event, ModelStopReason):
+                        final_event = event
+                    else:
                         yield event
 
-                stop_reason, message, usage, metrics = event["stop"]
+                # Extract final event information from ModelStopReason
+                if not final_event or not isinstance(final_event, ModelStopReason):
+                    raise EventLoopException("Stream ended without ModelStopReason event")
+
+                stop_info = final_event.get("stop")
+                if not isinstance(stop_info, (list, tuple)) or len(stop_info) != 4:
+                    element_count = len(stop_info) if hasattr(stop_info, "__len__") else "unknown"
+                    raise EventLoopException(
+                        f"Expected 'stop' to be a 4-element tuple, got {type(stop_info).__name__} "
+                        f"with {element_count} elements: {stop_info}"
+                    )
+
+                stop_reason, message, usage, metrics = stop_info
                 invocation_state.setdefault("request_state", {})
 
                 agent.hooks.invoke_callbacks(
@@ -364,9 +381,7 @@ def _filter_delegation_messages(messages: list[dict[str, Any]]) -> tuple[list[di
             # For user messages, ensure content is clean text
             if isinstance(msg_content, list):
                 # Filter out any embedded tool content from user messages
-                clean_content = [
-                    item for item in msg_content if isinstance(item, dict) and item.get("type") == "text"
-                ]
+                clean_content = [item for item in msg_content if isinstance(item, dict) and item.get("type") == "text"]
                 if clean_content:
                     filtered_messages.append({"role": "user", "content": clean_content})
             else:
@@ -412,9 +427,7 @@ def _filter_delegation_messages(messages: list[dict[str, Any]]) -> tuple[list[di
         "original_message_count": original_count,
         "filtered_message_count": filtered_count,
         "noise_removed": original_count - filtered_count,
-        "compression_ratio": f"{(filtered_count / original_count * 100):.1f}%"
-        if original_count > 0
-        else "0%",
+        "compression_ratio": f"{(filtered_count / original_count * 100):.1f}%" if original_count > 0 else "0%",
     }
 
     return filtered_messages, filtering_stats
@@ -448,13 +461,14 @@ async def _handle_delegation(
     if not target_agent:
         raise ValueError(f"Target agent '{delegation_exception.target_agent}' not found")
 
-    print(f"DEBUG: Delegation chain: {delegation_exception.delegation_chain}")
-    print(f"DEBUG: Current agent name: {agent.name}")
-    print(f"DEBUG: Target agent name: {target_agent.name}")
+    logger.debug("Delegation chain: %s", delegation_exception.delegation_chain)
+    logger.debug("Current agent name: %s", agent.name)
+    logger.debug("Target agent name: %s", target_agent.name)
 
     # Check for circular delegation
-    # The delegation chain contains agents that have already been visited in this delegation chain
-    # If the target agent is already in the chain, it means we're trying to delegate to an agent that was already part of the chain
+    # The delegation chain contains agents that have already been visited in this delegation chain.
+    # If the target agent is already in the chain, we're trying to delegate to an agent
+    # that was already part of the chain.
     if target_agent.name in delegation_exception.delegation_chain:
         raise ValueError(
             f"Circular delegation detected: {' -> '.join(delegation_exception.delegation_chain + [target_agent.name])}"
@@ -477,10 +491,11 @@ async def _handle_delegation(
 
         # Validate session manager constructor compatibility before creating sub-session
         session_mgr_class = type(agent._session_manager)
-        if hasattr(session_mgr_class, '__init__'):
+        if hasattr(session_mgr_class, "__init__"):
             sig = inspect.signature(session_mgr_class.__init__)
-            if 'session_id' not in sig.parameters:
-                raise TypeError(f"Session manager {type(agent._session_manager).__name__} doesn't accept session_id parameter")
+            if "session_id" not in sig.parameters:
+                mgr_name = type(agent._session_manager).__name__
+                raise TypeError(f"Session manager {mgr_name} doesn't accept session_id parameter")
 
         target_agent._session_manager = session_mgr_class(session_id=sub_session_id)
         await target_agent._session_manager.save_agent(target_agent)
@@ -493,7 +508,10 @@ async def _handle_delegation(
                 try:
                     target_agent.state = agent.delegation_state_serializer(agent.state)
                 except Exception as e:
-                    delegation_trace.metadata["state_serialization_error"] = {"error": str(e), "fallback_to_deepcopy": True}
+                    delegation_trace.metadata["state_serialization_error"] = {
+                        "error": str(e),
+                        "fallback_to_deepcopy": True,
+                    }
                     target_agent.state = copy.deepcopy(agent.state)
             else:
                 # Deep copy the orchestrator's state to sub-agent
@@ -544,11 +562,15 @@ async def _handle_delegation(
             ):
                 final_event = event
             # Extract result from the final event
-            result = (
-                final_event.original_event.result
-                if hasattr(final_event, "original_event") and hasattr(final_event.original_event, "result")
-                else None
-            )
+            if not isinstance(final_event, DelegationProxyEvent):
+                raise RuntimeError(f"Expected DelegationProxyEvent, got {type(final_event).__name__}")
+
+            if not isinstance(final_event.original_event, AgentResultEvent):
+                raise RuntimeError(
+                    f"Stream ended without AgentResultEvent, got {type(final_event.original_event).__name__}"
+                )
+
+            result = final_event.original_event.result
         else:
             # Execute the sub-agent with timeout support (non-streaming)
             if agent.delegation_timeout is not None:
@@ -569,7 +591,10 @@ async def _handle_delegation(
         return result
 
     except asyncio.TimeoutError:
-        delegation_trace.metadata["delegation_timeout"] = {"target_agent": delegation_exception.target_agent, "timeout_seconds": agent.delegation_timeout}
+        delegation_trace.metadata["delegation_timeout"] = {
+            "target_agent": delegation_exception.target_agent,
+            "timeout_seconds": agent.delegation_timeout,
+        }
         raise TimeoutError(
             f"Delegation to {delegation_exception.target_agent} timed out after {agent.delegation_timeout} seconds"
         ) from None
@@ -744,7 +769,7 @@ async def _handle_tool_execution(
         yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
         return
 
-    print(f"DEBUG: About to execute tools for {len(tool_uses)} tool uses")
+    logger.debug("About to execute tools for %s tool uses", len(tool_uses))
     try:
         tool_events = agent.tool_executor._execute(
             agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state
@@ -753,13 +778,13 @@ async def _handle_tool_execution(
         try:
             async for tool_event in tool_events:
                 yield tool_event
-            print(f"DEBUG: Tool execution completed successfully")
+            logger.debug("Tool execution completed successfully")
         except AgentDelegationException as delegation_exc:
-            print(f"DEBUG: Caught delegation exception from async generator for {delegation_exc.target_agent}")
+            logger.debug("Caught delegation exception from async generator for %s", delegation_exc.target_agent)
             # Re-raise to be caught by outer try-catch
             raise delegation_exc
     except AgentDelegationException as delegation_exc:
-        print(f"DEBUG: Caught delegation exception for {delegation_exc.target_agent}")
+        logger.debug("Caught delegation exception for %s", delegation_exc.target_agent)
         # Handle delegation during tool execution
         delegation_result = await _handle_delegation(
             agent=agent,
@@ -776,14 +801,14 @@ async def _handle_tool_execution(
         )
 
         # Return delegation result as final response
-        print(f"DEBUG: About to yield EventLoopStopEvent for delegation completion")
+        logger.debug("About to yield EventLoopStopEvent for delegation completion")
         yield EventLoopStopEvent(
             "delegation_complete", delegation_result.message, delegation_result.metrics, delegation_result.state
         )
-        print(f"DEBUG: After yielding EventLoopStopEvent, about to return")
+        logger.debug("After yielding EventLoopStopEvent, about to return")
         return
 
-    print("DEBUG: This should NOT be printed if delegation worked correctly")
+    logger.debug("This should NOT be printed if delegation worked correctly")
     # Store parent cycle ID for the next cycle
     invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
 

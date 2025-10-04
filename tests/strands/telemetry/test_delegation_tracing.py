@@ -5,8 +5,9 @@ This module tests OpenTelemetry tracing integration for delegation operations.
 Tests actual start_delegation_span() method implementation.
 """
 
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, patch, MagicMock, call
 
 from strands.telemetry.tracer import Tracer
 
@@ -19,25 +20,22 @@ class TestDelegationTracing:
         """Test delegation span created with all required attributes."""
         tracer = Tracer()
 
-        with patch.object(tracer, '_start_span') as mock_start:
+        with patch.object(tracer, "_start_span") as mock_start:
             mock_span = Mock()
             mock_start.return_value = mock_span
 
             # Use ACTUAL start_delegation_span() method that exists
-            span = tracer.start_delegation_span(
+            tracer.start_delegation_span(
                 from_agent="Orchestrator",
                 to_agent="SubAgent",
                 message="Test delegation",
                 delegation_depth=2,
                 transfer_state=True,
-                transfer_messages=False
+                transfer_messages=False,
             )
 
             # Verify span was created with correct name
-            mock_start.assert_called_once_with(
-                "delegation.Orchestrator.SubAgent",
-                parent_span=None
-            )
+            mock_start.assert_called_once_with("delegation.Orchestrator.SubAgent", parent_span=None)
 
             # Verify all 8 attributes were set via set_attributes
             mock_span.set_attributes.assert_called_once()
@@ -56,36 +54,29 @@ class TestDelegationTracing:
         """Test parent-child span relationships for nested delegation."""
         tracer = Tracer()
 
-        with patch.object(tracer, '_start_span') as mock_start:
+        with patch.object(tracer, "_start_span") as mock_start:
             parent_span = Mock()
             child_span = Mock()
             mock_start.side_effect = [parent_span, child_span]
 
             # Create parent delegation span
             parent = tracer.start_delegation_span(
-                from_agent="Root",
-                to_agent="Level1",
-                message="First",
-                delegation_depth=1
+                from_agent="Root", to_agent="Level1", message="First", delegation_depth=1
             )
 
             # Create child delegation span with parent
-            child = tracer.start_delegation_span(
-                from_agent="Level1",
-                to_agent="Level2",
-                message="Nested",
-                delegation_depth=2,
-                parent_span=parent
+            tracer.start_delegation_span(
+                from_agent="Level1", to_agent="Level2", message="Nested", delegation_depth=2, parent_span=parent
             )
 
             # Verify both spans were created
             assert mock_start.call_count == 2
-            
+
             # Verify parent span has no parent
             first_call = mock_start.call_args_list[0]
             assert first_call[0][0] == "delegation.Root.Level1"
             assert first_call[1]["parent_span"] is None
-            
+
             # Verify child span has parent
             second_call = mock_start.call_args_list[1]
             assert second_call[0][0] == "delegation.Level1.Level2"
@@ -95,16 +86,13 @@ class TestDelegationTracing:
         """Test span names follow delegation.{from}.{to} pattern."""
         tracer = Tracer()
 
-        with patch.object(tracer, '_start_span') as mock_start:
+        with patch.object(tracer, "_start_span") as mock_start:
             mock_span = Mock()
             mock_start.return_value = mock_span
 
             # Use actual start_delegation_span method
             tracer.start_delegation_span(
-                from_agent="Orchestrator",
-                to_agent="Specialist",
-                message="Test",
-                delegation_depth=1
+                from_agent="Orchestrator", to_agent="Specialist", message="Test", delegation_depth=1
             )
 
             # Verify span name follows convention
@@ -118,22 +106,17 @@ class TestDelegationTracing:
         """Test delegation span with minimal required parameters."""
         tracer = Tracer()
 
-        with patch.object(tracer, '_start_span') as mock_start:
+        with patch.object(tracer, "_start_span") as mock_start:
             mock_span = Mock()
             mock_start.return_value = mock_span
 
             # Create span with minimal parameters (defaults for transfer flags)
-            span = tracer.start_delegation_span(
-                from_agent="A",
-                to_agent="B",
-                message="test",
-                delegation_depth=1
-            )
+            span = tracer.start_delegation_span(from_agent="A", to_agent="B", message="test", delegation_depth=1)
 
             # Should succeed and use default values
             mock_start.assert_called_once()
             assert span == mock_span
-            
+
             # Verify defaults were used
             attrs = mock_span.set_attributes.call_args[0][0]
             assert attrs["delegation.state_transferred"] is True  # Default
@@ -143,34 +126,26 @@ class TestDelegationTracing:
         """Test delegation span handles errors gracefully."""
         tracer = Tracer()
 
-        with patch.object(tracer, '_start_span') as mock_start:
+        with patch.object(tracer, "_start_span") as mock_start:
             # Simulate an error during span creation
             mock_start.side_effect = Exception("Span creation failed")
 
             # Should propagate the exception
             with pytest.raises(Exception, match="Span creation failed"):
-                tracer.start_delegation_span(
-                    from_agent="A",
-                    to_agent="B",
-                    message="test",
-                    delegation_depth=1
-                )
+                tracer.start_delegation_span(from_agent="A", to_agent="B", message="test", delegation_depth=1)
 
     def test_delegation_depth_tracking(self):
         """Test delegation depth is properly tracked in spans."""
         tracer = Tracer()
 
-        with patch.object(tracer, '_start_span') as mock_start:
+        with patch.object(tracer, "_start_span") as mock_start:
             mock_span = Mock()
             mock_start.return_value = mock_span
 
             # Create spans with different depths
             for depth in [1, 2, 3]:
                 tracer.start_delegation_span(
-                    from_agent=f"Agent{depth-1}",
-                    to_agent=f"Agent{depth}",
-                    message="test",
-                    delegation_depth=depth
+                    from_agent=f"Agent{depth - 1}", to_agent=f"Agent{depth}", message="test", delegation_depth=depth
                 )
 
             # Verify all spans were created
@@ -185,7 +160,7 @@ class TestDelegationTracing:
         """Test state and message transfer flags are tracked."""
         tracer = Tracer()
 
-        with patch.object(tracer, '_start_span') as mock_start:
+        with patch.object(tracer, "_start_span") as mock_start:
             mock_span = Mock()
             mock_start.return_value = mock_span
 
@@ -204,12 +179,12 @@ class TestDelegationTracing:
                     message="test",
                     delegation_depth=1,
                     transfer_state=state_transfer,
-                    transfer_messages=message_transfer
+                    transfer_messages=message_transfer,
                 )
 
             # Verify all combinations were tracked
             assert mock_start.call_count == 4
-            
+
             # Verify each combination was properly set
             for idx, (state_transfer, message_transfer) in enumerate(test_cases):
                 attrs = mock_span.set_attributes.call_args_list[idx][0][0]
@@ -220,15 +195,12 @@ class TestDelegationTracing:
         """Test delegation spans include gen_ai standard attributes."""
         tracer = Tracer()
 
-        with patch.object(tracer, '_start_span') as mock_start:
+        with patch.object(tracer, "_start_span") as mock_start:
             mock_span = Mock()
             mock_start.return_value = mock_span
 
             tracer.start_delegation_span(
-                from_agent="Orchestrator",
-                to_agent="SubAgent",
-                message="test",
-                delegation_depth=1
+                from_agent="Orchestrator", to_agent="SubAgent", message="test", delegation_depth=1
             )
 
             # Verify gen_ai attributes were set

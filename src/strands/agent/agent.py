@@ -1030,21 +1030,24 @@ class Agent:
                     This tool raises AgentDelegationException and does not return normally.
                 """
                 current_depth = len(delegation_chain or [])
-                if delegation_config["max_delegation_depth"] and current_depth >= delegation_config["max_delegation_depth"]:
+                max_depth = delegation_config["max_delegation_depth"]
+                if max_depth and current_depth >= max_depth:
                     raise ValueError(f"Maximum delegation depth ({delegation_config['max_delegation_depth']}) exceeded")
+
+                orchestrator_name = delegation_config["orchestrator_name"]
+                state_transfer_default = delegation_config["delegation_state_transfer"]
 
                 raise AgentDelegationException(
                     target_agent=target_agent,
                     message=message,
                     context=context or {},
-                    delegation_chain=(delegation_chain or []) + [delegation_config["orchestrator_name"]],
-                    transfer_state=transfer_state if transfer_state is not None else delegation_config["delegation_state_transfer"],
+                    delegation_chain=(delegation_chain or []) + [orchestrator_name],
+                    transfer_state=transfer_state if transfer_state is not None else state_transfer_default,
                     transfer_messages=transfer_messages
                     if transfer_messages is not None
                     else delegation_config["delegation_message_transfer"],
                 )
 
-            
             agent_description = sub_agent.description or f"Specialized agent named {sub_agent.name}"
             capabilities_hint = ""
             if hasattr(sub_agent, "tools") and sub_agent.tools:
@@ -1057,7 +1060,8 @@ class Agent:
             # Concise tool docstring to avoid prompt bloat
             delegation_tool.__doc__ = (
                 f"Delegate to {sub_agent.name} ({agent_description}).{capabilities_hint}\n"
-                f"Transfers control completely - orchestrator terminates and {sub_agent.name}'s response becomes final.\n\n"
+                f"Transfers control completely - orchestrator terminates and "
+                f"{sub_agent.name}'s response becomes final.\n\n"
                 f"Use for: {agent_description.lower()}.\n"
                 f"Args:\n"
                 f"    message: Message for {sub_agent.name} (required)\n"

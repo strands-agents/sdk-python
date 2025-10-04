@@ -145,7 +145,8 @@ async def test_executor_stream_yields_tool_error(
     stream = executor._stream(agent, tool_use, tool_results, invocation_state)
 
     tru_events = await alist(stream)
-    exp_events = [ToolResultEvent({"toolUseId": "1", "status": "error", "content": [{"text": "Error: Tool error"}]})]
+    error_content = [{"text": "Tool execution failed: Tool error"}]
+    exp_events = [ToolResultEvent({"toolUseId": "1", "status": "error", "content": error_content})]
     assert tru_events == exp_events
 
     tru_results = tool_results

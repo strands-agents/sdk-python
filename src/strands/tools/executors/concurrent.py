@@ -1,6 +1,7 @@
 """Concurrent tool executor implementation."""
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from typing_extensions import override
@@ -10,6 +11,8 @@ from ...types._events import TypedEvent
 from ...types.exceptions import AgentDelegationException
 from ...types.tools import ToolResult, ToolUse
 from ._executor import ToolExecutor
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:  # pragma: no cover
     from ...agent import Agent
@@ -73,7 +76,7 @@ class ConcurrentToolExecutor(ToolExecutor):
 
             # Check if event is an exception that needs to be raised
             if isinstance(event, Exception):
-                print(f"DEBUG: Concurrent executor main thread got exception: {type(event).__name__}: {event}")
+                logger.debug("Concurrent executor main thread got exception: %s: %s", type(event).__name__, event)
                 collected_exceptions.append(event)
                 task_events[task_id].set()
                 continue
@@ -87,7 +90,11 @@ class ConcurrentToolExecutor(ToolExecutor):
             delegation_exceptions = [e for e in collected_exceptions if isinstance(e, AgentDelegationException)]
             if delegation_exceptions:
                 # If there are delegation exceptions, raise the first one
-                print(f"DEBUG: Raising AgentDelegationException from concurrent executor (collected {len(collected_exceptions)} exceptions total)")
+                total_exceptions = len(collected_exceptions)
+                logger.debug(
+                    "Raising AgentDelegationException from concurrent executor (collected %s exceptions total)",
+                    total_exceptions,
+                )
                 raise delegation_exceptions[0]
             else:
                 # For non-delegation exceptions, raise a combined exception with all details
@@ -141,11 +148,11 @@ class ConcurrentToolExecutor(ToolExecutor):
                 task_event.clear()
 
         except AgentDelegationException as e:
-            print(f"DEBUG: Concurrent executor caught AgentDelegationException for {e.target_agent}")
+            logger.debug("Concurrent executor caught AgentDelegationException for %s", e.target_agent)
             # Put delegation exception in the queue to be handled by main thread
             task_queue.put_nowait((task_id, e))
         except Exception as e:
-            print(f"DEBUG: Concurrent executor caught generic exception: {type(e).__name__}: {e}")
+            logger.debug("Concurrent executor caught generic exception: %s: %s", type(e).__name__, e)
             # Put other exceptions in the queue as well
             task_queue.put_nowait((task_id, e))
         finally:

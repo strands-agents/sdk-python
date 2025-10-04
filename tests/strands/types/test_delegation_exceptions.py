@@ -3,9 +3,6 @@
 This module tests the exception that enables clean agent delegation control flow.
 """
 
-import pytest
-from typing import Any
-
 from strands.types.exceptions import AgentDelegationException
 
 
@@ -20,7 +17,7 @@ class TestAgentDelegationException:
             context={"key": "value"},
             delegation_chain=["Orchestrator"],
             transfer_state=False,
-            transfer_messages=True
+            transfer_messages=True,
         )
         assert exc.target_agent == "SubAgent"
         assert exc.message == "Test msg"
@@ -31,20 +28,13 @@ class TestAgentDelegationException:
 
     def test_chain_appending(self):
         """Test delegation chain updates."""
-        exc = AgentDelegationException(
-            target_agent="B",
-            message="Test",
-            delegation_chain=["A"]
-        )
+        exc = AgentDelegationException(target_agent="B", message="Test", delegation_chain=["A"])
         exc.delegation_chain.append("B")
         assert exc.delegation_chain == ["A", "B"]
 
     def test_default_values(self):
         """Test default parameter values."""
-        exc = AgentDelegationException(
-            target_agent="Agent",
-            message="Test"
-        )
+        exc = AgentDelegationException(target_agent="Agent", message="Test")
         assert exc.context == {}
         assert exc.delegation_chain == []
         assert exc.transfer_state is True
@@ -52,20 +42,13 @@ class TestAgentDelegationException:
 
     def test_exception_message_format(self):
         """Test exception string representation."""
-        exc = AgentDelegationException(
-            target_agent="TestAgent",
-            message="Delegation message"
-        )
+        exc = AgentDelegationException(target_agent="TestAgent", message="Delegation message")
         assert str(exc) == "Delegating to agent: TestAgent"
 
     def test_context_isolation(self):
         """Test context dict is properly isolated."""
         original_context = {"data": [1, 2, 3]}
-        exc = AgentDelegationException(
-            target_agent="Agent",
-            message="Test",
-            context=original_context
-        )
+        exc = AgentDelegationException(target_agent="Agent", message="Test", context=original_context)
 
         # Modify original context
         original_context["new_key"] = "new_value"
@@ -77,11 +60,7 @@ class TestAgentDelegationException:
     def test_delegation_chain_copy(self):
         """Test delegation chain is properly isolated."""
         original_chain = ["Agent1", "Agent2"]
-        exc = AgentDelegationException(
-            target_agent="Agent3",
-            message="Test",
-            delegation_chain=original_chain
-        )
+        exc = AgentDelegationException(target_agent="Agent3", message="Test", delegation_chain=original_chain)
 
         # Modify original chain
         original_chain.append("Agent4")
@@ -92,10 +71,7 @@ class TestAgentDelegationException:
 
     def test_minimal_initialization(self):
         """Test exception with minimal required parameters."""
-        exc = AgentDelegationException(
-            target_agent="MinimalAgent",
-            message="Minimal message"
-        )
+        exc = AgentDelegationException(target_agent="MinimalAgent", message="Minimal message")
 
         assert exc.target_agent == "MinimalAgent"
         assert exc.message == "Minimal message"

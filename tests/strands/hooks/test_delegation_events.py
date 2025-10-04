@@ -4,61 +4,65 @@ This module tests delegation-specific hook events and their integration
 with the hook registry system.
 """
 
-import pytest
-from unittest.mock import Mock, ANY
+from unittest.mock import Mock
 
-from strands.types._events import (
-    DelegationStartEvent,
-    DelegationCompleteEvent,
-    DelegationProxyEvent,
-    DelegationTimeoutEvent,
-)
+import pytest
+
 from strands.hooks.events import SubAgentAddedEvent, SubAgentRemovedEvent
 from strands.hooks.registry import HookRegistry
+from strands.types._events import (
+    DelegationCompleteEvent,
+    DelegationProxyEvent,
+    DelegationStartEvent,
+    DelegationTimeoutEvent,
+)
 
 
 @pytest.mark.delegation
 class TestDelegationHookEvents:
     """Test delegation event structures and hook integration."""
 
-    @pytest.mark.parametrize("event_class,event_data,expected_key,expected_fields", [
-        (
-            DelegationStartEvent,
-            {"from_agent": "Orch", "to_agent": "Sub", "message": "Test"},
-            "delegation_start",
-            ["from_agent", "to_agent", "message"]
-        ),
-        (
-            DelegationCompleteEvent,
-            {"target_agent": "Sub", "result": Mock()},
-            "delegation_complete",
-            ["target_agent", "result"]
-        ),
-        (
-            DelegationProxyEvent,
-            {"original_event": Mock(), "from_agent": "A", "to_agent": "B"},
-            "delegation_proxy",
-            ["from_agent", "to_agent", "original_event"]
-        ),
-        (
-            DelegationTimeoutEvent,
-            {"target_agent": "Slow", "timeout_seconds": 30.0},
-            "delegation_timeout",
-            ["target_agent", "timeout_seconds"]
-        ),
-        (
-            SubAgentAddedEvent,
-            {"agent": Mock(), "sub_agent": Mock(), "sub_agent_name": "New"},
-            None,  # SubAgentAddedEvent is a dataclass, not a TypedEvent
-            ["agent", "sub_agent", "sub_agent_name"]
-        ),
-        (
-            SubAgentRemovedEvent,
-            {"agent": Mock(), "sub_agent_name": "Old", "removed_agent": Mock()},
-            None,  # SubAgentRemovedEvent is a dataclass, not a TypedEvent
-            ["agent", "sub_agent_name", "removed_agent"]
-        ),
-    ])
+    @pytest.mark.parametrize(
+        "event_class,event_data,expected_key,expected_fields",
+        [
+            (
+                DelegationStartEvent,
+                {"from_agent": "Orch", "to_agent": "Sub", "message": "Test"},
+                "delegation_start",
+                ["from_agent", "to_agent", "message"],
+            ),
+            (
+                DelegationCompleteEvent,
+                {"target_agent": "Sub", "result": Mock()},
+                "delegation_complete",
+                ["target_agent", "result"],
+            ),
+            (
+                DelegationProxyEvent,
+                {"original_event": Mock(), "from_agent": "A", "to_agent": "B"},
+                "delegation_proxy",
+                ["from_agent", "to_agent", "original_event"],
+            ),
+            (
+                DelegationTimeoutEvent,
+                {"target_agent": "Slow", "timeout_seconds": 30.0},
+                "delegation_timeout",
+                ["target_agent", "timeout_seconds"],
+            ),
+            (
+                SubAgentAddedEvent,
+                {"agent": Mock(), "sub_agent": Mock(), "sub_agent_name": "New"},
+                None,  # SubAgentAddedEvent is a dataclass, not a TypedEvent
+                ["agent", "sub_agent", "sub_agent_name"],
+            ),
+            (
+                SubAgentRemovedEvent,
+                {"agent": Mock(), "sub_agent_name": "Old", "removed_agent": Mock()},
+                None,  # SubAgentRemovedEvent is a dataclass, not a TypedEvent
+                ["agent", "sub_agent_name", "removed_agent"],
+            ),
+        ],
+    )
     def test_delegation_event_structure(self, event_class, event_data, expected_key, expected_fields):
         """Test all delegation event structures with parametrization."""
         event = event_class(**event_data)
@@ -89,11 +93,7 @@ class TestDelegationHookEvents:
 
         orchestrator = Mock()
         sub_agent = Mock()
-        event = SubAgentAddedEvent(
-            agent=orchestrator,
-            sub_agent=sub_agent,
-            sub_agent_name="NewAgent"
-        )
+        event = SubAgentAddedEvent(agent=orchestrator, sub_agent=sub_agent, sub_agent_name="NewAgent")
         registry.invoke_callbacks(event)
 
         assert len(events_captured) == 1
@@ -105,9 +105,7 @@ class TestDelegationHookEvents:
     def test_delegation_start_event_properties(self):
         """Test DelegationStartEvent property accessors."""
         event = DelegationStartEvent(
-            from_agent="Orchestrator",
-            to_agent="SpecialistAgent",
-            message="Handle complex task"
+            from_agent="Orchestrator", to_agent="SpecialistAgent", message="Handle complex task"
         )
 
         assert event.from_agent == "Orchestrator"
@@ -117,10 +115,7 @@ class TestDelegationHookEvents:
     def test_delegation_complete_event_properties(self):
         """Test DelegationCompleteEvent property accessors."""
         mock_result = Mock()
-        event = DelegationCompleteEvent(
-            target_agent="SpecialistAgent",
-            result=mock_result
-        )
+        event = DelegationCompleteEvent(target_agent="SpecialistAgent", result=mock_result)
 
         assert event.target_agent == "SpecialistAgent"
         assert event.result == mock_result
@@ -128,11 +123,7 @@ class TestDelegationHookEvents:
     def test_delegation_proxy_event_properties(self):
         """Test DelegationProxyEvent property accessors."""
         original_event = Mock()
-        event = DelegationProxyEvent(
-            original_event=original_event,
-            from_agent="Orchestrator",
-            to_agent="SubAgent"
-        )
+        event = DelegationProxyEvent(original_event=original_event, from_agent="Orchestrator", to_agent="SubAgent")
 
         assert event.original_event == original_event
         assert event.from_agent == "Orchestrator"
@@ -140,10 +131,7 @@ class TestDelegationHookEvents:
 
     def test_delegation_timeout_event_properties(self):
         """Test DelegationTimeoutEvent property accessors."""
-        event = DelegationTimeoutEvent(
-            target_agent="SlowAgent",
-            timeout_seconds=300.0
-        )
+        event = DelegationTimeoutEvent(target_agent="SlowAgent", timeout_seconds=300.0)
 
         assert event.target_agent == "SlowAgent"
         assert event.timeout_seconds == 300.0
@@ -153,11 +141,7 @@ class TestDelegationHookEvents:
         orchestrator = Mock()
         sub_agent = Mock()
 
-        event = SubAgentAddedEvent(
-            agent=orchestrator,
-            sub_agent=sub_agent,
-            sub_agent_name="NewAgent"
-        )
+        event = SubAgentAddedEvent(agent=orchestrator, sub_agent=sub_agent, sub_agent_name="NewAgent")
 
         assert event.agent == orchestrator
         assert event.sub_agent == sub_agent
@@ -168,11 +152,7 @@ class TestDelegationHookEvents:
         orchestrator = Mock()
         removed_agent = Mock()
 
-        event = SubAgentRemovedEvent(
-            agent=orchestrator,
-            sub_agent_name="OldAgent",
-            removed_agent=removed_agent
-        )
+        event = SubAgentRemovedEvent(agent=orchestrator, sub_agent_name="OldAgent", removed_agent=removed_agent)
 
         assert event.agent == orchestrator
         assert event.sub_agent_name == "OldAgent"
@@ -193,11 +173,7 @@ class TestDelegationHookEvents:
         registry.add_callback(SubAgentAddedEvent, callback1)
         registry.add_callback(SubAgentAddedEvent, callback2)
 
-        event = SubAgentAddedEvent(
-            agent=Mock(),
-            sub_agent=Mock(),
-            sub_agent_name="TestAgent"
-        )
+        event = SubAgentAddedEvent(agent=Mock(), sub_agent=Mock(), sub_agent_name="TestAgent")
         registry.invoke_callbacks(event)
 
         assert len(callback1_calls) == 1
@@ -205,14 +181,11 @@ class TestDelegationHookEvents:
 
     def test_delegation_event_serialization(self):
         """Test delegation events can be serialized for logging."""
-        event = DelegationStartEvent(
-            from_agent="Orchestrator",
-            to_agent="SubAgent",
-            message="Test message"
-        )
+        event = DelegationStartEvent(from_agent="Orchestrator", to_agent="SubAgent", message="Test message")
 
         # TypedEvent is a dict subclass, should be JSON-serializable
         import json
+
         serialized = json.dumps(dict(event))
         deserialized = json.loads(serialized)
 

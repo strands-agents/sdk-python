@@ -55,7 +55,7 @@ class ToolExecutor(abc.ABC):
         Yields:
             Tool events with the last being the tool result.
         """
-        print(f"DEBUG: Tool executor _stream called for tool {tool_use.get('name')}")
+        logger.debug("Tool executor _stream called for tool %s", tool_use.get("name"))
         logger.debug("tool_use=<%s> | streaming", tool_use)
         tool_name = tool_use["name"]
 
@@ -153,10 +153,10 @@ class ToolExecutor(abc.ABC):
 
         except AgentDelegationException as e:
             # Re-raise immediately - don't treat as tool execution error
-            print(f"DEBUG: Tool executor caught AgentDelegationException for {e.target_agent}, re-raising")
+            logger.debug("Tool executor caught AgentDelegationException for %s, re-raising", e.target_agent)
             raise
         except Exception as e:
-            print(f"DEBUG: Tool executor caught generic exception for {tool_name}: {type(e).__name__}: {e}")
+            logger.debug("Tool executor caught generic exception for %s: %s: %s", tool_name, type(e).__name__, e)
             logger.exception("tool_name=<%s> | failed to process tool", tool_name)
             error_result: ToolResult = {
                 "toolUseId": str(tool_use.get("toolUseId")),
@@ -227,7 +227,7 @@ class ToolExecutor(abc.ABC):
 
                 tracer.end_tool_call_span(tool_call_span, result)
         except AgentDelegationException as e:
-            print(f"DEBUG: _stream_with_trace caught AgentDelegationException for {e.target_agent}, re-raising")
+            logger.debug("_stream_with_trace caught AgentDelegationException for %s, re-raising", e.target_agent)
             # End span with delegation information before re-raising
             tracer.end_tool_call_span(tool_call_span, {"status": "delegated", "target_agent": e.target_agent})
             raise
