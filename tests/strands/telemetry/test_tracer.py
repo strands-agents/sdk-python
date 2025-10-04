@@ -191,7 +191,7 @@ def test_start_model_invoke_span_latest_conventions(mock_tracer):
                     [
                         {
                             "role": messages[0]["role"],
-                            "parts": [{"type": "text", "content": serialize(messages[0]["content"])}],
+                            "parts": [{"type": "text", "content": messages[0]["content"]}],
                         }
                     ]
                 )
@@ -249,7 +249,7 @@ def test_end_model_invoke_span_latest_conventions(mock_span):
                     [
                         {
                             "role": "assistant",
-                            "parts": [{"type": "text", "content": serialize(message["content"])}],
+                            "parts": [{"type": "text", "content": message["content"]}],
                             "finish_reason": "end_turn",
                         }
                     ]
@@ -318,7 +318,7 @@ def test_start_tool_call_span_latest_conventions(mock_tracer):
                                     "type": "tool_call",
                                     "name": tool["name"],
                                     "id": tool["toolUseId"],
-                                    "arguments": [{"content": serialize(tool["input"])}],
+                                    "arguments": [{"content": tool["input"]}],
                                 }
                             ],
                         }
@@ -398,7 +398,7 @@ def test_start_swarm_span_with_contentblock_task_latest_conventions(mock_tracer)
             "gen_ai.client.inference.operation.details",
             attributes={
                 "gen_ai.input.messages": serialize(
-                    [{"role": "user", "parts": [{"type": "text", "content": '[{"text": "Original Task: foo bar"}]'}]}]
+                    [{"role": "user", "parts": [{"type": "text", "content": [{"text": "Original Task: foo bar"}]}]}]
                 )
             },
         )
@@ -502,7 +502,7 @@ def test_end_tool_call_span_latest_conventions(mock_span):
                             {
                                 "type": "tool_call_response",
                                 "id": tool_result.get("toolUseId", ""),
-                                "result": serialize(tool_result.get("content")),
+                                "result": tool_result.get("content"),
                             }
                         ],
                     }
@@ -559,7 +559,7 @@ def test_start_event_loop_cycle_span_latest_conventions(mock_tracer):
             "gen_ai.client.inference.operation.details",
             attributes={
                 "gen_ai.input.messages": serialize(
-                    [{"role": "user", "parts": [{"type": "text", "content": serialize(messages[0]["content"])}]}]
+                    [{"role": "user", "parts": [{"type": "text", "content": messages[0]["content"]}]}]
                 )
             },
         )
@@ -601,7 +601,7 @@ def test_end_event_loop_cycle_span_latest_conventions(mock_span):
                 [
                     {
                         "role": "assistant",
-                        "parts": [{"type": "text", "content": serialize(tool_result_message["content"])}],
+                        "parts": [{"type": "text", "content": tool_result_message["content"]}],
                     }
                 ]
             )
@@ -676,7 +676,7 @@ def test_start_agent_span_latest_conventions(mock_tracer):
             "gen_ai.client.inference.operation.details",
             attributes={
                 "gen_ai.input.messages": serialize(
-                    [{"role": "user", "parts": [{"type": "text", "content": '[{"text": "test prompt"}]'}]}]
+                    [{"role": "user", "parts": [{"type": "text", "content": [{"text": "test prompt"}]}]}]
                 )
             },
         )
