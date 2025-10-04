@@ -1877,3 +1877,17 @@ def test_agent_tool_call_parameter_filtering_integration(mock_randint):
     assert '"action": "test_value"' in tool_call_text
     assert '"agent"' not in tool_call_text
     assert '"extra_param"' not in tool_call_text
+
+
+def test_agent__call__handles_none_invocation_state(mock_model, agent):
+    """Test that agent handles None invocation_state without AttributeError."""
+    mock_model.mock_stream.return_value = [
+        {"contentBlockDelta": {"delta": {"text": "test response"}}},
+        {"contentBlockStop": {}},
+    ]
+
+    # This should not raise AttributeError: 'NoneType' object has no attribute 'get'
+    result = agent("test", invocation_state=None)
+
+    assert result.message["content"][0]["text"] == "test response"
+    assert result.stop_reason == "end_turn"
