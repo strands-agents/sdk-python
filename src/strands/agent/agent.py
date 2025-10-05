@@ -690,7 +690,6 @@ class Agent:
         # Add `Agent` to invocation_state to keep backwards-compatibility
         invocation_state["agent"] = self
 
-        # TODO as per comment consider passing this directly in the event_loop.py
         if structured_output_context and structured_output_context.structured_output_tool:
             self.tool_registry.register_dynamic_tool(structured_output_context.structured_output_tool)
 

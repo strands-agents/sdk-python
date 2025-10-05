@@ -120,7 +120,7 @@ class ToolExecutor(abc.ABC):
                 yield ToolResultEvent(after_event.result)
                 tool_results.append(after_event.result)
                 return
-            if structured_output_context.structured_output_model:
+            if structured_output_context.is_enabled:
                 kwargs["structured_output_context"] = structured_output_context
             async for event in selected_tool.stream(tool_use, invocation_state, **kwargs):
                 # Internal optimization; for built-in AgentTools, we yield TypedEvents out of .stream()

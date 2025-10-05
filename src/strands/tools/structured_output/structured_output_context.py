@@ -16,30 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class StructuredOutputContext:
-    """Per-invocation context for structured output execution.
-
-    This class manages all structured output state for a single agent invocation,
-    providing thread-safe isolation for concurrent executions. Each invocation
-    creates its own context instance, ensuring no shared state between concurrent
-    calls.
-
-    This class combines both state management and processing logic for structured
-    output, including:
-    - Creating and managing structured output tools
-    - Managing validated result storage
-    - Extracting structured output results from tool executions
-    - Managing retry attempts for structured output forcing
-
-    Attributes:
-        attempts: Number of structured output forcing attempts (max 3).
-        results: Mapping of tool_use_id to validated Pydantic objects.
-        structured_output_model: The Pydantic model type for structured output.
-        structured_output_tool: The tool instance for this structured output.
-        expected_tool_name: Name of the expected structured output tool.
-        forced_mode: Whether this is a forced structured output attempt.
-        tool_choice: Tool choice configuration for forcing.
-        stop_loop: Whether to stop the event loop after extracting structured output.
-    """
+    """Per-invocation context for structured output execution."""
 
     def __init__(self, structured_output_model: Type[BaseModel] | None = None):
         """Initialize a new structured output context.
@@ -61,6 +38,10 @@ class StructuredOutputContext:
             self.structured_output_tool = StructuredOutputTool(structured_output_model)
             self.expected_tool_name = self.structured_output_tool.tool_name
 
+    @property
+    def is_enabled(self) -> bool:
+        return self.structured_output_model is not None
+
     def store_result(self, tool_use_id: str, result: BaseModel) -> None:
         """Store a validated structured output result.
 
@@ -80,17 +61,6 @@ class StructuredOutputContext:
             The validated Pydantic model instance, or None if not found.
         """
         return self.results.get(tool_use_id)
-
-    def pop_result(self, tool_use_id: str) -> BaseModel | None:
-        """Retrieve and remove a stored structured output result.
-
-        Args:
-            tool_use_id: Unique identifier for the tool use.
-
-        Returns:
-            The validated Pydantic model instance, or None if not found.
-        """
-        return self.results.pop(tool_use_id, None)
 
     def increment_attempts(self) -> int:
         """Increment and return the attempt counter.
@@ -113,7 +83,7 @@ class StructuredOutputContext:
         """
         if not self.structured_output_model:
             return False
-        return self.attempts <= self.MAX_STRUCTURED_OUTPUT_ATTEMPTS
+        return self.attempts < self.MAX_STRUCTURED_OUTPUT_ATTEMPTS
 
     def set_forced_mode(self, tool_choice: dict | None = None) -> None:
         """Mark this context as being in forced structured output mode.
@@ -154,8 +124,7 @@ class StructuredOutputContext:
         """Extract and remove structured output result from stored results.
 
         This method searches through the provided tool_uses for the structured output tool,
-        then extracts its validated result. The result is removed from storage
-        during extraction to prevent memory leaks.
+        then extracts its validated result. 
 
         Args:
             tool_uses: List of tool use dictionaries from the current execution cycle.
@@ -170,7 +139,7 @@ class StructuredOutputContext:
         for tool_use in tool_uses:
             if tool_use.get("name") == self.expected_tool_name:
                 tool_use_id = str(tool_use.get("toolUseId", ""))
-                result = self.pop_result(tool_use_id)
+                result = self.results.pop(tool_use_id, None)
                 if result is not None:
                     logger.debug(f"Extracted structured output for {tool_use.get('name')}")
                     return result

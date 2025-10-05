@@ -40,6 +40,7 @@ from ..types.exceptions import (
     EventLoopException,
     MaxTokensReachedException,
     ModelThrottledException,
+    StructuredOutputException,
 )
 from ..types.streaming import Metrics, StopReason
 from ..types.tools import ToolResult, ToolUse
@@ -280,15 +281,10 @@ async def event_loop_cycle(
         raise EventLoopException(e, invocation_state["request_state"]) from e
 
     # Force structured output tool call if LLM didn't use it automatically
-    if structured_output_context.structured_output_model and stop_reason == "end_turn":
+    if structured_output_context.is_enabled and stop_reason == "end_turn":
         if not structured_output_context.can_retry():
-            logger.warning(
-                f"Structured output forcing exceeded maximum attempts ({structured_output_context.MAX_STRUCTURED_OUTPUT_ATTEMPTS}), returning without structured output"
-            )
-            yield EventLoopStopEvent(
-                stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"], None
-            )
-            return
+            raise StructuredOutputException(f"Structured output forcing exceeded maximum attempts ({structured_output_context.MAX_STRUCTURED_OUTPUT_ATTEMPTS}), returning without structured output")
+
         structured_output_context.setup_retry()
         logger.debug(
             f"Forcing structured output tool, attempt {structured_output_context.attempts}/{structured_output_context.MAX_STRUCTURED_OUTPUT_ATTEMPTS}"
@@ -393,7 +389,7 @@ async def _handle_tool_execution(
         yield tool_event
 
     structured_output_result = None
-    if structured_output_context.structured_output_model:
+    if structured_output_context.is_enabled:
         if structured_output_result := structured_output_context.extract_result(tool_uses):
             yield StructuredOutputEvent(structured_output=structured_output_result)
             structured_output_context.stop_loop = True
