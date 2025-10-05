@@ -283,7 +283,7 @@ async def event_loop_cycle(
     # Force structured output tool call if LLM didn't use it automatically
     if structured_output_context.is_enabled and stop_reason == "end_turn":
         if not structured_output_context.can_retry():
-            raise StructuredOutputException(f"Structured output forcing exceeded maximum attempts ({structured_output_context.MAX_STRUCTURED_OUTPUT_ATTEMPTS}), returning without structured output")
+            raise StructuredOutputException(f"Structured output forcing exceeded maximum attempts ({structured_output_context.MAX_STRUCTURED_OUTPUT_ATTEMPTS})")
 
         structured_output_context.setup_retry()
         logger.debug(
