@@ -60,7 +60,7 @@ MAX_DELAY = 240  # 4 minutes
 async def event_loop_cycle(
     agent: "Agent",
     invocation_state: dict[str, Any],
-    structured_output_context: StructuredOutputContext | None = None,
+    structured_output_context: StructuredOutputContext = StructuredOutputContext(),
 ) -> AsyncGenerator[TypedEvent, None]:
     """Execute a single cycle of the event loop.
 
