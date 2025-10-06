@@ -791,6 +791,7 @@ async def test_stream_messages(agenerator, alist):
         [{"role": "assistant", "content": [{"text": "a"}, {"text": "[blank text]"}]}],
         None,
         "test prompt",
+        tool_choice=None,
     )
 
     # Ensure that we're getting typed events coming out of process_stream

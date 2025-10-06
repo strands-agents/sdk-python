@@ -1,6 +1,7 @@
 import pytest
 
 from strands.tools.executors import ConcurrentToolExecutor
+from strands.tools.structured_output.structured_output_context import StructuredOutputContext
 from strands.types._events import ToolResultEvent
 from strands.types.tools import ToolUse
 
@@ -10,15 +11,22 @@ def executor():
     return ConcurrentToolExecutor()
 
 
+@pytest.fixture
+def structured_output_context():
+    return StructuredOutputContext(structured_output_model=None)
+
+
 @pytest.mark.asyncio
 async def test_concurrent_executor_execute(
-    executor, agent, tool_results, cycle_trace, cycle_span, invocation_state, alist
+    executor, agent, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context, alist
 ):
     tool_uses: list[ToolUse] = [
         {"name": "weather_tool", "toolUseId": "1", "input": {}},
         {"name": "temperature_tool", "toolUseId": "2", "input": {}},
     ]
-    stream = executor._execute(agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state)
+    stream = executor._execute(
+        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
+    )
 
     tru_events = sorted(await alist(stream), key=lambda event: event.tool_use_id)
     exp_events = [

@@ -1,7 +1,8 @@
 import unittest.mock
-from typing import cast
+from typing import Optional, cast
 
 import pytest
+from pydantic import BaseModel
 
 from strands.agent.agent_result import AgentResult
 from strands.telemetry.metrics import EventLoopMetrics
@@ -96,3 +97,98 @@ def test__str__non_dict_content(mock_metrics):
 
     message_string = str(result)
     assert message_string == "Valid text\nMore valid text\n"
+
+
+# Tests for structured output functionality
+class StructuredOutputModel(BaseModel):
+    """Test model for structured output."""
+
+    name: str
+    value: int
+    optional_field: Optional[str] = None
+
+
+def test__init__with_structured_output(mock_metrics, simple_message: Message):
+    """Test that AgentResult can be initialized with structured_output."""
+    stop_reason: StopReason = "end_turn"
+    state = {"key": "value"}
+    structured_output = StructuredOutputModel(name="test", value=42)
+
+    result = AgentResult(
+        stop_reason=stop_reason,
+        message=simple_message,
+        metrics=mock_metrics,
+        state=state,
+        structured_output=structured_output,
+    )
+
+    assert result.stop_reason == stop_reason
+    assert result.message == simple_message
+    assert result.metrics == mock_metrics
+    assert result.state == state
+    assert result.structured_output == structured_output
+    assert isinstance(result.structured_output, StructuredOutputModel)
+    assert result.structured_output.name == "test"
+    assert result.structured_output.value == 42
+
+
+def test__init__structured_output_defaults_to_none(mock_metrics, simple_message: Message):
+    """Test that structured_output defaults to None when not provided."""
+    result = AgentResult(stop_reason="end_turn", message=simple_message, metrics=mock_metrics, state={})
+
+    assert result.structured_output is None
+
+
+def test__str__with_structured_output(mock_metrics, simple_message: Message):
+    """Test that str() is not affected by structured_output."""
+    structured_output = StructuredOutputModel(name="test", value=42)
+
+    result = AgentResult(
+        stop_reason="end_turn",
+        message=simple_message,
+        metrics=mock_metrics,
+        state={},
+        structured_output=structured_output,
+    )
+
+    # The string representation should only include the message text, not structured output
+    message_string = str(result)
+    assert message_string == "Hello world!\n"
+    assert "test" not in message_string
+    assert "42" not in message_string
+
+
+def test__structured_output_with_complex_model(mock_metrics, simple_message: Message):
+    """Test structured_output with a model containing optional fields."""
+    structured_output = StructuredOutputModel(name="complex", value=100, optional_field="optional value")
+
+    result = AgentResult(
+        stop_reason="end_turn",
+        message=simple_message,
+        metrics=mock_metrics,
+        state={},
+        structured_output=structured_output,
+    )
+
+    assert result.structured_output is not None
+    assert result.structured_output.name == "complex"
+    assert result.structured_output.value == 100
+    assert result.structured_output.optional_field == "optional value"
+
+
+def test__structured_output_immutability(mock_metrics, simple_message: Message):
+    """Test that structured_output maintains its value after initialization."""
+    original_output = StructuredOutputModel(name="original", value=1)
+
+    result = AgentResult(
+        stop_reason="end_turn",
+        message=simple_message,
+        metrics=mock_metrics,
+        state={},
+        structured_output=original_output,
+    )
+
+    # Verify the structured output is the same object
+    assert result.structured_output is original_output
+    assert result.structured_output.name == "original"
+    assert result.structured_output.value == 1
