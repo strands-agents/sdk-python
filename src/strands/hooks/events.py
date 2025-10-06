@@ -97,14 +97,18 @@ class BeforeToolCallEvent(HookEvent):
             to change which tool gets executed. This may be None if tool lookup failed.
         tool_use: The tool parameters that will be passed to selected_tool.
         invocation_state: Keyword arguments that will be passed to the tool.
+        cancel_tool: A user defined message that when set, will cancel the tool call.
+            The message will be placed into a tool result with an error status. If set to `True`, Strands will cancel
+            the tool call and use a default cancel message.
     """
 
     selected_tool: Optional[AgentTool]
     tool_use: ToolUse
     invocation_state: dict[str, Any]
+    cancel_tool: bool | str = False
 
     def _can_write(self, name: str) -> bool:
-        return name in ["selected_tool", "tool_use"]
+        return name in ["cancel_tool", "selected_tool", "tool_use"]
 
 
 @dataclass
@@ -124,6 +128,7 @@ class AfterToolCallEvent(HookEvent):
         invocation_state: Keyword arguments that were passed to the tool
         result: The result of the tool invocation. Either a ToolResult on success
             or an Exception if the tool execution failed.
+        cancel_message: The cancellation message if the user cancelled the tool call.
     """
 
     selected_tool: Optional[AgentTool]
@@ -131,6 +136,7 @@ class AfterToolCallEvent(HookEvent):
     invocation_state: dict[str, Any]
     result: ToolResult
     exception: Optional[Exception] = None
+    cancel_message: str | None = None
 
     def _can_write(self, name: str) -> bool:
         return name == "result"
