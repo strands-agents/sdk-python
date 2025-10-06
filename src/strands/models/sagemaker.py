@@ -152,7 +152,7 @@ class SageMakerAIModel(OpenAIModel):
         payload_config.setdefault("stream", True)
         payload_config.setdefault("tool_results_as_user_messages", False)
         self.endpoint_config = self.SageMakerAIEndpointConfig(**endpoint_config)
-        self.payload_config = dict(payload_config)
+        self.payload_config = self.SageMakerAIPayloadSchema(**payload_config)
         logger.debug(
             "endpoint_config=<%s> payload_config=<%s> | initializing", self.endpoint_config, self.payload_config
         )
