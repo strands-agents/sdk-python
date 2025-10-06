@@ -238,6 +238,10 @@ class SageMakerAIModel(OpenAIModel):
             },
         }
 
+        payload_additional_args = self.payload_config.get("additional_args")
+        if payload_additional_args:
+            payload.update(payload_additional_args)
+
         # Remove tools and tool_choice if tools = []
         if not payload["tools"]:
             payload.pop("tools")
