@@ -283,7 +283,7 @@ class SageMakerAIModel(OpenAIModel):
         if target_variant:
             request["TargetVariant"] = target_variant
 
-        # Add additional args if provided
+        # Add additional request args if provided
         additional_args = self.endpoint_config.get("additional_args")
         if additional_args:
             request.update(additional_args)

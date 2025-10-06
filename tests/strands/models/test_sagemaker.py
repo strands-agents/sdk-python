@@ -112,6 +112,7 @@ class TestSageMakerAIModel:
             "endpoint_name": "test-endpoint",
             "inference_component_name": "test-component",
             "region_name": "us-west-2",
+            "additional_args": {"test_arg_name": "test_arg_value"},
         }
         payload_config = {
             "stream": False,
@@ -129,6 +130,7 @@ class TestSageMakerAIModel:
 
         assert model.endpoint_config["endpoint_name"] == "test-endpoint"
         assert model.endpoint_config["inference_component_name"] == "test-component"
+        assert model.endpoint_config["additional_args"]["test_arg_name"] == "test_arg_value"
         assert model.payload_config["stream"] is False
         assert model.payload_config["max_tokens"] == 1024
         assert model.payload_config["temperature"] == 0.7
@@ -238,6 +240,22 @@ class TestSageMakerAIModel:
     #     payload = json.loads(request["Body"])
     #     assert "tools" in payload
     #     assert payload["tools"] == []
+
+    def test_format_request_with_additional_args(self, boto_session, endpoint_config, messages, payload_config):
+        """Test formatting a request's `additional_args` where provided"""
+        endpoint_config_ext = {
+            **endpoint_config,
+            "additional_args": {
+                "extra_key": "extra_value",
+            },
+        }
+        model = SageMakerAIModel(
+            boto_session=boto_session,
+            endpoint_config=endpoint_config_ext,
+            payload_config=payload_config,
+        )
+        request = model.format_request(messages)
+        assert request.get("extra_key") == "extra_value"
 
     @pytest.mark.asyncio
     async def test_stream_with_streaming_enabled(self, sagemaker_client, model, messages):
