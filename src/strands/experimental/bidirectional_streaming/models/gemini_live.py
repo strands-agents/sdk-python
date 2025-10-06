@@ -105,20 +105,28 @@ class GeminiLiveSession(BidirectionalModelSession):
             raise
     
     async def _send_message_history(self, messages: Messages) -> None:
-        """Send conversation history to Gemini Live API."""
+        """Send conversation history to Gemini Live API.
+        
+        Sends each message as a separate turn with the correct role to maintain
+        proper conversation context. Follows the same pattern as the non-bidirectional
+        Gemini model implementation.
+        """
         if not messages:
             return
         
-        # Convert messages to Gemini format
-        content_parts = []
+        # Convert each message to Gemini format and send separately
         for message in messages:
+            content_parts = []
             for content_block in message["content"]:
                 if "text" in content_block:
                     content_parts.append(genai_types.Part(text=content_block["text"]))
-        
-        if content_parts:
-            content = genai_types.Content(role="user", parts=content_parts)
-            await self.live_session.send_client_content(turns=content)
+            
+            if content_parts:
+                # Map role correctly - Gemini uses "user" and "model" roles
+                # "assistant" role from Messages format maps to "model" in Gemini
+                role = "model" if message["role"] == "assistant" else message["role"]
+                content = genai_types.Content(role=role, parts=content_parts)
+                await self.live_session.send_client_content(turns=content)
     
     async def receive_events(self) -> AsyncIterable[Dict[str, Any]]:
         """Receive Gemini Live API events and convert to provider-agnostic format."""
@@ -165,7 +173,13 @@ class GeminiLiveSession(BidirectionalModelSession):
             yield {"BidirectionalConnectionEnd": connection_end}
     
     def _convert_gemini_live_event(self, message: LiveServerMessage) -> Optional[Dict[str, Any]]:
-        """Convert Gemini Live API events to provider-agnostic format."""
+        """Convert Gemini Live API events to provider-agnostic format.
+        
+        Handles different types of text output:
+        - inputTranscription: User's speech transcribed to text (logged but not emitted)
+        - outputTranscription: Model's audio transcribed to text (logged but not emitted)
+        - modelTurn text: Actual text response from the model (emitted as textOutput)
+        """
         try:
             # Handle interruption first (from server_content)
             if message.server_content and message.server_content.interrupted:
@@ -175,7 +189,24 @@ class GeminiLiveSession(BidirectionalModelSession):
                 }
                 return {"interruptionDetected": interruption}
             
-            # Handle text output using SDK's built-in text property
+            # Handle input transcription (user's speech) - log for visibility
+            if message.server_content and message.server_content.input_transcription:
+                transcription_text = message.server_content.input_transcription.text
+                if transcription_text:
+                    logger.info(f"User (transcription): {transcription_text}")
+                # Don't emit as event - transcriptions are informational only
+                return None
+            
+            # Handle output transcription (model's audio) - log for visibility
+            if message.server_content and message.server_content.output_transcription:
+                transcription_text = message.server_content.output_transcription.text
+                if transcription_text:
+                    logger.info(f"Assistant (audio transcription): {transcription_text}")
+                # Don't emit as event - transcriptions are informational only
+                return None
+            
+            # Handle actual text output from model (not transcription)
+            # The SDK's message.text property accesses modelTurn.parts[].text
             if message.text:
                 text_output: TextOutputEvent = {
                     "text": message.text,
