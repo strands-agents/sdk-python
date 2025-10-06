@@ -26,7 +26,10 @@ def test_process_tools_with_invalid_path():
     tool_registry = ToolRegistry()
     invalid_path = "not a filepath"
 
-    with pytest.raises(ValueError, match=f"Failed to load tool {invalid_path.split('.')[0]}: Tool file not found:.*"):
+    with pytest.raises(
+        ValueError,
+        match=f'Failed to load tool {invalid_path}: Tool string: "{invalid_path}" is not a valid tool string',
+    ):
         tool_registry.process_tools([invalid_path])
 
 
@@ -164,3 +167,21 @@ def test_register_tool_duplicate_name_with_hot_reload():
 
     # Verify the second tool replaced the first
     assert tool_registry.registry["hot_reload_tool"] == tool_2
+
+
+def test_register_strands_tools_from_module():
+    tool_registry = ToolRegistry()
+    tool_registry.process_tools(["tests.fixtures.say_tool"])
+
+    assert len(tool_registry.registry) == 2
+    assert "say" in tool_registry.registry
+    assert "dont_say" in tool_registry.registry
+
+
+def test_register_strands_tools_specific_tool_from_module():
+    tool_registry = ToolRegistry()
+    tool_registry.process_tools(["tests.fixtures.say_tool:say"])
+
+    assert len(tool_registry.registry) == 1
+    assert "say" in tool_registry.registry
+    assert "dont_say" not in tool_registry.registry

@@ -8,6 +8,7 @@ import inspect
 import logging
 import os
 import sys
+import warnings
 from importlib import import_module, util
 from os.path import expanduser
 from pathlib import Path
@@ -18,6 +19,7 @@ from typing_extensions import TypedDict, cast
 from strands.tools.decorator import DecoratedFunctionTool
 
 from ..types.tools import AgentTool, ToolSpec
+from .loader import load_tool_from_string, load_tools_from_module
 from .tools import PythonAgentTool, normalize_schema, normalize_tool_spec
 
 logger = logging.getLogger(__name__)
@@ -36,18 +38,23 @@ class ToolRegistry:
         self.tool_config: Optional[Dict[str, Any]] = None
 
     def process_tools(self, tools: List[Any]) -> List[str]:
-        """Process tools list that can contain tool names, paths, imported modules, or functions.
+        """Process tools list.
+
+        Process list of tools that can contain local file path string, module import path string,
+        imported modules,@tool decorated functions, or instances of AgentTool
 
         Args:
             tools: List of tool specifications.
                 Can be:
+            1. Local file path to a module based tool: `./path/to/module/tool.py`
+            2. Module import path
+              2.1. Path to a module based tool: `strands_tools.file_read`
+              2.2. Path to a module with multiple AgentTool instances (@tool decorated): `tests.fixtures.say_tool`
+              2.3. Path to a module and a specific function: `tests.fixtures.say_tool:say`
+            3. A module for a module based tool
+            4. Instances of AgentTool (@tool decorated functions)
+            5. Dictionaries with name/path keys (deprecated)
 
-                - String tool names (e.g., "calculator")
-                - File paths (e.g., "/path/to/tool.py")
-                - Imported Python modules (e.g., a module object)
-                - Functions decorated with @tool
-                - Dictionaries with name/path keys
-                - Instance of an AgentTool
 
         Returns:
             List of tool names that were processed.
@@ -55,58 +62,73 @@ class ToolRegistry:
         tool_names = []
 
         def add_tool(tool: Any) -> None:
-            # Case 1: String file path
-            if isinstance(tool, str):
-                # Extract tool name from path
-                tool_name = os.path.basename(tool).split(".")[0]
-                self.load_tool_from_filepath(tool_name=tool_name, tool_path=tool)
-                tool_names.append(tool_name)
+            try:
+                # String based tool
+                # Can be a file path, a module path, or a module path with a targeted function. Examples:
+                # './path/to/tool.py'
+                # 'my.module.tool'
+                # 'my.module.tool:tool_name'
+                if isinstance(tool, str):
+                    tools = load_tool_from_string(tool)
+                    for a_tool in tools:
+                        a_tool.mark_dynamic()
+                        self.register_tool(a_tool)
+                        tool_names.append(a_tool.tool_name)
 
-            # Case 2: Dictionary with name and path
-            elif isinstance(tool, dict) and "name" in tool and "path" in tool:
-                self.load_tool_from_filepath(tool_name=tool["name"], tool_path=tool["path"])
-                tool_names.append(tool["name"])
+                # Dictionary with path only
+                elif isinstance(tool, dict) and "path" in tool:
+                    tools = load_tool_from_string(tool["path"])
 
-            # Case 3: Dictionary with path only
-            elif isinstance(tool, dict) and "path" in tool:
-                tool_name = os.path.basename(tool["path"]).split(".")[0]
-                self.load_tool_from_filepath(tool_name=tool_name, tool_path=tool["path"])
-                tool_names.append(tool_name)
+                    for a_tool in tools:
+                        a_tool.mark_dynamic()
+                        self.register_tool(a_tool)
+                        tool_names.append(a_tool.tool_name)
 
-            # Case 4: Imported Python module
-            elif hasattr(tool, "__file__") and inspect.ismodule(tool):
-                # Get the module file path
-                module_path = tool.__file__
-                # Extract the tool name from the module name
-                tool_name = tool.__name__.split(".")[-1]
+                # Dictionary with name and path
+                elif isinstance(tool, dict) and "name" in tool and "path" in tool:
+                    tools = load_tool_from_string(tool["path"])
 
-                # Check for TOOL_SPEC in module to validate it's a Strands tool
-                if hasattr(tool, "TOOL_SPEC") and hasattr(tool, tool_name) and module_path:
-                    self.load_tool_from_filepath(tool_name=tool_name, tool_path=module_path)
-                    tool_names.append(tool_name)
+                    tool_found = False
+                    for a_tool in tools:
+                        if a_tool.tool_name == tool["name"]:
+                            a_tool.mark_dynamic()
+                            self.register_tool(a_tool)
+                            tool_names.append(a_tool.tool_name)
+                            tool_found = True
+
+                    if not tool_found:
+                        raise ValueError(f"Failed to load tool {tool}")
+
+                # Imported Python module
+                elif hasattr(tool, "__file__") and inspect.ismodule(tool):
+                    print(tool)
+                    # Extract the tool name from the module name
+                    module_tool_name = tool.__name__.split(".")[-1]
+
+                    tools = load_tools_from_module(tool, module_tool_name)
+                    for a_tool in tools:
+                        self.register_tool(a_tool)
+                        tool_names.append(a_tool.tool_name)
+
+                # Case 5: AgentTools (which also covers @tool)
+                elif isinstance(tool, AgentTool):
+                    self.register_tool(tool)
+                    tool_names.append(tool.tool_name)
+
+                # Case 6: Nested iterable (list, tuple, etc.) - add each sub-tool
+                elif isinstance(tool, Iterable) and not isinstance(tool, (str, bytes, bytearray)):
+                    for t in tool:
+                        add_tool(t)
                 else:
-                    function_tools = self._scan_module_for_tools(tool)
-                    for function_tool in function_tools:
-                        self.register_tool(function_tool)
-                        tool_names.append(function_tool.tool_name)
+                    logger.warning("tool=<%s> | unrecognized tool specification", tool)
 
-                    if not function_tools:
-                        logger.warning("tool_name=<%s>, module_path=<%s> | invalid agent tool", tool_name, module_path)
+            except Exception as e:
+                exception_str = str(e)
+                logger.exception("tool_name=<%s> | failed to load tool", tool)
+                raise ValueError(f"Failed to load tool {tool}: {exception_str}") from e
 
-            # Case 5: AgentTools (which also covers @tool)
-            elif isinstance(tool, AgentTool):
-                self.register_tool(tool)
-                tool_names.append(tool.tool_name)
-            # Case 6: Nested iterable (list, tuple, etc.) - add each sub-tool
-            elif isinstance(tool, Iterable) and not isinstance(tool, (str, bytes, bytearray)):
-                for t in tool:
-                    add_tool(t)
-            else:
-                logger.warning("tool=<%s> | unrecognized tool specification", tool)
-
-        for a_tool in tools:
-            add_tool(a_tool)
-
+        for tool in tools:
+            add_tool(tool)
         return tool_names
 
     def load_tool_from_filepath(self, tool_name: str, tool_path: str) -> None:
@@ -120,6 +142,13 @@ class ToolRegistry:
             FileNotFoundError: If the tool file is not found.
             ValueError: If the tool cannot be loaded.
         """
+        warnings.warn(
+            "load_tool_from_filepath is deprecated and will be removed in Strands SDK 2.0. "
+            "`process_tools` automatically handles loading tools from a filepath.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         from .loader import ToolLoader
 
         try:
