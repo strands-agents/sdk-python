@@ -16,6 +16,7 @@ Usage:
 """
 
 import base64
+from typing import Literal
 
 from mcp.server import FastMCP
 from mcp.types import BlobResourceContents, EmbeddedResource, TextResourceContents
@@ -50,7 +51,7 @@ def start_echo_server():
         return EchoResponse(echoed=to_echo, message_length=len(to_echo))
 
     @mcp.tool(description="Get current weather information for a location")
-    def get_weather(location: str = "New York"):
+    def get_weather(location: Literal["New York", "London", "Tokyo"] = "New York"):
         """Get weather data including forecasts and alerts for the specified location"""
         if location.lower() == "new york":
             return [
@@ -77,10 +78,9 @@ def start_echo_server():
                 )
             ]
         elif location.lower() == "tokyo":
-            # Simple 1x1 PNG image as base64 (weather icon)
-            png_data = base64.b64decode(
-                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
-            )
+            # Read yellow.png file for weather icon
+            with open("tests_integ/yellow.png", "rb") as image_file:
+                png_data = image_file.read()
             return [
                 EmbeddedResource(
                     type="resource",
@@ -88,17 +88,6 @@ def start_echo_server():
                         uri="https://weather.api/icons/sunny.png",
                         mimeType="image/png",
                         blob=base64.b64encode(png_data).decode(),
-                    ),
-                )
-            ]
-        else:
-            return [
-                EmbeddedResource(
-                    type="resource",
-                    resource=TextResourceContents(
-                        uri=f"https://weather.api/forecast/{location.lower()}",
-                        mimeType="text/plain",
-                        text=f"Weather data for {location}: Currently unavailable.",
                     ),
                 )
             ]
