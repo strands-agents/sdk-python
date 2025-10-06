@@ -14,7 +14,7 @@ from opentelemetry import trace as trace_api
 from ...hooks import AfterToolCallEvent, BeforeToolCallEvent
 from ...telemetry.metrics import Trace
 from ...telemetry.tracer import get_tracer
-from ...types._events import ToolResultEvent, ToolStreamEvent, TypedEvent
+from ...types._events import ToolCancelEvent, ToolResultEvent, ToolStreamEvent, TypedEvent
 from ...types.content import Message
 from ...types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolResult, ToolUse
 
@@ -81,6 +81,31 @@ class ToolExecutor(abc.ABC):
             )
         )
 
+        if before_event.cancel_tool:
+            cancel_message = (
+                before_event.cancel_tool if isinstance(before_event.cancel_tool, str) else "tool cancelled by user"
+            )
+            yield ToolCancelEvent(tool_use, cancel_message)
+
+            cancel_result: ToolResult = {
+                "toolUseId": str(tool_use.get("toolUseId")),
+                "status": "error",
+                "content": [{"text": cancel_message}],
+            }
+            after_event = agent.hooks.invoke_callbacks(
+                AfterToolCallEvent(
+                    agent=agent,
+                    tool_use=tool_use,
+                    invocation_state=invocation_state,
+                    selected_tool=None,
+                    result=cancel_result,
+                    cancel_message=cancel_message,
+                )
+            )
+            yield ToolResultEvent(after_event.result)
+            tool_results.append(after_event.result)
+            return
+
         try:
             selected_tool = before_event.selected_tool
             tool_use = before_event.tool_use
@@ -123,7 +148,7 @@ class ToolExecutor(abc.ABC):
                 # so that we don't needlessly yield ToolStreamEvents for non-generator callbacks.
                 # In which case, as soon as we get a ToolResultEvent we're done and for ToolStreamEvent
                 # we yield it directly; all other cases (non-sdk AgentTools), we wrap events in
-                # ToolStreamEvent and the last even is just the result
+                # ToolStreamEvent and the last event is just the result.
 
                 if isinstance(event, ToolResultEvent):
                     # below the last "event" must point to the tool_result
