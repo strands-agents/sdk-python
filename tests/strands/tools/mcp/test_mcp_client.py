@@ -569,9 +569,6 @@ def test_call_tool_sync_embedded_nested_text(mock_transport, mock_session):
 
 def test_call_tool_sync_embedded_nested_base64_textual_mime(mock_transport, mock_session):
     """EmbeddedResource.resource (uri + blob with textual MIME) should decode to text."""
-    import base64
-
-    from mcp.types import CallToolResult as MCPCallToolResult
 
     payload = base64.b64encode(b'{"k":"v"}').decode()
 
@@ -599,12 +596,9 @@ def test_call_tool_sync_embedded_nested_base64_textual_mime(mock_transport, mock
 
 def test_call_tool_sync_embedded_image_blob(mock_transport, mock_session):
     """EmbeddedResource.resource (blob with image MIME) should map to image content."""
-    import base64
-
-    # Create a simple 1x1 PNG image
-    png_data = base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
-    )
+    # Read yellow.png file
+    with open("tests_integ/yellow.png", "rb") as image_file:
+        png_data = image_file.read()
     payload = base64.b64encode(png_data).decode()
 
     er = {
@@ -656,7 +650,6 @@ def test_call_tool_sync_embedded_non_textual_blob_dropped(mock_transport, mock_s
 
 def test_call_tool_sync_embedded_multiple_textual_mimes(mock_transport, mock_session):
     """EmbeddedResource with different textual MIME types should decode to text."""
-    import base64
 
     # Test YAML content
     yaml_content = base64.b64encode(b"key: value\nlist:\n  - item1\n  - item2").decode()
