@@ -19,11 +19,11 @@ from types import TracebackType
 from typing import Any, Callable, Coroutine, Dict, Optional, TypeVar, Union, cast
 
 from mcp import ClientSession, ListToolsResult
+from mcp.types import BlobResourceContents, GetPromptResult, ListPromptsResult, TextResourceContents
 from mcp.types import CallToolResult as MCPCallToolResult
-from mcp.types import GetPromptResult, ListPromptsResult
+from mcp.types import EmbeddedResource as MCPEmbeddedResource
 from mcp.types import ImageContent as MCPImageContent
 from mcp.types import TextContent as MCPTextContent
-from mcp.types import EmbeddedResource as MCPEmbeddedResource
 
 from ...types import PaginatedList
 from ...types.exceptions import MCPClientInitializationError
@@ -358,8 +358,7 @@ class MCPClient:
         """
         self._log_debug_with_thread("received tool result with %d content items", len(call_tool_result.content))
 
-        # Build a typed list of ToolResultContent. Use a clearer local name to avoid shadowing
-        # and annotate the result for mypy so it knows the intended element type.
+        # Build a typed list of ToolResultContent.
         mapped_contents: list[ToolResultContent] = [
             mc
             for content in call_tool_result.content
@@ -454,83 +453,57 @@ class MCPClient:
                 }
             }
         elif isinstance(content, MCPEmbeddedResource):
+            """
+            TODO: Include URI information in results.
+                Models may find it useful to be aware not only of the information,
+                but the location of the information too.
+
+                This may be difficult without taking an opinionated position. For example,
+                a content block may need to indicate that the following Image content block
+                is of particular URI.
+            """
+
             self._log_debug_with_thread("mapping MCP embedded resource content")
-            resource = getattr(content, "resource", None)
-            if resource is None:
-                self._log_debug_with_thread("embedded resource has no 'resource' field - dropping")
-                return None
 
-            text_val = getattr(resource, "text", None)
-            if text_val:
-                return {"text": text_val}
-
-            blob_val = getattr(resource, "blob", None)
-            mime_type = getattr(resource, "mimeType", None)
-
-            if blob_val is not None:
-                # blob is a base64 string in current mcp schema
-                raw_bytes: Optional[bytes]
+            resource = content.resource
+            if isinstance(resource, TextResourceContents):
+                return {"text": resource.text}
+            elif isinstance(resource, BlobResourceContents):
                 try:
-                    if isinstance(blob_val, (bytes, bytearray)):
-                        raw_bytes = bytes(blob_val)
-                    elif isinstance(blob_val, str):
-                        raw_bytes = base64.b64decode(blob_val)
-                    else:
-                        raw_bytes = None
+                    raw_bytes = base64.b64decode(resource.blob)
                 except Exception:
-                    raw_bytes = None
-
-                if raw_bytes is None:
                     self._log_debug_with_thread("embedded resource blob could not be decoded - dropping")
                     return None
 
-                def _is_textual(mt: Optional[str]) -> bool:
-                    if not mt:
-                        return False
-                    if mt.startswith("text/"):
-                        return True
-                    textual = (
+                if resource.mimeType and (
+                    resource.mimeType.startswith("text/")
+                    or resource.mimeType
+                    in (
                         "application/json",
                         "application/xml",
                         "application/javascript",
-                        "application/x-yaml",
                         "application/yaml",
-                        "application/xhtml+xml",
+                        "application/x-yaml",
                     )
-                    if mt in textual or mt.endswith("+json") or mt.endswith("+xml"):
-                        return True
-                    return False
-
-                if _is_textual(mime_type):
+                    or resource.mimeType.endswith(("+json", "+xml"))
+                ):
                     try:
                         return {"text": raw_bytes.decode("utf-8", errors="replace")}
                     except Exception:
                         pass
 
-                if mime_type in MIME_TO_FORMAT:
+                if resource.mimeType in MIME_TO_FORMAT:
                     return {
                         "image": {
-                            "format": MIME_TO_FORMAT[mime_type],
+                            "format": MIME_TO_FORMAT[resource.mimeType],
                             "source": {"bytes": raw_bytes},
                         }
                     }
 
                 self._log_debug_with_thread("embedded resource blob with non-textual/unknown mimeType - dropping")
                 return None
-            
-            # Handle URI-only resources
-            uri = getattr(resource, "uri", None)
-            if uri:
-                return {
-                    "json": {
-                        "uri": uri,
-                        "mime_type": mime_type
-                    }
-                }
 
-            # Make sure we return in all paths
-            self._log_debug_with_thread("embedded resource had no usable text/blob/uri; dropping")
-            return None
+            return None  # type: ignore[unreachable]  # Defensive: future MCP resource types
         else:
             self._log_debug_with_thread("unhandled content type: %s - dropping content", content.__class__.__name__)
             return None
