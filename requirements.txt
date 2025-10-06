@@ -1,0 +1,18 @@
+# Core dependencies
+pyodbc>=4.0.0              # SQL Server connectivity
+boto3>=1.26.0              # AWS SDK for pricing API
+pandas>=1.5.0              # Data processing (optional)
+
+# Strands framework (if using Strands integration)
+strands-agents>=1.0.0      # Strands AI framework
+strands-agents-tools>=0.2.0 # Strands tools integration
+
+# Optional dependencies
+sqlalchemy>=1.4.0          # Database ORM (optional)
+
+# Development dependencies (uncomment for development)
+# pytest>=7.0.0            # Testing framework
+# pytest-cov>=4.0.0        # Coverage reporting
+# black>=22.0.0             # Code formatting
+# flake8>=5.0.0             # Linting
+# mypy>=0.991               # Type checking

@@ -1,14 +1,262 @@
-.DS_Store
-build
-__pycache__*
-.coverage*
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
+#   However, in case of collaboration, if having platform-specific dependencies or dependencies
+#   having no cross-platform support, pipenv may install dependencies that don't work, or not
+#   install all needed dependencies.
+#Pipfile.lock
+
+# PEP 582; used by e.g. github.com/David-OConnor/pyflow
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
 .env
 .venv
-.mypy_cache
-.pytest_cache
-.ruff_cache
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# RDS Discovery Tool specific files
+*.csv
+*.json
+*.log
+!requirements.txt
+!examples/*.csv
+!test_scenarios/*.csv
+
+# Sensitive data
+*password*
+*credential*
+*secret*
+*key*
+.aws/
+.azure/
+
+# Assessment results
+RdsDiscovery_*.csv
+RdsAssessment_*.csv
+RdsAssessment_*.json
+RdsAssessment_*.log
+assessment_*.csv
+assessment_*.json
+assessment_*.log
+test_output_*.csv
+test_output_*.json
+test_output_*.log
+
+# Test files with real data
+real_servers.csv
+prod_*.csv
+production_*.csv
+live_*.csv
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.temp
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows
+*.lnk
+
+# SQL Server files
+*.mdf
+*.ldf
 *.bak
-.vscode
-dist
-repl_state
-.kiro
+
+# Backup files
+*.backup
+*.bak
+*.old
+
+# Configuration files with sensitive data
+config.ini
+config.json
+settings.json
+local_config.py
+
+# Documentation build
+docs/build/
+docs/_build/
+
+# Coverage reports
+htmlcov/
+.coverage
+coverage.xml
+
+# Performance test results
+benchmark_results/
+performance_logs/
+
+# Large test datasets
+large_server_lists/
+enterprise_assessments/
+
+# Compiled documentation
+*.pdf
+*.epub
+
+# Package files
+*.tar.gz
+*.zip
+*.rar
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Cache directories
+.cache/
+cache/
+
+# Node modules (if any JS tools are used)
+node_modules/
+
+# Terraform files (if infrastructure as code is used)
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Docker files
+.dockerignore
+Dockerfile.local
+
+# Kubernetes files
+k8s-local/
+*.local.yaml
+
+# Local development overrides
+docker-compose.override.yml
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local

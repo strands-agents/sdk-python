@@ -1,147 +1,360 @@
-# Contributing Guidelines
+# Contributing to Strands RDS Discovery Tool
 
-Thank you for your interest in contributing to our project. Whether it's a bug report, new feature, correction, or additional
-documentation, we greatly value feedback and contributions from our community.
+Thank you for your interest in contributing to the Strands RDS Discovery Tool! This document provides guidelines and information for contributors.
 
-Please read through this document before submitting any issues or pull requests to ensure we have all the necessary
-information to effectively respond to your bug report or contribution.
+## Table of Contents
 
-
-## Reporting Bugs/Feature Requests
-
-We welcome you to use the [Bug Reports](../../issues/new?template=bug_report.yml) file to report bugs or [Feature Requests](../../issues/new?template=feature_request.yml) to suggest features.
-
-For a list of known bugs and feature requests:
-- Check [Bug Reports](../../issues?q=is%3Aissue%20state%3Aopen%20label%3Abug) for currently tracked issues
-- See [Feature Requests](../../issues?q=is%3Aissue%20state%3Aopen%20label%3Aenhancement) for requested enhancements
-
-When filing an issue, please check for already tracked items
-
-Please try to include as much information as you can. Details like these are incredibly useful:
-
-* A reproducible test case or series of steps
-* The version of our code being used (commit ID)
-* Any modifications you've made relevant to the bug
-* Anything unusual about your environment or deployment
-
-
-## Finding contributions to work on
-Looking at the existing issues is a great way to find something to contribute to. We label issues that are well-defined and ready for community contributions with the "ready for contribution" label.
-
-Check our [Ready for Contribution](../../issues?q=is%3Aissue%20state%3Aopen%20label%3A%22ready%20for%20contribution%22) issues for items you can work on.
-
-Before starting work on any issue:
-1. Check if someone is already assigned or working on it
-2. Comment on the issue to express your interest and ask any clarifying questions
-3. Wait for maintainer confirmation before beginning significant work
-
-
-## Development Environment
-
-This project uses [hatchling](https://hatch.pypa.io/latest/build/#hatchling) as the build backend and [hatch](https://hatch.pypa.io/latest/) for development workflow management.
-
-### Setting Up Your Development Environment
-
-1. Entering virtual environment using `hatch` (recommended), then launch your IDE in the new shell.
-   ```bash
-   hatch shell
-   ```
-
-
-2. Set up pre-commit hooks:
-   ```bash
-   pre-commit install -t pre-commit -t commit-msg
-   ```
-   This will automatically run formatters and conventional commit checks on your code before each commit.
-
-3. Run code formatters manually:
-   ```bash
-   hatch fmt --formatter
-   ```
-
-4. Run linters:
-   ```bash
-   hatch fmt --linter
-   ```
-
-5. Run unit tests:
-   ```bash
-   hatch test
-   ```
-   Or run them with coverage:
-   ```bash
-   hatch test -c
-   ```
-
-6. Run integration tests:
-   ```bash
-   hatch run test-integ
-   ```
-
-### Pre-commit Hooks
-
-We use [pre-commit](https://pre-commit.com/) to automatically run quality checks before each commit. The hook will run `hatch run format`, `hatch run lint`, `hatch run test`, and `hatch run cz check` when you make a commit, ensuring code consistency.
-
-The pre-commit hook is installed with:
-
-```bash
-pre-commit install
-```
-
-You can also run the hooks manually on all files:
-
-```bash
-pre-commit run --all-files
-```
-
-### Code Formatting and Style Guidelines
-
-We use the following tools to ensure code quality:
-1. **ruff** - For formatting and linting
-2. **mypy** - For static type checking
-
-These tools are configured in the [pyproject.toml](./pyproject.toml) file. Please ensure your code passes all linting and type checks before submitting a pull request:
-
-```bash
-# Run all checks
-hatch fmt --formatter
-hatch fmt --linter
-```
-
-If you're using an IDE like VS Code or PyCharm, consider configuring it to use these tools automatically.
-
-For additional details on styling, please see our dedicated [Style Guide](./STYLE_GUIDE.md).
-
-
-## Contributing via Pull Requests
-Contributions via pull requests are much appreciated. Before sending us a pull request, please ensure that:
-
-1. You are working against the latest source on the *main* branch.
-2. You check existing open, and recently merged, pull requests to make sure someone else hasn't addressed the problem already.
-3. You open an issue to discuss any significant work - we would hate for your time to be wasted.
-
-To send us a pull request, please:
-
-1. Create a branch.
-2. Modify the source; please focus on the specific change you are contributing. If you also reformat all the code, it will be hard for us to focus on your change.
-3. Format your code using `hatch fmt --formatter`.
-4. Run linting checks with `hatch fmt --linter`.
-5. Ensure local tests pass with `hatch test` and `hatch run test-integ`.
-6. Commit to your branch using clear commit messages following the [Conventional Commits](https://www.conventionalcommits.org) specification.
-7. Send us a pull request, answering any default questions in the pull request interface.
-8. Pay attention to any automated CI failures reported in the pull request, and stay involved in the conversation.
-
+- [Code of Conduct](#code-of-conduct)
+- [Getting Started](#getting-started)
+- [Development Setup](#development-setup)
+- [Contributing Guidelines](#contributing-guidelines)
+- [Pull Request Process](#pull-request-process)
+- [Issue Reporting](#issue-reporting)
+- [Development Standards](#development-standards)
 
 ## Code of Conduct
-This project has adopted the [Amazon Open Source Code of Conduct](https://aws.github.io/code-of-conduct).
-For more information see the [Code of Conduct FAQ](https://aws.github.io/code-of-conduct-faq) or contact
-opensource-codeofconduct@amazon.com with any additional questions or comments.
 
+This project adheres to a code of conduct that promotes a welcoming and inclusive environment. By participating, you are expected to uphold this code.
 
-## Security issue notifications
-If you discover a potential security issue in this project we ask that you notify AWS/Amazon Security via our [vulnerability reporting page](http://aws.amazon.com/security/vulnerability-reporting/). Please do **not** create a public github issue.
+### Our Standards
 
+- **Be respectful**: Treat all contributors with respect and professionalism
+- **Be inclusive**: Welcome contributors from all backgrounds and experience levels
+- **Be collaborative**: Work together constructively and share knowledge
+- **Be constructive**: Provide helpful feedback and suggestions
 
-## Licensing
+## Getting Started
 
-See the [LICENSE](./LICENSE) file for our project's licensing. We will ask you to confirm the licensing of your contribution.
+### Prerequisites
+
+- Python 3.8 or higher
+- SQL Server access for testing
+- Basic understanding of SQL Server and AWS RDS
+- Git for version control
+
+### Development Environment
+
+1. **Fork the repository**
+   ```bash
+   git clone https://github.com/your-username/strands-rds-discovery.git
+   cd strands-rds-discovery
+   ```
+
+2. **Create virtual environment**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
+
+3. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. **Run tests**
+   ```bash
+   python test.py --input-file real_servers.csv --auth-type sql --username test --password Password1!
+   ```
+
+## Development Setup
+
+### Project Structure
+
+```
+strands-rds-discovery/
+├── src/
+│   ├── rds_discovery.py      # Main tool implementation
+│   └── sql_queries.py        # SQL query definitions
+├── tests/
+│   └── test_*.py            # Test files
+├── docs/
+│   ├── README.md            # Project documentation
+│   ├── USAGE_GUIDE.md       # Usage instructions
+│   └── AWS_PRICING.md       # Pricing documentation
+├── examples/
+│   └── sample_servers.csv   # Example server lists
+└── requirements.txt         # Python dependencies
+```
+
+### Key Components
+
+- **Core Assessment Engine**: `src/rds_discovery.py`
+- **SQL Query Framework**: `src/sql_queries.py`
+- **Test Suite**: `test.py` and `tests/`
+- **Documentation**: Comprehensive guides and examples
+
+## Contributing Guidelines
+
+### Types of Contributions
+
+We welcome various types of contributions:
+
+1. **Bug Reports**: Help us identify and fix issues
+2. **Feature Requests**: Suggest new functionality
+3. **Code Contributions**: Implement features or fix bugs
+4. **Documentation**: Improve guides, examples, and comments
+5. **Testing**: Add test cases and improve coverage
+6. **Performance**: Optimize existing functionality
+
+### Contribution Areas
+
+#### High Priority
+- **AWS Pricing Enhancements**: Reserved Instance pricing, multi-region support
+- **Feature Detection**: Additional SQL Server features and edge cases
+- **Performance Optimization**: Large-scale assessment improvements
+- **Error Handling**: Enhanced error recovery and reporting
+
+#### Medium Priority
+- **Storage Cost Estimation**: Complete TCO calculations
+- **Reporting Enhancements**: Executive summaries and detailed reports
+- **API Development**: RESTful API for integration
+- **Multi-Database Support**: PostgreSQL, MySQL assessment capabilities
+
+#### Low Priority
+- **UI Development**: Web interface for assessments
+- **Visualization**: Charts and graphs for assessment results
+- **Integration**: Third-party tool integrations
+- **Automation**: CI/CD pipeline improvements
+
+## Pull Request Process
+
+### Before Submitting
+
+1. **Create an issue** describing the problem or feature
+2. **Fork the repository** and create a feature branch
+3. **Write tests** for new functionality
+4. **Update documentation** as needed
+5. **Test thoroughly** with real SQL Server instances
+
+### Pull Request Guidelines
+
+1. **Branch Naming**
+   ```
+   feature/pricing-enhancements
+   bugfix/connection-timeout
+   docs/usage-guide-update
+   ```
+
+2. **Commit Messages**
+   ```
+   feat: add Reserved Instance pricing support
+   fix: resolve connection timeout issues
+   docs: update usage guide with pricing examples
+   test: add comprehensive pricing test cases
+   ```
+
+3. **Pull Request Template**
+   ```markdown
+   ## Description
+   Brief description of changes
+
+   ## Type of Change
+   - [ ] Bug fix
+   - [ ] New feature
+   - [ ] Documentation update
+   - [ ] Performance improvement
+
+   ## Testing
+   - [ ] Unit tests pass
+   - [ ] Integration tests pass
+   - [ ] Manual testing completed
+
+   ## Checklist
+   - [ ] Code follows style guidelines
+   - [ ] Self-review completed
+   - [ ] Documentation updated
+   - [ ] Tests added/updated
+   ```
+
+### Review Process
+
+1. **Automated Checks**: All tests must pass
+2. **Code Review**: At least one maintainer review required
+3. **Documentation Review**: Ensure docs are updated
+4. **Testing Verification**: Manual testing with real data
+5. **Merge**: Squash and merge after approval
+
+## Issue Reporting
+
+### Bug Reports
+
+When reporting bugs, please include:
+
+```markdown
+## Bug Description
+Clear description of the issue
+
+## Environment
+- OS: [e.g., Windows 10, Ubuntu 20.04]
+- Python Version: [e.g., 3.9.7]
+- SQL Server Version: [e.g., 2019, 2022]
+- Tool Version: [e.g., v2.0.0]
+
+## Steps to Reproduce
+1. Step one
+2. Step two
+3. Step three
+
+## Expected Behavior
+What should happen
+
+## Actual Behavior
+What actually happens
+
+## Error Messages
+```
+[Include any error messages or logs]
+```
+
+## Additional Context
+Any other relevant information
+```
+
+### Feature Requests
+
+For feature requests, please provide:
+
+```markdown
+## Feature Description
+Clear description of the proposed feature
+
+## Use Case
+Why is this feature needed?
+
+## Proposed Solution
+How should this feature work?
+
+## Alternatives Considered
+Other approaches you've considered
+
+## Additional Context
+Any other relevant information
+```
+
+## Development Standards
+
+### Code Style
+
+- **PEP 8**: Follow Python style guidelines
+- **Type Hints**: Use type hints for function parameters and returns
+- **Docstrings**: Document all functions and classes
+- **Comments**: Explain complex logic and business rules
+
+### Example Code Style
+
+```python
+def assess_sql_server(
+    server_name: str, 
+    auth_type: str, 
+    username: Optional[str] = None,
+    password: Optional[str] = None,
+    timeout: int = 30
+) -> Dict[str, Any]:
+    """
+    Assess SQL Server instance for RDS compatibility.
+    
+    Args:
+        server_name: SQL Server instance name or IP
+        auth_type: Authentication type ('windows' or 'sql')
+        username: SQL Server username (required for SQL auth)
+        password: SQL Server password (required for SQL auth)
+        timeout: Connection timeout in seconds
+        
+    Returns:
+        Dictionary containing assessment results
+        
+    Raises:
+        ConnectionError: If unable to connect to SQL Server
+        AuthenticationError: If authentication fails
+    """
+    # Implementation here
+    pass
+```
+
+### Testing Standards
+
+- **Unit Tests**: Test individual functions and methods
+- **Integration Tests**: Test complete workflows
+- **Real Data Testing**: Test with actual SQL Server instances
+- **Error Case Testing**: Test error handling and edge cases
+
+### Documentation Standards
+
+- **README**: Keep main README current and comprehensive
+- **Usage Guide**: Detailed usage instructions with examples
+- **API Documentation**: Document all public functions
+- **Change Log**: Maintain detailed change history
+
+## Security Considerations
+
+### Sensitive Data
+
+- **Never commit credentials** or connection strings
+- **Use environment variables** for sensitive configuration
+- **Sanitize logs** to remove sensitive information
+- **Follow security best practices** for database connections
+
+### Code Security
+
+- **Input validation**: Validate all user inputs
+- **SQL injection prevention**: Use parameterized queries
+- **Error handling**: Don't expose sensitive information in errors
+- **Dependency management**: Keep dependencies updated
+
+## Performance Guidelines
+
+### Optimization Priorities
+
+1. **Connection Management**: Efficient database connections
+2. **Query Optimization**: Fast and efficient SQL queries
+3. **Memory Usage**: Minimize memory footprint for large assessments
+4. **Concurrent Processing**: Optimize for multiple server assessments
+
+### Performance Testing
+
+- **Benchmark tests**: Measure performance improvements
+- **Load testing**: Test with large server lists
+- **Memory profiling**: Monitor memory usage patterns
+- **Network optimization**: Minimize network overhead
+
+## Release Process
+
+### Version Numbering
+
+We follow [Semantic Versioning](https://semver.org/):
+- **MAJOR**: Breaking changes
+- **MINOR**: New features (backward compatible)
+- **PATCH**: Bug fixes (backward compatible)
+
+### Release Checklist
+
+- [ ] All tests pass
+- [ ] Documentation updated
+- [ ] CHANGELOG.md updated
+- [ ] Version numbers updated
+- [ ] Release notes prepared
+- [ ] Security review completed
+
+## Getting Help
+
+### Resources
+
+- **Documentation**: Check existing documentation first
+- **Issues**: Search existing issues for similar problems
+- **Discussions**: Use GitHub Discussions for questions
+- **Examples**: Review example code and usage patterns
+
+### Contact
+
+- **GitHub Issues**: For bugs and feature requests
+- **GitHub Discussions**: For questions and general discussion
+- **Email**: [Maintainer email if applicable]
+
+## Recognition
+
+Contributors will be recognized in:
+- **CONTRIBUTORS.md**: List of all contributors
+- **Release Notes**: Major contributions highlighted
+- **Documentation**: Attribution for significant contributions
+
+Thank you for contributing to the Strands RDS Discovery Tool!
