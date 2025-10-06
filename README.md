@@ -479,6 +479,91 @@ Success Rate: 100.0%
 - **Real-time Assessment**: No data stored locally beyond CSV output
 - **Audit Trail**: Complete logging of assessment activities
 
+## **🚀 GitHub Setup & Deployment**
+
+### **Initial Repository Setup**
+```bash
+# Initialize git repository
+git init
+git add .
+git commit -m "Initial commit: Strands RDS Discovery Tool v2.1.2"
+
+# Add GitHub remote
+git remote add origin https://github.com/bobtherdsman/RDSMCP.git
+git branch -M main
+```
+
+### **GitHub Personal Access Token Setup**
+1. Go to GitHub.com → Profile Picture → Settings
+2. Scroll to bottom of left sidebar → "Developer settings"
+3. Click "Personal access tokens" → "Tokens (classic)"
+4. Click "Generate new token (classic)"
+5. **Configuration**:
+   - **Note**: "RDS Discovery Tool"
+   - **Expiration**: Choose duration (30-90 days recommended)
+   - **Scopes**: Check `repo` (full repository access)
+6. **Copy token immediately** - you won't see it again
+
+**Direct link**: https://github.com/settings/tokens
+
+### **Push to GitHub**
+```bash
+# First push (handles merge conflicts)
+git pull origin main --allow-unrelated-histories --no-rebase
+
+# Resolve any conflicts by keeping local files
+git checkout --ours .gitignore CONTRIBUTING.md LICENSE README.md pyproject.toml
+git add .gitignore CONTRIBUTING.md LICENSE README.md pyproject.toml
+git commit -m "Merge remote changes, keeping local RDS discovery tool files"
+
+# Push to GitHub
+git push -u origin main
+# Username: bobtherdsman
+# Password: [paste your personal access token]
+```
+
+### **Handling Merge Conflicts**
+When pushing to an existing repository with different files:
+
+1. **Pull with merge strategy**:
+   ```bash
+   git pull origin main --allow-unrelated-histories --no-rebase
+   ```
+
+2. **Resolve conflicts** (keep your local versions):
+   ```bash
+   git checkout --ours [conflicted-files]
+   git add [conflicted-files]
+   ```
+
+3. **Commit merge**:
+   ```bash
+   git commit -m "Merge remote changes, keeping local RDS discovery tool files"
+   ```
+
+4. **Push successfully**:
+   ```bash
+   git push -u origin main
+   ```
+
+### **Authentication Notes**
+- **Username**: Your GitHub username (`bobtherdsman`)
+- **Password**: Your Personal Access Token (NOT your GitHub password)
+- **Token Security**: Store token securely, never commit to code
+- **Token Expiration**: Set appropriate expiration and renew as needed
+
+### **Repository Structure**
+```
+strands-rds-discovery/
+├── src/
+│   └── rds_discovery.py          # Main tool
+├── requirements.txt              # Dependencies
+├── README.md                     # This documentation
+├── RUN_GUIDE.md                 # Usage guide
+├── real_servers.csv             # Server input template
+└── RdsDiscovery_[timestamp].csv # Output files
+```
+
 ## **🤝 Contributing**
 
 ### **Strands Integration**
@@ -487,7 +572,7 @@ This tool is designed for integration into the mainstream Strands tools ecosyste
 ### **Development**
 ```bash
 # Setup development environment
-git clone https://github.com/your-org/strands-rds-discovery
+git clone https://github.com/bobtherdsman/RDSMCP.git
 cd strands-rds-discovery
 python3 -m venv venv
 source venv/bin/activate
@@ -495,6 +580,15 @@ pip install -r requirements.txt
 
 # Test with real server
 python3 -c "from src.rds_discovery import strands_rds_discovery; ..."
+```
+
+### **Making Changes**
+```bash
+# Make your changes
+git add .
+git commit -m "Description of changes"
+git push origin main
+# Use your personal access token when prompted
 ```
 
 ## **📞 Support**

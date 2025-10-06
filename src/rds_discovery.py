@@ -10,7 +10,7 @@ import time
 import boto3
 from typing import Optional
 from strands import tool
-from sql_queries import SERVER_INFO_QUERY, CPU_MEMORY_QUERY, DATABASE_SIZE_QUERY, FEATURE_CHECKS
+from .sql_queries import SERVER_INFO_QUERY, CPU_MEMORY_QUERY, DATABASE_SIZE_QUERY, FEATURE_CHECKS
 
 # Configure logging
 logging.basicConfig(
