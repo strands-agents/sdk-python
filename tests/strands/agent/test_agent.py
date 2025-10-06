@@ -17,12 +17,13 @@ from strands.agent.conversation_manager.sliding_window_conversation_manager impo
 from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
+from strands.session.repository_session_manager import RepositorySessionManager
 from strands.telemetry.tracer import serialize
 from strands.types._events import EventLoopStopEvent, ModelStreamEvent
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
-from tests.fixtures.mock_session_repository import MockedSessionRepository, TestRepositorySessionManager
+from tests.fixtures.mock_session_repository import MockedSessionRepository
 from tests.fixtures.mocked_model_provider import MockedModelProvider
 
 # For unit testing we will use the the us inference
@@ -1528,7 +1529,7 @@ def test_agent_state_get_breaks_deep_dict_reference():
 
 def test_agent_session_management():
     mock_session_repository = MockedSessionRepository()
-    session_manager = TestRepositorySessionManager(session_id="123", session_repository=mock_session_repository)
+    session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
     model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
     agent = Agent(session_manager=session_manager, model=model)
     agent("Hello!")
@@ -1545,7 +1546,7 @@ def test_agent_restored_from_session_management():
             conversation_manager_state=SlidingWindowConversationManager().get_state(),
         ),
     )
-    session_manager = TestRepositorySessionManager(session_id="123", session_repository=mock_session_repository)
+    session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
 
     agent = Agent(session_manager=session_manager)
 
@@ -1566,7 +1567,7 @@ def test_agent_restored_from_session_management_with_message():
     mock_session_repository.create_message(
         "123", "default", SessionMessage({"role": "user", "content": [{"text": "Hello!"}]}, 0)
     )
-    session_manager = TestRepositorySessionManager(session_id="123", session_repository=mock_session_repository)
+    session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
 
     agent = Agent(session_manager=session_manager)
 
@@ -1597,9 +1598,7 @@ def test_agent_restored_from_session_management_with_redacted_input():
 
     test_session_id = str(uuid4())
     mocked_session_repository = MockedSessionRepository()
-    session_manager = TestRepositorySessionManager(
-        session_id=test_session_id, session_repository=mocked_session_repository
-    )
+    session_manager = RepositorySessionManager(session_id=test_session_id, session_repository=mocked_session_repository)
 
     agent = Agent(
         model=mocked_model,
@@ -1619,7 +1618,7 @@ def test_agent_restored_from_session_management_with_redacted_input():
     assert user_input_session_message.to_message() == agent.messages[0]
 
     # Restore an agent from the session, confirm input is still redacted
-    session_manager_2 = TestRepositorySessionManager(
+    session_manager_2 = RepositorySessionManager(
         session_id=test_session_id, session_repository=mocked_session_repository
     )
     agent_2 = Agent(
@@ -1638,13 +1637,13 @@ def test_agent_restored_from_session_management_with_correct_index():
         [{"role": "assistant", "content": [{"text": "hello!"}]}, {"role": "assistant", "content": [{"text": "world!"}]}]
     )
     mock_session_repository = MockedSessionRepository()
-    session_manager = TestRepositorySessionManager(session_id="test", session_repository=mock_session_repository)
+    session_manager = RepositorySessionManager(session_id="test", session_repository=mock_session_repository)
     agent = Agent(session_manager=session_manager, model=mock_model_provider)
     agent("Hello!")
 
     assert len(mock_session_repository.list_messages("test", agent.agent_id)) == 2
 
-    session_manager_2 = TestRepositorySessionManager(session_id="test", session_repository=mock_session_repository)
+    session_manager_2 = RepositorySessionManager(session_id="test", session_repository=mock_session_repository)
     agent_2 = Agent(session_manager=session_manager_2, model=mock_model_provider)
 
     assert len(agent_2.messages) == 2
@@ -1662,7 +1661,7 @@ def test_agent_restored_from_session_management_with_correct_index():
 def test_agent_with_session_and_conversation_manager():
     mock_model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
     mock_session_repository = MockedSessionRepository()
-    session_manager = TestRepositorySessionManager(session_id="123", session_repository=mock_session_repository)
+    session_manager = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
     conversation_manager = SlidingWindowConversationManager(window_size=1)
     # Create an agent with a mocked model and session repository
     agent = Agent(
@@ -1684,7 +1683,7 @@ def test_agent_with_session_and_conversation_manager():
     assert len(agent.messages) == 1
 
     # Initialize another agent using the same session
-    session_manager_2 = TestRepositorySessionManager(session_id="123", session_repository=mock_session_repository)
+    session_manager_2 = RepositorySessionManager(session_id="123", session_repository=mock_session_repository)
     conversation_manager_2 = SlidingWindowConversationManager(window_size=1)
     agent_2 = Agent(
         session_manager=session_manager_2,

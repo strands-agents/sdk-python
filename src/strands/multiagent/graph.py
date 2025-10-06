@@ -29,7 +29,7 @@ from ..agent.state import AgentState
 from ..experimental.multiagent_hooks import (
     AfterMultiAgentInvocationEvent,
     AfterNodeInvocationEvent,
-    MultiAgentInitializationEvent,
+    MultiagentInitializedEvent,
 )
 from ..hooks import HookRegistry
 from ..session import SessionManager
@@ -413,9 +413,7 @@ class Graph(MultiAgentBase):
         self._resume_from_persisted = False
         self._resume_next_nodes: list[GraphNode] = []
 
-        self._load_and_apply_persisted_state()
-        if not self._resume_from_persisted and self.state.status == Status.PENDING:
-            self.hooks.invoke_callbacks(MultiAgentInitializationEvent(orchestrator=self), supress_exceptions=True)
+        self.hooks.invoke_callbacks(MultiagentInitializedEvent(source=self), supress_exceptions=True)
 
     def __call__(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
@@ -499,7 +497,7 @@ class Graph(MultiAgentBase):
                 raise
             finally:
                 self.state.execution_time = round((time.time() - self.state.start_time) * 1000)
-                self.hooks.invoke_callbacks(AfterMultiAgentInvocationEvent(orchestrator=self), supress_exceptions=True)
+                self.hooks.invoke_callbacks(AfterMultiAgentInvocationEvent(source=self), supress_exceptions=True)
                 self._resume_from_persisted = False
                 self._resume_next_nodes.clear()
             return self._build_result()
@@ -610,7 +608,7 @@ class Graph(MultiAgentBase):
                 self.state.results[node.node_id] = fail_result
 
             self.hooks.invoke_callbacks(
-                AfterNodeInvocationEvent(orchestrator=self, executed_node=node.node_id),
+                AfterNodeInvocationEvent(source=self, executed_node=node.node_id),
                 supress_exceptions=True,
             )
 
@@ -691,7 +689,7 @@ class Graph(MultiAgentBase):
                 "node_id=<%s>, execution_time=<%dms> | node completed successfully", node.node_id, node.execution_time
             )
             self.hooks.invoke_callbacks(
-                AfterNodeInvocationEvent(orchestrator=self, executed_node=node.node_id), supress_exceptions=True
+                AfterNodeInvocationEvent(source=self, executed_node=node.node_id), supress_exceptions=True
             )
 
         except asyncio.TimeoutError:
@@ -835,46 +833,6 @@ class Graph(MultiAgentBase):
             "execution_order": [n.node_id for n in self.state.execution_order],
         }
 
-    def _load_and_apply_persisted_state(self) -> None:
-        if self.session_manager is None:
-            return
-        try:
-            json_data = self.session_manager.read_multi_agent_json()
-        except Exception as e:
-            logger.exception("Resume failed; failed to load state: %s", e)
-            raise
-        if not json_data:
-            return
-
-        try:
-            self.deserialize_state(json_data)
-            self._resume_from_persisted = True
-
-            next_node_ids = json_data.get("next_node_to_execute") or []
-            mapped = self._map_node_ids(next_node_ids)
-            valid_ready: list[GraphNode] = []
-            completed = set(self.state.completed_nodes)
-
-            for node in mapped:
-                if node in completed or node.execution_status == Status.COMPLETED:
-                    continue
-                # only include if it’s dependency-ready
-                incoming = [edge for edge in self.edges if edge.to_node == node]
-                if not incoming:
-                    valid_ready.append(node)
-                    continue
-
-                if all(e.from_node in completed and e.should_traverse(self.state) for e in incoming):
-                    valid_ready.append(node)
-
-            if not valid_ready:
-                valid_ready = self._compute_ready_nodes_for_resume()
-
-            self._resume_next_nodes = sorted(valid_ready, key=lambda node: node.node_id)
-            logger.debug("Resumed from persisted state. Next nodes: %s", [n.node_id for n in self._resume_next_nodes])
-        except Exception as e:
-            logger.exception("Failed to apply multiagent state : %s", e)
-
     def _map_node_ids(self, node_ids: list[str] | None) -> list[GraphNode]:
         if not node_ids:
             return []
@@ -914,3 +872,37 @@ class Graph(MultiAgentBase):
             payload: Dictionary containing persisted state data
         """
         self._from_dict(payload)
+
+    def attempt_resume(self, payload: dict[str, Any]) -> None:
+        """Apply a persisted graph payload and prepare resume execution."""
+        try:
+            self.deserialize_state(payload)
+            self._resume_from_persisted = True
+
+            next_node_ids = payload.get("next_node_to_execute") or []
+            mapped = self._map_node_ids(next_node_ids)
+            valid_ready: list[GraphNode] = []
+            completed = set(self.state.completed_nodes)
+
+            for node in mapped:
+                if node in completed or node.execution_status == Status.COMPLETED:
+                    continue
+                # only include if it’s dependency-ready
+                incoming = [edge for edge in self.edges if edge.to_node == node]
+                if not incoming:
+                    valid_ready.append(node)
+                    continue
+
+                if all(e.from_node in completed and e.should_traverse(self.state) for e in incoming):
+                    valid_ready.append(node)
+
+            if not valid_ready:
+                valid_ready = self._compute_ready_nodes_for_resume()
+
+            self._resume_next_nodes = sorted(valid_ready, key=lambda nodes: nodes.node_id)
+            logger.debug("Resumed from persisted state. Next nodes: %s", [n.node_id for n in self._resume_next_nodes])
+        except Exception:
+            logger.exception("Failed to apply resume payload")
+            self._resume_from_persisted = False
+            self._resume_next_nodes.clear()
+            raise

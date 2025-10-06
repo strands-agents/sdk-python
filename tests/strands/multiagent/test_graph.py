@@ -1357,7 +1357,7 @@ async def test_graph_persisted(mock_strands_tracer, mock_use_span):
         "next_node_to_execute": ["test_node"],
     }
 
-    graph.deserialize_state(persisted_state)
+    graph._from_dict(persisted_state)
     assert graph.state.task == "persisted task"
 
     # Execute graph to test persistence integration

@@ -15,16 +15,23 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class MultiAgentInitializationEvent(BaseHookEvent):
-    """Event triggered when multi-agent orchestrator initializes.
+class MultiagentInitializedEvent(BaseHookEvent):
+    """Event triggered when multi-agent orchestrator initialized.
 
     Attributes:
-        orchestrator: The multi-agent orchestrator instance
+        source: The multi-agent orchestrator instance
         invocation_state: Configuration that user pass in
     """
 
-    orchestrator: "MultiAgentBase"
+    source: "MultiAgentBase"
     invocation_state: dict[str, Any] | None = None
+
+
+@dataclass
+class BeforeNodeInvocationEvent(BaseHookEvent):
+    """Event triggered before individual node execution completes."""
+
+    pass
 
 
 @dataclass
@@ -32,14 +39,19 @@ class AfterNodeInvocationEvent(BaseHookEvent):
     """Event triggered after individual node execution completes.
 
     Attributes:
-        orchestrator: The multi-agent orchestrator instance
+        source: The multi-agent orchestrator instance
         executed_node: ID of the node that just completed execution
         invocation_state: Configuration that user pass in
     """
 
-    orchestrator: "MultiAgentBase"
+    source: "MultiAgentBase"
     executed_node: str
     invocation_state: dict[str, Any] | None = None
+
+    @property
+    def should_reverse_callbacks(self) -> bool:
+        """True to invoke callbacks in reverse order."""
+        return True
 
 
 @dataclass
@@ -47,9 +59,9 @@ class AfterMultiAgentInvocationEvent(BaseHookEvent):
     """Event triggered after orchestrator execution completes.
 
     Attributes:
-        orchestrator: The multi-agent orchestrator instance
+        source: The multi-agent orchestrator instance
         invocation_state: Configuration that user pass in
     """
 
-    orchestrator: "MultiAgentBase"
+    source: "MultiAgentBase"
     invocation_state: dict[str, Any] | None = None

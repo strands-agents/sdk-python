@@ -1,4 +1,3 @@
-from strands.session.repository_session_manager import RepositorySessionManager
 from strands.session.session_repository import SessionRepository
 from strands.types.exceptions import SessionException
 from strands.types.session import SessionAgent, SessionMessage
@@ -96,15 +95,3 @@ class MockedSessionRepository(SessionRepository):
         if limit is not None:
             return sorted_messages[offset : offset + limit]
         return sorted_messages[offset:]
-
-
-class TestRepositorySessionManager(RepositorySessionManager):
-    """Test implementation of RepositorySessionManager with concrete multi-agent methods."""
-
-    def write_multi_agent_json(self, state: dict) -> None:
-        """Write multi-agent state (no-op for testing)."""
-        pass
-
-    def read_multi_agent_json(self) -> dict:
-        """Read multi-agent state (returns empty dict for testing)."""
-        return {}

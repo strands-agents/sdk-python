@@ -5,10 +5,11 @@ import pytest
 from strands.agent.agent import Agent
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.conversation_manager.summarizing_conversation_manager import SummarizingConversationManager
+from strands.session.repository_session_manager import RepositorySessionManager
 from strands.types.content import ContentBlock
 from strands.types.exceptions import SessionException
 from strands.types.session import Session, SessionAgent, SessionMessage, SessionType
-from tests.fixtures.mock_session_repository import MockedSessionRepository, TestRepositorySessionManager
+from tests.fixtures.mock_session_repository import MockedSessionRepository
 
 
 @pytest.fixture
@@ -20,7 +21,7 @@ def mock_repository():
 @pytest.fixture
 def session_manager(mock_repository):
     """Create a session manager with mock repository."""
-    return TestRepositorySessionManager(session_id="test-session", session_repository=mock_repository)
+    return RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
 
 
 @pytest.fixture
@@ -35,7 +36,7 @@ def test_init_creates_session_if_not_exists(mock_repository):
     assert mock_repository.read_session("test-session") is None
 
     # Creating manager should create session
-    TestRepositorySessionManager(session_id="test-session", session_repository=mock_repository)
+    RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
 
     # Verify session created
     session = mock_repository.read_session("test-session")
@@ -51,7 +52,7 @@ def test_init_uses_existing_session(mock_repository):
     mock_repository.create_session(session)
 
     # Creating manager should use existing session
-    manager = TestRepositorySessionManager(session_id="test-session", session_repository=mock_repository)
+    manager = RepositorySessionManager(session_id="test-session", session_repository=mock_repository)
 
     # Verify session used
     assert manager.session == session

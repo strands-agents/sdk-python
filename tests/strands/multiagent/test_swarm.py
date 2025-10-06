@@ -606,7 +606,7 @@ async def test_swarm_persistence(mock_strands_tracer, mock_use_span):
         "context": {"shared_context": {"test_agent": {"key": "value"}}, "handoff_message": "test handoff"},
     }
 
-    swarm.deserialize_state(persisted_state)
+    swarm._from_dict(persisted_state)
     assert swarm.state.task == "persisted task"
     assert swarm.state.handoff_message == "test handoff"
     assert swarm.shared_context.context["test_agent"]["key"] == "value"

@@ -105,7 +105,7 @@ class NodeResult:
         return cls(
             result=result,
             execution_time=int(data.get("execution_time", 0)),
-            status=Status(data.get("status", Status.PENDING.value)),
+            status=Status(data.get("status", "pending")),
         )
 
 
@@ -232,3 +232,12 @@ class MultiAgentBase(ABC):
         if not isinstance(raw, NodeResult):
             raise TypeError(f"serialize_node_result_for_persist expects NodeResult, got {type(raw).__name__}")
         return raw.to_dict()
+
+    @abstractmethod
+    def attempt_resume(self, payload: dict[str, Any]) -> None:
+        """Attempt to resume orchestrator state from a session payload.
+
+        Args:
+            payload: Session data to restore orchestrator state from
+        """
+        pass
