@@ -360,19 +360,6 @@ class GraphBuilder:
             logger.warning("Graph without execution limits may run indefinitely if cycles exist")
 
 
-def _iterate_previous_outputs(raw: NodeResult | dict[str, Any]) -> list[tuple[str, str]]:
-    """Return a list of (agent_name, text) from NodeResult or persisted dict."""
-    # Live NodeResult
-    if hasattr(raw, "get_agent_results") and callable(raw.get_agent_results):
-        return [(getattr(r, "agent_name", "Agent"), str(r)) for r in raw.get_agent_results()]
-
-    if isinstance(raw, dict) and "agent_outputs" in raw:
-        return [("Agent", str(x)) for x in raw["agent_outputs"]]
-
-    # Fallback
-    return [("Agent", str(raw))]
-
-
 class Graph(MultiAgentBase):
     """Directed Graph multi-agent orchestration with configurable revisit behavior."""
 
@@ -580,8 +567,11 @@ class Graph(MultiAgentBase):
         return newly_ready
 
     def _is_node_ready_with_conditions(self, node: GraphNode, completed_batch: list["GraphNode"]) -> bool:
-        """Check if a node is ready considering conditional edges."""
-        # Get incoming edges to this node
+        """Check if a node is ready considering conditional edges.
+
+        A node is ready iff ALL incoming deps are completed AND their edge conditions pass,
+        and at least one of those deps was completed in THIS batch (so it's newly ready).
+        """
         incoming_edges = [edge for edge in self.edges if edge.to_node == node]
 
         # Check if at least one incoming edge condition is satisfied
@@ -778,8 +768,9 @@ class Graph(MultiAgentBase):
 
         for dep_id, prev_result in dependency_results.items():
             node_input.append(ContentBlock(text=f"\nFrom {dep_id}:"))
-            for agent_name, result_text in _iterate_previous_outputs(prev_result):
-                node_input.append(ContentBlock(text=f"  - {agent_name}: {result_text}"))
+            for agent_result in prev_result.get_agent_results():
+                agent_name = getattr(agent_result, "agent_name", "Agent")
+                node_input.append(ContentBlock(text=f"  - {agent_name}: {agent_result}"))
         return node_input
 
     def _build_result(self) -> GraphResult:
@@ -803,16 +794,25 @@ class Graph(MultiAgentBase):
 
     def _from_dict(self, payload: dict[str, Any]) -> None:
         status_raw = payload.get("status", "pending")
-        try:
-            self.state.status = Status(status_raw)
-        except Exception:
-            self.state.status = Status.PENDING
+        self.state.status = Status(status_raw)
 
         # Hydrate completed nodes & results
+        raw_results = payload.get("node_results") or {}
+        results: dict[str, NodeResult] = {}
+        for node_id, entry in raw_results.items():
+            if node_id not in self.nodes:
+                continue
+            try:
+                results[node_id] = NodeResult.from_dict(entry)
+            except Exception:
+                logger.exception("Failed to hydrate NodeResult for node_id=%s; skipping.", node_id)
+                raise
+        self.state.results = results
+
+        # Restore completed nodes from persisted data
         completed_node_ids = payload.get("completed_nodes") or []
         self.state.completed_nodes = {self.nodes[node_id] for node_id in completed_node_ids if node_id in self.nodes}
 
-        self.state.results = dict(payload.get("node_results") or {})
         # Execution order (only nodes that still exist)
         order_node_ids = payload.get("execution_order") or []
         self.state.execution_order = [self.nodes[node_id] for node_id in order_node_ids if node_id in self.nodes]
@@ -860,7 +860,11 @@ class Graph(MultiAgentBase):
                     continue
                 # only include if it’s dependency-ready
                 incoming = [edge for edge in self.edges if edge.to_node == node]
-                if any(edge.from_node in completed and edge.should_traverse(self.state) for edge in incoming):
+                if not incoming:
+                    valid_ready.append(node)
+                    continue
+
+                if all(e.from_node in completed and e.should_traverse(self.state) for e in incoming):
                     valid_ready.append(node)
 
             if not valid_ready:
@@ -884,18 +888,16 @@ class Graph(MultiAgentBase):
     def _compute_ready_nodes_for_resume(self) -> list[GraphNode]:
         ready_nodes: list[GraphNode] = []
         completed_nodes = set(self.state.completed_nodes)
-
         for node in self.nodes.values():
             if node in completed_nodes:
                 continue
             incoming = [e for e in self.edges if e.to_node is node]
-            if any(e.from_node in completed_nodes and e.should_traverse(self.state) for e in incoming):
+            if not incoming:
+                ready_nodes.append(node)
+            elif all(e.from_node in completed_nodes and e.should_traverse(self.state) for e in incoming):
                 ready_nodes.append(node)
 
-        if ready_nodes:
-            return ready_nodes
-
-        return [node for node in self.entry_points if node not in completed_nodes]
+        return ready_nodes
 
     def serialize_state(self) -> dict:
         """Return a JSON-serializable snapshot of the orchestrator state.

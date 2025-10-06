@@ -89,16 +89,6 @@ def test_node_result_get_agent_results(agent_result):
     assert "Response 1" in response_texts
     assert "Response 2" in response_texts
 
-    # Test with object that has AgentResult class name but isn't AgentResult
-    from unittest.mock import Mock
-
-    mock_result = Mock()
-    mock_result.__class__.__name__ = "AgentResult"
-    node_result = NodeResult(result=mock_result)
-    agent_results = node_result.get_agent_results()
-    assert len(agent_results) == 1
-    assert agent_results[0] == mock_result
-
 
 def test_multi_agent_result_initialization(agent_result):
     """Test MultiAgentResult initialization with defaults and custom values."""
@@ -251,11 +241,9 @@ def test_serialize_node_result_for_persist(agent_result):
     assert "execution_time" in serialized
     assert "status" in serialized
 
-    # Test with already normalized dict
-    normalized = {"agent_outputs": ["test1", "test2"]}
-    serialized = MultiAgentBase.serialize_node_result_for_persist(agent, normalized)
-    assert serialized == {"agent_outputs": ["test1", "test2"]}
+    # Test with invalid input type should raise TypeError
+    with pytest.raises(TypeError, match="serialize_node_result_for_persist expects NodeResult"):
+        MultiAgentBase.serialize_node_result_for_persist(agent, {"agent_outputs": ["test1", "test2"]})
 
-    # Test fallback case
-    serialized = MultiAgentBase.serialize_node_result_for_persist(agent, "simple string")
-    assert serialized == {"agent_outputs": ["simple string"]}
+    with pytest.raises(TypeError, match="serialize_node_result_for_persist expects NodeResult"):
+        MultiAgentBase.serialize_node_result_for_persist(agent, "simple string")

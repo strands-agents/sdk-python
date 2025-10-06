@@ -9,10 +9,11 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Union
+from typing import Any, Literal, Union, cast
 
 from ..agent import AgentResult
-from ..types.content import ContentBlock
+from ..telemetry.metrics import EventLoopMetrics
+from ..types.content import ContentBlock, Message
 from ..types.event_loop import Metrics, Usage
 
 logger = logging.getLogger(__name__)
@@ -52,47 +53,82 @@ class NodeResult:
         """Get all AgentResult objects from this node, flattened if nested."""
         if isinstance(self.result, Exception):
             return []  # No agent results for exceptions
-        if isinstance(self.result, AgentResult):
+        elif isinstance(self.result, AgentResult):
             return [self.result]
-        if getattr(self.result, "__class__", None) and self.result.__class__.__name__ == "AgentResult":
-            return [self.result]  # type: ignore[list-item]
-
         # If this is a nested MultiAgentResult, flatten children
-        if hasattr(self.result, "results") and isinstance(self.result.results, dict):
-            flattened: list[AgentResult] = []
-            for nested in self.result.results.values():
-                if isinstance(nested, NodeResult):
-                    flattened.extend(nested.get_agent_results())
+        else:
+            # Flatten nested results from MultiAgentResult
+            flattened = []
+            for nested_node_result in self.result.results.values():
+                flattened.extend(nested_node_result.get_agent_results())
             return flattened
-
-        return []
 
     def to_dict(self) -> dict[str, Any]:
         """Convert NodeResult to JSON-serializable dict, ignoring state field."""
-        result_data: Any = None
         if isinstance(self.result, Exception):
-            result_data = {"type": "exception", "message": str(self.result)}
+            result_data: dict[str, Any] = {"type": "exception", "message": str(self.result)}
         elif isinstance(self.result, AgentResult):
             # Serialize AgentResult without state field
             result_data = {
                 "type": "agent_result",
                 "stop_reason": self.result.stop_reason,
-                "message": self.result.message,  # Message type is JSON serializable
-                # Skip metrics and state - not JSON serializable
+                "message": self.result.message,
             }
-        elif hasattr(self.result, "to_dict"):
+        elif isinstance(self.result, MultiAgentResult):
             result_data = self.result.to_dict()
         else:
-            result_data = str(self.result)
+            raise TypeError(f"Unsupported NodeResult.result type for serialization: {type(self.result).__name__}")
 
         return {
             "result": result_data,
             "execution_time": self.execution_time,
             "status": self.status.value,
-            "accumulated_usage": dict(self.accumulated_usage),
-            "accumulated_metrics": dict(self.accumulated_metrics),
-            "execution_count": self.execution_count,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "NodeResult":
+        """Rehydrate a NodeResult from persisted JSON."""
+        if "result" not in data:
+            raise TypeError("NodeResult.from_dict: missing 'result'")
+        raw = data["result"]
+
+        result: Union[AgentResult, "MultiAgentResult", Exception]
+        if isinstance(raw, dict) and raw.get("type") == "agent_result":
+            result = _agent_result_from_persisted(raw)
+        elif isinstance(raw, dict) and raw.get("type") == "exception":
+            result = Exception(str(raw.get("message", "node failed")))
+        elif isinstance(raw, dict) and ("results" in raw):
+            result = MultiAgentResult.from_dict(raw)
+        else:
+            raise TypeError(f"NodeResult.from_dict: unsupported result payload: {raw!r}")
+
+        return cls(
+            result=result,
+            execution_time=int(data.get("execution_time", 0)),
+            status=Status(data.get("status", Status.PENDING.value)),
+        )
+
+
+def _agent_result_from_persisted(data: dict[str, Any]) -> AgentResult:
+    """Rehydrate a minimal AgentResult from persisted JSON.
+
+    Expected shape:
+      {"type": "agent_result", "message": <Message>, "stop_reason": <str|None>}
+    """
+    if data.get("type") != "agent_result":
+        raise TypeError(f"_agent_result_from_persisted: unexpected type {data.get('type')!r}")
+
+    message = cast(Message, data.get("message"))
+    stop_reason = cast(
+        Literal["content_filtered", "end_turn", "guardrail_intervened", "max_tokens", "stop_sequence", "tool_use"],
+        data.get("stop_reason"),
+    )
+
+    try:
+        return AgentResult(message=message, stop_reason=stop_reason, metrics=EventLoopMetrics(), state={})
+    except Exception:
+        logger.debug("AgentResult constructor failed during rehydrating")
+        raise
 
 
 @dataclass
@@ -121,6 +157,15 @@ class MultiAgentResult:
             "execution_count": self.execution_count,
             "execution_time": self.execution_time,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "MultiAgentResult":
+        """Rehydrate a MultiAgentResult from persisted JSON."""
+        multiagent_result = cls(
+            status=Status(data.get("status", Status.PENDING.value)),
+        )
+        multiagent_result.results = {k: NodeResult.from_dict(v) for k, v in data.get("results", {}).items()}
+        return multiagent_result
 
 
 class MultiAgentBase(ABC):
@@ -184,11 +229,6 @@ class MultiAgentBase(ABC):
         Returns:
             JSON-serializable dict representation
         """
-        if isinstance(raw, dict):
-            return raw
-
-        if hasattr(raw, "to_dict") and callable(raw.to_dict):
-            return raw.to_dict()
-
-        # Fallback for strings and other types
-        return {"agent_outputs": [str(raw)]}
+        if not isinstance(raw, NodeResult):
+            raise TypeError(f"serialize_node_result_for_persist expects NodeResult, got {type(raw).__name__}")
+        return raw.to_dict()

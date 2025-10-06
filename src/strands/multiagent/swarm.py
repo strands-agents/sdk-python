@@ -498,6 +498,7 @@ class Swarm(MultiAgentBase):
                 self.session_manager.write_multi_agent_json(self.serialize_state())
             except Exception as e:
                 logger.warning("Failed to persist swarm state after handoff: %s", e)
+                raise
 
     def _build_node_input(self, target_node: SwarmNode) -> str:
         """Build input text for a node based on shared context and handoffs.
@@ -768,7 +769,7 @@ class Swarm(MultiAgentBase):
             saved = self.session_manager.read_multi_agent_json()
         except Exception as e:
             logger.warning("Skipping resume; failed to load state: %s", e)
-            return
+            raise
         if not saved:
             return
 
