@@ -1,11 +1,5 @@
-"""Per-invocation context for structured output management.
-
-This module provides a typed, thread-safe context for managing structured output
-state during agent invocations.
-"""
-
 import logging
-from typing import Dict, Optional, Set, Type
+from typing import Dict, Optional, Type
 
 from pydantic import BaseModel
 
@@ -81,7 +75,7 @@ class StructuredOutputContext:
         Returns:
             True if attempts are below the maximum, False otherwise.
         """
-        if not self.structured_output_model:
+        if not self.is_enabled:
             return False
         return self.attempts < self.MAX_STRUCTURED_OUTPUT_ATTEMPTS
 
@@ -91,7 +85,7 @@ class StructuredOutputContext:
         Args:
             tool_choice: Optional tool choice configuration.
         """
-        if not self.structured_output_model:
+        if not self.is_enabled:
             return
         self.forced_mode = True
         self.tool_choice = tool_choice or {"any": {}}
@@ -123,15 +117,11 @@ class StructuredOutputContext:
     def extract_result(self, tool_uses: list[ToolUse]) -> BaseModel | None:
         """Extract and remove structured output result from stored results.
 
-        This method searches through the provided tool_uses for the structured output tool,
-        then extracts its validated result. 
-
         Args:
             tool_uses: List of tool use dictionaries from the current execution cycle.
 
         Returns:
             The structured output result if found, or None if no result available.
-            Results are returned as validated Pydantic BaseModel instances.
         """
         if not self.has_structured_output_tool(tool_uses):
             return None

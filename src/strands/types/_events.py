@@ -7,6 +7,7 @@ agent lifecycle.
 
 from typing import TYPE_CHECKING, Any, cast
 
+from pydantic import BaseModel
 from typing_extensions import override
 
 from ..telemetry import EventLoopMetrics
@@ -220,7 +221,7 @@ class EventLoopStopEvent(TypedEvent):
         message: Message,
         metrics: "EventLoopMetrics",
         request_state: Any,
-        structured_output: Any = None,
+        structured_output: BaseModel | None = None,
     ) -> None:
         """Initialize with the final execution results.
 
@@ -242,7 +243,7 @@ class EventLoopStopEvent(TypedEvent):
 class StructuredOutputEvent(TypedEvent):
     """Event emitted when structured output is detected and processed."""
 
-    def __init__(self, structured_output: Any) -> None:
+    def __init__(self, structured_output: BaseModel) -> None:
         """Initialize with the structured output result.
 
         Args:

@@ -53,12 +53,7 @@ class MockedModelProvider(Model):
         pass
 
     async def stream(
-        self,
-        messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
-        tool_choice: Optional[Any] = None,
-        **kwargs: Any,
+        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
     ) -> AsyncGenerator[Any, None]:
         events = self.map_agent_message_to_events(self.agent_responses[self.index])
         for event in events:
