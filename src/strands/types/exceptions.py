@@ -79,10 +79,10 @@ class SessionException(Exception):
 
 class StructuredOutputException(Exception):
     """Exception raised when structured output validation fails after maximum retry attempts."""
-    
+
     def __init__(self, message: str):
         """Initialize the exception with details about the failure.
-        
+
         Args:
             message: The error message describing the structured output failure
         """

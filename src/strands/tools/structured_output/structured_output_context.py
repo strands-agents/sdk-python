@@ -1,3 +1,5 @@
+"""Context management for structured output in the event loop."""
+
 import logging
 from typing import Dict, Optional, Type
 
@@ -34,6 +36,11 @@ class StructuredOutputContext:
 
     @property
     def is_enabled(self) -> bool:
+        """Check if structured output is enabled for this context.
+
+        Returns:
+            True if a structured output model is configured, False otherwise.
+        """
         return self.structured_output_model is not None
 
     def store_result(self, tool_use_id: str, result: BaseModel) -> None:
@@ -66,6 +73,7 @@ class StructuredOutputContext:
         return self.attempts
 
     def setup_retry(self) -> None:
+        """Set up the context for a retry attempt with forced mode enabled."""
         self.increment_attempts()
         self.set_forced_mode()
 
@@ -131,6 +139,6 @@ class StructuredOutputContext:
                 tool_use_id = str(tool_use.get("toolUseId", ""))
                 result = self.results.pop(tool_use_id, None)
                 if result is not None:
-                    logger.debug(f"Extracted structured output for {tool_use.get('name')}")
+                    logger.debug("Extracted structured output for %s", tool_use.get("name"))
                     return result
         return None

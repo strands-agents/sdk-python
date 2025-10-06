@@ -7,20 +7,20 @@ thread pools, etc.).
 import abc
 import logging
 import time
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional, cast
+from typing import TYPE_CHECKING, Any, AsyncGenerator, cast
 
 from opentelemetry import trace as trace_api
 
 from ...hooks import AfterToolCallEvent, BeforeToolCallEvent
 from ...telemetry.metrics import Trace
 from ...telemetry.tracer import get_tracer
+from ...tools.structured_output.structured_output_context import StructuredOutputContext
 from ...types._events import ToolResultEvent, ToolStreamEvent, TypedEvent
 from ...types.content import Message
 from ...types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolResult, ToolUse
 
 if TYPE_CHECKING:  # pragma: no cover
     from ...agent import Agent
-    from ...tools.structured_output.structured_output_context import StructuredOutputContext
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ class ToolExecutor(abc.ABC):
         tool_use: ToolUse,
         tool_results: list[ToolResult],
         invocation_state: dict[str, Any],
-        structured_output_context: "StructuredOutputContext",
+        structured_output_context: StructuredOutputContext | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Stream tool events.
@@ -59,6 +59,7 @@ class ToolExecutor(abc.ABC):
         """
         logger.debug("tool_use=<%s> | streaming", tool_use)
         tool_name = tool_use["name"]
+        structured_output_context = structured_output_context or StructuredOutputContext()
 
         tool_info = agent.tool_registry.dynamic_tools.get(tool_name)
         tool_func = tool_info if tool_info is not None else agent.tool_registry.registry.get(tool_name)
@@ -181,7 +182,7 @@ class ToolExecutor(abc.ABC):
         cycle_trace: Trace,
         cycle_span: Any,
         invocation_state: dict[str, Any],
-        structured_output_context: "StructuredOutputContext",
+        structured_output_context: StructuredOutputContext | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute tool with tracing and metrics collection.
@@ -200,6 +201,7 @@ class ToolExecutor(abc.ABC):
             Tool events with the last being the tool result.
         """
         tool_name = tool_use["name"]
+        structured_output_context = structured_output_context or StructuredOutputContext()
 
         tracer = get_tracer()
 

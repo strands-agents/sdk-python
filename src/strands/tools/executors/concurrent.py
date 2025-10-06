@@ -1,7 +1,7 @@
 """Concurrent tool executor implementation."""
 
 import asyncio
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from typing_extensions import override
 

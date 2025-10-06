@@ -503,7 +503,7 @@ class ToolRegistry:
             tool: The tool to register dynamically
         """
         self.dynamic_tools[tool.tool_name] = tool
-        logger.debug(f"Registered dynamic tool: {tool.tool_name}")
+        logger.debug("Registered dynamic tool: %s", tool.tool_name)
 
     def validate_tool_spec(self, tool_spec: ToolSpec) -> None:
         """Validate tool specification against required schema.

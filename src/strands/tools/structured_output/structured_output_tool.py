@@ -36,7 +36,9 @@ class StructuredOutputTool(AgentTool):
         self._structured_output_type = structured_output_model
         self._tool_spec = self._get_tool_spec(structured_output_model)
         self._tool_spec["description"] = (
-            f"IMPORTANT: This StructuredOutputTool should only be invoked as the last and final tool before returning the completed result to the caller. <description>{self._tool_spec.get('description', '')}</description>"
+            "IMPORTANT: This StructuredOutputTool should only be invoked as the last and final tool "
+            f"before returning the completed result to the caller. "
+            f"<description>{self._tool_spec.get('description', '')}</description>"
         )
         self._tool_name = self._tool_spec.get("name", "StructuredOutputTool")
 
@@ -102,10 +104,10 @@ class StructuredOutputTool(AgentTool):
         Yields:
             Tool events with the last being the tool result (success or error).
         """
-        tool_input = tool_use.get("input", {})
+        tool_input: dict[str, Any] = tool_use.get("input", {})
         tool_use_id = str(tool_use.get("toolUseId", ""))
 
-        context: StructuredOutputContext = kwargs.get("structured_output_context")
+        context: StructuredOutputContext = kwargs.get("structured_output_context")  # type: ignore
         try:
             validated_object = self._structured_output_type(**tool_input)
             logger.debug("tool_name=<%s> | structured output validated", self._tool_name)
@@ -135,22 +137,22 @@ class StructuredOutputTool(AgentTool):
             )
 
             # Create error result that will be sent back to the LLM so it can decide if it needs to retry
-            result: ToolResult = {
+            validation_error_result: ToolResult = {
                 "toolUseId": tool_use_id,
                 "status": "error",
                 "content": [{"text": error_message}],
             }
 
-            yield ToolResultEvent(result)
+            yield ToolResultEvent(validation_error_result)
 
         except Exception as e:
             error_message = f"Unexpected error validating {self._tool_name}: {str(e)}"
             logger.exception(error_message)
 
-            result: ToolResult = {
+            exception_result: ToolResult = {
                 "toolUseId": tool_use_id,
                 "status": "error",
                 "content": [{"text": error_message}],
             }
 
-            yield ToolResultEvent(result)
+            yield ToolResultEvent(exception_result)

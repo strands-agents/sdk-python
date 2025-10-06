@@ -10,12 +10,10 @@ The event loop allows agents to:
 
 import asyncio
 import logging
-import time
 import uuid
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from opentelemetry import trace as trace_api
-
 
 from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
 from ..telemetry.metrics import Trace
@@ -60,7 +58,7 @@ MAX_DELAY = 240  # 4 minutes
 async def event_loop_cycle(
     agent: "Agent",
     invocation_state: dict[str, Any],
-    structured_output_context: StructuredOutputContext = StructuredOutputContext(),
+    structured_output_context: StructuredOutputContext | None = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Execute a single cycle of the event loop.
 
@@ -96,6 +94,8 @@ async def event_loop_cycle(
         EventLoopException: If an error occurs during execution
         ContextWindowOverflowException: If the input is too large for the model
     """
+    structured_output_context = structured_output_context or StructuredOutputContext()
+
     # Initialize cycle state
     invocation_state["event_loop_cycle_id"] = uuid.uuid4()
 
@@ -142,11 +142,11 @@ async def event_loop_cycle(
                 )
             )
 
-            tool_specs = (
-                [structured_output_context.get_tool_spec()]
-                if structured_output_context.forced_mode
-                else agent.tool_registry.get_all_tool_specs()
-            )
+            if structured_output_context.forced_mode:
+                tool_spec = structured_output_context.get_tool_spec()
+                tool_specs = [tool_spec] if tool_spec else []
+            else:
+                tool_specs = agent.tool_registry.get_all_tool_specs()
             try:
                 async for event in stream_messages(
                     agent.model, agent.system_prompt, agent.messages, tool_specs, structured_output_context.tool_choice
@@ -283,11 +283,18 @@ async def event_loop_cycle(
     # Force structured output tool call if LLM didn't use it automatically
     if structured_output_context.is_enabled and stop_reason == "end_turn":
         if not structured_output_context.can_retry():
-            raise StructuredOutputException(f"Structured output forcing exceeded maximum attempts ({structured_output_context.MAX_STRUCTURED_OUTPUT_ATTEMPTS})")
+            raise StructuredOutputException(
+                (
+                    "Structured output forcing exceeded maximum attempts: "
+                    f"({structured_output_context.MAX_STRUCTURED_OUTPUT_ATTEMPTS})"
+                )
+            )
 
         structured_output_context.setup_retry()
         logger.debug(
-            f"Forcing structured output tool, attempt {structured_output_context.attempts}/{structured_output_context.MAX_STRUCTURED_OUTPUT_ATTEMPTS}"
+            "Forcing structured output tool, attempt %d/%d",
+            structured_output_context.attempts,
+            structured_output_context.MAX_STRUCTURED_OUTPUT_ATTEMPTS,
         )
         agent._append_message(
             {"role": "user", "content": [{"text": "You must format the previous response as structured output."}]}
@@ -353,6 +360,7 @@ async def _handle_tool_execution(
     structured_output_context: StructuredOutputContext,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Handles the execution of tools requested by the model during an event loop cycle.
+
     Args:
         stop_reason: The reason the model stopped generating.
         message: The message from the model that may contain tool use requests.
@@ -362,6 +370,7 @@ async def _handle_tool_execution(
         cycle_start_time: Start time of the current cycle.
         invocation_state: Additional keyword arguments, including request state.
         structured_output_context: Optional context for structured output management.
+
     Yields:
         Tool stream events along with events yielded from a recursive call to the event loop. The last event is a tuple
         containing:

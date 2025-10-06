@@ -10,7 +10,6 @@ from ..types.content import Messages
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 
-
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)

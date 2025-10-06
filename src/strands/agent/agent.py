@@ -26,14 +26,14 @@ from typing import (
     Union,
     cast,
 )
-from typing_extensions import deprecated
+
 from opentelemetry import trace as trace_api
 from pydantic import BaseModel
+from typing_extensions import deprecated
 
 from .. import _identifier
 from ..event_loop.event_loop import event_loop_cycle
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
-from ..tools.structured_output.structured_output_context import StructuredOutputContext
 from ..hooks import (
     AfterInvocationEvent,
     AgentInitializedEvent,
@@ -50,6 +50,7 @@ from ..telemetry.tracer import get_tracer, serialize
 from ..tools.executors import ConcurrentToolExecutor
 from ..tools.executors._executor import ToolExecutor
 from ..tools.registry import ToolRegistry
+from ..tools.structured_output.structured_output_context import StructuredOutputContext
 from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
 from ..types.agent import AgentInput
