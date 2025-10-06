@@ -282,7 +282,7 @@ class SageMakerAIModel(OpenAIModel):
 
         # Add additional args if provided
         if self.endpoint_config.get("additional_args"):
-            request.update(self.endpoint_config["additional_args"].__dict__)
+            request.update(self.endpoint_config["additional_args"])
 
         return request
 
