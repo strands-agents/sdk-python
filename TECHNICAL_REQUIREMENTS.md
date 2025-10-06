@@ -1,10 +1,15 @@
 # Strands RDS Discovery Tool - Technical Requirements & Installation
 
-**Last Updated**: 2025-10-03  
-**Version**: 2.0  
-**Status**: ✅ Ready for Strands Integration  
+**Last Updated**: 2025-10-06  
+**Version**: 2.1.2  
+**Status**: ✅ Strands Tool Ready  
 
 ## **System Requirements**
+
+### **Strands Framework**
+- **Strands**: Latest version with `@tool` decorator support
+- **Integration**: Tool decorated with `@tool` for Strands compatibility
+- **Natural Language**: Supports Strands AI natural language interactions
 
 ### **Operating System**
 - ✅ **Ubuntu 24.04 LTS** (Verified)
@@ -15,6 +20,7 @@
 - **Python Version**: 3.12+ (Verified with 3.12.3)
 - **Virtual Environment**: Required (externally-managed-environment protection)
 - **Package Manager**: pip 24.0+
+- **Strands Dependencies**: strands framework and related packages
 
 ### **System Dependencies**
 ```bash

@@ -1,10 +1,11 @@
-# RDS Discovery Tool - Run Guide
+# Strands RDS Discovery Tool - Run Guide
 
-This guide provides step-by-step instructions for running the Strands RDS Discovery Tool.
+This guide provides step-by-step instructions for running the **Strands RDS Discovery Tool**.
 
 ## Prerequisites
 
 - Python 3.8 or higher
+- **Strands framework** installed
 - Access to SQL Server instances you want to assess
 - Network connectivity to target SQL Servers
 
@@ -32,7 +33,37 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Step 2: Prepare Server List
+## Step 2: Strands Tool Usage
+
+### **Method 1: Direct Strands Tool Call**
+```python
+from src.rds_discovery import strands_rds_discovery
+
+# Windows Authentication
+result = strands_rds_discovery(
+    input_file='servers.csv',
+    auth_type='windows'
+)
+
+# SQL Server Authentication  
+result = strands_rds_discovery(
+    input_file='servers.csv',
+    auth_type='sql',
+    username='your_username',
+    password='your_password'
+)
+```
+
+### **Method 2: Strands AI Natural Language**
+Use natural language with Strands AI:
+- *"Assess SQL Server 3.81.26.46 for RDS migration using SQL auth with user test"*
+- *"Generate RDS discovery report for my production servers"*
+- *"What AWS instance size is recommended for my 8-core SQL Server?"*
+
+### **Method 3: Strands Framework Integration**
+The tool is decorated with `@tool` and integrates seamlessly with Strands workflows.
+
+## Step 3: Prepare Server List
 
 Create a CSV file with your SQL Server instances:
 
@@ -47,7 +78,9 @@ sql-prod-01
 - `real_servers.csv` - Template with sample server
 - `test_template.csv` - Empty template
 
-## Step 3: Run Assessment
+## Step 4: Legacy Python Usage (Alternative)
+
+For direct Python usage without Strands framework:
 
 ### For Windows Authentication
 ```python
@@ -81,7 +114,7 @@ print('Assessment completed')
 "
 ```
 
-## Step 4: Review Results
+## Step 5: Review Results
 
 The tool generates three output files with matching timestamps (single log file per assessment):
 

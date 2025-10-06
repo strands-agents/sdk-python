@@ -2,11 +2,31 @@
 
 ## Overview
 
-The Strands RDS Discovery Tool performs comprehensive SQL Server assessments for AWS RDS migration planning. It works exactly like the original PowerShell script - just provide a server file and authentication details.
+The **Strands RDS Discovery Tool** performs comprehensive SQL Server assessments for AWS RDS migration planning. It's implemented as a **Strands tool** using the `@tool` decorator and can be used within the Strands framework for natural language interactions.
 
-## Basic Usage
+## Strands Tool Usage
 
-### Function Signature
+### **Natural Language with Strands AI**
+```
+"Assess SQL Server 3.81.26.46 for RDS migration using SQL auth with user test"
+"Generate RDS discovery report for my production servers"  
+"What AWS instance size is recommended for my 8-core SQL Server?"
+```
+
+### **Direct Strands Tool Call**
+```python
+from src.rds_discovery import strands_rds_discovery
+
+# The tool is decorated with @tool for Strands integration
+result = strands_rds_discovery(
+    input_file='servers.csv',
+    auth_type='sql',
+    username='your_username', 
+    password='your_password'
+)
+```
+
+## Function Signature
 ```python
 strands_rds_discovery(
     input_file: str,

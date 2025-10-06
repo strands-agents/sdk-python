@@ -1,8 +1,34 @@
-# Testing Guide - RDS Discovery Tool
+# Testing Guide - Strands RDS Discovery Tool
 
-**Version**: 2.1  
-**Date**: 2025-10-04  
-**Purpose**: Comprehensive testing procedures with consolidated test runner
+**Version**: 2.1.2  
+**Date**: 2025-10-06  
+**Purpose**: Comprehensive testing procedures for Strands tool integration
+
+## **Strands Tool Testing**
+
+### **Test Strands Integration**
+```python
+# Test @tool decorator functionality
+from src.rds_discovery import strands_rds_discovery
+
+# Verify tool is properly decorated
+assert hasattr(strands_rds_discovery, '__tool__'), "Tool decorator not found"
+
+# Test basic Strands tool call
+result = strands_rds_discovery(
+    input_file='test_servers.csv',
+    auth_type='windows'
+)
+print("✅ Strands tool integration working")
+```
+
+### **Test Natural Language Integration**
+```python
+# Test within Strands AI context (if available)
+# "Assess SQL Server for RDS migration"
+# "Generate RDS discovery report"
+# "What AWS instance is recommended?"
+```
 
 ## **Quick Testing**
 
