@@ -1,8 +1,8 @@
 # Strands RDS Discovery Tool v2.1.2
 
-**SQL Server to AWS RDS Migration Assessment with Pricing Integration**
+**SQL Server to AWS RDS Migration Assessment with Pricing Integration - Strands Tool**
 
-A production-ready tool that provides comprehensive SQL Server compatibility assessment for AWS RDS migration planning with **PowerShell-compatible CSV output**, **cost estimation**, and **triple output format** (CSV + JSON + LOG).
+A production-ready **Strands tool** that provides comprehensive SQL Server compatibility assessment for AWS RDS migration planning with **PowerShell-compatible CSV output**, **cost estimation**, and **triple output format** (CSV + JSON + LOG).
 
 ## **🎯 Overview**
 
@@ -21,6 +21,29 @@ This tool enables comprehensive SQL Server assessment for AWS RDS migration, pro
 - **Production Ready**: Enterprise-grade error handling and performance monitoring
 
 ## **🚀 Quick Start**
+
+### **Strands Tool Usage**
+
+This tool is now a **Strands tool** and can be used within the Strands framework:
+
+```python
+# Import as Strands tool
+from src.rds_discovery import strands_rds_discovery
+
+# Use within Strands conversations
+result = strands_rds_discovery(
+    input_file='servers.csv',
+    auth_type='sql',
+    username='your_username',
+    password='your_password'
+)
+```
+
+### **Strands AI Integration**
+You can now use natural language with Strands AI:
+- *"Assess SQL Server 3.81.26.46 for RDS migration"*
+- *"Generate RDS discovery report for my servers"*
+- *"What AWS instance size is recommended for my SQL Server?"*
 
 ### Installation
 

@@ -276,7 +276,7 @@ def get_fallback_instance_recommendation(cpu_cores, memory_gb):
 logger = logging.getLogger(__name__)
 
 
-# @tool
+@tool
 def strands_rds_discovery(
     input_file: str,
     auth_type: str = "windows",
