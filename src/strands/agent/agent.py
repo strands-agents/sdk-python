@@ -534,7 +534,7 @@ class Agent:
                 self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
     async def stream_async(
-        self, prompt: AgentInput = None, *, invocation_state: Optional[dict[str, Any]] = None, **kwargs: Any
+        self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
 
