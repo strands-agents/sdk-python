@@ -546,7 +546,7 @@ def test_mcp_client_state_reset_after_timeout():
 
 def test_call_tool_sync_embedded_nested_text(mock_transport, mock_session):
     """EmbeddedResource.resource (uri + text) should map to plain text content."""
-    er = {
+    embedded_resource = {
         "type": "resource",  # required literal
         "resource": {
             "uri": "mcp://resource/embedded-text-1",
@@ -554,9 +554,7 @@ def test_call_tool_sync_embedded_nested_text(mock_transport, mock_session):
             "mimeType": "text/plain",
         },
     }
-    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[er])
-
-    from strands.tools.mcp import MCPClient
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[embedded_resource])
 
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="er-text", name="get_file_contents", arguments={})
@@ -572,7 +570,7 @@ def test_call_tool_sync_embedded_nested_base64_textual_mime(mock_transport, mock
 
     payload = base64.b64encode(b'{"k":"v"}').decode()
 
-    er = {
+    embedded_resource = {
         "type": "resource",
         "resource": {
             "uri": "mcp://resource/embedded-blob-1",
@@ -581,9 +579,7 @@ def test_call_tool_sync_embedded_nested_base64_textual_mime(mock_transport, mock
             "mimeType": "application/json",
         },
     }
-    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[er])
-
-    from strands.tools.mcp import MCPClient
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[embedded_resource])
 
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="er-blob", name="get_file_contents", arguments={})
@@ -601,7 +597,7 @@ def test_call_tool_sync_embedded_image_blob(mock_transport, mock_session):
         png_data = image_file.read()
     payload = base64.b64encode(png_data).decode()
 
-    er = {
+    embedded_resource = {
         "type": "resource",
         "resource": {
             "uri": "mcp://resource/embedded-image",
@@ -609,9 +605,7 @@ def test_call_tool_sync_embedded_image_blob(mock_transport, mock_session):
             "mimeType": "image/png",
         },
     }
-    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[er])
-
-    from strands.tools.mcp import MCPClient
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[embedded_resource])
 
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="er-image", name="get_file_contents", arguments={})
@@ -628,7 +622,7 @@ def test_call_tool_sync_embedded_non_textual_blob_dropped(mock_transport, mock_s
     """EmbeddedResource.resource (blob with non-textual/unknown MIME) should be dropped."""
     payload = base64.b64encode(b"\x00\x01\x02\x03").decode()
 
-    er = {
+    embedded_resource = {
         "type": "resource",
         "resource": {
             "uri": "mcp://resource/embedded-binary",
@@ -636,9 +630,7 @@ def test_call_tool_sync_embedded_non_textual_blob_dropped(mock_transport, mock_s
             "mimeType": "application/octet-stream",
         },
     }
-    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[er])
-
-    from strands.tools.mcp import MCPClient
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[embedded_resource])
 
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="er-binary", name="get_file_contents", arguments={})
@@ -653,7 +645,7 @@ def test_call_tool_sync_embedded_multiple_textual_mimes(mock_transport, mock_ses
 
     # Test YAML content
     yaml_content = base64.b64encode(b"key: value\nlist:\n  - item1\n  - item2").decode()
-    er = {
+    embedded_resource = {
         "type": "resource",
         "resource": {
             "uri": "mcp://resource/embedded-yaml",
@@ -661,9 +653,7 @@ def test_call_tool_sync_embedded_multiple_textual_mimes(mock_transport, mock_ses
             "mimeType": "application/yaml",
         },
     }
-    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[er])
-
-    from strands.tools.mcp import MCPClient
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[embedded_resource])
 
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="er-yaml", name="get_file_contents", arguments={})
@@ -691,8 +681,6 @@ def test_call_tool_sync_embedded_unknown_resource_type_dropped(mock_transport, m
     mock_session.call_tool.return_value = MagicMock(
         isError=False, content=[mock_embedded_resource], structuredContent=None
     )
-
-    from strands.tools.mcp import MCPClient
 
     with MCPClient(mock_transport["transport_callable"]) as client:
         result = client.call_tool_sync(tool_use_id="er-unknown", name="get_file_contents", arguments={})
