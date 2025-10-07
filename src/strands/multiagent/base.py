@@ -161,10 +161,30 @@ class MultiAgentResult:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MultiAgentResult":
         """Rehydrate a MultiAgentResult from persisted JSON."""
+        results = {k: NodeResult.from_dict(v) for k, v in data.get("results", {}).items()}
+        usage_data = data.get("accumulated_usage", {})
+        usage = Usage(
+            inputTokens=usage_data.get("inputTokens", 0),
+            outputTokens=usage_data.get("outputTokens", 0),
+            totalTokens=usage_data.get("totalTokens", 0),
+        )
+        # Add optional fields if they exist
+        if "cacheReadInputTokens" in usage_data:
+            usage["cacheReadInputTokens"] = usage_data["cacheReadInputTokens"]
+        if "cacheWriteInputTokens" in usage_data:
+            usage["cacheWriteInputTokens"] = usage_data["cacheWriteInputTokens"]
+
+        # Create Metrics with required field
+        metrics = Metrics(latencyMs=data.get("accumulated_metrics", {}).get("latencyMs", 0))
+
         multiagent_result = cls(
             status=Status(data.get("status", Status.PENDING.value)),
+            results=results,
+            accumulated_usage=usage,
+            accumulated_metrics=metrics,
+            execution_count=int(data.get("execution_count", 0)),
+            execution_time=int(data.get("execution_time", 0)),
         )
-        multiagent_result.results = {k: NodeResult.from_dict(v) for k, v in data.get("results", {}).items()}
         return multiagent_result
 
 
