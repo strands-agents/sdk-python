@@ -136,8 +136,8 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
             raise SessionException(f"Session {session.session_id} already exists")
 
         # Create directory structure
+        os.makedirs(session_dir, exist_ok=True)
         if self.session_type == SessionType.AGENT:
-            os.makedirs(session_dir, exist_ok=True)
             os.makedirs(os.path.join(session_dir, "agents"), exist_ok=True)
 
         # Write session file
