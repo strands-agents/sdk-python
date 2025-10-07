@@ -83,6 +83,9 @@ class NodeResult:
             "result": result_data,
             "execution_time": self.execution_time,
             "status": self.status.value,
+            "accumulated_usage": self.accumulated_usage,
+            "accumulated_metrics": self.accumulated_metrics,
+            "execution_count": self.execution_count,
         }
 
     @classmethod
@@ -102,10 +105,27 @@ class NodeResult:
         else:
             raise TypeError(f"NodeResult.from_dict: unsupported result payload: {raw!r}")
 
+        usage_data = data.get("accumulated_usage", {})
+        usage = Usage(
+            inputTokens=usage_data.get("inputTokens", 0),
+            outputTokens=usage_data.get("outputTokens", 0),
+            totalTokens=usage_data.get("totalTokens", 0),
+        )
+        # Add optional fields if they exist
+        if "cacheReadInputTokens" in usage_data:
+            usage["cacheReadInputTokens"] = usage_data["cacheReadInputTokens"]
+        if "cacheWriteInputTokens" in usage_data:
+            usage["cacheWriteInputTokens"] = usage_data["cacheWriteInputTokens"]
+
+        metrics = Metrics(latencyMs=data.get("accumulated_metrics", {}).get("latencyMs", 0))
+
         return cls(
             result=result,
             execution_time=int(data.get("execution_time", 0)),
             status=Status(data.get("status", "pending")),
+            accumulated_usage=usage,
+            accumulated_metrics=metrics,
+            execution_count=int(data.get("execution_count", 0)),
         )
 
 
@@ -174,7 +194,6 @@ class MultiAgentResult:
         if "cacheWriteInputTokens" in usage_data:
             usage["cacheWriteInputTokens"] = usage_data["cacheWriteInputTokens"]
 
-        # Create Metrics with required field
         metrics = Metrics(latencyMs=data.get("accumulated_metrics", {}).get("latencyMs", 0))
 
         multiagent_result = cls(
