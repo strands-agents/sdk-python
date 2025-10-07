@@ -7,7 +7,7 @@ execution framework, proper error handling, metrics collection, and result forma
 
 import logging
 import time
-from typing import Any, Protocol, Union
+from typing import Any, Callable, Union
 
 from opentelemetry import trace as trace_api
 
@@ -21,23 +21,7 @@ from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 logger = logging.getLogger(__name__)
 
 
-class FunctionNodeCallable(Protocol):
-    """Protocol defining the required signature for functions used in FunctionNode.
-
-    Functions must accept:
-    - task: The input task (string or ContentBlock list)
-    - invocation_state: Additional state/context from the calling environment
-    - **kwargs: Additional keyword arguments for future extensibility
-
-    Functions must return:
-    - A string result that will be converted to a Message
-    """
-
-    def __call__(
-        self, task: Union[str, list[ContentBlock]], invocation_state: dict[str, Any] | None = None, **kwargs: Any
-    ) -> str:
-        """Execute the node with the given task."""
-        ...
+FunctionNodeCallable = Callable[[Union[str, list[ContentBlock]], dict[str, Any] | None], str]
 
 
 class FunctionNode(MultiAgentBase):
@@ -82,16 +66,19 @@ class FunctionNode(MultiAgentBase):
         logger.debug("task=<%s> | starting function node execution", task)
         logger.debug("function_name=<%s> | executing function", self.name)
 
-        start_time = time.time()
         span = self.tracer.start_multiagent_span(task, "function_node")
         with trace_api.use_span(span, end_on_exit=True):
             try:
+                start_time = time.time()
                 # Execute the wrapped function with proper parameters
                 function_result = self.func(task, invocation_state, **kwargs)
-                logger.debug("function_result=<%s> | function executed successfully", function_result)
-
                 # Calculate execution time
                 execution_time = int((time.time() - start_time) * 1000)  # Convert to milliseconds
+                logger.debug(
+                    "function_result=<%s>, execution_time=<%dms> | function executed successfully",
+                    function_result,
+                    execution_time,
+                )
 
                 # Convert function result to Message
                 message = Message(role="assistant", content=[ContentBlock(text=str(function_result))])
