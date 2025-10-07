@@ -16,7 +16,7 @@ from opentelemetry.trace import Span, StatusCode
 
 from ..agent.agent_result import AgentResult
 from ..types.content import ContentBlock, Message, Messages
-from ..types.streaming import StopReason, Usage
+from ..types.streaming import Metrics, StopReason, Usage
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import Attributes, AttributeValue
 
@@ -277,7 +277,13 @@ class Tracer:
         return span
 
     def end_model_invoke_span(
-        self, span: Span, message: Message, usage: Usage, stop_reason: StopReason, error: Optional[Exception] = None
+        self,
+        span: Span,
+        message: Message,
+        usage: Usage,
+        metrics: Metrics,
+        stop_reason: StopReason,
+        error: Optional[Exception] = None,
     ) -> None:
         """End a model invocation span with results and metrics.
 
@@ -285,6 +291,7 @@ class Tracer:
             span: The span to end.
             message: The message response from the model.
             usage: Token usage information from the model call.
+            metrics: Metrics from the model call.
             stop_reason (StopReason): The reason the model stopped generating.
             error: Optional exception if the model call failed.
         """
@@ -296,6 +303,8 @@ class Tracer:
             "gen_ai.usage.total_tokens": usage["totalTokens"],
             "gen_ai.usage.cache_read_input_tokens": usage.get("cacheReadInputTokens", 0),
             "gen_ai.usage.cache_write_input_tokens": usage.get("cacheWriteInputTokens", 0),
+            "gen_ai.server.time_to_first_token": metrics.get("timeToFirstByteMs", 0),
+            "gen_ai.server.request.duration": metrics.get("latencyMs", 0),
         }
 
         if self.use_latest_genai_conventions:

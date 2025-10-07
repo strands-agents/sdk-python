@@ -23,14 +23,16 @@ class Usage(TypedDict, total=False):
     cacheWriteInputTokens: int
 
 
-class Metrics(TypedDict):
+class Metrics(TypedDict, total=False):
     """Performance metrics for model interactions.
 
     Attributes:
         latencyMs (int): Latency of the model request in milliseconds.
+        timeToFirstByteMs (int): TimeToFirstByte of the first chunk from the model in milliseconds.
     """
 
-    latencyMs: int
+    latencyMs: Required[int]
+    timeToFirstByteMs: int
 
 
 StopReason = Literal[

@@ -11,7 +11,7 @@ from opentelemetry.trace import (
 
 from strands.telemetry.tracer import JSONEncoder, Tracer, get_tracer, serialize
 from strands.types.content import ContentBlock
-from strands.types.streaming import StopReason, Usage
+from strands.types.streaming import Metrics, StopReason, Usage
 
 
 @pytest.fixture(autouse=True)
@@ -205,9 +205,10 @@ def test_end_model_invoke_span(mock_span):
     tracer = Tracer()
     message = {"role": "assistant", "content": [{"text": "Response"}]}
     usage = Usage(inputTokens=10, outputTokens=20, totalTokens=30)
+    metrics = Metrics(latencyMs=20, timeToFirstByteMs=10)
     stop_reason: StopReason = "end_turn"
 
-    tracer.end_model_invoke_span(mock_span, message, usage, stop_reason)
+    tracer.end_model_invoke_span(mock_span, message, usage, metrics, stop_reason)
 
     mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 10)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 10)
@@ -216,6 +217,8 @@ def test_end_model_invoke_span(mock_span):
     mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 30)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 0)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 0)
+    mock_span.set_attribute.assert_any_call("gen_ai.server.request.duration", 20)
+    mock_span.set_attribute.assert_any_call("gen_ai.server.time_to_first_token", 10)
     mock_span.add_event.assert_called_with(
         "gen_ai.choice",
         attributes={"message": json.dumps(message["content"]), "finish_reason": "end_turn"},
@@ -231,9 +234,10 @@ def test_end_model_invoke_span_latest_conventions(mock_span):
         tracer.use_latest_genai_conventions = True
         message = {"role": "assistant", "content": [{"text": "Response"}]}
         usage = Usage(inputTokens=10, outputTokens=20, totalTokens=30)
+        metrics = Metrics(latencyMs=20, timeToFirstByteMs=10)
         stop_reason: StopReason = "end_turn"
 
-        tracer.end_model_invoke_span(mock_span, message, usage, stop_reason)
+        tracer.end_model_invoke_span(mock_span, message, usage, metrics, stop_reason)
 
         mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 10)
         mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 10)
@@ -242,6 +246,8 @@ def test_end_model_invoke_span_latest_conventions(mock_span):
         mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 30)
         mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 0)
         mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 0)
+        mock_span.set_attribute.assert_any_call("gen_ai.server.time_to_first_token", 10)
+        mock_span.set_attribute.assert_any_call("gen_ai.server.request.duration", 20)
         mock_span.add_event.assert_called_with(
             "gen_ai.client.inference.operation.details",
             attributes={
@@ -766,8 +772,9 @@ def test_end_model_invoke_span_with_cache_metrics(mock_span):
         cacheWriteInputTokens=3,
     )
     stop_reason: StopReason = "end_turn"
+    metrics = Metrics(latencyMs=10, timeToFirstByteMs=5)
 
-    tracer.end_model_invoke_span(mock_span, message, usage, stop_reason)
+    tracer.end_model_invoke_span(mock_span, message, usage, metrics, stop_reason)
 
     mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 10)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 10)
@@ -776,6 +783,8 @@ def test_end_model_invoke_span_with_cache_metrics(mock_span):
     mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 30)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 5)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 3)
+    mock_span.set_attribute.assert_any_call("gen_ai.server.request.duration", 10)
+    mock_span.set_attribute.assert_any_call("gen_ai.server.time_to_first_token", 5)
     mock_span.set_status.assert_called_once_with(StatusCode.OK)
     mock_span.end.assert_called_once()
 
