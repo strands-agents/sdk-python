@@ -9,7 +9,7 @@ via hook provider objects.
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Generator, Generic, Optional, Protocol, Type, TypeVar
+from typing import TYPE_CHECKING, Any, Generator, Generic, Protocol, Type, TypeVar
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -187,7 +187,7 @@ class HookRegistry:
         """
         hook.register_hooks(self)
 
-    def invoke_callbacks(self, event: TInvokeEvent, supress_exceptions: Optional[bool] = False) -> TInvokeEvent:
+    def invoke_callbacks(self, event: TInvokeEvent, supress_exceptions: bool = False) -> TInvokeEvent:
         """Invoke all registered callbacks for the given event.
 
         This method finds all callbacks registered for the event's type and
