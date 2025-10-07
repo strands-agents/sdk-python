@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import random
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 from typing import (
     Any,
@@ -574,16 +575,16 @@ class Agent:
         """
         merged_state = {}
         if kwargs:
-            logger.warning("`**kwargs` parameter is deprecated, use `invocation_state` instead.")
+            warnings.warn("`**kwargs` parameter is deprecating, use `invocation_state` instead.", stacklevel=2)
             merged_state.update(kwargs)
             if invocation_state is not None:
                 merged_state["invocation_state"] = invocation_state
         else:
             if invocation_state is not None:
-                merged_state["invocation_state"] = invocation_state
+                merged_state = invocation_state
 
         # Get callback handler from merged state or use default
-        invocation_state_dict = merged_state.get("invocation_state") or {}
+        invocation_state_dict = merged_state.get("invocation_state", {})
         callback_handler = invocation_state_dict.get(
             "callback_handler", merged_state.get("callback_handler", self.callback_handler)
         )

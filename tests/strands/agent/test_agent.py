@@ -4,6 +4,7 @@ import json
 import os
 import textwrap
 import unittest.mock
+import warnings
 from uuid import uuid4
 
 import pytest
@@ -1891,3 +1892,44 @@ def test_agent__call__handles_none_invocation_state(mock_model, agent):
 
     assert result.message["content"][0]["text"] == "test response"
     assert result.stop_reason == "end_turn"
+
+
+def test_agent__call__invocation_state_with_kwargs_deprecation_warning(agent, mock_event_loop_cycle):
+    """Test that kwargs trigger deprecation warning and are merged correctly with invocation_state."""
+
+    async def check_invocation_state(**kwargs):
+        invocation_state = kwargs["invocation_state"]
+        # Should have nested structure when both invocation_state and kwargs are provided
+        assert invocation_state["invocation_state"] == {"my": "state"}
+        assert invocation_state["other_kwarg"] == "foobar"
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
+
+    mock_event_loop_cycle.side_effect = check_invocation_state
+
+    with warnings.catch_warnings(record=True) as captured_warnings:
+        warnings.simplefilter("always")
+        agent("hello!", invocation_state={"my": "state"}, other_kwarg="foobar")
+
+    # Verify deprecation warning was issued
+    assert len(captured_warnings) == 1
+    assert issubclass(captured_warnings[0].category, UserWarning)
+    assert "`**kwargs` parameter is deprecating, use `invocation_state` instead." in str(captured_warnings[0].message)
+
+
+def test_agent__call__invocation_state_only_no_warning(agent, mock_event_loop_cycle):
+    """Test that using only invocation_state does not trigger warning and passes state directly."""
+
+    async def check_invocation_state(**kwargs):
+        invocation_state = kwargs["invocation_state"]
+
+        assert invocation_state["my"] == "state"
+        assert "agent" in invocation_state
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
+
+    mock_event_loop_cycle.side_effect = check_invocation_state
+
+    with warnings.catch_warnings(record=True) as captured_warnings:
+        warnings.simplefilter("always")
+        agent("hello!", invocation_state={"my": "state"})
+
+    assert len(captured_warnings) == 0
