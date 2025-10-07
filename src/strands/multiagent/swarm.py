@@ -799,11 +799,10 @@ class Swarm(MultiAgentBase):
         return {
             "type": "swarm",
             "status": status_str,
-            "completed_nodes": [n.node_id for n in self.state.node_history],
+            "node_history": [n.node_id for n in self.state.node_history],
             "node_results": {k: self.serialize_node_result_for_persist(v) for k, v in normalized_results.items()},
             "next_node_to_execute": next_nodes,
             "current_task": self.state.task,
-            "execution_order": [n.node_id for n in self.state.node_history],
             "context": {
                 "shared_context": getattr(self.state.shared_context, "context", {}) or {},
                 "handoff_message": self.state.handoff_message,
@@ -829,7 +828,7 @@ class Swarm(MultiAgentBase):
 
             # node history and results
             self.state.node_history = [
-                self.nodes[nid] for nid in (payload.get("completed_nodes") or []) if nid in self.nodes
+                self.nodes[nid] for nid in (payload.get("node_history") or []) if nid in self.nodes
             ]
             raw_results = payload.get("node_results") or {}
             results: dict[str, NodeResult] = {}
@@ -852,7 +851,7 @@ class Swarm(MultiAgentBase):
                 self.state.current_node = found_node if found_node is not None else self._initial_node()
             else:
                 # fallback to last executed or first node
-                last = (payload.get("execution_order") or [])[-1:] or []
+                last = (payload.get("node_history") or [])[-1:] or []
                 if last:
                     found_node = self.nodes.get(last[0])
                     self.state.current_node = found_node if found_node is not None else self._initial_node()

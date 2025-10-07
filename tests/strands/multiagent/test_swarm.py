@@ -591,17 +591,16 @@ async def test_swarm_persistence(mock_strands_tracer, mock_use_span):
     state = swarm.serialize_state()
     assert state["type"] == "swarm"
     assert "status" in state
-    assert "completed_nodes" in state
+    assert "node_history" in state
     assert "node_results" in state
     assert "context" in state
 
     # Test apply_state_from_dict with persisted state
     persisted_state = {
         "status": "executing",
-        "completed_nodes": [],
+        "node_history": [],
         "node_results": {},
         "current_task": "persisted task",
-        "execution_order": [],
         "next_node_to_execute": ["test_agent"],
         "context": {"shared_context": {"test_agent": {"key": "value"}}, "handoff_message": "test handoff"},
     }
@@ -622,5 +621,5 @@ async def test_swarm_persistence(mock_strands_tracer, mock_use_span):
     # Test state serialization after execution
     final_state = swarm.serialize_state()
     assert final_state["status"] == "completed"
-    assert len(final_state["completed_nodes"]) == 1
+    assert len(final_state["node_history"]) == 1
     assert "test_agent" in final_state["node_results"]
