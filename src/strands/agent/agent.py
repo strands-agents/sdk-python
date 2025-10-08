@@ -583,11 +583,9 @@ class Agent:
             if invocation_state is not None:
                 merged_state = invocation_state
 
-        # Get callback handler from merged state or use default
-        invocation_state_dict = merged_state.get("invocation_state", {})
-        callback_handler = invocation_state_dict.get(
-            "callback_handler", merged_state.get("callback_handler", self.callback_handler)
-        )
+        callback_handler = self.callback_handler
+        if kwargs:
+            callback_handler = kwargs.get("callback_handler", self.callback_handler)
 
         # Process input and get message to add (if any)
         messages = self._convert_prompt_to_messages(prompt)
