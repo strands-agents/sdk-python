@@ -41,7 +41,7 @@ class ToolRegistry:
         """Process tools list.
 
         Process list of tools that can contain local file path string, module import path string,
-        imported modules,@tool decorated functions, or instances of AgentTool
+        imported modules, @tool decorated functions, or instances of AgentTool.
 
         Args:
             tools: List of tool specifications.
