@@ -4,7 +4,6 @@ import importlib
 import logging
 import os
 import sys
-import warnings
 from pathlib import Path
 from typing import List, cast
 
@@ -98,45 +97,6 @@ class ToolLoader:
         except Exception:
             logger.exception("tool_name=<%s>, sys_path=<%s> | failed to load python tool(s)", tool_name, sys.path)
             raise
-
-    @staticmethod
-    def load_python_tool(tool_path: str, tool_name: str) -> AgentTool:
-        """DEPRECATED: Load a Python tool module and return a single AgentTool for backwards compatibility.
-
-        Use `load_python_tools` to retrieve all tools defined in a .py file (returns a list).
-        This function will emit a `DeprecationWarning` and return the first discovered tool.
-        """
-        warnings.warn(
-            "ToolLoader.load_python_tool is deprecated and will be removed in Strands SDK 2.0. "
-            "Use ToolLoader.load_python_tools(...) which always returns a list of AgentTool.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-        tools = ToolLoader.load_python_tools(tool_path, tool_name)
-        if not tools:
-            raise RuntimeError(f"No tools found in {tool_path} for {tool_name}")
-        return tools[0]
-
-    @classmethod
-    def load_tool(cls, tool_path: str, tool_name: str) -> AgentTool:
-        """DEPRECATED: Load a single tool based on its file extension for backwards compatibility.
-
-        Use `load_tools` to retrieve all tools defined in a file (returns a list).
-        This function will emit a `DeprecationWarning` and return the first discovered tool.
-        """
-        warnings.warn(
-            "ToolLoader.load_tool is deprecated and will be removed in Strands SDK 2.0. "
-            "Use ToolLoader.load_tools(...) which always returns a list of AgentTool.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-        tools = ToolLoader.load_tools(tool_path, tool_name)
-        if not tools:
-            raise RuntimeError(f"No tools found in {tool_path} for {tool_name}")
-
-        return tools[0]
 
     @classmethod
     def load_tools(cls, tool_path: str, tool_name: str) -> list[AgentTool]:
