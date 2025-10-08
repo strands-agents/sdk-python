@@ -55,7 +55,7 @@ def load_tools_from_file_path(tool_path: str) -> List[AgentTool]:
     # ./path/to/my_cool_tool.py -> my_cool_tool
     module_name = os.path.basename(tool_path).split(".")[0]
 
-    # This function import a module based on its path, and gives it the provided name
+    # This function imports a module based on its path, and gives it the provided name
 
     spec: ModuleSpec = cast(ModuleSpec, importlib.util.spec_from_file_location(module_name, abs_path))
     if not spec:
@@ -72,31 +72,31 @@ def load_tools_from_file_path(tool_path: str) -> List[AgentTool]:
     return load_tools_from_module(module, module_name)
 
 
-def load_tools_from_module_path(module_path: str) -> list[AgentTool]:
+def load_tools_from_module_path(module_tool_path: str) -> list[AgentTool]:
     """Load strands tool from a module path.
 
     Example module paths:
     my.module.path
     my.module.path:tool_name
     """
-    if ":" in module_path:
-        module_name, tool_func_name = module_path.split(":")
+    if ":" in module_tool_path:
+        module_path, tool_func_name = module_tool_path.split(":")
     else:
-        module_name, tool_func_name = (module_path, None)
+        module_path, tool_func_name = (module_tool_path, None)
 
     try:
-        module = importlib.import_module(module_name)
+        module = importlib.import_module(module_path)
     except ModuleNotFoundError as e:
-        raise AttributeError(f'Tool string: "{module_path}" is not a valid tool string.') from e
+        raise AttributeError(f'Tool string: "{module_tool_path}" is not a valid tool string.') from e
 
     # If a ':' is present in the string, then its a targeted function in a module
     if tool_func_name:
-        if tool_func_name in dir(module):
+        if hasattr(module, tool_func_name):
             target_tool = getattr(module, tool_func_name)
             if isinstance(target_tool, DecoratedFunctionTool):
                 return [target_tool]
 
-            raise AttributeError(f"Tool {tool_func_name} not found in module {module_name}")
+        raise AttributeError(f"Tool {tool_func_name} not found in module {module_path}")
 
     # Else, try to import all of the @tool decorated tools, or the module based tool
     module_name = module_path.split(".")[-1]

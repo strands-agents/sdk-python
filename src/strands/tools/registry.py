@@ -75,15 +75,6 @@ class ToolRegistry:
                         self.register_tool(a_tool)
                         tool_names.append(a_tool.tool_name)
 
-                # Dictionary with path only
-                elif isinstance(tool, dict) and "path" in tool:
-                    tools = load_tool_from_string(tool["path"])
-
-                    for a_tool in tools:
-                        a_tool.mark_dynamic()
-                        self.register_tool(a_tool)
-                        tool_names.append(a_tool.tool_name)
-
                 # Dictionary with name and path
                 elif isinstance(tool, dict) and "name" in tool and "path" in tool:
                     tools = load_tool_from_string(tool["path"])
@@ -97,7 +88,16 @@ class ToolRegistry:
                             tool_found = True
 
                     if not tool_found:
-                        raise ValueError(f"Failed to load tool {tool}")
+                        raise ValueError(f'Tool "{tool["name"]}" not found in "{tool["path"]}"')
+
+                # Dictionary with path only
+                elif isinstance(tool, dict) and "path" in tool:
+                    tools = load_tool_from_string(tool["path"])
+
+                    for a_tool in tools:
+                        a_tool.mark_dynamic()
+                        self.register_tool(a_tool)
+                        tool_names.append(a_tool.tool_name)
 
                 # Imported Python module
                 elif hasattr(tool, "__file__") and inspect.ismodule(tool):
@@ -131,7 +131,7 @@ class ToolRegistry:
         return tool_names
 
     def load_tool_from_filepath(self, tool_name: str, tool_path: str) -> None:
-        """Load a tool from a file path.
+        """DEPRECATED: Load a tool from a file path.
 
         Args:
             tool_name: Name of the tool.

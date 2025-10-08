@@ -11,3 +11,7 @@ def say(input: str) -> str:
 def dont_say(input: str) -> str:
     """Dont say something."""
     return "Didnt say anything!"
+
+
+def not_a_tool() -> str:
+    return "Not a tool!"
