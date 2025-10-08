@@ -101,7 +101,6 @@ class ToolRegistry:
 
                 # Imported Python module
                 elif hasattr(tool, "__file__") and inspect.ismodule(tool):
-                    print(tool)
                     # Extract the tool name from the module name
                     module_tool_name = tool.__name__.split(".")[-1]
 
