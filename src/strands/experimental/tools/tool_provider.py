@@ -27,12 +27,23 @@ class ToolProvider(ABC):
         pass
 
     @abstractmethod
-    async def cleanup(self, **kwargs: Any) -> None:
-        """Clean up resources used by the tools in this provider.
+    async def add_provider_consumer(self, id: Any, **kwargs: Any) -> None:
+        """Add a consumer to this tool provider.
 
         Args:
+            id: Unique identifier for the consumer.
+            **kwargs: Additional arguments for future compatibility.
+        """
+        pass
+
+    @abstractmethod
+    async def remove_provider_consumer(self, id: Any, **kwargs: Any) -> None:
+        """Remove a consumer from this tool provider.
+
+        Args:
+            id: Unique identifier for the consumer.
             **kwargs: Additional arguments for future compatibility.
 
-        Should be called when the tools are no longer needed.
+        Provider may clean up resources when no consumers remain.
         """
         pass
