@@ -914,15 +914,15 @@ async def test_agent_cleanup_async(agent):
     """Test that agent cleanup_async method works correctly."""
     # Create mock tool provider
     mock_provider = unittest.mock.MagicMock()
-    mock_provider.cleanup = unittest.mock.AsyncMock()
+    mock_provider.remove_provider_consumer = unittest.mock.AsyncMock()
 
     # Add provider to agent's tool registry
     agent.tool_registry.tool_providers = [mock_provider]
 
     await agent.cleanup_async()
 
-    # Verify provider cleanup was called
-    mock_provider.cleanup.assert_called_once()
+    # Verify provider remove_provider_consumer was called
+    mock_provider.remove_provider_consumer.assert_called_once_with(agent.tool_registry._registry_id)
     # Verify cleanup was marked as called
     assert agent._cleanup_called is True
 
@@ -932,9 +932,9 @@ async def test_agent_cleanup_async_handles_exceptions(agent):
     """Test that agent cleanup_async handles exceptions gracefully."""
     # Create mock tool providers, one that raises an exception
     mock_provider1 = unittest.mock.MagicMock()
-    mock_provider1.cleanup = unittest.mock.AsyncMock()
+    mock_provider1.remove_provider_consumer = unittest.mock.AsyncMock()
     mock_provider2 = unittest.mock.MagicMock()
-    mock_provider2.cleanup = unittest.mock.AsyncMock(side_effect=Exception("Cleanup failed"))
+    mock_provider2.remove_provider_consumer = unittest.mock.AsyncMock(side_effect=Exception("Cleanup failed"))
 
     # Add providers to agent's tool registry
     agent.tool_registry.tool_providers = [mock_provider1, mock_provider2]
@@ -943,8 +943,8 @@ async def test_agent_cleanup_async_handles_exceptions(agent):
     await agent.cleanup_async()
 
     # Verify both providers were attempted
-    mock_provider1.cleanup.assert_called_once()
-    mock_provider2.cleanup.assert_called_once()
+    mock_provider1.remove_provider_consumer.assert_called_once()
+    mock_provider2.remove_provider_consumer.assert_called_once()
     # Verify cleanup was marked as called
     assert agent._cleanup_called is True
 
@@ -954,7 +954,7 @@ async def test_agent_cleanup_async_idempotent(agent):
     """Test that calling cleanup_async multiple times is safe."""
     # Create mock tool provider
     mock_provider = unittest.mock.MagicMock()
-    mock_provider.cleanup = unittest.mock.AsyncMock()
+    mock_provider.remove_provider_consumer = unittest.mock.AsyncMock()
 
     # Add provider to agent's tool registry
     agent.tool_registry.tool_providers = [mock_provider]
@@ -963,8 +963,8 @@ async def test_agent_cleanup_async_idempotent(agent):
     await agent.cleanup_async()
     await agent.cleanup_async()
 
-    # Verify provider cleanup was only called once due to idempotency
-    mock_provider.cleanup.assert_called_once()
+    # Verify provider remove_provider_consumer was only called once due to idempotency
+    mock_provider.remove_provider_consumer.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -1002,7 +1002,7 @@ def test_agent_cleanup_idempotent(agent):
     """Test that calling cleanup multiple times is safe."""
     # Create mock tool provider
     mock_provider = unittest.mock.MagicMock()
-    mock_provider.cleanup = unittest.mock.AsyncMock()
+    mock_provider.remove_provider_consumer = unittest.mock.AsyncMock()
 
     # Add provider to agent's tool registry
     agent.tool_registry.tool_providers = [mock_provider]
@@ -1011,8 +1011,8 @@ def test_agent_cleanup_idempotent(agent):
     agent.cleanup()
     agent.cleanup()
 
-    # Verify provider cleanup was only called once due to idempotency
-    mock_provider.cleanup.assert_called_once()
+    # Verify provider remove_provider_consumer was only called once due to idempotency
+    mock_provider.remove_provider_consumer.assert_called_once()
 
 
 def test_agent_cleanup_early_return_avoids_thread_spawn(agent):
@@ -1027,8 +1027,11 @@ def test_agent_cleanup_early_return_avoids_thread_spawn(agent):
         mock_run_async.assert_not_called()
 
 
-def test_agent__del__emits_warning_for_automatic_cleanup(agent):
+def test_agent__del__emits_warning_for_automatic_cleanup():
     """Test that __del__ emits warning when cleanup wasn't called manually."""
+    # Create a fresh agent for this test to avoid fixture lifecycle issues
+    agent = Agent()
+
     # Add a mock tool provider so cleanup will be called
     mock_provider = unittest.mock.MagicMock()
     agent.tool_registry.tool_providers = [mock_provider]

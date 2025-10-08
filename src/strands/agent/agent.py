@@ -561,19 +561,7 @@ class Agent:
 
         logger.debug("agent_id=<%s> | cleaning up agent resources", self.agent_id)
 
-        for provider in self.tool_registry.tool_providers:
-            try:
-                await provider.cleanup()
-                logger.debug(
-                    "agent_id=<%s>, provider=<%s> | cleaned up tool provider", self.agent_id, type(provider).__name__
-                )
-            except Exception as e:
-                logger.warning(
-                    "agent_id=<%s>, provider=<%s>, error=<%s> | failed to cleanup tool provider",
-                    self.agent_id,
-                    type(provider).__name__,
-                    e,
-                )
+        await self.tool_registry.cleanup_async()
 
         self._cleanup_called = True
         logger.debug("agent_id=<%s> | agent cleanup complete", self.agent_id)

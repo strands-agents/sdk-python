@@ -16,7 +16,7 @@ from asyncio import AbstractEventLoop
 from concurrent import futures
 from datetime import timedelta
 from types import TracebackType
-from typing import Any, Callable, Coroutine, Dict, Optional, TypeVar, Union, cast
+from typing import Any, Callable, Coroutine, Dict, Optional, Pattern, Sequence, TypeVar, Union, cast
 
 import anyio
 from mcp import ClientSession, ListToolsResult
@@ -25,11 +25,13 @@ from mcp.types import CallToolResult as MCPCallToolResult
 from mcp.types import EmbeddedResource as MCPEmbeddedResource
 from mcp.types import ImageContent as MCPImageContent
 from mcp.types import TextContent as MCPTextContent
+from typing_extensions import TypedDict
 
+from ...experimental.tools import ToolProvider
 from ...types import PaginatedList
-from ...types.exceptions import MCPClientInitializationError
+from ...types.exceptions import MCPClientInitializationError, ToolProviderException
 from ...types.media import ImageFormat
-from ...types.tools import ToolResultContent, ToolResultStatus
+from ...types.tools import AgentTool, ToolResultContent, ToolResultStatus
 from .mcp_agent_tool import MCPAgentTool
 from .mcp_instrumentation import mcp_instrumentation
 from .mcp_types import MCPToolResult, MCPTransport
@@ -37,6 +39,22 @@ from .mcp_types import MCPToolResult, MCPTransport
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+_ToolFilterCallback = Callable[[AgentTool], bool]
+_ToolFilterPattern = Union[str, Pattern[str], _ToolFilterCallback]
+
+
+class ToolFilters(TypedDict, total=False):
+    """Filters for controlling which MCP tools are loaded and available.
+
+    Tools are filtered in this order:
+    1. If 'allowed' is specified, only tools matching these patterns are included
+    2. Tools matching 'rejected' patterns are then excluded
+    """
+
+    allowed: list[_ToolFilterPattern]
+    rejected: list[_ToolFilterPattern]
+
 
 MIME_TO_FORMAT: Dict[str, ImageFormat] = {
     "image/jpeg": "jpeg",
@@ -53,7 +71,7 @@ CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE = (
 )
 
 
-class MCPClient:
+class MCPClient(ToolProvider):
     """Represents a connection to a Model Context Protocol (MCP) server.
 
     This class implements a context manager pattern for efficient connection management,
@@ -65,15 +83,26 @@ class MCPClient:
     from MCP tools, it will be returned as the last item in the content array of the ToolResult.
     """
 
-    def __init__(self, transport_callable: Callable[[], MCPTransport], *, startup_timeout: int = 30):
+    def __init__(
+        self,
+        transport_callable: Callable[[], MCPTransport],
+        *,
+        startup_timeout: int = 30,
+        tool_filters: Optional[ToolFilters] = None,
+        prefix: Optional[str] = None,
+    ):
         """Initialize a new MCP Server connection.
 
         Args:
             transport_callable: A callable that returns an MCPTransport (read_stream, write_stream) tuple
             startup_timeout: Timeout after which MCP server initialization should be cancelled
                 Defaults to 30.
+            tool_filters: Optional filters to apply to tools.
+            prefix: Optional prefix for tool names.
         """
         self._startup_timeout = startup_timeout
+        self._tool_filters = tool_filters
+        self._prefix = prefix
 
         mcp_instrumentation()
         self._session_id = uuid.uuid4()
@@ -87,6 +116,9 @@ class MCPClient:
         self._background_thread: threading.Thread | None = None
         self._background_thread_session: ClientSession | None = None
         self._background_thread_event_loop: AbstractEventLoop | None = None
+        self._loaded_tools: list[MCPAgentTool] | None = None
+        self._tool_provider_started = False
+        self._consumers: set[Any] = set()
 
     def __enter__(self) -> "MCPClient":
         """Context manager entry point which initializes the MCP server connection.
@@ -136,6 +168,92 @@ class MCPClient:
             self.stop(None, None, None)
             raise MCPClientInitializationError("the client initialization failed") from e
         return self
+
+    # ToolProvider interface methods (experimental, as ToolProvider is experimental)
+    async def load_tools(self, **kwargs: Any) -> Sequence[AgentTool]:
+        """Load and return tools from the MCP server.
+
+        This method implements the ToolProvider interface by loading tools
+        from the MCP server and caching them for reuse.
+
+        Args:
+            **kwargs: Additional arguments for future compatibility.
+
+        Returns:
+            List of AgentTool instances from the MCP server.
+        """
+        logger.debug(
+            "started=<%s>, cached_tools=<%s> | loading tools",
+            self._tool_provider_started,
+            self._loaded_tools is not None,
+        )
+
+        if not self._tool_provider_started:
+            try:
+                logger.debug("starting MCP client")
+                self.start()
+                self._tool_provider_started = True
+                logger.debug("MCP client started successfully")
+            except Exception as e:
+                logger.error("error=<%s> | failed to start MCP client", e)
+                raise ToolProviderException(f"Failed to start MCP client: {e}") from e
+
+        if self._loaded_tools is None:
+            logger.debug("loading tools from MCP server")
+            self._loaded_tools = []
+            pagination_token = None
+            page_count = 0
+
+            while True:
+                logger.debug("page=<%d>, token=<%s> | fetching tools page", page_count, pagination_token)
+                paginated_tools = self.list_tools_sync(pagination_token)
+
+                # Process each tool as we get it
+                for tool in paginated_tools:
+                    # Apply filters
+                    if self._should_include_tool(tool):
+                        # Apply prefix if needed
+                        processed_tool = self._apply_prefix(tool)
+                        self._loaded_tools.append(processed_tool)
+
+                logger.debug(
+                    "page=<%d>, page_tools=<%d>, total_filtered=<%d> | processed page",
+                    page_count,
+                    len(paginated_tools),
+                    len(self._loaded_tools),
+                )
+
+                pagination_token = paginated_tools.pagination_token
+                page_count += 1
+
+                if pagination_token is None:
+                    break
+
+            logger.debug("final_tools=<%d> | loading complete", len(self._loaded_tools))
+
+        return self._loaded_tools
+
+    async def add_provider_consumer(self, id: Any, **kwargs: Any) -> None:
+        """Add a consumer to this tool provider."""
+        self._consumers.add(id)
+        logger.debug("added provider consumer, count=%d", len(self._consumers))
+
+    async def remove_provider_consumer(self, id: Any, **kwargs: Any) -> None:
+        """Remove a consumer from this tool provider."""
+        self._consumers.discard(id)
+        logger.debug("removed provider consumer, count=%d", len(self._consumers))
+
+        if not self._consumers and self._tool_provider_started:
+            logger.debug("no consumers remaining, cleaning up")
+            try:
+                self.stop(None, None, None)
+                self._tool_provider_started = False
+                self._loaded_tools = None
+            except Exception as e:
+                logger.error("error=<%s> | failed to cleanup MCP client", e)
+                raise ToolProviderException(f"Failed to cleanup MCP client: {e}") from e
+
+    # MCP-specific methods
 
     def stop(
         self, exc_type: Optional[BaseException], exc_val: Optional[BaseException], exc_tb: Optional[TracebackType]
@@ -187,6 +305,9 @@ class MCPClient:
         self._background_thread_session = None
         self._background_thread_event_loop = None
         self._session_id = uuid.uuid4()
+        self._loaded_tools = None
+        self._tool_provider_started = False
+        self._consumers = set()
 
     def list_tools_sync(self, pagination_token: Optional[str] = None) -> PaginatedList[MCPAgentTool]:
         """Synchronously retrieves the list of available tools from the MCP server.
@@ -529,6 +650,49 @@ class MCPClient:
         if self._background_thread_session is None or self._background_thread_event_loop is None:
             raise MCPClientInitializationError("the client session was not initialized")
         return asyncio.run_coroutine_threadsafe(coro=coro, loop=self._background_thread_event_loop)
+
+    def _should_include_tool(self, tool: MCPAgentTool) -> bool:
+        """Check if a tool should be included based on allowed/rejected filters."""
+        if not self._tool_filters:
+            return True
+
+        # Apply allowed filter
+        if "allowed" in self._tool_filters:
+            if not self._matches_patterns(tool, self._tool_filters["allowed"]):
+                return False
+
+        # Apply rejected filter
+        if "rejected" in self._tool_filters:
+            if self._matches_patterns(tool, self._tool_filters["rejected"]):
+                return False
+
+        return True
+
+    def _apply_prefix(self, tool: MCPAgentTool) -> MCPAgentTool:
+        """Apply prefix to a single tool if needed."""
+        if not self._prefix:
+            return tool
+
+        # Create new tool with prefixed agent name but preserve original MCP name
+        old_name = tool.tool_name
+        new_agent_name = f"{self._prefix}_{tool.mcp_tool.name}"
+        new_tool = MCPAgentTool(tool.mcp_tool, tool.mcp_client, agent_facing_tool_name=new_agent_name)
+        logger.debug("tool_rename=<%s->%s> | renamed tool", old_name, new_agent_name)
+        return new_tool
+
+    def _matches_patterns(self, tool: MCPAgentTool, patterns: list[_ToolFilterPattern]) -> bool:
+        """Check if tool matches any of the given patterns."""
+        for pattern in patterns:
+            if callable(pattern):
+                if pattern(tool):
+                    return True
+            elif hasattr(pattern, "match") and hasattr(pattern, "pattern"):
+                if pattern.match(tool.tool_name):
+                    return True
+            elif isinstance(pattern, str):
+                if pattern == tool.tool_name:
+                    return True
+        return False
 
     def _is_session_active(self) -> bool:
         return self._background_thread is not None and self._background_thread.is_alive()
