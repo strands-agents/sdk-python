@@ -28,6 +28,10 @@ def test_node_result_initialization_and_properties(agent_result):
     assert node_result.accumulated_metrics == {"latencyMs": 0.0}
     assert node_result.execution_count == 0
 
+    # Test default status
+    default_node = NodeResult(result=agent_result)
+    assert default_node.status == Status.PENDING
+
     # With custom metrics
     custom_usage = {"inputTokens": 100, "outputTokens": 200, "totalTokens": 300}
     custom_metrics = {"latencyMs": 250.0}
@@ -95,6 +99,7 @@ def test_multi_agent_result_initialization(agent_result):
     assert result.accumulated_metrics == {"latencyMs": 0.0}
     assert result.execution_count == 0
     assert result.execution_time == 0
+    assert result.status == Status.PENDING
 
     # Custom values``
     node_result = NodeResult(result=agent_result)
@@ -141,6 +146,15 @@ def test_multi_agent_base_abstract_behavior():
         async def invoke_async(self, task: str) -> MultiAgentResult:
             return MultiAgentResult(results={})
 
+        def serialize_state(self) -> dict:
+            return {}
+
+        def deserialize_state(self, payload: dict) -> None:
+            pass
+
+        def attempt_resume(self, payload: dict) -> None:
+            pass
+
     # Should not raise an exception - __call__ is provided by base class
     agent = CompleteMultiAgent()
     assert isinstance(agent, MultiAgentBase)
@@ -163,6 +177,15 @@ def test_multi_agent_base_call_method():
                 status=Status.COMPLETED, results={"test": NodeResult(result=Exception("test"), status=Status.COMPLETED)}
             )
 
+        def serialize_state(self) -> dict:
+            return {}
+
+        def deserialize_state(self, payload: dict) -> None:
+            pass
+
+        def attempt_resume(self, payload: dict) -> None:
+            pass
+
     agent = TestMultiAgent()
 
     # Test with string task
@@ -173,3 +196,60 @@ def test_multi_agent_base_call_method():
     assert agent.received_kwargs == {"param1": "value1", "param2": "value2"}
     assert isinstance(result, MultiAgentResult)
     assert result.status == Status.COMPLETED
+
+
+def test_node_result_to_dict(agent_result):
+    """Test NodeResult to_dict method."""
+    # Test with AgentResult
+    node_result = NodeResult(result=agent_result, execution_time=100, status=Status.COMPLETED)
+    result_dict = node_result.to_dict()
+
+    assert result_dict["execution_time"] == 100
+    assert result_dict["status"] == "completed"
+    assert result_dict["result"]["type"] == "agent_result"
+    assert result_dict["result"]["stop_reason"] == agent_result.stop_reason
+    assert result_dict["result"]["message"] == agent_result.message
+
+    # Test with Exception
+    exception_result = NodeResult(result=Exception("Test error"), status=Status.FAILED)
+    result_dict = exception_result.to_dict()
+
+    assert result_dict["result"]["type"] == "exception"
+    assert result_dict["result"]["message"] == "Test error"
+    assert result_dict["status"] == "failed"
+
+
+def test_multi_agent_result_to_dict(agent_result):
+    """Test MultiAgentResult to_dict method."""
+    node_result = NodeResult(result=agent_result)
+    multi_result = MultiAgentResult(status=Status.COMPLETED, results={"test_node": node_result}, execution_time=200)
+
+    result_dict = multi_result.to_dict()
+
+    assert result_dict["status"] == "completed"
+    assert result_dict["execution_time"] == 200
+    assert "test_node" in result_dict["results"]
+    assert result_dict["results"]["test_node"]["result"]["type"] == "agent_result"
+
+
+def test_serialize_node_result_for_persist(agent_result):
+    """Test serialize_node_result_for_persist method."""
+    from unittest.mock import Mock
+
+    agent = Mock(spec=MultiAgentBase)
+
+    # Test with NodeResult containing AgentResult
+    node_result = NodeResult(result=agent_result)
+    serialized = MultiAgentBase.serialize_node_result_for_persist(agent, node_result)
+
+    # Should return the to_dict() result
+    assert "result" in serialized
+    assert "execution_time" in serialized
+    assert "status" in serialized
+
+    # Test with invalid input type should raise TypeError
+    with pytest.raises(TypeError, match="serialize_node_result_for_persist expects NodeResult"):
+        MultiAgentBase.serialize_node_result_for_persist(agent, {"agent_outputs": ["test1", "test2"]})
+
+    with pytest.raises(TypeError, match="serialize_node_result_for_persist expects NodeResult"):
+        MultiAgentBase.serialize_node_result_for_persist(agent, "simple string")
