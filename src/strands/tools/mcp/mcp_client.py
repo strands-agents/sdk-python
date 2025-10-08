@@ -24,7 +24,7 @@ from mcp.types import CallToolResult as MCPCallToolResult
 from mcp.types import GetPromptResult, ListPromptsResult
 from mcp.types import ImageContent as MCPImageContent
 from mcp.types import TextContent as MCPTextContent
-from typing_extensions import TypedDict
+from typing_extensions import Protocol, TypedDict
 
 from ...experimental.tools import ToolProvider
 from ...types import PaginatedList
@@ -39,8 +39,12 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-_ToolFilterCallback = Callable[[AgentTool], bool]
-_ToolFilterPattern = Union[str, Pattern[str], _ToolFilterCallback]
+
+class _ToolFilterCallback(Protocol):
+    def __call__(self, tool: AgentTool, **kwargs: Any) -> bool: ...
+
+
+_ToolFilterPattern = str | Pattern[str] | _ToolFilterCallback
 
 
 class ToolFilters(TypedDict, total=False):
@@ -624,7 +628,7 @@ class MCPClient(ToolProvider):
         # Create new tool with prefixed agent name but preserve original MCP name
         old_name = tool.tool_name
         new_agent_name = f"{self._prefix}_{tool.mcp_tool.name}"
-        new_tool = MCPAgentTool(tool.mcp_tool, tool.mcp_client, agent_facing_tool_name=new_agent_name)
+        new_tool = MCPAgentTool(tool.mcp_tool, tool.mcp_client, name_override=new_agent_name)
         logger.debug("tool_rename=<%s->%s> | renamed tool", old_name, new_agent_name)
         return new_tool
 
@@ -634,7 +638,7 @@ class MCPClient(ToolProvider):
             if callable(pattern):
                 if pattern(tool):
                     return True
-            elif hasattr(pattern, "match") and hasattr(pattern, "pattern"):
+            elif isinstance(pattern, Pattern):
                 if pattern.match(tool.tool_name):
                     return True
             elif isinstance(pattern, str):

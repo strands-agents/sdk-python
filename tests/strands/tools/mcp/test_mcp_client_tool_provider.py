@@ -215,8 +215,8 @@ async def test_allowed_filter_callable_match(mock_transport):
 
 
 @pytest.mark.asyncio
-async def test_rejected_filter(mock_transport):
-    """Test rejected filter functionality."""
+async def test_rejected_filter_string_match(mock_transport):
+    """Test rejected filter with string matching."""
     tool1 = create_mock_tool("good_tool")
     tool2 = create_mock_tool("bad_tool")
 
@@ -256,7 +256,7 @@ async def test_prefix_renames_tools(mock_transport):
 
         # Should create new MCPAgentTool with prefixed name
         mock_agent_tool_class.assert_called_once_with(
-            original_tool.mcp_tool, original_tool.mcp_client, agent_facing_tool_name="prefix_original_name"
+            original_tool.mcp_tool, original_tool.mcp_client, name_override="prefix_original_name"
         )
 
         assert len(tools) == 1

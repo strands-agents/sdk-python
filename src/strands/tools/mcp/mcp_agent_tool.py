@@ -28,20 +28,20 @@ class MCPAgentTool(AgentTool):
     seamlessly within the agent framework.
     """
 
-    def __init__(self, mcp_tool: MCPTool, mcp_client: "MCPClient", agent_facing_tool_name: str | None = None) -> None:
+    def __init__(self, mcp_tool: MCPTool, mcp_client: "MCPClient", name_override: str | None = None) -> None:
         """Initialize a new MCPAgentTool instance.
 
         Args:
             mcp_tool: The MCP tool to adapt
             mcp_client: The MCP server connection to use for tool invocation
-            agent_facing_tool_name: Optional name to use for the agent tool (for disambiguation)
+            name_override: Optional name to use for the agent tool (for disambiguation)
                            If None, uses the original MCP tool name
         """
         super().__init__()
         logger.debug("tool_name=<%s> | creating mcp agent tool", mcp_tool.name)
         self.mcp_tool = mcp_tool
         self.mcp_client = mcp_client
-        self._agent_tool_name = agent_facing_tool_name or mcp_tool.name
+        self._agent_tool_name = name_override or mcp_tool.name
 
     @property
     def tool_name(self) -> str:
