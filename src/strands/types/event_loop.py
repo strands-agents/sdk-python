@@ -28,7 +28,8 @@ class Metrics(TypedDict, total=False):
 
     Attributes:
         latencyMs (int): Latency of the model request in milliseconds.
-        timeToFirstByteMs (int): TimeToFirstByte of the first chunk from the model in milliseconds.
+        timeToFirstByteMs (int): Latency from sending model request to first
+            content chunk (contentBlockDelta or contentBlockStart) from the model in milliseconds.
     """
 
     latencyMs: Required[int]

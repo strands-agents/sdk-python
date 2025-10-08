@@ -173,7 +173,15 @@ def test_start_model_invoke_span_latest_conventions(mock_tracer):
         mock_span = mock.MagicMock()
         mock_tracer.start_span.return_value = mock_span
 
-        messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+        messages = [
+            {"role": "user", "content": [{"text": "Hello 2025-1993"}]},
+            {
+                "role": "assistant",
+                "content": [
+                    {"toolUse": {"input": '"expression": "2025-1993"', "name": "calculator", "toolUseId": "123"}}
+                ],
+            },
+        ]
         model_id = "test-model"
 
         span = tracer.start_model_invoke_span(messages=messages, agent_name="TestAgent", model_id=model_id)
@@ -191,8 +199,19 @@ def test_start_model_invoke_span_latest_conventions(mock_tracer):
                     [
                         {
                             "role": messages[0]["role"],
-                            "parts": [{"type": "text", "content": messages[0]["content"]}],
-                        }
+                            "parts": [{"type": "text", "content": "Hello 2025-1993"}],
+                        },
+                        {
+                            "role": messages[1]["role"],
+                            "parts": [
+                                {
+                                    "type": "tool_call",
+                                    "name": "calculator",
+                                    "id": "123",
+                                    "arguments": '"expression": "2025-1993"',
+                                }
+                            ],
+                        },
                     ]
                 )
             },
@@ -215,8 +234,6 @@ def test_end_model_invoke_span(mock_span):
     mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 20)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 20)
     mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 30)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 0)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 0)
     mock_span.set_attribute.assert_any_call("gen_ai.server.request.duration", 20)
     mock_span.set_attribute.assert_any_call("gen_ai.server.time_to_first_token", 10)
     mock_span.add_event.assert_called_with(
@@ -244,8 +261,6 @@ def test_end_model_invoke_span_latest_conventions(mock_span):
         mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 20)
         mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 20)
         mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 30)
-        mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 0)
-        mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 0)
         mock_span.set_attribute.assert_any_call("gen_ai.server.time_to_first_token", 10)
         mock_span.set_attribute.assert_any_call("gen_ai.server.request.duration", 20)
         mock_span.add_event.assert_called_with(
@@ -255,7 +270,7 @@ def test_end_model_invoke_span_latest_conventions(mock_span):
                     [
                         {
                             "role": "assistant",
-                            "parts": [{"type": "text", "content": message["content"]}],
+                            "parts": [{"type": "text", "content": "Response"}],
                             "finish_reason": "end_turn",
                         }
                     ]
@@ -324,7 +339,7 @@ def test_start_tool_call_span_latest_conventions(mock_tracer):
                                     "type": "tool_call",
                                     "name": tool["name"],
                                     "id": tool["toolUseId"],
-                                    "arguments": [{"content": tool["input"]}],
+                                    "arguments": tool["input"],
                                 }
                             ],
                         }
@@ -404,7 +419,7 @@ def test_start_swarm_span_with_contentblock_task_latest_conventions(mock_tracer)
             "gen_ai.client.inference.operation.details",
             attributes={
                 "gen_ai.input.messages": serialize(
-                    [{"role": "user", "parts": [{"type": "text", "content": [{"text": "Original Task: foo bar"}]}]}]
+                    [{"role": "user", "parts": [{"type": "text", "content": "Original Task: foo bar"}]}]
                 )
             },
         )
@@ -492,7 +507,7 @@ def test_end_tool_call_span_latest_conventions(mock_span):
     """Test ending a tool call span with the latest semantic conventions."""
     tracer = Tracer()
     tracer.use_latest_genai_conventions = True
-    tool_result = {"status": "success", "content": [{"text": "Tool result"}]}
+    tool_result = {"status": "success", "content": [{"text": "Tool result"}, {"json": {"foo": "bar"}}]}
 
     tracer.end_tool_call_span(mock_span, tool_result)
 
@@ -508,7 +523,7 @@ def test_end_tool_call_span_latest_conventions(mock_span):
                             {
                                 "type": "tool_call_response",
                                 "id": tool_result.get("toolUseId", ""),
-                                "result": tool_result.get("content"),
+                                "response": tool_result.get("content"),
                             }
                         ],
                     }
@@ -564,9 +579,7 @@ def test_start_event_loop_cycle_span_latest_conventions(mock_tracer):
         mock_span.add_event.assert_any_call(
             "gen_ai.client.inference.operation.details",
             attributes={
-                "gen_ai.input.messages": serialize(
-                    [{"role": "user", "parts": [{"type": "text", "content": messages[0]["content"]}]}]
-                )
+                "gen_ai.input.messages": serialize([{"role": "user", "parts": [{"type": "text", "content": "Hello"}]}])
             },
         )
         assert span is not None
@@ -576,7 +589,12 @@ def test_end_event_loop_cycle_span(mock_span):
     """Test ending an event loop cycle span."""
     tracer = Tracer()
     message = {"role": "assistant", "content": [{"text": "Response"}]}
-    tool_result_message = {"role": "assistant", "content": [{"toolResult": {"response": "Success"}}]}
+    tool_result_message = {
+        "role": "assistant",
+        "content": [
+            {"toolResult": {"toolUseId": "123", "status": "success", "content": [{"text": "Weather is sunny"}]}}
+        ],
+    }
 
     tracer.end_event_loop_cycle_span(mock_span, message, tool_result_message)
 
@@ -596,7 +614,12 @@ def test_end_event_loop_cycle_span_latest_conventions(mock_span):
     tracer = Tracer()
     tracer.use_latest_genai_conventions = True
     message = {"role": "assistant", "content": [{"text": "Response"}]}
-    tool_result_message = {"role": "assistant", "content": [{"toolResult": {"response": "Success"}}]}
+    tool_result_message = {
+        "role": "assistant",
+        "content": [
+            {"toolResult": {"toolUseId": "123", "status": "success", "content": [{"text": "Weather is sunny"}]}}
+        ],
+    }
 
     tracer.end_event_loop_cycle_span(mock_span, message, tool_result_message)
 
@@ -607,7 +630,13 @@ def test_end_event_loop_cycle_span_latest_conventions(mock_span):
                 [
                     {
                         "role": "assistant",
-                        "parts": [{"type": "text", "content": tool_result_message["content"]}],
+                        "parts": [
+                            {
+                                "type": "tool_call_response",
+                                "id": "123",
+                                "response": [{"text": "Weather is sunny"}],
+                            }
+                        ],
                     }
                 ]
             )
@@ -682,7 +711,7 @@ def test_start_agent_span_latest_conventions(mock_tracer):
             "gen_ai.client.inference.operation.details",
             attributes={
                 "gen_ai.input.messages": serialize(
-                    [{"role": "user", "parts": [{"type": "text", "content": [{"text": "test prompt"}]}]}]
+                    [{"role": "user", "parts": [{"type": "text", "content": "test prompt"}]}]
                 )
             },
         )
