@@ -3,9 +3,11 @@ from unittest.mock import call
 
 import pydantic
 import pytest
+from litellm.exceptions import ContextWindowExceededError
 
 import strands
 from strands.models.litellm import LiteLLMModel
+from strands.types.exceptions import ContextWindowOverflowException
 
 
 @pytest.fixture
@@ -332,3 +334,13 @@ def test_tool_choice_none_no_warning(model, messages, captured_warnings):
     model.format_request(messages, tool_choice=None)
 
     assert len(captured_warnings) == 0
+
+
+@pytest.mark.asyncio
+async def test_context_window_maps_to_typed_exception(litellm_acompletion, model):
+    """Test that a typed ContextWindowExceededError is mapped correctly."""
+    litellm_acompletion.side_effect = ContextWindowExceededError(message="test error", model="x", llm_provider="y")
+
+    with pytest.raises(ContextWindowOverflowException):
+        async for _ in model.stream([{"role": "user", "content": [{"text": "x"}]}]):
+            pass
