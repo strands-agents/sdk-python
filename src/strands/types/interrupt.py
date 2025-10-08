@@ -8,12 +8,10 @@ class InterruptResponse(TypedDict):
 
     Attributes:
         name: Unique identifier for the interrupt.
-        event_name: Name of the hook event under which the interrupt was triggered.
         response: User response to the interrupt.
     """
 
     name: str
-    event_name: str
     response: Any
 
 

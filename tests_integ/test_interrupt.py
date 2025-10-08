@@ -58,7 +58,6 @@ def test_agent_invoke_interrupt(agent):
         {
             "interruptResponse": {
                 "name": "time_tool",
-                "event_name": "BeforeToolCallEvent",
                 "response": "APPROVE",
             },
         },
@@ -112,7 +111,6 @@ def test_agent_invoke_interrupt_reject(agent):
         {
             "interruptResponse": {
                 "name": "time_tool",
-                "event_name": "BeforeToolCallEvent",
                 "response": "REJECT",
             },
         },

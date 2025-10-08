@@ -1933,7 +1933,6 @@ def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
         {
             "interruptResponse": {
                 "name": "tool_decorated",
-                "event_name": "BeforeToolCallEvent",
                 "response": "user response",
             }
         }

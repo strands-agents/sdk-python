@@ -645,13 +645,16 @@ class Agent:
             if isinstance(content, dict) and "interruptResponse" in content
         ]
 
-        reasons_map = {(reason["name"], reason["event_name"]): reason for reason in reasons}
-        responses_map = {(response["name"], response["event_name"]): response for response in responses}
-        missing_keys = reasons_map.keys() - responses_map.keys()
-        if missing_keys:
-            raise ValueError(f"interrupts=<{list(missing_keys)}> | missing responses for interrupts")
+        reasons_map = {reason["name"]: reason for reason in reasons}
+        responses_map = {response["name"]: response for response in responses}
+        missing_names = reasons_map.keys() - responses_map.keys()
+        if missing_names:
+            raise ValueError(f"interrupts=<{list(missing_names)}> | missing responses for interrupts")
 
-        self._interrupts = {key: Interrupt(**{**reasons_map[key], **responses_map[key]}) for key in responses_map}
+        self._interrupts = {
+            (name, reasons_map[name]["event_name"]): Interrupt(**{**reasons_map[name], **responses_map[name]})
+            for name in responses_map
+        }
 
     async def _run_loop(self, messages: Messages, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
         """Execute the agent's event loop with the given message and parameters.
