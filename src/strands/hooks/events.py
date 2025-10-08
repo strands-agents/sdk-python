@@ -6,7 +6,7 @@ This module defines the events that are emitted as Agents run through the lifecy
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from ..types.content import Message
+from ..types.content import Message, Messages
 from ..types.streaming import StopReason
 from ..types.tools import AgentTool, ToolResult, ToolUse
 from .registry import HookEvent
@@ -36,9 +36,13 @@ class BeforeInvocationEvent(HookEvent):
       - Agent.__call__
       - Agent.stream_async
       - Agent.structured_output
+
+    Attributes:
+        message: The input to the agent request (including current message and
+            any history if present)
     """
 
-    pass
+    messages: Messages
 
 
 @dataclass

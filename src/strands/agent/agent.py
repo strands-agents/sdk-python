@@ -484,24 +484,23 @@ class Agent:
         Raises:
             ValueError: If no conversation history or prompt is provided.
         """
-        self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
+        if not self.messages and not prompt:
+            raise ValueError("No conversation history or prompt provided")
+        temp_messages: Messages = self.messages + self._convert_prompt_to_messages(prompt)
+
+        self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self, messages=temp_messages))
+
         with self.tracer.tracer.start_as_current_span(
-            "execute_structured_output", kind=trace_api.SpanKind.CLIENT
+            "execute_structured_output",
+            attributes={
+                "gen_ai.system": "strands-agents",
+                "gen_ai.agent.name": self.name,
+                "gen_ai.agent.id": self.agent_id,
+                "gen_ai.operation.name": "execute_structured_output",
+            },
+            kind=trace_api.SpanKind.CLIENT,
         ) as structured_output_span:
             try:
-                if not self.messages and not prompt:
-                    raise ValueError("No conversation history or prompt provided")
-
-                temp_messages: Messages = self.messages + self._convert_prompt_to_messages(prompt)
-
-                structured_output_span.set_attributes(
-                    {
-                        "gen_ai.system": "strands-agents",
-                        "gen_ai.agent.name": self.name,
-                        "gen_ai.agent.id": self.agent_id,
-                        "gen_ai.operation.name": "execute_structured_output",
-                    }
-                )
                 if self.system_prompt:
                     structured_output_span.add_event(
                         "gen_ai.system.message",
@@ -606,7 +605,7 @@ class Agent:
         Yields:
             Events from the event loop cycle.
         """
-        self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
+        self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self, messages=messages))
 
         try:
             yield InitEventLoopEvent()

@@ -1007,13 +1007,15 @@ def test_agent_structured_output(agent, system_prompt, user, agenerator):
         type(user), [{"role": "user", "content": [{"text": prompt}]}], system_prompt=system_prompt
     )
 
-    mock_span.set_attributes.assert_called_once_with(
-        {
+    mock_otel_tracer.start_as_current_span.assert_called_once_with(
+        "execute_structured_output",
+        attributes={
             "gen_ai.system": "strands-agents",
             "gen_ai.agent.name": "Strands Agents",
             "gen_ai.agent.id": "default",
             "gen_ai.operation.name": "execute_structured_output",
-        }
+        },
+        kind=unittest.mock.ANY,
     )
 
     # ensure correct otel event messages are emitted
