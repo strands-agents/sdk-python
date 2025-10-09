@@ -237,12 +237,12 @@ class MCPClient(ToolProvider):
 
         return self._loaded_tools
 
-    async def add_provider_consumer(self, id: Any, **kwargs: Any) -> None:
+    async def add_consumer(self, id: Any, **kwargs: Any) -> None:
         """Add a consumer to this tool provider."""
         self._consumers.add(id)
         logger.debug("added provider consumer, count=%d", len(self._consumers))
 
-    async def remove_provider_consumer(self, id: Any, **kwargs: Any) -> None:
+    async def remove_consumer(self, id: Any, **kwargs: Any) -> None:
         """Remove a consumer from this tool provider."""
         self._consumers.discard(id)
         logger.debug("removed provider consumer, count=%d", len(self._consumers))

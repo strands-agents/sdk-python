@@ -27,7 +27,7 @@ class ToolProvider(ABC):
         pass
 
     @abstractmethod
-    async def add_provider_consumer(self, id: Any, **kwargs: Any) -> None:
+    async def add_consumer(self, id: Any, **kwargs: Any) -> None:
         """Add a consumer to this tool provider.
 
         Args:
@@ -37,7 +37,7 @@ class ToolProvider(ABC):
         pass
 
     @abstractmethod
-    async def remove_provider_consumer(self, id: Any, **kwargs: Any) -> None:
+    async def remove_consumer(self, id: Any, **kwargs: Any) -> None:
         """Remove a consumer from this tool provider.
 
         Args:

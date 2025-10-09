@@ -130,7 +130,7 @@ class ToolRegistry:
 
                     async def get_tools_and_register_consumer() -> Sequence[AgentTool]:
                         provider_tools = await tool.load_tools()
-                        await tool.add_provider_consumer(self._registry_id)
+                        await tool.add_consumer(self._registry_id)
                         return provider_tools
 
                     provider_tools = run_async(get_tools_and_register_consumer)
@@ -665,7 +665,7 @@ class ToolRegistry:
         """Clean up all tool providers in this registry."""
         for provider in self.tool_providers:
             try:
-                await provider.remove_provider_consumer(self._registry_id)
+                await provider.remove_consumer(self._registry_id)
                 logger.debug("provider=<%s> | removed provider consumer", type(provider).__name__)
             except Exception as e:
                 logger.warning(

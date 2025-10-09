@@ -575,10 +575,11 @@ class Agent:
             if self._cleanup_called or not self.tool_registry.tool_providers:
                 return
 
-            logger.warning(
-                "agent_id=<%s> | Agent cleanup called via __del__. "
+            warnings.warn(
+                f"agent_id={self.agent_id} | Agent cleanup called via __del__. "
                 "Consider calling agent.cleanup() explicitly for better resource management.",
-                self.agent_id,
+                ResourceWarning,
+                stacklevel=2,
             )
             self.cleanup()
         except Exception as e:
