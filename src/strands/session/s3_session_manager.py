@@ -1,5 +1,6 @@
 """S3-based session manager for cloud storage."""
 
+import asyncio
 import json
 import logging
 from typing import Any, Dict, List, Optional, cast
@@ -283,14 +284,23 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             else:
                 message_keys = message_keys[offset:]
 
-            # Load only the required message objects
-            messages: List[SessionMessage] = []
-            for key in message_keys:
-                message_data = self._read_s3_object(key)
-                if message_data:
-                    messages.append(SessionMessage.from_dict(message_data))
-
-            return messages
+            # Load message objects concurrently using async
+            return asyncio.run(self._load_messages_concurrently(message_keys))
 
         except ClientError as e:
             raise SessionException(f"S3 error reading messages: {e}") from e
+
+    async def _load_messages_concurrently(self, message_keys: List[str]) -> List[SessionMessage]:
+        """Load multiple message objects concurrently using async."""
+        if not message_keys:
+            return []
+
+        async def load_message(key: str) -> Optional[SessionMessage]:
+            loop = asyncio.get_event_loop()
+            message_data = await loop.run_in_executor(None, self._read_s3_object, key)
+            return SessionMessage.from_dict(message_data) if message_data else None
+
+        tasks = [load_message(key) for key in message_keys]
+        loaded_messages = await asyncio.gather(*tasks)
+
+        return [msg for msg in loaded_messages if msg is not None]
