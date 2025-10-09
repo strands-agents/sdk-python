@@ -264,25 +264,25 @@ async def test_prefix_renames_tools(mock_transport):
 
 
 @pytest.mark.asyncio
-async def test_add_provider_consumer(mock_transport):
+async def test_add_consumer(mock_transport):
     """Test adding a provider consumer."""
     client = MCPClient(mock_transport)
 
-    await client.add_provider_consumer("consumer1")
+    await client.add_consumer("consumer1")
 
     assert "consumer1" in client._consumers
     assert len(client._consumers) == 1
 
 
 @pytest.mark.asyncio
-async def test_remove_provider_consumer_without_cleanup(mock_transport):
+async def test_remove_consumer_without_cleanup(mock_transport):
     """Test removing a provider consumer without triggering cleanup."""
     client = MCPClient(mock_transport)
     client._consumers.add("consumer1")
     client._consumers.add("consumer2")
     client._tool_provider_started = True
 
-    await client.remove_provider_consumer("consumer1")
+    await client.remove_consumer("consumer1")
 
     assert "consumer1" not in client._consumers
     assert "consumer2" in client._consumers
@@ -290,7 +290,7 @@ async def test_remove_provider_consumer_without_cleanup(mock_transport):
 
 
 @pytest.mark.asyncio
-async def test_remove_provider_consumer_with_cleanup(mock_transport):
+async def test_remove_consumer_with_cleanup(mock_transport):
     """Test removing the last provider consumer triggers cleanup."""
     client = MCPClient(mock_transport)
     client._consumers.add("consumer1")
@@ -298,7 +298,7 @@ async def test_remove_provider_consumer_with_cleanup(mock_transport):
     client._loaded_tools = [MagicMock()]
 
     with patch.object(client, "stop") as mock_stop:
-        await client.remove_provider_consumer("consumer1")
+        await client.remove_consumer("consumer1")
 
         assert len(client._consumers) == 0
         assert client._tool_provider_started is False
@@ -307,8 +307,8 @@ async def test_remove_provider_consumer_with_cleanup(mock_transport):
 
 
 @pytest.mark.asyncio
-async def test_remove_provider_consumer_cleanup_failure(mock_transport):
-    """Test that remove_provider_consumer raises ToolProviderException when cleanup fails."""
+async def test_remove_consumer_cleanup_failure(mock_transport):
+    """Test that remove_consumer raises ToolProviderException when cleanup fails."""
     client = MCPClient(mock_transport)
     client._consumers.add("consumer1")
     client._tool_provider_started = True
@@ -317,4 +317,4 @@ async def test_remove_provider_consumer_cleanup_failure(mock_transport):
         mock_stop.side_effect = Exception("Cleanup failed")
 
         with pytest.raises(ToolProviderException, match="Failed to cleanup MCP client: Cleanup failed"):
-            await client.remove_provider_consumer("consumer1")
+            await client.remove_consumer("consumer1")

@@ -29,11 +29,11 @@ class MockToolProvider(ToolProvider):
         if self._cleanup_error:
             raise self._cleanup_error
 
-    async def add_provider_consumer(self, consumer_id):
+    async def add_consumer(self, consumer_id):
         self.add_consumer_called = True
         self.add_consumer_id = consumer_id
 
-    async def remove_provider_consumer(self, consumer_id):
+    async def remove_consumer(self, consumer_id):
         self.remove_consumer_called = True
         self.remove_consumer_id = consumer_id
 
@@ -214,7 +214,7 @@ class TestToolRegistryToolProvider:
             assert provider2 in registry.tool_providers
 
     def test_process_tools_provider_async_optimization(self):
-        """Test that load_tools and add_provider_consumer are called in same async context."""
+        """Test that load_tools and add_consumer are called in same async context."""
         mock_tool = MagicMock(spec=AgentTool)
         mock_tool.tool_name = "test_tool"
 
@@ -228,11 +228,11 @@ class TestToolRegistryToolProvider:
                 self.load_tools_called = True
                 return [mock_tool]
 
-            async def add_provider_consumer(self, consumer_id):
+            async def add_consumer(self, consumer_id):
                 self.add_consumer_called = True
                 self.add_consumer_id = consumer_id
 
-            async def remove_provider_consumer(self, consumer_id):
+            async def remove_consumer(self, consumer_id):
                 pass
 
         provider = TestProvider()
@@ -252,7 +252,7 @@ class TestToolRegistryToolProvider:
 
     @pytest.mark.asyncio
     async def test_registry_cleanup(self):
-        """Test that registry cleanup calls remove_provider_consumer on all providers."""
+        """Test that registry cleanup calls remove_consumer on all providers."""
         provider1 = MockToolProvider()
         provider2 = MockToolProvider()
 
@@ -261,7 +261,7 @@ class TestToolRegistryToolProvider:
 
         await registry.cleanup_async()
 
-        # Verify both providers had remove_provider_consumer called
+        # Verify both providers had remove_consumer called
         assert provider1.remove_consumer_called
         assert provider2.remove_consumer_called
 
@@ -277,10 +277,10 @@ class TestToolRegistryToolProvider:
             async def load_tools(self):
                 return []
 
-            async def add_provider_consumer(self, consumer_id):
+            async def add_consumer(self, consumer_id):
                 pass
 
-            async def remove_provider_consumer(self, consumer_id):
+            async def remove_consumer(self, consumer_id):
                 self.remove_consumer_called = True
                 self.remove_consumer_id = consumer_id
 
@@ -291,6 +291,6 @@ class TestToolRegistryToolProvider:
         # Call cleanup
         await registry.cleanup_async()
 
-        # Verify remove_provider_consumer was called with correct ID
+        # Verify remove_consumer was called with correct ID
         assert provider.remove_consumer_called
         assert provider.remove_consumer_id == registry._registry_id
