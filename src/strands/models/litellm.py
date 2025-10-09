@@ -211,8 +211,10 @@ class LiteLLMModel(OpenAIModel):
             Model events with the last being the structured output.
         """
         if supports_response_schema(self.get_config()["model_id"]):
+            logger.debug("structuring output using response schema")
             result = await self._structured_output_using_response_schema(output_model, prompt, system_prompt)
         else:
+            logger.debug("model does not support response schema, structuring output using tool approach")
             result = await self._structured_output_using_tool(output_model, prompt, system_prompt)
 
         yield {"output": result}
