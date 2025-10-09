@@ -1,11 +1,12 @@
 import os
 import re
+import tempfile
 import textwrap
 
 import pytest
 
 from strands.tools.decorator import DecoratedFunctionTool
-from strands.tools.loader import ToolLoader
+from strands.tools.loader import ToolLoader, load_tools_from_file_path
 from strands.tools.tools import PythonAgentTool
 
 
@@ -310,3 +311,9 @@ def test_load_tool_path_returns_single_tool(tool_path):
 
     assert loaded_python_tool.tool_name == "alpha"
     assert loaded_tool.tool_name == "alpha"
+
+
+def test_load_tools_from_file_path_module_spec_missing():
+    with tempfile.NamedTemporaryFile() as f:
+        with pytest.raises(ImportError, match=f"Could not create spec for {os.path.basename(f.name)}"):
+            load_tools_from_file_path(f.name)
