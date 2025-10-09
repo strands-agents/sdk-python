@@ -35,6 +35,7 @@ from ..types.bidirectional_streaming import (
     BidirectionalConnectionStartEvent,
     InterruptionDetectedEvent,
     TextOutputEvent,
+    UsageMetricsEvent,
 )
 
 from .bidirectional_model import BidirectionalModel, BidirectionalModelSession
@@ -488,9 +489,16 @@ class NovaSonicSession(BidirectionalModelSession):
 
             return {"interruptionDetected": interruption}
 
-        # Handle usage events (ignore)
+        # Handle usage events - convert to standardized format
         elif "usageEvent" in nova_event:
-            return None
+            usage_data = nova_event["usageEvent"]
+            usage_metrics: UsageMetricsEvent = {
+                "totalTokens": usage_data.get("totalTokens"),
+                "inputTokens": usage_data.get("totalInputTokens"),
+                "outputTokens": usage_data.get("totalOutputTokens"),
+                "audioTokens": usage_data.get("details", {}).get("total", {}).get("output", {}).get("speechTokens")
+            }
+            return {"usageMetrics": usage_metrics}
 
         # Handle content start events (track role)
         elif "contentStart" in nova_event:
