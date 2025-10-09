@@ -39,7 +39,6 @@ from ..hooks import (
     BeforeInvocationEvent,
     HookProvider,
     HookRegistry,
-    Interrupt,
     MessageAddedEvent,
 )
 from ..models.bedrock import BedrockModel
@@ -55,7 +54,7 @@ from ..types._events import AgentResultEvent, InitEventLoopEvent, ModelStreamChu
 from ..types.agent import AgentInput
 from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
-from ..types.interrupt import InterruptContent
+from ..types.interrupt import InterruptResponseContent
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
@@ -63,6 +62,7 @@ from .conversation_manager import (
     ConversationManager,
     SlidingWindowConversationManager,
 )
+from .interrupt import InterruptState
 from .state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -339,6 +339,8 @@ class Agent:
 
         self.hooks = HookRegistry()
 
+        self.interrupt_state = InterruptState()
+
         # Initialize session management functionality
         self._session_manager = session_manager
         if self._session_manager:
@@ -350,9 +352,6 @@ class Agent:
             for hook in hooks:
                 self.hooks.add_hook(hook)
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
-
-        # Map of active interrupt instances
-        self._interrupts: dict[tuple[str, str], Interrupt] = {}
 
     @property
     def tool(self) -> ToolCaller:
@@ -572,8 +571,6 @@ class Agent:
                     yield event["data"]
             ```
         """
-        self._resume_interrupt(prompt)
-
         callback_handler = kwargs.get("callback_handler", self.callback_handler)
 
         # Process input and get message to add (if any)
@@ -602,59 +599,6 @@ class Agent:
             except Exception as e:
                 self._end_agent_trace_span(error=e)
                 raise
-
-    def _resume_interrupt(self, prompt: AgentInput) -> None:
-        """Configure the agent interrupt state if resuming from an interrupt event.
-
-        Args:
-            messages: Agent's message history.
-            prompt: User responses if resuming from interrupt.
-
-        Raises:
-            TypeError: If interrupts are detected but user did not provide responses.
-            ValueError: If any interrupts are missing corresponding responses.
-        """
-        # Currently, users can only interrupt tool calls. Thus, to determine if the agent was interrupted in the
-        # previous invocation, we look for tool results with interrupt context in the messages array.
-
-        message = self.messages[-1] if self.messages else None
-        if not message or message["role"] != "user":
-            return
-
-        tool_results = [
-            content["toolResult"]
-            for content in message["content"]
-            if "toolResult" in content and content["toolResult"]["status"] == "error"
-        ]
-        reasons = [
-            tool_result["content"][0]["json"]["interrupt"]
-            for tool_result in tool_results
-            if "json" in tool_result["content"][0] and "interrupt" in tool_result["content"][0]["json"]
-        ]
-        if not reasons:
-            return
-
-        if not isinstance(prompt, list):
-            raise TypeError(
-                f"prompt_type=<{type(prompt)}> | must resume from interrupt with list of interruptResponse's"
-            )
-
-        responses = [
-            cast(InterruptContent, content)["interruptResponse"]
-            for content in prompt
-            if isinstance(content, dict) and "interruptResponse" in content
-        ]
-
-        reasons_map = {reason["name"]: reason for reason in reasons}
-        responses_map = {response["name"]: response for response in responses}
-        missing_names = reasons_map.keys() - responses_map.keys()
-        if missing_names:
-            raise ValueError(f"interrupts=<{list(missing_names)}> | missing responses for interrupts")
-
-        self._interrupts = {
-            (name, reasons_map[name]["event_name"]): Interrupt(**{**reasons_map[name], **responses_map[name]})
-            for name in responses_map
-        }
 
     async def _run_loop(self, messages: Messages, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
         """Execute the agent's event loop with the given message and parameters.
@@ -731,9 +675,16 @@ class Agent:
                 yield event
 
     def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
-        if self._interrupts:
-            # Do not add interrupt responses to the messages as these are not to be processed by the model
-            return []
+        if self.interrupt_state.activated:
+            responses = [
+                cast(InterruptResponseContent, content)["interruptResponse"]
+                for content in cast(list[ContentBlock], prompt)
+            ]
+
+            for response in responses:
+                self.interrupt_state[response["interruptId"]].response = response["response"]
+
+            return [{"role": "strands", "content": cast(list[ContentBlock], prompt)}]
 
         messages: Messages | None = None
         if prompt is not None:

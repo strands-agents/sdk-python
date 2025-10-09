@@ -10,7 +10,7 @@ via hook provider objects.
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generator, Generic, Protocol, Type, TypeVar
 
-from .interrupt import InterruptException
+from .interrupt import Interrupt, InterruptException
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -186,7 +186,7 @@ class HookRegistry:
         """
         hook.register_hooks(self)
 
-    def invoke_callbacks(self, event: TInvokeEvent) -> TInvokeEvent:
+    def invoke_callbacks(self, event: TInvokeEvent) -> tuple[TInvokeEvent, list[Interrupt]]:
         """Invoke all registered callbacks for the given event.
 
         This method finds all callbacks registered for the event's type and
@@ -194,11 +194,13 @@ class HookRegistry:
         callbacks are invoked in reverse registration order. Any exceptions raised by callback
         functions will propagate to the caller.
 
+        Additionally, this method aggregates interrupts raised by the user to instantiate human-in-the-loop workflows.
+
         Args:
             event: The event to dispatch to registered callbacks.
 
         Returns:
-            The event dispatched to registered callbacks.
+            The event dispatched to registered callbacks and any interrupts raised by the user.
 
         Example:
             ```python
@@ -206,15 +208,17 @@ class HookRegistry:
             registry.invoke_callbacks(event)
             ```
         """
+        interrupts = []
+
         for callback in self.get_callbacks_for(event):
             try:
                 callback(event)
-            except InterruptException:
-                # All callbacks are allowed to finish executing during an interrupt. The state of the interrupt is
-                # stored as an instance variable on the hook event.
+            except InterruptException as error:
+                # All callbacks are allowed to finish executing during an interrupt.
+                interrupts.append(error.interrupt)
                 pass
 
-        return event
+        return event, interrupts
 
     def has_callbacks(self) -> bool:
         """Check if the registry has any registered callbacks.

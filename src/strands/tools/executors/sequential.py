@@ -28,6 +28,8 @@ class SequentialToolExecutor(ToolExecutor):
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute tools sequentially.
 
+        Breaks early if an interrupt is raised by the user.
+
         Args:
             agent: The agent for which tools are being executed.
             tool_uses: Metadata and inputs for the tools to be executed.

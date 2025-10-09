@@ -327,14 +327,19 @@ class ToolCancelEvent(TypedEvent):
 class ToolInterruptEvent(TypedEvent):
     """Event emitted when a tool is interrupted."""
 
-    def __init__(self, interrupt: Interrupt) -> None:
+    def __init__(self, tool_use: ToolUse, interrupts: list[Interrupt]) -> None:
         """Set interrupt in the event payload."""
-        super().__init__({"tool_interrupt_event": {"interrupt": interrupt}})
+        super().__init__({"tool_interrupt_event": {"tool_use": tool_use, "interrupts": interrupts}})
 
     @property
-    def interrupt(self) -> Interrupt:
-        """The interrupt instance."""
-        return cast(Interrupt, self["tool_interrupt_event"]["interrupt"])
+    def tool_use_id(self) -> str:
+        """The id of the tool interrupted."""
+        return cast(str, cast(ToolUse, cast(dict, self.get("tool_interrupt_event")).get("tool_use")).get("toolUseId"))
+
+    @property
+    def interrupts(self) -> list[Interrupt]:
+        """The interrupt instances."""
+        return cast(list[Interrupt], self["tool_interrupt_event"]["interrupts"])
 
 
 class ModelMessageEvent(TypedEvent):
@@ -349,6 +354,18 @@ class ModelMessageEvent(TypedEvent):
 
         Args:
             message: The response message from the model
+        """
+        super().__init__({"message": message})
+
+
+class InterruptMessageEvent(TypedEvent):
+    """Event emitted when an interrupt message is constructed."""
+
+    def __init__(self, message: Message) -> None:
+        """Initialize with the interrupt message.
+
+        Args:
+            message: The interrupt message containing reasons from user for raising the interrupt.
         """
         super().__init__({"message": message})
 

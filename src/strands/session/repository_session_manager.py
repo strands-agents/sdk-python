@@ -17,6 +17,7 @@ from .session_repository import SessionRepository
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
+    from ..agent.interrupt import InterruptState
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +132,7 @@ class RepositorySessionManager(SessionManager):
                 self.session_id,
             )
             agent.state = AgentState(session_agent.state)
+            agent.interrupt_state = InterruptState.from_dict(session_agent.interrupt_state)
 
             # Restore the conversation manager to its previous state, and get the optional prepend messages
             prepend_messages = agent.conversation_manager.restore_from_session(session_agent.conversation_manager_state)

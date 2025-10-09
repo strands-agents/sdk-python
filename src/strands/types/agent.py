@@ -6,6 +6,5 @@ This module defines the types used for an Agent.
 from typing import TypeAlias
 
 from .content import ContentBlock, Messages
-from .interrupt import InterruptContent
 
-AgentInput: TypeAlias = str | list[ContentBlock] | list[InterruptContent] | Messages | None
+AgentInput: TypeAlias = str | list[ContentBlock] | Messages | None

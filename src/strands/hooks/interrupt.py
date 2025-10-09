@@ -1,9 +1,9 @@
 """Human-in-the-loop interrupt system for agent workflows."""
 
 from dataclasses import asdict, dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
-from ..types.tools import ToolResultContent
+from ..types.content import ContentBlock
 
 if TYPE_CHECKING:
     from ..agent import Agent
@@ -14,23 +14,52 @@ class Interrupt:
     """Represents an interrupt that can pause agent execution for human-in-the-loop workflows.
 
     Attributes:
-        name: Unique identifier for the interrupt.
-        event_name: Name of the hook event under which the interrupt was triggered.
-        reasons: User provided reasons for raising the interrupt.
+        id_: Unique identifier.
+        name: User defined name.
+        reason: User provided reason for raising the interrupt.
         response: Human response provided when resuming the agent after an interrupt.
-        activated: Whether the interrupt is currently active.
     """
 
+    id_: str
     name: str
-    event_name: str
-    reasons: list[Any]
+    reason: Any = None
     response: Any = None
-    activated: bool = False
 
-    def __call__(self, reason: Any) -> Any:
+    def to_dict(self) -> dict[str, Any]:
+        """<TODO>."""
+        return asdict(self)
+
+    def to_reason_content(self) -> ContentBlock:
+        """<TODO>."""
+        return {
+            "interruptReason": {"interruptId": self.id_, "interruptName": self.name, "reason": self.reason},
+        }
+
+
+class InterruptException(Exception):
+    """Exception raised when human input is required."""
+
+    def __init__(self, id_: str, name: str, reason: Any) -> None:
+        """Initialize the exception with an interrupt instance.
+
+        Args:
+            id_: Unique identifier.
+            name: User defined name.
+            reason: User provided reason for raising the interrupt.
+        """
+        self.interrupt = Interrupt(id_, name, reason)
+
+
+class InterruptHookEvent(Protocol):
+    """Interface that adds interrupt support to hook events."""
+
+    agent: "Agent"
+
+    def interrupt(self, name: str, reason: Any = None) -> Any:
         """Trigger the interrupt with a reason.
 
         Args:
+            name: User defined name for the interrupt.
             reason: User provided reason for the interrupt.
 
         Returns:
@@ -39,66 +68,20 @@ class Interrupt:
         Raises:
             InterruptException: If human input is required.
         """
-        if self.response:
-            self.activated = False
-            return self.response
+        id_ = self.interrupt_id(name, reason)
+        if id_ in self.agent.interrupt_state:
+            return self.agent.interrupt_state[id_].response
 
-        self.reasons.append(reason)
-        self.activated = True
-        raise InterruptException(self)
+        raise InterruptException(id_, name, reason)
 
-    def to_tool_result_content(self) -> list[ToolResultContent]:
-        """Convert the interrupt to tool result content if there are reasons.
-
-        Returns:
-            Tool result content.
-        """
-        if self.reasons:
-            return [
-                {"json": {"interrupt": {"name": self.name, "event_name": self.event_name, "reasons": self.reasons}}},
-            ]
-
-        return []
-
-    @classmethod
-    def from_agent(cls, name: str, event_name: str, agent: "Agent") -> "Interrupt":
-        """Initialize an interrupt from agent state.
-
-        Creates an interrupt instance from stored agent state, which will be
-        populated with the human response when resuming.
+    def interrupt_id(self, name: str, reason: Any) -> str:
+        """Unique id for the interrupt.
 
         Args:
-            name: Unique identifier for the interrupt.
-            event_name: Name of the hook event under which the interrupt was triggered.
-            agent: The agent instance containing interrupt state.
+            name: User defined name for the interrupt.
+            reason: User provided reason for the interrupt.
 
         Returns:
-            An Interrupt instance initialized from agent state.
+            Interrupt id.
         """
-        interrupt = agent._interrupts.get((name, event_name))
-        params = asdict(interrupt) if interrupt else {"name": name, "event_name": event_name, "reasons": []}
-
-        return cls(**params)
-
-
-class InterruptException(Exception):
-    """Exception raised when human input is required."""
-
-    def __init__(self, interrupt: Interrupt) -> None:
-        """Initialize the exception with an interrupt instance.
-
-        Args:
-            interrupt: The interrupt that triggered this exception.
-        """
-        self.interrupt = interrupt
-
-
-@dataclass
-class InterruptEvent:
-    """Interface that adds interrupt support to hook events.
-
-    Attributes:
-        interrupt: The interrupt instance associated with this event.
-    """
-
-    interrupt: Interrupt
+        ...

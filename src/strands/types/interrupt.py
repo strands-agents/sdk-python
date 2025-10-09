@@ -7,19 +7,43 @@ class InterruptResponse(TypedDict):
     """User response to an interrupt.
 
     Attributes:
-        name: Unique identifier for the interrupt.
+        interruptId: Unique identifier for the interrupt.
         response: User response to the interrupt.
     """
 
-    name: str
+    interruptId: str
     response: Any
 
 
-class InterruptContent(TypedDict):
-    """Content block containing an interrupt response for human-in-the-loop workflows.
+class InterruptResponseContent(TypedDict):
+    """Content block containing a user response to an interrupt.
 
     Attributes:
         interruptResponse: User response to an interrupt event.
     """
 
     interruptResponse: InterruptResponse
+
+
+class InterruptReason(TypedDict):
+    """Reason for an interrupt.
+
+    Attributes:
+        interruptId: Unique identifier for the interrupt.
+        interruptName: User defined name for the interrupt.
+        reason: User provided reason for the interrupt.
+    """
+
+    interruptId: str
+    interruptName: str
+    reason: Any
+
+
+class InterruptReasonContent(TypedDict):
+    """Content block containing a reason for raising an interrupt.
+
+    Attributes:
+        interruptReason: User reason for raising an interrupt.
+    """
+
+    interruptReason: InterruptReason

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from opentelemetry import trace as trace_api
 
-from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
+from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, Interrupt, MessageAddedEvent
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import Tracer, get_tracer
 from ..tools._validator import validate_and_prepare_tools
@@ -23,6 +23,7 @@ from ..types._events import (
     EventLoopStopEvent,
     EventLoopThrottleEvent,
     ForceStopEvent,
+    InterruptMessageEvent,
     ModelMessageEvent,
     ModelStopReason,
     StartEvent,
@@ -107,9 +108,9 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
     )
     invocation_state["event_loop_cycle_span"] = cycle_span
 
-    if agent._interrupts:
+    if agent.interrupt_state.activated:
         stop_reason: StopReason = "tool_use"
-        message = agent.messages[-2]
+        message = agent.interrupt_state.context["tool_use_message"]
 
     else:
         model_events = _handle_model_execution(agent, cycle_span, cycle_trace, invocation_state, tracer)
@@ -148,6 +149,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
                 cycle_span=cycle_span,
                 cycle_start_time=cycle_start_time,
                 invocation_state=invocation_state,
+                tracer=tracer,
             )
             async for tool_event in tool_events:
                 yield tool_event
@@ -351,6 +353,7 @@ async def _handle_tool_execution(
     cycle_span: Any,
     cycle_start_time: float,
     invocation_state: dict[str, Any],
+    tracer: Tracer,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Handles the execution of tools requested by the model during an event loop cycle.
 
@@ -362,6 +365,7 @@ async def _handle_tool_execution(
         cycle_span: Span object for tracing the cycle (type may vary).
         cycle_start_time: Start time of the current cycle.
         invocation_state: Additional keyword arguments, including request state.
+        tracer: Tracer instance for span management.
 
     Yields:
         Tool stream events along with events yielded from a recursive call to the event loop. The last event is a tuple
@@ -378,83 +382,102 @@ async def _handle_tool_execution(
     validate_and_prepare_tools(message, tool_uses, tool_results, invalid_tool_use_ids)
     tool_uses = [tool_use for tool_use in tool_uses if tool_use.get("toolUseId") not in invalid_tool_use_ids]
 
-    # Filter to only the interrupted tools when resuming from interrupt
-    if agent._interrupts:
-        tool_names = {name for name, _ in agent._interrupts.keys()}
-        tool_uses = [tool_use for tool_use in tool_uses if tool_use["name"] in tool_names]
+    if agent.interrupt_state.activated:
+        tool_results.extend(agent.interrupt_state.context["tool_results"])
+
+        # Filter to only the interrupted tools when resuming from interrupt (tool uses without results)
+        tool_use_ids = {tool_result["toolUseId"] for tool_result in tool_results}
+        tool_uses = [tool_use for tool_use in tool_uses if tool_use["toolUseId"] not in tool_use_ids]
 
     if not tool_uses:
         yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
         return
 
-    tool_interrupts = []
+    interrupts = []
     tool_events = agent.tool_executor._execute(
         agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state
     )
     async for tool_event in tool_events:
         if isinstance(tool_event, ToolInterruptEvent):
-            tool_interrupts.append(tool_event["tool_interrupt_event"]["interrupt"])
+            interrupts.extend(tool_event["tool_interrupt_event"]["interrupts"])
 
         yield tool_event
 
     # Store parent cycle ID for the next cycle
     invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
 
-    tool_result_message = _convert_tool_results_to_message(agent, tool_results)
+    if interrupts:
+        events = _handle_interrupts(
+            message,
+            agent,
+            interrupts,
+            tool_results,
+            cycle_trace,
+            cycle_span,
+            cycle_start_time,
+            invocation_state,
+            tracer,
+        )
+        async for event in events:
+            yield event
 
-    agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=tool_result_message))
+        return
+
+    agent.interrupt_state.clear()
+
+    tool_result_message: Message = {
+        "role": "user",
+        "content": [{"toolResult": tool_result} for tool_result in tool_results],
+    }
     yield ToolResultMessageEvent(message=tool_result_message)
+    agent.messages.append(tool_result_message)
+    agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=message))
 
     if cycle_span:
-        tracer = get_tracer()
         tracer.end_event_loop_cycle_span(span=cycle_span, message=message, tool_result_message=tool_result_message)
-
-    if tool_interrupts:
-        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
-        yield EventLoopStopEvent(
-            "interrupt", message, agent.event_loop_metrics, invocation_state["request_state"], tool_interrupts
-        )
-        return
 
     if invocation_state["request_state"].get("stop_event_loop", False):
         agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
         yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
         return
 
-    agent._interrupts = {}
-
     events = recurse_event_loop(agent=agent, invocation_state=invocation_state)
     async for event in events:
         yield event
 
 
-def _convert_tool_results_to_message(agent: "Agent", results: list[ToolResult]) -> Message:
-    """Convert tool results to a message.
+async def _handle_interrupts(
+    tool_use_message: Message,
+    agent: "Agent",
+    interrupts: list[Interrupt],
+    tool_results: list[ToolResult],
+    cycle_trace: Trace,
+    cycle_span: Any,
+    cycle_start_time: float,
+    invocation_state: dict[str, Any],
+    tracer: Tracer,
+) -> AsyncGenerator[TypedEvent, None]:
+    """<TODO>."""
+    for interrupt in interrupts:
+        agent.interrupt_state[interrupt.id_] = interrupt
 
-    For normal execution, we create a new user message with the tool results and append it to the agent's message
-    history. When resuming from an interrupt, we instead extend the existing results message in history with the
-    resumed results.
+    interrupt_message: Message = {
+        "role": "strands",
+        "content": [interrupt.to_reason_content() for interrupt in interrupts],
+    }
+    yield InterruptMessageEvent(message=interrupt_message)
 
-    Args:
-        agent: The agent instance containing interrupt state and message history.
-        results: List of tool results to convert or extend into a message.
+    agent.messages.append(interrupt_message)
+    agent.interrupt_state.set(context={"tool_use_message": tool_use_message, "tool_results": tool_results})
+    agent.hooks.invoke_callbacks(MessageAddedEvent(agent, message=interrupt_message))
 
-    Returns:
-        Tool results message.
-    """
-    if not agent._interrupts:
-        message: Message = {
-            "role": "user",
-            "content": [{"toolResult": result} for result in results],
-        }
-        agent.messages.append(message)
-        return message
-
-    message = agent.messages[-1]
-
-    results_map = {result["toolUseId"]: result for result in results}
-    for content in message["content"]:
-        tool_use_id = content["toolResult"]["toolUseId"]
-        content["toolResult"] = results_map.get(tool_use_id, content["toolResult"])
-
-    return message
+    agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+    yield EventLoopStopEvent(
+        "interrupt",
+        tool_use_message,
+        agent.event_loop_metrics,
+        invocation_state["request_state"],
+        interrupts,
+    )
+    if cycle_span:
+        tracer.end_event_loop_cycle_span(span=cycle_span, message=tool_use_message)
