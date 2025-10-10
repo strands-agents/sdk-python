@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 import pyaudio
+from strands_tools import calculator
 
 from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
 from strands.experimental.bidirectional_streaming.models.openai import OpenAIRealtimeBidirectionalModel
@@ -229,6 +230,7 @@ async def main():
     # Create agent
     agent = BidirectionalAgent(
         model=model,
+        tools=[calculator],
         system_prompt="You are a helpful voice assistant. Keep your responses brief and natural. Say hello when you first connect."
     )
     

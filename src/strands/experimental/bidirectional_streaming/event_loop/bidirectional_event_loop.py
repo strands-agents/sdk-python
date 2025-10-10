@@ -22,7 +22,6 @@ from ....types.content import Message
 from ....types.tools import ToolResult, ToolUse
 from ..models.bidirectional_model import BidirectionalModelSession
 
-
 logger = logging.getLogger(__name__)
 
 # Session constants

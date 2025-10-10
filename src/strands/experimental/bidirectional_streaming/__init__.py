@@ -1,9 +1,11 @@
-"""
-Bidirectional streaming package.
+"""Bidirectional streaming package.
 """
 
 # Main components - Primary user interface
 from .agent.agent import BidirectionalAgent
+
+# Advanced interfaces (for custom implementations)
+from .models.bidirectional_model import BidirectionalModel, BidirectionalModelSession
 
 # Model providers - What users need to create models
 from .models.novasonic import NovaSonicBidirectionalModel
@@ -13,15 +15,12 @@ from .models.openai import OpenAIRealtimeBidirectionalModel
 from .types.bidirectional_streaming import (
     AudioInputEvent,
     AudioOutputEvent,
-    TextOutputEvent,
-    InterruptionDetectedEvent,
     BidirectionalStreamEvent,
-    VoiceActivityEvent,
+    InterruptionDetectedEvent,
+    TextOutputEvent,
     UsageMetricsEvent,
+    VoiceActivityEvent,
 )
-
-# Advanced interfaces (for custom implementations)
-from .models.bidirectional_model import BidirectionalModel, BidirectionalModelSession
 
 __all__ = [
     # Main interface

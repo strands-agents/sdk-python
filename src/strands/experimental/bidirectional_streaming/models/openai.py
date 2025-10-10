@@ -12,8 +12,8 @@ import uuid
 from typing import AsyncIterable
 
 import websockets
-from websockets.exceptions import ConnectionClosed
 from websockets.client import WebSocketClientProtocol
+from websockets.exceptions import ConnectionClosed
 
 from ....types.content import Messages
 from ....types.tools import ToolSpec, ToolUse
@@ -23,7 +23,6 @@ from ..types.bidirectional_streaming import (
     BidirectionalConnectionEndEvent,
     BidirectionalConnectionStartEvent,
     BidirectionalStreamEvent,
-    InterruptionDetectedEvent,
     TextOutputEvent,
     VoiceActivityEvent,
 )
@@ -142,7 +141,7 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
         return config
 
     def _convert_tools_to_openai_format(self, tools: list[ToolSpec]) -> list[dict]:
-        """Convert Strands tool specifications to OpenAI function format."""
+        """Convert Strands tool specifications to OpenAI Realtime API format."""
         openai_tools = []
         
         for tool in tools:
@@ -152,13 +151,12 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
             else:
                 schema = input_schema
             
+            # OpenAI Realtime API expects flat structure, not nested under "function"
             openai_tool = {
                 "type": "function",
-                "function": {
-                    "name": tool["name"],
-                    "description": tool["description"],
-                    "parameters": schema
-                }
+                "name": tool["name"],
+                "description": tool["description"],
+                "parameters": schema
             }
             openai_tools.append(openai_tool)
         

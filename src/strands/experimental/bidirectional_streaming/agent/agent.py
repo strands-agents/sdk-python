@@ -23,7 +23,6 @@ from ..event_loop.bidirectional_event_loop import start_bidirectional_connection
 from ..models.bidirectional_model import BidirectionalModel
 from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent
 
-
 logger = logging.getLogger(__name__)
 
 
