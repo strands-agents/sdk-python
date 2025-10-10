@@ -448,7 +448,7 @@ class Agent:
     def structured_output(self, output_model: Type[T], prompt: AgentInput = None) -> T:
         """This method allows you to get structured output from the agent.
 
-        If you pass in a prompt, it will be used temporarily without adding it to the conversation history.
+        If you pass in a prompt, it will be added to the conversation history along with the structured output result.
         If you don't pass in a prompt, it will use only the existing conversation history to respond.
 
         For smaller models, you may want to use the optional prompt to add additional instructions to explicitly
@@ -477,7 +477,7 @@ class Agent:
     async def structured_output_async(self, output_model: Type[T], prompt: AgentInput = None) -> T:
         """This method allows you to get structured output from the agent.
 
-        If you pass in a prompt, it will be used temporarily without adding it to the conversation history.
+        If you pass in a prompt, it will be added to the conversation history along with the structured output result.
         If you don't pass in a prompt, it will use only the existing conversation history to respond.
 
         For smaller models, you may want to use the optional prompt to add additional instructions to explicitly
@@ -486,7 +486,7 @@ class Agent:
         Args:
             output_model: The output model (a JSON schema written as a Pydantic BaseModel)
                 that the agent will use when responding.
-            prompt: The prompt to use for the agent (will not be added to conversation history).
+            prompt: The prompt to use for the agent (will be added to conversation history).
 
         Raises:
             ValueError: If no conversation history or prompt is provided.
@@ -499,7 +499,13 @@ class Agent:
                 if not self.messages and not prompt:
                     raise ValueError("No conversation history or prompt provided")
 
-                temp_messages: Messages = self.messages + self._convert_prompt_to_messages(prompt)
+                # Add prompt to conversation history if provided
+                if prompt:
+                    prompt_messages = self._convert_prompt_to_messages(prompt)
+                    for message in prompt_messages:
+                        self._append_message(message)
+
+                temp_messages: Messages = self.messages
 
                 structured_output_span.set_attributes(
                     {
@@ -509,15 +515,15 @@ class Agent:
                         "gen_ai.operation.name": "execute_structured_output",
                     }
                 )
-                if self.system_prompt:
-                    structured_output_span.add_event(
-                        "gen_ai.system.message",
-                        attributes={"role": "system", "content": serialize([{"text": self.system_prompt}])},
-                    )
                 for message in temp_messages:
                     structured_output_span.add_event(
                         f"gen_ai.{message['role']}.message",
                         attributes={"role": message["role"], "content": serialize(message["content"])},
+                    )
+                if self.system_prompt:
+                    structured_output_span.add_event(
+                        "gen_ai.system.message",
+                        attributes={"role": "system", "content": serialize([{"text": self.system_prompt}])},
                     )
                 events = self.model.structured_output(output_model, temp_messages, system_prompt=self.system_prompt)
                 async for event in events:
@@ -529,7 +535,16 @@ class Agent:
                 structured_output_span.add_event(
                     "gen_ai.choice", attributes={"message": serialize(event["output"].model_dump())}
                 )
-                return event["output"]
+                
+                # Add structured output result to conversation history
+                result = event["output"]
+                assistant_message = {
+                    "role": "assistant",
+                    "content": [{"text": f"Structured output ({output_model.__name__}): {result.model_dump_json()}"}]
+                }
+                self._append_message(assistant_message)
+                
+                return result
 
             finally:
                 self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))

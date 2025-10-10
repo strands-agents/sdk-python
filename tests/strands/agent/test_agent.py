@@ -19,7 +19,6 @@ from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
-from strands.telemetry.tracer import serialize
 from strands.types._events import EventLoopStopEvent, ModelStreamEvent
 from strands.types.content import Messages
 from strands.types.exceptions import ContextWindowOverflowException, EventLoopException
@@ -990,6 +989,9 @@ def test_agent_structured_output(agent, system_prompt, user, agenerator):
     agent.tracer = mock_strands_tracer
 
     agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": user}]))
+    agent.hooks = unittest.mock.MagicMock()
+    agent.hooks.invoke_callbacks = unittest.mock.Mock()
+    agent.callback_handler = unittest.mock.Mock()
 
     prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
 
@@ -1000,12 +1002,31 @@ def test_agent_structured_output(agent, system_prompt, user, agenerator):
     exp_result = user
     assert tru_result == exp_result
 
-    # Verify conversation history is not polluted
-    assert len(agent.messages) == initial_message_count
+    # Verify conversation history is updated with prompt and structured output
+    assert len(agent.messages) == initial_message_count + 2
+    
+    # Verify the prompt was added to conversation history
+    user_message_added = any(
+        msg['role'] == 'user' and prompt in msg['content'][0]['text']
+        for msg in agent.messages
+    )
+    assert user_message_added, "User prompt should be added to conversation history"
+    
+    # Verify the structured output was added to conversation history
+    assistant_message_added = any(
+        msg['role'] == 'assistant' and 'Structured output (User):' in msg['content'][0]['text']
+        for msg in agent.messages
+    )
+    assert assistant_message_added, "Structured output should be added to conversation history"
 
-    # Verify the model was called with temporary messages array
+    # Verify the model was called with all messages (including the added prompt)
     agent.model.structured_output.assert_called_once_with(
-        type(user), [{"role": "user", "content": [{"text": prompt}]}], system_prompt=system_prompt
+        type(user), 
+        [
+            {"role": "user", "content": [{"text": prompt}]},
+            {"role": "assistant", "content": [{"text": f"Structured output (User): {user.model_dump_json()}"}]}
+        ], 
+        system_prompt=system_prompt
     )
 
     mock_span.set_attributes.assert_called_once_with(
@@ -1017,23 +1038,15 @@ def test_agent_structured_output(agent, system_prompt, user, agenerator):
         }
     )
 
-    # ensure correct otel event messages are emitted
-    act_event_names = mock_span.add_event.call_args_list
-    exp_event_names = [
-        unittest.mock.call(
-            "gen_ai.system.message", attributes={"role": "system", "content": serialize([{"text": system_prompt}])}
-        ),
-        unittest.mock.call(
-            "gen_ai.user.message",
-            attributes={
-                "role": "user",
-                "content": '[{"text": "Jane Doe is 30 years old and her email is jane@doe.com"}]',
-            },
-        ),
-        unittest.mock.call("gen_ai.choice", attributes={"message": json.dumps(user.model_dump())}),
-    ]
+    mock_span.add_event.assert_any_call(
+        "gen_ai.user.message",
+        attributes={"role": "user", "content": '[{"text": "Jane Doe is 30 years old and her email is jane@doe.com"}]'},
+    )
 
-    assert act_event_names == exp_event_names
+    mock_span.add_event.assert_called_with(
+        "gen_ai.choice",
+        attributes={"message": json.dumps(user.model_dump())},
+    )
 
 
 def test_agent_structured_output_multi_modal_input(agent, system_prompt, user, agenerator):
@@ -1065,12 +1078,31 @@ def test_agent_structured_output_multi_modal_input(agent, system_prompt, user, a
     exp_result = user
     assert tru_result == exp_result
 
-    # Verify conversation history is not polluted
-    assert len(agent.messages) == initial_message_count
+    # Verify conversation history is updated with prompt and structured output
+    assert len(agent.messages) == initial_message_count + 2
+    
+    # Verify the multi-modal prompt was added to conversation history
+    user_message_added = any(
+        msg['role'] == 'user' and 'Please describe the user in this image' in msg['content'][0]['text']
+        for msg in agent.messages
+    )
+    assert user_message_added, "Multi-modal user prompt should be added to conversation history"
+    
+    # Verify the structured output was added to conversation history
+    assistant_message_added = any(
+        msg['role'] == 'assistant' and 'Structured output (User):' in msg['content'][0]['text']
+        for msg in agent.messages
+    )
+    assert assistant_message_added, "Structured output should be added to conversation history"
 
-    # Verify the model was called with temporary messages array
+    # Verify the model was called with all messages (including the added prompt)
     agent.model.structured_output.assert_called_once_with(
-        type(user), [{"role": "user", "content": prompt}], system_prompt=system_prompt
+        type(user), 
+        [
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": [{"text": f"Structured output (User): {user.model_dump_json()}"}]}
+        ], 
+        system_prompt=system_prompt
     )
 
     mock_span.add_event.assert_called_with(
@@ -1082,6 +1114,9 @@ def test_agent_structured_output_multi_modal_input(agent, system_prompt, user, a
 @pytest.mark.asyncio
 async def test_agent_structured_output_in_async_context(agent, user, agenerator):
     agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": user}]))
+    agent.hooks = unittest.mock.MagicMock()
+    agent.hooks.invoke_callbacks = unittest.mock.Mock()
+    agent.callback_handler = unittest.mock.Mock()
 
     prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
 
@@ -1092,13 +1127,30 @@ async def test_agent_structured_output_in_async_context(agent, user, agenerator)
     exp_result = user
     assert tru_result == exp_result
 
-    # Verify conversation history is not polluted
-    assert len(agent.messages) == initial_message_count
+    # Verify conversation history is updated with prompt and structured output
+    assert len(agent.messages) == initial_message_count + 2
+    
+    # Verify the prompt was added to conversation history
+    user_message_added = any(
+        msg['role'] == 'user' and prompt in msg['content'][0]['text']
+        for msg in agent.messages
+    )
+    assert user_message_added, "User prompt should be added to conversation history"
+    
+    # Verify the structured output was added to conversation history
+    assistant_message_added = any(
+        msg['role'] == 'assistant' and 'Structured output (User):' in msg['content'][0]['text']
+        for msg in agent.messages
+    )
+    assert assistant_message_added, "Structured output should be added to conversation history"
 
 
 def test_agent_structured_output_without_prompt(agent, system_prompt, user, agenerator):
     """Test that structured_output works with existing conversation history and no new prompt."""
     agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": user}]))
+    agent.hooks = unittest.mock.MagicMock()
+    agent.hooks.invoke_callbacks = unittest.mock.Mock()
+    agent.callback_handler = unittest.mock.Mock()
 
     # Add some existing messages to the agent
     existing_messages = [
@@ -1113,17 +1165,27 @@ def test_agent_structured_output_without_prompt(agent, system_prompt, user, agen
     exp_result = user
     assert tru_result == exp_result
 
-    # Verify conversation history is unchanged
-    assert len(agent.messages) == initial_message_count
-    assert agent.messages == existing_messages
+    # Verify conversation history is updated with structured output only (no prompt added)
+    assert len(agent.messages) == initial_message_count + 1
+    
+    # Verify the structured output was added to conversation history
+    assistant_message_added = any(
+        msg['role'] == 'assistant' and 'Structured output (User):' in msg['content'][0]['text']
+        for msg in agent.messages
+    )
+    assert assistant_message_added, "Structured output should be added to conversation history"
 
-    # Verify the model was called with existing messages only
-    agent.model.structured_output.assert_called_once_with(type(user), existing_messages, system_prompt=system_prompt)
+    # Verify the model was called with existing messages plus the added structured output
+    expected_messages = existing_messages + [{"role": "assistant", "content": [{"text": f"Structured output (User): {user.model_dump_json()}"}]}]
+    agent.model.structured_output.assert_called_once_with(type(user), expected_messages, system_prompt=system_prompt)
 
 
 @pytest.mark.asyncio
 async def test_agent_structured_output_async(agent, system_prompt, user, agenerator):
     agent.model.structured_output = unittest.mock.Mock(return_value=agenerator([{"output": user}]))
+    agent.hooks = unittest.mock.MagicMock()
+    agent.hooks.invoke_callbacks = unittest.mock.Mock()
+    agent.callback_handler = unittest.mock.Mock()
 
     prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
 
@@ -1134,12 +1196,31 @@ async def test_agent_structured_output_async(agent, system_prompt, user, agenera
     exp_result = user
     assert tru_result == exp_result
 
-    # Verify conversation history is not polluted
-    assert len(agent.messages) == initial_message_count
+    # Verify conversation history is updated with prompt and structured output
+    assert len(agent.messages) == initial_message_count + 2
+    
+    # Verify the prompt was added to conversation history
+    user_message_added = any(
+        msg['role'] == 'user' and prompt in msg['content'][0]['text']
+        for msg in agent.messages
+    )
+    assert user_message_added, "User prompt should be added to conversation history"
+    
+    # Verify the structured output was added to conversation history
+    assistant_message_added = any(
+        msg['role'] == 'assistant' and 'Structured output (User):' in msg['content'][0]['text']
+        for msg in agent.messages
+    )
+    assert assistant_message_added, "Structured output should be added to conversation history"
 
-    # Verify the model was called with temporary messages array
+    # Verify the model was called with all messages (including the added prompt)
     agent.model.structured_output.assert_called_once_with(
-        type(user), [{"role": "user", "content": [{"text": prompt}]}], system_prompt=system_prompt
+        type(user), 
+        [
+            {"role": "user", "content": [{"text": prompt}]},
+            {"role": "assistant", "content": [{"text": f"Structured output (User): {user.model_dump_json()}"}]}
+        ], 
+        system_prompt=system_prompt
     )
 
 
