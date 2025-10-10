@@ -38,10 +38,13 @@ class LiteLLMModel(OpenAIModel):
             params: Model parameters (e.g., max_tokens).
                 For a complete list of supported parameters, see
                 https://docs.litellm.ai/docs/completion/input#input-params-1.
+            streaming: Optional flag to indicate whether provider streaming should be used.
+                If omitted, defaults to True (preserves existing behaviour).
         """
 
         model_id: str
         params: Optional[dict[str, Any]]
+        streaming: Optional[bool]
 
     def __init__(self, client_args: Optional[dict[str, Any]] = None, **model_config: Unpack[LiteLLMConfig]) -> None:
         """Initialize provider instance.
