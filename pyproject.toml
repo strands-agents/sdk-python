@@ -80,7 +80,7 @@ dev = [
     "pytest-cov>=7.0.0,<8.0.0",
     "pytest-asyncio>=1.0.0,<1.3.0",
     "pytest-xdist>=3.0.0,<4.0.0",
-    "ruff>=0.13.0,<0.14.0",
+    "ruff>=0.13.0,<0.15.0",
 ]
 
 [project.urls]
@@ -102,7 +102,7 @@ installer = "uv"
 features = ["all"]
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
-  "ruff>=0.13.0,<0.14.0",
+  "ruff>=0.13.0,<0.15.0",
   # Include required pacakge dependencies for mypy
   "strands-agents @ {root:uri}",
 ]
