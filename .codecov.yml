@@ -1,0 +1,3 @@
+coverage:
+  ignore:
+    - "src/strands/experimental/tools/tool_provider.py" # This is an interface, cannot meaningfully cover
