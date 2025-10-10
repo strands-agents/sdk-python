@@ -625,10 +625,6 @@ class Graph(MultiAgentBase):
                 # Forward the event immediately
                 yield event
 
-        # Wait for all tasks to complete (should be immediate since they've all signaled completion)
-        if active_tasks:
-            await asyncio.gather(*active_tasks, return_exceptions=True)
-
     def _find_newly_ready_nodes(self, completed_batch: list["GraphNode"]) -> list["GraphNode"]:
         """Find nodes that became ready after the last execution."""
         newly_ready = []
