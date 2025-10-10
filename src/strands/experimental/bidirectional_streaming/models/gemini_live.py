@@ -451,47 +451,28 @@ class GeminiLiveBidirectionalModel(BidirectionalModel):
         tools: Optional[List[ToolSpec]] = None,
         **kwargs
     ) -> Dict[str, Any]:
-        """Build LiveConnectConfig for the official SDK."""
-        # Start with default config
-        config_dict = {}
+        """Build LiveConnectConfig for the official SDK.
         
-        # Override with user config
+        Simply passes through all config parameters from params, allowing users
+        to configure any Gemini Live API parameter directly.
+        """
+        # Start with user config from params
+        config_dict = {}
         if "params" in self.config:
             config_dict.update(self.config["params"])
         
-        # Override with kwargs
+        # Override with any kwargs
         config_dict.update(kwargs)
         
-        # Build tools if provided
-        sdk_tools = None
-        if tools:
-            sdk_tools = self._format_tools_for_live_api(tools)
-        
-        # Build configuration using dict format
-        config_dict_for_sdk = {}
-        
-        # Response modalities
-        if "response_modalities" in config_dict:
-            config_dict_for_sdk["response_modalities"] = config_dict["response_modalities"]
-        
-        # Generation config parameters
-        for param in ["temperature", "max_output_tokens", "top_p", "top_k"]:
-            if param in config_dict:
-                config_dict_for_sdk[param] = config_dict[param]
-        
-        # Transcription parameters (must use snake_case)
-        if "input_audio_transcription" in config_dict:
-            config_dict_for_sdk["input_audio_transcription"] = config_dict["input_audio_transcription"]
-        if "output_audio_transcription" in config_dict:
-            config_dict_for_sdk["output_audio_transcription"] = config_dict["output_audio_transcription"]
-        
-        # Add system instruction and tools if provided
+        # Add system instruction if provided
         if system_prompt:
-            config_dict_for_sdk["system_instruction"] = system_prompt
-        if sdk_tools:
-            config_dict_for_sdk["tools"] = sdk_tools
+            config_dict["system_instruction"] = system_prompt
         
-        return config_dict_for_sdk
+        # Add tools if provided
+        if tools:
+            config_dict["tools"] = self._format_tools_for_live_api(tools)
+        
+        return config_dict
     
     def _format_tools_for_live_api(self, tool_specs: List[ToolSpec]) -> List[genai_types.Tool]:
         """Format tool specs for Gemini Live API."""
