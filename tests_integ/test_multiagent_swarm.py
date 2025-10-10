@@ -134,3 +134,41 @@ async def test_swarm_execution_with_image(researcher_agent, analyst_agent, write
 
     # Verify agent history - at least one agent should have been used
     assert len(result.node_history) > 0
+
+
+@pytest.mark.asyncio
+async def test_swarm_streaming():
+    """Test that Swarm properly streams events during execution."""
+    researcher = Agent(
+        name="researcher",
+        model="us.amazon.nova-pro-v1:0",
+        system_prompt="You are a researcher. When you need calculations, hand off to the analyst.",
+    )
+    analyst = Agent(
+        name="analyst",
+        model="us.amazon.nova-pro-v1:0",
+        system_prompt="You are an analyst. Use tools to perform calculations.",
+        tools=[calculate],
+    )
+
+    swarm = Swarm([researcher, analyst])
+
+    # Collect events
+    events = []
+    async for event in swarm.stream_async("Calculate 10 + 5 and explain the result"):
+        events.append(event)
+
+    # Count event categories
+    node_start_events = [e for e in events if e.get("multi_agent_node_start")]
+    node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
+    result_events = [e for e in events if "result" in e and "multi_agent_node_start" not in e]
+
+    # Verify we got multiple events of each type
+    assert len(node_start_events) >= 1, f"Expected at least 1 node_start event, got {len(node_start_events)}"
+    assert len(node_stream_events) > 10, f"Expected many node_stream events, got {len(node_stream_events)}"
+    assert len(result_events) >= 1, f"Expected at least 1 result event, got {len(result_events)}"
+
+    # Verify we have events from at least one agent
+    researcher_events = [e for e in events if e.get("node_id") == "researcher"]
+    analyst_events = [e for e in events if e.get("node_id") == "analyst"]
+    assert len(researcher_events) > 0 or len(analyst_events) > 0, "Expected events from at least one agent"
