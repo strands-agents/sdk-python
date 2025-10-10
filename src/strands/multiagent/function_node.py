@@ -7,7 +7,7 @@ execution framework, proper error handling, metrics collection, and result forma
 
 import logging
 import time
-from typing import Any, Callable, Union
+from typing import Any, Protocol, Union
 
 from opentelemetry import trace as trace_api
 
@@ -21,7 +21,14 @@ from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 logger = logging.getLogger(__name__)
 
 
-FunctionNodeCallable = Callable[[Union[str, list[ContentBlock]], dict[str, Any] | None], str]
+class FunctionNodeCallable(Protocol):
+    """Protocol for functions that can be executed within FunctionNode."""
+
+    def __call__(
+        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> str | list[ContentBlock] | Message:
+        """Execute deterministic logic within the multiagent system."""
+        ...
 
 
 class FunctionNode(MultiAgentBase):
@@ -80,8 +87,16 @@ class FunctionNode(MultiAgentBase):
                     execution_time,
                 )
 
-                # Convert function result to Message
-                message = Message(role="assistant", content=[ContentBlock(text=str(function_result))])
+                # Convert function result to Message based on type
+                if isinstance(function_result, dict) and "role" in function_result and "content" in function_result:
+                    # Already a Message
+                    message = function_result
+                elif isinstance(function_result, list):
+                    # List of ContentBlocks
+                    message = Message(role="assistant", content=function_result)
+                else:
+                    # String or other type - convert to string
+                    message = Message(role="assistant", content=[ContentBlock(text=str(function_result))])
                 agent_result = AgentResult(
                     stop_reason="end_turn",  # "Normal completion of the response" - function executed successfully
                     message=message,

@@ -6,7 +6,7 @@ import pytest
 
 from strands.multiagent.base import Status
 from strands.multiagent.function_node import FunctionNode
-from strands.types.content import ContentBlock
+from strands.types.content import ContentBlock, Message
 
 
 @pytest.fixture
@@ -92,3 +92,54 @@ async def test_invoke_async_function_exception(mock_tracer):
         assert node_result.status == Status.FAILED
         assert isinstance(node_result.result, ValueError)
         assert str(node_result.result) == "Test exception"
+
+
+@pytest.mark.asyncio
+async def test_function_returns_string(mock_tracer):
+    """Test function returning string."""
+
+    def string_function(task, invocation_state=None, **kwargs):
+        return "Hello World"
+
+    node = FunctionNode(string_function, "string_node")
+
+    with patch.object(node, "tracer", mock_tracer):
+        result = await node.invoke_async("test")
+
+        agent_result = result.results["string_node"].result
+        assert agent_result.message["content"][0]["text"] == "Hello World"
+
+
+@pytest.mark.asyncio
+async def test_function_returns_content_blocks(mock_tracer):
+    """Test function returning list of ContentBlocks."""
+
+    def content_block_function(task, invocation_state=None, **kwargs):
+        return [ContentBlock(text="Block 1"), ContentBlock(text="Block 2")]
+
+    node = FunctionNode(content_block_function, "content_node")
+
+    with patch.object(node, "tracer", mock_tracer):
+        result = await node.invoke_async("test")
+
+        agent_result = result.results["content_node"].result
+        assert len(agent_result.message["content"]) == 2
+        assert agent_result.message["content"][0]["text"] == "Block 1"
+        assert agent_result.message["content"][1]["text"] == "Block 2"
+
+
+@pytest.mark.asyncio
+async def test_function_returns_message(mock_tracer):
+    """Test function returning Message."""
+
+    def message_function(task, invocation_state=None, **kwargs):
+        return Message(role="user", content=[ContentBlock(text="Custom message")])
+
+    node = FunctionNode(message_function, "message_node")
+
+    with patch.object(node, "tracer", mock_tracer):
+        result = await node.invoke_async("test")
+
+        agent_result = result.results["message_node"].result
+        assert agent_result.message["role"] == "user"
+        assert agent_result.message["content"][0]["text"] == "Custom message"
