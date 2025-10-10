@@ -109,6 +109,18 @@ def metrics(request):
     return Metrics(**params)
 
 
+@pytest.fixture
+def metrics_with_ttfb(request):
+    params = {
+        "latencyMs": 1,
+        "timeToFirstByteMs": 10,
+    }
+    if hasattr(request, "param"):
+        params.update(request.param)
+
+    return Metrics(**params)
+
+
 @pytest.mark.parametrize("end_time", [None, 1])
 @unittest.mock.patch.object(strands.telemetry.metrics.time, "time")
 def test_trace_end(mock_time, end_time, trace):
@@ -132,8 +144,8 @@ def mock_get_meter_provider():
         mock_create_counter = mock.MagicMock()
         mock_meter.create_counter.return_value = mock_create_counter
 
-        mock_create_histogram = mock.MagicMock()
-        mock_meter.create_histogram.return_value = mock_create_histogram
+        # Create separate mock objects for each histogram call
+        mock_meter.create_histogram.side_effect = lambda *args, **kwargs: mock.MagicMock()
         meter_provider_mock.get_meter.return_value = mock_meter
 
         mock_get_meter_provider.return_value = meter_provider_mock
@@ -326,9 +338,9 @@ def test_event_loop_metrics_update_usage(usage, event_loop_metrics, mock_get_met
     metrics_client.event_loop_cache_write_input_tokens.record.assert_called()
 
 
-def test_event_loop_metrics_update_metrics(metrics, event_loop_metrics, mock_get_meter_provider):
+def test_event_loop_metrics_update_metrics(metrics_with_ttfb, event_loop_metrics, mock_get_meter_provider):
     for _ in range(3):
-        event_loop_metrics.update_metrics(metrics)
+        event_loop_metrics.update_metrics(metrics_with_ttfb)
 
     tru_metrics = event_loop_metrics.accumulated_metrics
     exp_metrics = Metrics(
@@ -338,6 +350,7 @@ def test_event_loop_metrics_update_metrics(metrics, event_loop_metrics, mock_get
     assert tru_metrics == exp_metrics
     mock_get_meter_provider.return_value.get_meter.assert_called()
     event_loop_metrics._metrics_client.event_loop_latency.record.assert_called_with(1)
+    event_loop_metrics._metrics_client.model_time_to_first_token.record.assert_called_with(10)
 
 
 def test_event_loop_metrics_get_summary(trace, tool, event_loop_metrics, mock_get_meter_provider):

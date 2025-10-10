@@ -491,7 +491,7 @@ def test_extract_usage_metrics_with_cache_tokens():
                             "content": [],
                         },
                         {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
-                        {"latencyMs": 0},
+                        {"latencyMs": 0, "timeToFirstByteMs": 0},
                     ),
                 },
             ],
@@ -781,7 +781,7 @@ async def test_stream_messages(agenerator, alist):
                 "end_turn",
                 {"role": "assistant", "content": [{"text": "test"}]},
                 {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
-                {"latencyMs": 0},
+                {"latencyMs": 0, "timeToFirstByteMs": 0},
             )
         },
     ]

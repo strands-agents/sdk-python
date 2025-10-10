@@ -16,7 +16,7 @@ from opentelemetry.trace import Span, StatusCode
 
 from ..agent.agent_result import AgentResult
 from ..types.content import ContentBlock, Message, Messages
-from ..types.streaming import StopReason, Usage
+from ..types.streaming import Metrics, StopReason, Usage
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import Attributes, AttributeValue
 
@@ -153,6 +153,28 @@ class Tracer:
         for key, value in attributes.items():
             span.set_attribute(key, value)
 
+    def _add_optional_usage_and_metrics_attributes(
+        self, attributes: Dict[str, AttributeValue], usage: Usage, metrics: Metrics
+    ) -> None:
+        """Add optional usage and metrics attributes if they have values.
+
+        Args:
+            attributes: Dictionary to add attributes to
+            usage: Token usage information from the model call
+            metrics: Metrics from the model call
+        """
+        if "cacheReadInputTokens" in usage:
+            attributes["gen_ai.usage.cache_read_input_tokens"] = usage["cacheReadInputTokens"]
+
+        if "cacheWriteInputTokens" in usage:
+            attributes["gen_ai.usage.cache_write_input_tokens"] = usage["cacheWriteInputTokens"]
+
+        if metrics.get("timeToFirstByteMs", 0) > 0:
+            attributes["gen_ai.server.time_to_first_token"] = metrics["timeToFirstByteMs"]
+
+        if metrics.get("latencyMs", 0) > 0:
+            attributes["gen_ai.server.request.duration"] = metrics["latencyMs"]
+
     def _end_span(
         self,
         span: Span,
@@ -277,7 +299,13 @@ class Tracer:
         return span
 
     def end_model_invoke_span(
-        self, span: Span, message: Message, usage: Usage, stop_reason: StopReason, error: Optional[Exception] = None
+        self,
+        span: Span,
+        message: Message,
+        usage: Usage,
+        metrics: Metrics,
+        stop_reason: StopReason,
+        error: Optional[Exception] = None,
     ) -> None:
         """End a model invocation span with results and metrics.
 
@@ -285,6 +313,7 @@ class Tracer:
             span: The span to end.
             message: The message response from the model.
             usage: Token usage information from the model call.
+            metrics: Metrics from the model call.
             stop_reason (StopReason): The reason the model stopped generating.
             error: Optional exception if the model call failed.
         """
@@ -294,9 +323,10 @@ class Tracer:
             "gen_ai.usage.completion_tokens": usage["outputTokens"],
             "gen_ai.usage.output_tokens": usage["outputTokens"],
             "gen_ai.usage.total_tokens": usage["totalTokens"],
-            "gen_ai.usage.cache_read_input_tokens": usage.get("cacheReadInputTokens", 0),
-            "gen_ai.usage.cache_write_input_tokens": usage.get("cacheWriteInputTokens", 0),
         }
+
+        # Add optional attributes if they have values
+        self._add_optional_usage_and_metrics_attributes(attributes, usage, metrics)
 
         if self.use_latest_genai_conventions:
             self._add_event(
@@ -307,7 +337,7 @@ class Tracer:
                         [
                             {
                                 "role": message["role"],
-                                "parts": [{"type": "text", "content": message["content"]}],
+                                "parts": self._map_content_blocks_to_otel_parts(message["content"]),
                                 "finish_reason": str(stop_reason),
                             }
                         ]
@@ -362,7 +392,7 @@ class Tracer:
                                         "type": "tool_call",
                                         "name": tool["name"],
                                         "id": tool["toolUseId"],
-                                        "arguments": [{"content": tool["input"]}],
+                                        "arguments": tool["input"],
                                     }
                                 ],
                             }
@@ -417,7 +447,7 @@ class Tracer:
                                         {
                                             "type": "tool_call_response",
                                             "id": tool_result.get("toolUseId", ""),
-                                            "result": tool_result.get("content"),
+                                            "response": tool_result.get("content"),
                                         }
                                     ],
                                 }
@@ -504,7 +534,7 @@ class Tracer:
                             [
                                 {
                                     "role": tool_result_message["role"],
-                                    "parts": [{"type": "text", "content": tool_result_message["content"]}],
+                                    "parts": self._map_content_blocks_to_otel_parts(tool_result_message["content"]),
                                 }
                             ]
                         )
@@ -634,19 +664,23 @@ class Tracer:
         )
 
         span = self._start_span(operation, attributes=attributes, span_kind=trace_api.SpanKind.CLIENT)
-        content = serialize(task) if isinstance(task, list) else task
 
         if self.use_latest_genai_conventions:
+            parts: list[dict[str, Any]] = []
+            if isinstance(task, list):
+                parts = self._map_content_blocks_to_otel_parts(task)
+            else:
+                parts = [{"type": "text", "content": task}]
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
-                {"gen_ai.input.messages": serialize([{"role": "user", "parts": [{"type": "text", "content": task}]}])},
+                {"gen_ai.input.messages": serialize([{"role": "user", "parts": parts}])},
             )
         else:
             self._add_event(
                 span,
                 "gen_ai.user.message",
-                event_attributes={"content": content},
+                event_attributes={"content": serialize(task) if isinstance(task, list) else task},
             )
 
         return span
@@ -718,7 +752,7 @@ class Tracer:
             input_messages: list = []
             for message in messages:
                 input_messages.append(
-                    {"role": message["role"], "parts": [{"type": "text", "content": message["content"]}]}
+                    {"role": message["role"], "parts": self._map_content_blocks_to_otel_parts(message["content"])}
                 )
             self._add_event(
                 span, "gen_ai.client.inference.operation.details", {"gen_ai.input.messages": serialize(input_messages)}
@@ -730,6 +764,41 @@ class Tracer:
                     self._get_event_name_for_message(message),
                     {"content": serialize(message["content"])},
                 )
+
+    def _map_content_blocks_to_otel_parts(self, content_blocks: list[ContentBlock]) -> list[dict[str, Any]]:
+        """Map ContentBlock objects to OpenTelemetry parts format."""
+        parts: list[dict[str, Any]] = []
+
+        for block in content_blocks:
+            if "text" in block:
+                # Standard TextPart
+                parts.append({"type": "text", "content": block["text"]})
+            elif "toolUse" in block:
+                # Standard ToolCallRequestPart
+                tool_use = block["toolUse"]
+                parts.append(
+                    {
+                        "type": "tool_call",
+                        "name": tool_use["name"],
+                        "id": tool_use["toolUseId"],
+                        "arguments": tool_use["input"],
+                    }
+                )
+            elif "toolResult" in block:
+                # Standard ToolCallResponsePart
+                tool_result = block["toolResult"]
+                parts.append(
+                    {
+                        "type": "tool_call_response",
+                        "id": tool_result["toolUseId"],
+                        "response": tool_result["content"],
+                    }
+                )
+            else:
+                # For all other ContentBlock types, use the key as type and value as content
+                for key, value in block.items():
+                    parts.append({"type": key, "content": value})
+        return parts
 
 
 # Singleton instance for global access
