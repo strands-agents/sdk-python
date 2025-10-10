@@ -67,10 +67,26 @@ anthropic = ProviderInfo(
             "api_key": os.getenv("ANTHROPIC_API_KEY"),
         },
         model_id="claude-3-7-sonnet-20250219",
-        max_tokens=512,
+        max_tokens=2048,
+        params={
+            "thinking": {
+                "type": "enabled",
+                "budget_tokens": 1024,
+            },
+        },
     ),
 )
-bedrock = ProviderInfo(id="bedrock", factory=lambda: BedrockModel())
+bedrock = ProviderInfo(
+    id="bedrock",
+    factory=lambda: BedrockModel(
+        additional_request_fields={
+            "thinking": {
+                "type": "enabled",
+                "budget_tokens": 1024,
+            },
+        },
+    ),
+)
 cohere = ProviderInfo(
     id="cohere",
     environment_variable="COHERE_API_KEY",
@@ -84,7 +100,16 @@ cohere = ProviderInfo(
     ),
 )
 litellm = ProviderInfo(
-    id="litellm", factory=lambda: LiteLLMModel(model_id="bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0")
+    id="litellm",
+    factory=lambda: LiteLLMModel(
+        model_id="bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+        params={
+            "thinking": {
+                "budget_tokens": 1024,
+                "type": "enabled",
+            },
+        },
+    ),
 )
 llama = ProviderInfo(
     id="llama",
@@ -133,7 +158,12 @@ gemini = ProviderInfo(
     factory=lambda: GeminiModel(
         api_key=os.getenv("GOOGLE_API_KEY"),
         model_id="gemini-2.5-flash",
-        params={"temperature": 0.7},
+        params={
+            "temperature": 0.7,
+            "thinking_config": {
+                "include_thoughts": True,
+            },
+        },
     ),
 )
 
