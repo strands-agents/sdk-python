@@ -413,7 +413,7 @@ class Graph(MultiAgentBase):
         self._resume_from_persisted = False
         self._resume_next_nodes: list[GraphNode] = []
 
-        self.hooks.invoke_callbacks(MultiagentInitializedEvent(source=self), supress_exceptions=True)
+        self.hooks.invoke_callbacks(MultiagentInitializedEvent(source=self))
 
     def __call__(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
@@ -467,9 +467,7 @@ class Graph(MultiAgentBase):
         else:
             if isinstance(self.state.task, (str, list)) and not self.state.task:
                 self.state.task = task
-            # Reset failed nodes after resume.
             self.state.status = Status.EXECUTING
-            self.state.failed_nodes.clear()
             self.state.start_time = time.time()
         span = self.tracer.start_multiagent_span(task, "graph")
         with trace_api.use_span(span, end_on_exit=True):
@@ -497,7 +495,7 @@ class Graph(MultiAgentBase):
                 raise
             finally:
                 self.state.execution_time = round((time.time() - self.state.start_time) * 1000)
-                self.hooks.invoke_callbacks(AfterMultiAgentInvocationEvent(source=self), supress_exceptions=True)
+                self.hooks.invoke_callbacks(AfterMultiAgentInvocationEvent(source=self))
                 self._resume_from_persisted = False
                 self._resume_next_nodes.clear()
             return self._build_result()
@@ -607,16 +605,13 @@ class Graph(MultiAgentBase):
                 self.state.failed_nodes.add(node)
                 self.state.results[node.node_id] = fail_result
 
-            self.hooks.invoke_callbacks(
-                AfterNodeInvocationEvent(source=self, executed_node=node.node_id),
-                supress_exceptions=True,
-            )
+            self.hooks.invoke_callbacks(AfterNodeInvocationEvent(source=self, executed_node=node.node_id))
 
         if self.reset_on_revisit and node in self.state.completed_nodes:
             logger.debug("node_id=<%s> | resetting node state for revisit", node.node_id)
             node.reset_executor_state()
             # Remove from completed nodes since we're re-executing it
-            self.state.completed_nodes.discard(node)
+            self.state.completed_nodes.remove(node)
 
         node.execution_status = Status.EXECUTING
         logger.debug("node_id=<%s> | executing node", node.node_id)
@@ -688,9 +683,7 @@ class Graph(MultiAgentBase):
             logger.debug(
                 "node_id=<%s>, execution_time=<%dms> | node completed successfully", node.node_id, node.execution_time
             )
-            self.hooks.invoke_callbacks(
-                AfterNodeInvocationEvent(source=self, executed_node=node.node_id), supress_exceptions=True
-            )
+            self.hooks.invoke_callbacks(AfterNodeInvocationEvent(source=self, executed_node=node.node_id))
 
         except asyncio.TimeoutError:
             timeout_msg = f"Node '{node.node_id}' execution timed out after {self.node_timeout}s"

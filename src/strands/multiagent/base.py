@@ -249,12 +249,10 @@ class MultiAgentBase(ABC):
             future = executor.submit(execute)
             return future.result()
 
-    @abstractmethod
     def serialize_state(self) -> dict[str, Any]:
         """Return a JSON-serializable snapshot of the orchestrator state."""
         raise NotImplementedError
 
-    @abstractmethod
     def deserialize_state(self, payload: dict[str, Any]) -> None:
         """Restore orchestrator state from a session dict."""
         raise NotImplementedError
@@ -272,11 +270,10 @@ class MultiAgentBase(ABC):
             raise TypeError(f"serialize_node_result_for_persist expects NodeResult, got {type(raw).__name__}")
         return raw.to_dict()
 
-    @abstractmethod
     def attempt_resume(self, payload: dict[str, Any]) -> None:
         """Attempt to resume orchestrator state from a session payload.
 
         Args:
             payload: Session data to restore orchestrator state from
         """
-        pass
+        raise NotImplementedError

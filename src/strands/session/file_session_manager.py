@@ -122,12 +122,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
             json.dump(data, f, indent=2, ensure_ascii=False)
             f.flush()
             os.fsync(f.fileno())
-        try:
-            os.replace(tmp, path)
-        except PermissionError:
-            # Windows fallback: copy+delete if atomic replace fails
-            shutil.copy2(tmp, path)
-            os.remove(tmp)
+        os.replace(tmp, path)
 
     def create_session(self, session: Session, **kwargs: Any) -> Session:
         """Create a new session."""

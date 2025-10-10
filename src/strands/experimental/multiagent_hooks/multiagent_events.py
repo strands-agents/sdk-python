@@ -29,9 +29,10 @@ class MultiagentInitializedEvent(BaseHookEvent):
 
 @dataclass
 class BeforeNodeInvocationEvent(BaseHookEvent):
-    """Event triggered before individual node execution completes."""
+    """Event triggered before individual node execution completes. This event corresponds to the After event."""
 
-    pass
+    source: "MultiAgentBase"
+    invocation_state: dict[str, Any] | None = None
 
 
 @dataclass
@@ -52,6 +53,19 @@ class AfterNodeInvocationEvent(BaseHookEvent):
     def should_reverse_callbacks(self) -> bool:
         """True to invoke callbacks in reverse order."""
         return True
+
+
+@dataclass
+class BeforeMultiAgentInvocationEvent(BaseHookEvent):
+    """Event triggered after orchestrator execution completes. This event corresponds to the After event.
+
+    Attributes:
+        source: The multi-agent orchestrator instance
+        invocation_state: Configuration that user pass in
+    """
+
+    source: "MultiAgentBase"
+    invocation_state: dict[str, Any] | None = None
 
 
 @dataclass

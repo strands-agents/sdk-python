@@ -260,7 +260,7 @@ class Swarm(MultiAgentBase):
         self._resume_from_persisted = False
         self._resume_from_completed = False
 
-        self.hooks.invoke_callbacks(MultiagentInitializedEvent(source=self), supress_exceptions=True)
+        self.hooks.invoke_callbacks(MultiagentInitializedEvent(source=self))
 
     def __call__(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
@@ -339,7 +339,7 @@ class Swarm(MultiAgentBase):
                 raise
             finally:
                 self.state.execution_time = round((time.time() - start_time) * 1000)
-                self.hooks.invoke_callbacks(AfterMultiAgentInvocationEvent(source=self), supress_exceptions=True)
+                self.hooks.invoke_callbacks(AfterMultiAgentInvocationEvent(source=self))
                 self._resume_from_persisted = False
                 self._resume_from_completed = False
 
@@ -619,9 +619,7 @@ class Swarm(MultiAgentBase):
 
                     logger.debug("node=<%s> | node execution completed", current_node.node_id)
 
-                    self.hooks.invoke_callbacks(
-                        AfterNodeInvocationEvent(self, executed_node=current_node.node_id), supress_exceptions=True
-                    )
+                    self.hooks.invoke_callbacks(AfterNodeInvocationEvent(self, executed_node=current_node.node_id))
 
                     # Check if the current node is still the same after execution
                     # If it is, then no handoff occurred and we consider the swarm complete
@@ -726,9 +724,7 @@ class Swarm(MultiAgentBase):
             self.state.results[node_name] = node_result
 
             # Persist failure here
-            self.hooks.invoke_callbacks(
-                AfterNodeInvocationEvent(self, executed_node=node_name), supress_exceptions=True
-            )
+            self.hooks.invoke_callbacks(AfterNodeInvocationEvent(self, executed_node=node_name))
 
             raise
 
