@@ -100,6 +100,23 @@ class TextOutputEvent(TypedDict):
     role: Role
 
 
+class TranscriptEvent(TypedDict):
+    """Transcript event for audio transcriptions.
+    
+    Used for both input transcriptions (user speech) and output transcriptions
+    (model audio). These are informational and separate from actual text responses.
+    
+    Attributes:
+        text: The transcribed text.
+        role: The role of the speaker ("user" or "assistant").
+        type: Type of transcription ("input" or "output").
+    """
+    
+    text: str
+    role: Role
+    type: Literal["input", "output"]
+
+
 class InterruptionDetectedEvent(TypedDict):
     """Interruption detection event.
 
@@ -149,6 +166,7 @@ class BidirectionalStreamEvent(StreamEvent, total=False):
         audioInput: Audio input sent to the model.
         imageInput: Image input sent to the model.
         textOutput: Text output from the model.
+        transcript: Audio transcription (input or output).
         interruptionDetected: User interruption detection.
         BidirectionalConnectionStart: connection start event.
         BidirectionalConnectionEnd: connection end event.
@@ -158,6 +176,7 @@ class BidirectionalStreamEvent(StreamEvent, total=False):
     audioInput: AudioInputEvent
     imageInput: ImageInputEvent
     textOutput: TextOutputEvent
+    transcript: TranscriptEvent
     interruptionDetected: InterruptionDetectedEvent
     BidirectionalConnectionStart: BidirectionalConnectionStartEvent
     BidirectionalConnectionEnd: BidirectionalConnectionEndEvent

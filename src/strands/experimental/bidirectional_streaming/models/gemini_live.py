@@ -349,7 +349,6 @@ class GeminiLiveSession(BidirectionalModelSession):
             return
         
         try:
-            
             # Create function response
             func_response = genai_types.FunctionResponse(
                 id=tool_use_id,
@@ -359,7 +358,6 @@ class GeminiLiveSession(BidirectionalModelSession):
             
             # Send tool response
             await self.live_session.send_tool_response(function_responses=[func_response])
-            
         except Exception as e:
             logger.error("Error sending tool result: %s", e)
     
@@ -379,8 +377,8 @@ class GeminiLiveSession(BidirectionalModelSession):
             # Exit the context manager properly
             if self.live_session_cm:
                 await self.live_session_cm.__aexit__(None, None, None)
-                
         except Exception as e:
+            logger.error("Error closing Gemini Live session: %s", e)
             raise
 
 
