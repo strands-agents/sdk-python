@@ -120,7 +120,7 @@ async def record(context):
         frames_per_buffer=1024,
         input=True,
         rate=16000,
-        input_device_index=6,  # Use default, or specify a device index
+        # input_device_index=6,  # Use default, or specify a device index
     )
 
     try:
@@ -142,6 +142,11 @@ async def receive(agent, context):
     """Receive and process events from agent."""
     try:
         async for event in agent.receive():
+            # Debug: Log all event types
+            event_types = [k for k in event.keys() if not k.startswith('_')]
+            if event_types:
+                logger.debug(f"Received event types: {event_types}")
+            
             # Handle audio output
             if "audioOutput" in event:
                 if not context.get("interrupted", False):
@@ -155,7 +160,7 @@ async def receive(agent, context):
 
             # Handle text output with interruption detection
             elif "textOutput" in event:
-                text_content = event["textOutput"].get("content", "")
+                text_content = event["textOutput"].get("text", "")
                 role = event["textOutput"].get("role", "unknown")
 
                 # Check for text-based interruption patterns
@@ -169,6 +174,18 @@ async def receive(agent, context):
                     print(f"User: {text_content}")
                 elif role.upper() == "ASSISTANT":
                     print(f"Assistant: {text_content}")
+            
+            # Handle transcript events (audio transcriptions)
+            elif "transcript" in event:
+                transcript_text = event["transcript"].get("text", "")
+                transcript_role = event["transcript"].get("role", "unknown")
+                transcript_type = event["transcript"].get("type", "unknown")
+                
+                # Print transcripts with special formatting to distinguish from text output
+                if transcript_role.upper() == "USER":
+                    print(f"🎤 User (transcript): {transcript_text}")
+                elif transcript_role.upper() == "ASSISTANT":
+                    print(f"🔊 Assistant (transcript): {transcript_text}")
             
             # Handle turn complete events (if we add them back)
             elif "turnComplete" in event:
@@ -284,7 +301,9 @@ async def main(duration=180):
             model_id="gemini-2.5-flash-native-audio-preview-09-2025",  # Add models/ prefix
             api_key=api_key,
             params={
-                "response_modalities": ["AUDIO"]
+                "response_modalities": ["AUDIO"],
+                "output_audio_transcription": {},  # Enable output transcription
+                "input_audio_transcription": {}    # Enable input transcription
             }
         )
         logger.info("Gemini Live model initialized successfully")

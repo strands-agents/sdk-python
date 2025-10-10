@@ -22,7 +22,6 @@ from ....types.content import Messages
 from ..event_loop.bidirectional_event_loop import start_bidirectional_connection, stop_bidirectional_connection
 from ..models.bidirectional_model import BidirectionalModel
 from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent, ImageInputEvent
-from ..utils.debug import log_event, log_flow
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +80,6 @@ class BidirectionalAgent:
 
         logger.debug("Conversation start - initializing session")
         self._session = await start_bidirectional_connection(self)
-        log_event("conversation_ready")
     
     async def send(self, input_data: str | AudioInputEvent | ImageInputEvent) -> None:
         """Send input to the model (text, audio, or image).
@@ -108,7 +106,6 @@ class BidirectionalAgent:
             await self._session.model_session.send_audio_content(input_data)
         elif isinstance(input_data, dict) and "imageData" in input_data:
             # Handle image input (ImageInputEvent)
-            log_event("image_sent", mime_type=input_data.get("mimeType"))
             await self._session.model_session.send_image_content(input_data)
         else:
             raise ValueError(

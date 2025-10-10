@@ -13,7 +13,6 @@ Key improvements over custom WebSocket implementation:
 
 import asyncio
 import base64
-import json
 import logging
 import uuid
 from typing import Any, AsyncIterable, Dict, List, Optional
@@ -32,8 +31,8 @@ from ..types.bidirectional_streaming import (
     ImageInputEvent,
     InterruptionDetectedEvent,
     TextOutputEvent,
+    TranscriptEvent,
 )
-from ..utils.debug import log_event, log_flow, time_it_async
 from .bidirectional_model import BidirectionalModel, BidirectionalModelSession
 
 logger = logging.getLogger(__name__)
@@ -76,7 +75,6 @@ class GeminiLiveSession(BidirectionalModelSession):
         messages: Optional[Messages] = None
     ) -> None:
         """Initialize Gemini Live API session by creating the connection."""
-        log_flow("gemini_live_init", "creating live session")
         
         try:
             # Build live config
@@ -98,7 +96,6 @@ class GeminiLiveSession(BidirectionalModelSession):
             if messages:
                 await self._send_message_history(messages)
             
-            log_event("gemini_live_session_initialized")
             
         except Exception as e:
             logger.error("Error initializing Gemini Live session: %s", e)
@@ -130,7 +127,6 @@ class GeminiLiveSession(BidirectionalModelSession):
     
     async def receive_events(self) -> AsyncIterable[Dict[str, Any]]:
         """Receive Gemini Live API events and convert to provider-agnostic format."""
-        log_flow("gemini_live_events", "starting event stream")
         
         # Emit connection start event
         connection_start: BidirectionalConnectionStartEvent = {
@@ -176,34 +172,45 @@ class GeminiLiveSession(BidirectionalModelSession):
         """Convert Gemini Live API events to provider-agnostic format.
         
         Handles different types of text output:
-        - inputTranscription: User's speech transcribed to text (logged but not emitted)
-        - outputTranscription: Model's audio transcribed to text (logged but not emitted)
+        - inputTranscription: User's speech transcribed to text (emitted as transcript event)
+        - outputTranscription: Model's audio transcribed to text (emitted as transcript event)
         - modelTurn text: Actual text response from the model (emitted as textOutput)
         """
         try:
             # Handle interruption first (from server_content)
             if message.server_content and message.server_content.interrupted:
-                log_event("gemini_live_interruption_detected")
                 interruption: InterruptionDetectedEvent = {
                     "reason": "user_input"
                 }
                 return {"interruptionDetected": interruption}
             
-            # Handle input transcription (user's speech) - log for visibility
+            # Handle input transcription (user's speech) - emit as transcript event
             if message.server_content and message.server_content.input_transcription:
-                transcription_text = message.server_content.input_transcription.text
-                if transcription_text:
-                    logger.info(f"User (transcription): {transcription_text}")
-                # Don't emit as event - transcriptions are informational only
-                return None
+                input_transcript = message.server_content.input_transcription
+                # Check if the transcription object has text content
+                if hasattr(input_transcript, 'text') and input_transcript.text:
+                    transcription_text = input_transcript.text
+                    logger.debug(f"Input transcription detected: {transcription_text}")
+                    transcript: TranscriptEvent = {
+                        "text": transcription_text,
+                        "role": "user",
+                        "type": "input"
+                    }
+                    return {"transcript": transcript}
             
-            # Handle output transcription (model's audio) - log for visibility
+            # Handle output transcription (model's audio) - emit as transcript event
             if message.server_content and message.server_content.output_transcription:
-                transcription_text = message.server_content.output_transcription.text
-                if transcription_text:
-                    logger.info(f"Assistant (audio transcription): {transcription_text}")
-                # Don't emit as event - transcriptions are informational only
-                return None
+                output_transcript = message.server_content.output_transcription
+                # Check if the transcription object has text content
+                if hasattr(output_transcript, 'text') and output_transcript.text:
+                    transcription_text = output_transcript.text
+                    logger.debug(f"Output transcription detected: {transcription_text}")
+                    transcript: TranscriptEvent = {
+                        "text": transcription_text,
+                        "role": "assistant",
+                        "type": "output"
+                    }
+                    return {"transcript": transcript}
             
             # Handle actual text output from model (not transcription)
             # The SDK's message.text property accesses modelTurn.parts[].text
@@ -342,7 +349,6 @@ class GeminiLiveSession(BidirectionalModelSession):
             return
         
         try:
-            log_event("gemini_live_tool_result_send", id=tool_use_id)
             
             # Create function response
             func_response = genai_types.FunctionResponse(
@@ -359,7 +365,6 @@ class GeminiLiveSession(BidirectionalModelSession):
     
     async def send_tool_error(self, tool_use_id: str, error: str) -> None:
         """Send tool error using Gemini Live API."""
-        log_event("gemini_live_tool_error_send", id=tool_use_id, error=error)
         error_result = {"error": error}
         await self.send_tool_result(tool_use_id, error_result)
     
@@ -368,7 +373,6 @@ class GeminiLiveSession(BidirectionalModelSession):
         if not self._active:
             return
         
-        log_flow("gemini_live_cleanup", "starting connection close")
         self._active = False
         
         try:
@@ -377,9 +381,7 @@ class GeminiLiveSession(BidirectionalModelSession):
                 await self.live_session_cm.__aexit__(None, None, None)
                 
         except Exception as e:
-            log_event("gemini_live_cleanup_error", error=str(e))
-        finally:
-            log_event("gemini_live_connection_closed")
+            raise
 
 
 class GeminiLiveBidirectionalModel(BidirectionalModel):
@@ -424,7 +426,6 @@ class GeminiLiveBidirectionalModel(BidirectionalModel):
         **kwargs
     ) -> BidirectionalModelSession:
         """Create Gemini Live API bidirectional connection using official SDK."""
-        log_flow("gemini_live_connection_create", "starting")
         
         try:
             # Build configuration
@@ -436,16 +437,11 @@ class GeminiLiveBidirectionalModel(BidirectionalModel):
             
             # Create and initialize session wrapper
             session = GeminiLiveSession(self.client, self.model_id, session_config)
-            await time_it_async(
-                "initialize_session",
-                lambda: session.initialize(system_prompt, tools, messages)
-            )
+            await session.initialize(system_prompt, tools, messages)
             
-            log_event("gemini_live_connection_created")
             return session
             
         except Exception as e:
-            log_event("gemini_live_connection_create_error", error=str(e))
             logger.error("Failed to create Gemini Live connection: %s", e)
             raise
     
@@ -482,6 +478,12 @@ class GeminiLiveBidirectionalModel(BidirectionalModel):
         for param in ["temperature", "max_output_tokens", "top_p", "top_k"]:
             if param in config_dict:
                 config_dict_for_sdk[param] = config_dict[param]
+        
+        # Transcription parameters (must use snake_case)
+        if "input_audio_transcription" in config_dict:
+            config_dict_for_sdk["input_audio_transcription"] = config_dict["input_audio_transcription"]
+        if "output_audio_transcription" in config_dict:
+            config_dict_for_sdk["output_audio_transcription"] = config_dict["output_audio_transcription"]
         
         # Add system instruction and tools if provided
         if system_prompt:
