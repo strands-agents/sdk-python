@@ -37,6 +37,20 @@ from ..types.tools import ToolSpec, ToolUse
 logger = logging.getLogger(__name__)
 
 
+def remove_strands_messages(messages: Messages) -> Messages:
+    """Remove messages from the conversation that are not from the user or the assistant.
+
+    TODO.
+
+    Args:
+        messages: Conversation messages to update.
+
+    Returns:
+        Updated messages.
+    """
+    return [message for message in messages if message["role"] != "strands"]
+
+
 def remove_blank_messages_content_text(messages: Messages) -> Messages:
     """Remove or replace blank text in message content.
 
@@ -345,7 +359,9 @@ async def stream_messages(
     """
     logger.debug("model=<%s> | streaming messages", model)
 
+    messages = remove_strands_messages(messages)
     messages = remove_blank_messages_content_text(messages)
+
     chunks = model.stream(messages, tool_specs if tool_specs else None, system_prompt)
 
     async for event in process_stream(chunks):

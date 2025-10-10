@@ -11,6 +11,7 @@ from typing import Dict, List, Literal, Optional
 from typing_extensions import TypedDict
 
 from .citations import CitationsContentBlock
+from .interrupt import InterruptReason, InterruptResponse
 from .media import DocumentContent, ImageContent, VideoContent
 from .tools import ToolResult, ToolUse
 
@@ -91,6 +92,8 @@ class ContentBlock(TypedDict, total=False):
     document: DocumentContent
     guardContent: GuardContent
     image: ImageContent
+    interruptReason: InterruptReason
+    interruptResponse: InterruptResponse
     reasoningContent: ReasoningContentBlock
     text: str
     toolResult: ToolResult
@@ -167,11 +170,12 @@ class ContentBlockStop(TypedDict):
     contentBlockIndex: int
 
 
-Role = Literal["user", "assistant"]
+Role = Literal["user", "assistant", "strands"]
 """Role of a message sender.
 
 - "user": Messages from the user to the assistant
 - "assistant": Messages from the assistant to the user
+- "strands": Messages from strands to the user
 """
 
 

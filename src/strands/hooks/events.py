@@ -3,12 +3,17 @@
 This module defines the events that are emitted as Agents run through the lifecycle of a request.
 """
 
+import json
+import uuid
 from dataclasses import dataclass
 from typing import Any, Optional
+
+from typing_extensions import override
 
 from ..types.content import Message
 from ..types.streaming import StopReason
 from ..types.tools import AgentTool, ToolResult, ToolUse
+from .interrupt import InterruptHookEvent
 from .registry import HookEvent
 
 
@@ -84,7 +89,7 @@ class MessageAddedEvent(HookEvent):
 
 
 @dataclass
-class BeforeToolCallEvent(HookEvent):
+class BeforeToolCallEvent(HookEvent, InterruptHookEvent):
     """Event triggered before a tool is invoked.
 
     This event is fired just before the agent executes a tool, allowing hook
@@ -109,6 +114,19 @@ class BeforeToolCallEvent(HookEvent):
 
     def _can_write(self, name: str) -> bool:
         return name in ["cancel_tool", "selected_tool", "tool_use"]
+
+    @override
+    def interrupt_id(self, name: str, reason: Any) -> str:
+        """Unique id for the interrupt.
+
+        Args:
+            name: User defined name for the interrupt.
+            reason: User provided reason for the interrupt.
+
+        Returns:
+            Interrupt id.
+        """
+        return f"v1:{self.tool_use['toolUseId']}:{uuid.uuid5(uuid.NAMESPACE_OID, f'{name}:{json.dumps(reason)}')}"
 
 
 @dataclass

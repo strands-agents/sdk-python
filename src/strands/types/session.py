@@ -5,7 +5,7 @@ import inspect
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from .content import Message
 
@@ -107,8 +107,9 @@ class SessionAgent:
     """Agent that belongs to a Session."""
 
     agent_id: str
-    state: Dict[str, Any]
-    conversation_manager_state: Dict[str, Any]
+    state: dict[str, Any]
+    conversation_manager_state: dict[str, Any]
+    interrupt_state: dict[str, Any]
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -121,6 +122,7 @@ class SessionAgent:
             agent_id=agent.agent_id,
             conversation_manager_state=agent.conversation_manager.get_state(),
             state=agent.state.get(),
+            interrupt_state=agent.interrupt_state.to_dict(),
         )
 
     @classmethod

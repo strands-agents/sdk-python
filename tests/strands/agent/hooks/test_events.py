@@ -1,4 +1,4 @@
-from unittest.mock import Mock
+from unittest.mock import ANY, Mock
 
 import pytest
 
@@ -67,6 +67,7 @@ def before_tool_event(agent, tool, tool_use, tool_invocation_state):
         selected_tool=tool,
         tool_use=tool_use,
         invocation_state=tool_invocation_state,
+        interrupt=ANY,
     )
 
 

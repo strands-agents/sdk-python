@@ -54,6 +54,7 @@ from ..types._events import AgentResultEvent, InitEventLoopEvent, ModelStreamChu
 from ..types.agent import AgentInput
 from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
+from ..types.interrupt import InterruptResponseContent
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
@@ -61,6 +62,7 @@ from .conversation_manager import (
     ConversationManager,
     SlidingWindowConversationManager,
 )
+from .interrupt import InterruptState
 from .state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -336,6 +338,8 @@ class Agent:
         self.tool_caller = Agent.ToolCaller(self)
 
         self.hooks = HookRegistry()
+
+        self.interrupt_state = InterruptState()
 
         # Initialize session management functionality
         self._session_manager = session_manager
@@ -671,6 +675,17 @@ class Agent:
                 yield event
 
     def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
+        if self.interrupt_state.activated:
+            responses = [
+                cast(InterruptResponseContent, content)["interruptResponse"]
+                for content in cast(list[ContentBlock], prompt)
+            ]
+
+            for response in responses:
+                self.interrupt_state[response["interruptId"]].response = response["response"]
+
+            return [{"role": "strands", "content": cast(list[ContentBlock], prompt)}]
+
         messages: Messages | None = None
         if prompt is not None:
             if isinstance(prompt, str):
