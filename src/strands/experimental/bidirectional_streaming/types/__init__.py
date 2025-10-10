@@ -11,8 +11,10 @@ from .bidirectional_streaming import (
     BidirectionalConnectionEndEvent,
     BidirectionalConnectionStartEvent,
     BidirectionalStreamEvent,
+    ImageInputEvent,
     InterruptionDetectedEvent,
     TextOutputEvent,
+    TranscriptEvent,
 )
 
 __all__ = [
@@ -21,8 +23,10 @@ __all__ = [
     "BidirectionalConnectionEndEvent",
     "BidirectionalConnectionStartEvent",
     "BidirectionalStreamEvent",
+    "ImageInputEvent",
     "InterruptionDetectedEvent",
     "TextOutputEvent",
+    "TranscriptEvent",
     "SUPPORTED_AUDIO_FORMATS",
     "SUPPORTED_SAMPLE_RATES",
     "SUPPORTED_CHANNELS",
