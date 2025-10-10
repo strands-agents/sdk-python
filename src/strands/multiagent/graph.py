@@ -31,6 +31,7 @@ from ..types._events import (
     MultiAgentNodeCompleteEvent,
     MultiAgentNodeStartEvent,
     MultiAgentNodeStreamEvent,
+    MultiAgentResultEvent,
 )
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
@@ -443,11 +444,11 @@ class Graph(MultiAgentBase):
             **kwargs: Keyword arguments allowing backward compatible future changes.
 
         Yields:
-            Dictionary events containing graph execution information including:
-            - MultiAgentNodeStartEvent: When a node begins execution
-            - MultiAgentNodeStreamEvent: Forwarded agent events with node context
-            - MultiAgentNodeCompleteEvent: When a node completes execution
-            - Final result event
+            Dictionary events during graph execution, such as:
+            - multi_agent_node_start: When a node begins execution
+            - multi_agent_node_stream: Forwarded agent/multi-agent events with node context
+            - multi_agent_node_complete: When a node completes execution
+            - result: Final graph result
         """
         if invocation_state is None:
             invocation_state = {}
@@ -476,7 +477,7 @@ class Graph(MultiAgentBase):
                 )
 
                 async for event in self._execute_graph(invocation_state):
-                    yield event
+                    yield event.as_dict()
 
                 # Set final status based on execution results
                 if self.state.failed_nodes:
@@ -490,7 +491,7 @@ class Graph(MultiAgentBase):
                 result = self._build_result()
 
                 # Use the same event format as Agent for consistency
-                yield {"result": result}
+                yield MultiAgentResultEvent(result=result).as_dict()
 
             except Exception:
                 logger.exception("graph execution failed")
@@ -500,17 +501,35 @@ class Graph(MultiAgentBase):
                 self.state.execution_time = round((time.time() - start_time) * 1000)
 
     async def _stream_with_timeout(
-        self, async_generator: AsyncIterator[dict[str, Any]], timeout: float, timeout_message: str
-    ) -> AsyncIterator[dict[str, Any]]:
-        """Wrap an async generator with timeout functionality."""
-        while True:
-            try:
-                event = await asyncio.wait_for(async_generator.__anext__(), timeout=timeout)
+        self, async_generator: AsyncIterator[Any], timeout: float | None, timeout_message: str
+    ) -> AsyncIterator[Any]:
+        """Wrap an async generator with timeout functionality.
+
+        Args:
+            async_generator: The generator to wrap
+            timeout: Timeout in seconds, or None for no timeout
+            timeout_message: Message to include in timeout exception
+
+        Yields:
+            Events from the wrapped generator
+
+        Raises:
+            Exception: If timeout is exceeded (same as original behavior)
+        """
+        if timeout is None:
+            # No timeout - just pass through
+            async for event in async_generator:
                 yield event
-            except StopAsyncIteration:
-                break
-            except asyncio.TimeoutError:
-                raise Exception(timeout_message) from None
+        else:
+            # Apply timeout to each event
+            while True:
+                try:
+                    event = await asyncio.wait_for(async_generator.__anext__(), timeout=timeout)
+                    yield event
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError:
+                    raise Exception(timeout_message) from None
 
     def _validate_graph(self, nodes: dict[str, GraphNode]) -> None:
         """Validate graph nodes for duplicate instances."""
@@ -524,8 +543,8 @@ class Graph(MultiAgentBase):
             # Validate Agent-specific constraints for each node
             _validate_node_executor(node.executor)
 
-    async def _execute_graph(self, invocation_state: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
-        """Execute graph and yield events."""
+    async def _execute_graph(self, invocation_state: dict[str, Any]) -> AsyncIterator[Any]:
+        """Execute graph and yield TypedEvent objects."""
         ready_nodes = list(self.entry_points)
 
         while ready_nodes:
@@ -557,14 +576,14 @@ class Graph(MultiAgentBase):
 
     async def _execute_nodes_parallel(
         self, nodes: list["GraphNode"], invocation_state: dict[str, Any]
-    ) -> AsyncIterator[dict[str, Any]]:
+    ) -> AsyncIterator[Any]:
         """Execute multiple nodes in parallel and merge their event streams in real-time.
 
         Uses a shared queue where each node's stream runs independently and pushes events
         as they occur, enabling true real-time event propagation without round-robin delays.
         """
         # Create a shared queue for all events
-        event_queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
+        event_queue: asyncio.Queue[Any | None] = asyncio.Queue()
 
         # Track active node tasks
         active_tasks: set[asyncio.Task[None]] = set()
@@ -637,8 +656,8 @@ class Graph(MultiAgentBase):
                     )
         return False
 
-    async def _execute_node(self, node: GraphNode, invocation_state: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
-        """Execute a single node."""
+    async def _execute_node(self, node: GraphNode, invocation_state: dict[str, Any]) -> AsyncIterator[Any]:
+        """Execute a single node and yield TypedEvent objects."""
         # Reset the node's state if reset_on_revisit is enabled and it's being revisited
         if self.reset_on_revisit and node in self.state.completed_nodes:
             logger.debug("node_id=<%s> | resetting node state for revisit", node.node_id)
@@ -652,7 +671,7 @@ class Graph(MultiAgentBase):
         start_event = MultiAgentNodeStartEvent(
             node_id=node.node_id, node_type="agent" if isinstance(node.executor, Agent) else "multiagent"
         )
-        yield start_event.as_dict()
+        yield start_event
 
         start_time = time.time()
         try:
@@ -660,101 +679,71 @@ class Graph(MultiAgentBase):
             node_input = self._build_node_input(node)
 
             # Execute with timeout protection and stream events
-            try:
-                if isinstance(node.executor, MultiAgentBase):
-                    # For nested multi-agent systems, stream their events and collect result
-                    multi_agent_result = None
-                    if self.node_timeout is not None:
-                        # Implement timeout for async generator streaming
-                        async for event in self._stream_with_timeout(
-                            node.executor.stream_async(node_input, invocation_state),
-                            self.node_timeout,
-                            f"Node '{node.node_id}' execution timed out after {self.node_timeout}s",
-                        ):
-                            # Forward nested multi-agent events with node context
-                            wrapped_event = MultiAgentNodeStreamEvent(node.node_id, event)
-                            yield wrapped_event.as_dict()
-                            # Capture the final result event
-                            if "result" in event:
-                                multi_agent_result = event["result"]
-                    else:
-                        async for event in node.executor.stream_async(node_input, invocation_state):
-                            # Forward nested multi-agent events with node context
-                            wrapped_event = MultiAgentNodeStreamEvent(node.node_id, event)
-                            yield wrapped_event.as_dict()
-                            # Capture the final result event
-                            if "result" in event:
-                                multi_agent_result = event["result"]
-
-                    # Use the captured result from streaming (no double execution)
-                    if multi_agent_result is None:
-                        raise ValueError(f"Node '{node.node_id}' did not produce a result event")
-
-                    node_result = NodeResult(
-                        result=multi_agent_result,
-                        execution_time=multi_agent_result.execution_time,
-                        status=Status.COMPLETED,
-                        accumulated_usage=multi_agent_result.accumulated_usage,
-                        accumulated_metrics=multi_agent_result.accumulated_metrics,
-                        execution_count=multi_agent_result.execution_count,
-                    )
-
-                elif isinstance(node.executor, Agent):
-                    # For agents, stream their events and collect result
-                    agent_response = None
-                    if self.node_timeout is not None:
-                        # Implement timeout for async generator streaming
-                        async for event in self._stream_with_timeout(
-                            node.executor.stream_async(node_input, **invocation_state),
-                            self.node_timeout,
-                            f"Node '{node.node_id}' execution timed out after {self.node_timeout}s",
-                        ):
-                            # Forward agent events with node context
-                            wrapped_event = MultiAgentNodeStreamEvent(node.node_id, event)
-                            yield wrapped_event.as_dict()
-                            # Capture the final result event
-                            if "result" in event:
-                                agent_response = event["result"]
-                    else:
-                        async for event in node.executor.stream_async(node_input, **invocation_state):
-                            # Forward agent events with node context
-                            wrapped_event = MultiAgentNodeStreamEvent(node.node_id, event)
-                            yield wrapped_event.as_dict()
-                            # Capture the final result event
-                            if "result" in event:
-                                agent_response = event["result"]
-
-                    # Use the captured result from streaming (no double execution)
-                    if agent_response is None:
-                        raise ValueError(f"Node '{node.node_id}' did not produce a result event")
-
-                    usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
-                    metrics = Metrics(latencyMs=0)
-                    if hasattr(agent_response, "metrics") and agent_response.metrics:
-                        if hasattr(agent_response.metrics, "accumulated_usage"):
-                            usage = agent_response.metrics.accumulated_usage
-                        if hasattr(agent_response.metrics, "accumulated_metrics"):
-                            metrics = agent_response.metrics.accumulated_metrics
-
-                    node_result = NodeResult(
-                        result=agent_response,
-                        execution_time=round((time.time() - start_time) * 1000),
-                        status=Status.COMPLETED,
-                        accumulated_usage=usage,
-                        accumulated_metrics=metrics,
-                        execution_count=1,
-                    )
-                else:
-                    raise ValueError(f"Node '{node.node_id}' of type '{type(node.executor)}' is not supported")
-
-            except asyncio.TimeoutError:
-                timeout_msg = f"Node '{node.node_id}' execution timed out after {self.node_timeout}s"
-                logger.exception(
-                    "node=<%s>, timeout=<%s>s | node execution timed out",
-                    node.node_id,
+            if isinstance(node.executor, MultiAgentBase):
+                # For nested multi-agent systems, stream their events and collect result
+                multi_agent_result = None
+                async for event in self._stream_with_timeout(
+                    node.executor.stream_async(node_input, invocation_state),
                     self.node_timeout,
+                    f"Node '{node.node_id}' execution timed out after {self.node_timeout}s",
+                ):
+                    # Forward nested multi-agent events with node context
+                    wrapped_event = MultiAgentNodeStreamEvent(node.node_id, event)
+                    yield wrapped_event
+                    # Capture the final result event
+                    if isinstance(event, dict) and "result" in event:
+                        multi_agent_result = event["result"]
+
+                # Use the captured result from streaming (no double execution)
+                if multi_agent_result is None:
+                    raise ValueError(f"Node '{node.node_id}' did not produce a result event")
+
+                node_result = NodeResult(
+                    result=multi_agent_result,
+                    execution_time=multi_agent_result.execution_time,
+                    status=Status.COMPLETED,
+                    accumulated_usage=multi_agent_result.accumulated_usage,
+                    accumulated_metrics=multi_agent_result.accumulated_metrics,
+                    execution_count=multi_agent_result.execution_count,
                 )
-                raise Exception(timeout_msg) from None
+
+            elif isinstance(node.executor, Agent):
+                # For agents, stream their events and collect result
+                agent_response = None
+                async for event in self._stream_with_timeout(
+                    node.executor.stream_async(node_input, **invocation_state),
+                    self.node_timeout,
+                    f"Node '{node.node_id}' execution timed out after {self.node_timeout}s",
+                ):
+                    # Forward agent events with node context
+                    wrapped_event = MultiAgentNodeStreamEvent(node.node_id, event)
+                    yield wrapped_event
+                    # Capture the final result event
+                    if isinstance(event, dict) and "result" in event:
+                        agent_response = event["result"]
+
+                # Use the captured result from streaming (no double execution)
+                if agent_response is None:
+                    raise ValueError(f"Node '{node.node_id}' did not produce a result event")
+
+                usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
+                metrics = Metrics(latencyMs=0)
+                if hasattr(agent_response, "metrics") and agent_response.metrics:
+                    if hasattr(agent_response.metrics, "accumulated_usage"):
+                        usage = agent_response.metrics.accumulated_usage
+                    if hasattr(agent_response.metrics, "accumulated_metrics"):
+                        metrics = agent_response.metrics.accumulated_metrics
+
+                node_result = NodeResult(
+                    result=agent_response,
+                    execution_time=round((time.time() - start_time) * 1000),
+                    status=Status.COMPLETED,
+                    accumulated_usage=usage,
+                    accumulated_metrics=metrics,
+                    execution_count=1,
+                )
+            else:
+                raise ValueError(f"Node '{node.node_id}' of type '{type(node.executor)}' is not supported")
 
             # Mark as completed
             node.execution_status = Status.COMPLETED
@@ -769,7 +758,7 @@ class Graph(MultiAgentBase):
 
             # Emit node complete event
             complete_event = MultiAgentNodeCompleteEvent(node_id=node.node_id, execution_time=node.execution_time)
-            yield complete_event.as_dict()
+            yield complete_event
 
             logger.debug(
                 "node_id=<%s>, execution_time=<%dms> | node completed successfully",
@@ -799,7 +788,7 @@ class Graph(MultiAgentBase):
 
             # Still emit complete event even for failures
             complete_event = MultiAgentNodeCompleteEvent(node_id=node.node_id, execution_time=execution_time)
-            yield complete_event.as_dict()
+            yield complete_event
 
             raise
 

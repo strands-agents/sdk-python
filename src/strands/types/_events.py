@@ -353,6 +353,18 @@ class AgentResultEvent(TypedEvent):
         super().__init__({"result": result})
 
 
+class MultiAgentResultEvent(TypedEvent):
+    """Event emitted when multi-agent execution completes with final result."""
+
+    def __init__(self, result: Any) -> None:
+        """Initialize with multi-agent result.
+
+        Args:
+            result: The final result from multi-agent execution (SwarmResult, GraphResult, etc.)
+        """
+        super().__init__({"result": result})
+
+
 class MultiAgentNodeStartEvent(TypedEvent):
     """Event emitted when a node begins execution in multi-agent context."""
 

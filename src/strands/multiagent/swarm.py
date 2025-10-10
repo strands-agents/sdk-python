@@ -32,6 +32,7 @@ from ..types._events import (
     MultiAgentNodeCompleteEvent,
     MultiAgentNodeStartEvent,
     MultiAgentNodeStreamEvent,
+    MultiAgentResultEvent,
 )
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
@@ -299,12 +300,12 @@ class Swarm(MultiAgentBase):
             **kwargs: Keyword arguments allowing backward compatible future changes.
 
         Yields:
-            Dictionary events containing swarm execution information including:
-            - MultiAgentNodeStartEvent: When an agent begins execution
-            - MultiAgentNodeStreamEvent: Forwarded agent events with node context
-            - MultiAgentHandoffEvent: When control is handed off between agents
-            - MultiAgentNodeCompleteEvent: When an agent completes execution
-            - Final result event
+            Dictionary events during swarm execution, such as:
+            - multi_agent_node_start: When a node begins execution
+            - multi_agent_node_stream: Forwarded agent events with node context
+            - multi_agent_handoff: When control is handed off between agents
+            - multi_agent_node_complete: When a node completes execution
+            - result: Final swarm result
         """
         if invocation_state is None:
             invocation_state = {}
@@ -337,11 +338,11 @@ class Swarm(MultiAgentBase):
                 )
 
                 async for event in self._execute_swarm(invocation_state):
-                    yield event
+                    yield event.as_dict()
 
                 # Yield final result (consistent with Agent's AgentResultEvent format)
                 result = self._build_result()
-                yield {"result": result}
+                yield MultiAgentResultEvent(result=result).as_dict()
 
             except Exception:
                 logger.exception("swarm execution failed")
@@ -351,17 +352,35 @@ class Swarm(MultiAgentBase):
                 self.state.execution_time = round((time.time() - start_time) * 1000)
 
     async def _stream_with_timeout(
-        self, async_generator: AsyncIterator[dict[str, Any]], timeout: float, timeout_message: str
-    ) -> AsyncIterator[dict[str, Any]]:
-        """Wrap an async generator with timeout functionality."""
-        while True:
-            try:
-                event = await asyncio.wait_for(async_generator.__anext__(), timeout=timeout)
+        self, async_generator: AsyncIterator[Any], timeout: float | None, timeout_message: str
+    ) -> AsyncIterator[Any]:
+        """Wrap an async generator with timeout functionality.
+
+        Args:
+            async_generator: The generator to wrap
+            timeout: Timeout in seconds, or None for no timeout
+            timeout_message: Message to include in timeout exception
+
+        Yields:
+            Events from the wrapped generator
+
+        Raises:
+            Exception: If timeout is exceeded (same as original behavior)
+        """
+        if timeout is None:
+            # No timeout - just pass through
+            async for event in async_generator:
                 yield event
-            except StopAsyncIteration:
-                break
-            except asyncio.TimeoutError:
-                raise Exception(timeout_message) from None
+        else:
+            # Apply timeout to each event
+            while True:
+                try:
+                    event = await asyncio.wait_for(async_generator.__anext__(), timeout=timeout)
+                    yield event
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError:
+                    raise Exception(timeout_message) from None
 
     def _setup_swarm(self, nodes: list[Agent]) -> None:
         """Initialize swarm configuration."""
@@ -583,8 +602,8 @@ class Swarm(MultiAgentBase):
 
         return context_text
 
-    async def _execute_swarm(self, invocation_state: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
-        """Execute swarm and yield events."""
+    async def _execute_swarm(self, invocation_state: dict[str, Any]) -> AsyncIterator[Any]:
+        """Execute swarm and yield TypedEvent objects."""
         try:
             # Main execution loop
             while True:
@@ -624,14 +643,10 @@ class Swarm(MultiAgentBase):
                 # Execute node with timeout protection
                 try:
                     # Execute with timeout wrapper for async generator streaming
-                    node_stream = (
-                        self._stream_with_timeout(
-                            self._execute_node(current_node, self.state.task, invocation_state),
-                            self.node_timeout,
-                            f"Node '{current_node.node_id}' execution timed out after {self.node_timeout}s",
-                        )
-                        if self.node_timeout is not None
-                        else self._execute_node(current_node, self.state.task, invocation_state)
+                    node_stream = self._stream_with_timeout(
+                        self._execute_node(current_node, self.state.task, invocation_state),
+                        self.node_timeout,
+                        f"Node '{current_node.node_id}' execution timed out after {self.node_timeout}s",
                     )
                     async for event in node_stream:
                         yield event
@@ -648,7 +663,7 @@ class Swarm(MultiAgentBase):
                             to_node=self.state.current_node.node_id,
                             message=self.state.handoff_message or "Agent handoff occurred",
                         )
-                        yield handoff_event.as_dict()
+                        yield handoff_event
                         logger.debug(
                             "from_node=<%s>, to_node=<%s> | handoff detected",
                             previous_node.node_id,
@@ -660,16 +675,8 @@ class Swarm(MultiAgentBase):
                         self.state.completion_status = Status.COMPLETED
                         break
 
-                except Exception as e:
-                    # Check if this is a timeout exception
-                    if "timed out after" in str(e):
-                        logger.exception(
-                            "node=<%s>, timeout=<%s>s | node execution timed out",
-                            current_node.node_id,
-                            self.node_timeout,
-                        )
-                    else:
-                        logger.exception("node=<%s> | node execution failed", current_node.node_id)
+                except Exception:
+                    logger.exception("node=<%s> | node execution failed", current_node.node_id)
                     self.state.completion_status = Status.FAILED
                     break
 
@@ -687,14 +694,14 @@ class Swarm(MultiAgentBase):
 
     async def _execute_node(
         self, node: SwarmNode, task: str | list[ContentBlock], invocation_state: dict[str, Any]
-    ) -> AsyncIterator[dict[str, Any]]:
-        """Execute swarm node."""
+    ) -> AsyncIterator[Any]:
+        """Execute swarm node and yield TypedEvent objects."""
         start_time = time.time()
         node_name = node.node_id
 
         # Emit node start event
         start_event = MultiAgentNodeStartEvent(node_id=node_name, node_type="agent")
-        yield start_event.as_dict()
+        yield start_event
 
         try:
             # Prepare context for node
@@ -716,9 +723,9 @@ class Swarm(MultiAgentBase):
             async for event in node.executor.stream_async(node_input, **invocation_state):
                 # Forward agent events with node context
                 wrapped_event = MultiAgentNodeStreamEvent(node_name, event)
-                yield wrapped_event.as_dict()
+                yield wrapped_event
                 # Capture the final result event
-                if "result" in event:
+                if isinstance(event, dict) and "result" in event:
                     result = event["result"]
 
             # Use the captured result from streaming to avoid double execution
@@ -753,7 +760,7 @@ class Swarm(MultiAgentBase):
 
             # Emit node complete event
             complete_event = MultiAgentNodeCompleteEvent(node_id=node_name, execution_time=execution_time)
-            yield complete_event.as_dict()
+            yield complete_event
 
         except Exception as e:
             execution_time = round((time.time() - start_time) * 1000)
@@ -774,7 +781,7 @@ class Swarm(MultiAgentBase):
 
             # Still emit complete event for failures
             complete_event = MultiAgentNodeCompleteEvent(node_id=node_name, execution_time=execution_time)
-            yield complete_event.as_dict()
+            yield complete_event
 
             raise
 
