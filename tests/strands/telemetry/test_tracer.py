@@ -209,13 +209,13 @@ def test_end_model_invoke_span(mock_span):
 
     tracer.end_model_invoke_span(mock_span, message, usage, stop_reason)
 
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 10)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 10)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 20)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 20)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 30)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 0)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 0)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", "10")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", "10")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", "20")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", "20")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", "30")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", "0")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", "0")
     mock_span.add_event.assert_called_with(
         "gen_ai.choice",
         attributes={"message": json.dumps(message["content"]), "finish_reason": "end_turn"},
@@ -235,13 +235,13 @@ def test_end_model_invoke_span_latest_conventions(mock_span):
 
         tracer.end_model_invoke_span(mock_span, message, usage, stop_reason)
 
-        mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 10)
-        mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 10)
-        mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 20)
-        mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 20)
-        mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 30)
-        mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 0)
-        mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 0)
+        mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", "10")
+        mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", "10")
+        mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", "20")
+        mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", "20")
+        mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", "30")
+        mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", "0")
+        mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", "0")
         mock_span.add_event.assert_called_with(
             "gen_ai.client.inference.operation.details",
             attributes={
@@ -698,13 +698,13 @@ def test_end_agent_span(mock_span):
 
     tracer.end_agent_span(mock_span, mock_response)
 
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 50)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 50)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 100)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 100)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 150)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 0)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 0)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", "50")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", "50")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", "100")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", "100")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", "150")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", "0")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", "0")
     mock_span.add_event.assert_any_call(
         "gen_ai.choice",
         attributes={"message": "Agent response", "finish_reason": "end_turn"},
@@ -729,13 +729,13 @@ def test_end_agent_span_latest_conventions(mock_span):
 
     tracer.end_agent_span(mock_span, mock_response)
 
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 50)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 50)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 100)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 100)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 150)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 0)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 0)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", "50")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", "50")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", "100")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", "100")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", "150")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", "0")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", "0")
     mock_span.add_event.assert_called_with(
         "gen_ai.client.inference.operation.details",
         attributes={
@@ -769,13 +769,13 @@ def test_end_model_invoke_span_with_cache_metrics(mock_span):
 
     tracer.end_model_invoke_span(mock_span, message, usage, stop_reason)
 
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 10)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 10)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 20)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 20)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 30)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 5)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 3)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", "10")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", "10")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", "20")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", "20")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", "30")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", "5")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", "3")
     mock_span.set_status.assert_called_once_with(StatusCode.OK)
     mock_span.end.assert_called_once()
 
@@ -801,13 +801,13 @@ def test_end_agent_span_with_cache_metrics(mock_span):
 
     tracer.end_agent_span(mock_span, mock_response)
 
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", 50)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", 50)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", 100)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", 100)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", 150)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", 25)
-    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", 10)
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.prompt_tokens", "50")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.input_tokens", "50")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.completion_tokens", "100")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.output_tokens", "100")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.total_tokens", "150")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_read_input_tokens", "25")
+    mock_span.set_attribute.assert_any_call("gen_ai.usage.cache_write_input_tokens", "10")
     mock_span.set_status.assert_called_once_with(StatusCode.OK)
     mock_span.end.assert_called_once()
 
