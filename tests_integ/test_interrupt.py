@@ -5,6 +5,7 @@ import pytest
 
 from strands import Agent, tool
 from strands.hooks import BeforeToolCallEvent, HookProvider, Interrupt
+from strands.session import FileSessionManager
 
 
 @pytest.fixture
@@ -14,7 +15,10 @@ def interrupt_hook():
             registry.add_callback(BeforeToolCallEvent, self.interrupt)
 
         def interrupt(self, event):
-            response = event.interrupt("need approval")
+            if event.tool_use["name"] == "weather_tool":
+                return
+
+            response = event.interrupt("test_interrupt", "need approval")
             if response != "APPROVE":
                 event.cancel_tool = "tool rejected"
 
@@ -31,13 +35,22 @@ def time_tool():
 
 
 @pytest.fixture
-def agent(interrupt_hook, time_tool):
-    return Agent(hooks=[interrupt_hook], tools=[time_tool])
+def weather_tool():
+    @tool(name="weather_tool")
+    def func():
+        return "sunny"
+
+    return func
+
+
+@pytest.fixture
+def agent(interrupt_hook, time_tool, weather_tool):
+    return Agent(hooks=[interrupt_hook], tools=[time_tool, weather_tool])
 
 
 @pytest.mark.asyncio
-def test_agent_invoke_interrupt(agent):
-    result = agent("What is the time?")
+def test_interrupt(agent):
+    result = agent("What is the time and weather?")
 
     tru_stop_reason = result.stop_reason
     exp_stop_reason = "interrupt"
@@ -46,18 +59,19 @@ def test_agent_invoke_interrupt(agent):
     tru_interrupts = result.interrupts
     exp_interrupts = [
         Interrupt(
-            name="time_tool",
-            event_name="BeforeToolCallEvent",
-            reasons=["need approval"],
-            activated=True,
+            id=ANY,
+            name="test_interrupt",
+            reason="need approval",
         ),
     ]
     assert tru_interrupts == exp_interrupts
 
+    interrupt = result.interrupts[0]
+
     responses = [
         {
             "interruptResponse": {
-                "name": "time_tool",
+                "interruptId": interrupt.id,
                 "response": "APPROVE",
             },
         },
@@ -68,9 +82,8 @@ def test_agent_invoke_interrupt(agent):
     exp_stop_reason = "end_turn"
     assert tru_stop_reason == exp_stop_reason
 
-    tru_result_message = json.dumps(result.message)
-    exp_result_message = "12:00"
-    assert exp_result_message in tru_result_message
+    result_message = json.dumps(result.message).lower()
+    assert all(string in result_message for string in ["12:00", "sunny"])
 
     tru_tool_result_message = agent.messages[-2]
     exp_tool_result_message = {
@@ -81,15 +94,15 @@ def test_agent_invoke_interrupt(agent):
                     "toolUseId": ANY,
                     "status": "success",
                     "content": [
-                        {
-                            "json": {
-                                "interrupt": {
-                                    "name": "time_tool",
-                                    "event_name": "BeforeToolCallEvent",
-                                    "reasons": ["need approval"],
-                                },
-                            },
-                        },
+                        {"text": "sunny"},
+                    ],
+                },
+            },
+            {
+                "toolResult": {
+                    "toolUseId": ANY,
+                    "status": "success",
+                    "content": [
                         {"text": "12:00"},
                     ],
                 },
@@ -100,17 +113,19 @@ def test_agent_invoke_interrupt(agent):
 
 
 @pytest.mark.asyncio
-def test_agent_invoke_interrupt_reject(agent):
-    result = agent("What is the time?")
+def test_interrupt_reject(agent):
+    result = agent("What is the time and weather?")
 
     tru_stop_reason = result.stop_reason
     exp_stop_reason = "interrupt"
     assert tru_stop_reason == exp_stop_reason
 
+    interrupt = result.interrupts[0]
+
     responses = [
         {
             "interruptResponse": {
-                "name": "time_tool",
+                "interruptId": interrupt.id,
                 "response": "REJECT",
             },
         },
@@ -128,21 +143,49 @@ def test_agent_invoke_interrupt_reject(agent):
             {
                 "toolResult": {
                     "toolUseId": ANY,
+                    "status": "success",
+                    "content": [{"text": "sunny"}],
+                },
+            },
+            {
+                "toolResult": {
+                    "toolUseId": ANY,
                     "status": "error",
-                    "content": [
-                        {
-                            "json": {
-                                "interrupt": {
-                                    "name": "time_tool",
-                                    "event_name": "BeforeToolCallEvent",
-                                    "reasons": ["need approval"],
-                                },
-                            },
-                        },
-                        {"text": "tool rejected"},
-                    ],
+                    "content": [{"text": "tool rejected"}],
                 },
             },
         ],
     }
     assert tru_tool_result_message == exp_tool_result_message
+
+
+@pytest.mark.asyncio
+def test_interrupt_session(interrupt_hook, time_tool, weather_tool, tmpdir):
+    session_manager = FileSessionManager(session_id="strands-interrupt-test", storage_dir=tmpdir)
+    agent = Agent(hooks=[interrupt_hook], session_manager=session_manager, tools=[time_tool, weather_tool])
+    result = agent("What is the time and weather?")
+
+    tru_stop_reason = result.stop_reason
+    exp_stop_reason = "interrupt"
+    assert tru_stop_reason == exp_stop_reason
+
+    interrupt = result.interrupts[0]
+
+    session_manager = FileSessionManager(session_id="strands-interrupt-test", storage_dir=tmpdir)
+    agent = Agent(hooks=[interrupt_hook], session_manager=session_manager, tools=[time_tool, weather_tool])
+    responses = [
+        {
+            "interruptResponse": {
+                "interruptId": interrupt.id,
+                "response": "APPROVE",
+            },
+        },
+    ]
+    result = agent(responses)
+
+    tru_stop_reason = result.stop_reason
+    exp_stop_reason = "end_turn"
+    assert tru_stop_reason == exp_stop_reason
+
+    result_message = json.dumps(result.message).lower()
+    assert all(string in result_message for string in ["12:00", "sunny"])

@@ -1956,13 +1956,13 @@ def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
     )
 
     interrupt = Interrupt(
-        id_="v1:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
+        id="v1:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
         name="test_name",
         reason="test reason",
     )
 
     agent.interrupt_state.activate(context={"tool_use_message": tool_use_message, "tool_results": []})
-    agent.interrupt_state[interrupt.id_] = interrupt
+    agent.interrupt_state[interrupt.id] = interrupt
 
     interrupt_response = {}
 
@@ -1982,7 +1982,7 @@ def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
     prompt = [
         {
             "interruptResponse": {
-                "interruptId": interrupt.id_,
+                "interruptId": interrupt.id,
                 "response": "test response",
             }
         }

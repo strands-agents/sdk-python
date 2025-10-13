@@ -37,12 +37,12 @@ def test_hook_registry_invoke_callbacks_interrupt(registry, agent):
     _, tru_interrupts = registry.invoke_callbacks(event)
     exp_interrupts = [
         Interrupt(
-            id_="v1:test_tool_id:da3551f3-154b-5978-827e-50ac387877ee",
+            id="v1:test_tool_id:da3551f3-154b-5978-827e-50ac387877ee",
             name="test_name_1",
             reason="test reason 1",
         ),
         Interrupt(
-            id_="v1:test_tool_id:0f5a8068-d1ba-5a48-bf67-c9d33786d8d4",
+            id="v1:test_tool_id:0f5a8068-d1ba-5a48-bf67-c9d33786d8d4",
             name="test_name_2",
             reason="test reason 2",
         ),

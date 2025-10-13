@@ -9,7 +9,7 @@ from strands.hooks import Interrupt, InterruptException, InterruptHookEvent
 @pytest.fixture
 def interrupt():
     return Interrupt(
-        id_="test_id:test_name",
+        id="test_id:test_name",
         name="test_name",
         reason={"reason": "test"},
         response={"response": "test"},
@@ -38,7 +38,7 @@ def interrupt_hook_event(agent):
 def test_interrupt_to_dict(interrupt):
     tru_dict = interrupt.to_dict()
     exp_dict = {
-        "id_": "test_id:test_name",
+        "id": "test_id:test_name",
         "name": "test_name",
         "reason": {"reason": "test"},
         "response": {"response": "test"},
@@ -52,7 +52,7 @@ def test_interrupt_hook_event_interrupt(interrupt_hook_event):
 
     tru_interrupt = exception.value.interrupt
     exp_interrupt = Interrupt(
-        id_="test_id:custom_test_name",
+        id="test_id:custom_test_name",
         name="custom_test_name",
         reason="custom test reason",
     )
@@ -64,18 +64,18 @@ def test_interrupt_hook_event_interrupt_state(agent, interrupt_hook_event):
         interrupt_hook_event.interrupt("custom_test_name", "custom test reason")
 
     exp_interrupt = Interrupt(
-        id_="test_id:custom_test_name",
+        id="test_id:custom_test_name",
         name="custom_test_name",
         reason="custom test reason",
     )
-    assert exp_interrupt.id_ in agent.interrupt_state
+    assert exp_interrupt.id in agent.interrupt_state
 
-    tru_interrupt = agent.interrupt_state[exp_interrupt.id_]
+    tru_interrupt = agent.interrupt_state[exp_interrupt.id]
     assert tru_interrupt == exp_interrupt
 
 
 def test_interrupt_hook_event_interrupt_response(interrupt, agent, interrupt_hook_event):
-    agent.interrupt_state[interrupt.id_] = interrupt
+    agent.interrupt_state[interrupt.id] = interrupt
 
     tru_response = interrupt_hook_event.interrupt("test_name")
     exp_response = {"response": "test"}
@@ -84,7 +84,7 @@ def test_interrupt_hook_event_interrupt_response(interrupt, agent, interrupt_hoo
 
 def test_interrupt_hook_event_interrupt_response_empty(interrupt, agent, interrupt_hook_event):
     interrupt.response = None
-    agent.interrupt_state[interrupt.id_] = interrupt
+    agent.interrupt_state[interrupt.id] = interrupt
 
     with pytest.raises(InterruptException):
         interrupt_hook_event.interrupt("test_name")

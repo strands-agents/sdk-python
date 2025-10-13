@@ -12,13 +12,13 @@ class Interrupt:
     """Represents an interrupt that can pause agent execution for human-in-the-loop workflows.
 
     Attributes:
-        id_: Unique identifier.
+        id: Unique identifier.
         name: User defined name.
         reason: User provided reason for raising the interrupt.
         response: Human response provided when resuming the agent after an interrupt.
     """
 
-    id_: str
+    id: str
     name: str
     reason: Any = None
     response: Any = None
@@ -57,10 +57,10 @@ class InterruptHookEvent(Protocol):
             InterruptException: If human input is required.
             ValueError: If interrupt name is used more than once.
         """
-        id_ = self._interrupt_id(name)
+        id = self._interrupt_id(name)
         state = self.agent.interrupt_state
 
-        interrupt_ = state.setdefault(id_, Interrupt(id_, name, reason, response))
+        interrupt_ = state.setdefault(id, Interrupt(id, name, reason, response))
         if interrupt_.response:
             return interrupt_.response
 
