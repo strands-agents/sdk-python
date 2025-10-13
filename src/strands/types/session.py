@@ -110,9 +110,9 @@ class SessionAgent:
     Attributes:
         agent_id: Unique id for the agent.
         state: User managed state.
+        conversation_manager_state: State for conversation management.
         internal_state: Strands managed state.
             Alterations to internal state by the user could result in undefined behaviors.
-        conversation_manager_state: State for conversation management.
         created_at: Created at time.
         updated_at: Updated at time.
     """

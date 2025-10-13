@@ -1,7 +1,10 @@
 import json
+import unittest.mock
 from uuid import uuid4
 
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
+from strands.agent.interrupt import InterruptState
+from strands.agent.state import AgentState
 from strands.types.session import (
     Session,
     SessionAgent,
@@ -91,3 +94,38 @@ def test_session_message_with_bytes():
     assert original_message["role"] == message["role"]
     assert original_message["content"][0]["text"] == message["content"][0]["text"]
     assert original_message["content"][1]["binary_data"] == message["content"][1]["binary_data"]
+
+
+def test_session_agent_from_agent():
+    agent = unittest.mock.Mock()
+    agent.agent_id = "a1"
+    agent.conversation_manager = unittest.mock.Mock(get_state=lambda: {"test": "conversation"})
+    agent.state = AgentState({"test": "state"})
+    agent.interrupt_state = InterruptState(interrupts={}, context={}, activated=False)
+
+    tru_session_agent = SessionAgent.from_agent(agent)
+    exp_session_agent = SessionAgent(
+        agent_id="a1",
+        conversation_manager_state={"test": "conversation"},
+        state={"test": "state"},
+        internal_state={"interrupt_state": {"interrupts": {}, "context": {}, "activated": False}},
+        created_at=unittest.mock.ANY,
+        updated_at=unittest.mock.ANY,
+    )
+    assert tru_session_agent == exp_session_agent
+
+
+def test_session_agent_initialize_internal_state():
+    agent = unittest.mock.Mock()
+    session_agent = SessionAgent(
+        agent_id="a1",
+        conversation_manager_state={},
+        state={},
+        internal_state={"interrupt_state": {"interrupts": {}, "context": {"test": "init"}, "activated": False}},
+    )
+
+    session_agent.initialize_internal_state(agent)
+
+    tru_interrupt_state = agent.interrupt_state
+    exp_interrupt_state = InterruptState(interrupts={}, context={"test": "init"}, activated=False)
+    assert tru_interrupt_state == exp_interrupt_state
