@@ -3,6 +3,7 @@
 Provides minimal foundation for multi-agent patterns (Swarm, Graph).
 """
 
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
@@ -109,5 +110,9 @@ class MultiAgentBase(ABC):
         """
         if invocation_state is None:
             invocation_state = {}
+
+        if kwargs:
+            invocation_state.update(kwargs)
+            warnings.warn("`**kwargs` parameter is deprecating, use `invocation_state` instead.", stacklevel=2)
 
         return run_async(lambda: self.invoke_async(task, invocation_state, **kwargs))

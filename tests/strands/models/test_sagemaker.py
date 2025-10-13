@@ -112,11 +112,13 @@ class TestSageMakerAIModel:
             "endpoint_name": "test-endpoint",
             "inference_component_name": "test-component",
             "region_name": "us-west-2",
+            "additional_args": {"test_req_arg_name": "test_req_arg_value"},
         }
         payload_config = {
             "stream": False,
             "max_tokens": 1024,
             "temperature": 0.7,
+            "additional_args": {"test_payload_arg_name": "test_payload_arg_value"},
         }
         client_config = BotocoreConfig(user_agent_extra="test-agent")
 
@@ -129,9 +131,11 @@ class TestSageMakerAIModel:
 
         assert model.endpoint_config["endpoint_name"] == "test-endpoint"
         assert model.endpoint_config["inference_component_name"] == "test-component"
+        assert model.endpoint_config["additional_args"]["test_req_arg_name"] == "test_req_arg_value"
         assert model.payload_config["stream"] is False
         assert model.payload_config["max_tokens"] == 1024
         assert model.payload_config["temperature"] == 0.7
+        assert model.payload_config["additional_args"]["test_payload_arg_name"] == "test_payload_arg_value"
 
         boto_session.client.assert_called_once_with(
             service_name="sagemaker-runtime",
@@ -238,6 +242,30 @@ class TestSageMakerAIModel:
     #     payload = json.loads(request["Body"])
     #     assert "tools" in payload
     #     assert payload["tools"] == []
+
+    def test_format_request_with_additional_args(self, boto_session, endpoint_config, messages, payload_config):
+        """Test formatting a request's `additional_args` where provided"""
+        endpoint_config_ext = {
+            **endpoint_config,
+            "additional_args": {
+                "extra_request_key": "extra_request_value",
+            },
+        }
+        payload_config_ext = {
+            **payload_config,
+            "additional_args": {
+                "extra_payload_key": "extra_payload_value",
+            },
+        }
+        model = SageMakerAIModel(
+            boto_session=boto_session,
+            endpoint_config=endpoint_config_ext,
+            payload_config=payload_config_ext,
+        )
+        request = model.format_request(messages)
+        assert request.get("extra_request_key") == "extra_request_value"
+        payload = json.loads(request["Body"])
+        assert payload.get("extra_payload_key") == "extra_payload_value"
 
     @pytest.mark.asyncio
     async def test_stream_with_streaming_enabled(self, sagemaker_client, model, messages):

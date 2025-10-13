@@ -12,6 +12,7 @@ The Agent interface supports two complementary interaction patterns:
 import json
 import logging
 import random
+import warnings
 from typing import (
     Any,
     AsyncGenerator,
@@ -373,7 +374,9 @@ class Agent:
         all_tools = self.tool_registry.get_all_tools_config()
         return list(all_tools.keys())
 
-    def __call__(self, prompt: AgentInput = None, **kwargs: Any) -> AgentResult:
+    def __call__(
+        self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
         This method implements the conversational interface with multiple input patterns:
@@ -388,7 +391,8 @@ class Agent:
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
-            **kwargs: Additional parameters to pass through the event loop.
+            invocation_state: Additional parameters to pass through the event loop.
+            **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
             Result object containing:
@@ -398,9 +402,12 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
-        return run_async(lambda: self.invoke_async(prompt, **kwargs))
+        return run_async(lambda: self.invoke_async(prompt, invocation_state=invocation_state, **kwargs))
 
-    async def invoke_async(self, prompt: AgentInput = None, **kwargs: Any) -> AgentResult:
+
+    async def invoke_async(
+        self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
         This method implements the conversational interface with multiple input patterns:
@@ -415,7 +422,8 @@ class Agent:
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
-            **kwargs: Additional parameters to pass through the event loop.
+            invocation_state: Additional parameters to pass through the event loop.
+            **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
             Result: object containing:
@@ -425,7 +433,7 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
-        events = self.stream_async(prompt, **kwargs)
+        events = self.stream_async(prompt, invocation_state=invocation_state, **kwargs)
         async for event in events:
             _ = event
 
@@ -569,9 +577,7 @@ class Agent:
             logger.debug("agent_id=<%s>, error=<%s> | exception during __del__ cleanup", self.agent_id, e)
 
     async def stream_async(
-        self,
-        prompt: AgentInput = None,
-        **kwargs: Any,
+        self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
 
@@ -587,7 +593,8 @@ class Agent:
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
-            **kwargs: Additional parameters to pass to the event loop.
+            invocation_state: Additional parameters to pass through the event loop.
+            **kwargs: Additional parameters to pass to the event loop.[Deprecating]
 
         Yields:
             An async iterator that yields events. Each event is a dictionary containing
@@ -608,7 +615,19 @@ class Agent:
                     yield event["data"]
             ```
         """
-        callback_handler = kwargs.get("callback_handler", self.callback_handler)
+        merged_state = {}
+        if kwargs:
+            warnings.warn("`**kwargs` parameter is deprecating, use `invocation_state` instead.", stacklevel=2)
+            merged_state.update(kwargs)
+            if invocation_state is not None:
+                merged_state["invocation_state"] = invocation_state
+        else:
+            if invocation_state is not None:
+                merged_state = invocation_state
+
+        callback_handler = self.callback_handler
+        if kwargs:
+            callback_handler = kwargs.get("callback_handler", self.callback_handler)
 
         # Process input and get message to add (if any)
         messages = self._convert_prompt_to_messages(prompt)
@@ -617,10 +636,10 @@ class Agent:
 
         with trace_api.use_span(self.trace_span):
             try:
-                events = self._run_loop(messages, invocation_state=kwargs)
+                events = self._run_loop(messages, invocation_state=merged_state)
 
                 async for event in events:
-                    event.prepare(invocation_state=kwargs)
+                    event.prepare(invocation_state=merged_state)
 
                     if event.is_callback_event:
                         as_dict = event.as_dict()

@@ -272,6 +272,100 @@ def test_streamable_http_mcp_client():
         assert "Hello, Charlie!" in prompt_text
 
 
+def test_mcp_client_embedded_resources():
+    """Test that MCP client properly handles EmbeddedResource content types."""
+    embedded_resource_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
+    )
+
+    with embedded_resource_mcp_client:
+        # Test text embedded resource
+        text_result = embedded_resource_mcp_client.call_tool_sync(
+            tool_use_id="test-embedded-text",
+            name="get_weather",
+            arguments={"location": "New York"},
+        )
+        assert text_result["status"] == "success"
+        assert len(text_result["content"]) == 1
+        assert "72°F" in text_result["content"][0]["text"]
+        assert "partly cloudy" in text_result["content"][0]["text"]
+
+        # Test JSON embedded resource (blob with textual MIME type)
+        json_result = embedded_resource_mcp_client.call_tool_sync(
+            tool_use_id="test-embedded-json",
+            name="get_weather",
+            arguments={"location": "London"},
+        )
+        assert json_result["status"] == "success"
+        assert len(json_result["content"]) == 1
+        json_content = json_result["content"][0]["text"]
+        assert "temperature" in json_content
+        assert "rainy" in json_content
+
+        # Test image embedded resource
+        image_result = embedded_resource_mcp_client.call_tool_sync(
+            tool_use_id="test-embedded-image",
+            name="get_weather",
+            arguments={"location": "Tokyo"},
+        )
+        assert image_result["status"] == "success"
+        assert len(image_result["content"]) == 1
+        assert "image" in image_result["content"][0]
+        assert image_result["content"][0]["image"]["format"] == "png"
+        assert "bytes" in image_result["content"][0]["image"]["source"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_client_embedded_resources_async():
+    """Test that async MCP client properly handles EmbeddedResource content types."""
+    embedded_resource_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
+    )
+
+    with embedded_resource_mcp_client:
+        # Test text embedded resource async
+        text_result = await embedded_resource_mcp_client.call_tool_async(
+            tool_use_id="test-embedded-text-async",
+            name="get_weather",
+            arguments={"location": "New York"},
+        )
+        assert text_result["status"] == "success"
+        assert len(text_result["content"]) == 1
+        assert "72°F" in text_result["content"][0]["text"]
+
+        # Test JSON embedded resource async
+        json_result = await embedded_resource_mcp_client.call_tool_async(
+            tool_use_id="test-embedded-json-async",
+            name="get_weather",
+            arguments={"location": "London"},
+        )
+        assert json_result["status"] == "success"
+        assert len(json_result["content"]) == 1
+        json_content = json_result["content"][0]["text"]
+        assert "temperature" in json_content
+
+
+def test_mcp_client_embedded_resources_with_agent():
+    """Test that embedded resources work correctly when used with Agent."""
+    embedded_resource_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
+    )
+
+    with embedded_resource_mcp_client:
+        tools = embedded_resource_mcp_client.list_tools_sync()
+        agent = Agent(tools=tools)
+
+        # Test that agent can successfully use tools that return embedded resources
+        result = agent("Get the weather for New York and tell me what it says")
+
+        # Check that the agent successfully processed the embedded resource
+        assert result.message is not None
+        response_text = " ".join([block["text"] for block in result.message["content"] if "text" in block]).lower()
+
+        # The agent should have received and processed the embedded weather content
+        assert any(["72" in response_text, "partly cloudy" in response_text, "weather" in response_text])
+
+
 def _messages_to_content_blocks(messages: List[Message]) -> List[ToolUse]:
     return [block["toolUse"] for message in messages for block in message["content"] if "toolUse" in block]
 
