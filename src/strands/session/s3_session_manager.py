@@ -1,6 +1,5 @@
 """S3-based session manager for cloud storage."""
 
-import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -292,8 +291,14 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             else:
                 message_keys = message_keys[offset:]
 
-            # Load message objects concurrently using async
-            return asyncio.run(self._load_messages_concurrently(message_keys))
+            # Load only the required message objects
+            messages: List[SessionMessage] = []
+            for key in message_keys:
+                message_data = self._read_s3_object(key)
+                if message_data:
+                    messages.append(SessionMessage.from_dict(message_data))
+
+            return messages
 
         except ClientError as e:
             raise SessionException(f"S3 error reading messages: {e}") from e

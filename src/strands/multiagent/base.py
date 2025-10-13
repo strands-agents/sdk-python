@@ -5,6 +5,7 @@ Provides minimal foundation for multi-agent patterns (Swarm, Graph).
 
 import asyncio
 import logging
+import warnings
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -242,8 +243,12 @@ class MultiAgentBase(ABC):
         if invocation_state is None:
             invocation_state = {}
 
+        if kwargs:
+            invocation_state.update(kwargs)
+            warnings.warn("`**kwargs` parameter is deprecating, use `invocation_state` instead.", stacklevel=2)
+
         def execute() -> MultiAgentResult:
-            return asyncio.run(self.invoke_async(task, invocation_state, **kwargs))
+            return asyncio.run(self.invoke_async(task, invocation_state))
 
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)

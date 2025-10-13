@@ -309,7 +309,7 @@ async def test_graph_edge_cases(mock_strands_tracer, mock_use_span):
     result = await graph.invoke_async([{"text": "Original task"}])
 
     # Verify entry node was called with original task
-    entry_agent.invoke_async.assert_called_once_with([{"text": "Original task"}])
+    entry_agent.invoke_async.assert_called_once_with([{"text": "Original task"}], invocation_state={})
     assert result.status == Status.COMPLETED
     mock_strands_tracer.start_multiagent_span.assert_called()
     mock_use_span.assert_called_once()
@@ -891,7 +891,7 @@ async def test_controlled_cyclic_execution():
             self._session_manager = None
             self.hooks = HookRegistry()
 
-        async def invoke_async(self, input_data):
+        async def invoke_async(self, input_data, invocation_state=None):
             # Increment execution count in state
             count = self.state.get("execution_count") or 0
             self.state.set("execution_count", count + 1)
@@ -1285,7 +1285,9 @@ async def test_graph_kwargs_passing_agent(mock_strands_tracer, mock_use_span):
     test_invocation_state = {"custom_param": "test_value", "another_param": 42}
     result = await graph.invoke_async("Test kwargs passing", test_invocation_state)
 
-    kwargs_agent.invoke_async.assert_called_once_with([{"text": "Test kwargs passing"}], **test_invocation_state)
+    kwargs_agent.invoke_async.assert_called_once_with(
+        [{"text": "Test kwargs passing"}], invocation_state=test_invocation_state
+    )
     assert result.status == Status.COMPLETED
 
 
@@ -1320,7 +1322,9 @@ def test_graph_kwargs_passing_sync(mock_strands_tracer, mock_use_span):
     test_invocation_state = {"custom_param": "test_value", "another_param": 42}
     result = graph("Test kwargs passing sync", test_invocation_state)
 
-    kwargs_agent.invoke_async.assert_called_once_with([{"text": "Test kwargs passing sync"}], **test_invocation_state)
+    kwargs_agent.invoke_async.assert_called_once_with(
+        [{"text": "Test kwargs passing sync"}], invocation_state=test_invocation_state
+    )
     assert result.status == Status.COMPLETED
 
 
