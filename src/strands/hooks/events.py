@@ -10,9 +10,9 @@ from typing import Any, Optional
 from typing_extensions import override
 
 from ..types.content import Message
+from ..types.interrupt import InterruptHookEvent
 from ..types.streaming import StopReason
 from ..types.tools import AgentTool, ToolResult, ToolUse
-from .interrupt import InterruptHookEvent
 from .registry import HookEvent
 
 

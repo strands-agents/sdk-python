@@ -4,7 +4,7 @@ This module defines the AgentResult class which encapsulates the complete respon
 """
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Sequence
 
 from ..hooks import Interrupt
 from ..telemetry.metrics import EventLoopMetrics
@@ -28,7 +28,7 @@ class AgentResult:
     message: Message
     metrics: EventLoopMetrics
     state: Any
-    interrupts: list[Interrupt] | None = None
+    interrupts: Sequence[Interrupt] | None = None
 
     def __str__(self) -> str:
         """Get the agent's last message as a string.
