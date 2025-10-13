@@ -13,7 +13,7 @@ from opentelemetry import trace as trace_api
 
 from ...hooks import AfterToolCallEvent, BeforeToolCallEvent
 from ...telemetry.metrics import Trace
-from ...telemetry.tracer import get_tracer
+from ...telemetry.tracer import get_tracer, serialize
 from ...types._events import ToolCancelEvent, ToolResultEvent, ToolStreamEvent, TypedEvent
 from ...types.content import Message
 from ...types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolResult, ToolUse
@@ -59,6 +59,14 @@ class ToolExecutor(abc.ABC):
 
         tool_info = agent.tool_registry.dynamic_tools.get(tool_name)
         tool_func = tool_info if tool_info is not None else agent.tool_registry.registry.get(tool_name)
+        tool_spec = tool_func.tool_spec if tool_func is not None else None
+
+        current_span = trace_api.get_current_span()
+        if current_span and tool_spec is not None:
+            current_span.set_attribute("gen_ai.tool.description", tool_spec["description"])
+            input_schema = tool_spec["inputSchema"]
+            if "json" in input_schema:
+                current_span.set_attribute("gen_ai.tool.json_schema", serialize(input_schema["json"]))
 
         invocation_state.update(
             {
