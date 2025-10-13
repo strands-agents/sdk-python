@@ -23,27 +23,3 @@ class InterruptResponseContent(TypedDict):
     """
 
     interruptResponse: InterruptResponse
-
-
-class InterruptReason(TypedDict):
-    """Reason for an interrupt.
-
-    Attributes:
-        interruptId: Unique identifier for the interrupt.
-        interruptName: User defined name for the interrupt.
-        reason: User provided reason for the interrupt.
-    """
-
-    interruptId: str
-    interruptName: str
-    reason: Any
-
-
-class InterruptReasonContent(TypedDict):
-    """Content block containing a reason for raising an interrupt.
-
-    Attributes:
-        interruptReason: User reason for raising an interrupt.
-    """
-
-    interruptReason: InterruptReason

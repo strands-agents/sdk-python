@@ -618,6 +618,33 @@ class Agent:
                 self._end_agent_trace_span(error=e)
                 raise
 
+    def _resume_interrupt(self, prompt: AgentInput) -> None:
+        """Configure the interrupt state if resuming from an interrupt event.
+
+        Args:
+            prompt: User responses if resuming from interrupt.
+
+        Raises:
+            TypeError: If in interrupt state but user did not provide responses.
+        """
+        if not self.interrupt_state.activated:
+            return
+
+        if not isinstance(prompt, list):
+            raise TypeError(
+                f"prompt_type=<{type(prompt)}> | must resume from interrupt with list of interruptResponse's"
+            )
+
+        for content in cast(list[InterruptResponseContent], prompt):
+            content_type, *_ = content.keys()
+            if content_type != "interruptResponse":
+                raise TypeError(
+                    f"content_type=<{content_type}> | must resume from interrupt with list of interruptResponse's"
+                )
+
+            content_data = content["interruptResponse"]
+            self.interrupt_state[content_data["interruptId"]].response = content_data["response"]
+
     async def _run_loop(self, messages: Messages, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
         """Execute the agent's event loop with the given message and parameters.
 
@@ -694,15 +721,7 @@ class Agent:
 
     def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
         if self.interrupt_state.activated:
-            responses = [
-                cast(InterruptResponseContent, content)["interruptResponse"]
-                for content in cast(list[ContentBlock], prompt)
-            ]
-
-            for response in responses:
-                self.interrupt_state[response["interruptId"]].response = response["response"]
-
-            return [{"role": "strands", "content": cast(list[ContentBlock], prompt)}]
+            return []
 
         messages: Messages | None = None
         if prompt is not None:

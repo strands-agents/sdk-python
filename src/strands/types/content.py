@@ -11,7 +11,6 @@ from typing import Dict, List, Literal, Optional
 from typing_extensions import TypedDict
 
 from .citations import CitationsContentBlock
-from .interrupt import InterruptReason, InterruptResponse
 from .media import DocumentContent, ImageContent, VideoContent
 from .tools import ToolResult, ToolUse
 
@@ -92,8 +91,6 @@ class ContentBlock(TypedDict, total=False):
     document: DocumentContent
     guardContent: GuardContent
     image: ImageContent
-    interruptReason: InterruptReason
-    interruptResponse: InterruptResponse
     reasoningContent: ReasoningContentBlock
     text: str
     toolResult: ToolResult

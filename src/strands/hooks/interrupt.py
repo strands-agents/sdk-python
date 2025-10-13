@@ -3,8 +3,6 @@
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
-from ..types.content import ContentBlock
-
 if TYPE_CHECKING:
     from ..agent import Agent
 
@@ -26,14 +24,8 @@ class Interrupt:
     response: Any = None
 
     def to_dict(self) -> dict[str, Any]:
-        """<TODO>."""
+        """Serialize to dict for session management."""
         return asdict(self)
-
-    def to_reason_content(self) -> ContentBlock:
-        """<TODO>."""
-        return {
-            "interruptReason": {"interruptId": self.id_, "interruptName": self.name, "reason": self.reason},
-        }
 
 
 class InterruptException(Exception):
@@ -60,6 +52,7 @@ class InterruptHookEvent(Protocol):
 
         Args:
             name: User defined name for the interrupt.
+                Must be unique across hook callbacks.
             reason: User provided reason for the interrupt.
 
         Returns:
@@ -68,13 +61,13 @@ class InterruptHookEvent(Protocol):
         Raises:
             InterruptException: If human input is required.
         """
-        id_ = self.interrupt_id(name, reason)
+        id_ = self._interrupt_id(name)
         if id_ in self.agent.interrupt_state:
             return self.agent.interrupt_state[id_].response
 
         raise InterruptException(id_, name, reason)
 
-    def interrupt_id(self, name: str, reason: Any) -> str:
+    def _interrupt_id(self, name: str) -> str:
         """Unique id for the interrupt.
 
         Args:

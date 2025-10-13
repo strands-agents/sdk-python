@@ -104,12 +104,23 @@ class SessionMessage:
 
 @dataclass
 class SessionAgent:
-    """Agent that belongs to a Session."""
+    """Agent that belongs to a Session.
+
+    Attributes:
+        agent_id: Unique id for the agent.
+        state: User managed state.
+        internal_state: Strands managed state.
+            Alterations to internal state by the user could result in undefined behaviors.
+        conversation_manager_state: State for conversation management.
+
+        created_at: Created at time.
+        updated_at: Updated at time.
+    """
 
     agent_id: str
     state: dict[str, Any]
+    internal_state: dict[str, Any]
     conversation_manager_state: dict[str, Any]
-    interrupt_state: dict[str, Any]
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -122,7 +133,9 @@ class SessionAgent:
             agent_id=agent.agent_id,
             conversation_manager_state=agent.conversation_manager.get_state(),
             state=agent.state.get(),
-            interrupt_state=agent.interrupt_state.to_dict(),
+            internal_state={
+                "interrupt_state": agent.interrupt_state.to_dict(),
+            },
         )
 
     @classmethod

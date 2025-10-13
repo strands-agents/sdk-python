@@ -23,7 +23,6 @@ from ..types._events import (
     EventLoopStopEvent,
     EventLoopThrottleEvent,
     ForceStopEvent,
-    InterruptMessageEvent,
     ModelMessageEvent,
     ModelStopReason,
     StartEvent,
@@ -381,6 +380,9 @@ async def _handle_tool_execution(
 
     validate_and_prepare_tools(message, tool_uses, tool_results, invalid_tool_use_ids)
     tool_uses = [tool_use for tool_use in tool_uses if tool_use.get("toolUseId") not in invalid_tool_use_ids]
+    if not tool_uses:
+        yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
+        return
 
     if agent.interrupt_state.activated:
         tool_results.extend(agent.interrupt_state.context["tool_results"])
@@ -388,10 +390,6 @@ async def _handle_tool_execution(
         # Filter to only the interrupted tools when resuming from interrupt (tool uses without results)
         tool_use_ids = {tool_result["toolUseId"] for tool_result in tool_results}
         tool_uses = [tool_use for tool_use in tool_uses if tool_use["toolUseId"] not in tool_use_ids]
-
-    if not tool_uses:
-        yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
-        return
 
     interrupts = []
     tool_events = agent.tool_executor._execute(
@@ -423,7 +421,7 @@ async def _handle_tool_execution(
 
         return
 
-    agent.interrupt_state.clear()
+    agent.interrupt_state.deactivate()
 
     tool_result_message: Message = {
         "role": "user",
@@ -457,19 +455,12 @@ async def _handle_interrupts(
     invocation_state: dict[str, Any],
     tracer: Tracer,
 ) -> AsyncGenerator[TypedEvent, None]:
-    """<TODO>."""
+    """Handle the processing of user raised interrupts."""
     for interrupt in interrupts:
-        agent.interrupt_state[interrupt.id_] = interrupt
+        agent.interrupt_state.set(interrupt)
 
-    interrupt_message: Message = {
-        "role": "strands",
-        "content": [interrupt.to_reason_content() for interrupt in interrupts],
-    }
-    yield InterruptMessageEvent(message=interrupt_message)
-
-    agent.messages.append(interrupt_message)
-    agent.interrupt_state.set(context={"tool_use_message": tool_use_message, "tool_results": tool_results})
-    agent.hooks.invoke_callbacks(MessageAddedEvent(agent, message=interrupt_message))
+    # Session state stored on AfterInvocationEvent.
+    agent.interrupt_state.activate(context={"tool_use_message": tool_use_message, "tool_results": tool_results})
 
     agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
     yield EventLoopStopEvent(

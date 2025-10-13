@@ -3,7 +3,6 @@
 This module defines the events that are emitted as Agents run through the lifecycle of a request.
 """
 
-import json
 import uuid
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -116,17 +115,16 @@ class BeforeToolCallEvent(HookEvent, InterruptHookEvent):
         return name in ["cancel_tool", "selected_tool", "tool_use"]
 
     @override
-    def interrupt_id(self, name: str, reason: Any) -> str:
+    def _interrupt_id(self, name: str) -> str:
         """Unique id for the interrupt.
 
         Args:
             name: User defined name for the interrupt.
-            reason: User provided reason for the interrupt.
 
         Returns:
             Interrupt id.
         """
-        return f"v1:{self.tool_use['toolUseId']}:{uuid.uuid5(uuid.NAMESPACE_OID, f'{name}:{json.dumps(reason)}')}"
+        return f"v1:{self.tool_use['toolUseId']}:{uuid.uuid5(uuid.NAMESPACE_OID, name)}"
 
 
 @dataclass
