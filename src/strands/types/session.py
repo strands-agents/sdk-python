@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
 
+from ..agent.interrupt import InterruptState
 from .content import Message
 
 if TYPE_CHECKING:
@@ -118,8 +119,8 @@ class SessionAgent:
 
     agent_id: str
     state: dict[str, Any]
-    internal_state: dict[str, Any]
     conversation_manager_state: dict[str, Any]
+    internal_state: dict[str, Any] = field(default_factory=dict)
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -145,6 +146,11 @@ class SessionAgent:
     def to_dict(self) -> dict[str, Any]:
         """Convert the SessionAgent to a dictionary representation."""
         return asdict(self)
+
+    def initialize_internal_state(self, agent: "Agent") -> None:
+        """Initialize internal state of agent."""
+        if "interrupt_state" in self.internal_state:
+            agent.interrupt_state = InterruptState.from_dict(self.internal_state["interrupt_state"])
 
 
 @dataclass

@@ -633,9 +633,7 @@ class Agent:
             return
 
         if not isinstance(prompt, list):
-            raise TypeError(
-                f"prompt_type={type(prompt)} | must resume from interrupt with list of interruptResponse's"
-            )
+            raise TypeError(f"prompt_type={type(prompt)} | must resume from interrupt with list of interruptResponse's")
 
         for content in cast(list[InterruptResponseContent], prompt):
             content_type, *_ = content.keys()

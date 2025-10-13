@@ -962,6 +962,7 @@ async def test_event_loop_cycle_interrupt_resume(agent, model, tool, tool_times_
     agent.interrupt_state[interrupt.id_] = interrupt
 
     interrupt_response = {}
+
     def interrupt_callback(event):
         interrupt_response["response"] = event.interrupt("test_name", "test reason")
 

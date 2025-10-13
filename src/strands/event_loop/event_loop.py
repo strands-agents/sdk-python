@@ -430,7 +430,7 @@ async def _handle_tool_execution(
     }
 
     agent.messages.append(tool_result_message)
-    agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=message))
+    agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=tool_result_message))
     yield ToolResultMessageEvent(message=tool_result_message)
 
     if cycle_span:

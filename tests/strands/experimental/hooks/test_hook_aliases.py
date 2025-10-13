@@ -7,7 +7,7 @@ hook event types.
 
 import importlib
 import sys
-from unittest.mock import ANY, Mock
+from unittest.mock import Mock
 
 from strands.experimental.hooks import (
     AfterModelInvocationEvent,
@@ -44,7 +44,6 @@ def test_before_tool_call_event_type_equality():
         selected_tool=Mock(),
         tool_use={"name": "test", "toolUseId": "123", "input": {}},
         invocation_state={},
-        interrupt=ANY,
     )
 
     assert isinstance(before_tool_event, BeforeToolInvocationEvent)
@@ -101,7 +100,6 @@ def test_experimental_aliases_in_hook_registry():
         selected_tool=Mock(),
         tool_use={"name": "test", "toolUseId": "123", "input": {}},
         invocation_state={},
-        interrupt=ANY,
     )
 
     # Invoke callbacks - should work since alias points to same type

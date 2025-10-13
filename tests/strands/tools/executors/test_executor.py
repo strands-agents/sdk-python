@@ -292,6 +292,7 @@ async def test_executor_stream_interrupt_resume(executor, agent, tool_results, i
     agent.interrupt_state[interrupt.id_] = interrupt
 
     interrupt_response = {}
+
     def interrupt_callback(event):
         interrupt_response["response"] = event.interrupt("test_name", reason="test reason")
 

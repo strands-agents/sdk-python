@@ -1545,7 +1545,6 @@ def test_agent_restored_from_session_management():
         SessionAgent(
             agent_id="default",
             state={"foo": "bar"},
-            internal_state={"interrupt_state": {"interrupts": {}, "context": {}, "activated": False}},
             conversation_manager_state=SlidingWindowConversationManager().get_state(),
         ),
     )
@@ -1564,7 +1563,6 @@ def test_agent_restored_from_session_management_with_message():
         SessionAgent(
             agent_id="default",
             state={"foo": "bar"},
-            internal_state={"interrupt_state": {"interrupts": {}, "context": {}, "activated": False}},
             conversation_manager_state=SlidingWindowConversationManager().get_state(),
         ),
     )
@@ -1967,6 +1965,7 @@ def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
     agent.interrupt_state[interrupt.id_] = interrupt
 
     interrupt_response = {}
+
     def interrupt_callback(event):
         interrupt_response["response"] = event.interrupt("test_name", "test reason")
 
