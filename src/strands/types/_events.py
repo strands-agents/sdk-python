@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from typing_extensions import override
 
-from ..hooks import Interrupt
+from ..interrupt import Interrupt
 from ..telemetry import EventLoopMetrics
 from .citations import Citation
 from .content import Message

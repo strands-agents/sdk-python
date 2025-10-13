@@ -3,7 +3,8 @@ import unittest.mock
 import pytest
 
 from strands.agent.interrupt import InterruptState
-from strands.hooks import BeforeToolCallEvent, HookRegistry, Interrupt
+from strands.hooks import BeforeToolCallEvent, HookRegistry
+from strands.interrupt import Interrupt
 
 
 @pytest.fixture

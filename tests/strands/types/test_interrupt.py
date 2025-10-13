@@ -3,7 +3,7 @@ import unittest.mock
 import pytest
 
 from strands.agent.interrupt import InterruptState
-from strands.hooks import Interrupt, InterruptException
+from strands.interrupt import Interrupt, InterruptException
 from strands.types.interrupt import InterruptHookEvent
 
 

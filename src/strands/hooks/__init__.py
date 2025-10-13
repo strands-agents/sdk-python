@@ -39,7 +39,6 @@ from .events import (
     BeforeToolCallEvent,
     MessageAddedEvent,
 )
-from .interrupt import Interrupt, InterruptException
 from .registry import BaseHookEvent, HookCallback, HookEvent, HookProvider, HookRegistry
 
 __all__ = [
@@ -57,6 +56,4 @@ __all__ = [
     "HookRegistry",
     "HookEvent",
     "BaseHookEvent",
-    "Interrupt",
-    "InterruptException",
 ]

@@ -4,7 +4,8 @@ from unittest.mock import MagicMock
 import pytest
 
 import strands
-from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent, Interrupt
+from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
+from strands.interrupt import Interrupt
 from strands.telemetry.metrics import Trace
 from strands.tools.executors._executor import ToolExecutor
 from strands.types._events import ToolCancelEvent, ToolInterruptEvent, ToolResultEvent, ToolStreamEvent

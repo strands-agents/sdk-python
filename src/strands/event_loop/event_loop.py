@@ -15,7 +15,8 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from opentelemetry import trace as trace_api
 
-from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, Interrupt, MessageAddedEvent
+from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
+from ..interrupt import Interrupt
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import Tracer, get_tracer
 from ..tools._validator import validate_and_prepare_tools

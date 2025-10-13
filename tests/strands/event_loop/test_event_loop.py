@@ -12,9 +12,9 @@ from strands.hooks import (
     BeforeModelCallEvent,
     BeforeToolCallEvent,
     HookRegistry,
-    Interrupt,
     MessageAddedEvent,
 )
+from strands.interrupt import Interrupt
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.tools.executors import SequentialToolExecutor
 from strands.tools.registry import ToolRegistry

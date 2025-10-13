@@ -6,7 +6,7 @@ This module defines the AgentResult class which encapsulates the complete respon
 from dataclasses import dataclass
 from typing import Any, Sequence
 
-from ..hooks import Interrupt
+from ..interrupt import Interrupt
 from ..telemetry.metrics import EventLoopMetrics
 from ..types.content import Message
 from ..types.streaming import StopReason

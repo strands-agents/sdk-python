@@ -4,7 +4,8 @@ from unittest.mock import ANY
 import pytest
 
 from strands import Agent, tool
-from strands.hooks import BeforeToolCallEvent, HookProvider, Interrupt
+from strands.hooks import BeforeToolCallEvent, HookProvider
+from strands.interrupt import Interrupt
 from strands.session import FileSessionManager
 
 

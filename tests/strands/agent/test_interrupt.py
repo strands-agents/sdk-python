@@ -1,7 +1,7 @@
 import pytest
 
 from strands.agent.interrupt import InterruptState
-from strands.hooks import Interrupt
+from strands.interrupt import Interrupt
 
 
 @pytest.fixture

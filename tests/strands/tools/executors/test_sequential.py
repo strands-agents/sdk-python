@@ -1,6 +1,7 @@
 import pytest
 
-from strands.hooks import BeforeToolCallEvent, Interrupt
+from strands.hooks import BeforeToolCallEvent
+from strands.interrupt import Interrupt
 from strands.tools.executors import SequentialToolExecutor
 from strands.types._events import ToolInterruptEvent, ToolResultEvent
 

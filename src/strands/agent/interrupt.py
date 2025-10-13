@@ -3,7 +3,7 @@
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from ..hooks import Interrupt
+from ..interrupt import Interrupt
 
 
 @dataclass

@@ -10,7 +10,7 @@ via hook provider objects.
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generator, Generic, Protocol, Type, TypeVar
 
-from .interrupt import Interrupt, InterruptException
+from ..interrupt import Interrupt, InterruptException
 
 if TYPE_CHECKING:
     from ..agent import Agent

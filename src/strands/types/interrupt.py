@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING, Any, Protocol, TypedDict
 
-from ..hooks.interrupt import Interrupt, InterruptException
+from ..interrupt import Interrupt, InterruptException
 
 if TYPE_CHECKING:
     from ..agent import Agent

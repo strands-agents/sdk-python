@@ -1,6 +1,6 @@
 import pytest
 
-from strands.hooks import Interrupt
+from strands.interrupt import Interrupt
 
 
 @pytest.fixture
