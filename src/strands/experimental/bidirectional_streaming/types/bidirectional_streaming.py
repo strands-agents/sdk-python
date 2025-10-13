@@ -71,6 +71,23 @@ class AudioInputEvent(TypedDict):
     channels: Literal[1, 2]
 
 
+class ImageInputEvent(TypedDict):
+    """Image input event for sending images/video frames to the model.
+    
+    Used for sending image data through the send() method. Supports both
+    raw image bytes and base64-encoded data.
+    
+    Attributes:
+        imageData: Image bytes (raw or base64-encoded string).
+        mimeType: MIME type (e.g., "image/jpeg", "image/png").
+        encoding: How the imageData is encoded.
+    """
+    
+    imageData: bytes | str
+    mimeType: str
+    encoding: Literal["base64", "raw"]
+
+
 class TextOutputEvent(TypedDict):
     """Text output event from the model during bidirectional streaming.
 
@@ -81,6 +98,23 @@ class TextOutputEvent(TypedDict):
 
     text: str
     role: Role
+
+
+class TranscriptEvent(TypedDict):
+    """Transcript event for audio transcriptions.
+    
+    Used for both input transcriptions (user speech) and output transcriptions
+    (model audio). These are informational and separate from actual text responses.
+    
+    Attributes:
+        text: The transcribed text.
+        role: The role of the speaker ("user" or "assistant").
+        type: Type of transcription ("input" or "output").
+    """
+    
+    text: str
+    role: Role
+    type: Literal["input", "output"]
 
 
 class InterruptionDetectedEvent(TypedDict):
@@ -162,7 +196,9 @@ class BidirectionalStreamEvent(StreamEvent, total=False):
     Attributes:
         audioOutput: Audio output from the model.
         audioInput: Audio input sent to the model.
+        imageInput: Image input sent to the model.
         textOutput: Text output from the model.
+        transcript: Audio transcription (input or output).
         interruptionDetected: User interruption detection.
         BidirectionalConnectionStart: connection start event.
         BidirectionalConnectionEnd: connection end event.
@@ -172,7 +208,9 @@ class BidirectionalStreamEvent(StreamEvent, total=False):
 
     audioOutput: Optional[AudioOutputEvent]
     audioInput: Optional[AudioInputEvent]
+    imageInput: Optional[ImageInputEvent]
     textOutput: Optional[TextOutputEvent]
+    transcript: Optional[TranscriptEvent]
     interruptionDetected: Optional[InterruptionDetectedEvent]
     BidirectionalConnectionStart: Optional[BidirectionalConnectionStartEvent]
     BidirectionalConnectionEnd: Optional[BidirectionalConnectionEndEvent]

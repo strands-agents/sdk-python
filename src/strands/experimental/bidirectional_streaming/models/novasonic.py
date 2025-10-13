@@ -33,6 +33,7 @@ from ..types.bidirectional_streaming import (
     AudioOutputEvent,
     BidirectionalConnectionEndEvent,
     BidirectionalConnectionStartEvent,
+    ImageInputEvent,
     InterruptionDetectedEvent,
     TextOutputEvent,
     UsageMetricsEvent,
@@ -311,7 +312,16 @@ class NovaSonicSession(BidirectionalModelSession):
 
         # Start silence detection task
         self.silence_task = asyncio.create_task(self._check_silence())
-
+    
+    async def send_image_content(self, image_input: ImageInputEvent) -> None:
+        """Send image content - not supported by Nova Sonic.
+        
+        Nova Sonic currently only supports audio input, not image/video.
+        This method is provided for interface compatibility.
+        """
+        logger.warning("Image input not supported by Nova Sonic model")
+        # Nova Sonic doesn't support image input, so this is a no-op
+    
     async def _check_silence(self) -> None:
         """Check for silence and automatically end audio connection."""
         try:
