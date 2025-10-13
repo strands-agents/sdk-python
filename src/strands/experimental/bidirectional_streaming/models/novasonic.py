@@ -38,6 +38,7 @@ from ..types.bidirectional_streaming import (
     TextOutputEvent,
     UsageMetricsEvent,
 )
+from ..utils.event_logger import EventLogger
 from .bidirectional_model import BidirectionalModel, BidirectionalModelSession
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,9 @@ class NovaSonicSession(BidirectionalModelSession):
         self.last_audio_time = None
         self.silence_threshold = SILENCE_THRESHOLD
         self.silence_task = None
+        
+        # Event logger
+        self.event_logger = EventLogger("nova")
 
         # Validate stream
         if not stream:
@@ -184,6 +188,10 @@ class NovaSonicSession(BidirectionalModelSession):
 
             if "event" in json_data:
                 nova_event = json_data["event"]
+                
+                # Log incoming event
+                self.event_logger.log_incoming("nova_raw", nova_event)
+                
                 self._log_event_type(nova_event)
 
                 if not hasattr(self, "_event_queue"):
@@ -283,6 +291,14 @@ class NovaSonicSession(BidirectionalModelSession):
         if not self._active:
             return
 
+        # Log outgoing audio
+        self.event_logger.log_outgoing("audio_input", {
+            "format": audio_input["format"],
+            "sampleRate": audio_input["sampleRate"],
+            "channels": audio_input["channels"],
+            "audioData": f"<{len(audio_input['audioData'])} bytes>"
+        })
+
         # Start audio connection if not already active
         if not self.audio_connection_active:
             await self.start_audio_connection()
@@ -352,6 +368,9 @@ class NovaSonicSession(BidirectionalModelSession):
         """Send text content using Nova Sonic format."""
         if not self._active:
             return
+
+        # Log outgoing text
+        self.event_logger.log_outgoing("text_input", {"text": text})
 
         content_name = str(uuid.uuid4())
         events = [

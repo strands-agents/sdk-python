@@ -25,7 +25,9 @@ from ..types.bidirectional_streaming import (
     BidirectionalStreamEvent,
     TextOutputEvent,
     VoiceActivityEvent,
+    ImageInputEvent,
 )
+from ..utils.event_logger import EventLogger
 from .bidirectional_model import BidirectionalModel, BidirectionalModelSession
 
 logger = logging.getLogger(__name__)
@@ -72,6 +74,7 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
         self._event_queue = asyncio.Queue()
         self._response_task = None
         self._function_call_buffer = {}
+        self.event_logger = EventLogger("openai")
         
         logger.debug("OpenAI Realtime session initialized: %s", self.session_id)
 
@@ -191,6 +194,10 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
                 
                 try:
                     event = json.loads(message)
+                    
+                    # Log incoming event
+                    self.event_logger.log_incoming("openai_raw", event)
+                    
                     await self._event_queue.put(event)
                 except json.JSONDecodeError as e:
                     logger.warning("Failed to parse OpenAI event: %s", e)
@@ -377,6 +384,14 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
         if not self._require_active():
             return
         
+        # Log outgoing audio
+        self.event_logger.log_outgoing("audio_input", {
+            "format": audio_input["format"],
+            "sampleRate": audio_input["sampleRate"],
+            "channels": audio_input["channels"],
+            "audioData": f"<{len(audio_input['audioData'])} bytes>"
+        })
+        
         audio_base64 = base64.b64encode(audio_input["audioData"]).decode("utf-8")
         await self._send_event({"type": "input_audio_buffer.append", "audio": audio_base64})
 
@@ -384,6 +399,9 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
         """Send text content to OpenAI for processing."""
         if not self._require_active():
             return
+        
+        # Log outgoing text
+        self.event_logger.log_outgoing("text_input", {"text": text})
         
         item_data = {
             "type": "message",
@@ -398,6 +416,10 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
             return
         
         await self._send_event({"type": "response.cancel"})
+
+    async def send_image_content(self, image: ImageInputEvent) -> None:
+        """Send image content to OpenAI."""
+        logger.warning("OpenAI Realtime does not support image input")
 
     async def send_tool_result(self, tool_use_id: str, result: dict[str, any]) -> None:
         """Send tool result back to OpenAI."""

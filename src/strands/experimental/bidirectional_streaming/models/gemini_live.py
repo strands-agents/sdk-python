@@ -33,6 +33,7 @@ from ..types.bidirectional_streaming import (
     TextOutputEvent,
     TranscriptEvent,
 )
+from ..utils.event_logger import EventLogger
 from .bidirectional_model import BidirectionalModel, BidirectionalModelSession
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,7 @@ class GeminiLiveSession(BidirectionalModelSession):
         self._active = True
         self.live_session = None
         self.live_session_cm = None
+        self.event_logger = EventLogger("gemini")
         
 
     
@@ -177,6 +179,14 @@ class GeminiLiveSession(BidirectionalModelSession):
         - modelTurn text: Actual text response from the model (emitted as textOutput)
         """
         try:
+            # Log raw incoming event
+            raw_event = {
+                "text": message.text if hasattr(message, 'text') else None,
+                "data": f"<{len(message.data)} bytes>" if hasattr(message, 'data') and message.data else None,
+                "tool_call": str(message.tool_call) if hasattr(message, 'tool_call') and message.tool_call else None,
+                "server_content": str(message.server_content) if hasattr(message, 'server_content') and message.server_content else None,
+            }
+            self.event_logger.log_incoming("gemini_raw", raw_event)
             # Handle interruption first (from server_content)
             if message.server_content and message.server_content.interrupted:
                 interruption: InterruptionDetectedEvent = {
@@ -261,6 +271,14 @@ class GeminiLiveSession(BidirectionalModelSession):
             return
         
         try:
+            # Log outgoing audio
+            self.event_logger.log_outgoing("audio_input", {
+                "format": audio_input["format"],
+                "sampleRate": audio_input["sampleRate"],
+                "channels": audio_input["channels"],
+                "audioData": f"<{len(audio_input['audioData'])} bytes>"
+            })
+            
             # Create audio blob for the SDK
             audio_blob = genai_types.Blob(
                 data=audio_input["audioData"],
@@ -283,6 +301,19 @@ class GeminiLiveSession(BidirectionalModelSession):
             return
         
         try:
+            # Log outgoing image
+            image_data_preview = image_input["imageData"]
+            if isinstance(image_data_preview, bytes):
+                image_data_preview = f"<{len(image_data_preview)} bytes>"
+            elif isinstance(image_data_preview, str) and len(image_data_preview) > 100:
+                image_data_preview = image_data_preview[:100] + f"... (total: {len(image_data_preview)} chars)"
+            
+            self.event_logger.log_outgoing("image_input", {
+                "mimeType": image_input["mimeType"],
+                "encoding": image_input["encoding"],
+                "imageData": image_data_preview
+            })
+            
             # Prepare the message based on encoding
             if image_input["encoding"] == "base64":
                 # Data is already base64 encoded
@@ -312,6 +343,9 @@ class GeminiLiveSession(BidirectionalModelSession):
             return
         
         try:
+            # Log outgoing text
+            self.event_logger.log_outgoing("text_input", {"text": text})
+            
             # Create content with text
             content = genai_types.Content(
                 role="user",
