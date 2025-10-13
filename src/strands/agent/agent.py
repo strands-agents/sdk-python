@@ -577,6 +577,8 @@ class Agent:
                     yield event["data"]
             ```
         """
+        self._resume_interrupt(prompt)
+
         merged_state = {}
         if kwargs:
             warnings.warn("`**kwargs` parameter is deprecating, use `invocation_state` instead.", stacklevel=2)
@@ -632,7 +634,7 @@ class Agent:
 
         if not isinstance(prompt, list):
             raise TypeError(
-                f"prompt_type=<{type(prompt)}> | must resume from interrupt with list of interruptResponse's"
+                f"prompt_type={type(prompt)} | must resume from interrupt with list of interruptResponse's"
             )
 
         for content in cast(list[InterruptResponseContent], prompt):

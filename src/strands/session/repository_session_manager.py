@@ -3,6 +3,7 @@
 import logging
 from typing import TYPE_CHECKING, Any, Optional
 
+from ..agent.interrupt import InterruptState
 from ..agent.state import AgentState
 from ..types.content import Message
 from ..types.exceptions import SessionException
@@ -17,7 +18,6 @@ from .session_repository import SessionRepository
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
-    from ..agent.interrupt import InterruptState
 
 logger = logging.getLogger(__name__)
 

@@ -31,15 +31,9 @@ class Interrupt:
 class InterruptException(Exception):
     """Exception raised when human input is required."""
 
-    def __init__(self, id_: str, name: str, reason: Any) -> None:
-        """Initialize the exception with an interrupt instance.
-
-        Args:
-            id_: Unique identifier.
-            name: User defined name.
-            reason: User provided reason for raising the interrupt.
-        """
-        self.interrupt = Interrupt(id_, name, reason)
+    def __init__(self, interrupt: Interrupt) -> None:
+        """Set the interrupt."""
+        self.interrupt = interrupt
 
 
 class InterruptHookEvent(Protocol):
@@ -47,25 +41,30 @@ class InterruptHookEvent(Protocol):
 
     agent: "Agent"
 
-    def interrupt(self, name: str, reason: Any = None) -> Any:
+    def interrupt(self, name: str, reason: Any = None, response: Any = None) -> Any:
         """Trigger the interrupt with a reason.
 
         Args:
             name: User defined name for the interrupt.
                 Must be unique across hook callbacks.
             reason: User provided reason for the interrupt.
+            response: Preemptive response from user if available.
 
         Returns:
             The response from a human user when resuming from an interrupt state.
 
         Raises:
             InterruptException: If human input is required.
+            ValueError: If interrupt name is used more than once.
         """
         id_ = self._interrupt_id(name)
-        if id_ in self.agent.interrupt_state:
-            return self.agent.interrupt_state[id_].response
+        state = self.agent.interrupt_state
 
-        raise InterruptException(id_, name, reason)
+        interrupt_ = state.setdefault(id_, Interrupt(id_, name, reason, response))
+        if interrupt_.response:
+            return interrupt_.response
+
+        raise InterruptException(interrupt_)
 
     def _interrupt_id(self, name: str) -> str:
         """Unique id for the interrupt.

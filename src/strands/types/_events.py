@@ -5,7 +5,7 @@ providing a structured way to observe to different events of the event loop and
 agent lifecycle.
 """
 
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from typing_extensions import override
 
@@ -221,7 +221,7 @@ class EventLoopStopEvent(TypedEvent):
         message: Message,
         metrics: "EventLoopMetrics",
         request_state: Any,
-        interrupts: Optional[list[Interrupt]] = None,
+        interrupts: list[Interrupt] | None = None,
     ) -> None:
         """Initialize with the final execution results.
 
@@ -354,18 +354,6 @@ class ModelMessageEvent(TypedEvent):
 
         Args:
             message: The response message from the model
-        """
-        super().__init__({"message": message})
-
-
-class InterruptMessageEvent(TypedEvent):
-    """Event emitted when an interrupt message is constructed."""
-
-    def __init__(self, message: Message) -> None:
-        """Initialize with the interrupt message.
-
-        Args:
-            message: The interrupt message containing reasons from user for raising the interrupt.
         """
         super().__init__({"message": message})
 

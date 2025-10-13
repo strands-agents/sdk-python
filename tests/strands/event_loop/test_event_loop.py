@@ -6,6 +6,7 @@ import pytest
 
 import strands
 import strands.telemetry
+from strands.agent.interrupt import InterruptState
 from strands.hooks import (
     AfterModelCallEvent,
     BeforeModelCallEvent,
@@ -140,7 +141,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.event_loop_metrics = EventLoopMetrics()
     mock.hooks = hook_registry
     mock.tool_executor = tool_executor
-    mock._interrupts = {}
+    mock.interrupt_state = InterruptState()
 
     return mock
 
@@ -870,7 +871,7 @@ async def test_event_loop_cycle_exception_model_hooks(mock_sleep, agent, model, 
 @pytest.mark.asyncio
 async def test_event_loop_cycle_interrupt(agent, model, tool_stream, agenerator, alist):
     def interrupt_callback(event):
-        event.interrupt("test reason")
+        event.interrupt("test_name", "test reason")
 
     agent.hooks.add_callback(BeforeToolCallEvent, interrupt_callback)
 
@@ -883,107 +884,86 @@ async def test_event_loop_cycle_interrupt(agent, model, tool_stream, agenerator,
     exp_stop_reason = "interrupt"
     exp_interrupts = [
         Interrupt(
-            name="tool_for_testing",
-            event_name="BeforeToolCallEvent",
-            reasons=["test reason"],
-            activated=True,
+            id_="v1:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
+            name="test_name",
+            reason="test reason",
         ),
     ]
 
     assert tru_stop_reason == exp_stop_reason and tru_interrupts == exp_interrupts
 
-    tru_result_message = agent.messages[-1]
-    exp_result_message = {
-        "role": "user",
-        "content": [
-            {
-                "toolResult": {
-                    "toolUseId": "t1",
-                    "status": "error",
-                    "content": [
-                        {
-                            "json": {
-                                "interrupt": {
-                                    "name": "tool_for_testing",
-                                    "event_name": "BeforeToolCallEvent",
-                                    "reasons": ["test reason"],
-                                },
-                            },
+    tru_state = agent.interrupt_state.to_dict()
+    exp_state = {
+        "activated": True,
+        "context": {
+            "tool_results": [],
+            "tool_use_message": {
+                "content": [
+                    {
+                        "toolUse": {
+                            "input": {"random_string": "abcdEfghI123"},
+                            "name": "tool_for_testing",
+                            "toolUseId": "t1",
                         },
-                    ],
-                }
-            }
-        ],
+                    },
+                ],
+                "role": "assistant",
+            },
+        },
+        "interrupts": {
+            "v1:t1:78714d6c-613c-5cf4-bf25-7037569941f9": {
+                "id_": "v1:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
+                "name": "test_name",
+                "reason": "test reason",
+                "response": None,
+            },
+        },
     }
-    assert tru_result_message == exp_result_message
+    assert tru_state == exp_state
 
 
 @pytest.mark.asyncio
 async def test_event_loop_cycle_interrupt_resume(agent, model, tool, tool_times_2, agenerator, alist):
-    agent._interrupts = {
-        ("tool_for_testing", "BeforeToolCallEvent"): Interrupt(
-            name="tool_for_testing",
-            event_name="BeforeToolCallEvent",
-            reasons=["test reason"],
-            response="test response",
-        ),
-    }
+    interrupt = Interrupt(
+        id_="v1:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
+        name="test_name",
+        reason="test reason",
+        response="test response",
+    )
 
-    agent.messages = [
+    tool_use_message = {
+        "role": "assistant",
+        "content": [
+            {
+                "toolUse": {
+                    "toolUseId": "t1",
+                    "name": "tool_for_testing",
+                    "input": {"random_string": "test input"},
+                }
+            },
+            {
+                "toolUse": {
+                    "toolUseId": "t2",
+                    "name": "tool_times_2",
+                    "input": {},
+                }
+            },
+        ],
+    }
+    tool_results = [
         {
-            "role": "assistant",
-            "content": [
-                {
-                    "toolUse": {
-                        "toolUseId": "t1",
-                        "name": "tool_for_testing",
-                        "input": {"random_string": "test input"},
-                    }
-                },
-                {
-                    "toolUse": {
-                        "toolUseId": "t2",
-                        "name": "tool_times_2",
-                        "input": {},
-                    }
-                },
-            ],
-        },
-        {
-            "role": "user",
-            "content": [
-                {
-                    "toolResult": {
-                        "toolUseId": "t1",
-                        "status": "error",
-                        "content": [
-                            {
-                                "json": {
-                                    "interrupt": {
-                                        "name": "tool_for_testing",
-                                        "event_name": "BeforeToolCallEvent",
-                                        "reasons": ["test reason"],
-                                    },
-                                },
-                            },
-                        ],
-                    },
-                },
-                {
-                    "toolResult": {
-                        "toolUseId": "t2",
-                        "status": "success",
-                        "content": [{"text": "t2 result"}],
-                    },
-                },
-            ],
+            "toolUseId": "t2",
+            "status": "success",
+            "content": [{"text": "t2 result"}],
         },
     ]
 
-    interrupt_response = {}
+    agent.interrupt_state.activate(context={"tool_use_message": tool_use_message, "tool_results": tool_results})
+    agent.interrupt_state[interrupt.id_] = interrupt
 
+    interrupt_response = {}
     def interrupt_callback(event):
-        interrupt_response["response"] = event.interrupt("test reason")
+        interrupt_response["response"] = event.interrupt("test_name", "test reason")
 
     agent.hooks.add_callback(BeforeToolCallEvent, interrupt_callback)
 
@@ -1002,31 +982,30 @@ async def test_event_loop_cycle_interrupt_resume(agent, model, tool, tool_times_
         "content": [
             {
                 "toolResult": {
-                    "toolUseId": "t1",
-                    "status": "success",
-                    "content": [
-                        {
-                            "json": {
-                                "interrupt": {
-                                    "name": "tool_for_testing",
-                                    "event_name": "BeforeToolCallEvent",
-                                    "reasons": ["test reason"],
-                                },
-                            },
-                        },
-                        {"text": "test input"},
-                    ],
-                }
-            },
-            {
-                "toolResult": {
                     "toolUseId": "t2",
                     "status": "success",
                     "content": [{"text": "t2 result"}],
+                },
+            },
+            {
+                "toolResult": {
+                    "toolUseId": "t1",
+                    "status": "success",
+                    "content": [{"text": "test input"}],
                 },
             },
         ],
     }
     assert tru_result_message == exp_result_message
 
-    assert not agent._interrupts
+    tru_response = interrupt_response["response"]
+    exp_response = "test response"
+    assert tru_response == exp_response
+
+    tru_state = agent.interrupt_state.to_dict()
+    exp_state = {
+        "activated": False,
+        "context": {},
+        "interrupts": {},
+    }
+    assert tru_state == exp_state

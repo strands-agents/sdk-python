@@ -167,12 +167,11 @@ class ContentBlockStop(TypedDict):
     contentBlockIndex: int
 
 
-Role = Literal["user", "assistant", "strands"]
+Role = Literal["user", "assistant"]
 """Role of a message sender.
 
 - "user": Messages from the user to the assistant
 - "assistant": Messages from the assistant to the user
-- "strands": Messages from strands to the user
 """
 
 

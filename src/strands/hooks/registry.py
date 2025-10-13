@@ -202,23 +202,31 @@ class HookRegistry:
         Returns:
             The event dispatched to registered callbacks and any interrupts raised by the user.
 
+        Raises:
+            ValueError: If interrupt name is used more than once.
+
         Example:
             ```python
             event = StartRequestEvent(agent=my_agent)
             registry.invoke_callbacks(event)
             ```
         """
-        interrupts = []
+        interrupts: dict[str, Interrupt] = {}
 
         for callback in self.get_callbacks_for(event):
             try:
                 callback(event)
-            except InterruptException as error:
-                # All callbacks are allowed to finish executing during an interrupt.
-                interrupts.append(error.interrupt)
-                pass
+            except InterruptException as exception:
+                interrupt = exception.interrupt
+                if interrupt.name in interrupts:
+                    raise ValueError(
+                        f"interrupt_name=<{interrupt.name}> | interrupt name used more than once"
+                    ) from exception
 
-        return event, interrupts
+                # Each callback is allowed to raise their own interrupt.
+                interrupts[interrupt.name] = interrupt
+
+        return event, list(interrupts.values())
 
     def has_callbacks(self) -> bool:
         """Check if the registry has any registered callbacks.

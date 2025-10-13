@@ -30,9 +30,25 @@ class InterruptState:
         """Get interrupt associated with the given id."""
         return self.interrupts[interrupt_id]
 
-    def set(self, interrupt: Interrupt) -> None:
-        """Store the interrupt in state."""
-        self.interrupts[interrupt.id_] = interrupt
+    def __setitem__(self, interrupt_id: str, interrupt: Interrupt) -> None:
+        """Set the interrupt in state under the given id."""
+        self.interrupts[interrupt_id] = interrupt
+
+    def setdefault(self, interrupt_id: str, interrupt: Interrupt) -> Interrupt:
+        """Set the interrupt in state under the given id if not already present.
+
+        Args:
+            interrupt_id: Unique id of the interrupt.
+            interrupt: Interrupt instance to store in state if not already present.
+
+        Returns:
+            Interrupt instance in state.
+        """
+        if interrupt_id in self:
+            return self[interrupt_id]
+
+        self[interrupt_id] = interrupt
+        return interrupt
 
     def activate(self, context: dict[str, Any] | None = None) -> None:
         """Activate the interrupt state.

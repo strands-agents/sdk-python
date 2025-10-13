@@ -112,7 +112,6 @@ class SessionAgent:
         internal_state: Strands managed state.
             Alterations to internal state by the user could result in undefined behaviors.
         conversation_manager_state: State for conversation management.
-
         created_at: Created at time.
         updated_at: Updated at time.
     """

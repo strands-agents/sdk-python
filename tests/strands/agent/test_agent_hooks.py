@@ -128,7 +128,6 @@ def test_agent_tool_call(agent, hook_provider, agent_tool):
         selected_tool=agent_tool,
         tool_use=tool_use,
         invocation_state=ANY,
-        interrupt=ANY,
     )
     assert next(events) == AfterToolCallEvent(
         agent=agent,
@@ -178,7 +177,6 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
         selected_tool=agent_tool,
         tool_use=tool_use,
         invocation_state=ANY,
-        interrupt=ANY,
     )
     assert next(events) == AfterToolCallEvent(
         agent=agent,
@@ -243,7 +241,6 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
         selected_tool=agent_tool,
         tool_use=tool_use,
         invocation_state=ANY,
-        interrupt=ANY,
     )
     assert next(events) == AfterToolCallEvent(
         agent=agent,

@@ -165,7 +165,6 @@ class ToolExecutor(abc.ABC):
                     yield ToolStreamEvent(tool_use, event)
 
             result = cast(ToolResult, event)
-            result["content"] = [*result["content"]]
 
             after_event, _ = agent.hooks.invoke_callbacks(
                 AfterToolCallEvent(
@@ -235,6 +234,10 @@ class ToolExecutor(abc.ABC):
         with trace_api.use_span(tool_call_span):
             async for event in ToolExecutor._stream(agent, tool_use, tool_results, invocation_state, **kwargs):
                 yield event
+
+            if isinstance(event, ToolInterruptEvent):
+                tracer.end_tool_call_span(tool_call_span, tool_result=None)
+                return
 
             result_event = cast(ToolResultEvent, event)
             result = result_event.tool_result

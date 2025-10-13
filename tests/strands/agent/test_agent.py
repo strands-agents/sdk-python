@@ -17,6 +17,7 @@ from strands.agent.conversation_manager.null_conversation_manager import NullCon
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
+from strands.hooks import BeforeToolCallEvent, Interrupt
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
 from strands.telemetry.tracer import serialize
@@ -1544,6 +1545,7 @@ def test_agent_restored_from_session_management():
         SessionAgent(
             agent_id="default",
             state={"foo": "bar"},
+            internal_state={"interrupt_state": {"interrupts": {}, "context": {}, "activated": False}},
             conversation_manager_state=SlidingWindowConversationManager().get_state(),
         ),
     )
@@ -1562,6 +1564,7 @@ def test_agent_restored_from_session_management_with_message():
         SessionAgent(
             agent_id="default",
             state={"foo": "bar"},
+            internal_state={"interrupt_state": {"interrupts": {}, "context": {}, "activated": False}},
             conversation_manager_state=SlidingWindowConversationManager().get_state(),
         ),
     )
@@ -1936,6 +1939,39 @@ def test_agent__call__invocation_state_only_no_warning(agent, mock_event_loop_cy
 
 
 def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
+    tool_use_message = {
+        "role": "assistant",
+        "content": [
+            {
+                "toolUse": {
+                    "toolUseId": "t1",
+                    "name": "tool_decorated",
+                    "input": {"random_string": "test input"},
+                }
+            },
+        ],
+    }
+    agent = Agent(
+        messages=[tool_use_message],
+        model=mock_model,
+        tools=[tool_decorated],
+    )
+
+    interrupt = Interrupt(
+        id_="v1:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
+        name="test_name",
+        reason="test reason",
+    )
+
+    agent.interrupt_state.activate(context={"tool_use_message": tool_use_message, "tool_results": []})
+    agent.interrupt_state[interrupt.id_] = interrupt
+
+    interrupt_response = {}
+    def interrupt_callback(event):
+        interrupt_response["response"] = event.interrupt("test_name", "test reason")
+
+    agent.hooks.add_callback(BeforeToolCallEvent, interrupt_callback)
+
     mock_model.mock_stream.return_value = agenerator(
         [
             {"contentBlockStart": {"start": {"text": ""}}},
@@ -1944,52 +1980,11 @@ def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
         ]
     )
 
-    agent = Agent(
-        messages=[
-            {
-                "role": "assistant",
-                "content": [
-                    {
-                        "toolUse": {
-                            "toolUseId": "t1",
-                            "name": "tool_decorated",
-                            "input": {"random_string": "test input"},
-                        }
-                    }
-                ],
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "toolResult": {
-                            "toolUseId": "t1",
-                            "status": "error",
-                            "content": [
-                                {
-                                    "json": {
-                                        "interrupt": {
-                                            "name": "tool_decorated",
-                                            "event_name": "BeforeToolCallEvent",
-                                            "reasons": ["test reason"],
-                                        },
-                                    },
-                                },
-                            ],
-                        },
-                    },
-                ],
-            },
-        ],
-        model=mock_model,
-        tools=[tool_decorated],
-    )
-
     prompt = [
         {
             "interruptResponse": {
-                "name": "tool_decorated",
-                "response": "user response",
+                "interruptId": interrupt.id_,
+                "response": "test response",
             }
         }
     ]
@@ -2003,86 +1998,37 @@ def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
                 "toolResult": {
                     "toolUseId": "t1",
                     "status": "success",
-                    "content": [
-                        {
-                            "json": {
-                                "interrupt": {
-                                    "name": "tool_decorated",
-                                    "event_name": "BeforeToolCallEvent",
-                                    "reasons": ["test reason"],
-                                },
-                            },
-                        },
-                        {"text": "test input"},
-                    ],
+                    "content": [{"text": "test input"}],
                 },
             },
         ],
     }
     assert tru_result_message == exp_result_message
 
-    assert not agent._interrupts
+    tru_response = interrupt_response["response"]
+    exp_response = "test response"
+    assert tru_response == exp_response
+
+    tru_state = agent.interrupt_state.to_dict()
+    exp_state = {
+        "activated": False,
+        "context": {},
+        "interrupts": {},
+    }
+    assert tru_state == exp_state
 
 
-def test_agent__call__resume_interrupt_invalid_prompt(mock_model):
-    agent = Agent(
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "toolResult": {
-                            "status": "error",
-                            "content": [
-                                {
-                                    "json": {
-                                        "interrupt": {
-                                            "name": "test_interrupt",
-                                            "event_name": "test_event",
-                                            "reasons": ["test reason"],
-                                        }
-                                    }
-                                }
-                            ],
-                        }
-                    }
-                ],
-            }
-        ],
-        model=mock_model,
-    )
+def test_agent__call__resume_interrupt_invalid_prompt():
+    agent = Agent()
+    agent.interrupt_state.activated = True
 
-    with pytest.raises(TypeError, match="must resume from interrupt with list of interruptResponse's"):
+    with pytest.raises(TypeError, match="prompt_type=<class 'str'>"):
         agent("invalid")
 
 
-def test_agent__call__resume_interrupt_missing_responses(mock_model):
-    agent = Agent(
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "toolResult": {
-                            "status": "error",
-                            "content": [
-                                {
-                                    "json": {
-                                        "interrupt": {
-                                            "name": "test_interrupt",
-                                            "event_name": "test_event",
-                                            "reasons": ["test reason"],
-                                        }
-                                    }
-                                }
-                            ],
-                        }
-                    }
-                ],
-            }
-        ],
-        model=mock_model,
-    )
+def test_agent__call__resume_interrupt_invalid_content():
+    agent = Agent()
+    agent.interrupt_state.activated = True
 
-    with pytest.raises(ValueError, match="missing responses for interrupts"):
-        agent([])
+    with pytest.raises(TypeError, match="content_type=<text>"):
+        agent([{"text": "invalid"}])

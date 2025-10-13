@@ -2,80 +2,89 @@ import unittest.mock
 
 import pytest
 
-from strands.hooks import Interrupt, InterruptException
+from strands.agent.interrupt import InterruptState
+from strands.hooks import Interrupt, InterruptException, InterruptHookEvent
 
 
 @pytest.fixture
 def interrupt():
     return Interrupt(
-        name="test",
-        event_name="test_event",
-        reasons=[],
+        id_="test_id:test_name",
+        name="test_name",
+        reason={"reason": "test"},
+        response={"response": "test"},
     )
 
 
 @pytest.fixture
 def agent():
     instance = unittest.mock.Mock()
-    instance._interrupts = {}
+    instance.interrupt_state = InterruptState()
     return instance
 
 
-def test_interrupt__call__(interrupt):
+@pytest.fixture
+def interrupt_hook_event(agent):
+    class Event(InterruptHookEvent):
+        def __init__(self):
+            self.agent = agent
+
+        def _interrupt_id(self, name):
+            return f"test_id:{name}"
+
+    return Event()
+
+
+def test_interrupt_to_dict(interrupt):
+    tru_dict = interrupt.to_dict()
+    exp_dict = {
+        "id_": "test_id:test_name",
+        "name": "test_name",
+        "reason": {"reason": "test"},
+        "response": {"response": "test"},
+    }
+    assert tru_dict == exp_dict
+
+
+def test_interrupt_hook_event_interrupt(interrupt_hook_event):
     with pytest.raises(InterruptException) as exception:
-        interrupt("test reason")
+        interrupt_hook_event.interrupt("custom_test_name", "custom test reason")
 
     tru_interrupt = exception.value.interrupt
     exp_interrupt = Interrupt(
-        name="test",
-        event_name="test_event",
-        reasons=["test reason"],
-        activated=True,
+        id_="test_id:custom_test_name",
+        name="custom_test_name",
+        reason="custom test reason",
     )
     assert tru_interrupt == exp_interrupt
 
 
-def test_interrupt__call__with_response(interrupt):
-    interrupt.activated = True
-    interrupt.response = "test response"
+def test_interrupt_hook_event_interrupt_state(agent, interrupt_hook_event):
+    with pytest.raises(InterruptException):
+        interrupt_hook_event.interrupt("custom_test_name", "custom test reason")
 
-    tru_response = interrupt("test reason")
-    exp_response = "test response"
-
-    assert tru_response == exp_response
-    assert not interrupt.activated
-
-
-@pytest.mark.parametrize(
-    ("reasons", "exp_content"),
-    [
-        (
-            ["test reason"],
-            [{"json": {"interrupt": {"name": "test", "event_name": "test_event", "reasons": ["test reason"]}}}],
-        ),
-        ([], []),
-    ],
-)
-def test_interrupt_to_tool_result_content(reasons, exp_content, interrupt):
-    interrupt.reasons = reasons
-
-    tru_content = interrupt.to_tool_result_content()
-    assert tru_content == exp_content
-
-
-def test_interrupt_from_agent(agent):
-    exp_interrupt = Interrupt(name="test", event_name="test_event", reasons=["test reason"], response="test response")
-    agent._interrupts = {("test", "test_event"): exp_interrupt}
-
-    tru_interrupt = Interrupt.from_agent("test", "test_event", agent)
-    assert tru_interrupt == exp_interrupt
-
-
-def test_interrupt_from_agent_empty(agent):
-    tru_interrupt = Interrupt.from_agent("test", "test_event", agent)
     exp_interrupt = Interrupt(
-        name="test",
-        event_name="test_event",
-        reasons=[],
+        id_="test_id:custom_test_name",
+        name="custom_test_name",
+        reason="custom test reason",
     )
+    assert exp_interrupt.id_ in agent.interrupt_state
+
+    tru_interrupt = agent.interrupt_state[exp_interrupt.id_]
     assert tru_interrupt == exp_interrupt
+
+
+def test_interrupt_hook_event_interrupt_response(interrupt, agent, interrupt_hook_event):
+    agent.interrupt_state[interrupt.id_] = interrupt
+
+    tru_response = interrupt_hook_event.interrupt("test_name")
+    exp_response = {"response": "test"}
+    assert tru_response == exp_response
+
+
+def test_interrupt_hook_event_interrupt_response_empty(interrupt, agent, interrupt_hook_event):
+    interrupt.response = None
+    agent.interrupt_state[interrupt.id_] = interrupt
+
+    with pytest.raises(InterruptException):
+        interrupt_hook_event.interrupt("test_name")
