@@ -1014,6 +1014,7 @@ def test_agent_structured_output(agent, system_prompt, user, agenerator):
             "gen_ai.agent.name": "Strands Agents",
             "gen_ai.agent.id": "default",
             "gen_ai.operation.name": "execute_structured_output",
+            "gen_ai.structured_output.max_retries": 0,
         }
     )
 
@@ -1141,6 +1142,76 @@ async def test_agent_structured_output_async(agent, system_prompt, user, agenera
     agent.model.structured_output.assert_called_once_with(
         type(user), [{"role": "user", "content": [{"text": prompt}]}], system_prompt=system_prompt
     )
+
+
+def test_agent_structured_output_with_retry_on_validation_error(agent, system_prompt, user, agenerator):
+    """Test that structured_output retries on ValidationError."""
+    from pydantic import ValidationError
+
+    # First call raises ValidationError, second call succeeds
+    call_count = 0
+
+    async def mock_structured_output(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise ValidationError.from_exception_data("test", [])
+        else:
+            async for event in agenerator([{"output": user}]):
+                yield event
+
+    agent.model.structured_output = mock_structured_output
+
+    prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
+
+    # Call with max_retries=1
+    tru_result = agent.structured_output(type(user), prompt, max_retries=1)
+    exp_result = user
+    assert tru_result == exp_result
+    assert call_count == 2  # Should have been called twice
+
+
+def test_agent_structured_output_with_retry_on_value_error(agent, system_prompt, user, agenerator):
+    """Test that structured_output retries on ValueError."""
+    # First call raises ValueError, second call succeeds
+    call_count = 0
+
+    async def mock_structured_output(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise ValueError("No valid tool use found")
+        else:
+            async for event in agenerator([{"output": user}]):
+                yield event
+
+    agent.model.structured_output = mock_structured_output
+
+    prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
+
+    # Call with max_retries=1
+    tru_result = agent.structured_output(type(user), prompt, max_retries=1)
+    exp_result = user
+    assert tru_result == exp_result
+    assert call_count == 2  # Should have been called twice
+
+
+def test_agent_structured_output_retry_exhausted(agent, system_prompt, user):
+    """Test that structured_output raises exception after exhausting retries."""
+    from pydantic import ValidationError
+
+    # Always raise ValidationError
+    async def mock_structured_output(*args, **kwargs):
+        raise ValidationError.from_exception_data("test", [])
+        yield  # Make it a generator
+
+    agent.model.structured_output = mock_structured_output
+
+    prompt = "Jane Doe is 30 years old and her email is jane@doe.com"
+
+    # Should raise after max_retries attempts
+    with pytest.raises(ValidationError):
+        agent.structured_output(type(user), prompt, max_retries=2)
 
 
 @pytest.mark.asyncio

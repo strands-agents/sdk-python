@@ -29,7 +29,7 @@ from typing import (
 )
 
 from opentelemetry import trace as trace_api
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .. import _identifier
 from ..event_loop.event_loop import event_loop_cycle
@@ -445,7 +445,7 @@ class Agent:
 
         return cast(AgentResult, event["result"])
 
-    def structured_output(self, output_model: Type[T], prompt: AgentInput = None) -> T:
+    def structured_output(self, output_model: Type[T], prompt: AgentInput = None, max_retries: int = 0) -> T:
         """This method allows you to get structured output from the agent.
 
         If you pass in a prompt, it will be used temporarily without adding it to the conversation history.
@@ -462,19 +462,23 @@ class Agent:
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
+            max_retries: Maximum number of self-healing retry attempts (additional LLM calls)
+                if validation fails (default: 0).
 
         Raises:
             ValueError: If no conversation history or prompt is provided.
         """
 
         def execute() -> T:
-            return asyncio.run(self.structured_output_async(output_model, prompt))
+            return asyncio.run(self.structured_output_async(output_model, prompt, max_retries))
 
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)
             return future.result()
 
-    async def structured_output_async(self, output_model: Type[T], prompt: AgentInput = None) -> T:
+    async def structured_output_async(
+        self, output_model: Type[T], prompt: AgentInput = None, max_retries: int = 0
+    ) -> T:
         """This method allows you to get structured output from the agent.
 
         If you pass in a prompt, it will be used temporarily without adding it to the conversation history.
@@ -487,6 +491,8 @@ class Agent:
             output_model: The output model (a JSON schema written as a Pydantic BaseModel)
                 that the agent will use when responding.
             prompt: The prompt to use for the agent (will not be added to conversation history).
+            max_retries: Maximum number of self-healing retry attempts (additional LLM calls)
+                if validation fails (default: 0).
 
         Raises:
             ValueError: If no conversation history or prompt is provided.
@@ -507,6 +513,7 @@ class Agent:
                         "gen_ai.agent.name": self.name,
                         "gen_ai.agent.id": self.agent_id,
                         "gen_ai.operation.name": "execute_structured_output",
+                        "gen_ai.structured_output.max_retries": max_retries,
                     }
                 )
                 if self.system_prompt:
@@ -519,17 +526,51 @@ class Agent:
                         f"gen_ai.{message['role']}.message",
                         attributes={"role": message["role"], "content": serialize(message["content"])},
                     )
-                events = self.model.structured_output(output_model, temp_messages, system_prompt=self.system_prompt)
-                async for event in events:
-                    if isinstance(event, TypedEvent):
-                        event.prepare(invocation_state={})
-                        if event.is_callback_event:
-                            self.callback_handler(**event.as_dict())
 
-                structured_output_span.add_event(
-                    "gen_ai.choice", attributes={"message": serialize(event["output"].model_dump())}
-                )
-                return event["output"]
+                last_exception = None
+                for attempt in range(max_retries + 1):
+                    try:
+                        if attempt > 0:
+                            structured_output_span.add_event(
+                                "gen_ai.structured_output.retry",
+                                attributes={"attempt": attempt, "error": str(last_exception)},
+                            )
+
+                        events = self.model.structured_output(
+                            output_model, temp_messages, system_prompt=self.system_prompt
+                        )
+                        async for event in events:
+                            if isinstance(event, TypedEvent):
+                                event.prepare(invocation_state={})
+                                if event.is_callback_event:
+                                    self.callback_handler(**event.as_dict())
+
+                        structured_output_span.add_event(
+                            "gen_ai.choice", attributes={"message": serialize(event["output"].model_dump())}
+                        )
+                        return event["output"]
+
+                    except (ValidationError, ValueError) as e:
+                        last_exception = e
+                        if attempt < max_retries:
+                            temp_messages = temp_messages + [
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "text": (
+                                                "Try again to generate a structured output. "
+                                                f"Your previous attempt failed with this exception: {e}"
+                                            )
+                                        }
+                                    ],
+                                }
+                            ]
+                        else:
+                            raise
+
+                # Should never reach here, but satisfy type checker
+                raise RuntimeError("Structured output failed after all retry attempts")
 
             finally:
                 self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
