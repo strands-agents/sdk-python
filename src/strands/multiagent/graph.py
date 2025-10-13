@@ -503,28 +503,40 @@ class Graph(MultiAgentBase):
     async def _stream_with_timeout(
         self, async_generator: AsyncIterator[Any], timeout: float | None, timeout_message: str
     ) -> AsyncIterator[Any]:
-        """Wrap an async generator with timeout functionality.
+        """Wrap an async generator with timeout for total execution time.
+
+        Tracks elapsed time from start and enforces timeout across all events.
+        Each event wait uses remaining time from the total timeout budget.
 
         Args:
             async_generator: The generator to wrap
-            timeout: Timeout in seconds, or None for no timeout
+            timeout: Total timeout in seconds for entire stream, or None for no timeout
             timeout_message: Message to include in timeout exception
 
         Yields:
-            Events from the wrapped generator
+            Events from the wrapped generator as they arrive
 
         Raises:
-            Exception: If timeout is exceeded (same as original behavior)
+            Exception: If total execution time exceeds timeout
         """
         if timeout is None:
             # No timeout - just pass through
             async for event in async_generator:
                 yield event
         else:
-            # Apply timeout to each event
+            # Track start time for total timeout
+            start_time = asyncio.get_event_loop().time()
+
             while True:
+                # Calculate remaining time from total timeout budget
+                elapsed = asyncio.get_event_loop().time() - start_time
+                remaining = timeout - elapsed
+
+                if remaining <= 0:
+                    raise Exception(timeout_message)
+
                 try:
-                    event = await asyncio.wait_for(async_generator.__anext__(), timeout=timeout)
+                    event = await asyncio.wait_for(async_generator.__anext__(), timeout=remaining)
                     yield event
                 except StopAsyncIteration:
                     break
@@ -722,13 +734,12 @@ class Graph(MultiAgentBase):
                 if agent_response is None:
                     raise ValueError(f"Node '{node.node_id}' did not produce a result event")
 
-                usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
-                metrics = Metrics(latencyMs=0)
-                if hasattr(agent_response, "metrics") and agent_response.metrics:
-                    if hasattr(agent_response.metrics, "accumulated_usage"):
-                        usage = agent_response.metrics.accumulated_usage
-                    if hasattr(agent_response.metrics, "accumulated_metrics"):
-                        metrics = agent_response.metrics.accumulated_metrics
+                # Extract metrics with defaults
+                response_metrics = getattr(agent_response, "metrics", None)
+                usage = getattr(
+                    response_metrics, "accumulated_usage", Usage(inputTokens=0, outputTokens=0, totalTokens=0)
+                )
+                metrics = getattr(response_metrics, "accumulated_metrics", Metrics(latencyMs=0))
 
                 node_result = NodeResult(
                     result=agent_response,

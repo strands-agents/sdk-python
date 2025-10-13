@@ -354,28 +354,40 @@ class Swarm(MultiAgentBase):
     async def _stream_with_timeout(
         self, async_generator: AsyncIterator[Any], timeout: float | None, timeout_message: str
     ) -> AsyncIterator[Any]:
-        """Wrap an async generator with timeout functionality.
+        """Wrap an async generator with timeout for total execution time.
+
+        Tracks elapsed time from start and enforces timeout across all events.
+        Each event wait uses remaining time from the total timeout budget.
 
         Args:
             async_generator: The generator to wrap
-            timeout: Timeout in seconds, or None for no timeout
+            timeout: Total timeout in seconds for entire stream, or None for no timeout
             timeout_message: Message to include in timeout exception
 
         Yields:
-            Events from the wrapped generator
+            Events from the wrapped generator as they arrive
 
         Raises:
-            Exception: If timeout is exceeded (same as original behavior)
+            Exception: If total execution time exceeds timeout
         """
         if timeout is None:
             # No timeout - just pass through
             async for event in async_generator:
                 yield event
         else:
-            # Apply timeout to each event
+            # Track start time for total timeout
+            start_time = asyncio.get_event_loop().time()
+
             while True:
+                # Calculate remaining time from total timeout budget
+                elapsed = asyncio.get_event_loop().time() - start_time
+                remaining = timeout - elapsed
+
+                if remaining <= 0:
+                    raise Exception(timeout_message)
+
                 try:
-                    event = await asyncio.wait_for(async_generator.__anext__(), timeout=timeout)
+                    event = await asyncio.wait_for(async_generator.__anext__(), timeout=remaining)
                     yield event
                 except StopAsyncIteration:
                     break
@@ -734,14 +746,10 @@ class Swarm(MultiAgentBase):
 
             execution_time = round((time.time() - start_time) * 1000)
 
-            # Create NodeResult
-            usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
-            metrics = Metrics(latencyMs=execution_time)
-            if hasattr(result, "metrics") and result.metrics:
-                if hasattr(result.metrics, "accumulated_usage"):
-                    usage = result.metrics.accumulated_usage
-                if hasattr(result.metrics, "accumulated_metrics"):
-                    metrics = result.metrics.accumulated_metrics
+            # Create NodeResult with extracted metrics
+            result_metrics = getattr(result, "metrics", None)
+            usage = getattr(result_metrics, "accumulated_usage", Usage(inputTokens=0, outputTokens=0, totalTokens=0))
+            metrics = getattr(result_metrics, "accumulated_metrics", Metrics(latencyMs=execution_time))
 
             node_result = NodeResult(
                 result=result,

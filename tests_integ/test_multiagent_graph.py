@@ -400,3 +400,184 @@ async def test_nested_graph_streaming():
     summary_events = [e for e in events if e.get("node_id") == "summary"]
     assert len(computation_events) > 0, "Expected events from computation (nested graph) node"
     assert len(summary_events) > 0, "Expected events from summary node"
+
+
+@pytest.mark.asyncio
+async def test_graph_metrics_accumulation():
+    """Test that graph properly accumulates metrics from agent nodes."""
+    math_agent = Agent(
+        name="math",
+        model="us.amazon.nova-pro-v1:0",
+        system_prompt="You are a math assistant.",
+        tools=[calculate_sum],
+    )
+    summary_agent = Agent(
+        name="summary",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are a summary assistant.",
+    )
+
+    builder = GraphBuilder()
+    builder.add_node(math_agent, "math")
+    builder.add_node(summary_agent, "summary")
+    builder.add_edge("math", "summary")
+    builder.set_entry_point("math")
+    graph = builder.build()
+
+    result = await graph.invoke_async("Calculate 5 + 3 and summarize the result")
+
+    # Verify result has accumulated metrics
+    assert result.accumulated_usage is not None
+    assert result.accumulated_usage.totalTokens > 0, "Expected non-zero total tokens"
+    assert result.accumulated_usage.inputTokens > 0, "Expected non-zero input tokens"
+    assert result.accumulated_usage.outputTokens > 0, "Expected non-zero output tokens"
+
+    assert result.accumulated_metrics is not None
+    assert result.accumulated_metrics.latencyMs > 0, "Expected non-zero latency"
+
+    # Verify individual node results have metrics
+    for node_id, node_result in result.results.items():
+        assert node_result.accumulated_usage is not None, f"Node {node_id} missing usage metrics"
+        assert node_result.accumulated_usage.totalTokens > 0, f"Node {node_id} has zero total tokens"
+        assert node_result.accumulated_metrics is not None, f"Node {node_id} missing metrics"
+
+    # Verify accumulated metrics are sum of node metrics
+    total_tokens = sum(node_result.accumulated_usage.totalTokens for node_result in result.results.values())
+    assert result.accumulated_usage.totalTokens == total_tokens, "Accumulated tokens don't match sum of node tokens"
+
+
+@pytest.mark.asyncio
+async def test_graph_node_timeout_with_real_streaming():
+    """Test that node timeout properly cancels a streaming generator that freezes."""
+    import asyncio
+
+    # Create an agent that will timeout during streaming
+    slow_agent = Agent(
+        name="slow_agent",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are a slow agent. Take your time responding.",
+    )
+
+    # Override stream_async to simulate a freezing generator
+    original_stream = slow_agent.stream_async
+
+    async def freezing_stream(*args, **kwargs):
+        """Simulate a generator that yields some events then freezes."""
+        # Yield a few events normally
+        count = 0
+        async for event in original_stream(*args, **kwargs):
+            yield event
+            count += 1
+            if count >= 3:
+                # Simulate freezing - sleep longer than timeout
+                await asyncio.sleep(10.0)
+                break
+
+    slow_agent.stream_async = freezing_stream
+
+    # Create graph with short node timeout
+    builder = GraphBuilder()
+    builder.add_node(slow_agent, "slow_node")
+    builder.set_node_timeout(0.5)  # 500ms timeout
+    graph = builder.build()
+
+    # Execute - should timeout and raise exception
+    with pytest.raises(Exception, match="Node 'slow_node' execution timed out after 0.5s"):
+        await graph.invoke_async("Test freezing generator")
+
+
+@pytest.mark.asyncio
+async def test_graph_streams_events_before_timeout():
+    """Test that events are streamed in real-time before timeout occurs."""
+    # Create a normal agent
+    agent = Agent(
+        name="test_agent",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are a test agent. Respond briefly.",
+    )
+
+    # Create graph with reasonable timeout
+    builder = GraphBuilder()
+    builder.add_node(agent, "test_node")
+    builder.set_node_timeout(30.0)  # Long enough to complete
+    graph = builder.build()
+
+    # Collect events
+    events = []
+    async for event in graph.stream_async("Say hello"):
+        events.append(event)
+
+    # Verify we got multiple streaming events before completion
+    node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
+    assert len(node_stream_events) > 0, "Expected streaming events before completion"
+
+    # Verify final result - there are 2 result events:
+    # 1. Agent's result forwarded as multi_agent_node_stream
+    # 2. Graph's final result
+    result_events = [e for e in events if "result" in e and "multi_agent_node_start" not in e]
+    assert len(result_events) >= 1, "Expected at least one result event"
+
+    # The last event should be the graph result
+    final_result = events[-1]["result"]
+    assert final_result.status == Status.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_graph_timeout_cleanup_on_exception():
+    """Test that timeout properly cleans up tasks even when exceptions occur."""
+    # Create an agent
+    agent = Agent(
+        name="test_agent",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are a test agent.",
+    )
+
+    # Override stream_async to raise an exception after some events
+    original_stream = agent.stream_async
+
+    async def exception_stream(*args, **kwargs):
+        """Simulate a generator that raises an exception."""
+        count = 0
+        async for event in original_stream(*args, **kwargs):
+            yield event
+            count += 1
+            if count >= 2:
+                raise ValueError("Simulated error during streaming")
+
+    agent.stream_async = exception_stream
+
+    # Create graph with timeout
+    builder = GraphBuilder()
+    builder.add_node(agent, "test_node")
+    builder.set_node_timeout(30.0)
+    graph = builder.build()
+
+    # Execute - the exception propagates through _stream_with_timeout
+    # The simpler implementation doesn't wrap exceptions, it lets them propagate
+    with pytest.raises(ValueError, match="Simulated error during streaming"):
+        await graph.invoke_async("Test exception handling")
+
+
+@pytest.mark.asyncio
+async def test_graph_no_timeout_backward_compatibility():
+    """Test that graphs without timeout work exactly as before."""
+    # Create a normal agent
+    agent = Agent(
+        name="test_agent",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are a test agent. Respond briefly.",
+    )
+
+    # Create graph without timeout (backward compatibility)
+    builder = GraphBuilder()
+    builder.add_node(agent, "test_node")
+    graph = builder.build()
+
+    # Verify no timeout is set
+    assert graph.node_timeout is None
+    assert graph.execution_timeout is None
+
+    # Execute - should complete normally
+    result = await graph.invoke_async("Say hello")
+    assert result.status == Status.COMPLETED
+    assert result.completed_nodes == 1

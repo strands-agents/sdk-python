@@ -10,6 +10,7 @@ from strands.hooks import (
     BeforeToolCallEvent,
     MessageAddedEvent,
 )
+from strands.multiagent.base import Status
 from strands.multiagent.swarm import Swarm
 from strands.types.content import ContentBlock
 from tests.fixtures.mock_hook_provider import MockHookProvider
@@ -172,3 +173,150 @@ async def test_swarm_streaming():
     researcher_events = [e for e in events if e.get("node_id") == "researcher"]
     analyst_events = [e for e in events if e.get("node_id") == "analyst"]
     assert len(researcher_events) > 0 or len(analyst_events) > 0, "Expected events from at least one agent"
+
+
+@pytest.mark.asyncio
+async def test_swarm_node_timeout_with_real_streaming():
+    """Test that swarm node timeout properly cancels a streaming generator that freezes."""
+    import asyncio
+
+    # Create an agent that will timeout during streaming
+    slow_agent = Agent(
+        name="slow_agent",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are a slow agent. Take your time responding.",
+    )
+
+    # Override stream_async to simulate a freezing generator
+    original_stream = slow_agent.stream_async
+
+    async def freezing_stream(*args, **kwargs):
+        """Simulate a generator that yields some events then freezes."""
+        # Yield a few events normally
+        count = 0
+        async for event in original_stream(*args, **kwargs):
+            yield event
+            count += 1
+            if count >= 3:
+                # Simulate freezing - sleep longer than timeout
+                await asyncio.sleep(10.0)
+                break
+
+    slow_agent.stream_async = freezing_stream
+
+    # Create swarm with short node timeout
+    swarm = Swarm(
+        nodes=[slow_agent],
+        max_handoffs=1,
+        max_iterations=1,
+        node_timeout=0.5,  # 500ms timeout
+    )
+
+    # Execute - should complete with FAILED status due to timeout
+    result = await swarm.invoke_async("Test freezing generator")
+    assert result.status == Status.FAILED
+
+
+@pytest.mark.asyncio
+async def test_swarm_streams_events_before_timeout():
+    """Test that swarm events are streamed in real-time before timeout occurs."""
+    # Create a normal agent
+    agent = Agent(
+        name="test_agent",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are a test agent. Respond briefly.",
+    )
+
+    # Create swarm with reasonable timeout
+    swarm = Swarm(
+        nodes=[agent],
+        max_handoffs=1,
+        max_iterations=1,
+        node_timeout=30.0,  # Long enough to complete
+    )
+
+    # Collect events
+    events = []
+    async for event in swarm.stream_async("Say hello"):
+        events.append(event)
+
+    # Verify we got multiple streaming events before completion
+    node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
+    assert len(node_stream_events) > 0, "Expected streaming events before completion"
+
+    # Verify final result - there are 2 result events:
+    # 1. Agent's result forwarded as multi_agent_node_stream
+    # 2. Swarm's final result
+    result_events = [e for e in events if "result" in e and "multi_agent_node_start" not in e]
+    assert len(result_events) >= 1, "Expected at least one result event"
+
+    # The last event should be the swarm result
+    final_result = events[-1]["result"]
+    assert final_result.status == Status.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_swarm_timeout_cleanup_on_exception():
+    """Test that swarm timeout properly cleans up tasks even when exceptions occur."""
+    # Create an agent
+    agent = Agent(
+        name="test_agent",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are a test agent.",
+    )
+
+    # Override stream_async to raise an exception after some events
+    original_stream = agent.stream_async
+
+    async def exception_stream(*args, **kwargs):
+        """Simulate a generator that raises an exception."""
+        count = 0
+        async for event in original_stream(*args, **kwargs):
+            yield event
+            count += 1
+            if count >= 2:
+                raise ValueError("Simulated error during streaming")
+
+    agent.stream_async = exception_stream
+
+    # Create swarm with timeout
+    swarm = Swarm(
+        nodes=[agent],
+        max_handoffs=1,
+        max_iterations=1,
+        node_timeout=30.0,
+    )
+
+    # Execute - swarm catches exceptions and continues, marking node as failed
+    # The overall swarm status is COMPLETED even if a node fails
+    result = await swarm.invoke_async("Test exception handling")
+    # Verify the node failed but swarm completed
+    assert "test_agent" in result.results
+    assert result.results["test_agent"].status == Status.FAILED
+
+
+@pytest.mark.asyncio
+async def test_swarm_no_timeout_backward_compatibility():
+    """Test that swarms without timeout work exactly as before."""
+    # Create a normal agent
+    agent = Agent(
+        name="test_agent",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are a test agent. Respond briefly.",
+    )
+
+    # Create swarm without timeout (backward compatibility)
+    swarm = Swarm(
+        nodes=[agent],
+        max_handoffs=1,
+        max_iterations=1,
+    )
+
+    # Note: Swarm has default timeouts for safety
+    # This is intentional to prevent runaway executions
+    assert swarm.node_timeout == 300.0  # Default node timeout
+    assert swarm.execution_timeout == 900.0  # Default execution timeout
+
+    # Execute - should complete normally
+    result = await swarm.invoke_async("Say hello")
+    assert result.status == Status.COMPLETED
