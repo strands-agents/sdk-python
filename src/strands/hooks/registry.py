@@ -7,14 +7,11 @@ functions, supporting both individual callback registration and bulk registratio
 via hook provider objects.
 """
 
-import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generator, Generic, Protocol, Type, TypeVar
 
 if TYPE_CHECKING:
     from ..agent import Agent
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass

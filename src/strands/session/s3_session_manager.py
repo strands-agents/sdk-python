@@ -303,21 +303,6 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         except ClientError as e:
             raise SessionException(f"S3 error reading messages: {e}") from e
 
-    async def _load_messages_concurrently(self, message_keys: List[str]) -> List[SessionMessage]:
-        """Load multiple message objects concurrently using async."""
-        if not message_keys:
-            return []
-
-        async def load_message(key: str) -> Optional[SessionMessage]:
-            loop = asyncio.get_event_loop()
-            message_data = await loop.run_in_executor(None, self._read_s3_object, key)
-            return SessionMessage.from_dict(message_data) if message_data else None
-
-        tasks = [load_message(key) for key in message_keys]
-        loaded_messages = await asyncio.gather(*tasks)
-
-        return [msg for msg in loaded_messages if msg is not None]
-
     def write_multi_agent_json(self, state: dict[str, Any]) -> None:
         """Write multi-agent state to S3.
 
