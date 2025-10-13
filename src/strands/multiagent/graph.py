@@ -572,11 +572,11 @@ class Graph(MultiAgentBase):
                 elif isinstance(node.executor, Agent):
                     if self.node_timeout is not None:
                         agent_response = await asyncio.wait_for(
-                            node.executor.invoke_async(node_input, **invocation_state),
+                            node.executor.invoke_async(node_input, invocation_state=invocation_state),
                             timeout=self.node_timeout,
                         )
                     else:
-                        agent_response = await node.executor.invoke_async(node_input, **invocation_state)
+                        agent_response = await node.executor.invoke_async(node_input, invocation_state=invocation_state)
 
                     # Extract metrics from agent response
                     usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
