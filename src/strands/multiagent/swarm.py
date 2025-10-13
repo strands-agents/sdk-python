@@ -286,7 +286,7 @@ class Swarm(MultiAgentBase):
         async for event in events:
             _ = event
 
-        return cast(SwarmResult, event["multiagent_result"])
+        return cast(SwarmResult, event["result"])
 
     async def stream_async(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
@@ -340,6 +340,9 @@ class Swarm(MultiAgentBase):
                 async for event in self._execute_swarm(invocation_state):
                     yield event.as_dict()
 
+                # Set execution time before building result
+                self.state.execution_time = round((time.time() - start_time) * 1000)
+
                 # Yield final result (consistent with Agent's AgentResultEvent format)
                 result = self._build_result()
                 yield MultiAgentResultEvent(result=result).as_dict()
@@ -347,9 +350,9 @@ class Swarm(MultiAgentBase):
             except Exception:
                 logger.exception("swarm execution failed")
                 self.state.completion_status = Status.FAILED
-                raise
-            finally:
+                # Set execution time even on failure
                 self.state.execution_time = round((time.time() - start_time) * 1000)
+                raise
 
     async def _stream_with_timeout(
         self, async_generator: AsyncIterator[Any], timeout: float | None, timeout_message: str
@@ -737,7 +740,7 @@ class Swarm(MultiAgentBase):
                 wrapped_event = MultiAgentNodeStreamEvent(node_name, event)
                 yield wrapped_event
                 # Capture the final result event
-                if isinstance(event, dict) and "result" in event:
+                if "result" in event:
                     result = event["result"]
 
             # Use the captured result from streaming to avoid double execution

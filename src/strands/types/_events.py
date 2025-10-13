@@ -363,7 +363,7 @@ class MultiAgentResultEvent(TypedEvent):
         Args:
             result: The final result from multi-agent execution (SwarmResult, GraphResult, etc.)
         """
-        super().__init__({"multiagent_result": result})
+        super().__init__({"result": result})
 
 
 class MultiAgentNodeStartEvent(TypedEvent):

@@ -278,7 +278,7 @@ async def test_graph_streaming_with_agents():
     node_start_events = [e for e in events if e.get("multi_agent_node_start")]
     node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
     node_complete_events = [e for e in events if e.get("multi_agent_node_complete")]
-    result_events = [e for e in events if "multiagent_result" in e]
+    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
 
     # Verify we got multiple events of each type
     assert len(node_start_events) >= 2, f"Expected at least 2 node_start events, got {len(node_start_events)}"
@@ -326,8 +326,16 @@ async def test_graph_streaming_with_custom_node():
     # Count event categories
     node_start_events = [e for e in events if e.get("multi_agent_node_start")]
     node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
-    custom_events = [e for e in events if e.get("custom_event")]
-    result_events = [e for e in events if "multiagent_result" in e]
+    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
+
+    # Extract custom events from wrapped node_stream events
+    # Structure: {"multi_agent_node_stream": True, "node_id": "...", "event": {...}}
+    custom_events = []
+    for e in node_stream_events:
+        if e.get("multi_agent_node_stream") and "event" in e:
+            inner_event = e["event"]
+            if isinstance(inner_event, dict) and "custom_event" in inner_event:
+                custom_events.append(inner_event)
 
     # Verify we got multiple events of each type
     assert len(node_start_events) >= 2, f"Expected at least 2 node_start events, got {len(node_start_events)}"
@@ -388,7 +396,7 @@ async def test_nested_graph_streaming():
     # Count event categories
     node_start_events = [e for e in events if e.get("multi_agent_node_start")]
     node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
-    result_events = [e for e in events if "multiagent_result" in e]
+    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
 
     # Verify we got multiple events
     assert len(node_start_events) >= 2, f"Expected at least 2 node_start events, got {len(node_start_events)}"
@@ -428,22 +436,22 @@ async def test_graph_metrics_accumulation():
 
     # Verify result has accumulated metrics
     assert result.accumulated_usage is not None
-    assert result.accumulated_usage.totalTokens > 0, "Expected non-zero total tokens"
-    assert result.accumulated_usage.inputTokens > 0, "Expected non-zero input tokens"
-    assert result.accumulated_usage.outputTokens > 0, "Expected non-zero output tokens"
+    assert result.accumulated_usage["totalTokens"] > 0, "Expected non-zero total tokens"
+    assert result.accumulated_usage["inputTokens"] > 0, "Expected non-zero input tokens"
+    assert result.accumulated_usage["outputTokens"] > 0, "Expected non-zero output tokens"
 
     assert result.accumulated_metrics is not None
-    assert result.accumulated_metrics.latencyMs > 0, "Expected non-zero latency"
+    assert result.accumulated_metrics["latencyMs"] > 0, "Expected non-zero latency"
 
     # Verify individual node results have metrics
     for node_id, node_result in result.results.items():
         assert node_result.accumulated_usage is not None, f"Node {node_id} missing usage metrics"
-        assert node_result.accumulated_usage.totalTokens > 0, f"Node {node_id} has zero total tokens"
+        assert node_result.accumulated_usage["totalTokens"] > 0, f"Node {node_id} has zero total tokens"
         assert node_result.accumulated_metrics is not None, f"Node {node_id} missing metrics"
 
     # Verify accumulated metrics are sum of node metrics
-    total_tokens = sum(node_result.accumulated_usage.totalTokens for node_result in result.results.values())
-    assert result.accumulated_usage.totalTokens == total_tokens, "Accumulated tokens don't match sum of node tokens"
+    total_tokens = sum(node_result.accumulated_usage["totalTokens"] for node_result in result.results.values())
+    assert result.accumulated_usage["totalTokens"] == total_tokens, "Accumulated tokens don't match sum of node tokens"
 
 
 @pytest.mark.asyncio
@@ -481,9 +489,13 @@ async def test_graph_node_timeout_with_real_streaming():
     builder.set_node_timeout(0.5)  # 500ms timeout
     graph = builder.build()
 
-    # Execute - should timeout and raise exception
-    with pytest.raises(Exception, match="Node 'slow_node' execution timed out after 0.5s"):
-        await graph.invoke_async("Test freezing generator")
+    # Execute - should timeout and return FAILED status (graceful handling)
+    result = await graph.invoke_async("Test freezing generator")
+
+    # Verify graceful failure handling
+    assert result.status == Status.FAILED, "Expected FAILED status on timeout"
+    assert "slow_node" in result.results, "Expected slow_node in results"
+    assert result.results["slow_node"].status == Status.FAILED, "Expected node to have FAILED status"
 
 
 @pytest.mark.asyncio
@@ -511,14 +523,14 @@ async def test_graph_streams_events_before_timeout():
     node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
     assert len(node_stream_events) > 0, "Expected streaming events before completion"
 
-    # Verify final result - there are 2 result events:
+    # Verify final result - both Agent and Graph use "result" key:
     # 1. Agent's result forwarded as multi_agent_node_stream (with key "result")
-    # 2. Graph's final result (with key "multiagent_result")
-    result_events = [e for e in events if "multiagent_result" in e]
+    # 2. Graph's final result (with key "result", not wrapped in node_stream)
+    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
     assert len(result_events) >= 1, "Expected at least one result event"
 
     # The last event should be the graph result
-    final_result = events[-1]["multiagent_result"]
+    final_result = events[-1]["result"]
     assert final_result.status == Status.COMPLETED
 
 

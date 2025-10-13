@@ -76,7 +76,7 @@ def create_mock_multi_agent(name, response_text="Multi-agent response"):
     async def mock_multi_stream_async(*args, **kwargs):
         # Simple mock stream that yields a start event and then the result
         yield {"multi_agent_start": True}
-        yield {"multiagent_result": mock_result}
+        yield {"result": mock_result}
 
     multi_agent.invoke_async = AsyncMock(return_value=mock_result)
     multi_agent.stream_async = Mock(side_effect=mock_multi_stream_async)
@@ -308,9 +308,10 @@ async def test_graph_execution_with_failures(mock_strands_tracer, mock_use_span)
 
     graph = builder.build()
 
-    # Execute the graph - should raise Exception due to failing agent
-    with pytest.raises(Exception, match="Simulated failure"):
-        await graph.invoke_async("Test error handling")
+    # Execute the graph - should complete with FAILED status (original behavior)
+    result = await graph.invoke_async("Test error handling")
+    assert result.status == Status.FAILED
+    assert result.failed_nodes == 1
 
     mock_strands_tracer.start_multiagent_span.assert_called()
     mock_use_span.assert_called_once()
@@ -664,9 +665,10 @@ async def test_graph_node_timeout(mock_strands_tracer, mock_use_span):
     builder.add_node(timeout_agent, "timeout_node")
     graph = builder.set_max_node_executions(50).set_execution_timeout(900.0).set_node_timeout(0.1).build()
 
-    # Execute the graph - should raise Exception due to timeout
-    with pytest.raises(Exception, match="Node 'timeout_node' execution timed out after 0.1s"):
-        await graph.invoke_async("Test node timeout")
+    # Execute the graph - should complete with FAILED status due to timeout (original behavior)
+    result = await graph.invoke_async("Test node timeout")
+    assert result.status == Status.FAILED
+    assert result.failed_nodes == 1
 
     mock_strands_tracer.start_multiagent_span.assert_called()
     mock_use_span.assert_called()
@@ -1422,7 +1424,7 @@ async def test_graph_streaming_events(mock_strands_tracer, mock_use_span):
     node_start_events = [e for e in events if e.get("multi_agent_node_start")]
     node_complete_events = [e for e in events if e.get("multi_agent_node_complete")]
     node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
-    result_events = [e for e in events if "multiagent_result" in e]
+    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
 
     # Should have start/complete events for both nodes
     assert len(node_start_events) == 2
@@ -1452,7 +1454,7 @@ async def test_graph_streaming_events(mock_strands_tracer, mock_use_span):
         assert event["node_id"] in ["a", "b"]
 
     # Verify final result
-    final_result = result_events[0]["multiagent_result"]
+    final_result = result_events[0]["result"]
     assert final_result.status == Status.COMPLETED
 
 
@@ -1544,23 +1546,27 @@ async def test_graph_streaming_with_failures(mock_strands_tracer, mock_use_span)
     builder.set_entry_point("success")
     graph = builder.build()
 
-    # Collect events until failure
+    # Collect events - graph handles failures gracefully (original behavior)
     events = []
-    try:
-        async for event in graph.stream_async("Test streaming with failure"):
-            events.append(event)
-        raise AssertionError("Expected an exception")
-    except Exception:
-        # Should get some events before failure
-        assert len(events) > 0
+    async for event in graph.stream_async("Test streaming with failure"):
+        events.append(event)
 
-        # Should have node start events
-        node_start_events = [e for e in events if e.get("multi_agent_node_start")]
-        assert len(node_start_events) >= 1
+    # Should get some events before failure
+    assert len(events) > 0
 
-        # Should have some forwarded events before failure
-        node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
-        assert len(node_stream_events) >= 1
+    # Should have node start events
+    node_start_events = [e for e in events if e.get("multi_agent_node_start")]
+    assert len(node_start_events) >= 1
+
+    # Should have some forwarded events before failure
+    node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
+    assert len(node_stream_events) >= 1
+
+    # Graph should complete with FAILED status (original behavior)
+    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
+    assert len(result_events) == 1
+    final_result = result_events[0]["result"]
+    assert final_result.status == Status.FAILED
 
 
 @pytest.mark.asyncio
