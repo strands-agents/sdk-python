@@ -121,7 +121,7 @@ class MultiAgentBase(ABC):
         # Default implementation for backward compatibility
         # Execute invoke_async and yield the result as a single event
         result = await self.invoke_async(task, invocation_state, **kwargs)
-        yield {"result": result}
+        yield {"multiagent_result": result}
 
     def __call__(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any

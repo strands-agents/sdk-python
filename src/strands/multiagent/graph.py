@@ -430,7 +430,7 @@ class Graph(MultiAgentBase):
         async for event in events:
             _ = event
 
-        return cast(GraphResult, event["result"])
+        return cast(GraphResult, event["multiagent_result"])
 
     async def stream_async(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
@@ -699,12 +699,12 @@ class Graph(MultiAgentBase):
                     wrapped_event = MultiAgentNodeStreamEvent(node.node_id, event)
                     yield wrapped_event
                     # Capture the final result event
-                    if isinstance(event, dict) and "result" in event:
-                        multi_agent_result = event["result"]
+                    if isinstance(event, dict) and "multiagent_result" in event:
+                        multi_agent_result = event["multiagent_result"]
 
                 # Use the captured result from streaming (no double execution)
                 if multi_agent_result is None:
-                    raise ValueError(f"Node '{node.node_id}' did not produce a result event")
+                    raise ValueError(f"Node '{node.node_id}' did not produce a multiagent_result event")
 
                 node_result = NodeResult(
                     result=multi_agent_result,

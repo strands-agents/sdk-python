@@ -18,6 +18,7 @@ from .tools import ToolResult, ToolUse
 
 if TYPE_CHECKING:
     from ..agent import AgentResult
+    from ..multiagent.base import MultiAgentResult
 
 
 class TypedEvent(dict):
@@ -356,13 +357,13 @@ class AgentResultEvent(TypedEvent):
 class MultiAgentResultEvent(TypedEvent):
     """Event emitted when multi-agent execution completes with final result."""
 
-    def __init__(self, result: Any) -> None:
+    def __init__(self, result: "MultiAgentResult") -> None:
         """Initialize with multi-agent result.
 
         Args:
             result: The final result from multi-agent execution (SwarmResult, GraphResult, etc.)
         """
-        super().__init__({"result": result})
+        super().__init__({"multiagent_result": result})
 
 
 class MultiAgentNodeStartEvent(TypedEvent):
@@ -419,6 +420,6 @@ class MultiAgentNodeStreamEvent(TypedEvent):
             {
                 "multi_agent_node_stream": True,
                 "node_id": node_id,
-                **agent_event,  # Forward all original agent event data
+                "event": agent_event,  # Nest agent event to avoid field conflicts
             }
         )

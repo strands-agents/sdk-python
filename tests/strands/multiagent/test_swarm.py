@@ -642,7 +642,7 @@ async def test_swarm_streaming_events(mock_strands_tracer, mock_use_span):
     node_start_events = [e for e in events if e.get("multi_agent_node_start")]
     node_complete_events = [e for e in events if e.get("multi_agent_node_complete")]
     node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
-    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
+    result_events = [e for e in events if "multiagent_result" in e]
 
     # Should have at least one node execution
     assert len(node_start_events) >= 1
@@ -671,7 +671,7 @@ async def test_swarm_streaming_events(mock_strands_tracer, mock_use_span):
         assert "node_id" in event
 
     # Verify final result
-    final_result = result_events[0]["result"]
+    final_result = result_events[0]["multiagent_result"]
     assert final_result.status == Status.COMPLETED
 
 
@@ -842,10 +842,10 @@ async def test_swarm_streaming_backward_compatibility(mock_strands_tracer, mock_
         events.append(event)
 
     # Should have final result event
-    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
+    result_events = [e for e in events if "multiagent_result" in e]
     assert len(result_events) == 1
 
-    streaming_result = result_events[0]["result"]
+    streaming_result = result_events[0]["multiagent_result"]
     assert streaming_result.status == Status.COMPLETED
 
     # Results should be equivalent

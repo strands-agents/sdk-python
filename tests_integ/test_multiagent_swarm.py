@@ -162,7 +162,7 @@ async def test_swarm_streaming():
     # Count event categories
     node_start_events = [e for e in events if e.get("multi_agent_node_start")]
     node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
-    result_events = [e for e in events if "result" in e and "multi_agent_node_start" not in e]
+    result_events = [e for e in events if "multiagent_result" in e]
 
     # Verify we got multiple events of each type
     assert len(node_start_events) >= 1, f"Expected at least 1 node_start event, got {len(node_start_events)}"
@@ -245,13 +245,13 @@ async def test_swarm_streams_events_before_timeout():
     assert len(node_stream_events) > 0, "Expected streaming events before completion"
 
     # Verify final result - there are 2 result events:
-    # 1. Agent's result forwarded as multi_agent_node_stream
-    # 2. Swarm's final result
-    result_events = [e for e in events if "result" in e and "multi_agent_node_start" not in e]
+    # 1. Agent's result forwarded as multi_agent_node_stream (with key "result")
+    # 2. Swarm's final result (with key "multiagent_result")
+    result_events = [e for e in events if "multiagent_result" in e]
     assert len(result_events) >= 1, "Expected at least one result event"
 
     # The last event should be the swarm result
-    final_result = events[-1]["result"]
+    final_result = events[-1]["multiagent_result"]
     assert final_result.status == Status.COMPLETED
 
 

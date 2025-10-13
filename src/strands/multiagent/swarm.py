@@ -286,7 +286,7 @@ class Swarm(MultiAgentBase):
         async for event in events:
             _ = event
 
-        return cast(SwarmResult, event["result"])
+        return cast(SwarmResult, event["multiagent_result"])
 
     async def stream_async(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any

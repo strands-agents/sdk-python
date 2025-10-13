@@ -76,7 +76,7 @@ def create_mock_multi_agent(name, response_text="Multi-agent response"):
     async def mock_multi_stream_async(*args, **kwargs):
         # Simple mock stream that yields a start event and then the result
         yield {"multi_agent_start": True}
-        yield {"result": mock_result}
+        yield {"multiagent_result": mock_result}
 
     multi_agent.invoke_async = AsyncMock(return_value=mock_result)
     multi_agent.stream_async = Mock(side_effect=mock_multi_stream_async)
@@ -1422,7 +1422,7 @@ async def test_graph_streaming_events(mock_strands_tracer, mock_use_span):
     node_start_events = [e for e in events if e.get("multi_agent_node_start")]
     node_complete_events = [e for e in events if e.get("multi_agent_node_complete")]
     node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
-    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
+    result_events = [e for e in events if "multiagent_result" in e]
 
     # Should have start/complete events for both nodes
     assert len(node_start_events) == 2
@@ -1452,7 +1452,7 @@ async def test_graph_streaming_events(mock_strands_tracer, mock_use_span):
         assert event["node_id"] in ["a", "b"]
 
     # Verify final result
-    final_result = result_events[0]["result"]
+    final_result = result_events[0]["multiagent_result"]
     assert final_result.status == Status.COMPLETED
 
 
