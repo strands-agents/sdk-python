@@ -5,7 +5,7 @@ providing a structured way to observe to different events of the event loop and
 agent lifecycle.
 """
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Sequence, cast
 
 from typing_extensions import override
 
@@ -221,7 +221,7 @@ class EventLoopStopEvent(TypedEvent):
         message: Message,
         metrics: "EventLoopMetrics",
         request_state: Any,
-        interrupts: list[Interrupt] | None = None,
+        interrupts: Sequence[Interrupt] | None = None,
     ) -> None:
         """Initialize with the final execution results.
 

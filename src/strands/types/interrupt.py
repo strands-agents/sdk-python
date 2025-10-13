@@ -26,7 +26,6 @@ class InterruptHookEvent(Protocol):
 
         Raises:
             InterruptException: If human input is required.
-            ValueError: If interrupt name is used more than once.
         """
         id = self._interrupt_id(name)
         state = self.agent.interrupt_state
