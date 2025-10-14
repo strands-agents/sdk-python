@@ -47,7 +47,7 @@ def initialized_event(agent):
 
 @pytest.fixture
 def start_request_event(agent):
-    return BeforeInvocationEvent(agent=agent)
+    return BeforeInvocationEvent(agent=agent, messages=Mock())
 
 
 @pytest.fixture

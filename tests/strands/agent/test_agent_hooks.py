@@ -150,7 +150,10 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
 
     assert length == 12
 
-    assert next(events) == BeforeInvocationEvent(agent=agent)
+    assert next(events) == BeforeInvocationEvent(
+        agent=agent,
+        messages=agent.messages[0:1],
+    )
     assert next(events) == MessageAddedEvent(
         agent=agent,
         message=agent.messages[0],
@@ -199,9 +202,11 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
 @pytest.mark.asyncio
 async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_model, tool_use, agenerator):
     """Verify that the correct hook events are emitted as part of stream_async."""
-    iterator = agent.stream_async("test message")
+    input_prompt = "test message"
+    input_messages: Messages = [{"role": "user", "content": [{"text": input_prompt}]}]
+    iterator = agent.stream_async(input_prompt)
     await anext(iterator)
-    assert hook_provider.events_received == [BeforeInvocationEvent(agent=agent)]
+    assert hook_provider.events_received == [BeforeInvocationEvent(agent=agent, messages=input_messages)]
 
     # iterate the rest
     async for _ in iterator:
@@ -211,7 +216,7 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
 
     assert length == 12
 
-    assert next(events) == BeforeInvocationEvent(agent=agent)
+    assert next(events) == BeforeInvocationEvent(agent=agent, messages=input_messages)
     assert next(events) == MessageAddedEvent(
         agent=agent,
         message=agent.messages[0],
@@ -267,7 +272,15 @@ def test_agent_structured_output_hooks(agent, hook_provider, user, agenerator):
 
     assert length == 2
 
-    assert next(events) == BeforeInvocationEvent(agent=agent)
+    assert next(events) == BeforeInvocationEvent(
+        agent=agent,
+        messages=[
+            {
+                "content": [{"text": "example prompt"}],
+                "role": "user",
+            }
+        ],
+    )
     assert next(events) == AfterInvocationEvent(agent=agent)
 
     assert len(agent.messages) == 0  # no new messages added
@@ -284,7 +297,15 @@ async def test_agent_structured_async_output_hooks(agent, hook_provider, user, a
 
     assert length == 2
 
-    assert next(events) == BeforeInvocationEvent(agent=agent)
+    assert next(events) == BeforeInvocationEvent(
+        agent=agent,
+        messages=[
+            {
+                "content": [{"text": "example prompt"}],
+                "role": "user",
+            }
+        ],
+    )
     assert next(events) == AfterInvocationEvent(agent=agent)
 
     assert len(agent.messages) == 0  # no new messages added
