@@ -1365,36 +1365,25 @@ async def test_tool_async_generator_yield_object_result():
     assert act_results == exp_results
 
 
-def test_tool_with_mismatched_tool_context_param_name_raises_error():
-    """Verify that a ValueError is raised for a mismatched tool_context parameter name."""
-    with pytest.raises(ValueError) as excinfo:
+def test_function_tool_metadata_validate_signature_default_context_name_mismatch():
+    with pytest.raises(ValueError, match=r"param_name=<context> | ToolContext param must be named 'tool_context'"):
 
         @strands.tool(context=True)
         def my_tool(context: ToolContext):
             pass
 
-    assert "ToolContext param must be named 'tool_context'" in str(excinfo.value)
-    assert "param_name=<context>" in str(excinfo.value)
 
-
-def test_tool_with_tool_context_but_no_context_flag_raises_error():
-    """Verify that a ValueError is raised if ToolContext is used without context=True."""
-    with pytest.raises(ValueError) as excinfo:
-
-        @strands.tool
-        def my_tool(tool_context: ToolContext):
-            pass
-
-    assert "@tool(context=True) must be set" in str(excinfo.value)
-
-
-def test_tool_with_tool_context_named_custom_context_raises_error_if_mismatched():
-    """Verify that a ValueError is raised when context param name doesn't match the decorator value."""
-    with pytest.raises(ValueError) as excinfo:
+def test_function_tool_metadata_validate_signature_custom_context_name_mismatch():
+    with pytest.raises(ValueError, match=r"param_name=<tool_context> | ToolContext param must be named 'my_context'"):
 
         @strands.tool(context="my_context")
         def my_tool(tool_context: ToolContext):
             pass
 
-    assert "ToolContext param must be named 'my_context'" in str(excinfo.value)
-    assert "param_name=<tool_context>" in str(excinfo.value)
+
+def test_function_tool_metadata_validate_signature_missing_context_config():
+    with pytest.raises(ValueError, match=r"@tool\(context\) must be set if passing in ToolContext param"):
+
+        @strands.tool
+        def my_tool(tool_context: ToolContext):
+            pass

@@ -115,11 +115,10 @@ class FunctionToolMetadata:
 
     def _validate_signature(self) -> None:
         """Verify that ToolContext is used correctly in the function signature."""
-        # Find and validate the ToolContext parameter
         for param in self.signature.parameters.values():
             if param.annotation is ToolContext:
                 if self._context_param is None:
-                    raise ValueError("@tool(context=True) must be set if passing in ToolContext param")
+                    raise ValueError("@tool(context) must be set if passing in ToolContext param")
 
                 if param.name != self._context_param:
                     raise ValueError(
