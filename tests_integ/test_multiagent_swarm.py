@@ -138,7 +138,7 @@ async def test_swarm_execution_with_image(researcher_agent, analyst_agent, write
 
 
 @pytest.mark.asyncio
-async def test_swarm_streaming():
+async def test_swarm_streaming(alist):
     """Test that Swarm properly streams events during execution."""
     researcher = Agent(
         name="researcher",
@@ -155,9 +155,7 @@ async def test_swarm_streaming():
     swarm = Swarm([researcher, analyst])
 
     # Collect events
-    events = []
-    async for event in swarm.stream_async("Calculate 10 + 5 and explain the result"):
-        events.append(event)
+    events = await alist(swarm.stream_async("Calculate 10 + 5 and explain the result"))
 
     # Count event categories
     node_start_events = [e for e in events if e.get("multi_agent_node_start")]
@@ -176,7 +174,7 @@ async def test_swarm_streaming():
 
 
 @pytest.mark.asyncio
-async def test_swarm_node_timeout_with_real_streaming():
+async def test_swarm_node_timeout_with_real_streaming(alist):
     """Test that swarm node timeout properly cancels a streaming generator that freezes."""
     import asyncio
 
@@ -218,7 +216,7 @@ async def test_swarm_node_timeout_with_real_streaming():
 
 
 @pytest.mark.asyncio
-async def test_swarm_streams_events_before_timeout():
+async def test_swarm_streams_events_before_timeout(alist):
     """Test that swarm events are streamed in real-time before timeout occurs."""
     # Create a normal agent
     agent = Agent(
@@ -236,9 +234,7 @@ async def test_swarm_streams_events_before_timeout():
     )
 
     # Collect events
-    events = []
-    async for event in swarm.stream_async("Say hello"):
-        events.append(event)
+    events = await alist(swarm.stream_async("Say hello"))
 
     # Verify we got multiple streaming events before completion
     node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
@@ -323,7 +319,7 @@ async def test_swarm_no_timeout_backward_compatibility():
 
 
 @pytest.mark.asyncio
-async def test_swarm_emits_handoff_events():
+async def test_swarm_emits_handoff_events(alist):
     """Verify Swarm emits MultiAgentHandoffEvent during streaming."""
     researcher = Agent(
         name="researcher",
@@ -340,9 +336,7 @@ async def test_swarm_emits_handoff_events():
     swarm = Swarm([researcher, analyst])
 
     # Collect events
-    events = []
-    async for event in swarm.stream_async("Calculate 10 + 5 and explain the result"):
-        events.append(event)
+    events = await alist(swarm.stream_async("Calculate 10 + 5 and explain the result"))
 
     # Find handoff events
     handoff_events = [e for e in events if e.get("multi_agent_handoff")]
@@ -362,7 +356,7 @@ async def test_swarm_emits_handoff_events():
 
 
 @pytest.mark.asyncio
-async def test_swarm_emits_node_complete_events():
+async def test_swarm_emits_node_complete_events(alist):
     """Verify Swarm emits MultiAgentNodeCompleteEvent after each node."""
     agent = Agent(
         name="test_agent",
@@ -373,9 +367,7 @@ async def test_swarm_emits_node_complete_events():
     swarm = Swarm([agent], max_handoffs=1, max_iterations=1)
 
     # Collect events
-    events = []
-    async for event in swarm.stream_async("Say hello"):
-        events.append(event)
+    events = await alist(swarm.stream_async("Say hello"))
 
     # Find node complete events
     complete_events = [e for e in events if e.get("multi_agent_node_complete")]

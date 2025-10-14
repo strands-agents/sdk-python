@@ -1372,7 +1372,7 @@ def test_graph_kwargs_passing_sync(mock_strands_tracer, mock_use_span):
 
 
 @pytest.mark.asyncio
-async def test_graph_streaming_events(mock_strands_tracer, mock_use_span):
+async def test_graph_streaming_events(mock_strands_tracer, mock_use_span, alist):
     """Test that graph streaming emits proper events during execution."""
     # Create agents with custom streaming behavior
     agent_a = create_mock_agent("agent_a", "Response A")
@@ -1411,9 +1411,7 @@ async def test_graph_streaming_events(mock_strands_tracer, mock_use_span):
     graph = builder.build()
 
     # Collect all streaming events
-    events = []
-    async for event in graph.stream_async("Test streaming"):
-        events.append(event)
+    events = await alist(graph.stream_async("Test streaming"))
 
     # Verify event structure and order
     assert len(events) > 0
@@ -1457,7 +1455,7 @@ async def test_graph_streaming_events(mock_strands_tracer, mock_use_span):
 
 
 @pytest.mark.asyncio
-async def test_graph_streaming_parallel_events(mock_strands_tracer, mock_use_span):
+async def test_graph_streaming_parallel_events(mock_strands_tracer, mock_use_span, alist):
     """Test that parallel graph execution properly streams events from concurrent nodes."""
     # Create agents that execute in parallel
     agent_a = create_mock_agent("agent_a", "Response A")
@@ -1491,10 +1489,8 @@ async def test_graph_streaming_parallel_events(mock_strands_tracer, mock_use_spa
     graph = builder.build()
 
     # Collect streaming events
-    events = []
     start_time = time.time()
-    async for event in graph.stream_async("Test parallel streaming"):
-        events.append(event)
+    events = await alist(graph.stream_async("Test parallel streaming"))
     total_time = time.time() - start_time
 
     # Verify parallel execution timing

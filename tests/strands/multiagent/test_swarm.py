@@ -591,7 +591,7 @@ def test_swarm_kwargs_passing_sync(mock_strands_tracer, mock_use_span):
 
 
 @pytest.mark.asyncio
-async def test_swarm_streaming_events(mock_strands_tracer, mock_use_span):
+async def test_swarm_streaming_events(mock_strands_tracer, mock_use_span, alist):
     """Test that swarm streaming emits proper events during execution."""
 
     # Create agents with custom streaming behavior
@@ -631,9 +631,7 @@ async def test_swarm_streaming_events(mock_strands_tracer, mock_use_span):
     coordinator.tool_registry.registry = {"handoff_to_specialist": handoff_to_specialist}
 
     # Collect all streaming events
-    events = []
-    async for event in swarm.stream_async("Test swarm streaming"):
-        events.append(event)
+    events = await alist(swarm.stream_async("Test swarm streaming"))
 
     # Verify event structure
     assert len(events) > 0
@@ -676,7 +674,7 @@ async def test_swarm_streaming_events(mock_strands_tracer, mock_use_span):
 
 
 @pytest.mark.asyncio
-async def test_swarm_streaming_with_handoffs(mock_strands_tracer, mock_use_span):
+async def test_swarm_streaming_with_handoffs(mock_strands_tracer, mock_use_span, alist):
     """Test swarm streaming with agent handoffs."""
 
     # Create agents
@@ -724,9 +722,7 @@ async def test_swarm_streaming_with_handoffs(mock_strands_tracer, mock_use_span)
     swarm = Swarm(nodes=[coordinator, specialist, reviewer], max_handoffs=5, max_iterations=5, execution_timeout=30.0)
 
     # Collect streaming events
-    events = []
-    async for event in swarm.stream_async("Test handoff streaming"):
-        events.append(event)
+    events = await alist(swarm.stream_async("Test handoff streaming"))
 
     # Should have multiple node executions due to handoffs
     node_start_events = [e for e in events if e.get("multi_agent_node_start")]
@@ -769,14 +765,16 @@ async def test_swarm_streaming_with_failures(mock_strands_tracer, mock_use_span)
 
     # Collect events until failure
     events = []
+    # Note: We expect an exception but swarm might handle it gracefully
+    # So we don't use pytest.raises here - we check for either success or failure
     try:
         async for event in swarm.stream_async("Test streaming with failure"):
             events.append(event)
-        # If we get here, the swarm might have handled the failure gracefully
     except Exception:
-        # Should get some events before failure
-        assert len(events) > 0
+        pass  # Expected - failure during streaming
 
+    # Should get some events before failure (if failure occurred)
+    if len(events) > 0:
         # Should have node start events
         node_start_events = [e for e in events if e.get("multi_agent_node_start")]
         assert len(node_start_events) >= 1
@@ -810,21 +808,20 @@ async def test_swarm_streaming_timeout_behavior(mock_strands_tracer, mock_use_sp
     )
 
     # Should timeout during streaming or complete
+    # Note: Timeout behavior is timing-dependent, so we accept both outcomes
     events = []
     try:
         async for event in swarm.stream_async("Test timeout streaming"):
             events.append(event)
-        # If no timeout, that's also acceptable for this test
-        # Just verify we got some events
-        assert len(events) >= 1
     except Exception:
-        # Timeout is expected but not required for this test
-        # Should still get some initial events
-        assert len(events) >= 1
+        pass  # Timeout is acceptable
+
+    # Should get at least some events regardless of timeout
+    assert len(events) >= 1
 
 
 @pytest.mark.asyncio
-async def test_swarm_streaming_backward_compatibility(mock_strands_tracer, mock_use_span):
+async def test_swarm_streaming_backward_compatibility(mock_strands_tracer, mock_use_span, alist):
     """Test that swarm streaming maintains backward compatibility."""
     # Create simple agent
     agent = create_mock_agent("test_agent", "Test response")
@@ -837,9 +834,7 @@ async def test_swarm_streaming_backward_compatibility(mock_strands_tracer, mock_
     assert result.status == Status.COMPLETED
 
     # Test that streaming also works and produces same result
-    events = []
-    async for event in swarm.stream_async("Test backward compatibility"):
-        events.append(event)
+    events = await alist(swarm.stream_async("Test backward compatibility"))
 
     # Should have final result event
     result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]

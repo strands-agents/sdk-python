@@ -248,7 +248,7 @@ class CustomStreamingNode(MultiAgentBase):
 
 
 @pytest.mark.asyncio
-async def test_graph_streaming_with_agents():
+async def test_graph_streaming_with_agents(alist):
     """Test that Graph properly streams events from agent nodes."""
     math_agent = Agent(
         name="math",
@@ -270,9 +270,7 @@ async def test_graph_streaming_with_agents():
     graph = builder.build()
 
     # Collect events
-    events = []
-    async for event in graph.stream_async("Calculate 5 + 3 and summarize the result"):
-        events.append(event)
+    events = await alist(graph.stream_async("Calculate 5 + 3 and summarize the result"))
 
     # Count event categories
     node_start_events = [e for e in events if e.get("multi_agent_node_start")]
@@ -294,7 +292,7 @@ async def test_graph_streaming_with_agents():
 
 
 @pytest.mark.asyncio
-async def test_graph_streaming_with_custom_node():
+async def test_graph_streaming_with_custom_node(alist):
     """Test that Graph properly streams events from custom MultiAgentBase nodes."""
     math_agent = Agent(
         name="math",
@@ -319,9 +317,7 @@ async def test_graph_streaming_with_custom_node():
     graph = builder.build()
 
     # Collect events
-    events = []
-    async for event in graph.stream_async("Calculate 5 + 3 and summarize the result"):
-        events.append(event)
+    events = await alist(graph.stream_async("Calculate 5 + 3 and summarize the result"))
 
     # Count event categories
     node_start_events = [e for e in events if e.get("multi_agent_node_start")]
@@ -352,7 +348,7 @@ async def test_graph_streaming_with_custom_node():
 
 
 @pytest.mark.asyncio
-async def test_nested_graph_streaming():
+async def test_nested_graph_streaming(alist):
     """Test that nested graphs properly propagate streaming events."""
     math_agent = Agent(
         name="math",
@@ -389,9 +385,7 @@ async def test_nested_graph_streaming():
     outer_graph = outer_builder.build()
 
     # Collect events
-    events = []
-    async for event in outer_graph.stream_async("Calculate 7 + 8 and provide a summary"):
-        events.append(event)
+    events = await alist(outer_graph.stream_async("Calculate 7 + 8 and provide a summary"))
 
     # Count event categories
     node_start_events = [e for e in events if e.get("multi_agent_node_start")]
@@ -495,7 +489,7 @@ async def test_graph_node_timeout_with_real_streaming():
 
 
 @pytest.mark.asyncio
-async def test_graph_streams_events_before_timeout():
+async def test_graph_streams_events_before_timeout(alist):
     """Test that events are streamed in real-time before timeout occurs."""
     # Create a normal agent
     agent = Agent(
@@ -511,9 +505,7 @@ async def test_graph_streams_events_before_timeout():
     graph = builder.build()
 
     # Collect events
-    events = []
-    async for event in graph.stream_async("Say hello"):
-        events.append(event)
+    events = await alist(graph.stream_async("Say hello"))
 
     # Verify we got multiple streaming events before completion
     node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
