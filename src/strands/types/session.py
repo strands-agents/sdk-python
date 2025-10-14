@@ -132,7 +132,7 @@ class SessionAgent:
             conversation_manager_state=agent.conversation_manager.get_state(),
             state=agent.state.get(),
             _internal_state={
-                "_interrupt_state": agent._interrupt_state.to_dict(),
+                "interrupt_state": agent._interrupt_state.to_dict(),
             },
         )
 
@@ -147,8 +147,8 @@ class SessionAgent:
 
     def initialize_internal_state(self, agent: "Agent") -> None:
         """Initialize internal state of agent."""
-        if "_interrupt_state" in self._internal_state:
-            agent._interrupt_state = InterruptState.from_dict(self._internal_state["_interrupt_state"])
+        if "interrupt_state" in self._internal_state:
+            agent._interrupt_state = InterruptState.from_dict(self._internal_state["interrupt_state"])
 
 
 @dataclass

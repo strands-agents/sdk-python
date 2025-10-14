@@ -108,7 +108,7 @@ def test_session_agent_from_agent():
         agent_id="a1",
         conversation_manager_state={"test": "conversation"},
         state={"test": "state"},
-        _internal_state={"_interrupt_state": {"interrupts": {}, "context": {}, "activated": False}},
+        _internal_state={"interrupt_state": {"interrupts": {}, "context": {}, "activated": False}},
         created_at=unittest.mock.ANY,
         updated_at=unittest.mock.ANY,
     )
@@ -121,7 +121,7 @@ def test_session_agent_initialize_internal_state():
         agent_id="a1",
         conversation_manager_state={},
         state={},
-        _internal_state={"_interrupt_state": {"interrupts": {}, "context": {"test": "init"}, "activated": False}},
+        _internal_state={"interrupt_state": {"interrupts": {}, "context": {"test": "init"}, "activated": False}},
     )
 
     session_agent.initialize_internal_state(agent)

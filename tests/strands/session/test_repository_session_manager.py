@@ -96,7 +96,7 @@ def test_initialize_restores_existing_agent(session_manager, agent):
         agent_id="existing-agent",
         state={"key": "value"},
         conversation_manager_state=SlidingWindowConversationManager().get_state(),
-        _internal_state={"_interrupt_state": {"interrupts": {}, "context": {"test": "init"}, "activated": False}},
+        _internal_state={"interrupt_state": {"interrupts": {}, "context": {"test": "init"}, "activated": False}},
     )
     session_manager.session_repository.create_agent("test-session", session_agent)
 

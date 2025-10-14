@@ -58,14 +58,14 @@ def test_interrupt_hook_event_interrupt_state(agent, interrupt_hook_event):
         name="custom_test_name",
         reason="custom test reason",
     )
-    assert exp_interrupt.id in agent._interrupt_state
+    assert exp_interrupt.id in agent._interrupt_state.interrupts
 
-    tru_interrupt = agent._interrupt_state[exp_interrupt.id]
+    tru_interrupt = agent._interrupt_state.interrupts[exp_interrupt.id]
     assert tru_interrupt == exp_interrupt
 
 
 def test_interrupt_hook_event_interrupt_response(interrupt, agent, interrupt_hook_event):
-    agent._interrupt_state[interrupt.id] = interrupt
+    agent._interrupt_state.interrupts[interrupt.id] = interrupt
 
     tru_response = interrupt_hook_event.interrupt("test_name")
     exp_response = {"response": "test"}
@@ -74,7 +74,7 @@ def test_interrupt_hook_event_interrupt_response(interrupt, agent, interrupt_hoo
 
 def test_interrupt_hook_event_interrupt_response_empty(interrupt, agent, interrupt_hook_event):
     interrupt.response = None
-    agent._interrupt_state[interrupt.id] = interrupt
+    agent._interrupt_state.interrupts[interrupt.id] = interrupt
 
     with pytest.raises(InterruptException):
         interrupt_hook_event.interrupt("test_name")

@@ -9,41 +9,6 @@ def interrupt():
     return Interrupt(id="test_id", name="test_name", reason="test reason")
 
 
-def test_interrupt_state__contains__(interrupt):
-    interrupt_state = InterruptState(interrupts={"test_id": interrupt})
-
-    assert "test_id" in interrupt_state
-
-
-def test_interrupt_state__getitem__(interrupt):
-    interrupt_state = InterruptState(interrupts={"test_id": interrupt})
-
-    tru_interrupt = interrupt_state["test_id"]
-    exp_interrupt = interrupt
-    assert tru_interrupt == exp_interrupt
-
-
-def test_interrupt_state__setitem__(interrupt):
-    interrupt_state = InterruptState()
-    interrupt_state["test_id"] = interrupt
-
-    tru_interrupt = interrupt_state["test_id"]
-    exp_interrupt = interrupt
-    assert tru_interrupt == exp_interrupt
-
-
-def test_interrupt_state_setdefault(interrupt):
-    interrupt_state = InterruptState()
-
-    tru_interrupt = interrupt_state.setdefault("test_id", interrupt)
-    exp_interrupt = interrupt
-    assert tru_interrupt == exp_interrupt
-
-    tru_interrupt = interrupt_state.setdefault("test_id", Interrupt(id="dummy_id", name="dummy_name"))
-    exp_interrupt = interrupt
-    assert tru_interrupt == exp_interrupt
-
-
 def test_interrupt_activate():
     interrupt_state = InterruptState()
 

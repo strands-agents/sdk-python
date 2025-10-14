@@ -1963,7 +1963,7 @@ def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
     )
 
     agent._interrupt_state.activate(context={"tool_use_message": tool_use_message, "tool_results": []})
-    agent._interrupt_state[interrupt.id] = interrupt
+    agent._interrupt_state.interrupts[interrupt.id] = interrupt
 
     interrupt_response = {}
 
@@ -2032,3 +2032,19 @@ def test_agent__call__resume_interrupt_invalid_content():
 
     with pytest.raises(TypeError, match="content_type=<text>"):
         agent([{"text": "invalid"}])
+
+
+def test_agent__call__resume_interrupt_invalid_id():
+    agent = Agent()
+    agent._interrupt_state.activated = True
+
+    with pytest.raises(KeyError, match=r"interrupt_id=<invalid> \| no interrupt found"):
+        agent([{"interruptResponse": {"interruptId": "invalid", "response": None}}])
+
+
+def test_agent_structured_output_interrupt(user):
+    agent = Agent()
+    agent._interrupt_state.activated = True
+
+    with pytest.raises(RuntimeError, match=r"cannot call structured output during interrupt"):
+        agent.structured_output(type(user), "invalid")

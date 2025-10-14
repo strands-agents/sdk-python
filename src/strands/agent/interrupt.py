@@ -22,34 +22,6 @@ class InterruptState:
     context: dict[str, Any] = field(default_factory=dict)
     activated: bool = False
 
-    def __contains__(self, interrupt_id: str) -> bool:
-        """True if interrupt exists in state, False otherwise."""
-        return interrupt_id in self.interrupts
-
-    def __getitem__(self, interrupt_id: str) -> Interrupt:
-        """Get interrupt associated with the given id."""
-        return self.interrupts[interrupt_id]
-
-    def __setitem__(self, interrupt_id: str, interrupt: Interrupt) -> None:
-        """Set the interrupt in state under the given id."""
-        self.interrupts[interrupt_id] = interrupt
-
-    def setdefault(self, interrupt_id: str, interrupt: Interrupt) -> Interrupt:
-        """Set the interrupt in state under the given id if not already present.
-
-        Args:
-            interrupt_id: Unique id of the interrupt.
-            interrupt: Interrupt instance to store in state if not already present.
-
-        Returns:
-            Interrupt instance in state.
-        """
-        if interrupt_id in self:
-            return self[interrupt_id]
-
-        self[interrupt_id] = interrupt
-        return interrupt
-
     def activate(self, context: dict[str, Any] | None = None) -> None:
         """Activate the interrupt state.
 
@@ -74,7 +46,10 @@ class InterruptState:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "InterruptState":
-        """Initiailize interrupt state from dict."""
+        """Initiailize interrupt state from serialized interrupt state.
+
+        Interrupt state can be serialized with the `to_dict` method.
+        """
         return cls(
             interrupts={
                 interrupt_id: Interrupt(**interrupt_data) for interrupt_id, interrupt_data in data["interrupts"].items()

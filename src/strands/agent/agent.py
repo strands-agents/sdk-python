@@ -495,6 +495,9 @@ class Agent:
         Raises:
             ValueError: If no conversation history or prompt is provided.
         """
+        if self._interrupt_state.activated:
+            raise RuntimeError("cannot call structured output during interrupt")
+
         self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
         with self.tracer.tracer.start_as_current_span(
             "execute_structured_output", kind=trace_api.SpanKind.CLIENT
@@ -642,8 +645,12 @@ class Agent:
                     f"content_type=<{content_type}> | must resume from interrupt with list of interruptResponse's"
                 )
 
-            content_data = content["interruptResponse"]
-            self._interrupt_state[content_data["interruptId"]].response = content_data["response"]
+            interrupt_id = content["interruptResponse"]["interruptId"]
+            interrupt_response = content["interruptResponse"]["response"]
+            if interrupt_id not in self._interrupt_state.interrupts:
+                raise KeyError(f"interrupt_id=<{interrupt_id}> | no interrupt found")
+
+            self._interrupt_state.interrupts[interrupt_id].response = interrupt_response
 
     async def _run_loop(self, messages: Messages, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
         """Execute the agent's event loop with the given message and parameters.
