@@ -634,7 +634,10 @@ class Graph(MultiAgentBase):
         self.state.failed_nodes.add(node)
         self.state.results[node.node_id] = node_result
 
-        complete_event = MultiAgentNodeCompleteEvent(node_id=node.node_id, execution_time=node_result.execution_time)
+        complete_event = MultiAgentNodeCompleteEvent(
+            node_id=node.node_id,
+            node_result=node_result,
+        )
         await event_queue.put(complete_event)
 
         return timeout_exception
@@ -757,8 +760,11 @@ class Graph(MultiAgentBase):
             # Accumulate metrics
             self._accumulate_metrics(node_result)
 
-            # Emit node complete event
-            complete_event = MultiAgentNodeCompleteEvent(node_id=node.node_id, execution_time=node.execution_time)
+            # Emit node complete event with full NodeResult
+            complete_event = MultiAgentNodeCompleteEvent(
+                node_id=node.node_id,
+                node_result=node_result,
+            )
             yield complete_event
 
             logger.debug(
@@ -790,7 +796,10 @@ class Graph(MultiAgentBase):
             self.state.results[node.node_id] = node_result
 
             # Emit complete event even for failures
-            complete_event = MultiAgentNodeCompleteEvent(node_id=node.node_id, execution_time=execution_time)
+            complete_event = MultiAgentNodeCompleteEvent(
+                node_id=node.node_id,
+                node_result=node_result,
+            )
             yield complete_event
 
             # Re-raise to stop graph execution (fail-fast behavior)

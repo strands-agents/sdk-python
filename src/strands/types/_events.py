@@ -18,7 +18,7 @@ from .tools import ToolResult, ToolUse
 
 if TYPE_CHECKING:
     from ..agent import AgentResult
-    from ..multiagent.base import MultiAgentResult
+    from ..multiagent.base import MultiAgentResult, NodeResult
 
 
 class TypedEvent(dict):
@@ -403,16 +403,31 @@ class MultiAgentNodeStartEvent(TypedEvent):
 
 
 class MultiAgentNodeCompleteEvent(TypedEvent):
-    """Event emitted when a node completes execution."""
+    """Event emitted when a node completes execution.
 
-    def __init__(self, node_id: str, execution_time: int) -> None:
+    Similar to EventLoopStopEvent but for individual nodes in multi-agent orchestration.
+    Provides the complete NodeResult which contains execution details, metrics, and status.
+    """
+
+    def __init__(
+        self,
+        node_id: str,
+        node_result: "NodeResult",
+    ) -> None:
         """Initialize with completion information.
 
         Args:
             node_id: Unique identifier for the node
-            execution_time: Execution time in milliseconds
+            node_result: Complete result from the node execution containing result,
+                execution_time, status, accumulated_usage, accumulated_metrics, and execution_count
         """
-        super().__init__({"multi_agent_node_complete": True, "node_id": node_id, "execution_time": execution_time})
+        super().__init__(
+            {
+                "multi_agent_node_complete": True,
+                "node_id": node_id,
+                "node_result": node_result,
+            }
+        )
 
 
 class MultiAgentHandoffEvent(TypedEvent):

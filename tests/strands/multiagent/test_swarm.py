@@ -658,11 +658,13 @@ async def test_swarm_streaming_events(mock_strands_tracer, mock_use_span, alist)
         assert "node_type" in event
         assert event["node_type"] == "agent"
 
-    # Verify node complete events have execution time
+    # Verify node complete events have node_result with execution time
     for event in node_complete_events:
         assert "node_id" in event
-        assert "execution_time" in event
-        assert isinstance(event["execution_time"], int)
+        assert "node_result" in event
+        node_result = event["node_result"]
+        assert hasattr(node_result, "execution_time")
+        assert isinstance(node_result.execution_time, int)
 
     # Verify forwarded events maintain node context
     for event in node_stream_events:

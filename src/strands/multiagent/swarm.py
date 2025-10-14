@@ -773,8 +773,11 @@ class Swarm(MultiAgentBase):
             # Accumulate metrics
             self._accumulate_metrics(node_result)
 
-            # Emit node complete event
-            complete_event = MultiAgentNodeCompleteEvent(node_id=node_name, execution_time=execution_time)
+            # Emit node complete event with full NodeResult
+            complete_event = MultiAgentNodeCompleteEvent(
+                node_id=node_name,
+                node_result=node_result,
+            )
             yield complete_event
 
         except Exception as e:
@@ -795,7 +798,10 @@ class Swarm(MultiAgentBase):
             self.state.results[node_name] = node_result
 
             # Emit node complete event even for failures
-            complete_event = MultiAgentNodeCompleteEvent(node_id=node_name, execution_time=execution_time)
+            complete_event = MultiAgentNodeCompleteEvent(
+                node_id=node_name,
+                node_result=node_result,
+            )
             yield complete_event
 
             raise
