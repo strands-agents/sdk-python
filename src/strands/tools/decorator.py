@@ -54,6 +54,8 @@ from typing import (
     TypeVar,
     Union,
     cast,
+    get_args,
+    get_origin,
     get_type_hints,
     overload,
 )
@@ -102,6 +104,35 @@ class FunctionToolMetadata:
         # Parse the docstring with docstring_parser
         doc_str = inspect.getdoc(func) or ""
         self.doc = docstring_parser.parse(doc_str)
+
+        def _contains_tool_context(tp: Any) -> bool:
+            """Return True if the annotation `tp` (possibly Union/Optional) includes ToolContext."""
+            if tp is None:
+                return False
+            origin = get_origin(tp)
+            if origin is Union:
+                return any(_contains_tool_context(a) for a in get_args(tp))
+            # Handle direct ToolContext type
+            return tp is ToolContext
+
+        for param in self.signature.parameters.values():
+            # Prefer resolved type hints (handles forward refs); fall back to annotation
+            ann = self.type_hints.get(param.name, param.annotation)
+            if ann is inspect._empty:
+                continue
+
+            if _contains_tool_context(ann):
+                # If decorator didn't opt-in to context injection, complain
+                if self._context_param is None:
+                    raise TypeError(
+                        f"Parameter '{param.name}' is of type 'ToolContext' but '@tool(context=True)' is missing."
+                    )
+                # If decorator specified a different param name, complain
+                if param.name != self._context_param:
+                    raise TypeError(
+                        f"Parameter '{param.name}' is of type 'ToolContext' but has the wrong name. "
+                        f"It should be named '{self._context_param}'."
+                    )
 
         # Get parameter descriptions from parsed docstring
         self.param_descriptions = {
