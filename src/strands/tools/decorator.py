@@ -54,8 +54,6 @@ from typing import (
     TypeVar,
     Union,
     cast,
-    get_args,
-    get_origin,
     get_type_hints,
     overload,
 )
@@ -101,38 +99,11 @@ class FunctionToolMetadata:
         self.type_hints = get_type_hints(func)
         self._context_param = context_param
 
+        self._validate_signature()
+
         # Parse the docstring with docstring_parser
         doc_str = inspect.getdoc(func) or ""
         self.doc = docstring_parser.parse(doc_str)
-
-        def _contains_tool_context(tp: Any) -> bool:
-            """Return True if the annotation `tp` (possibly Union/Optional) includes ToolContext."""
-            if tp is None:
-                return False
-            origin = get_origin(tp)
-            if origin is Union:
-                return any(_contains_tool_context(a) for a in get_args(tp))
-            # Handle direct ToolContext type
-            return tp is ToolContext
-
-        for param in self.signature.parameters.values():
-            # Prefer resolved type hints (handles forward refs); fall back to annotation
-            ann = self.type_hints.get(param.name, param.annotation)
-            if ann is inspect._empty:
-                continue
-
-            if _contains_tool_context(ann):
-                # If decorator didn't opt-in to context injection, complain
-                if self._context_param is None:
-                    raise TypeError(
-                        f"Parameter '{param.name}' is of type 'ToolContext' but '@tool(context=True)' is missing."
-                    )
-                # If decorator specified a different param name, complain
-                if param.name != self._context_param:
-                    raise TypeError(
-                        f"Parameter '{param.name}' is of type 'ToolContext' but has the wrong name. "
-                        f"It should be named '{self._context_param}'."
-                    )
 
         # Get parameter descriptions from parsed docstring
         self.param_descriptions = {
@@ -141,6 +112,21 @@ class FunctionToolMetadata:
 
         # Create a Pydantic model for validation
         self.input_model = self._create_input_model()
+
+    def _validate_signature(self) -> None:
+        """Verify that ToolContext is used correctly in the function signature."""
+        # Find and validate the ToolContext parameter
+        for param in self.signature.parameters.values():
+            if param.annotation is ToolContext:
+                if self._context_param is None:
+                    raise ValueError("@tool(context=True) must be set if passing in ToolContext param")
+
+                if param.name != self._context_param:
+                    raise ValueError(
+                        f"param_name=<{param.name}> | ToolContext param must be named '{self._context_param}'"
+                    )
+                # Found the parameter, no need to check further
+                break
 
     def _create_input_model(self) -> Type[BaseModel]:
         """Create a Pydantic model from function signature for input validation.
