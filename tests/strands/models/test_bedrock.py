@@ -1628,20 +1628,6 @@ def test_format_request_guard_content_without_qualifiers(model, model_id):
     assert guard_block == {"text": {"text": "guarded text no qualifiers"}}
 
 
-def test_format_request_guard_content_text_as_string(model, model_id):
-    """Test guardContent formatting when the text field is a plain string."""
-    messages = [
-        {
-            "role": "user",
-            "content": [{"guardContent": {"text": "plain guard text"}}],
-        }
-    ]
-
-    formatted = model.format_request(messages)
-    guard_block = formatted["messages"][0]["content"][0]["guardContent"]
-    assert guard_block == {"text": {"text": "plain guard text"}}
-
-
 def test_format_request_filters_nested_reasoning_content(model, model_id):
     """Test deep filtering of nested reasoningText fields."""
     messages = [
