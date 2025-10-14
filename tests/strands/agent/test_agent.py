@@ -736,6 +736,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
             },
         ),
         unittest.mock.call(
+            agent_result=True,
             result=AgentResult(
                 stop_reason="end_turn",
                 message={
@@ -748,7 +749,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
                 },
                 metrics=unittest.mock.ANY,
                 state={},
-            )
+            ),
         ),
     ]
 
@@ -1168,6 +1169,7 @@ async def test_stream_async_returns_all_events(mock_event_loop_cycle, alist):
         {"data": "Second chunk"},
         {"complete": True, "data": "Final chunk"},
         {
+            "agent_result": True,
             "result": AgentResult(
                 stop_reason="stop",
                 message={"role": "assistant", "content": [{"text": "Response"}]},
@@ -1249,6 +1251,7 @@ async def test_stream_async_passes_invocation_state(agent, mock_model, mock_even
     exp_events = [
         {"init_event_loop": True, "some_value": "a_value"},
         {
+            "agent_result": True,
             "result": AgentResult(
                 stop_reason="stop",
                 message={"role": "assistant", "content": [{"text": "Response"}]},

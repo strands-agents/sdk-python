@@ -306,12 +306,13 @@ async def test_stream_e2e_success(alist):
         {"event": {"messageStop": {"stopReason": "end_turn"}}},
         {"message": {"content": [{"text": "I invoked the tools!"}], "role": "assistant"}},
         {
+            "agent_result": True,
             "result": AgentResult(
                 stop_reason="end_turn",
                 message={"content": [{"text": "I invoked the tools!"}], "role": "assistant"},
                 metrics=ANY,
                 state={},
-            )
+            ),
         },
     ]
     assert tru_events == exp_events
@@ -370,6 +371,7 @@ async def test_stream_e2e_throttle_and_redact(alist, mock_sleep):
         {"event": {"messageStop": {"stopReason": "guardrail_intervened"}}},
         {"message": {"content": [{"text": "INPUT BLOCKED!"}], "role": "assistant"}},
         {
+            "agent_result": True,
             "result": AgentResult(
                 stop_reason="guardrail_intervened",
                 message={"content": [{"text": "INPUT BLOCKED!"}], "role": "assistant"},
@@ -442,6 +444,7 @@ async def test_stream_e2e_reasoning_redacted_content(alist):
             }
         },
         {
+            "agent_result": True,
             "result": AgentResult(
                 stop_reason="end_turn",
                 message={
@@ -453,7 +456,7 @@ async def test_stream_e2e_reasoning_redacted_content(alist):
                 },
                 metrics=ANY,
                 state={},
-            )
+            ),
         },
     ]
     assert tru_events == exp_events

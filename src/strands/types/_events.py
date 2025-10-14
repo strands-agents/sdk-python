@@ -374,7 +374,7 @@ class ForceStopEvent(TypedEvent):
 
 class AgentResultEvent(TypedEvent):
     def __init__(self, result: "AgentResult"):
-        super().__init__({"result": result})
+        super().__init__({"agent_result": True, "result": result})
 
 
 class MultiAgentResultEvent(TypedEvent):
@@ -386,7 +386,7 @@ class MultiAgentResultEvent(TypedEvent):
         Args:
             result: The final result from multi-agent execution (SwarmResult, GraphResult, etc.)
         """
-        super().__init__({"result": result})
+        super().__init__({"multi_agent_result": True, "result": result})
 
 
 class MultiAgentNodeStartEvent(TypedEvent):
