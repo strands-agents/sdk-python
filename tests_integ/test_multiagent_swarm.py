@@ -320,3 +320,76 @@ async def test_swarm_no_timeout_backward_compatibility():
     # Execute - should complete normally
     result = await swarm.invoke_async("Say hello")
     assert result.status == Status.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_swarm_emits_handoff_events():
+    """Verify Swarm emits MultiAgentHandoffEvent during streaming."""
+    researcher = Agent(
+        name="researcher",
+        model="us.amazon.nova-pro-v1:0",
+        system_prompt="You are a researcher. When you need calculations, hand off to the analyst.",
+    )
+    analyst = Agent(
+        name="analyst",
+        model="us.amazon.nova-pro-v1:0",
+        system_prompt="You are an analyst. Use tools to perform calculations.",
+        tools=[calculate],
+    )
+
+    swarm = Swarm([researcher, analyst])
+
+    # Collect events
+    events = []
+    async for event in swarm.stream_async("Calculate 10 + 5 and explain the result"):
+        events.append(event)
+
+    # Find handoff events
+    handoff_events = [e for e in events if e.get("multi_agent_handoff")]
+
+    # Verify we got at least one handoff event
+    assert len(handoff_events) > 0, "Expected at least one handoff event"
+
+    # Verify event structure
+    handoff = handoff_events[0]
+    assert "from_node" in handoff, "Handoff event missing from_node"
+    assert "to_node" in handoff, "Handoff event missing to_node"
+    assert "message" in handoff, "Handoff event missing message"
+
+    # Verify handoff is from researcher to analyst
+    assert handoff["from_node"] == "researcher", f"Expected from_node='researcher', got {handoff['from_node']}"
+    assert handoff["to_node"] == "analyst", f"Expected to_node='analyst', got {handoff['to_node']}"
+
+
+@pytest.mark.asyncio
+async def test_swarm_emits_node_complete_events():
+    """Verify Swarm emits MultiAgentNodeCompleteEvent after each node."""
+    agent = Agent(
+        name="test_agent",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are a test agent. Respond briefly.",
+    )
+
+    swarm = Swarm([agent], max_handoffs=1, max_iterations=1)
+
+    # Collect events
+    events = []
+    async for event in swarm.stream_async("Say hello"):
+        events.append(event)
+
+    # Find node complete events
+    complete_events = [e for e in events if e.get("multi_agent_node_complete")]
+
+    # Verify we got at least one node complete event
+    assert len(complete_events) > 0, "Expected at least one node complete event"
+
+    # Verify event structure
+    complete = complete_events[0]
+    assert "node_id" in complete, "Node complete event missing node_id"
+    assert "execution_time" in complete, "Node complete event missing execution_time"
+
+    # Verify node_id matches
+    assert complete["node_id"] == "test_agent", f"Expected node_id='test_agent', got {complete['node_id']}"
+
+    # Verify execution_time is reasonable
+    assert complete["execution_time"] > 0, "Expected positive execution_time"

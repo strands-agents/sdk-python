@@ -283,10 +283,14 @@ class Swarm(MultiAgentBase):
             **kwargs: Keyword arguments allowing backward compatible future changes.
         """
         events = self.stream_async(task, invocation_state, **kwargs)
+        final_event = None
         async for event in events:
-            _ = event
+            final_event = event
 
-        return cast(SwarmResult, event["result"])
+        if final_event is None or "result" not in final_event:
+            raise ValueError("Swarm streaming completed without producing a result event")
+
+        return cast(SwarmResult, final_event["result"])
 
     async def stream_async(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
@@ -790,7 +794,7 @@ class Swarm(MultiAgentBase):
             # Store result in state
             self.state.results[node_name] = node_result
 
-            # Still emit complete event for failures
+            # Emit node complete event even for failures
             complete_event = MultiAgentNodeCompleteEvent(node_id=node_name, execution_time=execution_time)
             yield complete_event
 

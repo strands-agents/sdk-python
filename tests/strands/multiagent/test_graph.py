@@ -308,10 +308,9 @@ async def test_graph_execution_with_failures(mock_strands_tracer, mock_use_span)
 
     graph = builder.build()
 
-    # Execute the graph - should complete with FAILED status (original behavior)
-    result = await graph.invoke_async("Test error handling")
-    assert result.status == Status.FAILED
-    assert result.failed_nodes == 1
+    # Execute the graph - should raise exception (fail-fast behavior)
+    with pytest.raises(Exception, match="Simulated failure"):
+        await graph.invoke_async("Test error handling")
 
     mock_strands_tracer.start_multiagent_span.assert_called()
     mock_use_span.assert_called_once()
@@ -660,15 +659,14 @@ async def test_graph_node_timeout(mock_strands_tracer, mock_use_span):
     assert result.status == Status.COMPLETED
     assert result.completed_nodes == 1
 
-    # Test with very short node timeout - should raise timeout exception
+    # Test with very short node timeout - should raise timeout exception (fail-fast behavior)
     builder = GraphBuilder()
     builder.add_node(timeout_agent, "timeout_node")
     graph = builder.set_max_node_executions(50).set_execution_timeout(900.0).set_node_timeout(0.1).build()
 
-    # Execute the graph - should complete with FAILED status due to timeout (original behavior)
-    result = await graph.invoke_async("Test node timeout")
-    assert result.status == Status.FAILED
-    assert result.failed_nodes == 1
+    # Execute the graph - should raise timeout exception (fail-fast behavior)
+    with pytest.raises(Exception, match="execution timed out"):
+        await graph.invoke_async("Test node timeout")
 
     mock_strands_tracer.start_multiagent_span.assert_called()
     mock_use_span.assert_called()
@@ -1546,10 +1544,11 @@ async def test_graph_streaming_with_failures(mock_strands_tracer, mock_use_span)
     builder.set_entry_point("success")
     graph = builder.build()
 
-    # Collect events - graph handles failures gracefully (original behavior)
+    # Collect events - graph should raise exception (fail-fast behavior)
     events = []
-    async for event in graph.stream_async("Test streaming with failure"):
-        events.append(event)
+    with pytest.raises(Exception, match="Simulated streaming failure"):
+        async for event in graph.stream_async("Test streaming with failure"):
+            events.append(event)
 
     # Should get some events before failure
     assert len(events) > 0
@@ -1561,12 +1560,6 @@ async def test_graph_streaming_with_failures(mock_strands_tracer, mock_use_span)
     # Should have some forwarded events before failure
     node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
     assert len(node_stream_events) >= 1
-
-    # Graph should complete with FAILED status (original behavior)
-    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
-    assert len(result_events) == 1
-    final_result = result_events[0]["result"]
-    assert final_result.status == Status.FAILED
 
 
 @pytest.mark.asyncio
@@ -1745,19 +1738,9 @@ async def test_graph_parallel_with_failures(mock_strands_tracer, mock_use_span):
 
     graph = builder.build()
 
-    # Execute should succeed with partial failures - some nodes succeed, some fail
-    result = await graph.invoke_async("Test parallel with failure")
-
-    # The graph should fail since one node failed (current behavior)
-    assert result.status == Status.FAILED
-    assert result.failed_nodes == 1  # One failed node
-
-    # Verify failed node is tracked
-    assert "fail" in result.results
-    assert result.results["fail"].status == Status.FAILED
-
-    # Note: The successful nodes may not complete if the failure happens early
-    # This is expected behavior in the current implementation
+    # Execute should raise exception (fail-fast behavior)
+    with pytest.raises(Exception, match="Simulated failure"):
+        await graph.invoke_async("Test parallel with failure")
 
 
 @pytest.mark.asyncio

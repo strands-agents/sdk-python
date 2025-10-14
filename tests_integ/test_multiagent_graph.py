@@ -489,13 +489,9 @@ async def test_graph_node_timeout_with_real_streaming():
     builder.set_node_timeout(0.5)  # 500ms timeout
     graph = builder.build()
 
-    # Execute - should timeout and return FAILED status (graceful handling)
-    result = await graph.invoke_async("Test freezing generator")
-
-    # Verify graceful failure handling
-    assert result.status == Status.FAILED, "Expected FAILED status on timeout"
-    assert "slow_node" in result.results, "Expected slow_node in results"
-    assert result.results["slow_node"].status == Status.FAILED, "Expected node to have FAILED status"
+    # Execute - should timeout and raise exception (fail-fast behavior)
+    with pytest.raises(Exception, match="execution timed out"):
+        await graph.invoke_async("Test freezing generator")
 
 
 @pytest.mark.asyncio
