@@ -71,8 +71,8 @@ a2a = [
 database = [
     "sqlalchemy>=2.0.0,<3.0.0",
     "alembic>=1.13.0,<2.0.0",
-    "psycopg2-binary>=2.9.0,<3.0.0",  # PostgreSQL driver
-    "pymysql>=1.1.0,<2.0.0",          # MySQL driver
+    "psycopg2-binary>=2.9.0,<3.0.0",
+    "pymysql>=1.1.0,<2.0.0",
 ]
 all = ["strands-agents[a2a,anthropic,database,docs,gemini,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel]"]
 
