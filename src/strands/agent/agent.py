@@ -340,7 +340,7 @@ class Agent:
 
         self.hooks = HookRegistry()
 
-        self.interrupt_state = InterruptState()
+        self._interrupt_state = InterruptState()
 
         # Initialize session management functionality
         self._session_manager = session_manager
@@ -629,7 +629,7 @@ class Agent:
         Raises:
             TypeError: If in interrupt state but user did not provide responses.
         """
-        if not self.interrupt_state.activated:
+        if not self._interrupt_state.activated:
             return
 
         if not isinstance(prompt, list):
@@ -643,7 +643,7 @@ class Agent:
                 )
 
             content_data = content["interruptResponse"]
-            self.interrupt_state[content_data["interruptId"]].response = content_data["response"]
+            self._interrupt_state[content_data["interruptId"]].response = content_data["response"]
 
     async def _run_loop(self, messages: Messages, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
         """Execute the agent's event loop with the given message and parameters.
@@ -720,7 +720,7 @@ class Agent:
                 yield event
 
     def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
-        if self.interrupt_state.activated:
+        if self._interrupt_state.activated:
             return []
 
         messages: Messages | None = None

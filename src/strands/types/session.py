@@ -111,8 +111,6 @@ class SessionAgent:
         agent_id: Unique id for the agent.
         state: User managed state.
         conversation_manager_state: State for conversation management.
-        internal_state: Strands managed state.
-            Alterations to internal state by the user could result in undefined behaviors.
         created_at: Created at time.
         updated_at: Updated at time.
     """
@@ -120,7 +118,7 @@ class SessionAgent:
     agent_id: str
     state: dict[str, Any]
     conversation_manager_state: dict[str, Any]
-    internal_state: dict[str, Any] = field(default_factory=dict)
+    _internal_state: dict[str, Any] = field(default_factory=dict)  # Strands managed state
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -133,8 +131,8 @@ class SessionAgent:
             agent_id=agent.agent_id,
             conversation_manager_state=agent.conversation_manager.get_state(),
             state=agent.state.get(),
-            internal_state={
-                "interrupt_state": agent.interrupt_state.to_dict(),
+            _internal_state={
+                "_interrupt_state": agent._interrupt_state.to_dict(),
             },
         )
 
@@ -149,8 +147,8 @@ class SessionAgent:
 
     def initialize_internal_state(self, agent: "Agent") -> None:
         """Initialize internal state of agent."""
-        if "interrupt_state" in self.internal_state:
-            agent.interrupt_state = InterruptState.from_dict(self.internal_state["interrupt_state"])
+        if "_interrupt_state" in self._internal_state:
+            agent._interrupt_state = InterruptState.from_dict(self._internal_state["_interrupt_state"])
 
 
 @dataclass

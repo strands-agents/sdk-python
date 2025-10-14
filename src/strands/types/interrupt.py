@@ -28,7 +28,7 @@ class InterruptHookEvent(Protocol):
             InterruptException: If human input is required.
         """
         id = self._interrupt_id(name)
-        state = self.agent.interrupt_state
+        state = self.agent._interrupt_state
 
         interrupt_ = state.setdefault(id, Interrupt(id, name, reason, response))
         if interrupt_.response:

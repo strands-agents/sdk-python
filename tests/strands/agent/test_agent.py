@@ -1962,8 +1962,8 @@ def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
         reason="test reason",
     )
 
-    agent.interrupt_state.activate(context={"tool_use_message": tool_use_message, "tool_results": []})
-    agent.interrupt_state[interrupt.id] = interrupt
+    agent._interrupt_state.activate(context={"tool_use_message": tool_use_message, "tool_results": []})
+    agent._interrupt_state[interrupt.id] = interrupt
 
     interrupt_response = {}
 
@@ -2009,7 +2009,7 @@ def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
     exp_response = "test response"
     assert tru_response == exp_response
 
-    tru_state = agent.interrupt_state.to_dict()
+    tru_state = agent._interrupt_state.to_dict()
     exp_state = {
         "activated": False,
         "context": {},
@@ -2020,7 +2020,7 @@ def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
 
 def test_agent__call__resume_interrupt_invalid_prompt():
     agent = Agent()
-    agent.interrupt_state.activated = True
+    agent._interrupt_state.activated = True
 
     with pytest.raises(TypeError, match="prompt_type=<class 'str'>"):
         agent("invalid")
@@ -2028,7 +2028,7 @@ def test_agent__call__resume_interrupt_invalid_prompt():
 
 def test_agent__call__resume_interrupt_invalid_content():
     agent = Agent()
-    agent.interrupt_state.activated = True
+    agent._interrupt_state.activated = True
 
     with pytest.raises(TypeError, match="content_type=<text>"):
         agent([{"text": "invalid"}])

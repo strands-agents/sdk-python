@@ -101,14 +101,14 @@ def test_session_agent_from_agent():
     agent.agent_id = "a1"
     agent.conversation_manager = unittest.mock.Mock(get_state=lambda: {"test": "conversation"})
     agent.state = AgentState({"test": "state"})
-    agent.interrupt_state = InterruptState(interrupts={}, context={}, activated=False)
+    agent._interrupt_state = InterruptState(interrupts={}, context={}, activated=False)
 
     tru_session_agent = SessionAgent.from_agent(agent)
     exp_session_agent = SessionAgent(
         agent_id="a1",
         conversation_manager_state={"test": "conversation"},
         state={"test": "state"},
-        internal_state={"interrupt_state": {"interrupts": {}, "context": {}, "activated": False}},
+        _internal_state={"_interrupt_state": {"interrupts": {}, "context": {}, "activated": False}},
         created_at=unittest.mock.ANY,
         updated_at=unittest.mock.ANY,
     )
@@ -121,11 +121,11 @@ def test_session_agent_initialize_internal_state():
         agent_id="a1",
         conversation_manager_state={},
         state={},
-        internal_state={"interrupt_state": {"interrupts": {}, "context": {"test": "init"}, "activated": False}},
+        _internal_state={"_interrupt_state": {"interrupts": {}, "context": {"test": "init"}, "activated": False}},
     )
 
     session_agent.initialize_internal_state(agent)
 
-    tru_interrupt_state = agent.interrupt_state
+    tru_interrupt_state = agent._interrupt_state
     exp_interrupt_state = InterruptState(interrupts={}, context={"test": "init"}, activated=False)
     assert tru_interrupt_state == exp_interrupt_state

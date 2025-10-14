@@ -93,7 +93,7 @@ def agent(tool_registry, hook_registry):
     mock_agent = unittest.mock.Mock()
     mock_agent.tool_registry = tool_registry
     mock_agent.hooks = hook_registry
-    mock_agent.interrupt_state = InterruptState()
+    mock_agent._interrupt_state = InterruptState()
     return mock_agent
 
 

@@ -15,7 +15,7 @@ def registry():
 @pytest.fixture
 def agent():
     instance = unittest.mock.Mock()
-    instance.interrupt_state = InterruptState()
+    instance._interrupt_state = InterruptState()
     return instance
 
 

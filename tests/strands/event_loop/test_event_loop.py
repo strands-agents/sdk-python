@@ -141,7 +141,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.event_loop_metrics = EventLoopMetrics()
     mock.hooks = hook_registry
     mock.tool_executor = tool_executor
-    mock.interrupt_state = InterruptState()
+    mock._interrupt_state = InterruptState()
 
     return mock
 
@@ -892,7 +892,7 @@ async def test_event_loop_cycle_interrupt(agent, model, tool_stream, agenerator,
 
     assert tru_stop_reason == exp_stop_reason and tru_interrupts == exp_interrupts
 
-    tru_state = agent.interrupt_state.to_dict()
+    tru_state = agent._interrupt_state.to_dict()
     exp_state = {
         "activated": True,
         "context": {
@@ -958,8 +958,8 @@ async def test_event_loop_cycle_interrupt_resume(agent, model, tool, tool_times_
         },
     ]
 
-    agent.interrupt_state.activate(context={"tool_use_message": tool_use_message, "tool_results": tool_results})
-    agent.interrupt_state[interrupt.id] = interrupt
+    agent._interrupt_state.activate(context={"tool_use_message": tool_use_message, "tool_results": tool_results})
+    agent._interrupt_state[interrupt.id] = interrupt
 
     interrupt_response = {}
 
@@ -1003,7 +1003,7 @@ async def test_event_loop_cycle_interrupt_resume(agent, model, tool, tool_times_
     exp_response = "test response"
     assert tru_response == exp_response
 
-    tru_state = agent.interrupt_state.to_dict()
+    tru_state = agent._interrupt_state.to_dict()
     exp_state = {
         "activated": False,
         "context": {},

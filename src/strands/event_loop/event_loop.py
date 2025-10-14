@@ -109,9 +109,9 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
     invocation_state["event_loop_cycle_span"] = cycle_span
 
     # Skipping model invocation if in interrupt state as interrupts are currently only supported for tool calls.
-    if agent.interrupt_state.activated:
+    if agent._interrupt_state.activated:
         stop_reason: StopReason = "tool_use"
-        message = agent.interrupt_state.context["tool_use_message"]
+        message = agent._interrupt_state.context["tool_use_message"]
 
     else:
         model_events = _handle_model_execution(agent, cycle_span, cycle_trace, invocation_state, tracer)
@@ -386,8 +386,8 @@ async def _handle_tool_execution(
         yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
         return
 
-    if agent.interrupt_state.activated:
-        tool_results.extend(agent.interrupt_state.context["tool_results"])
+    if agent._interrupt_state.activated:
+        tool_results.extend(agent._interrupt_state.context["tool_results"])
 
         # Filter to only the interrupted tools when resuming from interrupt (tool uses without results)
         tool_use_ids = {tool_result["toolUseId"] for tool_result in tool_results}
@@ -423,7 +423,7 @@ async def _handle_tool_execution(
 
         return
 
-    agent.interrupt_state.deactivate()
+    agent._interrupt_state.deactivate()
 
     tool_result_message: Message = {
         "role": "user",
@@ -460,7 +460,7 @@ async def _handle_interrupts(
 ) -> AsyncGenerator[TypedEvent, None]:
     """Handle the processing of user raised interrupts."""
     # Session state stored on AfterInvocationEvent.
-    agent.interrupt_state.activate(context={"tool_use_message": tool_use_message, "tool_results": tool_results})
+    agent._interrupt_state.activate(context={"tool_use_message": tool_use_message, "tool_results": tool_results})
 
     agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
     yield EventLoopStopEvent(

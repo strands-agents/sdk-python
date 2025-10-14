@@ -290,7 +290,7 @@ async def test_executor_stream_interrupt_resume(executor, agent, tool_results, i
         reason="test reason",
         response="test response",
     )
-    agent.interrupt_state[interrupt.id] = interrupt
+    agent._interrupt_state[interrupt.id] = interrupt
 
     interrupt_response = {}
 
