@@ -35,6 +35,7 @@ from ..types.bidirectional_streaming import (
     BidirectionalConnectionStartEvent,
     InterruptionDetectedEvent,
     TextOutputEvent,
+    UsageMetricsEvent
 )
 
 from .bidirectional_model import BidirectionalModel, BidirectionalModelSession

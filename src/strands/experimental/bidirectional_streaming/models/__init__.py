@@ -8,6 +8,4 @@ __all__ = [
     "BidirectionalModelSession",
     "NovaSonicBidirectionalModel",
     "NovaSonicSession",
-    "OpenAIRealtimeBidirectionalModel",
-    "OpenAIRealtimeSession",
 ]
