@@ -636,15 +636,15 @@ async def test_swarm_streaming_events(mock_strands_tracer, mock_use_span, alist)
     # Verify event structure
     assert len(events) > 0
 
-    # Should have node start/complete events
+    # Should have node start/stop events
     node_start_events = [e for e in events if e.get("multi_agent_node_start")]
-    node_complete_events = [e for e in events if e.get("multi_agent_node_complete")]
+    node_stop_events = [e for e in events if e.get("multi_agent_node_stop")]
     node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
     result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
 
     # Should have at least one node execution
     assert len(node_start_events) >= 1
-    assert len(node_complete_events) >= 1
+    assert len(node_stop_events) >= 1
 
     # Should have forwarded agent events
     assert len(node_stream_events) >= 2  # At least some events per agent
@@ -658,8 +658,8 @@ async def test_swarm_streaming_events(mock_strands_tracer, mock_use_span, alist)
         assert "node_type" in event
         assert event["node_type"] == "agent"
 
-    # Verify node complete events have node_result with execution time
-    for event in node_complete_events:
+    # Verify node stop events have node_result with execution time
+    for event in node_stop_events:
         assert "node_id" in event
         assert "node_result" in event
         node_result = event["node_result"]

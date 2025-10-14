@@ -29,8 +29,8 @@ from ..telemetry import get_tracer
 from ..tools.decorator import tool
 from ..types._events import (
     MultiAgentHandoffEvent,
-    MultiAgentNodeCompleteEvent,
     MultiAgentNodeStartEvent,
+    MultiAgentNodeStopEvent,
     MultiAgentNodeStreamEvent,
     MultiAgentResultEvent,
 )
@@ -308,7 +308,7 @@ class Swarm(MultiAgentBase):
             - multi_agent_node_start: When a node begins execution
             - multi_agent_node_stream: Forwarded agent events with node context
             - multi_agent_handoff: When control is handed off between agents
-            - multi_agent_node_complete: When a node completes execution
+            - multi_agent_node_stop: When a node stops execution
             - result: Final swarm result
         """
         if invocation_state is None:
@@ -773,8 +773,8 @@ class Swarm(MultiAgentBase):
             # Accumulate metrics
             self._accumulate_metrics(node_result)
 
-            # Emit node complete event with full NodeResult
-            complete_event = MultiAgentNodeCompleteEvent(
+            # Emit node stop event with full NodeResult
+            complete_event = MultiAgentNodeStopEvent(
                 node_id=node_name,
                 node_result=node_result,
             )
@@ -797,8 +797,8 @@ class Swarm(MultiAgentBase):
             # Store result in state
             self.state.results[node_name] = node_result
 
-            # Emit node complete event even for failures
-            complete_event = MultiAgentNodeCompleteEvent(
+            # Emit node stop event even for failures
+            complete_event = MultiAgentNodeStopEvent(
                 node_id=node_name,
                 node_result=node_result,
             )

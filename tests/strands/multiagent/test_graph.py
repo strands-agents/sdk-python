@@ -1416,15 +1416,15 @@ async def test_graph_streaming_events(mock_strands_tracer, mock_use_span, alist)
     # Verify event structure and order
     assert len(events) > 0
 
-    # Should have node start/complete events and forwarded agent events
+    # Should have node start/stop events and forwarded agent events
     node_start_events = [e for e in events if e.get("multi_agent_node_start")]
-    node_complete_events = [e for e in events if e.get("multi_agent_node_complete")]
+    node_stop_events = [e for e in events if e.get("multi_agent_node_stop")]
     node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
     result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
 
-    # Should have start/complete events for both nodes
+    # Should have start/stop events for both nodes
     assert len(node_start_events) == 2
-    assert len(node_complete_events) == 2
+    assert len(node_stop_events) == 2
 
     # Should have forwarded agent events
     assert len(node_stream_events) >= 4  # At least 2 events per agent
@@ -1438,8 +1438,8 @@ async def test_graph_streaming_events(mock_strands_tracer, mock_use_span, alist)
         assert "node_type" in event
         assert event["node_type"] == "agent"
 
-    # Verify node complete events have node_result with execution time
-    for event in node_complete_events:
+    # Verify node stop events have node_result with execution time
+    for event in node_stop_events:
         assert "node_id" in event
         assert "node_result" in event
         node_result = event["node_result"]

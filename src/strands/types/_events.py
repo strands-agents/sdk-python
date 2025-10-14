@@ -402,8 +402,8 @@ class MultiAgentNodeStartEvent(TypedEvent):
         super().__init__({"multi_agent_node_start": True, "node_id": node_id, "node_type": node_type})
 
 
-class MultiAgentNodeCompleteEvent(TypedEvent):
-    """Event emitted when a node completes execution.
+class MultiAgentNodeStopEvent(TypedEvent):
+    """Event emitted when a node stops execution.
 
     Similar to EventLoopStopEvent but for individual nodes in multi-agent orchestration.
     Provides the complete NodeResult which contains execution details, metrics, and status.
@@ -414,7 +414,7 @@ class MultiAgentNodeCompleteEvent(TypedEvent):
         node_id: str,
         node_result: "NodeResult",
     ) -> None:
-        """Initialize with completion information.
+        """Initialize with stop information.
 
         Args:
             node_id: Unique identifier for the node
@@ -423,7 +423,7 @@ class MultiAgentNodeCompleteEvent(TypedEvent):
         """
         super().__init__(
             {
-                "multi_agent_node_complete": True,
+                "multi_agent_node_stop": True,
                 "node_id": node_id,
                 "node_result": node_result,
             }
