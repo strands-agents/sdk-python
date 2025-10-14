@@ -13,8 +13,8 @@ from opentelemetry import trace as trace_api
 
 from ...hooks import AfterToolCallEvent, BeforeToolCallEvent
 from ...telemetry.metrics import Trace
-from ...telemetry.tracer import get_tracer
-from ...types._events import ToolResultEvent, ToolStreamEvent, TypedEvent
+from ...telemetry.tracer import get_tracer, serialize
+from ...types._events import ToolCancelEvent, ToolResultEvent, ToolStreamEvent, TypedEvent
 from ...types.content import Message
 from ...types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolResult, ToolUse
 
@@ -59,6 +59,14 @@ class ToolExecutor(abc.ABC):
 
         tool_info = agent.tool_registry.dynamic_tools.get(tool_name)
         tool_func = tool_info if tool_info is not None else agent.tool_registry.registry.get(tool_name)
+        tool_spec = tool_func.tool_spec if tool_func is not None else None
+
+        current_span = trace_api.get_current_span()
+        if current_span and tool_spec is not None:
+            current_span.set_attribute("gen_ai.tool.description", tool_spec["description"])
+            input_schema = tool_spec["inputSchema"]
+            if "json" in input_schema:
+                current_span.set_attribute("gen_ai.tool.json_schema", serialize(input_schema["json"]))
 
         invocation_state.update(
             {
@@ -80,6 +88,31 @@ class ToolExecutor(abc.ABC):
                 invocation_state=invocation_state,
             )
         )
+
+        if before_event.cancel_tool:
+            cancel_message = (
+                before_event.cancel_tool if isinstance(before_event.cancel_tool, str) else "tool cancelled by user"
+            )
+            yield ToolCancelEvent(tool_use, cancel_message)
+
+            cancel_result: ToolResult = {
+                "toolUseId": str(tool_use.get("toolUseId")),
+                "status": "error",
+                "content": [{"text": cancel_message}],
+            }
+            after_event = agent.hooks.invoke_callbacks(
+                AfterToolCallEvent(
+                    agent=agent,
+                    tool_use=tool_use,
+                    invocation_state=invocation_state,
+                    selected_tool=None,
+                    result=cancel_result,
+                    cancel_message=cancel_message,
+                )
+            )
+            yield ToolResultEvent(after_event.result)
+            tool_results.append(after_event.result)
+            return
 
         try:
             selected_tool = before_event.selected_tool
@@ -123,7 +156,7 @@ class ToolExecutor(abc.ABC):
                 # so that we don't needlessly yield ToolStreamEvents for non-generator callbacks.
                 # In which case, as soon as we get a ToolResultEvent we're done and for ToolStreamEvent
                 # we yield it directly; all other cases (non-sdk AgentTools), we wrap events in
-                # ToolStreamEvent and the last even is just the result
+                # ToolStreamEvent and the last event is just the result.
 
                 if isinstance(event, ToolResultEvent):
                     # below the last "event" must point to the tool_result

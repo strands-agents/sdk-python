@@ -739,7 +739,7 @@ class Swarm(MultiAgentBase):
 
             # Stream agent events with node context and capture final result
             result = None
-            async for event in node.executor.stream_async(node_input, **invocation_state):
+            async for event in node.executor.stream_async(node_input, invocation_state=invocation_state):
                 # Forward agent events with node context
                 wrapped_event = MultiAgentNodeStreamEvent(node_name, event)
                 yield wrapped_event

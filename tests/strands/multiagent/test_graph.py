@@ -931,7 +931,7 @@ async def test_controlled_cyclic_execution():
             self._session_manager = None
             self.hooks = HookRegistry()
 
-        async def invoke_async(self, input_data):
+        async def invoke_async(self, input_data, invocation_state=None):
             # Increment execution count in state
             count = self.state.get("execution_count") or 0
             self.state.set("execution_count", count + 1)

@@ -20,8 +20,9 @@ from typing import Any, Callable, Coroutine, Dict, Optional, TypeVar, Union, cas
 
 import anyio
 from mcp import ClientSession, ListToolsResult
+from mcp.types import BlobResourceContents, GetPromptResult, ListPromptsResult, TextResourceContents
 from mcp.types import CallToolResult as MCPCallToolResult
-from mcp.types import GetPromptResult, ListPromptsResult
+from mcp.types import EmbeddedResource as MCPEmbeddedResource
 from mcp.types import ImageContent as MCPImageContent
 from mcp.types import TextContent as MCPTextContent
 
@@ -358,8 +359,7 @@ class MCPClient:
         """
         self._log_debug_with_thread("received tool result with %d content items", len(call_tool_result.content))
 
-        # Build a typed list of ToolResultContent. Use a clearer local name to avoid shadowing
-        # and annotate the result for mypy so it knows the intended element type.
+        # Build a typed list of ToolResultContent.
         mapped_contents: list[ToolResultContent] = [
             mc
             for content in call_tool_result.content
@@ -438,7 +438,7 @@ class MCPClient:
 
     def _map_mcp_content_to_tool_result_content(
         self,
-        content: MCPTextContent | MCPImageContent | Any,
+        content: MCPTextContent | MCPImageContent | MCPEmbeddedResource | Any,
     ) -> Union[ToolResultContent, None]:
         """Maps MCP content types to tool result content types.
 
@@ -462,6 +462,58 @@ class MCPClient:
                     "source": {"bytes": base64.b64decode(content.data)},
                 }
             }
+        elif isinstance(content, MCPEmbeddedResource):
+            """
+            TODO: Include URI information in results.
+                Models may find it useful to be aware not only of the information,
+                but the location of the information too.
+
+                This may be difficult without taking an opinionated position. For example,
+                a content block may need to indicate that the following Image content block
+                is of particular URI.
+            """
+
+            self._log_debug_with_thread("mapping MCP embedded resource content")
+
+            resource = content.resource
+            if isinstance(resource, TextResourceContents):
+                return {"text": resource.text}
+            elif isinstance(resource, BlobResourceContents):
+                try:
+                    raw_bytes = base64.b64decode(resource.blob)
+                except Exception:
+                    self._log_debug_with_thread("embedded resource blob could not be decoded - dropping")
+                    return None
+
+                if resource.mimeType and (
+                    resource.mimeType.startswith("text/")
+                    or resource.mimeType
+                    in (
+                        "application/json",
+                        "application/xml",
+                        "application/javascript",
+                        "application/yaml",
+                        "application/x-yaml",
+                    )
+                    or resource.mimeType.endswith(("+json", "+xml"))
+                ):
+                    try:
+                        return {"text": raw_bytes.decode("utf-8", errors="replace")}
+                    except Exception:
+                        pass
+
+                if resource.mimeType in MIME_TO_FORMAT:
+                    return {
+                        "image": {
+                            "format": MIME_TO_FORMAT[resource.mimeType],
+                            "source": {"bytes": raw_bytes},
+                        }
+                    }
+
+                self._log_debug_with_thread("embedded resource blob with non-textual/unknown mimeType - dropping")
+                return None
+
+            return None  # type: ignore[unreachable]  # Defensive: future MCP resource types
         else:
             self._log_debug_with_thread("unhandled content type: %s - dropping content", content.__class__.__name__)
             return None

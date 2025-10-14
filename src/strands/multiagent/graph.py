@@ -716,7 +716,7 @@ class Graph(MultiAgentBase):
             elif isinstance(node.executor, Agent):
                 # For agents, stream their events and collect result
                 agent_response = None
-                async for event in node.executor.stream_async(node_input, **invocation_state):
+                async for event in node.executor.stream_async(node_input, invocation_state=invocation_state):
                     # Forward agent events with node context
                     wrapped_event = MultiAgentNodeStreamEvent(node.node_id, event)
                     yield wrapped_event
