@@ -72,6 +72,8 @@ class BedrockModel(Model):
             additional_response_field_paths: Additional response field paths to extract
             cache_prompt: Cache point type for the system prompt
             cache_tools: Cache point type for tools
+            cache_messages: Cache point type for messages. If set to "default", removes all existing cache points
+                from messages and adds a cache point at the end of the last message.
             guardrail_id: ID of the guardrail to apply
             guardrail_trace: Guardrail trace mode. Defaults to enabled.
             guardrail_version: Version of the guardrail to apply
@@ -95,6 +97,7 @@ class BedrockModel(Model):
         additional_response_field_paths: Optional[list[str]]
         cache_prompt: Optional[str]
         cache_tools: Optional[str]
+        cache_messages: Optional[str]
         guardrail_id: Optional[str]
         guardrail_trace: Optional[Literal["enabled", "disabled", "enabled_full"]]
         guardrail_stream_processing_mode: Optional[Literal["sync", "async"]]
@@ -185,6 +188,24 @@ class BedrockModel(Model):
         """
         return self.config
 
+    def _remove_cache_points_from_messages(self, messages: Messages) -> Messages:
+        """Remove all cache points from messages.
+
+        Args:
+            messages: List of messages to process.
+
+        Returns:
+            Messages with cache points removed.
+        """
+        cleaned_messages: Messages = []
+        for message in messages:
+            if "content" in message and isinstance(message["content"], list):
+                cleaned_content = [item for item in message["content"] if "cachePoint" not in item]
+                cleaned_messages.append({"role": message["role"], "content": cleaned_content})
+            else:
+                cleaned_messages.append(message)
+        return cleaned_messages
+
     def format_request(
         self,
         messages: Messages,
@@ -203,9 +224,21 @@ class BedrockModel(Model):
         Returns:
             A Bedrock converse stream request.
         """
+        # Handle cache_messages configuration
+        processed_messages = messages
+        if self.config.get("cache_messages") == "default":
+            # Remove all existing cache points from messages
+            processed_messages = self._remove_cache_points_from_messages(messages)
+            # Add cache point to the end of the last message
+            if processed_messages and len(processed_messages) > 0:
+                last_message = processed_messages[-1]
+                if "content" in last_message and isinstance(last_message["content"], list):
+                    # Create a new list with the cache point appended
+                    last_message["content"] = [*last_message["content"], {"cachePoint": {"type": "default"}}]
+
         return {
             "modelId": self.config["model_id"],
-            "messages": self._format_bedrock_messages(messages),
+            "messages": self._format_bedrock_messages(processed_messages),
             "system": [
                 *([{"text": system_prompt}] if system_prompt else []),
                 *([{"cachePoint": {"type": self.config["cache_prompt"]}}] if self.config.get("cache_prompt") else []),

@@ -492,6 +492,58 @@ def test_format_request_cache(model, messages, model_id, tool_spec, cache_type):
     assert tru_request == exp_request
 
 
+def test_format_request_cache_messages(model, model_id, cache_type):
+    """Test that cache_messages removes existing cache points and adds one at the end."""
+    # Messages with existing cache points that should be removed
+    messages_with_cache = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "First message"},
+                {"cachePoint": {"type": "default"}},  # Should be removed
+            ],
+        },
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Response"},
+                {"cachePoint": {"type": "default"}},  # Should be removed
+            ],
+        },
+        {
+            "role": "user",
+            "content": [{"text": "Second message"}],
+        },
+    ]
+
+    model.update_config(cache_messages=cache_type)
+    tru_request = model.format_request(messages_with_cache)
+
+    # Verify all old cache points are removed and new one is at the end
+    messages = tru_request["messages"]
+
+    # Check first message has no cache point
+    assert messages[0]["content"] == [{"text": "First message"}]
+
+    # Check second message has no cache point
+    assert messages[1]["content"] == [{"text": "Response"}]
+
+    # Check last message has cache point at the end
+    assert messages[2]["content"] == [
+        {"text": "Second message"},
+        {"cachePoint": {"type": cache_type}},
+    ]
+
+    # Verify the full request structure
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": [],
+    }
+    assert tru_request == exp_request
+
+
 @pytest.mark.asyncio
 async def test_stream_throttling_exception_from_event_stream_error(bedrock_client, model, messages, alist):
     error_message = "Rate exceeded"
