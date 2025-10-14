@@ -356,8 +356,8 @@ async def test_swarm_emits_handoff_events(alist):
 
 
 @pytest.mark.asyncio
-async def test_swarm_emits_node_complete_events(alist):
-    """Verify Swarm emits MultiAgentNodeCompleteEvent after each node."""
+async def test_swarm_emits_node_stop_events(alist):
+    """Verify Swarm emits MultiAgentNodeStopEvent after each node."""
     agent = Agent(
         name="test_agent",
         model="us.amazon.nova-lite-v1:0",
@@ -369,19 +369,21 @@ async def test_swarm_emits_node_complete_events(alist):
     # Collect events
     events = await alist(swarm.stream_async("Say hello"))
 
-    # Find node complete events
-    complete_events = [e for e in events if e.get("multi_agent_node_complete")]
+    # Find node stop events
+    stop_events = [e for e in events if e.get("multi_agent_node_stop")]
 
-    # Verify we got at least one node complete event
-    assert len(complete_events) > 0, "Expected at least one node complete event"
+    # Verify we got at least one node stop event
+    assert len(stop_events) > 0, "Expected at least one node stop event"
 
     # Verify event structure
-    complete = complete_events[0]
-    assert "node_id" in complete, "Node complete event missing node_id"
-    assert "execution_time" in complete, "Node complete event missing execution_time"
+    stop_event = stop_events[0]
+    assert "node_id" in stop_event, "Node stop event missing node_id"
+    assert "node_result" in stop_event, "Node stop event missing node_result"
 
     # Verify node_id matches
-    assert complete["node_id"] == "test_agent", f"Expected node_id='test_agent', got {complete['node_id']}"
+    assert stop_event["node_id"] == "test_agent", f"Expected node_id='test_agent', got {stop_event['node_id']}"
 
-    # Verify execution_time is reasonable
-    assert complete["execution_time"] > 0, "Expected positive execution_time"
+    # Verify node_result has execution_time
+    node_result = stop_event["node_result"]
+    assert hasattr(node_result, "execution_time"), "NodeResult missing execution_time"
+    assert node_result.execution_time > 0, "Expected positive execution_time"

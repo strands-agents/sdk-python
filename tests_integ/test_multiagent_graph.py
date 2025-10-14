@@ -275,13 +275,13 @@ async def test_graph_streaming_with_agents(alist):
     # Count event categories
     node_start_events = [e for e in events if e.get("multi_agent_node_start")]
     node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
-    node_complete_events = [e for e in events if e.get("multi_agent_node_complete")]
+    node_stop_events = [e for e in events if e.get("multi_agent_node_stop")]
     result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
 
     # Verify we got multiple events of each type
     assert len(node_start_events) >= 2, f"Expected at least 2 node_start events, got {len(node_start_events)}"
     assert len(node_stream_events) > 10, f"Expected many node_stream events, got {len(node_stream_events)}"
-    assert len(node_complete_events) >= 2, f"Expected at least 2 node_complete events, got {len(node_complete_events)}"
+    assert len(node_stop_events) >= 2, f"Expected at least 2 node_stop events, got {len(node_stop_events)}"
     assert len(result_events) >= 1, f"Expected at least 1 result event, got {len(result_events)}"
 
     # Verify we have events for both nodes
