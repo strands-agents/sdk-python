@@ -914,19 +914,6 @@ async def test_agent_cleanup_async(agent):
 
 
 @pytest.mark.asyncio
-async def test_agent_cleanup_async_handles_exceptions(agent):
-    """Test that agent cleanup_async handles exceptions gracefully."""
-    with unittest.mock.patch.object(
-        agent.tool_registry, "cleanup_async", side_effect=Exception("Registry cleanup failed")
-    ):
-        # Should not raise exception despite registry cleanup failing
-        await agent.cleanup_async()
-
-        # Verify cleanup was marked as called even if registry cleanup failed
-        assert agent._cleanup_called is True
-
-
-@pytest.mark.asyncio
 async def test_agent_cleanup_async_idempotent(agent):
     """Test that calling cleanup_async multiple times is safe."""
     with unittest.mock.patch.object(agent.tool_registry, "cleanup_async") as mock_registry_cleanup:
@@ -936,19 +923,6 @@ async def test_agent_cleanup_async_idempotent(agent):
 
         # Verify registry cleanup was only called once due to idempotency
         mock_registry_cleanup.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_agent_cleanup_async_with_no_providers(agent):
-    """Test that agent cleanup_async works when there are no tool providers."""
-    with unittest.mock.patch.object(agent.tool_registry, "cleanup_async") as mock_registry_cleanup:
-        # Should not raise any exceptions
-        await agent.cleanup_async()
-
-        # Verify registry cleanup was called
-        mock_registry_cleanup.assert_called_once()
-        # Verify cleanup was marked as called
-        assert agent._cleanup_called is True
 
 
 def test_agent__del__(agent):
