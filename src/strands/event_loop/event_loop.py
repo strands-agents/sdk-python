@@ -281,7 +281,7 @@ async def _handle_model_execution(
                     message = recover_message_on_max_tokens_reached(message)
 
                 if model_invoke_span:
-                    tracer.end_model_invoke_span(model_invoke_span, message, usage, stop_reason)
+                    tracer.end_model_invoke_span(model_invoke_span, message, usage, metrics, stop_reason)
                 break  # Success! Break out of retry loop
 
             except Exception as e:

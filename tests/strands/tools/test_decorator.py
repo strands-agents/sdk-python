@@ -1363,3 +1363,27 @@ async def test_tool_async_generator_yield_object_result():
     ]
 
     assert act_results == exp_results
+
+
+def test_function_tool_metadata_validate_signature_default_context_name_mismatch():
+    with pytest.raises(ValueError, match=r"param_name=<context> | ToolContext param must be named 'tool_context'"):
+
+        @strands.tool(context=True)
+        def my_tool(context: ToolContext):
+            pass
+
+
+def test_function_tool_metadata_validate_signature_custom_context_name_mismatch():
+    with pytest.raises(ValueError, match=r"param_name=<tool_context> | ToolContext param must be named 'my_context'"):
+
+        @strands.tool(context="my_context")
+        def my_tool(tool_context: ToolContext):
+            pass
+
+
+def test_function_tool_metadata_validate_signature_missing_context_config():
+    with pytest.raises(ValueError, match=r"@tool\(context\) must be set if passing in ToolContext param"):
+
+        @strands.tool
+        def my_tool(tool_context: ToolContext):
+            pass
