@@ -145,6 +145,9 @@ class Agent:
                 Raises:
                     AttributeError: If the tool doesn't exist.
                 """
+                if self._agent._interrupt_state.activated:
+                    raise RuntimeError("cannot directly call tool during interrupt")
+
                 normalized_name = self._find_normalized_tool_name(name)
 
                 # Create unique tool ID and set up the tool request
@@ -638,15 +641,18 @@ class Agent:
         if not isinstance(prompt, list):
             raise TypeError(f"prompt_type={type(prompt)} | must resume from interrupt with list of interruptResponse's")
 
-        for content in cast(list[InterruptResponseContent], prompt):
-            content_type, *_ = content.keys()
-            if content_type != "interruptResponse":
-                raise TypeError(
-                    f"content_type=<{content_type}> | must resume from interrupt with list of interruptResponse's"
-                )
+        invalid_types = [
+            content_type for content in prompt for content_type in content if content_type != "interruptResponse"
+        ]
+        if invalid_types:
+            raise TypeError(
+                f"content_types=<{invalid_types}> | must resume from interrupt with list of interruptResponse's"
+            )
 
+        for content in cast(list[InterruptResponseContent], prompt):
             interrupt_id = content["interruptResponse"]["interruptId"]
             interrupt_response = content["interruptResponse"]["response"]
+
             if interrupt_id not in self._interrupt_state.interrupts:
                 raise KeyError(f"interrupt_id=<{interrupt_id}> | no interrupt found")
 

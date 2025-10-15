@@ -2022,7 +2022,8 @@ def test_agent__call__resume_interrupt_invalid_prompt():
     agent = Agent()
     agent._interrupt_state.activated = True
 
-    with pytest.raises(TypeError, match="prompt_type=<class 'str'>"):
+    exp_message = r"prompt_type=<class 'str'> \| must resume from interrupt with list of interruptResponse's"
+    with pytest.raises(TypeError, match=exp_message):
         agent("invalid")
 
 
@@ -2030,7 +2031,8 @@ def test_agent__call__resume_interrupt_invalid_content():
     agent = Agent()
     agent._interrupt_state.activated = True
 
-    with pytest.raises(TypeError, match="content_type=<text>"):
+    exp_message = r"content_types=<\['text'\]> \| must resume from interrupt with list of interruptResponse's"
+    with pytest.raises(TypeError, match=exp_message):
         agent([{"text": "invalid"}])
 
 
@@ -2038,7 +2040,8 @@ def test_agent__call__resume_interrupt_invalid_id():
     agent = Agent()
     agent._interrupt_state.activated = True
 
-    with pytest.raises(KeyError, match=r"interrupt_id=<invalid> \| no interrupt found"):
+    exp_message = r"interrupt_id=<invalid> \| no interrupt found"
+    with pytest.raises(KeyError, match=exp_message):
         agent([{"interruptResponse": {"interruptId": "invalid", "response": None}}])
 
 
@@ -2046,5 +2049,15 @@ def test_agent_structured_output_interrupt(user):
     agent = Agent()
     agent._interrupt_state.activated = True
 
-    with pytest.raises(RuntimeError, match=r"cannot call structured output during interrupt"):
+    exp_message = r"cannot call structured output during interrupt"
+    with pytest.raises(RuntimeError, match=exp_message):
         agent.structured_output(type(user), "invalid")
+
+
+def test_agent_tool_caller_interrupt(user):
+    agent = Agent()
+    agent._interrupt_state.activated = True
+
+    exp_message = r"cannot directly call tool during interrupt"
+    with pytest.raises(RuntimeError, match=exp_message):
+        agent.tool.test_tool()
