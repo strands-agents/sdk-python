@@ -6,7 +6,8 @@ import pytest
 
 from strands.agent import Agent, AgentResult
 from strands.agent.state import AgentState
-from strands.hooks.registry import HookRegistry
+from strands.hooks import AgentInitializedEvent
+from strands.hooks.registry import HookProvider, HookRegistry
 from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult
 from strands.multiagent.graph import Graph, GraphBuilder, GraphEdge, GraphNode, GraphResult, GraphState, Status
 from strands.session.session_manager import SessionManager
@@ -864,16 +865,30 @@ def test_graph_validate_unsupported_features():
     graph = builder.build()
     assert len(graph.nodes) == 1
 
-    # Test with session manager (should work now - session persistence is supported)
+    # Test with session manager (should fail in GraphBuilder.add_node)
     mock_session_manager = Mock(spec=SessionManager)
     agent_with_session = create_mock_agent("agent_with_session")
     agent_with_session._session_manager = mock_session_manager
     agent_with_session.hooks = HookRegistry()
 
     builder = GraphBuilder()
-    builder.add_node(agent_with_session)
-    graph = builder.build()
-    assert len(graph.nodes) == 1
+    with pytest.raises(ValueError, match="Session persistence is not supported for Graph agents yet"):
+        builder.add_node(agent_with_session)
+
+    # Test with callbacks (should fail in GraphBuilder.add_node)
+    class TestHookProvider(HookProvider):
+        def register_hooks(self, registry, **kwargs):
+            registry.add_callback(AgentInitializedEvent, lambda e: None)
+
+    # Test validation in Graph constructor (when nodes are passed directly)
+    # Test with session manager in Graph constructor
+    node_with_session = GraphNode("node_with_session", agent_with_session)
+    with pytest.raises(ValueError, match="Session persistence is not supported for Graph agents yet"):
+        Graph(
+            nodes={"node_with_session": node_with_session},
+            edges=set(),
+            entry_points=set(),
+        )
 
 
 @pytest.mark.asyncio

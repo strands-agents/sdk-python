@@ -202,6 +202,12 @@ def _validate_node_executor(
         if id(executor) in seen_instances:
             raise ValueError("Duplicate node instance detected. Each node must have a unique object instance.")
 
+    # Validate Agent-specific constraints
+    if isinstance(executor, Agent):
+        # Check for session persistence
+        if executor._session_manager is not None:
+            raise ValueError("Session persistence is not supported for Graph agents yet.")
+
 
 class GraphBuilder:
     """Builder pattern for constructing graphs."""
