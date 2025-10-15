@@ -916,7 +916,9 @@ async def test_agent_cleanup_async(agent):
 @pytest.mark.asyncio
 async def test_agent_cleanup_async_handles_exceptions(agent):
     """Test that agent cleanup_async handles exceptions gracefully."""
-    with unittest.mock.patch.object(agent.tool_registry, "cleanup_async", side_effect=Exception("Registry cleanup failed")):
+    with unittest.mock.patch.object(
+        agent.tool_registry, "cleanup_async", side_effect=Exception("Registry cleanup failed")
+    ):
         # Should not raise exception despite registry cleanup failing
         await agent.cleanup_async()
 
