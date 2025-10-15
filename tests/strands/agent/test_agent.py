@@ -1033,7 +1033,7 @@ def test_agent__del__emits_warning_for_automatic_cleanup():
 
     # Add a mock tool provider so cleanup will be called
     mock_provider = unittest.mock.MagicMock()
-    agent.tool_registry.tool_providers = [mock_provider]
+    agent.tool_registry._tool_providers = [mock_provider]
 
     with unittest.mock.patch("strands.agent.agent.logger") as mock_logger:
         with unittest.mock.patch.object(agent, "cleanup") as mock_cleanup:
@@ -1073,7 +1073,7 @@ def test_agent__del__no_warning_when_no_tool_providers():
     agent = Agent()
 
     # Ensure no tool providers
-    agent.tool_registry.tool_providers = []
+    agent.tool_registry._tool_providers = []
 
     with unittest.mock.patch("strands.agent.agent.logger") as mock_logger:
         with unittest.mock.patch.object(agent, "cleanup") as mock_cleanup:

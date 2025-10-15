@@ -571,14 +571,6 @@ class Agent:
         This serves as a fallback cleanup mechanism, but explicit cleanup() is preferred.
         """
         try:
-            if self._cleanup_called or not self.tool_registry.tool_providers:
-                return
-
-            logger.warning(
-                "agent_id=<%s> | Agent cleanup called via __del__. "
-                "Consider calling agent.cleanup() explicitly for better resource management.",
-                self.agent_id,
-            )
             self.cleanup()
         except Exception as e:
             # Log exceptions during garbage collection cleanup for debugging
