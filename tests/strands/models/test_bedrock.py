@@ -493,21 +493,21 @@ def test_format_request_cache(model, messages, model_id, tool_spec, cache_type):
 
 
 def test_format_request_cache_messages(model, model_id, cache_type):
-    """Test that cache_messages removes existing cache points and adds one at the end."""
-    # Messages with existing cache points that should be removed
+    """Test that cache_messages preserves existing cache points and adds one at the end."""
+    # Messages with existing cache points that should be preserved
     messages_with_cache = [
         {
             "role": "user",
             "content": [
                 {"text": "First message"},
-                {"cachePoint": {"type": "default"}},  # Should be removed
+                {"cachePoint": {"type": "default"}},  # Should be preserved
             ],
         },
         {
             "role": "assistant",
             "content": [
                 {"text": "Response"},
-                {"cachePoint": {"type": "default"}},  # Should be removed
+                {"cachePoint": {"type": "default"}},  # Should be preserved
             ],
         },
         {
@@ -519,16 +519,22 @@ def test_format_request_cache_messages(model, model_id, cache_type):
     model.update_config(cache_messages=cache_type)
     tru_request = model.format_request(messages_with_cache)
 
-    # Verify all old cache points are removed and new one is at the end
+    # Verify existing cache points are preserved and new one is added at the end
     messages = tru_request["messages"]
 
-    # Check first message has no cache point
-    assert messages[0]["content"] == [{"text": "First message"}]
+    # Check first message still has its cache point
+    assert messages[0]["content"] == [
+        {"text": "First message"},
+        {"cachePoint": {"type": "default"}},
+    ]
 
-    # Check second message has no cache point
-    assert messages[1]["content"] == [{"text": "Response"}]
+    # Check second message still has its cache point
+    assert messages[1]["content"] == [
+        {"text": "Response"},
+        {"cachePoint": {"type": "default"}},
+    ]
 
-    # Check last message has cache point at the end
+    # Check third message (last) has new cache point at the end
     assert messages[2]["content"] == [
         {"text": "Second message"},
         {"cachePoint": {"type": cache_type}},
@@ -542,6 +548,50 @@ def test_format_request_cache_messages(model, model_id, cache_type):
         "system": [],
     }
     assert tru_request == exp_request
+
+
+def test_format_request_cache_messages_does_not_modify_original(model, cache_type):
+    """Test that format_request does not modify the original messages when cache_messages is set."""
+    # Create original messages
+    original_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "First message"},
+                {"cachePoint": {"type": "default"}},
+            ],
+        },
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Response"},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [{"text": "Second message"}],
+        },
+    ]
+
+    # Create a deep copy for comparison
+    import copy
+
+    expected_messages = copy.deepcopy(original_messages)
+
+    # Call format_request with cache_messages enabled
+    model.update_config(cache_messages=cache_type)
+    _ = model.format_request(original_messages)
+
+    # Verify original messages are unchanged
+    assert original_messages == expected_messages
+
+    # Verify content lists are unchanged
+    assert original_messages[0]["content"] == [
+        {"text": "First message"},
+        {"cachePoint": {"type": "default"}},
+    ]
+    assert original_messages[1]["content"] == [{"text": "Response"}]
+    assert original_messages[2]["content"] == [{"text": "Second message"}]
 
 
 @pytest.mark.asyncio
