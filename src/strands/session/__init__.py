@@ -8,6 +8,7 @@ from .repository_session_manager import RepositorySessionManager
 from .s3_session_manager import S3SessionManager
 from .session_manager import SessionManager
 from .session_repository import SessionRepository
+from .valkey_session_manager import ValkeySessionManager
 
 __all__ = [
     "FileSessionManager",
@@ -15,4 +16,5 @@ __all__ = [
     "S3SessionManager",
     "SessionManager",
     "SessionRepository",
+    "ValkeySessionManager",
 ]
