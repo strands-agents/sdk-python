@@ -39,7 +39,7 @@ class ToolRegistry:
         self.registry: Dict[str, AgentTool] = {}
         self.dynamic_tools: Dict[str, AgentTool] = {}
         self.tool_config: Optional[Dict[str, Any]] = None
-        self.tool_providers: List[ToolProvider] = []
+        self._tool_providers: List[ToolProvider] = []
         self._registry_id = str(uuid.uuid4())
 
     def process_tools(self, tools: List[Any]) -> List[str]:
@@ -126,7 +126,7 @@ class ToolRegistry:
 
                 # Case 5: ToolProvider
                 elif isinstance(tool, ToolProvider):
-                    self.tool_providers.append(tool)
+                    self._tool_providers.append(tool)
 
                     async def get_tools_and_register_consumer() -> Sequence[AgentTool]:
                         provider_tools = await tool.load_tools()
@@ -663,7 +663,7 @@ class ToolRegistry:
 
     async def cleanup_async(self, **kwargs: Any) -> None:
         """Clean up all tool providers in this registry."""
-        for provider in self.tool_providers:
+        for provider in self._tool_providers:
             try:
                 await provider.remove_consumer(self._registry_id)
                 logger.debug("provider=<%s> | removed provider consumer", type(provider).__name__)
