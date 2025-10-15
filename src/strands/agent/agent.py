@@ -573,7 +573,6 @@ class Agent:
         try:
             self.cleanup()
         except Exception as e:
-            # Log exceptions during garbage collection cleanup for debugging
             logger.debug("agent_id=<%s>, error=<%s> | exception during __del__ cleanup", self.agent_id, e)
 
     async def stream_async(
