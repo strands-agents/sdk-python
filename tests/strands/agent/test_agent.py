@@ -889,8 +889,11 @@ def test_agent_tool_names(tools, agent):
     assert actual == expected
 
 
-def test_agent_cleanup(agent):
+def test_agent_cleanup():
     """Test that agent cleanup method works correctly."""
+    # Create a fresh agent to avoid fixture interference
+    agent = Agent()
+    
     with unittest.mock.patch("strands.agent.agent.run_async") as mock_run_async:
         agent.cleanup()
 
