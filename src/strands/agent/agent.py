@@ -404,7 +404,6 @@ class Agent:
         """
         return run_async(lambda: self.invoke_async(prompt, invocation_state=invocation_state, **kwargs))
 
-
     async def invoke_async(
         self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> AgentResult:

@@ -1,6 +1,6 @@
 """Unit tests for ToolRegistry ToolProvider functionality."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -43,7 +43,6 @@ def mock_run_async():
     """Fixture for mocking strands.tools.registry.run_async."""
     with patch("strands.tools.registry.run_async") as mock:
         yield mock
-
 
 
 @pytest.fixture
