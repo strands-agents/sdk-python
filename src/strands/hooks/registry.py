@@ -7,6 +7,7 @@ functions, supporting both individual callback registration and bulk registratio
 via hook provider objects.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generator, Generic, Protocol, Type, TypeVar
 
@@ -14,6 +15,8 @@ from ..interrupt import Interrupt, InterruptException
 
 if TYPE_CHECKING:
     from ..agent import Agent
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -219,9 +222,9 @@ class HookRegistry:
             except InterruptException as exception:
                 interrupt = exception.interrupt
                 if interrupt.name in interrupts:
-                    raise ValueError(
-                        f"interrupt_name=<{interrupt.name}> | interrupt name used more than once"
-                    ) from exception
+                    message = f"interrupt_name=<{interrupt.name}> | interrupt name used more than once"
+                    logger.error(message)
+                    raise ValueError(message) from exception
 
                 # Each callback is allowed to raise their own interrupt.
                 interrupts[interrupt.name] = interrupt

@@ -578,6 +578,14 @@ class Graph(MultiAgentBase):
                     else:
                         agent_response = await node.executor.invoke_async(node_input, invocation_state=invocation_state)
 
+                    if agent_response.stop_reason == "interrupt":
+                        node.executor.messages.pop()  # remove interrupted tool use message
+                        node.executor._interrupt_state.deactivate()
+
+                        raise RuntimeError(
+                            "user raised interrupt from agent | interrupts are not yet supported in graphs"
+                        )
+
                     # Extract metrics from agent response
                     usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
                     metrics = Metrics(latencyMs=0)
