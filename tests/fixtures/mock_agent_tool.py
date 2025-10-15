@@ -27,9 +27,3 @@ class MockAgentTool(AgentTool):
     
     def stream(self, tool_use: ToolUse, invocation_state: dict[str, Any], **kwargs: Any):
         yield f"Mock result for {self._tool_name}"
-
-
-@pytest.fixture
-def mock_agent_tool():
-    """Fixture factory for creating MockAgentTool instances."""
-    return MockAgentTool

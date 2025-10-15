@@ -6,7 +6,7 @@ import pytest
 
 from strands.experimental.tools.tool_provider import ToolProvider
 from strands.tools.registry import ToolRegistry
-from tests.fixtures.mock_agent_tool import mock_agent_tool
+from tests.fixtures.mock_agent_tool import MockAgentTool
 
 
 class MockToolProvider(ToolProvider):
@@ -46,6 +46,10 @@ def mock_run_async():
 
 
 
+@pytest.fixture
+def mock_agent_tool():
+    """Fixture factory for creating MockAgentTool instances."""
+    return MockAgentTool
 
 
 class TestToolRegistryToolProvider:
