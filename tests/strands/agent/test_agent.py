@@ -993,12 +993,11 @@ def test_agent__del__emits_warning_for_automatic_cleanup():
     # Create a fresh agent for this test to avoid fixture lifecycle issues
     agent = Agent()
 
-    with unittest.mock.patch("strands.agent.agent.logger") as mock_logger:
-        with unittest.mock.patch.object(agent, "cleanup") as mock_cleanup:
-            agent.__del__()
+    with unittest.mock.patch.object(agent, "cleanup") as mock_cleanup:
+        agent.__del__()
 
-            # Verify cleanup was called (warning logic is in agent.__del__ implementation)
-            mock_cleanup.assert_called_once()
+        # Verify cleanup was called (warning logic is in agent.__del__ implementation)
+        mock_cleanup.assert_called_once()
 
 
 def test_agent__del__no_warning_after_manual_cleanup():
