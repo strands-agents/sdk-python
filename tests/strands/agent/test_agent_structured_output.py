@@ -7,7 +7,7 @@ import pytest
 from pydantic import BaseModel
 
 from strands import Agent
-from strands.tools.structured_output.structured_output_context import StructuredOutputContext
+from strands.tools.structured_output._structured_output_context import StructuredOutputContext
 from strands.tools.structured_output.structured_output_tool import StructuredOutputTool
 from strands.types._events import EventLoopStopEvent
 from tests.fixtures.mocked_model_provider import MockedModelProvider

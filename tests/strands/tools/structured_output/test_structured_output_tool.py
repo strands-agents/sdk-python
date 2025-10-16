@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 from pydantic import BaseModel, Field
 
-from strands.tools.structured_output.structured_output_context import StructuredOutputContext
+from strands.tools.structured_output._structured_output_context import StructuredOutputContext
 from strands.tools.structured_output.structured_output_tool import _TOOL_SPEC_CACHE, StructuredOutputTool
 from strands.types._events import ToolResultEvent
 

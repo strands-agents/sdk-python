@@ -8,9 +8,8 @@ from pydantic import BaseModel
 from strands.event_loop.event_loop import event_loop_cycle, recurse_event_loop
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.tools.registry import ToolRegistry
-from strands.tools.structured_output.structured_output_context import StructuredOutputContext
+from strands.tools.structured_output._structured_output_context import StructuredOutputContext
 from strands.types._events import EventLoopStopEvent, StructuredOutputEvent
-from strands.types.exceptions import StructuredOutputException
 
 
 class UserModel(BaseModel):
@@ -187,34 +186,6 @@ async def test_event_loop_forces_structured_output_on_end_turn(
         mock_recurse.assert_called_once()
         call_kwargs = mock_recurse.call_args[1]
         assert call_kwargs["structured_output_context"] == structured_output_context
-
-
-@pytest.mark.asyncio
-async def test_structured_output_max_attempts_exceeded(mock_agent, agenerator, alist):
-    """Test that StructuredOutputException is raised after max attempts."""
-    # Create context that's already at max attempts
-    structured_output_context = StructuredOutputContext(structured_output_model=UserModel)
-    structured_output_context.attempts = structured_output_context.MAX_STRUCTURED_OUTPUT_ATTEMPTS
-
-    # Model returns end_turn without using the tool
-    mock_agent.model.stream.return_value = agenerator(
-        [
-            {"contentBlockDelta": {"delta": {"text": "Some text"}}},
-            {"contentBlockStop": {}},
-            {"messageStop": {"stopReason": "end_turn"}},
-        ]
-    )
-
-    # Should raise StructuredOutputException
-    with pytest.raises(StructuredOutputException) as exc_info:
-        stream = event_loop_cycle(
-            agent=mock_agent,
-            invocation_state={},
-            structured_output_context=structured_output_context,
-        )
-        await alist(stream)
-
-    assert "exceeded maximum attempts" in str(exc_info.value)
 
 
 @pytest.mark.asyncio

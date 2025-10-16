@@ -12,7 +12,7 @@ from ._executor import ToolExecutor
 
 if TYPE_CHECKING:  # pragma: no cover
     from ...agent import Agent
-    from ...tools.structured_output.structured_output_context import StructuredOutputContext
+    from ..structured_output._structured_output_context import StructuredOutputContext
 
 
 class ConcurrentToolExecutor(ToolExecutor):

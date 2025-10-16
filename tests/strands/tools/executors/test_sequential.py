@@ -1,7 +1,7 @@
 import pytest
 
 from strands.tools.executors import SequentialToolExecutor
-from strands.tools.structured_output.structured_output_context import StructuredOutputContext
+from strands.tools.structured_output._structured_output_context import StructuredOutputContext
 from strands.types._events import ToolResultEvent
 
 

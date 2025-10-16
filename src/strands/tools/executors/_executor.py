@@ -14,10 +14,10 @@ from opentelemetry import trace as trace_api
 from ...hooks import AfterToolCallEvent, BeforeToolCallEvent
 from ...telemetry.metrics import Trace
 from ...telemetry.tracer import get_tracer
-from ...tools.structured_output.structured_output_context import StructuredOutputContext
 from ...types._events import ToolResultEvent, ToolStreamEvent, TypedEvent
 from ...types.content import Message
 from ...types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolResult, ToolUse
+from ..structured_output._structured_output_context import StructuredOutputContext
 
 if TYPE_CHECKING:  # pragma: no cover
     from ...agent import Agent

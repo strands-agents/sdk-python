@@ -501,7 +501,13 @@ class ToolRegistry:
 
         Args:
             tool: The tool to register dynamically
+
+        Raises:
+            ValueError: If a tool with this name already exists
         """
+        if tool.tool_name in self.registry or tool.tool_name in self.dynamic_tools:
+            raise ValueError(f"Tool '{tool.tool_name}' already exists")
+
         self.dynamic_tools[tool.tool_name] = tool
         logger.debug("Registered dynamic tool: %s", tool.tool_name)
 

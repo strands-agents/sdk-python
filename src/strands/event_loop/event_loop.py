@@ -19,7 +19,7 @@ from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
 from ..telemetry.metrics import Trace
 from ..telemetry.tracer import get_tracer
 from ..tools._validator import validate_and_prepare_tools
-from ..tools.structured_output.structured_output_context import StructuredOutputContext
+from ..tools.structured_output._structured_output_context import StructuredOutputContext
 from ..types._events import (
     EventLoopStopEvent,
     EventLoopThrottleEvent,
@@ -282,20 +282,12 @@ async def event_loop_cycle(
 
     # Force structured output tool call if LLM didn't use it automatically
     if structured_output_context.is_enabled and stop_reason == "end_turn":
-        if not structured_output_context.can_retry():
+        if structured_output_context.force_attempted:
             raise StructuredOutputException(
-                (
-                    "Structured output forcing exceeded maximum attempts: "
-                    f"({structured_output_context.MAX_STRUCTURED_OUTPUT_ATTEMPTS})"
-                )
+                "The model failed to invoke the structured output tool even after it was forced."
             )
-
-        structured_output_context.setup_retry()
-        logger.debug(
-            "Forcing structured output tool, attempt %d/%d",
-            structured_output_context.attempts,
-            structured_output_context.MAX_STRUCTURED_OUTPUT_ATTEMPTS,
-        )
+        structured_output_context.set_forced_mode()
+        logger.debug("Forcing structured output tool")
         agent._append_message(
             {"role": "user", "content": [{"text": "You must format the previous response as structured output."}]}
         )

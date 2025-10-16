@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 import strands
 from strands.tools.executors import SequentialToolExecutor
-from strands.tools.structured_output.structured_output_context import StructuredOutputContext
+from strands.tools.structured_output._structured_output_context import StructuredOutputContext
 from strands.tools.structured_output.structured_output_tool import StructuredOutputTool
 from strands.types.tools import ToolUse
 

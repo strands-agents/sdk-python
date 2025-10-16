@@ -4,7 +4,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-from strands.tools.structured_output.structured_output_context import StructuredOutputContext
+from strands.tools.structured_output._structured_output_context import StructuredOutputContext
 from strands.tools.structured_output.structured_output_tool import StructuredOutputTool
 
 
@@ -33,8 +33,6 @@ class TestStructuredOutputContext:
         assert context.structured_output_model == SampleModel
         assert isinstance(context.structured_output_tool, StructuredOutputTool)
         assert context.expected_tool_name == "SampleModel"
-        assert context.MAX_STRUCTURED_OUTPUT_ATTEMPTS == 3
-        assert context.attempts == 0
         assert context.results == {}
         assert context.forced_mode is False
         assert context.tool_choice is None
@@ -47,8 +45,6 @@ class TestStructuredOutputContext:
         assert context.structured_output_model is None
         assert context.structured_output_tool is None
         assert context.expected_tool_name is None
-        assert context.MAX_STRUCTURED_OUTPUT_ATTEMPTS == 3
-        assert context.attempts == 0
         assert context.results == {}
         assert context.forced_mode is False
         assert context.tool_choice is None
@@ -84,78 +80,6 @@ class TestStructuredOutputContext:
         # Test retrieving non-existent result
         non_existent = context.get_result("non_existent_id")
         assert non_existent is None
-
-    def test_increment_attempts(self):
-        """Test increment_attempts method and attempt counting."""
-        context = StructuredOutputContext(structured_output_model=SampleModel)
-
-        assert context.attempts == 0
-
-        # First increment
-        result1 = context.increment_attempts()
-        assert result1 == 1
-        assert context.attempts == 1
-
-        # Second increment
-        result2 = context.increment_attempts()
-        assert result2 == 2
-        assert context.attempts == 2
-
-        # Third increment
-        result3 = context.increment_attempts()
-        assert result3 == 3
-        assert context.attempts == 3
-
-    def test_setup_retry(self):
-        """Test setup_retry method."""
-        context = StructuredOutputContext(structured_output_model=SampleModel)
-
-        assert context.attempts == 0
-        assert context.forced_mode is False
-        assert context.tool_choice is None
-
-        # Call setup_retry
-        context.setup_retry()
-
-        assert context.attempts == 1
-        assert context.forced_mode is True
-        assert context.tool_choice == {"any": {}}
-
-    def test_can_retry_logic(self):
-        """Test can_retry logic with MAX_STRUCTURED_OUTPUT_ATTEMPTS."""
-        context = StructuredOutputContext(structured_output_model=SampleModel)
-
-        # Initial state - can retry
-        assert context.can_retry() is True
-
-        # After 1 attempt - can retry
-        context.increment_attempts()
-        assert context.can_retry() is True
-
-        # After 2 attempts - can retry
-        context.increment_attempts()
-        assert context.can_retry() is True
-
-        # After 3 attempts - cannot retry (reached max)
-        context.increment_attempts()
-        assert context.can_retry() is False
-
-        # After 4 attempts - still cannot retry
-        context.increment_attempts()
-        assert context.can_retry() is False
-
-    def test_can_retry_when_disabled(self):
-        """Test can_retry when context is not enabled."""
-        context = StructuredOutputContext(structured_output_model=None)
-
-        # Should always return False when not enabled
-        assert context.can_retry() is False
-
-        context.increment_attempts()
-        assert context.can_retry() is False
-
-        context.increment_attempts()
-        assert context.can_retry() is False
 
     def test_set_forced_mode_with_tool_choice(self):
         """Test set_forced_mode with custom tool_choice."""

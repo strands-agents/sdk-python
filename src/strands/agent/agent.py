@@ -26,10 +26,10 @@ from typing import (
     Union,
     cast,
 )
+import warnings
 
 from opentelemetry import trace as trace_api
 from pydantic import BaseModel
-from typing_extensions import deprecated
 
 from .. import _identifier
 from ..event_loop.event_loop import event_loop_cycle
@@ -50,7 +50,7 @@ from ..telemetry.tracer import get_tracer, serialize
 from ..tools.executors import ConcurrentToolExecutor
 from ..tools.executors._executor import ToolExecutor
 from ..tools.registry import ToolRegistry
-from ..tools.structured_output.structured_output_context import StructuredOutputContext
+from ..tools.structured_output._structured_output_context import StructuredOutputContext
 from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
 from ..types.agent import AgentInput
@@ -452,11 +452,6 @@ class Agent:
 
         return cast(AgentResult, event["result"])
 
-    @deprecated(
-        "Agent.structured_output method is deprecated."
-        " You should pass in `structured_output_model` directly into the agent invocation."
-        " see the <LINK> for more details"
-    )
     def structured_output(self, output_model: Type[T], prompt: AgentInput = None) -> T:
         """This method allows you to get structured output from the agent.
 
@@ -478,7 +473,11 @@ class Agent:
         Raises:
             ValueError: If no conversation history or prompt is provided.
         """
-
+        warnings.warn(
+            "Agent.structured_output method is deprecated."
+            " You should pass in `structured_output_model` directly into the agent invocation."
+            " see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/"
+        )
         def execute() -> T:
             return asyncio.run(self.structured_output_async(output_model, prompt))
 
@@ -486,11 +485,6 @@ class Agent:
             future = executor.submit(execute)
             return future.result()
 
-    @deprecated(
-        "Agent.structured_output_async method is deprecated."
-        " You should pass in `structured_output_model` directly into the agent invocation."
-        " see the <LINK> for more details"
-    )
     async def structured_output_async(self, output_model: Type[T], prompt: AgentInput = None) -> T:
         """This method allows you to get structured output from the agent.
 
@@ -508,6 +502,11 @@ class Agent:
         Raises:
             ValueError: If no conversation history or prompt is provided.
         """
+        warnings.warn(
+            "Agent.structured_output_async method is deprecated."
+            " You should pass in `structured_output_model` directly into the agent invocation."
+            " see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/"
+        )
         self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
         with self.tracer.tracer.start_as_current_span(
             "execute_structured_output", kind=trace_api.SpanKind.CLIENT
@@ -691,8 +690,8 @@ class Agent:
         # Add `Agent` to invocation_state to keep backwards-compatibility
         invocation_state["agent"] = self
 
-        if structured_output_context and structured_output_context.structured_output_tool:
-            self.tool_registry.register_dynamic_tool(structured_output_context.structured_output_tool)
+        if structured_output_context:
+            structured_output_context.register_tool(self.tool_registry)
 
         try:
             events = event_loop_cycle(
@@ -714,6 +713,10 @@ class Agent:
             events = self._execute_event_loop_cycle(invocation_state, structured_output_context)
             async for event in events:
                 yield event
+
+        finally:
+            if structured_output_context:
+                structured_output_context.cleanup(self.tool_registry)
 
     def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
         messages: Messages | None = None

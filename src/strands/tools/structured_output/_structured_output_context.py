@@ -1,12 +1,15 @@
 """Context management for structured output in the event loop."""
 
 import logging
-from typing import Dict, Optional, Type
+from typing import TYPE_CHECKING, Dict, Optional, Type
 
 from pydantic import BaseModel
 
 from ...types.tools import ToolChoice, ToolSpec, ToolUse
 from .structured_output_tool import StructuredOutputTool
+
+if TYPE_CHECKING:
+    from ..registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +23,11 @@ class StructuredOutputContext:
         Args:
             structured_output_model: Optional Pydantic model type for structured output.
         """
-        self.MAX_STRUCTURED_OUTPUT_ATTEMPTS: int = 3
-        self.attempts: int = 0
         self.results: Dict[str, BaseModel] = {}
         self.structured_output_model: Type[BaseModel] | None = structured_output_model
         self.structured_output_tool: StructuredOutputTool | None = None
         self.forced_mode: bool = False
+        self.force_attempted: bool = False
         self.tool_choice: ToolChoice | None = None
         self.stop_loop: bool = False
         self.expected_tool_name: Optional[str] = None
@@ -63,30 +65,6 @@ class StructuredOutputContext:
         """
         return self.results.get(tool_use_id)
 
-    def increment_attempts(self) -> int:
-        """Increment and return the attempt counter.
-
-        Returns:
-            The new attempt count.
-        """
-        self.attempts += 1
-        return self.attempts
-
-    def setup_retry(self) -> None:
-        """Set up the context for a retry attempt with forced mode enabled."""
-        self.increment_attempts()
-        self.set_forced_mode()
-
-    def can_retry(self) -> bool:
-        """Check if structured output forcing should be retried.
-
-        Returns:
-            True if attempts are below the maximum, False otherwise.
-        """
-        if not self.is_enabled:
-            return False
-        return self.attempts < self.MAX_STRUCTURED_OUTPUT_ATTEMPTS
-
     def set_forced_mode(self, tool_choice: dict | None = None) -> None:
         """Mark this context as being in forced structured output mode.
 
@@ -96,6 +74,7 @@ class StructuredOutputContext:
         if not self.is_enabled:
             return
         self.forced_mode = True
+        self.force_attempted = True
         self.tool_choice = tool_choice or {"any": {}}
 
     def has_structured_output_tool(self, tool_uses: list[ToolUse]) -> bool:
@@ -142,3 +121,23 @@ class StructuredOutputContext:
                     logger.debug("Extracted structured output for %s", tool_use.get("name"))
                     return result
         return None
+
+    def register_tool(self, registry: "ToolRegistry") -> None:
+        """Register the structured output tool with the registry.
+
+        Args:
+            registry: The tool registry to register the tool with.
+        """
+        if self.structured_output_tool and self.structured_output_tool.tool_name not in registry.dynamic_tools:
+            registry.register_dynamic_tool(self.structured_output_tool)
+            logger.debug("Registered structured output tool: %s", self.structured_output_tool.tool_name)
+
+    def cleanup(self, registry: "ToolRegistry") -> None:
+        """Clean up the registered structured output tool from the registry.
+
+        Args:
+            registry: The tool registry to clean up the tool from.
+        """
+        if self.structured_output_tool and self.structured_output_tool.tool_name in registry.dynamic_tools:
+            del registry.dynamic_tools[self.structured_output_tool.tool_name]
+            logger.debug("Cleaned up structured output tool: %s", self.structured_output_tool.tool_name)

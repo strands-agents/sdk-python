@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 _TOOL_SPEC_CACHE: dict[Type[BaseModel], ToolSpec] = {}
 
 if TYPE_CHECKING:
-    from .structured_output_context import StructuredOutputContext
+    from ._structured_output_context import StructuredOutputContext
 
 
 class StructuredOutputTool(AgentTool):
