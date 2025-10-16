@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import random
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 from typing import (
     Any,
@@ -54,6 +55,7 @@ from ..types._events import AgentResultEvent, InitEventLoopEvent, ModelStreamChu
 from ..types.agent import AgentInput
 from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
+from ..types.interrupt import InterruptResponseContent
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
@@ -61,6 +63,7 @@ from .conversation_manager import (
     ConversationManager,
     SlidingWindowConversationManager,
 )
+from .interrupt import InterruptState
 from .state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -142,6 +145,9 @@ class Agent:
                 Raises:
                     AttributeError: If the tool doesn't exist.
                 """
+                if self._agent._interrupt_state.activated:
+                    raise RuntimeError("cannot directly call tool during interrupt")
+
                 normalized_name = self._find_normalized_tool_name(name)
 
                 # Create unique tool ID and set up the tool request
@@ -337,6 +343,8 @@ class Agent:
 
         self.hooks = HookRegistry()
 
+        self._interrupt_state = InterruptState()
+
         # Initialize session management functionality
         self._session_manager = session_manager
         if self._session_manager:
@@ -374,7 +382,9 @@ class Agent:
         all_tools = self.tool_registry.get_all_tools_config()
         return list(all_tools.keys())
 
-    def __call__(self, prompt: AgentInput = None, **kwargs: Any) -> AgentResult:
+    def __call__(
+        self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
         This method implements the conversational interface with multiple input patterns:
@@ -389,7 +399,8 @@ class Agent:
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
-            **kwargs: Additional parameters to pass through the event loop.
+            invocation_state: Additional parameters to pass through the event loop.
+            **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
             Result object containing:
@@ -401,13 +412,15 @@ class Agent:
         """
 
         def execute() -> AgentResult:
-            return asyncio.run(self.invoke_async(prompt, **kwargs))
+            return asyncio.run(self.invoke_async(prompt, invocation_state=invocation_state, **kwargs))
 
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)
             return future.result()
 
-    async def invoke_async(self, prompt: AgentInput = None, **kwargs: Any) -> AgentResult:
+    async def invoke_async(
+        self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
         This method implements the conversational interface with multiple input patterns:
@@ -422,7 +435,8 @@ class Agent:
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
-            **kwargs: Additional parameters to pass through the event loop.
+            invocation_state: Additional parameters to pass through the event loop.
+            **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
             Result: object containing:
@@ -432,7 +446,7 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
-        events = self.stream_async(prompt, **kwargs)
+        events = self.stream_async(prompt, invocation_state=invocation_state, **kwargs)
         async for event in events:
             _ = event
 
@@ -484,6 +498,9 @@ class Agent:
         Raises:
             ValueError: If no conversation history or prompt is provided.
         """
+        if self._interrupt_state.activated:
+            raise RuntimeError("cannot call structured output during interrupt")
+
         self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
         with self.tracer.tracer.start_as_current_span(
             "execute_structured_output", kind=trace_api.SpanKind.CLIENT
@@ -528,9 +545,7 @@ class Agent:
                 self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
     async def stream_async(
-        self,
-        prompt: AgentInput = None,
-        **kwargs: Any,
+        self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
 
@@ -546,7 +561,8 @@ class Agent:
                 - list[ContentBlock]: Multi-modal content blocks
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
-            **kwargs: Additional parameters to pass to the event loop.
+            invocation_state: Additional parameters to pass through the event loop.
+            **kwargs: Additional parameters to pass to the event loop.[Deprecating]
 
         Yields:
             An async iterator that yields events. Each event is a dictionary containing
@@ -567,7 +583,21 @@ class Agent:
                     yield event["data"]
             ```
         """
-        callback_handler = kwargs.get("callback_handler", self.callback_handler)
+        self._resume_interrupt(prompt)
+
+        merged_state = {}
+        if kwargs:
+            warnings.warn("`**kwargs` parameter is deprecating, use `invocation_state` instead.", stacklevel=2)
+            merged_state.update(kwargs)
+            if invocation_state is not None:
+                merged_state["invocation_state"] = invocation_state
+        else:
+            if invocation_state is not None:
+                merged_state = invocation_state
+
+        callback_handler = self.callback_handler
+        if kwargs:
+            callback_handler = kwargs.get("callback_handler", self.callback_handler)
 
         # Process input and get message to add (if any)
         messages = self._convert_prompt_to_messages(prompt)
@@ -576,10 +606,10 @@ class Agent:
 
         with trace_api.use_span(self.trace_span):
             try:
-                events = self._run_loop(messages, invocation_state=kwargs)
+                events = self._run_loop(messages, invocation_state=merged_state)
 
                 async for event in events:
-                    event.prepare(invocation_state=kwargs)
+                    event.prepare(invocation_state=merged_state)
 
                     if event.is_callback_event:
                         as_dict = event.as_dict()
@@ -595,6 +625,38 @@ class Agent:
             except Exception as e:
                 self._end_agent_trace_span(error=e)
                 raise
+
+    def _resume_interrupt(self, prompt: AgentInput) -> None:
+        """Configure the interrupt state if resuming from an interrupt event.
+
+        Args:
+            prompt: User responses if resuming from interrupt.
+
+        Raises:
+            TypeError: If in interrupt state but user did not provide responses.
+        """
+        if not self._interrupt_state.activated:
+            return
+
+        if not isinstance(prompt, list):
+            raise TypeError(f"prompt_type={type(prompt)} | must resume from interrupt with list of interruptResponse's")
+
+        invalid_types = [
+            content_type for content in prompt for content_type in content if content_type != "interruptResponse"
+        ]
+        if invalid_types:
+            raise TypeError(
+                f"content_types=<{invalid_types}> | must resume from interrupt with list of interruptResponse's"
+            )
+
+        for content in cast(list[InterruptResponseContent], prompt):
+            interrupt_id = content["interruptResponse"]["interruptId"]
+            interrupt_response = content["interruptResponse"]["response"]
+
+            if interrupt_id not in self._interrupt_state.interrupts:
+                raise KeyError(f"interrupt_id=<{interrupt_id}> | no interrupt found")
+
+            self._interrupt_state.interrupts[interrupt_id].response = interrupt_response
 
     async def _run_loop(self, messages: Messages, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
         """Execute the agent's event loop with the given message and parameters.
@@ -671,6 +733,9 @@ class Agent:
                 yield event
 
     def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
+        if self._interrupt_state.activated:
+            return []
+
         messages: Messages | None = None
         if prompt is not None:
             if isinstance(prompt, str):
