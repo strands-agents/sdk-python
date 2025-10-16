@@ -214,7 +214,7 @@ class GeminiModel(Model):
         """
         return genai.types.GenerateContentConfig(
             system_instruction=system_prompt,
-            tools=self._format_request_tools(tool_specs),
+            tools=self._format_request_tools(tool_specs) if tool_specs else None,
             **(params or {}),
         )
 
