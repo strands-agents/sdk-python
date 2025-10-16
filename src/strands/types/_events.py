@@ -5,11 +5,12 @@ providing a structured way to observe to different events of the event loop and
 agent lifecycle.
 """
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Sequence, cast
 
 from pydantic import BaseModel
 from typing_extensions import override
 
+from ..interrupt import Interrupt
 from ..telemetry import EventLoopMetrics
 from .citations import Citation
 from .content import Message
@@ -221,6 +222,7 @@ class EventLoopStopEvent(TypedEvent):
         message: Message,
         metrics: "EventLoopMetrics",
         request_state: Any,
+        interrupts: Sequence[Interrupt] | None = None,
         structured_output: BaseModel | None = None,
     ) -> None:
         """Initialize with the final execution results.
@@ -230,9 +232,10 @@ class EventLoopStopEvent(TypedEvent):
             message: Final message from the model
             metrics: Execution metrics and performance data
             request_state: Final state of the agent execution
+            interrupts: Interrupts raised by user during agent execution.
             structured_output: Optional structured output result
         """
-        super().__init__({"stop": (stop_reason, message, metrics, request_state, structured_output)})
+        super().__init__({"stop": (stop_reason, message, metrics, request_state, interrupts, structured_output)})
 
     @property
     @override
@@ -311,6 +314,47 @@ class ToolStreamEvent(TypedEvent):
     def tool_use_id(self) -> str:
         """The toolUseId associated with this stream."""
         return cast(str, cast(ToolUse, cast(dict, self.get("tool_stream_event")).get("tool_use")).get("toolUseId"))
+
+
+class ToolCancelEvent(TypedEvent):
+    """Event emitted when a user cancels a tool call from their BeforeToolCallEvent hook."""
+
+    def __init__(self, tool_use: ToolUse, message: str) -> None:
+        """Initialize with tool streaming data.
+
+        Args:
+            tool_use: Information about the tool being cancelled
+            message: The tool cancellation message
+        """
+        super().__init__({"tool_cancel_event": {"tool_use": tool_use, "message": message}})
+
+    @property
+    def tool_use_id(self) -> str:
+        """The id of the tool cancelled."""
+        return cast(str, cast(ToolUse, cast(dict, self.get("tool_cancel_event")).get("tool_use")).get("toolUseId"))
+
+    @property
+    def message(self) -> str:
+        """The tool cancellation message."""
+        return cast(str, self["tool_cancel_event"]["message"])
+
+
+class ToolInterruptEvent(TypedEvent):
+    """Event emitted when a tool is interrupted."""
+
+    def __init__(self, tool_use: ToolUse, interrupts: list[Interrupt]) -> None:
+        """Set interrupt in the event payload."""
+        super().__init__({"tool_interrupt_event": {"tool_use": tool_use, "interrupts": interrupts}})
+
+    @property
+    def tool_use_id(self) -> str:
+        """The id of the tool interrupted."""
+        return cast(str, cast(ToolUse, cast(dict, self.get("tool_interrupt_event")).get("tool_use")).get("toolUseId"))
+
+    @property
+    def interrupts(self) -> list[Interrupt]:
+        """The interrupt instances."""
+        return cast(list[Interrupt], self["tool_interrupt_event"]["interrupts"])
 
 
 class ModelMessageEvent(TypedEvent):

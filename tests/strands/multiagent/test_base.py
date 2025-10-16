@@ -159,6 +159,7 @@ def test_multi_agent_base_call_method():
             self.invoke_async_called = True
             self.received_task = task
             self.received_kwargs = kwargs
+            self.received_invocation_state = invocation_state
             return MultiAgentResult(
                 status=Status.COMPLETED, results={"test": NodeResult(result=Exception("test"), status=Status.COMPLETED)}
             )
@@ -166,10 +167,10 @@ def test_multi_agent_base_call_method():
     agent = TestMultiAgent()
 
     # Test with string task
-    result = agent("test task", param1="value1", param2="value2")
+    result = agent("test task", param1="value1", param2="value2", invocation_state={"value3": "value4"})
 
     assert agent.invoke_async_called
     assert agent.received_task == "test task"
-    assert agent.received_kwargs == {"param1": "value1", "param2": "value2"}
+    assert agent.received_invocation_state == {"param1": "value1", "param2": "value2", "value3": "value4"}
     assert isinstance(result, MultiAgentResult)
     assert result.status == Status.COMPLETED

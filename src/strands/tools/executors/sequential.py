@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator
 from typing_extensions import override
 
 from ...telemetry.metrics import Trace
-from ...types._events import TypedEvent
+from ...types._events import ToolInterruptEvent, TypedEvent
 from ...types.tools import ToolResult, ToolUse
 from ._executor import ToolExecutor
 
@@ -30,6 +30,8 @@ class SequentialToolExecutor(ToolExecutor):
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute tools sequentially.
 
+        Breaks early if an interrupt is raised by the user.
+
         Args:
             agent: The agent for which tools are being executed.
             tool_uses: Metadata and inputs for the tools to be executed.
@@ -42,9 +44,17 @@ class SequentialToolExecutor(ToolExecutor):
         Yields:
             Events from the tool execution stream.
         """
+        interrupted = False
+
         for tool_use in tool_uses:
             events = ToolExecutor._stream_with_trace(
                 agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
             )
             async for event in events:
+                if isinstance(event, ToolInterruptEvent):
+                    interrupted = True
+
                 yield event
+
+            if interrupted:
+                break

@@ -6,6 +6,7 @@ enabling trace data to be sent to OTLP endpoints.
 
 import json
 import logging
+import os
 from datetime import date, datetime, timezone
 from typing import Any, Dict, Mapping, Optional
 
@@ -15,9 +16,9 @@ from opentelemetry.trace import Span, StatusCode
 
 from ..agent.agent_result import AgentResult
 from ..types.content import ContentBlock, Message, Messages
-from ..types.streaming import StopReason, Usage
+from ..types.streaming import Metrics, StopReason, Usage
 from ..types.tools import ToolResult, ToolUse
-from ..types.traces import AttributeValue
+from ..types.traces import Attributes, AttributeValue
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +91,19 @@ class Tracer:
         self.tracer = self.tracer_provider.get_tracer(self.service_name)
         ThreadingInstrumentor().instrument()
 
+        # Read OTEL_SEMCONV_STABILITY_OPT_IN environment variable
+        self.use_latest_genai_conventions = self._parse_semconv_opt_in()
+
+    def _parse_semconv_opt_in(self) -> bool:
+        """Parse the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
+
+        Returns:
+            Set of opt-in values from the environment variable
+        """
+        opt_in_env = os.getenv("OTEL_SEMCONV_STABILITY_OPT_IN", "")
+
+        return "gen_ai_latest_experimental" in opt_in_env
+
     def _start_span(
         self,
         span_name: str,
@@ -138,6 +152,28 @@ class Tracer:
 
         for key, value in attributes.items():
             span.set_attribute(key, value)
+
+    def _add_optional_usage_and_metrics_attributes(
+        self, attributes: Dict[str, AttributeValue], usage: Usage, metrics: Metrics
+    ) -> None:
+        """Add optional usage and metrics attributes if they have values.
+
+        Args:
+            attributes: Dictionary to add attributes to
+            usage: Token usage information from the model call
+            metrics: Metrics from the model call
+        """
+        if "cacheReadInputTokens" in usage:
+            attributes["gen_ai.usage.cache_read_input_tokens"] = usage["cacheReadInputTokens"]
+
+        if "cacheWriteInputTokens" in usage:
+            attributes["gen_ai.usage.cache_write_input_tokens"] = usage["cacheWriteInputTokens"]
+
+        if metrics.get("timeToFirstByteMs", 0) > 0:
+            attributes["gen_ai.server.time_to_first_token"] = metrics["timeToFirstByteMs"]
+
+        if metrics.get("latencyMs", 0) > 0:
+            attributes["gen_ai.server.request.duration"] = metrics["latencyMs"]
 
     def _end_span(
         self,
@@ -194,7 +230,7 @@ class Tracer:
         error = exception or Exception(error_message)
         self._end_span(span, error=error)
 
-    def _add_event(self, span: Optional[Span], event_name: str, event_attributes: Dict[str, AttributeValue]) -> None:
+    def _add_event(self, span: Optional[Span], event_name: str, event_attributes: Attributes) -> None:
         """Add an event with attributes to a span.
 
         Args:
@@ -249,10 +285,7 @@ class Tracer:
         Returns:
             The created span, or None if tracing is not enabled.
         """
-        attributes: Dict[str, AttributeValue] = {
-            "gen_ai.system": "strands-agents",
-            "gen_ai.operation.name": "chat",
-        }
+        attributes: Dict[str, AttributeValue] = self._get_common_attributes(operation_name="chat")
 
         if model_id:
             attributes["gen_ai.request.model"] = model_id
@@ -261,16 +294,18 @@ class Tracer:
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
 
         span = self._start_span("chat", parent_span, attributes=attributes, span_kind=trace_api.SpanKind.CLIENT)
-        for message in messages:
-            self._add_event(
-                span,
-                self._get_event_name_for_message(message),
-                {"content": serialize(message["content"])},
-            )
+        self._add_event_messages(span, messages)
+
         return span
 
     def end_model_invoke_span(
-        self, span: Span, message: Message, usage: Usage, stop_reason: StopReason, error: Optional[Exception] = None
+        self,
+        span: Span,
+        message: Message,
+        usage: Usage,
+        metrics: Metrics,
+        stop_reason: StopReason,
+        error: Optional[Exception] = None,
     ) -> None:
         """End a model invocation span with results and metrics.
 
@@ -278,6 +313,7 @@ class Tracer:
             span: The span to end.
             message: The message response from the model.
             usage: Token usage information from the model call.
+            metrics: Metrics from the model call.
             stop_reason (StopReason): The reason the model stopped generating.
             error: Optional exception if the model call failed.
         """
@@ -287,15 +323,33 @@ class Tracer:
             "gen_ai.usage.completion_tokens": usage["outputTokens"],
             "gen_ai.usage.output_tokens": usage["outputTokens"],
             "gen_ai.usage.total_tokens": usage["totalTokens"],
-            "gen_ai.usage.cache_read_input_tokens": usage.get("cacheReadInputTokens", 0),
-            "gen_ai.usage.cache_write_input_tokens": usage.get("cacheWriteInputTokens", 0),
         }
 
-        self._add_event(
-            span,
-            "gen_ai.choice",
-            event_attributes={"finish_reason": str(stop_reason), "message": serialize(message["content"])},
-        )
+        # Add optional attributes if they have values
+        self._add_optional_usage_and_metrics_attributes(attributes, usage, metrics)
+
+        if self.use_latest_genai_conventions:
+            self._add_event(
+                span,
+                "gen_ai.client.inference.operation.details",
+                {
+                    "gen_ai.output.messages": serialize(
+                        [
+                            {
+                                "role": message["role"],
+                                "parts": self._map_content_blocks_to_otel_parts(message["content"]),
+                                "finish_reason": str(stop_reason),
+                            }
+                        ]
+                    ),
+                },
+            )
+        else:
+            self._add_event(
+                span,
+                "gen_ai.choice",
+                event_attributes={"finish_reason": str(stop_reason), "message": serialize(message["content"])},
+            )
 
         self._end_span(span, attributes, error)
 
@@ -310,12 +364,13 @@ class Tracer:
         Returns:
             The created span, or None if tracing is not enabled.
         """
-        attributes: Dict[str, AttributeValue] = {
-            "gen_ai.operation.name": "execute_tool",
-            "gen_ai.system": "strands-agents",
-            "gen_ai.tool.name": tool["name"],
-            "gen_ai.tool.call.id": tool["toolUseId"],
-        }
+        attributes: Dict[str, AttributeValue] = self._get_common_attributes(operation_name="execute_tool")
+        attributes.update(
+            {
+                "gen_ai.tool.name": tool["name"],
+                "gen_ai.tool.call.id": tool["toolUseId"],
+            }
+        )
 
         # Add additional kwargs as attributes
         attributes.update(kwargs)
@@ -323,15 +378,38 @@ class Tracer:
         span_name = f"execute_tool {tool['name']}"
         span = self._start_span(span_name, parent_span, attributes=attributes, span_kind=trace_api.SpanKind.INTERNAL)
 
-        self._add_event(
-            span,
-            "gen_ai.tool.message",
-            event_attributes={
-                "role": "tool",
-                "content": serialize(tool["input"]),
-                "id": tool["toolUseId"],
-            },
-        )
+        if self.use_latest_genai_conventions:
+            self._add_event(
+                span,
+                "gen_ai.client.inference.operation.details",
+                {
+                    "gen_ai.input.messages": serialize(
+                        [
+                            {
+                                "role": "tool",
+                                "parts": [
+                                    {
+                                        "type": "tool_call",
+                                        "name": tool["name"],
+                                        "id": tool["toolUseId"],
+                                        "arguments": tool["input"],
+                                    }
+                                ],
+                            }
+                        ]
+                    )
+                },
+            )
+        else:
+            self._add_event(
+                span,
+                "gen_ai.tool.message",
+                event_attributes={
+                    "role": "tool",
+                    "content": serialize(tool["input"]),
+                    "id": tool["toolUseId"],
+                },
+            )
 
         return span
 
@@ -352,18 +430,40 @@ class Tracer:
 
             attributes.update(
                 {
-                    "tool.status": status_str,
+                    "gen_ai.tool.status": status_str,
                 }
             )
 
-            self._add_event(
-                span,
-                "gen_ai.choice",
-                event_attributes={
-                    "message": serialize(tool_result.get("content")),
-                    "id": tool_result.get("toolUseId", ""),
-                },
-            )
+            if self.use_latest_genai_conventions:
+                self._add_event(
+                    span,
+                    "gen_ai.client.inference.operation.details",
+                    {
+                        "gen_ai.output.messages": serialize(
+                            [
+                                {
+                                    "role": "tool",
+                                    "parts": [
+                                        {
+                                            "type": "tool_call_response",
+                                            "id": tool_result.get("toolUseId", ""),
+                                            "response": tool_result.get("content"),
+                                        }
+                                    ],
+                                }
+                            ]
+                        )
+                    },
+                )
+            else:
+                self._add_event(
+                    span,
+                    "gen_ai.choice",
+                    event_attributes={
+                        "message": serialize(tool_result.get("content")),
+                        "id": tool_result.get("toolUseId", ""),
+                    },
+                )
 
         self._end_span(span, attributes, error)
 
@@ -400,12 +500,7 @@ class Tracer:
 
         span_name = "execute_event_loop_cycle"
         span = self._start_span(span_name, parent_span, attributes)
-        for message in messages or []:
-            self._add_event(
-                span,
-                self._get_event_name_for_message(message),
-                {"content": serialize(message["content"])},
-            )
+        self._add_event_messages(span, messages)
 
         return span
 
@@ -429,7 +524,24 @@ class Tracer:
 
         if tool_result_message:
             event_attributes["tool.result"] = serialize(tool_result_message["content"])
-        self._add_event(span, "gen_ai.choice", event_attributes=event_attributes)
+
+            if self.use_latest_genai_conventions:
+                self._add_event(
+                    span,
+                    "gen_ai.client.inference.operation.details",
+                    {
+                        "gen_ai.output.messages": serialize(
+                            [
+                                {
+                                    "role": tool_result_message["role"],
+                                    "parts": self._map_content_blocks_to_otel_parts(tool_result_message["content"]),
+                                }
+                            ]
+                        )
+                    },
+                )
+            else:
+                self._add_event(span, "gen_ai.choice", event_attributes=event_attributes)
         self._end_span(span, attributes, error)
 
     def start_agent_span(
@@ -454,11 +566,12 @@ class Tracer:
         Returns:
             The created span, or None if tracing is not enabled.
         """
-        attributes: Dict[str, AttributeValue] = {
-            "gen_ai.system": "strands-agents",
-            "gen_ai.agent.name": agent_name,
-            "gen_ai.operation.name": "invoke_agent",
-        }
+        attributes: Dict[str, AttributeValue] = self._get_common_attributes(operation_name="invoke_agent")
+        attributes.update(
+            {
+                "gen_ai.agent.name": agent_name,
+            }
+        )
 
         if model_id:
             attributes["gen_ai.request.model"] = model_id
@@ -477,12 +590,7 @@ class Tracer:
         span = self._start_span(
             f"invoke_agent {agent_name}", attributes=attributes, span_kind=trace_api.SpanKind.CLIENT
         )
-        for message in messages:
-            self._add_event(
-                span,
-                self._get_event_name_for_message(message),
-                {"content": serialize(message["content"])},
-            )
+        self._add_event_messages(span, messages)
 
         return span
 
@@ -502,11 +610,28 @@ class Tracer:
         attributes: Dict[str, AttributeValue] = {}
 
         if response:
-            self._add_event(
-                span,
-                "gen_ai.choice",
-                event_attributes={"message": str(response), "finish_reason": str(response.stop_reason)},
-            )
+            if self.use_latest_genai_conventions:
+                self._add_event(
+                    span,
+                    "gen_ai.client.inference.operation.details",
+                    {
+                        "gen_ai.output.messages": serialize(
+                            [
+                                {
+                                    "role": "assistant",
+                                    "parts": [{"type": "text", "content": str(response)}],
+                                    "finish_reason": str(response.stop_reason),
+                                }
+                            ]
+                        )
+                    },
+                )
+            else:
+                self._add_event(
+                    span,
+                    "gen_ai.choice",
+                    event_attributes={"message": str(response), "finish_reason": str(response.stop_reason)},
+                )
 
             if hasattr(response, "metrics") and hasattr(response.metrics, "accumulated_usage"):
                 accumulated_usage = response.metrics.accumulated_usage
@@ -530,19 +655,33 @@ class Tracer:
         instance: str,
     ) -> Span:
         """Start a new span for swarm invocation."""
-        attributes: Dict[str, AttributeValue] = {
-            "gen_ai.system": "strands-agents",
-            "gen_ai.agent.name": instance,
-            "gen_ai.operation.name": f"invoke_{instance}",
-        }
-
-        span = self._start_span(f"invoke_{instance}", attributes=attributes, span_kind=trace_api.SpanKind.CLIENT)
-        content = serialize(task) if isinstance(task, list) else task
-        self._add_event(
-            span,
-            "gen_ai.user.message",
-            event_attributes={"content": content},
+        operation = f"invoke_{instance}"
+        attributes: Dict[str, AttributeValue] = self._get_common_attributes(operation)
+        attributes.update(
+            {
+                "gen_ai.agent.name": instance,
+            }
         )
+
+        span = self._start_span(operation, attributes=attributes, span_kind=trace_api.SpanKind.CLIENT)
+
+        if self.use_latest_genai_conventions:
+            parts: list[dict[str, Any]] = []
+            if isinstance(task, list):
+                parts = self._map_content_blocks_to_otel_parts(task)
+            else:
+                parts = [{"type": "text", "content": task}]
+            self._add_event(
+                span,
+                "gen_ai.client.inference.operation.details",
+                {"gen_ai.input.messages": serialize([{"role": "user", "parts": parts}])},
+            )
+        else:
+            self._add_event(
+                span,
+                "gen_ai.user.message",
+                event_attributes={"content": serialize(task) if isinstance(task, list) else task},
+            )
 
         return span
 
@@ -553,11 +692,113 @@ class Tracer:
     ) -> None:
         """End a swarm span with results."""
         if result:
-            self._add_event(
-                span,
-                "gen_ai.choice",
-                event_attributes={"message": result},
+            if self.use_latest_genai_conventions:
+                self._add_event(
+                    span,
+                    "gen_ai.client.inference.operation.details",
+                    {
+                        "gen_ai.output.messages": serialize(
+                            [
+                                {
+                                    "role": "assistant",
+                                    "parts": [{"type": "text", "content": result}],
+                                }
+                            ]
+                        )
+                    },
+                )
+            else:
+                self._add_event(
+                    span,
+                    "gen_ai.choice",
+                    event_attributes={"message": result},
+                )
+
+    def _get_common_attributes(
+        self,
+        operation_name: str,
+    ) -> Dict[str, AttributeValue]:
+        """Returns a dictionary of common attributes based on the convention version used.
+
+        Args:
+            operation_name: The name of the operation.
+
+        Returns:
+            A dictionary of attributes following the appropriate GenAI conventions.
+        """
+        common_attributes = {"gen_ai.operation.name": operation_name}
+        if self.use_latest_genai_conventions:
+            common_attributes.update(
+                {
+                    "gen_ai.provider.name": "strands-agents",
+                }
             )
+        else:
+            common_attributes.update(
+                {
+                    "gen_ai.system": "strands-agents",
+                }
+            )
+        return dict(common_attributes)
+
+    def _add_event_messages(self, span: Span, messages: Messages) -> None:
+        """Adds messages as event to the provided span based on the current GenAI conventions.
+
+        Args:
+            span: The span to which events will be added.
+            messages: List of messages being sent to the agent.
+        """
+        if self.use_latest_genai_conventions:
+            input_messages: list = []
+            for message in messages:
+                input_messages.append(
+                    {"role": message["role"], "parts": self._map_content_blocks_to_otel_parts(message["content"])}
+                )
+            self._add_event(
+                span, "gen_ai.client.inference.operation.details", {"gen_ai.input.messages": serialize(input_messages)}
+            )
+        else:
+            for message in messages:
+                self._add_event(
+                    span,
+                    self._get_event_name_for_message(message),
+                    {"content": serialize(message["content"])},
+                )
+
+    def _map_content_blocks_to_otel_parts(self, content_blocks: list[ContentBlock]) -> list[dict[str, Any]]:
+        """Map ContentBlock objects to OpenTelemetry parts format."""
+        parts: list[dict[str, Any]] = []
+
+        for block in content_blocks:
+            if "text" in block:
+                # Standard TextPart
+                parts.append({"type": "text", "content": block["text"]})
+            elif "toolUse" in block:
+                # Standard ToolCallRequestPart
+                tool_use = block["toolUse"]
+                parts.append(
+                    {
+                        "type": "tool_call",
+                        "name": tool_use["name"],
+                        "id": tool_use["toolUseId"],
+                        "arguments": tool_use["input"],
+                    }
+                )
+            elif "toolResult" in block:
+                # Standard ToolCallResponsePart
+                tool_result = block["toolResult"]
+                parts.append(
+                    {
+                        "type": "tool_call_response",
+                        "id": tool_result["toolUseId"],
+                        "response": tool_result["content"],
+                    }
+                )
+            else:
+                # For all other ContentBlock types, use the key as type and value as content
+                for key, value in block.items():
+                    parts.append({"type": key, "content": value})
+        return parts
 
 
 # Singleton instance for global access

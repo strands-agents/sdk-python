@@ -7,11 +7,16 @@ functions, supporting both individual callback registration and bulk registratio
 via hook provider objects.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generator, Generic, Protocol, Type, TypeVar
 
+from ..interrupt import Interrupt, InterruptException
+
 if TYPE_CHECKING:
     from ..agent import Agent
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -184,7 +189,7 @@ class HookRegistry:
         """
         hook.register_hooks(self)
 
-    def invoke_callbacks(self, event: TInvokeEvent) -> TInvokeEvent:
+    def invoke_callbacks(self, event: TInvokeEvent) -> tuple[TInvokeEvent, list[Interrupt]]:
         """Invoke all registered callbacks for the given event.
 
         This method finds all callbacks registered for the event's type and
@@ -192,11 +197,16 @@ class HookRegistry:
         callbacks are invoked in reverse registration order. Any exceptions raised by callback
         functions will propagate to the caller.
 
+        Additionally, this method aggregates interrupts raised by the user to instantiate human-in-the-loop workflows.
+
         Args:
             event: The event to dispatch to registered callbacks.
 
         Returns:
-            The event dispatched to registered callbacks.
+            The event dispatched to registered callbacks and any interrupts raised by the user.
+
+        Raises:
+            ValueError: If interrupt name is used more than once.
 
         Example:
             ```python
@@ -204,10 +214,22 @@ class HookRegistry:
             registry.invoke_callbacks(event)
             ```
         """
-        for callback in self.get_callbacks_for(event):
-            callback(event)
+        interrupts: dict[str, Interrupt] = {}
 
-        return event
+        for callback in self.get_callbacks_for(event):
+            try:
+                callback(event)
+            except InterruptException as exception:
+                interrupt = exception.interrupt
+                if interrupt.name in interrupts:
+                    message = f"interrupt_name=<{interrupt.name}> | interrupt name used more than once"
+                    logger.error(message)
+                    raise ValueError(message) from exception
+
+                # Each callback is allowed to raise their own interrupt.
+                interrupts[interrupt.name] = interrupt
+
+        return event, list(interrupts.values())
 
     def has_callbacks(self) -> bool:
         """Check if the registry has any registered callbacks.

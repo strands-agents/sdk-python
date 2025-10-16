@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 from typing import Any, AsyncGenerator, AsyncIterable, Optional
 
 from ..models.model import Model
@@ -267,31 +268,38 @@ def handle_redact_content(event: RedactContentEvent, state: dict[str, Any]) -> N
         state["message"]["content"] = [{"text": event["redactAssistantContentMessage"]}]
 
 
-def extract_usage_metrics(event: MetadataEvent) -> tuple[Usage, Metrics]:
+def extract_usage_metrics(event: MetadataEvent, time_to_first_byte_ms: int | None = None) -> tuple[Usage, Metrics]:
     """Extracts usage metrics from the metadata chunk.
 
     Args:
         event: metadata.
+        time_to_first_byte_ms: time to get the first byte from the model in milliseconds
 
     Returns:
         The extracted usage metrics and latency.
     """
     usage = Usage(**event["usage"])
     metrics = Metrics(**event["metrics"])
+    if time_to_first_byte_ms:
+        metrics["timeToFirstByteMs"] = time_to_first_byte_ms
 
     return usage, metrics
 
 
-async def process_stream(chunks: AsyncIterable[StreamEvent]) -> AsyncGenerator[TypedEvent, None]:
+async def process_stream(
+    chunks: AsyncIterable[StreamEvent], start_time: float | None = None
+) -> AsyncGenerator[TypedEvent, None]:
     """Processes the response stream from the API, constructing the final message and extracting usage metrics.
 
     Args:
         chunks: The chunks of the response stream from the model.
+        start_time: Time when the model request is initiated
 
     Yields:
         The reason for stopping, the constructed message, and the usage metrics.
     """
     stop_reason: StopReason = "end_turn"
+    first_byte_time = None
 
     state: dict[str, Any] = {
         "message": {"role": "assistant", "content": []},
@@ -303,10 +311,14 @@ async def process_stream(chunks: AsyncIterable[StreamEvent]) -> AsyncGenerator[T
     state["content"] = state["message"]["content"]
 
     usage: Usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
-    metrics: Metrics = Metrics(latencyMs=0)
+    metrics: Metrics = Metrics(latencyMs=0, timeToFirstByteMs=0)
 
     async for chunk in chunks:
+        # Track first byte time when we get first content
+        if first_byte_time is None and ("contentBlockDelta" in chunk or "contentBlockStart" in chunk):
+            first_byte_time = time.time()
         yield ModelStreamChunkEvent(chunk=chunk)
+
         if "messageStart" in chunk:
             state["message"] = handle_message_start(chunk["messageStart"], state["message"])
         elif "contentBlockStart" in chunk:
@@ -319,7 +331,10 @@ async def process_stream(chunks: AsyncIterable[StreamEvent]) -> AsyncGenerator[T
         elif "messageStop" in chunk:
             stop_reason = handle_message_stop(chunk["messageStop"])
         elif "metadata" in chunk:
-            usage, metrics = extract_usage_metrics(chunk["metadata"])
+            time_to_first_byte_ms = (
+                int(1000 * (first_byte_time - start_time)) if (start_time and first_byte_time) else None
+            )
+            usage, metrics = extract_usage_metrics(chunk["metadata"], time_to_first_byte_ms)
         elif "redactContent" in chunk:
             handle_redact_content(chunk["redactContent"], state)
 
@@ -348,7 +363,8 @@ async def stream_messages(
     logger.debug("model=<%s> | streaming messages", model)
 
     messages = remove_blank_messages_content_text(messages)
+    start_time = time.time()
     chunks = model.stream(messages, tool_specs if tool_specs else None, system_prompt, tool_choice=tool_choice)
 
-    async for event in process_stream(chunks):
+    async for event in process_stream(chunks, start_time):
         yield event

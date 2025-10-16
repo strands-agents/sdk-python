@@ -5,8 +5,9 @@ import inspect
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
+from ..agent.interrupt import InterruptState
 from .content import Message
 
 if TYPE_CHECKING:
@@ -104,11 +105,20 @@ class SessionMessage:
 
 @dataclass
 class SessionAgent:
-    """Agent that belongs to a Session."""
+    """Agent that belongs to a Session.
+
+    Attributes:
+        agent_id: Unique id for the agent.
+        state: User managed state.
+        conversation_manager_state: State for conversation management.
+        created_at: Created at time.
+        updated_at: Updated at time.
+    """
 
     agent_id: str
-    state: Dict[str, Any]
-    conversation_manager_state: Dict[str, Any]
+    state: dict[str, Any]
+    conversation_manager_state: dict[str, Any]
+    _internal_state: dict[str, Any] = field(default_factory=dict)  # Strands managed state
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -121,6 +131,9 @@ class SessionAgent:
             agent_id=agent.agent_id,
             conversation_manager_state=agent.conversation_manager.get_state(),
             state=agent.state.get(),
+            _internal_state={
+                "interrupt_state": agent._interrupt_state.to_dict(),
+            },
         )
 
     @classmethod
@@ -131,6 +144,11 @@ class SessionAgent:
     def to_dict(self) -> dict[str, Any]:
         """Convert the SessionAgent to a dictionary representation."""
         return asdict(self)
+
+    def initialize_internal_state(self, agent: "Agent") -> None:
+        """Initialize internal state of agent."""
+        if "interrupt_state" in self._internal_state:
+            agent._interrupt_state = InterruptState.from_dict(self._internal_state["interrupt_state"])
 
 
 @dataclass
