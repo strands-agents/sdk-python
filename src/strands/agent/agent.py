@@ -476,7 +476,9 @@ class Agent:
         warnings.warn(
             "Agent.structured_output method is deprecated."
             " You should pass in `structured_output_model` directly into the agent invocation."
-            " see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/"
+            " see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/",
+            category=DeprecationWarning,
+            stacklevel=2
         )
         def execute() -> T:
             return asyncio.run(self.structured_output_async(output_model, prompt))
@@ -505,7 +507,9 @@ class Agent:
         warnings.warn(
             "Agent.structured_output_async method is deprecated."
             " You should pass in `structured_output_model` directly into the agent invocation."
-            " see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/"
+            " see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/",
+            category=DeprecationWarning,
+            stacklevel=2
         )
         self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
         with self.tracer.tracer.start_as_current_span(
