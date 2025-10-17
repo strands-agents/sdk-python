@@ -688,3 +688,69 @@ def test_call_tool_sync_embedded_unknown_resource_type_dropped(mock_transport, m
         mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None)
         assert result["status"] == "success"
         assert len(result["content"]) == 0  # Unknown resource type should be dropped
+
+
+def test_list_tools_sync_with_prefix(mock_transport, mock_session):
+    """Test that list_tools_sync correctly applies prefix to tool names."""
+    mock_tool = MCPTool(name="search", description="A search tool", inputSchema={"type": "object", "properties": {}})
+    mock_session.list_tools.return_value = ListToolsResult(tools=[mock_tool])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        tools = client.list_tools_sync(tool_name_prefix="github_")
+
+        mock_session.list_tools.assert_called_once_with(cursor=None)
+
+        assert len(tools) == 1
+        assert tools[0].tool_name == "github_search"
+        assert tools[0].tool_spec["name"] == "github_search"
+
+
+def test_list_tools_sync_without_prefix(mock_transport, mock_session):
+    """Test that list_tools_sync works without prefix (default behavior)."""
+    mock_tool = MCPTool(name="search", description="A search tool", inputSchema={"type": "object", "properties": {}})
+    mock_session.list_tools.return_value = ListToolsResult(tools=[mock_tool])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        tools = client.list_tools_sync()
+
+        mock_session.list_tools.assert_called_once_with(cursor=None)
+
+        assert len(tools) == 1
+        assert tools[0].tool_name == "search"
+        assert tools[0].tool_spec["name"] == "search"
+
+
+def test_list_tools_sync_with_empty_prefix(mock_transport, mock_session):
+    """Test that list_tools_sync handles empty string prefix correctly."""
+    mock_tool = MCPTool(name="search", description="A search tool", inputSchema={"type": "object", "properties": {}})
+    mock_session.list_tools.return_value = ListToolsResult(tools=[mock_tool])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        tools = client.list_tools_sync(tool_name_prefix="")
+
+        mock_session.list_tools.assert_called_once_with(cursor=None)
+
+        assert len(tools) == 1
+        assert tools[0].tool_name == "search"
+        assert tools[0].tool_spec["name"] == "search"
+
+
+def test_list_tools_sync_prefix_multiple_tools(mock_transport, mock_session):
+    """Test that prefix is applied to all tools."""
+    mock_tools = [
+        MCPTool(name="search", description="Search tool", inputSchema={"type": "object", "properties": {}}),
+        MCPTool(name="get_issue", description="Get issue tool", inputSchema={"type": "object", "properties": {}}),
+        MCPTool(name="list_repos", description="List repos tool", inputSchema={"type": "object", "properties": {}}),
+    ]
+    mock_session.list_tools.return_value = ListToolsResult(tools=mock_tools)
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        tools = client.list_tools_sync(tool_name_prefix="azure_")
+
+        assert len(tools) == 3
+        assert tools[0].tool_name == "azure_search"
+        assert tools[1].tool_name == "azure_get_issue"
+        assert tools[2].tool_name == "azure_list_repos"
+        assert tools[0].tool_spec["name"] == "azure_search"
+        assert tools[1].tool_spec["name"] == "azure_get_issue"
+        assert tools[2].tool_spec["name"] == "azure_list_repos"
