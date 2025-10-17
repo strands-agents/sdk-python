@@ -346,7 +346,7 @@ async def test_executor_stream_hook_interrupt(executor, agent, tool_results, inv
     tool_use = {"name": "weather_tool", "toolUseId": "test_tool_id", "input": {}}
 
     interrupt = Interrupt(
-        id="v1:test_tool_id:78714d6c-613c-5cf4-bf25-7037569941f9",
+        id="v1:before_tool_call:test_tool_id:78714d6c-613c-5cf4-bf25-7037569941f9",
         name="test_name",
         reason="test reason",
     )
@@ -372,7 +372,7 @@ async def test_executor_stream_hook_interrupt_resume(executor, agent, tool_resul
     tool_use = {"name": "weather_tool", "toolUseId": "test_tool_id", "input": {}}
 
     interrupt = Interrupt(
-        id="v1:test_tool_id:78714d6c-613c-5cf4-bf25-7037569941f9",
+        id="v1:before_tool_call:test_tool_id:78714d6c-613c-5cf4-bf25-7037569941f9",
         name="test_name",
         reason="test reason",
         response="test response",
@@ -414,7 +414,7 @@ async def test_executor_stream_tool_interrupt(executor, agent, tool_results, inv
     tool_use = {"name": "interrupt_tool", "toolUseId": "test_tool_id", "input": {}}
 
     interrupt = Interrupt(
-        id="v1:tool_context:test_tool_id:78714d6c-613c-5cf4-bf25-7037569941f9",
+        id="v1:tool_call:test_tool_id:78714d6c-613c-5cf4-bf25-7037569941f9",
         name="test_name",
         reason="test reason",
     )
@@ -435,7 +435,7 @@ async def test_executor_stream_tool_interrupt_resume(executor, agent, tool_resul
     tool_use = {"name": "interrupt_tool", "toolUseId": "test_tool_id", "input": {}}
 
     interrupt = Interrupt(
-        id="v1:tool_context:test_tool_id:78714d6c-613c-5cf4-bf25-7037569941f9",
+        id="v1:tool_call:test_tool_id:78714d6c-613c-5cf4-bf25-7037569941f9",
         name="test_name",
         reason="test reason",
         response="test response",

@@ -124,7 +124,7 @@ class BeforeToolCallEvent(HookEvent, _Interruptible):
         Returns:
             Interrupt id.
         """
-        return f"v1:{self.tool_use['toolUseId']}:{uuid.uuid5(uuid.NAMESPACE_OID, name)}"
+        return f"v1:before_tool_call:{self.tool_use['toolUseId']}:{uuid.uuid5(uuid.NAMESPACE_OID, name)}"
 
 
 @dataclass

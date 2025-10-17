@@ -143,7 +143,7 @@ async def test_stream_with_agent(alist):
 @pytest.mark.asyncio
 async def test_stream_interrupt(alist):
     interrupt = Interrupt(
-        id="v1:tool_context:test_tool_id:78714d6c-613c-5cf4-bf25-7037569941f9",
+        id="v1:tool_call:test_tool_id:78714d6c-613c-5cf4-bf25-7037569941f9",
         name="test_name",
         reason="test reason",
     )
@@ -169,7 +169,7 @@ async def test_stream_interrupt(alist):
 @pytest.mark.asyncio
 async def test_stream_interrupt_resume(alist):
     interrupt = Interrupt(
-        id="v1:tool_context:test_tool_id:78714d6c-613c-5cf4-bf25-7037569941f9",
+        id="v1:tool_call:test_tool_id:78714d6c-613c-5cf4-bf25-7037569941f9",
         name="test_name",
         reason="test reason",
         response="test response",

@@ -159,7 +159,7 @@ class ToolContext(_Interruptible):
         Returns:
             Interrupt id.
         """
-        return f"v1:tool_context:{self.tool_use['toolUseId']}:{uuid.uuid5(uuid.NAMESPACE_OID, name)}"
+        return f"v1:tool_call:{self.tool_use['toolUseId']}:{uuid.uuid5(uuid.NAMESPACE_OID, name)}"
 
 
 # Individual ToolChoice type aliases
