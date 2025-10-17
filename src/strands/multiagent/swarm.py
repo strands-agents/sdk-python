@@ -19,18 +19,18 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Callable, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 from opentelemetry import trace as trace_api
 
 from ..agent import Agent, AgentResult
 from ..agent.state import AgentState
-from ..experimental.multiagent_hooks import (
+from ..experimental.hooks.multiagent_hooks import (
     AfterMultiAgentInvocationEvent,
-    AfterNodeInvocationEvent,
-    MultiagentInitializedEvent,
+    AfterNodeCallEvent,
+    MultiAgentInitializedEvent,
 )
-from ..hooks import HookRegistry
+from ..hooks import HookProvider, HookRegistry
 from ..session import SessionManager
 from ..telemetry import get_tracer
 from ..tools.decorator import tool
@@ -210,8 +210,8 @@ class Swarm(MultiAgentBase):
         node_timeout: float = 300.0,
         repetitive_handoff_detection_window: int = 0,
         repetitive_handoff_min_unique_agents: int = 0,
-        session_manager: SessionManager | None = None,
-        hooks: HookRegistry | None = None,
+        session_manager: Optional[SessionManager] = None,
+        hooks: Optional[list[HookProvider]] = None,
     ) -> None:
         """Initialize Swarm with agents and configuration.
 
@@ -249,18 +249,19 @@ class Swarm(MultiAgentBase):
         self.tracer = get_tracer()
 
         self.session_manager = session_manager
-        self.hooks = hooks or HookRegistry()
+        self.hooks = HookRegistry()
+        if hooks:
+            for hook in hooks:
+                self.hooks.add_hook(hook)
         if self.session_manager is not None:
             self.hooks.add_hook(self.session_manager)
 
         self._setup_swarm(nodes)
         self._inject_swarm_tools()
 
-        # We need flags here from Graph since they have different mechanism to determine end of loop.
         self._resume_from_persisted = False
-        self._resume_from_completed = False
 
-        self.hooks.invoke_callbacks(MultiagentInitializedEvent(source=self))
+        self.hooks.invoke_callbacks(MultiAgentInitializedEvent(source=self))
 
     def __call__(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
@@ -299,10 +300,6 @@ class Swarm(MultiAgentBase):
             invocation_state = {}
 
         logger.debug("starting swarm execution")
-
-        if self._resume_from_persisted and self._resume_from_completed:
-            logger.debug("Returning persisted COMPLETED result without re-execution.")
-            return self._build_result()
 
         # If resume
         if not self._resume_from_persisted:
@@ -619,7 +616,7 @@ class Swarm(MultiAgentBase):
 
                     logger.debug("node=<%s> | node execution completed", current_node.node_id)
 
-                    self.hooks.invoke_callbacks(AfterNodeInvocationEvent(self, executed_node=current_node.node_id))
+                    self.hooks.invoke_callbacks(AfterNodeCallEvent(self, node_id=current_node.node_id))
 
                     # Check if the current node is still the same after execution
                     # If it is, then no handoff occurred and we consider the swarm complete
@@ -723,7 +720,7 @@ class Swarm(MultiAgentBase):
             self.state.results[node_name] = node_result
 
             # Persist failure here
-            self.hooks.invoke_callbacks(AfterNodeInvocationEvent(self, executed_node=node_name))
+            self.hooks.invoke_callbacks(AfterNodeCallEvent(self, node_id=node_name))
 
             raise
 
@@ -753,24 +750,6 @@ class Swarm(MultiAgentBase):
             return self.nodes[str(self.entry_point.name)]
 
         return next(iter(self.nodes.values()))  # First SwarmNode
-
-    def attempt_resume(self, payload: dict[str, Any]) -> None:
-        """Apply persisted state and set resume flags."""
-        status = payload.get("status")
-        self.deserialize_state(payload)
-        self._resume_from_persisted = True
-        self._resume_from_completed = status in (Status.COMPLETED.value, "completed")
-
-        if self._resume_from_completed:
-            # Avoid running again; placeholder so current_node is non-null
-            placeholder = SwarmNode("placeholder", Agent())
-            self.state.current_node = placeholder
-            logger.debug("Saved state is COMPLETED; will return persisted result without re-running.")
-        else:
-            logger.debug(
-                "Resumed from persisted state. Current node: %s",
-                self.state.current_node.node_id if self.state.current_node else "None",
-            )
 
     def _to_dict(self) -> dict:
         """Return a JSON-serializable snapshot of the orchestrator state.
@@ -870,4 +849,22 @@ class Swarm(MultiAgentBase):
         Args:
             payload: Dictionary containing persisted state data
         """
-        self._from_dict(payload)
+        if payload.get("status") in (Status.COMPLETED.value, "completed"):
+            # Reset all nodes
+            for node in self.nodes.values():
+                node.reset_executor_state()
+            # Reset graph state
+            self.state = SwarmState(
+                current_node=SwarmNode("", Agent()),  # Placeholder, will be set properly
+                task="",
+                completion_status=Status.PENDING,
+            )
+            self._resume_from_persisted = False
+            return
+        else:
+            self._from_dict(payload)
+            self._resume_from_persisted = True
+            logger.debug(
+                "Resumed from persisted state. Current node: %s",
+                self.state.current_node.node_id if self.state.current_node else "None",
+            )

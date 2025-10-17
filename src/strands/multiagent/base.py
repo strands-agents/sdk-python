@@ -10,12 +10,12 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Literal, Union, cast
+from typing import Any, Union, cast
 
 from ..agent import AgentResult
 from ..telemetry.metrics import EventLoopMetrics
 from ..types.content import ContentBlock, Message
-from ..types.event_loop import Metrics, Usage
+from ..types.event_loop import Metrics, StopReason, Usage
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,6 @@ class NodeResult:
             return []  # No agent results for exceptions
         elif isinstance(self.result, AgentResult):
             return [self.result]
-        # If this is a nested MultiAgentResult, flatten children
         else:
             # Flatten nested results from MultiAgentResult
             flattened = []
@@ -98,7 +97,7 @@ class NodeResult:
 
         result: Union[AgentResult, "MultiAgentResult", Exception]
         if isinstance(raw, dict) and raw.get("type") == "agent_result":
-            result = _agent_result_from_persisted(raw)
+            result = NodeResult.agent_result_from_persisted(raw)
         elif isinstance(raw, dict) and raw.get("type") == "exception":
             result = Exception(str(raw.get("message", "node failed")))
         elif isinstance(raw, dict) and ("results" in raw):
@@ -129,27 +128,27 @@ class NodeResult:
             execution_count=int(data.get("execution_count", 0)),
         )
 
+    @classmethod
+    def agent_result_from_persisted(cls, data: dict[str, Any]) -> AgentResult:
+        """Rehydrate a minimal AgentResult from persisted JSON.
 
-def _agent_result_from_persisted(data: dict[str, Any]) -> AgentResult:
-    """Rehydrate a minimal AgentResult from persisted JSON.
+        Expected shape:
+          {"type": "agent_result", "message": <Message>, "stop_reason": <str|None>}
+        """
+        if data.get("type") != "agent_result":
+            raise TypeError(f"agent_result_from_persisted: unexpected type {data.get('type')!r}")
 
-    Expected shape:
-      {"type": "agent_result", "message": <Message>, "stop_reason": <str|None>}
-    """
-    if data.get("type") != "agent_result":
-        raise TypeError(f"_agent_result_from_persisted: unexpected type {data.get('type')!r}")
+        message = cast(Message, data.get("message"))
+        stop_reason = cast(
+            StopReason,
+            data.get("stop_reason"),
+        )
 
-    message = cast(Message, data.get("message"))
-    stop_reason = cast(
-        Literal["content_filtered", "end_turn", "guardrail_intervened", "max_tokens", "stop_sequence", "tool_use"],
-        data.get("stop_reason"),
-    )
-
-    try:
-        return AgentResult(message=message, stop_reason=stop_reason, metrics=EventLoopMetrics(), state={})
-    except Exception:
-        logger.debug("AgentResult constructor failed during rehydrating")
-        raise
+        try:
+            return AgentResult(message=message, stop_reason=stop_reason, metrics=EventLoopMetrics(), state={})
+        except Exception:
+            logger.debug("AgentResult constructor failed during rehydrating")
+            raise
 
 
 @dataclass
@@ -171,6 +170,7 @@ class MultiAgentResult:
     def to_dict(self) -> dict[str, Any]:
         """Convert MultiAgentResult to JSON-serializable dict."""
         return {
+            "type": "mutiagent_result",
             "status": self.status.value,
             "results": {k: v.to_dict() for k, v in self.results.items()},
             "accumulated_usage": dict(self.accumulated_usage),
@@ -271,14 +271,4 @@ class MultiAgentBase(ABC):
         Returns:
             JSON-serializable dict representation
         """
-        if not isinstance(raw, NodeResult):
-            raise TypeError(f"serialize_node_result_for_persist expects NodeResult, got {type(raw).__name__}")
         return raw.to_dict()
-
-    def attempt_resume(self, payload: dict[str, Any]) -> None:
-        """Attempt to resume orchestrator state from a session payload.
-
-        Args:
-            payload: Session data to restore orchestrator state from
-        """
-        raise NotImplementedError

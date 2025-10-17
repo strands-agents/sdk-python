@@ -248,9 +248,9 @@ def test_serialize_node_result_for_persist(agent_result):
     assert "execution_time" in serialized
     assert "status" in serialized
 
-    # Test with invalid input type should raise TypeError
-    with pytest.raises(TypeError, match="serialize_node_result_for_persist expects NodeResult"):
-        MultiAgentBase.serialize_node_result_for_persist(agent, {"agent_outputs": ["test1", "test2"]})
-
-    with pytest.raises(TypeError, match="serialize_node_result_for_persist expects NodeResult"):
-        MultiAgentBase.serialize_node_result_for_persist(agent, "simple string")
+    # Test with NodeResult containing Exception
+    exception_node_result = NodeResult(result=Exception("Test error"), status=Status.FAILED)
+    serialized_exception = MultiAgentBase.serialize_node_result_for_persist(agent, exception_node_result)
+    assert "result" in serialized_exception
+    assert serialized_exception["result"]["type"] == "exception"
+    assert serialized_exception["result"]["message"] == "Test error"

@@ -5,10 +5,10 @@ import threading
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
-from ..experimental.multiagent_hooks.multiagent_events import (
+from ..experimental.hooks.multiagent_hooks.multiagent_events import (
     AfterMultiAgentInvocationEvent,
-    AfterNodeInvocationEvent,
-    MultiagentInitializedEvent,
+    AfterNodeCallEvent,
+    MultiAgentInitializedEvent,
 )
 from ..hooks.events import AfterInvocationEvent, AgentInitializedEvent, MessageAddedEvent
 from ..hooks.registry import HookProvider, HookRegistry
@@ -56,8 +56,8 @@ class SessionManager(HookProvider, ABC):
             registry.add_callback(AfterInvocationEvent, lambda event: self.sync_agent(event.agent))
 
         elif self.session_type == SessionType.MULTI_AGENT:
-            registry.add_callback(MultiagentInitializedEvent, self._on_multiagent_initialized)
-            registry.add_callback(AfterNodeInvocationEvent, lambda event: self._persist_multi_agent_state(event.source))
+            registry.add_callback(MultiAgentInitializedEvent, self._on_multiagent_initialized)
+            registry.add_callback(AfterNodeCallEvent, lambda event: self._persist_multi_agent_state(event.source))
             registry.add_callback(
                 AfterMultiAgentInvocationEvent, lambda event: self._persist_multi_agent_state(event.source)
             )
@@ -134,21 +134,13 @@ class SessionManager(HookProvider, ABC):
             "SessionManager with session_type=SessionType.MULTI_AGENT."
         )
 
-    def _on_multiagent_initialized(self, event: MultiagentInitializedEvent) -> None:
+    def _on_multiagent_initialized(self, event: MultiAgentInitializedEvent) -> None:
         """Initialization path: attempt to resume and then persist a fresh snapshot."""
         source: MultiAgentBase = event.source
-        try:
-            payload = self.read_multi_agent_json()
-        except NotImplementedError:
-            logger.debug("Multi-agent persistence not implemented; starting fresh")
-            return
+        payload = self.read_multi_agent_json()
         # payload can be {} or Graph/Swarm state json
         if payload:
-            try:
-                source.attempt_resume(payload)
-            except Exception:
-                logger.exception("Failed to apply resume payload; starting fresh")
-                raise
+            source.deserialize_state(payload)
         else:
             try:
                 self._persist_multi_agent_state(source)
