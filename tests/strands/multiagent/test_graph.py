@@ -1417,10 +1417,10 @@ async def test_graph_streaming_events(mock_strands_tracer, mock_use_span, alist)
     assert len(events) > 0
 
     # Should have node start/stop events and forwarded agent events
-    node_start_events = [e for e in events if e.get("multi_agent_node_start")]
-    node_stop_events = [e for e in events if e.get("multi_agent_node_stop")]
-    node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
-    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
+    node_start_events = [e for e in events if e.get("type") == "multiagent_node_start"]
+    node_stop_events = [e for e in events if e.get("type") == "multiagent_node_stop"]
+    node_stream_events = [e for e in events if e.get("type") == "multiagent_node_stream"]
+    result_events = [e for e in events if "result" in e and e.get("type") != "multiagent_node_stream"]
 
     # Should have start/stop events for both nodes
     assert len(node_start_events) == 2
@@ -1499,12 +1499,12 @@ async def test_graph_streaming_parallel_events(mock_strands_tracer, mock_use_spa
     assert total_time < 0.2, f"Expected parallel execution, took {total_time}s"
 
     # Verify we get events from all nodes
-    node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
+    node_stream_events = [e for e in events if e.get("type") == "multiagent_node_stream"]
     nodes_with_events = set(e["node_id"] for e in node_stream_events)
     assert nodes_with_events == {"a", "b", "c"}
 
     # Verify start events for all nodes
-    node_start_events = [e for e in events if e.get("multi_agent_node_start")]
+    node_start_events = [e for e in events if e.get("type") == "multiagent_node_start"]
     start_node_ids = set(e["node_id"] for e in node_start_events)
     assert start_node_ids == {"a", "b", "c"}
 
@@ -1552,11 +1552,11 @@ async def test_graph_streaming_with_failures(mock_strands_tracer, mock_use_span)
     assert len(events) > 0
 
     # Should have node start events
-    node_start_events = [e for e in events if e.get("multi_agent_node_start")]
+    node_start_events = [e for e in events if e.get("type") == "multiagent_node_start"]
     assert len(node_start_events) >= 1
 
     # Should have some forwarded events before failure
-    node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
+    node_stream_events = [e for e in events if e.get("type") == "multiagent_node_stream"]
     assert len(node_stream_events) >= 1
 
 

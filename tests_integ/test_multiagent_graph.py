@@ -273,10 +273,10 @@ async def test_graph_streaming_with_agents(alist):
     events = await alist(graph.stream_async("Calculate 5 + 3 and summarize the result"))
 
     # Count event categories
-    node_start_events = [e for e in events if e.get("multi_agent_node_start")]
-    node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
-    node_stop_events = [e for e in events if e.get("multi_agent_node_stop")]
-    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
+    node_start_events = [e for e in events if e.get("type") == "multiagent_node_start"]
+    node_stream_events = [e for e in events if e.get("type") == "multiagent_node_stream"]
+    node_stop_events = [e for e in events if e.get("type") == "multiagent_node_stop"]
+    result_events = [e for e in events if "result" in e and e.get("type") != "multiagent_node_stream"]
 
     # Verify we got multiple events of each type
     assert len(node_start_events) >= 2, f"Expected at least 2 node_start events, got {len(node_start_events)}"
@@ -320,15 +320,15 @@ async def test_graph_streaming_with_custom_node(alist):
     events = await alist(graph.stream_async("Calculate 5 + 3 and summarize the result"))
 
     # Count event categories
-    node_start_events = [e for e in events if e.get("multi_agent_node_start")]
-    node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
-    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
+    node_start_events = [e for e in events if e.get("type") == "multiagent_node_start"]
+    node_stream_events = [e for e in events if e.get("type") == "multiagent_node_stream"]
+    result_events = [e for e in events if "result" in e and e.get("type") != "multiagent_node_stream"]
 
     # Extract custom events from wrapped node_stream events
-    # Structure: {"multi_agent_node_stream": True, "node_id": "...", "event": {...}}
+    # Structure: {"type": "multiagent_node_stream", "node_id": "...", "event": {...}}
     custom_events = []
     for e in node_stream_events:
-        if e.get("multi_agent_node_stream") and "event" in e:
+        if e.get("type") == "multiagent_node_stream" and "event" in e:
             inner_event = e["event"]
             if isinstance(inner_event, dict) and "custom_event" in inner_event:
                 custom_events.append(inner_event)
@@ -388,9 +388,9 @@ async def test_nested_graph_streaming(alist):
     events = await alist(outer_graph.stream_async("Calculate 7 + 8 and provide a summary"))
 
     # Count event categories
-    node_start_events = [e for e in events if e.get("multi_agent_node_start")]
-    node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
-    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
+    node_start_events = [e for e in events if e.get("type") == "multiagent_node_start"]
+    node_stream_events = [e for e in events if e.get("type") == "multiagent_node_stream"]
+    result_events = [e for e in events if "result" in e and e.get("type") != "multiagent_node_stream"]
 
     # Verify we got multiple events
     assert len(node_start_events) >= 2, f"Expected at least 2 node_start events, got {len(node_start_events)}"
@@ -468,13 +468,13 @@ async def test_graph_streams_events_before_timeout(alist):
     events = await alist(graph.stream_async("Say hello"))
 
     # Verify we got multiple streaming events before completion
-    node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
+    node_stream_events = [e for e in events if e.get("type") == "multiagent_node_stream"]
     assert len(node_stream_events) > 0, "Expected streaming events before completion"
 
     # Verify final result - both Agent and Graph use "result" key:
-    # 1. Agent's result forwarded as multi_agent_node_stream (with key "result")
+    # 1. Agent's result forwarded as multiagent_node_stream (with key "result")
     # 2. Graph's final result (with key "result", not wrapped in node_stream)
-    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
+    result_events = [e for e in events if "result" in e and e.get("type") != "multiagent_node_stream"]
     assert len(result_events) >= 1, "Expected at least one result event"
 
     # The last event should be the graph result
@@ -505,3 +505,33 @@ async def test_graph_no_timeout_backward_compatibility():
     result = await graph.invoke_async("Say hello")
     assert result.status == Status.COMPLETED
     assert result.completed_nodes == 1
+
+
+@pytest.mark.asyncio
+async def test_graph_emits_handoff_events(math_agent, analysis_agent):
+    """Test that graph emits handoff events for batch transitions."""
+    # Build a simple graph with sequential execution
+    builder = GraphBuilder()
+    builder.add_node(math_agent, "math")
+    builder.add_node(analysis_agent, "analysis")
+    builder.add_edge("math", "analysis")
+    builder.set_entry_point("math")
+    graph = builder.build()
+
+    # Collect all events
+    events = []
+    async for event in graph.stream_async("Calculate 5 + 3, then analyze the result"):
+        events.append(event)
+
+    # Verify handoff event was emitted
+    handoff_events = [e for e in events if e.get("type") == "multiagent_handoff"]
+    assert len(handoff_events) >= 1, "Should have at least one handoff event"
+
+    # Verify the handoff event structure
+    handoff = handoff_events[0]
+    assert "from_nodes" in handoff
+    assert "to_nodes" in handoff
+    assert isinstance(handoff["from_nodes"], list)
+    assert isinstance(handoff["to_nodes"], list)
+    assert "math" in handoff["from_nodes"]
+    assert "analysis" in handoff["to_nodes"]

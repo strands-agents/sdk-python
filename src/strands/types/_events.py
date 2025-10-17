@@ -386,7 +386,7 @@ class MultiAgentResultEvent(TypedEvent):
         Args:
             result: The final result from multi-agent execution (SwarmResult, GraphResult, etc.)
         """
-        super().__init__({"multi_agent_result": True, "result": result})
+        super().__init__({"type": "multiagent_result", "result": result})
 
 
 class MultiAgentNodeStartEvent(TypedEvent):
@@ -399,7 +399,7 @@ class MultiAgentNodeStartEvent(TypedEvent):
             node_id: Unique identifier for the node
             node_type: Type of node ("agent", "swarm", "graph")
         """
-        super().__init__({"multi_agent_node_start": True, "node_id": node_id, "node_type": node_type})
+        super().__init__({"type": "multiagent_node_start", "node_id": node_id, "node_type": node_type})
 
 
 class MultiAgentNodeStopEvent(TypedEvent):
@@ -423,7 +423,7 @@ class MultiAgentNodeStopEvent(TypedEvent):
         """
         super().__init__(
             {
-                "multi_agent_node_stop": True,
+                "type": "multiagent_node_stop",
                 "node_id": node_id,
                 "node_result": node_result,
             }
@@ -431,17 +431,44 @@ class MultiAgentNodeStopEvent(TypedEvent):
 
 
 class MultiAgentHandoffEvent(TypedEvent):
-    """Event emitted during agent handoffs in Swarm."""
+    """Event emitted during node transitions in multi-agent systems.
 
-    def __init__(self, from_node: str, to_node: str, message: str) -> None:
+    Supports both single handoffs (Swarm) and batch transitions (Graph).
+    For Swarm: Single node-to-node handoffs with a message.
+    For Graph: Batch transitions where multiple nodes complete and multiple nodes begin.
+    """
+
+    def __init__(
+        self,
+        from_nodes: list[str],
+        to_nodes: list[str],
+        message: str | None = None,
+    ) -> None:
         """Initialize with handoff information.
 
         Args:
-            from_node: Node ID handing off control
-            to_node: Node ID receiving control
-            message: Handoff message explaining the transfer
+            from_nodes: List of node ID(s) completing execution.
+                - Swarm: Single-element list ["agent_a"]
+                - Graph: Multi-element list ["node1", "node2"]
+            to_nodes: List of node ID(s) beginning execution.
+                - Swarm: Single-element list ["agent_b"]
+                - Graph: Multi-element list ["node3", "node4"]
+            message: Optional message explaining the transition (typically used in Swarm)
+
+        Examples:
+            Swarm handoff: MultiAgentHandoffEvent(["researcher"], ["analyst"], "Need calculations")
+            Graph batch: MultiAgentHandoffEvent(["node1", "node2"], ["node3", "node4"])
         """
-        super().__init__({"multi_agent_handoff": True, "from_node": from_node, "to_node": to_node, "message": message})
+        event_data = {
+            "type": "multiagent_handoff",
+            "from_nodes": from_nodes,
+            "to_nodes": to_nodes,
+        }
+
+        if message is not None:
+            event_data["message"] = message
+
+        super().__init__(event_data)
 
 
 class MultiAgentNodeStreamEvent(TypedEvent):
@@ -456,7 +483,7 @@ class MultiAgentNodeStreamEvent(TypedEvent):
         """
         super().__init__(
             {
-                "multi_agent_node_stream": True,
+                "type": "multiagent_node_stream",
                 "node_id": node_id,
                 "event": agent_event,  # Nest agent event to avoid field conflicts
             }

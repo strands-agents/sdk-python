@@ -158,9 +158,9 @@ async def test_swarm_streaming(alist):
     events = await alist(swarm.stream_async("Calculate 10 + 5 and explain the result"))
 
     # Count event categories
-    node_start_events = [e for e in events if e.get("multi_agent_node_start")]
-    node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
-    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
+    node_start_events = [e for e in events if e.get("type") == "multiagent_node_start"]
+    node_stream_events = [e for e in events if e.get("type") == "multiagent_node_stream"]
+    result_events = [e for e in events if "result" in e and e.get("type") != "multiagent_node_stream"]
 
     # Verify we got multiple events of each type
     assert len(node_start_events) >= 1, f"Expected at least 1 node_start event, got {len(node_start_events)}"
@@ -195,13 +195,13 @@ async def test_swarm_streams_events_before_timeout(alist):
     events = await alist(swarm.stream_async("Say hello"))
 
     # Verify we got multiple streaming events before completion
-    node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
+    node_stream_events = [e for e in events if e.get("type") == "multiagent_node_stream"]
     assert len(node_stream_events) > 0, "Expected streaming events before completion"
 
     # Verify final result - there are 2 result events:
-    # 1. Agent's result forwarded as multi_agent_node_stream (with key "result")
+    # 1. Agent's result forwarded as multiagent_node_stream (with key "result")
     # 2. Swarm's final result (with key "result", not wrapped in node_stream)
-    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
+    result_events = [e for e in events if "result" in e and e.get("type") != "multiagent_node_stream"]
     assert len(result_events) >= 1, "Expected at least one result event"
 
     # The last event should be the swarm result
@@ -257,20 +257,20 @@ async def test_swarm_emits_handoff_events(alist):
     events = await alist(swarm.stream_async("Calculate 10 + 5 and explain the result"))
 
     # Find handoff events
-    handoff_events = [e for e in events if e.get("multi_agent_handoff")]
+    handoff_events = [e for e in events if e.get("type") == "multiagent_handoff"]
 
     # Verify we got at least one handoff event
     assert len(handoff_events) > 0, "Expected at least one handoff event"
 
     # Verify event structure
     handoff = handoff_events[0]
-    assert "from_node" in handoff, "Handoff event missing from_node"
-    assert "to_node" in handoff, "Handoff event missing to_node"
+    assert "from_nodes" in handoff, "Handoff event missing from_nodes"
+    assert "to_nodes" in handoff, "Handoff event missing to_nodes"
     assert "message" in handoff, "Handoff event missing message"
 
-    # Verify handoff is from researcher to analyst
-    assert handoff["from_node"] == "researcher", f"Expected from_node='researcher', got {handoff['from_node']}"
-    assert handoff["to_node"] == "analyst", f"Expected to_node='analyst', got {handoff['to_node']}"
+    # Verify handoff is from researcher to analyst (single node lists for Swarm)
+    assert handoff["from_nodes"] == ["researcher"], f"Expected from_nodes=['researcher'], got {handoff['from_nodes']}"
+    assert handoff["to_nodes"] == ["analyst"], f"Expected to_nodes=['analyst'], got {handoff['to_nodes']}"
 
 
 @pytest.mark.asyncio
@@ -288,7 +288,7 @@ async def test_swarm_emits_node_stop_events(alist):
     events = await alist(swarm.stream_async("Say hello"))
 
     # Find node stop events
-    stop_events = [e for e in events if e.get("multi_agent_node_stop")]
+    stop_events = [e for e in events if e.get("type") == "multiagent_node_stop"]
 
     # Verify we got at least one node stop event
     assert len(stop_events) > 0, "Expected at least one node stop event"

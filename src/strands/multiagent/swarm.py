@@ -344,16 +344,16 @@ class Swarm(MultiAgentBase):
                 async for event in self._execute_swarm(invocation_state):
                     yield event.as_dict()
 
-                # Yield final result (consistent with Agent's AgentResultEvent format)
-                result = self._build_result()
-                yield MultiAgentResultEvent(result=result).as_dict()
-
             except Exception:
                 logger.exception("swarm execution failed")
                 self.state.completion_status = Status.FAILED
                 raise
             finally:
                 self.state.execution_time = round((time.time() - start_time) * 1000)
+
+            # Yield final result after execution_time is set
+            result = self._build_result()
+            yield MultiAgentResultEvent(result=result).as_dict()
 
     async def _stream_with_timeout(
         self, async_generator: AsyncIterator[Any], timeout: float | None, timeout_message: str
@@ -673,10 +673,10 @@ class Swarm(MultiAgentBase):
 
                     # Check if handoff occurred during execution
                     if self.state.current_node != previous_node:
-                        # Emit handoff event
+                        # Emit handoff event (single node transition in Swarm)
                         handoff_event = MultiAgentHandoffEvent(
-                            from_node=previous_node.node_id,
-                            to_node=self.state.current_node.node_id,
+                            from_nodes=[previous_node.node_id],
+                            to_nodes=[self.state.current_node.node_id],
                             message=self.state.handoff_message or "Agent handoff occurred",
                         )
                         yield handoff_event

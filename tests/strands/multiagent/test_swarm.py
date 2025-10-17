@@ -637,10 +637,10 @@ async def test_swarm_streaming_events(mock_strands_tracer, mock_use_span, alist)
     assert len(events) > 0
 
     # Should have node start/stop events
-    node_start_events = [e for e in events if e.get("multi_agent_node_start")]
-    node_stop_events = [e for e in events if e.get("multi_agent_node_stop")]
-    node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
-    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
+    node_start_events = [e for e in events if e.get("type") == "multiagent_node_start"]
+    node_stop_events = [e for e in events if e.get("type") == "multiagent_node_stop"]
+    node_stream_events = [e for e in events if e.get("type") == "multiagent_node_stream"]
+    result_events = [e for e in events if "result" in e and e.get("type") != "multiagent_node_stream"]
 
     # Should have at least one node execution
     assert len(node_start_events) >= 1
@@ -727,17 +727,18 @@ async def test_swarm_streaming_with_handoffs(mock_strands_tracer, mock_use_span,
     events = await alist(swarm.stream_async("Test handoff streaming"))
 
     # Should have multiple node executions due to handoffs
-    node_start_events = [e for e in events if e.get("multi_agent_node_start")]
-    handoff_events = [e for e in events if e.get("multi_agent_handoff")]
+    node_start_events = [e for e in events if e.get("type") == "multiagent_node_start"]
+    handoff_events = [e for e in events if e.get("type") == "multiagent_handoff"]
 
     # Should have executed at least one agent (handoffs are complex to mock)
     assert len(node_start_events) >= 1
 
     # Verify handoff events have proper structure if any occurred
     for event in handoff_events:
-        assert "from_node" in event
-        assert "to_node" in event
-        assert "message" in event
+        assert "from_nodes" in event
+        assert "to_nodes" in event
+        assert isinstance(event["from_nodes"], list)
+        assert isinstance(event["to_nodes"], list)
 
 
 @pytest.mark.asyncio
@@ -778,11 +779,11 @@ async def test_swarm_streaming_with_failures(mock_strands_tracer, mock_use_span)
     # Should get some events before failure (if failure occurred)
     if len(events) > 0:
         # Should have node start events
-        node_start_events = [e for e in events if e.get("multi_agent_node_start")]
+        node_start_events = [e for e in events if e.get("type") == "multiagent_node_start"]
         assert len(node_start_events) >= 1
 
         # Should have some forwarded events before failure
-        node_stream_events = [e for e in events if e.get("multi_agent_node_stream")]
+        node_stream_events = [e for e in events if e.get("type") == "multiagent_node_stream"]
         assert len(node_stream_events) >= 1
 
 
@@ -839,7 +840,7 @@ async def test_swarm_streaming_backward_compatibility(mock_strands_tracer, mock_
     events = await alist(swarm.stream_async("Test backward compatibility"))
 
     # Should have final result event
-    result_events = [e for e in events if "result" in e and not e.get("multi_agent_node_stream")]
+    result_events = [e for e in events if "result" in e and e.get("type") != "multiagent_node_stream"]
     assert len(result_events) == 1
 
     streaming_result = result_events[0]["result"]

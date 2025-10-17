@@ -28,6 +28,7 @@ from ..agent import Agent
 from ..agent.state import AgentState
 from ..telemetry import get_tracer
 from ..types._events import (
+    MultiAgentHandoffEvent,
     MultiAgentNodeStartEvent,
     MultiAgentNodeStopEvent,
     MultiAgentNodeStreamEvent,
@@ -541,7 +542,22 @@ class Graph(MultiAgentBase):
             # Find newly ready nodes after batch execution
             # We add all nodes in current batch as completed batch,
             # because a failure would throw exception and code would not make it here
-            ready_nodes.extend(self._find_newly_ready_nodes(current_batch))
+            newly_ready = self._find_newly_ready_nodes(current_batch)
+
+            # Emit handoff event for batch transition if there are nodes to transition to
+            if newly_ready:
+                handoff_event = MultiAgentHandoffEvent(
+                    from_nodes=[node.node_id for node in current_batch],
+                    to_nodes=[node.node_id for node in newly_ready],
+                )
+                yield handoff_event
+                logger.debug(
+                    "from_nodes=<%s>, to_nodes=<%s> | batch transition",
+                    [node.node_id for node in current_batch],
+                    [node.node_id for node in newly_ready],
+                )
+
+            ready_nodes.extend(newly_ready)
 
     async def _execute_nodes_parallel(
         self, nodes: list["GraphNode"], invocation_state: dict[str, Any]
