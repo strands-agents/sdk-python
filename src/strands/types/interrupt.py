@@ -118,7 +118,7 @@ if TYPE_CHECKING:
     from ..agent import Agent
 
 
-class Interruptible(Protocol):
+class _Interruptible(Protocol):
     """Interface that adds interrupt support to hook events and tools."""
 
     agent: "Agent"

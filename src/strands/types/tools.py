@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Lite
 
 from typing_extensions import NotRequired, TypedDict
 
-from .interrupt import Interruptible
+from .interrupt import _Interruptible
 from .media import DocumentContent, ImageContent
 
 if TYPE_CHECKING:
@@ -128,7 +128,7 @@ class ToolChoiceTool(TypedDict):
 
 
 @dataclass
-class ToolContext(Interruptible):
+class ToolContext(_Interruptible):
     """Context object containing framework-provided data for decorated tools.
 
     This object provides access to framework-level information that may be useful
