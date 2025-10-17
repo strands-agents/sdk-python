@@ -5,9 +5,10 @@ import pytest
 
 import strands
 from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent
+from strands.interrupt import Interrupt
 from strands.telemetry.metrics import Trace
 from strands.tools.executors._executor import ToolExecutor
-from strands.types._events import ToolCancelEvent, ToolResultEvent, ToolStreamEvent
+from strands.types._events import ToolCancelEvent, ToolInterruptEvent, ToolResultEvent, ToolStreamEvent
 from strands.types.tools import ToolUse
 
 
@@ -36,6 +37,7 @@ async def test_executor_stream_yields_result(
     executor, agent, tool_results, invocation_state, hook_events, weather_tool, alist
 ):
     tool_use: ToolUse = {"name": "weather_tool", "toolUseId": "1", "input": {}}
+
     stream = executor._stream(agent, tool_use, tool_results, invocation_state)
 
     tru_events = await alist(stream)
@@ -337,3 +339,71 @@ async def test_executor_stream_no_span_attributes_when_no_tool_spec(
 
         # Verify set_attribute was not called since tool_spec is None
         mock_span.set_attribute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_interrupt(executor, agent, tool_results, invocation_state, alist):
+    tool_use = {"name": "weather_tool", "toolUseId": "test_tool_id", "input": {}}
+
+    interrupt = Interrupt(
+        id="v1:test_tool_id:78714d6c-613c-5cf4-bf25-7037569941f9",
+        name="test_name",
+        reason="test reason",
+    )
+
+    def interrupt_callback(event):
+        event.interrupt("test_name", reason="test reason")
+
+    agent.hooks.add_callback(BeforeToolCallEvent, interrupt_callback)
+
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+
+    tru_events = await alist(stream)
+    exp_events = [ToolInterruptEvent(tool_use, [interrupt])]
+    assert tru_events == exp_events
+
+    tru_results = tool_results
+    exp_results = []
+    assert tru_results == exp_results
+
+
+@pytest.mark.asyncio
+async def test_executor_stream_interrupt_resume(executor, agent, tool_results, invocation_state, alist):
+    tool_use = {"name": "weather_tool", "toolUseId": "test_tool_id", "input": {}}
+
+    interrupt = Interrupt(
+        id="v1:test_tool_id:78714d6c-613c-5cf4-bf25-7037569941f9",
+        name="test_name",
+        reason="test reason",
+        response="test response",
+    )
+    agent._interrupt_state.interrupts[interrupt.id] = interrupt
+
+    interrupt_response = {}
+
+    def interrupt_callback(event):
+        interrupt_response["response"] = event.interrupt("test_name", reason="test reason")
+
+    agent.hooks.add_callback(BeforeToolCallEvent, interrupt_callback)
+
+    stream = executor._stream(agent, tool_use, tool_results, invocation_state)
+
+    tru_events = await alist(stream)
+    exp_events = [
+        ToolResultEvent(
+            {
+                "toolUseId": "test_tool_id",
+                "status": "success",
+                "content": [{"text": "sunny"}],
+            },
+        ),
+    ]
+    assert tru_events == exp_events
+
+    tru_results = tool_results
+    exp_results = [exp_events[-1].tool_result]
+    assert tru_results == exp_results
+
+    tru_response = interrupt_response["response"]
+    exp_response = "test response"
+    assert tru_response == exp_response

@@ -768,6 +768,13 @@ class Graph(MultiAgentBase):
                 if agent_response is None:
                     raise ValueError(f"Node '{node.node_id}' did not produce a result event")
 
+                # Check for interrupt (from main branch)
+                if agent_response.stop_reason == "interrupt":
+                    node.executor.messages.pop()  # remove interrupted tool use message
+                    node.executor._interrupt_state.deactivate()
+
+                    raise RuntimeError("user raised interrupt from agent | interrupts are not yet supported in graphs")
+
                 # Extract metrics with defaults
                 response_metrics = getattr(agent_response, "metrics", None)
                 usage = getattr(

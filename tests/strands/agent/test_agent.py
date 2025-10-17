@@ -17,6 +17,8 @@ from strands.agent.conversation_manager.null_conversation_manager import NullCon
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
+from strands.hooks import BeforeToolCallEvent
+from strands.interrupt import Interrupt
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
 from strands.telemetry.tracer import serialize
@@ -1933,3 +1935,129 @@ def test_agent__call__invocation_state_only_no_warning(agent, mock_event_loop_cy
         agent("hello!", invocation_state={"my": "state"})
 
     assert len(captured_warnings) == 0
+
+
+def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
+    tool_use_message = {
+        "role": "assistant",
+        "content": [
+            {
+                "toolUse": {
+                    "toolUseId": "t1",
+                    "name": "tool_decorated",
+                    "input": {"random_string": "test input"},
+                }
+            },
+        ],
+    }
+    agent = Agent(
+        messages=[tool_use_message],
+        model=mock_model,
+        tools=[tool_decorated],
+    )
+
+    interrupt = Interrupt(
+        id="v1:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
+        name="test_name",
+        reason="test reason",
+    )
+
+    agent._interrupt_state.activate(context={"tool_use_message": tool_use_message, "tool_results": []})
+    agent._interrupt_state.interrupts[interrupt.id] = interrupt
+
+    interrupt_response = {}
+
+    def interrupt_callback(event):
+        interrupt_response["response"] = event.interrupt("test_name", "test reason")
+
+    agent.hooks.add_callback(BeforeToolCallEvent, interrupt_callback)
+
+    mock_model.mock_stream.return_value = agenerator(
+        [
+            {"contentBlockStart": {"start": {"text": ""}}},
+            {"contentBlockDelta": {"delta": {"text": "resumed"}}},
+            {"contentBlockStop": {}},
+        ]
+    )
+
+    prompt = [
+        {
+            "interruptResponse": {
+                "interruptId": interrupt.id,
+                "response": "test response",
+            }
+        }
+    ]
+    agent(prompt)
+
+    tru_result_message = agent.messages[-2]
+    exp_result_message = {
+        "role": "user",
+        "content": [
+            {
+                "toolResult": {
+                    "toolUseId": "t1",
+                    "status": "success",
+                    "content": [{"text": "test input"}],
+                },
+            },
+        ],
+    }
+    assert tru_result_message == exp_result_message
+
+    tru_response = interrupt_response["response"]
+    exp_response = "test response"
+    assert tru_response == exp_response
+
+    tru_state = agent._interrupt_state.to_dict()
+    exp_state = {
+        "activated": False,
+        "context": {},
+        "interrupts": {},
+    }
+    assert tru_state == exp_state
+
+
+def test_agent__call__resume_interrupt_invalid_prompt():
+    agent = Agent()
+    agent._interrupt_state.activated = True
+
+    exp_message = r"prompt_type=<class 'str'> \| must resume from interrupt with list of interruptResponse's"
+    with pytest.raises(TypeError, match=exp_message):
+        agent("invalid")
+
+
+def test_agent__call__resume_interrupt_invalid_content():
+    agent = Agent()
+    agent._interrupt_state.activated = True
+
+    exp_message = r"content_types=<\['text'\]> \| must resume from interrupt with list of interruptResponse's"
+    with pytest.raises(TypeError, match=exp_message):
+        agent([{"text": "invalid"}])
+
+
+def test_agent__call__resume_interrupt_invalid_id():
+    agent = Agent()
+    agent._interrupt_state.activated = True
+
+    exp_message = r"interrupt_id=<invalid> \| no interrupt found"
+    with pytest.raises(KeyError, match=exp_message):
+        agent([{"interruptResponse": {"interruptId": "invalid", "response": None}}])
+
+
+def test_agent_structured_output_interrupt(user):
+    agent = Agent()
+    agent._interrupt_state.activated = True
+
+    exp_message = r"cannot call structured output during interrupt"
+    with pytest.raises(RuntimeError, match=exp_message):
+        agent.structured_output(type(user), "invalid")
+
+
+def test_agent_tool_caller_interrupt(user):
+    agent = Agent()
+    agent._interrupt_state.activated = True
+
+    exp_message = r"cannot directly call tool during interrupt"
+    with pytest.raises(RuntimeError, match=exp_message):
+        agent.tool.test_tool()
