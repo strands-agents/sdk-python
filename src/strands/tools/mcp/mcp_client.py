@@ -188,11 +188,17 @@ class MCPClient:
         self._background_thread_event_loop = None
         self._session_id = uuid.uuid4()
 
-    def list_tools_sync(self, pagination_token: Optional[str] = None) -> PaginatedList[MCPAgentTool]:
+    def list_tools_sync(
+        self, pagination_token: Optional[str] = None, tool_name_prefix: str = ""
+    ) -> PaginatedList[MCPAgentTool]:
         """Synchronously retrieves the list of available tools from the MCP server.
 
         This method calls the asynchronous list_tools method on the MCP session
         and adapts the returned tools to the AgentTool interface.
+
+        Args:
+            pagination_token: Optional token for pagination
+            tool_name_prefix: Optional prefix to add to tool names
 
         Returns:
             List[AgentTool]: A list of available tools adapted to the AgentTool interface
@@ -207,7 +213,7 @@ class MCPClient:
         list_tools_response: ListToolsResult = self._invoke_on_background_thread(_list_tools_async()).result()
         self._log_debug_with_thread("received %d tools from MCP server", len(list_tools_response.tools))
 
-        mcp_tools = [MCPAgentTool(tool, self) for tool in list_tools_response.tools]
+        mcp_tools = [MCPAgentTool(tool, self, tool_name_prefix) for tool in list_tools_response.tools]
         self._log_debug_with_thread("successfully adapted %d MCP tools", len(mcp_tools))
         return PaginatedList[MCPAgentTool](mcp_tools, token=list_tools_response.nextCursor)
 

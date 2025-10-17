@@ -28,26 +28,28 @@ class MCPAgentTool(AgentTool):
     seamlessly within the agent framework.
     """
 
-    def __init__(self, mcp_tool: MCPTool, mcp_client: "MCPClient") -> None:
+    def __init__(self, mcp_tool: MCPTool, mcp_client: "MCPClient", tool_name_prefix: str = "") -> None:
         """Initialize a new MCPAgentTool instance.
 
         Args:
             mcp_tool: The MCP tool to adapt
             mcp_client: The MCP server connection to use for tool invocation
+            tool_name_prefix: Optional prefix to add to the tool name to avoid collisions
         """
         super().__init__()
-        logger.debug("tool_name=<%s> | creating mcp agent tool", mcp_tool.name)
         self.mcp_tool = mcp_tool
         self.mcp_client = mcp_client
+        self._name = f"{tool_name_prefix}{mcp_tool.name}"
+        logger.debug("tool_name=<%s> | creating mcp agent tool", self._name)
 
     @property
     def tool_name(self) -> str:
         """Get the name of the tool.
 
         Returns:
-            str: The name of the MCP tool
+            str: The optionally prefixed name of the MCP tool
         """
-        return self.mcp_tool.name
+        return self._name
 
     @property
     def tool_spec(self) -> ToolSpec:
@@ -63,7 +65,7 @@ class MCPAgentTool(AgentTool):
 
         spec: ToolSpec = {
             "inputSchema": {"json": self.mcp_tool.inputSchema},
-            "name": self.mcp_tool.name,
+            "name": self._name,
             "description": description,
         }
 
