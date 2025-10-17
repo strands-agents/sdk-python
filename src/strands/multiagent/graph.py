@@ -547,12 +547,12 @@ class Graph(MultiAgentBase):
             # Emit handoff event for batch transition if there are nodes to transition to
             if newly_ready:
                 handoff_event = MultiAgentHandoffEvent(
-                    from_nodes=[node.node_id for node in current_batch],
-                    to_nodes=[node.node_id for node in newly_ready],
+                    from_node_ids=[node.node_id for node in current_batch],
+                    to_node_ids=[node.node_id for node in newly_ready],
                 )
                 yield handoff_event
                 logger.debug(
-                    "from_nodes=<%s>, to_nodes=<%s> | batch transition",
+                    "from_node_ids=<%s>, to_node_ids=<%s> | batch transition",
                     [node.node_id for node in current_batch],
                     [node.node_id for node in newly_ready],
                 )

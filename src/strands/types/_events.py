@@ -440,17 +440,17 @@ class MultiAgentHandoffEvent(TypedEvent):
 
     def __init__(
         self,
-        from_nodes: list[str],
-        to_nodes: list[str],
+        from_node_ids: list[str],
+        to_node_ids: list[str],
         message: str | None = None,
     ) -> None:
         """Initialize with handoff information.
 
         Args:
-            from_nodes: List of node ID(s) completing execution.
+            from_node_ids: List of node ID(s) completing execution.
                 - Swarm: Single-element list ["agent_a"]
                 - Graph: Multi-element list ["node1", "node2"]
-            to_nodes: List of node ID(s) beginning execution.
+            to_node_ids: List of node ID(s) beginning execution.
                 - Swarm: Single-element list ["agent_b"]
                 - Graph: Multi-element list ["node3", "node4"]
             message: Optional message explaining the transition (typically used in Swarm)
@@ -461,8 +461,8 @@ class MultiAgentHandoffEvent(TypedEvent):
         """
         event_data = {
             "type": "multiagent_handoff",
-            "from_nodes": from_nodes,
-            "to_nodes": to_nodes,
+            "from_node_ids": from_node_ids,
+            "to_node_ids": to_node_ids,
         }
 
         if message is not None:

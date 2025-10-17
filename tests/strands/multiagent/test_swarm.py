@@ -735,10 +735,10 @@ async def test_swarm_streaming_with_handoffs(mock_strands_tracer, mock_use_span,
 
     # Verify handoff events have proper structure if any occurred
     for event in handoff_events:
-        assert "from_nodes" in event
-        assert "to_nodes" in event
-        assert isinstance(event["from_nodes"], list)
-        assert isinstance(event["to_nodes"], list)
+        assert "from_node_ids" in event
+        assert "to_node_ids" in event
+        assert isinstance(event["from_node_ids"], list)
+        assert isinstance(event["to_node_ids"], list)
 
 
 @pytest.mark.asyncio

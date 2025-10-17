@@ -172,11 +172,13 @@ async def test_swarm_streaming(alist):
 
     # Verify handoff event structure
     handoff = handoff_events[0]
-    assert "from_nodes" in handoff, "Handoff event missing from_nodes"
-    assert "to_nodes" in handoff, "Handoff event missing to_nodes"
+    assert "from_node_ids" in handoff, "Handoff event missing from_node_ids"
+    assert "to_node_ids" in handoff, "Handoff event missing to_node_ids"
     assert "message" in handoff, "Handoff event missing message"
-    assert handoff["from_nodes"] == ["researcher"], f"Expected from_nodes=['researcher'], got {handoff['from_nodes']}"
-    assert handoff["to_nodes"] == ["analyst"], f"Expected to_nodes=['analyst'], got {handoff['to_nodes']}"
+    assert handoff["from_node_ids"] == ["researcher"], (
+        f"Expected from_node_ids=['researcher'], got {handoff['from_node_ids']}"
+    )
+    assert handoff["to_node_ids"] == ["analyst"], f"Expected to_node_ids=['analyst'], got {handoff['to_node_ids']}"
 
     # Verify node stop event structure
     stop_event = node_stop_events[0]

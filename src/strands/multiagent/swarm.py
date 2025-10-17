@@ -395,8 +395,8 @@ class Swarm(MultiAgentBase):
                     yield event
                 except StopAsyncIteration:
                     break
-                except asyncio.TimeoutError:
-                    raise Exception(timeout_message) from None
+                except asyncio.TimeoutError as err:
+                    raise Exception(timeout_message) from err
 
     def _setup_swarm(self, nodes: list[Agent]) -> None:
         """Initialize swarm configuration."""
@@ -676,8 +676,8 @@ class Swarm(MultiAgentBase):
                     if self.state.current_node != previous_node:
                         # Emit handoff event (single node transition in Swarm)
                         handoff_event = MultiAgentHandoffEvent(
-                            from_nodes=[previous_node.node_id],
-                            to_nodes=[self.state.current_node.node_id],
+                            from_node_ids=[previous_node.node_id],
+                            to_node_ids=[self.state.current_node.node_id],
                             message=self.state.handoff_message or "Agent handoff occurred",
                         )
                         yield handoff_event

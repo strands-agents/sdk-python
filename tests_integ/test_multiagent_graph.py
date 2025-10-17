@@ -289,12 +289,12 @@ async def test_graph_streaming_with_agents(alist):
 
     # Verify handoff event structure
     handoff = handoff_events[0]
-    assert "from_nodes" in handoff, "Handoff event missing from_nodes"
-    assert "to_nodes" in handoff, "Handoff event missing to_nodes"
-    assert isinstance(handoff["from_nodes"], list), "from_nodes should be a list"
-    assert isinstance(handoff["to_nodes"], list), "to_nodes should be a list"
-    assert "math" in handoff["from_nodes"], "Expected math in from_nodes"
-    assert "summary" in handoff["to_nodes"], "Expected summary in to_nodes"
+    assert "from_node_ids" in handoff, "Handoff event missing from_node_ids"
+    assert "to_node_ids" in handoff, "Handoff event missing to_node_ids"
+    assert isinstance(handoff["from_node_ids"], list), "from_node_ids should be a list"
+    assert isinstance(handoff["to_node_ids"], list), "to_node_ids should be a list"
+    assert "math" in handoff["from_node_ids"], "Expected math in from_node_ids"
+    assert "summary" in handoff["to_node_ids"], "Expected summary in to_node_ids"
 
     # Verify we have events for both nodes
     math_events = [e for e in events if e.get("node_id") == "math"]
