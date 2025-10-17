@@ -28,6 +28,7 @@ from ..agent.state import AgentState
 from ..experimental.hooks.multiagent_hooks import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
+    BeforeNodeCallEvent,
     MultiAgentInitializedEvent,
 )
 from ..hooks import HookProvider, HookRegistry
@@ -655,6 +656,7 @@ class Swarm(MultiAgentBase):
         self, node: SwarmNode, task: str | list[ContentBlock], invocation_state: dict[str, Any]
     ) -> AgentResult:
         """Execute swarm node."""
+        self.hooks.invoke_callbacks(BeforeNodeCallEvent(source=self, node_id=node.node_id))
         start_time = time.time()
         node_name = node.node_id
 

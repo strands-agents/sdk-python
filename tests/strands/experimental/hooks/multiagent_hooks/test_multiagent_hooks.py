@@ -72,10 +72,11 @@ def test_swarm_complete_hook_lifecycle(swarm, hook_provider):
     result = swarm("test task")
 
     length, events = hook_provider.get_events()
-    assert length == 3
+    assert length == 4
     assert result.status.value == "completed"
 
     assert next(events) == MultiAgentInitializedEvent(source=swarm)
+    assert next(events) == BeforeNodeCallEvent(source=swarm, node_id="agent1")
     assert next(events) == AfterNodeCallEvent(source=swarm, node_id="agent1")
     assert next(events) == AfterMultiAgentInvocationEvent(source=swarm)
 
@@ -85,10 +86,12 @@ def test_graph_complete_hook_lifecycle(graph, hook_provider):
     result = graph("test task")
 
     length, events = hook_provider.get_events()
-    assert length == 4
+    assert length == 6
     assert result.status.value == "completed"
 
     assert next(events) == MultiAgentInitializedEvent(source=graph)
+    assert next(events) == BeforeNodeCallEvent(source=graph, node_id="agent1")
     assert next(events) == AfterNodeCallEvent(source=graph, node_id="agent1")
+    assert next(events) == BeforeNodeCallEvent(source=graph, node_id="agent2")
     assert next(events) == AfterNodeCallEvent(source=graph, node_id="agent2")
     assert next(events) == AfterMultiAgentInvocationEvent(source=graph)

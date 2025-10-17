@@ -29,6 +29,7 @@ from ..agent.state import AgentState
 from ..experimental.hooks.multiagent_hooks import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
+    BeforeNodeCallEvent,
     MultiAgentInitializedEvent,
 )
 from ..hooks import HookProvider, HookRegistry
@@ -619,12 +620,14 @@ class Graph(MultiAgentBase):
             self.state.results[node.node_id] = fail_result
             self.hooks.invoke_callbacks(AfterNodeCallEvent(source=self, node_id=node.node_id))
 
+        # This is a placeholder for firing BeforeNodeCallEvent.
+        self.hooks.invoke_callbacks(BeforeNodeCallEvent(source=self, node_id=node.node_id))
+
         if self.reset_on_revisit and node in self.state.completed_nodes:
             logger.debug("node_id=<%s> | resetting node state for revisit", node.node_id)
             node.reset_executor_state()
             # Remove from completed nodes since we're re-executing it
             self.state.completed_nodes.remove(node)
-
         node.execution_status = Status.EXECUTING
         logger.debug("node_id=<%s> | executing node", node.node_id)
 
