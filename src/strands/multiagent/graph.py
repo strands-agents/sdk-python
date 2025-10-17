@@ -627,12 +627,12 @@ class Graph(MultiAgentBase):
             # Apply timeout to the entire streaming process if configured
             if self.node_timeout is not None:
 
-                async def stream_node_with_timeout() -> None:
+                async def stream_node() -> None:
                     async for event in self._execute_node(node, invocation_state):
                         await event_queue.put(event)
 
                 try:
-                    await asyncio.wait_for(stream_node_with_timeout(), timeout=self.node_timeout)
+                    await asyncio.wait_for(stream_node(), timeout=self.node_timeout)
                 except asyncio.TimeoutError:
                     # Handle timeout and send exception through queue
                     timeout_exc = await self._handle_node_timeout(node, event_queue)

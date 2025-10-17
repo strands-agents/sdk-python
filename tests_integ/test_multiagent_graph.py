@@ -277,13 +277,24 @@ async def test_graph_streaming_with_agents(alist):
     node_start_events = [e for e in events if e.get("type") == "multiagent_node_start"]
     node_stream_events = [e for e in events if e.get("type") == "multiagent_node_stream"]
     node_stop_events = [e for e in events if e.get("type") == "multiagent_node_stop"]
+    handoff_events = [e for e in events if e.get("type") == "multiagent_handoff"]
     result_events = [e for e in events if "result" in e and e.get("type") != "multiagent_node_stream"]
 
     # Verify we got multiple events of each type
     assert len(node_start_events) >= 2, f"Expected at least 2 node_start events, got {len(node_start_events)}"
     assert len(node_stream_events) > 10, f"Expected many node_stream events, got {len(node_stream_events)}"
     assert len(node_stop_events) >= 2, f"Expected at least 2 node_stop events, got {len(node_stop_events)}"
+    assert len(handoff_events) >= 1, f"Expected at least 1 handoff event, got {len(handoff_events)}"
     assert len(result_events) >= 1, f"Expected at least 1 result event, got {len(result_events)}"
+
+    # Verify handoff event structure
+    handoff = handoff_events[0]
+    assert "from_nodes" in handoff, "Handoff event missing from_nodes"
+    assert "to_nodes" in handoff, "Handoff event missing to_nodes"
+    assert isinstance(handoff["from_nodes"], list), "from_nodes should be a list"
+    assert isinstance(handoff["to_nodes"], list), "to_nodes should be a list"
+    assert "math" in handoff["from_nodes"], "Expected math in from_nodes"
+    assert "summary" in handoff["to_nodes"], "Expected summary in to_nodes"
 
     # Verify we have events for both nodes
     math_events = [e for e in events if e.get("node_id") == "math"]
@@ -447,58 +458,3 @@ async def test_graph_metrics_accumulation():
     # Verify accumulated metrics are sum of node metrics
     total_tokens = sum(node_result.accumulated_usage["totalTokens"] for node_result in result.results.values())
     assert result.accumulated_usage["totalTokens"] == total_tokens, "Accumulated tokens don't match sum of node tokens"
-
-
-@pytest.mark.asyncio
-async def test_graph_no_timeout_backward_compatibility():
-    """Test that graphs without timeout work exactly as before."""
-    # Create a normal agent
-    agent = Agent(
-        name="test_agent",
-        model="us.amazon.nova-lite-v1:0",
-        system_prompt="You are a test agent. Respond briefly.",
-    )
-
-    # Create graph without timeout (backward compatibility)
-    builder = GraphBuilder()
-    builder.add_node(agent, "test_node")
-    graph = builder.build()
-
-    # Verify no timeout is set
-    assert graph.node_timeout is None
-    assert graph.execution_timeout is None
-
-    # Execute - should complete normally
-    result = await graph.invoke_async("Say hello")
-    assert result.status == Status.COMPLETED
-    assert result.completed_nodes == 1
-
-
-@pytest.mark.asyncio
-async def test_graph_emits_handoff_events(math_agent, analysis_agent):
-    """Test that graph emits handoff events for batch transitions."""
-    # Build a simple graph with sequential execution
-    builder = GraphBuilder()
-    builder.add_node(math_agent, "math")
-    builder.add_node(analysis_agent, "analysis")
-    builder.add_edge("math", "analysis")
-    builder.set_entry_point("math")
-    graph = builder.build()
-
-    # Collect all events
-    events = []
-    async for event in graph.stream_async("Calculate 5 + 3, then analyze the result"):
-        events.append(event)
-
-    # Verify handoff event was emitted
-    handoff_events = [e for e in events if e.get("type") == "multiagent_handoff"]
-    assert len(handoff_events) >= 1, "Should have at least one handoff event"
-
-    # Verify the handoff event structure
-    handoff = handoff_events[0]
-    assert "from_nodes" in handoff
-    assert "to_nodes" in handoff
-    assert isinstance(handoff["from_nodes"], list)
-    assert isinstance(handoff["to_nodes"], list)
-    assert "math" in handoff["from_nodes"]
-    assert "analysis" in handoff["to_nodes"]

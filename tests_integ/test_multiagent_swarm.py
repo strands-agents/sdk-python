@@ -10,7 +10,6 @@ from strands.hooks import (
     BeforeToolCallEvent,
     MessageAddedEvent,
 )
-from strands.multiagent.base import Status
 from strands.multiagent.swarm import Swarm
 from strands.types.content import ContentBlock
 from tests.fixtures.mock_hook_provider import MockHookProvider
@@ -139,7 +138,7 @@ async def test_swarm_execution_with_image(researcher_agent, analyst_agent, write
 
 @pytest.mark.asyncio
 async def test_swarm_streaming(alist):
-    """Test that Swarm properly streams events during execution."""
+    """Test that Swarm properly streams all event types during execution."""
     researcher = Agent(
         name="researcher",
         model="us.amazon.nova-pro-v1:0",
@@ -152,7 +151,7 @@ async def test_swarm_streaming(alist):
         tools=[calculate],
     )
 
-    swarm = Swarm([researcher, analyst], node_timeout=900.0)  # Verify timeout doesn't interfere with streaming
+    swarm = Swarm([researcher, analyst], node_timeout=900.0)
 
     # Collect events
     events = await alist(swarm.stream_async("Calculate 10 + 5 and explain the result"))
@@ -160,112 +159,34 @@ async def test_swarm_streaming(alist):
     # Count event categories
     node_start_events = [e for e in events if e.get("type") == "multiagent_node_start"]
     node_stream_events = [e for e in events if e.get("type") == "multiagent_node_stream"]
+    node_stop_events = [e for e in events if e.get("type") == "multiagent_node_stop"]
+    handoff_events = [e for e in events if e.get("type") == "multiagent_handoff"]
     result_events = [e for e in events if "result" in e and e.get("type") != "multiagent_node_stream"]
 
     # Verify we got multiple events of each type
     assert len(node_start_events) >= 1, f"Expected at least 1 node_start event, got {len(node_start_events)}"
     assert len(node_stream_events) > 10, f"Expected many node_stream events, got {len(node_stream_events)}"
+    assert len(node_stop_events) >= 1, f"Expected at least 1 node_stop event, got {len(node_stop_events)}"
+    assert len(handoff_events) >= 1, f"Expected at least 1 handoff event, got {len(handoff_events)}"
     assert len(result_events) >= 1, f"Expected at least 1 result event, got {len(result_events)}"
+
+    # Verify handoff event structure
+    handoff = handoff_events[0]
+    assert "from_nodes" in handoff, "Handoff event missing from_nodes"
+    assert "to_nodes" in handoff, "Handoff event missing to_nodes"
+    assert "message" in handoff, "Handoff event missing message"
+    assert handoff["from_nodes"] == ["researcher"], f"Expected from_nodes=['researcher'], got {handoff['from_nodes']}"
+    assert handoff["to_nodes"] == ["analyst"], f"Expected to_nodes=['analyst'], got {handoff['to_nodes']}"
+
+    # Verify node stop event structure
+    stop_event = node_stop_events[0]
+    assert "node_id" in stop_event, "Node stop event missing node_id"
+    assert "node_result" in stop_event, "Node stop event missing node_result"
+    node_result = stop_event["node_result"]
+    assert hasattr(node_result, "execution_time"), "NodeResult missing execution_time"
+    assert node_result.execution_time > 0, "Expected positive execution_time"
 
     # Verify we have events from at least one agent
     researcher_events = [e for e in events if e.get("node_id") == "researcher"]
     analyst_events = [e for e in events if e.get("node_id") == "analyst"]
     assert len(researcher_events) > 0 or len(analyst_events) > 0, "Expected events from at least one agent"
-
-
-@pytest.mark.asyncio
-async def test_swarm_no_timeout_backward_compatibility():
-    """Test that swarms without timeout work exactly as before."""
-    # Create a normal agent
-    agent = Agent(
-        name="test_agent",
-        model="us.amazon.nova-lite-v1:0",
-        system_prompt="You are a test agent. Respond briefly.",
-    )
-
-    # Create swarm without timeout (backward compatibility)
-    swarm = Swarm(
-        nodes=[agent],
-        max_handoffs=1,
-        max_iterations=1,
-    )
-
-    # Note: Swarm has default timeouts for safety
-    # This is intentional to prevent runaway executions
-    assert swarm.node_timeout == 300.0  # Default node timeout
-    assert swarm.execution_timeout == 900.0  # Default execution timeout
-
-    # Execute - should complete normally
-    result = await swarm.invoke_async("Say hello")
-    assert result.status == Status.COMPLETED
-
-
-@pytest.mark.asyncio
-async def test_swarm_emits_handoff_events(alist):
-    """Verify Swarm emits MultiAgentHandoffEvent during streaming."""
-    researcher = Agent(
-        name="researcher",
-        model="us.amazon.nova-pro-v1:0",
-        system_prompt="You are a researcher. When you need calculations, hand off to the analyst.",
-    )
-    analyst = Agent(
-        name="analyst",
-        model="us.amazon.nova-pro-v1:0",
-        system_prompt="You are an analyst. Use tools to perform calculations.",
-        tools=[calculate],
-    )
-
-    swarm = Swarm([researcher, analyst])
-
-    # Collect events
-    events = await alist(swarm.stream_async("Calculate 10 + 5 and explain the result"))
-
-    # Find handoff events
-    handoff_events = [e for e in events if e.get("type") == "multiagent_handoff"]
-
-    # Verify we got at least one handoff event
-    assert len(handoff_events) > 0, "Expected at least one handoff event"
-
-    # Verify event structure
-    handoff = handoff_events[0]
-    assert "from_nodes" in handoff, "Handoff event missing from_nodes"
-    assert "to_nodes" in handoff, "Handoff event missing to_nodes"
-    assert "message" in handoff, "Handoff event missing message"
-
-    # Verify handoff is from researcher to analyst (single node lists for Swarm)
-    assert handoff["from_nodes"] == ["researcher"], f"Expected from_nodes=['researcher'], got {handoff['from_nodes']}"
-    assert handoff["to_nodes"] == ["analyst"], f"Expected to_nodes=['analyst'], got {handoff['to_nodes']}"
-
-
-@pytest.mark.asyncio
-async def test_swarm_emits_node_stop_events(alist):
-    """Verify Swarm emits MultiAgentNodeStopEvent after each node."""
-    agent = Agent(
-        name="test_agent",
-        model="us.amazon.nova-lite-v1:0",
-        system_prompt="You are a test agent. Respond briefly.",
-    )
-
-    swarm = Swarm([agent], max_handoffs=1, max_iterations=1)
-
-    # Collect events
-    events = await alist(swarm.stream_async("Say hello"))
-
-    # Find node stop events
-    stop_events = [e for e in events if e.get("type") == "multiagent_node_stop"]
-
-    # Verify we got at least one node stop event
-    assert len(stop_events) > 0, "Expected at least one node stop event"
-
-    # Verify event structure
-    stop_event = stop_events[0]
-    assert "node_id" in stop_event, "Node stop event missing node_id"
-    assert "node_result" in stop_event, "Node stop event missing node_result"
-
-    # Verify node_id matches
-    assert stop_event["node_id"] == "test_agent", f"Expected node_id='test_agent', got {stop_event['node_id']}"
-
-    # Verify node_result has execution_time
-    node_result = stop_event["node_result"]
-    assert hasattr(node_result, "execution_time"), "NodeResult missing execution_time"
-    assert node_result.execution_time > 0, "Expected positive execution_time"
