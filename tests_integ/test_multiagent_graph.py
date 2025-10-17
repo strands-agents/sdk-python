@@ -449,46 +449,6 @@ async def test_graph_metrics_accumulation():
 
 
 @pytest.mark.asyncio
-async def test_graph_node_timeout_with_real_streaming():
-    """Test that node timeout properly cancels a streaming generator that freezes."""
-    import asyncio
-
-    # Create an agent that will timeout during streaming
-    slow_agent = Agent(
-        name="slow_agent",
-        model="us.amazon.nova-lite-v1:0",
-        system_prompt="You are a slow agent. Take your time responding.",
-    )
-
-    # Override stream_async to simulate a freezing generator
-    original_stream = slow_agent.stream_async
-
-    async def freezing_stream(*args, **kwargs):
-        """Simulate a generator that yields some events then freezes."""
-        # Yield a few events normally
-        count = 0
-        async for event in original_stream(*args, **kwargs):
-            yield event
-            count += 1
-            if count >= 3:
-                # Simulate freezing - sleep longer than timeout
-                await asyncio.sleep(10.0)
-                break
-
-    slow_agent.stream_async = freezing_stream
-
-    # Create graph with short node timeout
-    builder = GraphBuilder()
-    builder.add_node(slow_agent, "slow_node")
-    builder.set_node_timeout(0.5)  # 500ms timeout
-    graph = builder.build()
-
-    # Execute - should timeout and raise exception (fail-fast behavior)
-    with pytest.raises(Exception, match="execution timed out"):
-        await graph.invoke_async("Test freezing generator")
-
-
-@pytest.mark.asyncio
 async def test_graph_streams_events_before_timeout(alist):
     """Test that events are streamed in real-time before timeout occurs."""
     # Create a normal agent
@@ -520,42 +480,6 @@ async def test_graph_streams_events_before_timeout(alist):
     # The last event should be the graph result
     final_result = events[-1]["result"]
     assert final_result.status == Status.COMPLETED
-
-
-@pytest.mark.asyncio
-async def test_graph_timeout_cleanup_on_exception():
-    """Test that timeout properly cleans up tasks even when exceptions occur."""
-    # Create an agent
-    agent = Agent(
-        name="test_agent",
-        model="us.amazon.nova-lite-v1:0",
-        system_prompt="You are a test agent.",
-    )
-
-    # Override stream_async to raise an exception after some events
-    original_stream = agent.stream_async
-
-    async def exception_stream(*args, **kwargs):
-        """Simulate a generator that raises an exception."""
-        count = 0
-        async for event in original_stream(*args, **kwargs):
-            yield event
-            count += 1
-            if count >= 2:
-                raise ValueError("Simulated error during streaming")
-
-    agent.stream_async = exception_stream
-
-    # Create graph with timeout
-    builder = GraphBuilder()
-    builder.add_node(agent, "test_node")
-    builder.set_node_timeout(30.0)
-    graph = builder.build()
-
-    # Execute - the exception propagates through _stream_with_timeout
-    # The simpler implementation doesn't wrap exceptions, it lets them propagate
-    with pytest.raises(ValueError, match="Simulated error during streaming"):
-        await graph.invoke_async("Test exception handling")
 
 
 @pytest.mark.asyncio

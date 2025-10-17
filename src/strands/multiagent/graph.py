@@ -491,9 +491,6 @@ class Graph(MultiAgentBase):
 
                 logger.debug("status=<%s> | graph execution completed", self.state.status)
 
-                # Set execution time before building result
-                self.state.execution_time = round((time.time() - start_time) * 1000)
-
                 # Yield final result (consistent with Agent's AgentResultEvent format)
                 result = self._build_result()
 
@@ -503,9 +500,9 @@ class Graph(MultiAgentBase):
             except Exception:
                 logger.exception("graph execution failed")
                 self.state.status = Status.FAILED
-                # Set execution time even on failure
-                self.state.execution_time = round((time.time() - start_time) * 1000)
                 raise
+            finally:
+                self.state.execution_time = round((time.time() - start_time) * 1000)
 
     def _validate_graph(self, nodes: dict[str, GraphNode]) -> None:
         """Validate graph nodes for duplicate instances."""
@@ -532,7 +529,7 @@ class Graph(MultiAgentBase):
             if not should_continue:
                 self.state.status = Status.FAILED
                 logger.debug("reason=<%s> | stopping execution", reason)
-                return
+                return  # Let the top-level exception handler deal with it
 
             current_batch = ready_nodes.copy()
             ready_nodes.clear()
@@ -542,6 +539,8 @@ class Graph(MultiAgentBase):
                 yield event
 
             # Find newly ready nodes after batch execution
+            # We add all nodes in current batch as completed batch,
+            # because a failure would throw exception and code would not make it here
             ready_nodes.extend(self._find_newly_ready_nodes(current_batch))
 
     async def _execute_nodes_parallel(

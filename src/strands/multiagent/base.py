@@ -103,9 +103,8 @@ class MultiAgentBase(ABC):
     ) -> AsyncIterator[dict[str, Any]]:
         """Stream events during multi-agent execution.
 
-        This default implementation provides backward compatibility by executing
-        invoke_async and yielding a single result event. Subclasses can override
-        this method to provide true streaming capabilities.
+        Default implementation executes invoke_async and yields the result as a single event.
+        Subclasses can override this method to provide true streaming capabilities.
 
         Args:
             task: The task to execute

@@ -344,9 +344,6 @@ class Swarm(MultiAgentBase):
                 async for event in self._execute_swarm(invocation_state):
                     yield event.as_dict()
 
-                # Set execution time before building result
-                self.state.execution_time = round((time.time() - start_time) * 1000)
-
                 # Yield final result (consistent with Agent's AgentResultEvent format)
                 result = self._build_result()
                 yield MultiAgentResultEvent(result=result).as_dict()
@@ -354,9 +351,9 @@ class Swarm(MultiAgentBase):
             except Exception:
                 logger.exception("swarm execution failed")
                 self.state.completion_status = Status.FAILED
-                # Set execution time even on failure
-                self.state.execution_time = round((time.time() - start_time) * 1000)
                 raise
+            finally:
+                self.state.execution_time = round((time.time() - start_time) * 1000)
 
     async def _stream_with_timeout(
         self, async_generator: AsyncIterator[Any], timeout: float | None, timeout_message: str
