@@ -23,20 +23,24 @@ class Usage(TypedDict, total=False):
     cacheWriteInputTokens: int
 
 
-class Metrics(TypedDict):
+class Metrics(TypedDict, total=False):
     """Performance metrics for model interactions.
 
     Attributes:
         latencyMs (int): Latency of the model request in milliseconds.
+        timeToFirstByteMs (int): Latency from sending model request to first
+            content chunk (contentBlockDelta or contentBlockStart) from the model in milliseconds.
     """
 
-    latencyMs: int
+    latencyMs: Required[int]
+    timeToFirstByteMs: int
 
 
 StopReason = Literal[
     "content_filtered",
     "end_turn",
     "guardrail_intervened",
+    "interrupt",
     "max_tokens",
     "stop_sequence",
     "tool_use",
@@ -46,6 +50,7 @@ StopReason = Literal[
 - "content_filtered": Content was filtered due to policy violation
 - "end_turn": Normal completion of the response
 - "guardrail_intervened": Guardrail system intervened
+- "interrupt": Agent was interrupted for human input
 - "max_tokens": Maximum token limit reached
 - "stop_sequence": Stop sequence encountered
 - "tool_use": Model requested to use a tool

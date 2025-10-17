@@ -13,8 +13,8 @@ from opentelemetry import trace as trace_api
 
 from ...hooks import AfterToolCallEvent, BeforeToolCallEvent
 from ...telemetry.metrics import Trace
-from ...telemetry.tracer import get_tracer
-from ...types._events import ToolCancelEvent, ToolResultEvent, ToolStreamEvent, TypedEvent
+from ...telemetry.tracer import get_tracer, serialize
+from ...types._events import ToolCancelEvent, ToolInterruptEvent, ToolResultEvent, ToolStreamEvent, TypedEvent
 from ...types.content import Message
 from ...types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolResult, ToolUse
 
@@ -43,6 +43,7 @@ class ToolExecutor(abc.ABC):
         - Before/after hook execution
         - Tracing and metrics collection
         - Error handling and recovery
+        - Interrupt handling for human-in-the-loop workflows
 
         Args:
             agent: The agent for which the tool is being executed.
@@ -59,6 +60,14 @@ class ToolExecutor(abc.ABC):
 
         tool_info = agent.tool_registry.dynamic_tools.get(tool_name)
         tool_func = tool_info if tool_info is not None else agent.tool_registry.registry.get(tool_name)
+        tool_spec = tool_func.tool_spec if tool_func is not None else None
+
+        current_span = trace_api.get_current_span()
+        if current_span and tool_spec is not None:
+            current_span.set_attribute("gen_ai.tool.description", tool_spec["description"])
+            input_schema = tool_spec["inputSchema"]
+            if "json" in input_schema:
+                current_span.set_attribute("gen_ai.tool.json_schema", serialize(input_schema["json"]))
 
         invocation_state.update(
             {
@@ -72,7 +81,7 @@ class ToolExecutor(abc.ABC):
             }
         )
 
-        before_event = agent.hooks.invoke_callbacks(
+        before_event, interrupts = agent.hooks.invoke_callbacks(
             BeforeToolCallEvent(
                 agent=agent,
                 selected_tool=tool_func,
@@ -80,6 +89,10 @@ class ToolExecutor(abc.ABC):
                 invocation_state=invocation_state,
             )
         )
+
+        if interrupts:
+            yield ToolInterruptEvent(tool_use, interrupts)
+            return
 
         if before_event.cancel_tool:
             cancel_message = (
@@ -92,7 +105,7 @@ class ToolExecutor(abc.ABC):
                 "status": "error",
                 "content": [{"text": cancel_message}],
             }
-            after_event = agent.hooks.invoke_callbacks(
+            after_event, _ = agent.hooks.invoke_callbacks(
                 AfterToolCallEvent(
                     agent=agent,
                     tool_use=tool_use,
@@ -130,7 +143,7 @@ class ToolExecutor(abc.ABC):
                     "status": "error",
                     "content": [{"text": f"Unknown tool: {tool_name}"}],
                 }
-                after_event = agent.hooks.invoke_callbacks(
+                after_event, _ = agent.hooks.invoke_callbacks(
                     AfterToolCallEvent(
                         agent=agent,
                         selected_tool=selected_tool,
@@ -150,18 +163,23 @@ class ToolExecutor(abc.ABC):
                 # we yield it directly; all other cases (non-sdk AgentTools), we wrap events in
                 # ToolStreamEvent and the last event is just the result.
 
+                if isinstance(event, ToolInterruptEvent):
+                    yield event
+                    return
+
                 if isinstance(event, ToolResultEvent):
                     # below the last "event" must point to the tool_result
                     event = event.tool_result
                     break
-                elif isinstance(event, ToolStreamEvent):
+
+                if isinstance(event, ToolStreamEvent):
                     yield event
                 else:
                     yield ToolStreamEvent(tool_use, event)
 
             result = cast(ToolResult, event)
 
-            after_event = agent.hooks.invoke_callbacks(
+            after_event, _ = agent.hooks.invoke_callbacks(
                 AfterToolCallEvent(
                     agent=agent,
                     selected_tool=selected_tool,
@@ -181,7 +199,7 @@ class ToolExecutor(abc.ABC):
                 "status": "error",
                 "content": [{"text": f"Error: {str(e)}"}],
             }
-            after_event = agent.hooks.invoke_callbacks(
+            after_event, _ = agent.hooks.invoke_callbacks(
                 AfterToolCallEvent(
                     agent=agent,
                     selected_tool=selected_tool,
@@ -229,6 +247,10 @@ class ToolExecutor(abc.ABC):
         with trace_api.use_span(tool_call_span):
             async for event in ToolExecutor._stream(agent, tool_use, tool_results, invocation_state, **kwargs):
                 yield event
+
+            if isinstance(event, ToolInterruptEvent):
+                tracer.end_tool_call_span(tool_call_span, tool_result=None)
+                return
 
             result_event = cast(ToolResultEvent, event)
             result = result_event.tool_result
