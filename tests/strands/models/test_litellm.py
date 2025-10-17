@@ -277,6 +277,13 @@ async def test_structured_output(litellm_acompletion, model, test_output_model_c
     mock_choice = unittest.mock.Mock()
     mock_choice.finish_reason = "tool_calls"
     mock_choice.message.content = '{"name": "John", "age": 30}'
+    # PATCH START: mock tool_calls as list with .function.arguments
+    tool_call_mock = unittest.mock.Mock()
+    tool_call_function_mock = unittest.mock.Mock()
+    tool_call_function_mock.arguments = '{"name": "John", "age": 30}'
+    tool_call_mock.function = tool_call_function_mock
+    mock_choice.message.tool_calls = [tool_call_mock]
+    # PATCH END
     mock_response = unittest.mock.Mock()
     mock_response.choices = [mock_choice]
 
