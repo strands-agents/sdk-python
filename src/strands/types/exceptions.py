@@ -75,3 +75,9 @@ class SessionException(Exception):
     """Exception raised when session operations fail."""
 
     pass
+
+
+class ToolProviderException(Exception):
+    """Exception raised when a tool provider fails to load or cleanup tools."""
+
+    pass

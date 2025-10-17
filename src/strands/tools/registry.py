@@ -8,16 +8,19 @@ import inspect
 import logging
 import os
 import sys
+import uuid
 import warnings
 from importlib import import_module, util
 from os.path import expanduser
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from typing_extensions import TypedDict, cast
 
 from strands.tools.decorator import DecoratedFunctionTool
 
+from .._async import run_async
+from ..experimental.tools import ToolProvider
 from ..types.tools import AgentTool, ToolSpec
 from .loader import load_tool_from_string, load_tools_from_module
 from .tools import PythonAgentTool, normalize_schema, normalize_tool_spec
@@ -36,6 +39,8 @@ class ToolRegistry:
         self.registry: Dict[str, AgentTool] = {}
         self.dynamic_tools: Dict[str, AgentTool] = {}
         self.tool_config: Optional[Dict[str, Any]] = None
+        self._tool_providers: List[ToolProvider] = []
+        self._registry_id = str(uuid.uuid4())
 
     def process_tools(self, tools: List[Any]) -> List[str]:
         """Process tools list.
@@ -118,6 +123,21 @@ class ToolRegistry:
                 elif isinstance(tool, Iterable) and not isinstance(tool, (str, bytes, bytearray)):
                     for t in tool:
                         add_tool(t)
+
+                # Case 5: ToolProvider
+                elif isinstance(tool, ToolProvider):
+                    self._tool_providers.append(tool)
+
+                    async def get_tools_and_register_consumer() -> Sequence[AgentTool]:
+                        provider_tools = await tool.load_tools()
+                        await tool.add_consumer(self._registry_id)
+                        return provider_tools
+
+                    provider_tools = run_async(get_tools_and_register_consumer)
+
+                    for provider_tool in provider_tools:
+                        self.register_tool(provider_tool)
+                        tool_names.append(provider_tool.tool_name)
                 else:
                     logger.warning("tool=<%s> | unrecognized tool specification", tool)
 
@@ -640,3 +660,16 @@ class ToolRegistry:
                     logger.warning("tool_name=<%s> | failed to create function tool | %s", name, e)
 
         return tools
+
+    async def cleanup_async(self, **kwargs: Any) -> None:
+        """Clean up all tool providers in this registry."""
+        for provider in self._tool_providers:
+            try:
+                await provider.remove_consumer(self._registry_id)
+                logger.debug("provider=<%s> | removed provider consumer", type(provider).__name__)
+            except Exception as e:
+                logger.warning(
+                    "provider=<%s>, error=<%s> | failed to remove provider consumer",
+                    type(provider).__name__,
+                    e,
+                )
