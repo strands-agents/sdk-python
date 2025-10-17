@@ -745,7 +745,6 @@ class Swarm(MultiAgentBase):
                 if "result" in event:
                     result = event["result"]
 
-            # Use the captured result from streaming to avoid double execution
             if result is None:
                 raise ValueError(f"Node '{node_name}' did not produce a result event")
 
