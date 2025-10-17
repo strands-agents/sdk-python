@@ -28,8 +28,8 @@ from ..types._events import (
     ModelStopReason,
     StartEvent,
     StartEventLoopEvent,
-    ToolInterruptEvent,
     StructuredOutputEvent,
+    ToolInterruptEvent,
     ToolResultMessageEvent,
     TypedEvent,
 )
@@ -123,7 +123,9 @@ async def event_loop_cycle(
         message = agent._interrupt_state.context["tool_use_message"]
 
     else:
-        model_events = _handle_model_execution(agent, cycle_span, cycle_trace, invocation_state, tracer, structured_output_context)
+        model_events = _handle_model_execution(
+            agent, cycle_span, cycle_trace, invocation_state, tracer, structured_output_context
+        )
         async for model_event in model_events:
             if not isinstance(model_event, ModelStopReason):
                 yield model_event
@@ -261,7 +263,7 @@ async def _handle_model_execution(
     cycle_trace: Trace,
     invocation_state: dict[str, Any],
     tracer: Tracer,
-    structured_output_context: StructuredOutputContext | None = None,
+    structured_output_context: StructuredOutputContext,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Handle model execution with retry logic for throttling exceptions.
 
@@ -274,6 +276,7 @@ async def _handle_model_execution(
         cycle_trace: Trace object for the current event loop cycle.
         invocation_state: State maintained across cycles.
         tracer: Tracer instance for span management.
+        structured_output_context: Context for structured output management.
 
     Yields:
         Model stream events and throttle events during retries.
@@ -301,7 +304,6 @@ async def _handle_model_execution(
                     agent=agent,
                 )
             )
-
 
             if structured_output_context.forced_mode:
                 tool_spec = structured_output_context.get_tool_spec()
@@ -426,9 +428,7 @@ async def _handle_tool_execution(
     validate_and_prepare_tools(message, tool_uses, tool_results, invalid_tool_use_ids)
     tool_uses = [tool_use for tool_use in tool_uses if tool_use.get("toolUseId") not in invalid_tool_use_ids]
     if not tool_uses:
-        yield EventLoopStopEvent(
-            stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"]
-        )
+        yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
         return
 
     if agent._interrupt_state.activated:
@@ -467,7 +467,7 @@ async def _handle_tool_execution(
             agent.event_loop_metrics,
             invocation_state["request_state"],
             interrupts,
-            structured_output=structured_output_result
+            structured_output=structured_output_result,
         )
         if cycle_span:
             tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
@@ -492,7 +492,11 @@ async def _handle_tool_execution(
     if invocation_state["request_state"].get("stop_event_loop", False) or structured_output_context.stop_loop:
         agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
         yield EventLoopStopEvent(
-            stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"], structured_output=structured_output_result
+            stop_reason,
+            message,
+            agent.event_loop_metrics,
+            invocation_state["request_state"],
+            structured_output=structured_output_result,
         )
         return
 

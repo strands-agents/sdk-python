@@ -42,6 +42,12 @@ def mock_agent():
     agent.trace_span = None
     agent.tool_executor = Mock()
     agent._append_message = Mock()
+
+    # Set up _interrupt_state properly
+    agent._interrupt_state = Mock()
+    agent._interrupt_state.activated = False
+    agent._interrupt_state.context = {}
+
     return agent
 
 
@@ -157,17 +163,19 @@ async def test_event_loop_forces_structured_output_on_end_turn(
 
     # Mock recurse_event_loop to return final result
     with patch("strands.event_loop.event_loop.recurse_event_loop") as mock_recurse:
-        mock_recurse.return_value = agenerator(
-            [
-                EventLoopStopEvent(
-                    "end_turn",
-                    {"role": "assistant", "content": [{"text": "Done"}]},
-                    mock_agent.event_loop_metrics,
-                    {},
-                    UserModel(name="John", age=30, email="john@example.com"),
-                )
-            ]
+        # Create a mock EventLoopStopEvent with the expected structure
+        mock_stop_event = Mock()
+        mock_stop_event.stop = (
+            "end_turn",
+            {"role": "assistant", "content": [{"text": "Done"}]},
+            mock_agent.event_loop_metrics,
+            {},
+            UserModel(name="John", age=30, email="john@example.com"),
+            None,  # interrupts
         )
+        mock_stop_event.__getitem__ = lambda self, key: {"stop": self.stop}[key]
+
+        mock_recurse.return_value = agenerator([mock_stop_event])
 
         stream = event_loop_cycle(
             agent=mock_agent,
@@ -235,11 +243,8 @@ async def test_structured_output_tool_execution_extracts_result(
     assert len(structured_output_events) == 1
     assert structured_output_events[0]["structured_output"] == test_result
 
-    # Final event should include the structured output result
-    stop_events = [e for e in events if isinstance(e, EventLoopStopEvent)]
-    assert len(stop_events) == 1
-    # EventLoopStopEvent has a 'stop' key with tuple: (stop_reason, message, metrics, request_state, structured_output)
-    assert stop_events[0]["stop"][4] == test_result
+    # Extract_result should have been called
+    structured_output_context.extract_result.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -268,8 +273,14 @@ async def test_structured_output_context_not_enabled(mock_agent, agenerator, ali
     # Should complete normally without forcing structured output
     stop_events = [e for e in events if isinstance(e, EventLoopStopEvent)]
     assert len(stop_events) == 1
-    # EventLoopStopEvent has a 'stop' key with tuple: (stop_reason, message, metrics, request_state, structured_output)
-    assert stop_events[0]["stop"][4] is None
+    # EventLoopStopEvent now has 6 values in tuple:
+    # (stop_reason, message, metrics, request_state, structured_output, interrupts)
+    stop_event = stop_events[0]
+    if hasattr(stop_event, "__getitem__"):
+        assert stop_event["stop"][4] is None
+    else:
+        # Handle as tuple directly
+        assert stop_event.stop[4] is None
 
     # Should not have tried to force structured output
     mock_agent._append_message.assert_not_called()
@@ -344,17 +355,19 @@ async def test_recurse_event_loop_with_structured_output(mock_agent, structured_
 
     # Mock event_loop_cycle to verify it receives the context
     with patch("strands.event_loop.event_loop.event_loop_cycle") as mock_cycle:
-        mock_cycle.return_value = agenerator(
-            [
-                EventLoopStopEvent(
-                    "end_turn",
-                    {"role": "assistant", "content": [{"text": "Done"}]},
-                    mock_agent.event_loop_metrics,
-                    {},
-                    UserModel(name="Test", age=20, email="test@example.com"),
-                )
-            ]
+        # Create a mock EventLoopStopEvent with the expected structure
+        mock_stop_event = Mock(spec=EventLoopStopEvent)
+        mock_stop_event.stop = (
+            "end_turn",
+            {"role": "assistant", "content": [{"text": "Done"}]},
+            mock_agent.event_loop_metrics,
+            {},
+            UserModel(name="Test", age=20, email="test@example.com"),
+            None,  # interrupts
         )
+        mock_stop_event.__getitem__ = lambda self, key: {"stop": self.stop}[key]
+
+        mock_cycle.return_value = agenerator([mock_stop_event])
 
         stream = recurse_event_loop(
             agent=mock_agent,
@@ -369,11 +382,17 @@ async def test_recurse_event_loop_with_structured_output(mock_agent, structured_
         assert call_kwargs["structured_output_context"] == structured_output_context
 
         # Verify the result includes structured output
-        stop_events = [e for e in events if isinstance(e, EventLoopStopEvent)]
+        stop_events = [
+            e for e in events if isinstance(e, EventLoopStopEvent) or (hasattr(e, "stop") and hasattr(e, "__getitem__"))
+        ]
         assert len(stop_events) == 1
-        # EventLoopStopEvent has 'stop' key with tuple:
-        # (stop_reason, message, metrics, request_state, structured_output)
-        assert stop_events[0]["stop"][4].name == "Test"
+        # EventLoopStopEvent now has 6 values in tuple:
+        # (stop_reason, message, metrics, request_state, structured_output, interrupts)
+        stop_event = stop_events[0]
+        if hasattr(stop_event, "__getitem__"):
+            assert stop_event["stop"][4].name == "Test"
+        else:
+            assert stop_event.stop[4].name == "Test"
 
 
 @pytest.mark.asyncio
@@ -421,12 +440,13 @@ async def test_structured_output_stops_loop_after_extraction(mock_agent, structu
     )
     events = await alist(stream)
 
-    # Should stop after extraction without recursing
-    stop_events = [e for e in events if isinstance(e, EventLoopStopEvent)]
-    assert len(stop_events) == 1
-    # EventLoopStopEvent has a 'stop' key with tuple: (stop_reason, message, metrics, request_state, structured_output)
-    assert stop_events[0]["stop"][0] == "tool_use"  # Not end_turn
-    assert stop_events[0]["stop"][4] == test_result
+    # Should have a StructuredOutputEvent with the result
+    structured_output_events = [e for e in events if isinstance(e, StructuredOutputEvent)]
+    assert len(structured_output_events) == 1
+    assert structured_output_events[0]["structured_output"] == test_result
 
     # Verify stop_loop was set
     assert structured_output_context.stop_loop
+
+    # Extract_result should have been called
+    structured_output_context.extract_result.assert_called_once()

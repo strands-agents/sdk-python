@@ -16,6 +16,8 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
+from strands.tools.decorator import tool
+
 from ..event_loop import streaming
 from ..tools.structured_output.structured_output_utils import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Messages
@@ -49,6 +51,18 @@ _MODELS_INCLUDE_STATUS = [
 T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_READ_TIMEOUT = 120
+
+
+# https://github.com/strands-agents/sdk-python/issues/998
+@tool(name="noop", description="This is a fake tool that MUST be completely ignored.")
+def _noop_tool() -> None:
+    """No-op tool to satisfy tool spec requirement when tool messages are present.
+
+    Some model provides (e.g., Bedrock) will return an error response if tool uses and tool results are present in
+    messages without any tool specs configured. Consequently, if the summarization agent has no registered tools,
+    summarization will fail. As a workaround, we register the no-op tool.
+    """
+    pass
 
 
 class BedrockModel(Model):
@@ -203,6 +217,12 @@ class BedrockModel(Model):
         Returns:
             A Bedrock converse stream request.
         """
+        if not tool_specs:
+            has_tool_content = any(
+                any("toolUse" in block or "toolResult" in block for block in msg.get("content", [])) for msg in messages
+            )
+            if has_tool_content:
+                tool_specs = [_noop_tool.tool_spec]
         return {
             "modelId": self.config["model_id"],
             "messages": self._format_bedrock_messages(messages),

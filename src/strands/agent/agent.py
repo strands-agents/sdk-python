@@ -27,7 +27,6 @@ from typing import (
     Union,
     cast,
 )
-import warnings
 
 from opentelemetry import trace as trace_api
 from pydantic import BaseModel
@@ -390,9 +389,12 @@ class Agent:
         return list(all_tools.keys())
 
     def __call__(
-        
-        self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, structured_output_model: Type[BaseModel] | None = None, **kwargs: Any
-    
+        self,
+        prompt: AgentInput = None,
+        *,
+        invocation_state: dict[str, Any] | None = None,
+        structured_output_model: Type[BaseModel] | None = None,
+        **kwargs: Any,
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
@@ -423,16 +425,23 @@ class Agent:
         """
 
         def execute() -> AgentResult:
-            return asyncio.run(self.invoke_async(prompt, invocation_state=invocation_state, structured_output_model=structured_output_model, **kwargs))
+            return asyncio.run(
+                self.invoke_async(
+                    prompt, invocation_state=invocation_state, structured_output_model=structured_output_model, **kwargs
+                )
+            )
 
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)
             return future.result()
 
     async def invoke_async(
-        
-        self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, structured_output_model: Type[BaseModel] | None = None, **kwargs: Any
-    
+        self,
+        prompt: AgentInput = None,
+        *,
+        invocation_state: dict[str, Any] | None = None,
+        structured_output_model: Type[BaseModel] | None = None,
+        **kwargs: Any,
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
@@ -460,7 +469,9 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
-        events = self.stream_async(prompt, invocation_state=invocation_state, structured_output_model=structured_output_model, **kwargs)
+        events = self.stream_async(
+            prompt, invocation_state=invocation_state, structured_output_model=structured_output_model, **kwargs
+        )
         async for event in events:
             _ = event
 
@@ -492,8 +503,9 @@ class Agent:
             " You should pass in `structured_output_model` directly into the agent invocation."
             " see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/",
             category=DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
+
         def execute() -> T:
             return asyncio.run(self.structured_output_async(output_model, prompt))
 
@@ -526,7 +538,7 @@ class Agent:
             " You should pass in `structured_output_model` directly into the agent invocation."
             " see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/",
             category=DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
         with self.tracer.tracer.start_as_current_span(
@@ -572,7 +584,12 @@ class Agent:
                 self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
     async def stream_async(
-        self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, structured_output_model: Type[BaseModel] | None = None, **kwargs: Any
+        self,
+        prompt: AgentInput = None,
+        *,
+        invocation_state: dict[str, Any] | None = None,
+        structured_output_model: Type[BaseModel] | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
 

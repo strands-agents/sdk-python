@@ -93,9 +93,9 @@ class TestToolExecutor:
         tool_results = []
         invocation_state = {}
 
-        # Setup hooks to return events unchanged
+        # Setup hooks to return events unchanged with interrupts
         def hook_side_effect(event):
-            return event
+            return event, None  # Return tuple of (event, interrupts)
 
         mock_agent.hooks.invoke_callbacks.side_effect = hook_side_effect
 
@@ -121,9 +121,9 @@ class TestToolExecutor:
         tool_results = []
         invocation_state = {}
 
-        # Setup hooks to return events unchanged
+        # Setup hooks to return events unchanged with interrupts
         def hook_side_effect(event):
-            return event
+            return event, None  # Return tuple of (event, interrupts)
 
         mock_agent.hooks.invoke_callbacks.side_effect = hook_side_effect
 
@@ -150,7 +150,13 @@ class TestToolExecutor:
 
         # Setup hooks
         def hook_side_effect(event):
-            return event
+            return event, None  # Return tuple of (event, interrupts)
+
+        mock_agent.hooks.invoke_callbacks.side_effect = hook_side_effect
+
+        # Setup hooks
+        def hook_side_effect(event):
+            return event, None  # Return tuple of (event, interrupts)
 
         mock_agent.hooks.invoke_callbacks.side_effect = hook_side_effect
 
@@ -189,7 +195,7 @@ class TestToolExecutor:
 
         # Setup hooks
         def hook_side_effect(event):
-            return event
+            return event, None  # Return tuple of (event, interrupts)
 
         mock_agent.hooks.invoke_callbacks.side_effect = hook_side_effect
 
@@ -220,7 +226,7 @@ class TestToolExecutor:
 
         # Setup hooks
         def hook_side_effect(event):
-            return event
+            return event, None  # Return tuple of (event, interrupts)
 
         mock_agent.hooks.invoke_callbacks.side_effect = hook_side_effect
 
@@ -254,7 +260,7 @@ class TestToolExecutor:
 
         # Setup hooks
         def hook_side_effect(event):
-            return event
+            return event, None  # Return tuple of (event, interrupts)
 
         mock_agent.hooks.invoke_callbacks.side_effect = hook_side_effect
 
@@ -287,7 +293,7 @@ class TestToolExecutor:
 
         # Setup hooks
         def hook_side_effect(event):
-            return event
+            return event, None  # Return tuple of (event, interrupts)
 
         mock_agent.hooks.invoke_callbacks.side_effect = hook_side_effect
 
@@ -321,7 +327,7 @@ class TestToolExecutor:
             nonlocal captured_state
             if isinstance(event, BeforeToolCallEvent):
                 captured_state = event.invocation_state.copy()
-            return event
+            return event, None  # Return tuple of (event, interrupts)
 
         mock_agent.hooks.invoke_callbacks.side_effect = capture_state
 
@@ -352,7 +358,7 @@ class TestToolExecutor:
 
         # Setup hooks
         def hook_side_effect(event):
-            return event
+            return event, None  # Return tuple of (event, interrupts)
 
         mock_agent.hooks.invoke_callbacks.side_effect = hook_side_effect
 
@@ -429,7 +435,7 @@ class TestToolExecutor:
         def modify_tool_use(event):
             if isinstance(event, BeforeToolCallEvent):
                 event.tool_use["modified"] = True
-            return event
+            return event, None  # Return tuple of (event, interrupts)
 
         mock_agent.hooks.invoke_callbacks.side_effect = modify_tool_use
 
@@ -454,7 +460,7 @@ class TestToolExecutor:
         def return_none_tool(event):
             if isinstance(event, BeforeToolCallEvent):
                 event.selected_tool = None
-            return event
+            return event, None  # Return tuple of (event, interrupts)
 
         mock_agent.hooks.invoke_callbacks.side_effect = return_none_tool
 
@@ -482,7 +488,7 @@ class TestToolExecutor:
 
         # Setup hooks
         def hook_side_effect(event):
-            return event
+            return event, None  # Return tuple of (event, interrupts)
 
         mock_agent.hooks.invoke_callbacks.side_effect = hook_side_effect
 

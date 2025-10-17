@@ -278,7 +278,7 @@ class TestEventLoopStopEvent:
         request_state = {"state": "final"}
 
         event = EventLoopStopEvent(stop_reason, message, metrics, request_state)
-        assert event["stop"] == (stop_reason, message, metrics, request_state, None)
+        assert event["stop"] == (stop_reason, message, metrics, request_state, None, None)
         assert event.is_callback_event is False
 
     def test_initialization_with_structured_output(self):
@@ -290,7 +290,7 @@ class TestEventLoopStopEvent:
         structured_output = SampleModel(name="test", value=42)
 
         event = EventLoopStopEvent(stop_reason, message, metrics, request_state, structured_output)
-        assert event["stop"] == (stop_reason, message, metrics, request_state, structured_output)
+        assert event["stop"] == (stop_reason, message, metrics, request_state, structured_output, None)
         assert event.is_callback_event is False
 
 
