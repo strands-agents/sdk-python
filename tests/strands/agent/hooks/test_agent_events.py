@@ -311,7 +311,7 @@ async def test_stream_e2e_success(alist):
                 message={"content": [{"text": "I invoked the tools!"}], "role": "assistant"},
                 metrics=ANY,
                 state={},
-            )
+            ),
         },
     ]
     assert tru_events == exp_events
@@ -453,7 +453,7 @@ async def test_stream_e2e_reasoning_redacted_content(alist):
                 },
                 metrics=ANY,
                 state={},
-            )
+            ),
         },
     ]
     assert tru_events == exp_events
