@@ -4,16 +4,20 @@ Provides minimal foundation for multi-agent patterns (Swarm, Graph).
 """
 
 import asyncio
+import logging
 import warnings
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Union
+from typing import Any, Union, cast
 
 from ..agent import AgentResult
-from ..types.content import ContentBlock
-from ..types.event_loop import Metrics, Usage
+from ..telemetry.metrics import EventLoopMetrics
+from ..types.content import ContentBlock, Message
+from ..types.event_loop import Metrics, StopReason, Usage
+
+logger = logging.getLogger(__name__)
 
 
 class Status(Enum):
@@ -59,6 +63,93 @@ class NodeResult:
                 flattened.extend(nested_node_result.get_agent_results())
             return flattened
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert NodeResult to JSON-serializable dict, ignoring state field."""
+        if isinstance(self.result, Exception):
+            result_data: dict[str, Any] = {"type": "exception", "message": str(self.result)}
+        elif isinstance(self.result, AgentResult):
+            # Serialize AgentResult without state field
+            result_data = {
+                "type": "agent_result",
+                "stop_reason": self.result.stop_reason,
+                "message": self.result.message,
+            }
+        elif isinstance(self.result, MultiAgentResult):
+            result_data = self.result.to_dict()
+        else:
+            raise TypeError(f"Unsupported NodeResult.result type for serialization: {type(self.result).__name__}")
+
+        return {
+            "result": result_data,
+            "execution_time": self.execution_time,
+            "status": self.status.value,
+            "accumulated_usage": self.accumulated_usage,
+            "accumulated_metrics": self.accumulated_metrics,
+            "execution_count": self.execution_count,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "NodeResult":
+        """Rehydrate a NodeResult from persisted JSON."""
+        if "result" not in data:
+            raise TypeError("NodeResult.from_dict: missing 'result'")
+        raw = data["result"]
+
+        result: Union[AgentResult, "MultiAgentResult", Exception]
+        if isinstance(raw, dict) and raw.get("type") == "agent_result":
+            result = NodeResult.agent_result_from_persisted(raw)
+        elif isinstance(raw, dict) and raw.get("type") == "exception":
+            result = Exception(str(raw.get("message", "node failed")))
+        elif isinstance(raw, dict) and ("results" in raw):
+            result = MultiAgentResult.from_dict(raw)
+        else:
+            raise TypeError(f"NodeResult.from_dict: unsupported result payload: {raw!r}")
+
+        usage_data = data.get("accumulated_usage", {})
+        usage = Usage(
+            inputTokens=usage_data.get("inputTokens", 0),
+            outputTokens=usage_data.get("outputTokens", 0),
+            totalTokens=usage_data.get("totalTokens", 0),
+        )
+        # Add optional fields if they exist
+        if "cacheReadInputTokens" in usage_data:
+            usage["cacheReadInputTokens"] = usage_data["cacheReadInputTokens"]
+        if "cacheWriteInputTokens" in usage_data:
+            usage["cacheWriteInputTokens"] = usage_data["cacheWriteInputTokens"]
+
+        metrics = Metrics(latencyMs=data.get("accumulated_metrics", {}).get("latencyMs", 0))
+
+        return cls(
+            result=result,
+            execution_time=int(data.get("execution_time", 0)),
+            status=Status(data.get("status", "pending")),
+            accumulated_usage=usage,
+            accumulated_metrics=metrics,
+            execution_count=int(data.get("execution_count", 0)),
+        )
+
+    @classmethod
+    def agent_result_from_persisted(cls, data: dict[str, Any]) -> AgentResult:
+        """Rehydrate a minimal AgentResult from persisted JSON.
+
+        Expected shape:
+          {"type": "agent_result", "message": <Message>, "stop_reason": <str|None>}
+        """
+        if data.get("type") != "agent_result":
+            raise TypeError(f"agent_result_from_persisted: unexpected type {data.get('type')!r}")
+
+        message = cast(Message, data.get("message"))
+        stop_reason = cast(
+            StopReason,
+            data.get("stop_reason"),
+        )
+
+        try:
+            return AgentResult(message=message, stop_reason=stop_reason, metrics=EventLoopMetrics(), state={})
+        except Exception:
+            logger.debug("AgentResult constructor failed during rehydrating")
+            raise
+
 
 @dataclass
 class MultiAgentResult:
@@ -75,6 +166,46 @@ class MultiAgentResult:
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
     execution_count: int = 0
     execution_time: int = 0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert MultiAgentResult to JSON-serializable dict."""
+        return {
+            "type": "mutiagent_result",
+            "status": self.status.value,
+            "results": {k: v.to_dict() for k, v in self.results.items()},
+            "accumulated_usage": dict(self.accumulated_usage),
+            "accumulated_metrics": dict(self.accumulated_metrics),
+            "execution_count": self.execution_count,
+            "execution_time": self.execution_time,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "MultiAgentResult":
+        """Rehydrate a MultiAgentResult from persisted JSON."""
+        results = {k: NodeResult.from_dict(v) for k, v in data.get("results", {}).items()}
+        usage_data = data.get("accumulated_usage", {})
+        usage = Usage(
+            inputTokens=usage_data.get("inputTokens", 0),
+            outputTokens=usage_data.get("outputTokens", 0),
+            totalTokens=usage_data.get("totalTokens", 0),
+        )
+        # Add optional fields if they exist
+        if "cacheReadInputTokens" in usage_data:
+            usage["cacheReadInputTokens"] = usage_data["cacheReadInputTokens"]
+        if "cacheWriteInputTokens" in usage_data:
+            usage["cacheWriteInputTokens"] = usage_data["cacheWriteInputTokens"]
+
+        metrics = Metrics(latencyMs=data.get("accumulated_metrics", {}).get("latencyMs", 0))
+
+        multiagent_result = cls(
+            status=Status(data.get("status", Status.PENDING.value)),
+            results=results,
+            accumulated_usage=usage,
+            accumulated_metrics=metrics,
+            execution_count=int(data.get("execution_count", 0)),
+            execution_time=int(data.get("execution_time", 0)),
+        )
+        return multiagent_result
 
 
 class MultiAgentBase(ABC):
@@ -122,3 +253,22 @@ class MultiAgentBase(ABC):
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)
             return future.result()
+
+    def serialize_state(self) -> dict[str, Any]:
+        """Return a JSON-serializable snapshot of the orchestrator state."""
+        raise NotImplementedError
+
+    def deserialize_state(self, payload: dict[str, Any]) -> None:
+        """Restore orchestrator state from a session dict."""
+        raise NotImplementedError
+
+    def serialize_node_result_for_persist(self, raw: NodeResult) -> dict[str, Any]:
+        """Serialize node result for persistence.
+
+        Args:
+            raw: Raw node result to serialize
+
+        Returns:
+            JSON-serializable dict representation
+        """
+        return raw.to_dict()
