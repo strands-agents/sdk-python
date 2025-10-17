@@ -1,6 +1,6 @@
 """Common fixtures for A2A module tests."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
 from a2a.server.agent_execution import RequestContext
@@ -31,6 +31,19 @@ def mock_strands_agent():
     mock_tool_registry.get_all_tools_config.return_value = {}
     agent.tool_registry = mock_tool_registry
 
+    # Setup with_session_manager to return a copy of the agent
+    def mock_with_session_manager(session_manager=None, request_metadata=None):
+        """Create a copy of the agent with session manager."""
+        agent_copy = MagicMock(spec=SAAgent)
+        agent_copy.name = agent.name
+        agent_copy.description = agent.description
+        agent_copy.invoke_async = agent.invoke_async
+        agent_copy.stream_async = agent.stream_async
+        agent_copy.tool_registry = agent.tool_registry
+        return agent_copy
+
+    agent.with_session_manager = MagicMock(side_effect=mock_with_session_manager)
+
     return agent
 
 
@@ -39,6 +52,7 @@ def mock_request_context():
     """Create a mock RequestContext for testing."""
     context = MagicMock(spec=RequestContext)
     context.get_user_input.return_value = "Test input"
+    type(context).context_id = PropertyMock(return_value="test-context-id")
     return context
 
 
