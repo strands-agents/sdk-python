@@ -3,6 +3,7 @@ import pytest
 from strands.hooks import BeforeToolCallEvent
 from strands.interrupt import Interrupt
 from strands.tools.executors import SequentialToolExecutor
+from strands.tools.structured_output._structured_output_context import StructuredOutputContext
 from strands.types._events import ToolInterruptEvent, ToolResultEvent
 
 
@@ -19,7 +20,10 @@ async def test_sequential_executor_execute(
         {"name": "weather_tool", "toolUseId": "1", "input": {}},
         {"name": "temperature_tool", "toolUseId": "2", "input": {}},
     ]
-    stream = executor._execute(agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state)
+    structured_output_context = StructuredOutputContext(None)
+    stream = executor._execute(
+        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
+    )
 
     tru_events = await alist(stream)
     exp_events = [
@@ -53,7 +57,10 @@ async def test_sequential_executor_interrupt(
         {"name": "temperature_tool", "toolUseId": "test_tool_id_2", "input": {}},
     ]
 
-    stream = executor._execute(agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state)
+    structured_output_context = StructuredOutputContext(None)
+    stream = executor._execute(
+        agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
+    )
 
     tru_events = await alist(stream)
     exp_events = [ToolInterruptEvent(tool_uses[0], [interrupt])]

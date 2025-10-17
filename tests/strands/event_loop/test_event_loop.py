@@ -173,7 +173,7 @@ async def test_event_loop_cycle_text_response(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state, _ = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
@@ -205,7 +205,7 @@ async def test_event_loop_cycle_text_response_throttling(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state, _ = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
@@ -243,7 +243,7 @@ async def test_event_loop_cycle_exponential_backoff(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state, _ = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
 
     # Verify the final response
     assert tru_stop_reason == "end_turn"
@@ -334,7 +334,7 @@ async def test_event_loop_cycle_tool_result(
         invocation_state={},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state, _ = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "end_turn"
     exp_message = {"role": "assistant", "content": [{"text": "test text"}]}
@@ -376,6 +376,7 @@ async def test_event_loop_cycle_tool_result(
         ],
         tool_registry.get_all_tool_specs(),
         "p1",
+        tool_choice=None,
     )
 
 
@@ -449,7 +450,7 @@ async def test_event_loop_cycle_stop(
         invocation_state={"request_state": {"stop_event_loop": True}},
     )
     events = await alist(stream)
-    tru_stop_reason, tru_message, _, tru_request_state, _ = events[-1]["stop"]
+    tru_stop_reason, tru_message, _, tru_request_state, _, _ = events[-1]["stop"]
 
     exp_stop_reason = "tool_use"
     exp_message = {
@@ -751,7 +752,7 @@ async def test_request_state_initialization(alist):
         invocation_state={},
     )
     events = await alist(stream)
-    _, _, _, tru_request_state, _ = events[-1]["stop"]
+    _, _, _, tru_request_state, _, _ = events[-1]["stop"]
 
     # Verify request_state was initialized to empty dict
     assert tru_request_state == {}
@@ -763,7 +764,7 @@ async def test_request_state_initialization(alist):
         invocation_state={"request_state": initial_request_state},
     )
     events = await alist(stream)
-    _, _, _, tru_request_state, _ = events[-1]["stop"]
+    _, _, _, tru_request_state, _, _ = events[-1]["stop"]
 
     # Verify existing request_state was preserved
     assert tru_request_state == initial_request_state
@@ -880,7 +881,7 @@ async def test_event_loop_cycle_interrupt(agent, model, tool_stream, agenerator,
     stream = strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={})
     events = await alist(stream)
 
-    tru_stop_reason, _, _, _, tru_interrupts = events[-1]["stop"]
+    tru_stop_reason, _, _, _, tru_interrupts, _ = events[-1]["stop"]
     exp_stop_reason = "interrupt"
     exp_interrupts = [
         Interrupt(
@@ -973,7 +974,7 @@ async def test_event_loop_cycle_interrupt_resume(agent, model, tool, tool_times_
     stream = strands.event_loop.event_loop.event_loop_cycle(agent, invocation_state={})
     events = await alist(stream)
 
-    tru_stop_reason, _, _, _, _ = events[-1]["stop"]
+    tru_stop_reason, _, _, _, _, _ = events[-1]["stop"]
     exp_stop_reason = "end_turn"
     assert tru_stop_reason == exp_stop_reason
 

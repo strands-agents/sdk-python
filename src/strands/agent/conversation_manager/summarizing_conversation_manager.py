@@ -5,10 +5,11 @@ from typing import TYPE_CHECKING, Any, List, Optional, cast
 
 from typing_extensions import override
 
-from ...tools import tool
 from ...tools.registry import ToolRegistry
+from ...tools.tool_helpers import _noop_tool
 from ...types.content import Message
 from ...types.exceptions import ContextWindowOverflowException
+from ...types.tools import AgentTool
 from .conversation_manager import ConversationManager
 
 if TYPE_CHECKING:
@@ -208,7 +209,7 @@ class SummarizingConversationManager(ConversationManager):
             # Add no-op tool if agent has no tools to satisfy tool spec requirement
             if not summarization_agent.tool_names:
                 tool_registry = ToolRegistry()
-                tool_registry.register_tool(self._noop_tool)
+                tool_registry.register_tool(cast(AgentTool, _noop_tool))
                 summarization_agent.tool_registry = tool_registry
 
             summarization_agent.messages = messages
@@ -264,13 +265,3 @@ class SummarizingConversationManager(ConversationManager):
             raise ContextWindowOverflowException("Unable to trim conversation context!")
 
         return split_point
-
-    @tool(name="noop", description="MUST NOT call or summarize")
-    def _noop_tool(self) -> None:
-        """No-op tool to satisfy tool spec requirement when tool messages are present.
-
-        Some model provides (e.g., Bedrock) will return an error response if tool uses and tool results are present in
-        messages without any tool specs configured. Consequently, if the summarization agent has no registered tools,
-        summarization will fail. As a workaround, we register the no-op tool.
-        """
-        pass

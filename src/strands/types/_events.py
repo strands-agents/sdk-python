@@ -7,6 +7,7 @@ agent lifecycle.
 
 from typing import TYPE_CHECKING, Any, Sequence, cast
 
+from pydantic import BaseModel
 from typing_extensions import override
 
 from ..interrupt import Interrupt
@@ -222,6 +223,7 @@ class EventLoopStopEvent(TypedEvent):
         metrics: "EventLoopMetrics",
         request_state: Any,
         interrupts: Sequence[Interrupt] | None = None,
+        structured_output: BaseModel | None = None,
     ) -> None:
         """Initialize with the final execution results.
 
@@ -231,13 +233,26 @@ class EventLoopStopEvent(TypedEvent):
             metrics: Execution metrics and performance data
             request_state: Final state of the agent execution
             interrupts: Interrupts raised by user during agent execution.
+            structured_output: Optional structured output result
         """
-        super().__init__({"stop": (stop_reason, message, metrics, request_state, interrupts)})
+        super().__init__({"stop": (stop_reason, message, metrics, request_state, interrupts, structured_output)})
 
     @property
     @override
     def is_callback_event(self) -> bool:
         return False
+
+
+class StructuredOutputEvent(TypedEvent):
+    """Event emitted when structured output is detected and processed."""
+
+    def __init__(self, structured_output: BaseModel) -> None:
+        """Initialize with the structured output result.
+
+        Args:
+            structured_output: The parsed structured output instance
+        """
+        super().__init__({"structured_output": structured_output})
 
 
 class EventLoopThrottleEvent(TypedEvent):

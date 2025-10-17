@@ -3,7 +3,7 @@ from typing import List, Literal, Optional
 import pytest
 from pydantic import BaseModel, Field
 
-from strands.tools.structured_output import convert_pydantic_to_tool_spec
+from strands.tools.structured_output.structured_output_utils import convert_pydantic_to_tool_spec
 from strands.types.tools import ToolSpec
 
 
