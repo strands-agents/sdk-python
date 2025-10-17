@@ -1,7 +1,7 @@
 """Context management for structured output in the event loop."""
 
 import logging
-from typing import TYPE_CHECKING, Dict, Optional, Type
+from typing import TYPE_CHECKING, Optional, Type
 
 from pydantic import BaseModel
 
@@ -23,7 +23,7 @@ class StructuredOutputContext:
         Args:
             structured_output_model: Optional Pydantic model type for structured output.
         """
-        self.results: Dict[str, BaseModel] = {}
+        self.results: dict[str, BaseModel] = {}
         self.structured_output_model: Type[BaseModel] | None = structured_output_model
         self.structured_output_tool: StructuredOutputTool | None = None
         self.forced_mode: bool = False
