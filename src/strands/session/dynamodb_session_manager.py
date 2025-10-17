@@ -1,5 +1,6 @@
 """DynamoDB-based session manager for cloud storage."""
 
+import json
 import logging
 from decimal import Decimal
 from typing import Any, List, Optional
@@ -16,6 +17,8 @@ from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
 
 logger = logging.getLogger(__name__)
+
+MAX_DYNAMODB_ITEM_SIZE = 400_000  # https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-use-s3-too.html
 
 
 def _convert_decimals_to_native_types(obj: Any) -> Any:
@@ -62,6 +65,8 @@ class DynamoDBSessionManager(RepositorySessionManager, SessionRepository):
         boto_session: Optional[boto3.Session] = None,
         boto_client_config: Optional[BotocoreConfig] = None,
         region_name: Optional[str] = None,
+        s3_bucket: Optional[str] = None,
+        s3_prefix: Optional[str] = None,
         **kwargs: Any,
     ):
         """Initialize DynamoDBSessionManager.
@@ -72,6 +77,8 @@ class DynamoDBSessionManager(RepositorySessionManager, SessionRepository):
             boto_session: Optional boto3 session
             boto_client_config: Optional boto3 client configuration
             region_name: AWS region for DynamoDB
+            s3_bucket: S3 bucket for large content offloading
+            s3_prefix: S3 key prefix for large content offloading
             **kwargs: Additional keyword arguments for future extensibility.
         """
         self.table_name = table_name
@@ -91,9 +98,54 @@ class DynamoDBSessionManager(RepositorySessionManager, SessionRepository):
             client_config = BotocoreConfig(user_agent_extra="strands-agents")
 
         self.client = session.client(service_name="dynamodb", config=client_config)
+        self.s3_client = session.client(service_name="s3", config=client_config) if s3_bucket else None
+        self.s3_bucket = s3_bucket
+        self.s3_prefix = s3_prefix
+        self.max_item_size = kwargs.get("max_item_size", MAX_DYNAMODB_ITEM_SIZE)
         self.serializer = TypeSerializer()
         self.deserializer = TypeDeserializer()
         super().__init__(session_id=session_id, session_repository=self)
+
+    def _get_item_size(self, item: dict) -> int:
+        """Calculate DynamoDB item size in bytes."""
+        return len(json.dumps(item, default=str).encode("utf-8"))
+
+    def _process_message_content(self, message: SessionMessage, key_prefix: str) -> dict:
+        """Process message for S3 offloading if needed."""
+        message_dict = message.to_dict()
+        if self._get_item_size(message_dict) < self.max_item_size:
+            return message_dict
+
+        if not self.s3_client:
+            logger.warning("S3 offloading not configured, please specify a bucket to offload large content")
+            return message_dict
+
+        # Store entire message in S3
+        full_prefix = f"{self.s3_prefix}/{key_prefix}" if self.s3_prefix else key_prefix
+        s3_key = f"{full_prefix}/message_{message.message_id}.json"
+        self.s3_client.put_object(Bucket=self.s3_bucket, Key=s3_key, Body=json.dumps(message_dict).encode("utf-8"))
+
+        # Return DynamoDB record with S3 reference in message.content
+        return {
+            "message_id": message_dict["message_id"],
+            "created_at": message_dict["created_at"],
+            "updated_at": message_dict["updated_at"],
+            "redact_message": message_dict.get("redact_message"),
+            "message": {
+                "role": message_dict["message"]["role"],
+                "content": {"s3_reference": {"bucket": self.s3_bucket, "key": s3_key}},
+            },
+        }
+
+    def _load_message(self, message_dict: dict) -> dict:
+        """Load full message from S3 if it's a reference."""
+        content = message_dict.get("message", {}).get("content")
+        if isinstance(content, dict) and content.get("s3_reference") and self.s3_client:
+            s3_ref = content["s3_reference"]
+            response = self.s3_client.get_object(Bucket=s3_ref["bucket"], Key=s3_ref["key"])
+            loaded_data: dict = json.loads(response["Body"].read().decode("utf-8"))
+            return loaded_data
+        return message_dict
 
     def _validate_dynamodb_id(self, id_: str, id_type: _identifier.Identifier) -> str:
         """Validate ID for DynamoDB key structure.
@@ -172,7 +224,7 @@ class DynamoDBSessionManager(RepositorySessionManager, SessionRepository):
             raise SessionException(f"DynamoDB error reading session: {e}") from e
 
     def delete_session(self, session_id: str, **kwargs: Any) -> None:
-        """Delete session and all associated data from DynamoDB."""
+        """Delete session and all associated data from DynamoDB and S3."""
         pk = self._get_session_pk(session_id)
 
         try:
@@ -186,9 +238,23 @@ class DynamoDBSessionManager(RepositorySessionManager, SessionRepository):
             if not response["Items"]:
                 raise SessionException(f"Session {session_id} does not exist")
 
-            # Delete all items in batches
+            # Delete all items in ddb and s3
             for i in range(0, len(response["Items"]), 25):
                 batch = response["Items"][i : i + 25]
+
+                # Delete S3 objects for messages with S3 references in this batch
+                if self.s3_client and self.s3_bucket:
+                    for item in batch:
+                        if item.get("entity_type", {}).get("S") == "MESSAGE":
+                            data = self.deserializer.deserialize(item["data"])
+                            content = data.get("message", {}).get("content")
+                            if isinstance(content, dict) and content.get("s3_reference"):
+                                s3_key = content["s3_reference"]["key"]
+                                try:
+                                    self.s3_client.delete_object(Bucket=self.s3_bucket, Key=s3_key)
+                                except ClientError:
+                                    pass  # Continue if S3 object doesn't exist
+
                 delete_requests = [{"DeleteRequest": {"Key": {"PK": item["PK"], "SK": item["SK"]}}} for item in batch]
                 self.client.batch_write_item(RequestItems={self.table_name: delete_requests})
 
@@ -259,6 +325,9 @@ class DynamoDBSessionManager(RepositorySessionManager, SessionRepository):
         pk = self._get_session_pk(session_id)
         sk = self._get_message_sk(agent_id, session_message.message_id)
 
+        s3_key_prefix = f"sessions/{session_id}/agents/{agent_id}/messages"
+        processed_message = self._process_message_content(session_message, s3_key_prefix)
+
         try:
             self.client.put_item(
                 TableName=self.table_name,
@@ -266,7 +335,7 @@ class DynamoDBSessionManager(RepositorySessionManager, SessionRepository):
                     "PK": {"S": pk},
                     "SK": {"S": sk},
                     "entity_type": {"S": "MESSAGE"},
-                    "data": self.serializer.serialize(session_message.to_dict()),
+                    "data": self.serializer.serialize(processed_message),
                 },
             )
         except ClientError as e:
@@ -284,6 +353,8 @@ class DynamoDBSessionManager(RepositorySessionManager, SessionRepository):
 
             data = self.deserializer.deserialize(response["Item"]["data"])
             data = _convert_decimals_to_native_types(data)
+            data = self._load_message(data)
+
             return SessionMessage.from_dict(data)
         except ClientError as e:
             raise SessionException(f"DynamoDB error reading message: {e}") from e
@@ -302,6 +373,9 @@ class DynamoDBSessionManager(RepositorySessionManager, SessionRepository):
         pk = self._get_session_pk(session_id)
         sk = self._get_message_sk(agent_id, session_message.message_id)
 
+        s3_key_prefix = f"sessions/{session_id}/agents/{agent_id}/messages"
+        processed_message = self._process_message_content(session_message, s3_key_prefix)
+
         try:
             self.client.put_item(
                 TableName=self.table_name,
@@ -309,7 +383,7 @@ class DynamoDBSessionManager(RepositorySessionManager, SessionRepository):
                     "PK": {"S": pk},
                     "SK": {"S": sk},
                     "entity_type": {"S": "MESSAGE"},
-                    "data": self.serializer.serialize(session_message.to_dict()),
+                    "data": self.serializer.serialize(processed_message),
                 },
             )
         except ClientError as e:
@@ -344,6 +418,7 @@ class DynamoDBSessionManager(RepositorySessionManager, SessionRepository):
             for item in items:
                 data = self.deserializer.deserialize(item["data"])
                 data = _convert_decimals_to_native_types(data)
+                data = self._load_message(data)
                 messages.append(SessionMessage.from_dict(data))
 
             return messages

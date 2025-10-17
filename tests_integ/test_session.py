@@ -9,6 +9,7 @@ from botocore.client import ClientError
 
 from strands import Agent
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
+from strands.session.dynamodb_session_manager import DynamoDBSessionManager
 from strands.session.file_session_manager import FileSessionManager
 from strands.session.s3_session_manager import S3SessionManager
 
@@ -32,6 +33,30 @@ def bucket_name():
         if "BucketAlreadyOwnedByYou" not in str(e):
             raise e
     yield bucket_name
+
+
+@pytest.fixture
+def dynamodb_table_name():
+    table_name = f"test-strands-session-table-{boto3.client('sts').get_caller_identity()['Account']}"
+    dynamodb = boto3.resource("dynamodb", region_name="us-west-2")
+    try:
+        table = dynamodb.create_table(
+            TableName=table_name,
+            KeySchema=[
+                {"AttributeName": "PK", "KeyType": "HASH"},
+                {"AttributeName": "SK", "KeyType": "RANGE"},
+            ],
+            AttributeDefinitions=[
+                {"AttributeName": "PK", "AttributeType": "S"},
+                {"AttributeName": "SK", "AttributeType": "S"},
+            ],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        table.wait_until_exists()
+    except ClientError as e:
+        if "Table already exists" not in str(e):
+            raise e
+    yield table_name
 
 
 def test_agent_with_file_session(temp_dir):
@@ -139,6 +164,63 @@ def test_agent_with_s3_session_with_image(yellow_img, bucket_name):
 
         # After agent is persisted and run, restore the agent and run it again
         session_manager_2 = S3SessionManager(session_id=test_session_id, bucket=bucket_name, region_name="us-west-2")
+        agent_2 = Agent(session_manager=session_manager_2)
+        assert len(agent_2.messages) == 2
+        agent_2("Hello!")
+        assert len(agent_2.messages) == 4
+        assert len(session_manager_2.list_messages(test_session_id, agent_2.agent_id)) == 4
+    finally:
+        session_manager.delete_session(test_session_id)
+        assert session_manager.read_session(test_session_id) is None
+
+
+def test_agent_with_dynamodb_session(dynamodb_table_name):
+    test_session_id = str(uuid4())
+    session_manager = DynamoDBSessionManager(
+        session_id=test_session_id, table_name=dynamodb_table_name, region_name="us-west-2"
+    )
+    try:
+        agent = Agent(session_manager=session_manager)
+        agent("Hello!")
+        assert len(session_manager.list_messages(test_session_id, agent.agent_id)) == 2
+
+        # After agent is persisted and run, restore the agent and run it again
+        session_manager_2 = DynamoDBSessionManager(
+            session_id=test_session_id, table_name=dynamodb_table_name, region_name="us-west-2"
+        )
+        agent_2 = Agent(session_manager=session_manager_2)
+        assert len(agent_2.messages) == 2
+        agent_2("Hello!")
+        assert len(agent_2.messages) == 4
+        assert len(session_manager_2.list_messages(test_session_id, agent_2.agent_id)) == 4
+    finally:
+        session_manager.delete_session(test_session_id)
+        assert session_manager.read_session(test_session_id) is None
+
+
+def test_agent_with_dynamodb_session_with_s3_offloading(dynamodb_table_name, bucket_name, strands_img):
+    test_session_id = str(uuid4())
+
+    session_manager = DynamoDBSessionManager(
+        session_id=test_session_id,
+        table_name=dynamodb_table_name,
+        region_name="us-west-2",
+        s3_bucket=bucket_name,
+        s3_prefix="test-sessions",
+    )
+    try:
+        agent = Agent(session_manager=session_manager)
+        agent([{"image": {"format": "png", "source": {"bytes": strands_img}}}])
+        assert len(session_manager.list_messages(test_session_id, agent.agent_id)) == 2
+
+        # After agent is persisted and run, restore the agent and run it again
+        session_manager_2 = DynamoDBSessionManager(
+            session_id=test_session_id,
+            table_name=dynamodb_table_name,
+            region_name="us-west-2",
+            s3_bucket=bucket_name,
+            s3_prefix="test-sessions",
+        )
         agent_2 = Agent(session_manager=session_manager_2)
         assert len(agent_2.messages) == 2
         agent_2("Hello!")
