@@ -5,6 +5,7 @@ import pytest
 from strands.agent.agent import Agent
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.conversation_manager.summarizing_conversation_manager import SummarizingConversationManager
+from strands.agent.interrupt import InterruptState
 from strands.session.repository_session_manager import RepositorySessionManager
 from strands.types.content import ContentBlock
 from strands.types.exceptions import SessionException
@@ -95,6 +96,7 @@ def test_initialize_restores_existing_agent(session_manager, agent):
         agent_id="existing-agent",
         state={"key": "value"},
         conversation_manager_state=SlidingWindowConversationManager().get_state(),
+        _internal_state={"interrupt_state": {"interrupts": {}, "context": {"test": "init"}, "activated": False}},
     )
     session_manager.session_repository.create_agent("test-session", session_agent)
 
@@ -116,6 +118,7 @@ def test_initialize_restores_existing_agent(session_manager, agent):
     assert len(agent.messages) == 1
     assert agent.messages[0]["role"] == "user"
     assert agent.messages[0]["content"][0]["text"] == "Hello"
+    assert agent._interrupt_state == InterruptState(interrupts={}, context={"test": "init"}, activated=False)
 
 
 def test_initialize_restores_existing_agent_with_summarizing_conversation_manager(session_manager):

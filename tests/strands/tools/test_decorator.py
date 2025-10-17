@@ -10,7 +10,9 @@ import pytest
 
 import strands
 from strands import Agent
-from strands.types._events import ToolResultEvent, ToolStreamEvent
+from strands.agent.interrupt import InterruptState
+from strands.interrupt import Interrupt
+from strands.types._events import ToolInterruptEvent, ToolResultEvent, ToolStreamEvent
 from strands.types.tools import AgentTool, ToolContext, ToolUse
 
 
@@ -134,6 +136,67 @@ async def test_stream_with_agent(alist):
     tru_events = await alist(stream)
     exp_events = [
         ToolResultEvent({"toolUseId": "unknown", "status": "success", "content": [{"text": "(2, {'state': 1})"}]})
+    ]
+    assert tru_events == exp_events
+
+
+@pytest.mark.asyncio
+async def test_stream_interrupt(alist):
+    interrupt = Interrupt(
+        id="v1:tool_call:test_tool_id:78714d6c-613c-5cf4-bf25-7037569941f9",
+        name="test_name",
+        reason="test reason",
+    )
+
+    tool_use = {"toolUseId": "test_tool_id"}
+
+    mock_agent = MagicMock()
+    mock_agent._interrupt_state = InterruptState()
+
+    invocation_state = {"agent": mock_agent}
+
+    @strands.tool(context=True)
+    def interrupt_tool(tool_context: ToolContext) -> str:
+        return tool_context.interrupt("test_name", reason="test reason")
+
+    stream = interrupt_tool.stream(tool_use, invocation_state)
+
+    tru_events = await alist(stream)
+    exp_events = [ToolInterruptEvent(tool_use, [interrupt])]
+    assert tru_events == exp_events
+
+
+@pytest.mark.asyncio
+async def test_stream_interrupt_resume(alist):
+    interrupt = Interrupt(
+        id="v1:tool_call:test_tool_id:78714d6c-613c-5cf4-bf25-7037569941f9",
+        name="test_name",
+        reason="test reason",
+        response="test response",
+    )
+
+    tool_use = {"toolUseId": "test_tool_id"}
+
+    mock_agent = MagicMock()
+    mock_agent._interrupt_state = InterruptState(interrupts={interrupt.id: interrupt})
+
+    invocation_state = {"agent": mock_agent}
+
+    @strands.tool(context=True)
+    def interrupt_tool(tool_context: ToolContext) -> str:
+        return tool_context.interrupt("test_name", reason="test reason")
+
+    stream = interrupt_tool.stream(tool_use, invocation_state)
+
+    tru_events = await alist(stream)
+    exp_events = [
+        ToolResultEvent(
+            {
+                "toolUseId": "test_tool_id",
+                "status": "success",
+                "content": [{"text": "test response"}],
+            },
+        ),
     ]
     assert tru_events == exp_events
 
