@@ -152,7 +152,7 @@ async def test_swarm_streaming(alist):
         tools=[calculate],
     )
 
-    swarm = Swarm([researcher, analyst])
+    swarm = Swarm([researcher, analyst], node_timeout=900.0)  # Verify timeout doesn't interfere with streaming
 
     # Collect events
     events = await alist(swarm.stream_async("Calculate 10 + 5 and explain the result"))
@@ -171,42 +171,6 @@ async def test_swarm_streaming(alist):
     researcher_events = [e for e in events if e.get("node_id") == "researcher"]
     analyst_events = [e for e in events if e.get("node_id") == "analyst"]
     assert len(researcher_events) > 0 or len(analyst_events) > 0, "Expected events from at least one agent"
-
-
-@pytest.mark.asyncio
-async def test_swarm_streams_events_before_timeout(alist):
-    """Test that swarm events are streamed in real-time before timeout occurs."""
-    # Create a normal agent
-    agent = Agent(
-        name="test_agent",
-        model="us.amazon.nova-lite-v1:0",
-        system_prompt="You are a test agent. Respond briefly.",
-    )
-
-    # Create swarm with reasonable timeout
-    swarm = Swarm(
-        nodes=[agent],
-        max_handoffs=1,
-        max_iterations=1,
-        node_timeout=30.0,  # Long enough to complete
-    )
-
-    # Collect events
-    events = await alist(swarm.stream_async("Say hello"))
-
-    # Verify we got multiple streaming events before completion
-    node_stream_events = [e for e in events if e.get("type") == "multiagent_node_stream"]
-    assert len(node_stream_events) > 0, "Expected streaming events before completion"
-
-    # Verify final result - there are 2 result events:
-    # 1. Agent's result forwarded as multiagent_node_stream (with key "result")
-    # 2. Swarm's final result (with key "result", not wrapped in node_stream)
-    result_events = [e for e in events if "result" in e and e.get("type") != "multiagent_node_stream"]
-    assert len(result_events) >= 1, "Expected at least one result event"
-
-    # The last event should be the swarm result
-    final_result = events[-1]["result"]
-    assert final_result.status == Status.COMPLETED
 
 
 @pytest.mark.asyncio

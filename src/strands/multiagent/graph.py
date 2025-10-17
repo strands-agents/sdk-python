@@ -569,40 +569,22 @@ class Graph(MultiAgentBase):
         """
         event_queue: asyncio.Queue[Any | None | Exception] = asyncio.Queue()
 
-        async def stream_node_to_queue(node: GraphNode) -> None:
-            """Stream events from a node to the shared queue with optional timeout."""
-            try:
-                # Apply timeout to the entire streaming process if configured
-                if self.node_timeout is not None:
-
-                    async def stream_node_with_timeout() -> None:
-                        async for event in self._execute_node(node, invocation_state):
-                            await event_queue.put(event)
-
-                    try:
-                        await asyncio.wait_for(stream_node_with_timeout(), timeout=self.node_timeout)
-                    except asyncio.TimeoutError:
-                        # Handle timeout and send exception through queue
-                        timeout_exc = await self._handle_node_timeout(node, event_queue)
-                        await event_queue.put(timeout_exc)
-                else:
-                    # No timeout - stream normally
-                    async for event in self._execute_node(node, invocation_state):
-                        await event_queue.put(event)
-            except Exception as e:
-                # Send exception through queue for fail-fast behavior
-                await event_queue.put(e)
-            finally:
-                await event_queue.put(None)
-
         # Start all node streams as independent tasks
-        tasks = [asyncio.create_task(stream_node_to_queue(node)) for node in nodes]
+        tasks = [asyncio.create_task(self._stream_node_to_queue(node, event_queue, invocation_state)) for node in nodes]
 
         try:
             # Consume events from the queue as they arrive
-            completed_count = 0
-            while completed_count < len(nodes):
-                event = await event_queue.get()
+            # Continue until all tasks are done
+            while any(not task.done() for task in tasks):
+                try:
+                    # Use timeout to avoid race condition: if all tasks complete between
+                    # checking task.done() and calling queue.get(), we'd hang forever.
+                    # The 0.1s timeout allows us to periodically re-check task completion
+                    # while still being responsive to incoming events.
+                    event = await asyncio.wait_for(event_queue.get(), timeout=0.1)
+                except asyncio.TimeoutError:
+                    # No event available, continue checking tasks
+                    continue
 
                 # Check if it's an exception - fail fast
                 if isinstance(event, Exception):
@@ -612,18 +594,58 @@ class Graph(MultiAgentBase):
                             task.cancel()
                     raise event
 
-                # Check if it's a completion marker
-                if event is None:
-                    completed_count += 1
-                else:
-                    # It's a regular event - yield it
+                if event is not None:
+                    yield event
+
+            # Process any remaining events in the queue after all tasks complete
+            while not event_queue.empty():
+                event = await event_queue.get()
+                if isinstance(event, Exception):
+                    raise event
+                if event is not None:
                     yield event
         finally:
             # Cancel any remaining tasks
-            for task in tasks:
-                if not task.done():
+            remaining_tasks = [task for task in tasks if not task.done()]
+            if remaining_tasks:
+                logger.warning(
+                    "remaining_task_count=<%d> | cancelling remaining tasks in finally block",
+                    len(remaining_tasks),
+                )
+                for task in remaining_tasks:
                     task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _stream_node_to_queue(
+        self,
+        node: GraphNode,
+        event_queue: asyncio.Queue[Any | None | Exception],
+        invocation_state: dict[str, Any],
+    ) -> None:
+        """Stream events from a node to the shared queue with optional timeout."""
+        try:
+            # Apply timeout to the entire streaming process if configured
+            if self.node_timeout is not None:
+
+                async def stream_node_with_timeout() -> None:
+                    async for event in self._execute_node(node, invocation_state):
+                        await event_queue.put(event)
+
+                try:
+                    await asyncio.wait_for(stream_node_with_timeout(), timeout=self.node_timeout)
+                except asyncio.TimeoutError:
+                    # Handle timeout and send exception through queue
+                    timeout_exc = await self._handle_node_timeout(node, event_queue)
+                    await event_queue.put(timeout_exc)
+            else:
+                # No timeout - stream normally
+                async for event in self._execute_node(node, invocation_state):
+                    await event_queue.put(event)
+        except Exception as e:
+            # Send exception through queue for fail-fast behavior
+            await event_queue.put(e)
+        finally:
+            await event_queue.put(None)
 
     async def _handle_node_timeout(self, node: GraphNode, event_queue: asyncio.Queue[Any | None]) -> Exception:
         """Handle a node timeout by creating a failed result and emitting events.

@@ -657,6 +657,7 @@ class Swarm(MultiAgentBase):
                 previous_node = current_node
 
                 # Execute node with timeout protection
+                # TODO: Implement cancellation token to stop _execute_node from continuing
                 try:
                     # Execute with timeout wrapper for async generator streaming
                     node_stream = self._stream_with_timeout(
@@ -699,14 +700,14 @@ class Swarm(MultiAgentBase):
         except Exception:
             logger.exception("swarm execution failed")
             self.state.completion_status = Status.FAILED
-
-        elapsed_time = time.time() - self.state.start_time
-        logger.debug("status=<%s> | swarm execution completed", self.state.completion_status)
-        logger.debug(
-            "node_history_length=<%d>, time=<%s>s | metrics",
-            len(self.state.node_history),
-            f"{elapsed_time:.2f}",
-        )
+        finally:
+            elapsed_time = time.time() - self.state.start_time
+            logger.debug("status=<%s> | swarm execution completed", self.state.completion_status)
+            logger.debug(
+                "node_history_length=<%d>, time=<%s>s | metrics",
+                len(self.state.node_history),
+                f"{elapsed_time:.2f}",
+            )
 
     async def _execute_node(
         self, node: SwarmNode, task: str | list[ContentBlock], invocation_state: dict[str, Any]
