@@ -374,7 +374,7 @@ class ForceStopEvent(TypedEvent):
 
 class AgentResultEvent(TypedEvent):
     def __init__(self, result: "AgentResult"):
-        super().__init__({"agent_result": True, "result": result})
+        super().__init__({"result": result})
 
 
 class MultiAgentResultEvent(TypedEvent):

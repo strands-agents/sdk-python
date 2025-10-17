@@ -605,9 +605,8 @@ class Agent:
                         yield as_dict
 
                 result = AgentResult(*event["stop"])
-                result_event = AgentResultEvent(result=result)
-                callback_handler(**result_event.as_dict())
-                yield result_event.as_dict()
+                callback_handler(result=result)
+                yield AgentResultEvent(result=result).as_dict()
 
                 self._end_agent_trace_span(response=result)
 
