@@ -73,6 +73,8 @@ class BedrockModel(Model):
             additional_response_field_paths: Additional response field paths to extract
             cache_prompt: Cache point type for the system prompt
             cache_tools: Cache point type for tools
+            cache_messages: Cache point type for messages. If set to "default", adds a cache point at the end
+                of the last message.
             guardrail_id: ID of the guardrail to apply
             guardrail_trace: Guardrail trace mode. Defaults to enabled.
             guardrail_version: Version of the guardrail to apply
@@ -96,6 +98,7 @@ class BedrockModel(Model):
         additional_response_field_paths: Optional[list[str]]
         cache_prompt: Optional[str]
         cache_tools: Optional[str]
+        cache_messages: Optional[str]
         guardrail_id: Optional[str]
         guardrail_trace: Optional[Literal["enabled", "disabled", "enabled_full"]]
         guardrail_stream_processing_mode: Optional[Literal["sync", "async"]]
@@ -204,9 +207,22 @@ class BedrockModel(Model):
         Returns:
             A Bedrock converse stream request.
         """
+        # Handle cache_messages configuration
+        processed_messages = messages
+        if self.config.get("cache_messages") == "default":
+            # Add cache point to the end of the last message (create copy to avoid modifying original)
+            if messages and len(messages) > 0:
+                # Create a shallow copy of the messages list
+                processed_messages = list(messages)
+                last_message = processed_messages[-1]
+                if "content" in last_message and isinstance(last_message["content"], list):
+                    # Create a new message dict with updated content
+                    new_content = [*last_message["content"], {"cachePoint": {"type": "default"}}]
+                    processed_messages[-1] = {"role": last_message["role"], "content": new_content}
+
         return {
             "modelId": self.config["model_id"],
-            "messages": self._format_bedrock_messages(messages),
+            "messages": self._format_bedrock_messages(processed_messages),
             "system": [
                 *([{"text": system_prompt}] if system_prompt else []),
                 *([{"cachePoint": {"type": self.config["cache_prompt"]}}] if self.config.get("cache_prompt") else []),
