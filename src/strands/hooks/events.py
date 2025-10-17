@@ -10,7 +10,7 @@ from typing import Any, Optional
 from typing_extensions import override
 
 from ..types.content import Message
-from ..types.interrupt import InterruptHookEvent
+from ..types.interrupt import Interruptible
 from ..types.streaming import StopReason
 from ..types.tools import AgentTool, ToolResult, ToolUse
 from .registry import HookEvent
@@ -88,7 +88,7 @@ class MessageAddedEvent(HookEvent):
 
 
 @dataclass
-class BeforeToolCallEvent(HookEvent, InterruptHookEvent):
+class BeforeToolCallEvent(HookEvent, Interruptible):
     """Event triggered before a tool is invoked.
 
     This event is fired just before the agent executes a tool, allowing hook
