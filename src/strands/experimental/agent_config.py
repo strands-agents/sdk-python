@@ -8,7 +8,7 @@ programmatic approach after creating the agent:
 
     agent = config_to_agent("config.json")
     # Add tools that need code-based instantiation
-    agent.process_tools([ToolWithConfigArg(HttpsConnection("localhost"))])
+    agent.tool_registry.process_tools([ToolWithConfigArg(HttpsConnection("localhost"))])
 """
 
 import json
