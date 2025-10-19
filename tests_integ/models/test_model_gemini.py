@@ -2,6 +2,7 @@ import os
 
 import pydantic
 import pytest
+from google import genai
 
 import strands
 from strands import Agent
@@ -18,6 +19,16 @@ def model():
         client_args={"api_key": os.getenv("GOOGLE_API_KEY")},
         model_id="gemini-2.5-flash",
         params={"temperature": 0.15},  # Lower temperature for consistent test behavior
+    )
+
+
+@pytest.fixture
+def gemini_tool_model():
+    return GeminiModel(
+        client_args={"api_key": os.getenv("GOOGLE_API_KEY")},
+        model_id="gemini-2.5-flash",
+        params={"temperature": 0.15},  # Lower temperature for consistent test behavior
+        gemini_tools=[genai.types.Tool(code_execution=genai.types.ToolCodeExecution())],
     )
 
 
@@ -175,3 +186,12 @@ def test_agent_structured_output_image_input(assistant_agent, yellow_img, yellow
     tru_color = assistant_agent.structured_output(type(yellow_color), content)
     exp_color = yellow_color
     assert tru_color == exp_color
+
+
+def test_agent_with_gemini_code_execution_tool(gemini_tool_model):
+    # FIXME: Should verify tool usage history, but currently validates by solving a complex calculation
+    system_prompt = "Execute calculations and output only the numerical result. No explanations or units needed."
+    agent = Agent(model=gemini_tool_model, system_prompt=system_prompt)
+    result = agent("Calculate 931567 * 81364")
+    text = result.message.get("content", [{}])[0].get("text", "")
+    assert "75796017388" in text

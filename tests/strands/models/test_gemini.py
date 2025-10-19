@@ -621,3 +621,86 @@ async def test_structured_output(gemini_client, model, messages, model_id, weath
         "model": model_id,
     }
     gemini_client.aio.models.generate_content.assert_called_with(**exp_request)
+
+
+def test_gemini_tools_validation_rejects_function_declarations(model_id):
+    tool_with_function_declarations = genai.types.Tool(
+        function_declarations=[
+            genai.types.FunctionDeclaration(
+                name="test_function",
+                description="A test function",
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError, match="gemini_tools should not contain FunctionDeclarations"):
+        GeminiModel(model_id=model_id, gemini_tools=[tool_with_function_declarations])
+
+
+def test_gemini_tools_validation_allows_non_function_tools(model_id):
+    tool_with_google_search = genai.types.Tool(google_search=genai.types.GoogleSearch())
+
+    model = GeminiModel(model_id=model_id, gemini_tools=[tool_with_google_search])
+    assert "gemini_tools" in model.config
+
+
+def test_gemini_tools_validation_on_update_config(model):
+    tool_with_function_declarations = genai.types.Tool(
+        function_declarations=[
+            genai.types.FunctionDeclaration(
+                name="test_function",
+                description="A test function",
+            )
+        ]
+    )
+
+    with pytest.raises(ValueError, match="gemini_tools should not contain FunctionDeclarations"):
+        model.update_config(gemini_tools=[tool_with_function_declarations])
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_gemini_tools(gemini_client, messages, model_id):
+    google_search_tool = genai.types.Tool(google_search=genai.types.GoogleSearch())
+    model = GeminiModel(model_id=model_id, gemini_tools=[google_search_tool])
+
+    await anext(model.stream(messages))
+
+    exp_request = {
+        "config": {
+            "tools": [
+                {"function_declarations": []},
+                {"google_search": {}},
+            ]
+        },
+        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_gemini_tools_and_function_tools(gemini_client, messages, tool_spec, model_id):
+    code_execution_tool = genai.types.Tool(code_execution=genai.types.ToolCodeExecution())
+    model = GeminiModel(model_id=model_id, gemini_tools=[code_execution_tool])
+
+    await anext(model.stream(messages, tool_specs=[tool_spec]))
+
+    exp_request = {
+        "config": {
+            "tools": [
+                {
+                    "function_declarations": [
+                        {
+                            "description": tool_spec["description"],
+                            "name": tool_spec["name"],
+                            "parameters_json_schema": tool_spec["inputSchema"]["json"],
+                        }
+                    ]
+                },
+                {"code_execution": {}},
+            ]
+        },
+        "contents": [{"parts": [{"text": "test"}], "role": "user"}],
+        "model": model_id,
+    }
+    gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
