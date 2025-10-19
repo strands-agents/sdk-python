@@ -2061,3 +2061,24 @@ def test_agent_tool_caller_interrupt(user):
     exp_message = r"cannot directly call tool during interrupt"
     with pytest.raises(RuntimeError, match=exp_message):
         agent.tool.test_tool()
+
+
+def test_latest_message_tool_use_skips_model_invoke(tool_decorated):
+    mock_model = MockedModelProvider([{"role": "assistant", "content": [{"text": "I see the tool result"}]}])
+
+    messages: Messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "123", "name": "tool_decorated", "input": {"random_string": "Hello"}}}
+            ],
+        }
+    ]
+    agent = Agent(model=mock_model, tools=[tool_decorated], messages=messages)
+
+    agent()
+
+    assert mock_model.index == 1
+    assert len(agent.messages) == 3
+    assert agent.messages[1]["content"][0]["toolResult"]["content"][0]["text"] == "Hello"
+    assert agent.messages[2]["content"][0]["text"] == "I see the tool result"
