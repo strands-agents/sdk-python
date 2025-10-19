@@ -232,7 +232,7 @@ class GeminiModel(Model):
             ),
         ]
         if self.config.get("gemini_tools"):
-            tools.extend(self.config.get("gemini_tools", []))
+            tools.extend(self.config["gemini_tools"])
         return tools
 
     def _format_request_config(
