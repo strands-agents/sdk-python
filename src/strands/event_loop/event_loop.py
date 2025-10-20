@@ -47,7 +47,7 @@ from ._recover_message_on_max_tokens_reached import recover_message_on_max_token
 from .streaming import stream_messages
 
 if TYPE_CHECKING:
-    from ..agent.agent import Agent
+    from ..agent import Agent
 
 logger = logging.getLogger(__name__)
 

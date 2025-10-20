@@ -1,4 +1,4 @@
-"""Shared utility tools for internal SDK use."""
+"""Helpers for tools."""
 
 from strands.tools.decorator import tool
 

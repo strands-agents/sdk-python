@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
 from ..event_loop import streaming
-from ..tools.structured_output.structured_output_utils import convert_pydantic_to_tool_spec
+from ..tools import convert_pydantic_to_tool_spec
 from ..tools.tool_helpers import _noop_tool
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import (
