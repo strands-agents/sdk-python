@@ -670,6 +670,7 @@ def test_start_agent_span(mock_tracer):
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "invoke_agent WeatherAgent"
+        assert mock_tracer.start_span.call_args[1]["kind"] == SpanKind.INTERNAL
         mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
         mock_span.set_attribute.assert_any_call("gen_ai.agent.name", "WeatherAgent")
         mock_span.set_attribute.assert_any_call("gen_ai.request.model", model_id)

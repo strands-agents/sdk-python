@@ -588,7 +588,7 @@ class Tracer:
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
 
         span = self._start_span(
-            f"invoke_agent {agent_name}", attributes=attributes, span_kind=trace_api.SpanKind.CLIENT
+            f"invoke_agent {agent_name}", attributes=attributes, span_kind=trace_api.SpanKind.INTERNAL
         )
         self._add_event_messages(span, messages)
 
