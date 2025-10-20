@@ -10,12 +10,11 @@ from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Union, cast
+from typing import Any, Union
 
 from ..agent import AgentResult
-from ..telemetry.metrics import EventLoopMetrics
-from ..types.content import ContentBlock, Message
-from ..types.event_loop import Metrics, StopReason, Usage
+from ..types.content import ContentBlock
+from ..types.event_loop import Metrics, Usage
 
 logger = logging.getLogger(__name__)
 
@@ -97,10 +96,10 @@ class NodeResult:
 
         result: Union[AgentResult, "MultiAgentResult", Exception]
         if isinstance(raw, dict) and raw.get("type") == "agent_result":
-            result = NodeResult.agent_result_from_persisted(raw)
+            result = AgentResult.from_dict(raw)
         elif isinstance(raw, dict) and raw.get("type") == "exception":
             result = Exception(str(raw.get("message", "node failed")))
-        elif isinstance(raw, dict) and ("results" in raw):
+        elif isinstance(raw, dict) and raw.get("type") == "multiagent_result":
             result = MultiAgentResult.from_dict(raw)
         else:
             raise TypeError(f"NodeResult.from_dict: unsupported result payload: {raw!r}")
@@ -127,28 +126,6 @@ class NodeResult:
             accumulated_metrics=metrics,
             execution_count=int(data.get("execution_count", 0)),
         )
-
-    @classmethod
-    def agent_result_from_persisted(cls, data: dict[str, Any]) -> AgentResult:
-        """Rehydrate a minimal AgentResult from persisted JSON.
-
-        Expected shape:
-          {"type": "agent_result", "message": <Message>, "stop_reason": <str|None>}
-        """
-        if data.get("type") != "agent_result":
-            raise TypeError(f"agent_result_from_persisted: unexpected type {data.get('type')!r}")
-
-        message = cast(Message, data.get("message"))
-        stop_reason = cast(
-            StopReason,
-            data.get("stop_reason"),
-        )
-
-        try:
-            return AgentResult(message=message, stop_reason=stop_reason, metrics=EventLoopMetrics(), state={})
-        except Exception:
-            logger.debug("AgentResult constructor failed during rehydrating")
-            raise
 
 
 @dataclass
@@ -261,14 +238,3 @@ class MultiAgentBase(ABC):
     def deserialize_state(self, payload: dict[str, Any]) -> None:
         """Restore orchestrator state from a session dict."""
         raise NotImplementedError
-
-    def serialize_node_result_for_persist(self, raw: NodeResult) -> dict[str, Any]:
-        """Serialize node result for persistence.
-
-        Args:
-            raw: Raw node result to serialize
-
-        Returns:
-            JSON-serializable dict representation
-        """
-        return raw.to_dict()

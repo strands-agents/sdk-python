@@ -20,7 +20,7 @@ class MultiAgentInitializedEvent(BaseHookEvent):
 
     Attributes:
         source: The multi-agent orchestrator instance
-        invocation_state: Configuration that user pass in
+        invocation_state: Configuration that user passes in
     """
 
     source: "MultiAgentBase"
@@ -34,7 +34,7 @@ class BeforeNodeCallEvent(BaseHookEvent):
     Attributes:
     source: The multi-agent orchestrator instance
     node_id: ID of the node that just completed execution
-    invocation_state: Configuration that user pass in
+    invocation_state: Configuration that user passes in
     """
 
     source: "MultiAgentBase"
@@ -49,7 +49,7 @@ class AfterNodeCallEvent(BaseHookEvent):
     Attributes:
         source: The multi-agent orchestrator instance
         node_id: ID of the node that just completed execution
-        invocation_state: Configuration that user pass in
+        invocation_state: Configuration that user passes in
     """
 
     source: "MultiAgentBase"
@@ -64,11 +64,11 @@ class AfterNodeCallEvent(BaseHookEvent):
 
 @dataclass
 class BeforeMultiAgentInvocationEvent(BaseHookEvent):
-    """Event triggered after orchestrator execution completes. This event corresponds to the After event.
+    """Event triggered before orchestrator execution completes. This event corresponds to the After event.
 
     Attributes:
         source: The multi-agent orchestrator instance
-        invocation_state: Configuration that user pass in
+        invocation_state: Configuration that user passes in
     """
 
     source: "MultiAgentBase"
@@ -81,7 +81,7 @@ class AfterMultiAgentInvocationEvent(BaseHookEvent):
 
     Attributes:
         source: The multi-agent orchestrator instance
-        invocation_state: Configuration that user pass in
+        invocation_state: Configuration that user passes in
     """
 
     source: "MultiAgentBase"

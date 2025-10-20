@@ -75,10 +75,22 @@ def test_swarm_complete_hook_lifecycle(swarm, hook_provider):
     assert length == 4
     assert result.status.value == "completed"
 
-    assert next(events) == MultiAgentInitializedEvent(source=swarm)
-    assert next(events) == BeforeNodeCallEvent(source=swarm, node_id="agent1")
-    assert next(events) == AfterNodeCallEvent(source=swarm, node_id="agent1")
-    assert next(events) == AfterMultiAgentInvocationEvent(source=swarm)
+    events_list = list(events)
+
+    # Check event types and basic properties, ignoring invocation_state
+    assert isinstance(events_list[0], MultiAgentInitializedEvent)
+    assert events_list[0].source == swarm
+
+    assert isinstance(events_list[1], BeforeNodeCallEvent)
+    assert events_list[1].source == swarm
+    assert events_list[1].node_id == "agent1"
+
+    assert isinstance(events_list[2], AfterNodeCallEvent)
+    assert events_list[2].source == swarm
+    assert events_list[2].node_id == "agent1"
+
+    assert isinstance(events_list[3], AfterMultiAgentInvocationEvent)
+    assert events_list[3].source == swarm
 
 
 def test_graph_complete_hook_lifecycle(graph, hook_provider):
@@ -89,9 +101,27 @@ def test_graph_complete_hook_lifecycle(graph, hook_provider):
     assert length == 6
     assert result.status.value == "completed"
 
-    assert next(events) == MultiAgentInitializedEvent(source=graph)
-    assert next(events) == BeforeNodeCallEvent(source=graph, node_id="agent1")
-    assert next(events) == AfterNodeCallEvent(source=graph, node_id="agent1")
-    assert next(events) == BeforeNodeCallEvent(source=graph, node_id="agent2")
-    assert next(events) == AfterNodeCallEvent(source=graph, node_id="agent2")
-    assert next(events) == AfterMultiAgentInvocationEvent(source=graph)
+    events_list = list(events)
+
+    # Check event types and basic properties, ignoring invocation_state
+    assert isinstance(events_list[0], MultiAgentInitializedEvent)
+    assert events_list[0].source == graph
+
+    assert isinstance(events_list[1], BeforeNodeCallEvent)
+    assert events_list[1].source == graph
+    assert events_list[1].node_id == "agent1"
+
+    assert isinstance(events_list[2], AfterNodeCallEvent)
+    assert events_list[2].source == graph
+    assert events_list[2].node_id == "agent1"
+
+    assert isinstance(events_list[3], BeforeNodeCallEvent)
+    assert events_list[3].source == graph
+    assert events_list[3].node_id == "agent2"
+
+    assert isinstance(events_list[4], AfterNodeCallEvent)
+    assert events_list[4].source == graph
+    assert events_list[4].node_id == "agent2"
+
+    assert isinstance(events_list[5], AfterMultiAgentInvocationEvent)
+    assert events_list[5].source == graph

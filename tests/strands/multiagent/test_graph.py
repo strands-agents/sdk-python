@@ -1139,7 +1139,7 @@ async def test_self_loop_functionality_without_reset(mock_strands_tracer, mock_u
     result = await graph.invoke_async("Test self loop without reset")
 
     assert result.status == Status.COMPLETED
-    assert len(result.execution_order) == 1
+    assert len(result.execution_order) == 2
 
     mock_strands_tracer.start_multiagent_span.assert_called()
     mock_use_span.assert_called()

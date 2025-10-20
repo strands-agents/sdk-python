@@ -235,13 +235,10 @@ def test_multi_agent_result_to_dict(agent_result):
 
 def test_serialize_node_result_for_persist(agent_result):
     """Test serialize_node_result_for_persist method."""
-    from unittest.mock import Mock
-
-    agent = Mock(spec=MultiAgentBase)
 
     # Test with NodeResult containing AgentResult
     node_result = NodeResult(result=agent_result)
-    serialized = MultiAgentBase.serialize_node_result_for_persist(agent, node_result)
+    serialized = node_result.to_dict()
 
     # Should return the to_dict() result
     assert "result" in serialized
@@ -250,7 +247,7 @@ def test_serialize_node_result_for_persist(agent_result):
 
     # Test with NodeResult containing Exception
     exception_node_result = NodeResult(result=Exception("Test error"), status=Status.FAILED)
-    serialized_exception = MultiAgentBase.serialize_node_result_for_persist(agent, exception_node_result)
+    serialized_exception = exception_node_result.to_dict()
     assert "result" in serialized_exception
     assert serialized_exception["result"]["type"] == "exception"
     assert serialized_exception["result"]["message"] == "Test error"

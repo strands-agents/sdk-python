@@ -328,10 +328,10 @@ class GraphBuilder:
         return self
 
     def set_hook_provider(self, hook_providers: list[HookProvider]) -> "GraphBuilder":
-        """Set hook provider for the graph.
+        """Set hook providers for the graph.
 
         Args:
-            hook_providers: SessionManager instance
+            hook_providers: Customer hooks user passes in
         """
         self._hooks = hook_providers
         return self
@@ -404,7 +404,7 @@ class Graph(MultiAgentBase):
             node_timeout: Individual node timeout in seconds (default: None - no limit)
             reset_on_revisit: Whether to reset node state when revisited (default: False)
             session_manager: Optional session manager for persistence
-            hooks: Optional hook registry for event handling
+            hooks: Optional custom hook providers for registry.
         """
         super().__init__()
 
@@ -513,7 +513,9 @@ class Graph(MultiAgentBase):
                 raise
             finally:
                 self.state.execution_time = round((time.time() - self.state.start_time) * 1000)
-                self.hooks.invoke_callbacks(AfterMultiAgentInvocationEvent(source=self))
+                self.hooks.invoke_callbacks(
+                    AfterMultiAgentInvocationEvent(source=self, invocation_state=invocation_state)
+                )
                 self._resume_from_persisted = False
                 self._resume_next_nodes.clear()
             return self._build_result()
@@ -562,18 +564,9 @@ class Graph(MultiAgentBase):
     def _find_newly_ready_nodes(self, completed_batch: list["GraphNode"]) -> list["GraphNode"]:
         """Find nodes that became ready after the last execution."""
         newly_ready = []
-        for node in self.nodes.values():
-            # Skip nodes already completed unless we’re in feedback-loop mode
-            if (
-                node in self.state.completed_nodes or node.execution_status == Status.COMPLETED
-            ) and not self.reset_on_revisit:
-                continue
-            if node in self.state.failed_nodes:
-                continue
+        for _node_id, node in self.nodes.items():
             if self._is_node_ready_with_conditions(node, completed_batch):
-                # Avoid duplicates
-                if node not in newly_ready:
-                    newly_ready.append(node)
+                newly_ready.append(node)
         return newly_ready
 
     def _is_node_ready_with_conditions(self, node: GraphNode, completed_batch: list["GraphNode"]) -> bool:
@@ -618,10 +611,14 @@ class Graph(MultiAgentBase):
             node.execution_time = execution_time
             self.state.failed_nodes.add(node)
             self.state.results[node.node_id] = fail_result
-            self.hooks.invoke_callbacks(AfterNodeCallEvent(source=self, node_id=node.node_id))
+            self.hooks.invoke_callbacks(
+                AfterNodeCallEvent(source=self, node_id=node.node_id, invocation_state=invocation_state)
+            )
 
         # This is a placeholder for firing BeforeNodeCallEvent.
-        self.hooks.invoke_callbacks(BeforeNodeCallEvent(source=self, node_id=node.node_id))
+        self.hooks.invoke_callbacks(
+            BeforeNodeCallEvent(source=self, node_id=node.node_id, invocation_state=invocation_state)
+        )
 
         if self.reset_on_revisit and node in self.state.completed_nodes:
             logger.debug("node_id=<%s> | resetting node state for revisit", node.node_id)
@@ -699,7 +696,9 @@ class Graph(MultiAgentBase):
             self.state.execution_order.append(node)
             # Accumulate metrics
             self._accumulate_metrics(node_result)
-            self.hooks.invoke_callbacks(AfterNodeCallEvent(source=self, node_id=node.node_id))
+            self.hooks.invoke_callbacks(
+                AfterNodeCallEvent(source=self, node_id=node.node_id, invocation_state=invocation_state)
+            )
 
             logger.debug(
                 "node_id=<%s>, execution_time=<%dms> | node completed successfully", node.node_id, node.execution_time
@@ -838,9 +837,7 @@ class Graph(MultiAgentBase):
             "type": "graph",
             "status": status_str,
             "completed_nodes": [n.node_id for n in self.state.completed_nodes],
-            "node_results": {
-                k: self.serialize_node_result_for_persist(v) for k, v in (self.state.results or {}).items()
-            },
+            "node_results": {k: v.to_dict() for k, v in (self.state.results or {}).items()},
             "next_node_to_execute": next_nodes,
             "current_task": self.state.task,
             "execution_order": [n.node_id for n in self.state.execution_order],
@@ -891,7 +888,9 @@ class Graph(MultiAgentBase):
             payload: Dictionary containing persisted state data including status,
                     completed nodes, results, and next nodes to execute.
         """
-        if payload.get("status") in (Status.COMPLETED.value, "completed"):
+        if payload.get("status") in (Status.COMPLETED.value, "completed") or (
+            payload.get("status") in (Status.FAILED.value, "failed") and not payload.get("next_node_to_execute")
+        ):
             # Reset all nodes
             for node in self.nodes.values():
                 node.reset_executor_state()

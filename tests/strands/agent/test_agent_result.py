@@ -95,3 +95,31 @@ def test__str__non_dict_content(mock_metrics):
 
     message_string = str(result)
     assert message_string == "Valid text\nMore valid text\n"
+
+
+def test_from_dict_valid_data():
+    """Test that from_dict works with valid data."""
+    data = {
+        "type": "agent_result",
+        "message": {"role": "assistant", "content": [{"text": "Test response"}]},
+        "stop_reason": "end_turn",
+    }
+
+    result = AgentResult.from_dict(data)
+
+    assert result.message == data["message"]
+    assert result.stop_reason == data["stop_reason"]
+    assert isinstance(result.metrics, EventLoopMetrics)
+    assert result.state == {}
+
+
+def test_from_dict_invalid_type():
+    """Test that from_dict raises TypeError for invalid type."""
+    data = {
+        "type": "invalid_type",
+        "message": {"role": "assistant", "content": [{"text": "Test response"}]},
+        "stop_reason": "end_turn",
+    }
+
+    with pytest.raises(TypeError, match="AgentResult.from_dict: unexpected type 'invalid_type'"):
+        AgentResult.from_dict(data)

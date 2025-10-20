@@ -337,9 +337,10 @@ class Swarm(MultiAgentBase):
                 raise
             finally:
                 self.state.execution_time = round((time.time() - start_time) * 1000)
-                self.hooks.invoke_callbacks(AfterMultiAgentInvocationEvent(source=self))
+                self.hooks.invoke_callbacks(
+                    AfterMultiAgentInvocationEvent(source=self, invocation_state=invocation_state)
+                )
                 self._resume_from_persisted = False
-                self._resume_from_completed = False
 
             return self._build_result()
 
@@ -617,7 +618,9 @@ class Swarm(MultiAgentBase):
 
                     logger.debug("node=<%s> | node execution completed", current_node.node_id)
 
-                    self.hooks.invoke_callbacks(AfterNodeCallEvent(self, node_id=current_node.node_id))
+                    self.hooks.invoke_callbacks(
+                        AfterNodeCallEvent(self, node_id=current_node.node_id, invocation_state=invocation_state)
+                    )
 
                     # Check if the current node is still the same after execution
                     # If it is, then no handoff occurred and we consider the swarm complete
@@ -656,7 +659,9 @@ class Swarm(MultiAgentBase):
         self, node: SwarmNode, task: str | list[ContentBlock], invocation_state: dict[str, Any]
     ) -> AgentResult:
         """Execute swarm node."""
-        self.hooks.invoke_callbacks(BeforeNodeCallEvent(source=self, node_id=node.node_id))
+        self.hooks.invoke_callbacks(
+            BeforeNodeCallEvent(source=self, node_id=node.node_id, invocation_state=invocation_state)
+        )
         start_time = time.time()
         node_name = node.node_id
 
@@ -728,7 +733,7 @@ class Swarm(MultiAgentBase):
             self.state.results[node_name] = node_result
 
             # Persist failure here
-            self.hooks.invoke_callbacks(AfterNodeCallEvent(self, node_id=node_name))
+            self.hooks.invoke_callbacks(AfterNodeCallEvent(self, node_id=node_name, invocation_state=invocation_state))
 
             raise
 
@@ -782,7 +787,7 @@ class Swarm(MultiAgentBase):
             "type": "swarm",
             "status": status_str,
             "node_history": [n.node_id for n in self.state.node_history],
-            "node_results": {k: self.serialize_node_result_for_persist(v) for k, v in normalized_results.items()},
+            "node_results": {k: v.to_dict() for k, v in normalized_results.items()},
             "next_node_to_execute": next_nodes,
             "current_task": self.state.task,
             "context": {
@@ -857,7 +862,9 @@ class Swarm(MultiAgentBase):
         Args:
             payload: Dictionary containing persisted state data
         """
-        if payload.get("status") in (Status.COMPLETED.value, "completed"):
+        if payload.get("status") in (Status.COMPLETED.value, "completed") or (
+            payload.get("status") in (Status.FAILED.value, "failed") and not payload.get("next_node_to_execute")
+        ):
             # Reset all nodes
             for node in self.nodes.values():
                 node.reset_executor_state()
