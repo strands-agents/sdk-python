@@ -1,7 +1,7 @@
 import pytest
 
 from strands import Agent
-from strands.experimental.hooks.multiagent_hooks import (
+from strands.experimental.hooks.multiagent.events import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
     BeforeNodeCallEvent,

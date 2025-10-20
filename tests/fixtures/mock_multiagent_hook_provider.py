@@ -1,6 +1,6 @@
 from typing import Iterator, Literal, Tuple, Type
 
-from strands.experimental.hooks.multiagent_hooks import (
+from strands.experimental.hooks.multiagent.events import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
     BeforeNodeCallEvent,

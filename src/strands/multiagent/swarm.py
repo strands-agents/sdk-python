@@ -25,7 +25,7 @@ from opentelemetry import trace as trace_api
 
 from ..agent import Agent, AgentResult
 from ..agent.state import AgentState
-from ..experimental.hooks.multiagent_hooks import (
+from ..experimental.hooks.multiagent import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
     BeforeNodeCallEvent,

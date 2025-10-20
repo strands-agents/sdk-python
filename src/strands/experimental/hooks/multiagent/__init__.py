@@ -4,7 +4,7 @@ This package provides session persistence capabilities for multi-agent orchestra
 enabling resumable execution after interruptions or failures.
 """
 
-from .multiagent_events import (
+from .events import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
     BeforeMultiAgentInvocationEvent,

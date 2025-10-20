@@ -5,7 +5,7 @@ import threading
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
-from ..experimental.hooks.multiagent_hooks.multiagent_events import (
+from ..experimental.hooks.multiagent.events import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
     MultiAgentInitializedEvent,

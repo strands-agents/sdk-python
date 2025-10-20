@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from strands.experimental.hooks.multiagent_hooks.multiagent_events import (
+from strands.experimental.hooks.multiagent.events import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
     MultiAgentInitializedEvent,
