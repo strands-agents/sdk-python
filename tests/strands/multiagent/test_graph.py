@@ -1373,7 +1373,7 @@ async def test_graph_persisted(mock_strands_tracer, mock_use_span):
         "node_results": {},
         "current_task": "persisted task",
         "execution_order": [],
-        "next_node_to_execute": ["test_node"],
+        "next_nodes_to_execute": ["test_node"],
     }
 
     graph._from_dict(persisted_state)

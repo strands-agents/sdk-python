@@ -2,8 +2,7 @@
 
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -14,6 +13,9 @@ from ..types.exceptions import SessionException
 from ..types.session import Session, SessionAgent, SessionMessage, SessionType
 from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
+
+if TYPE_CHECKING:
+    from ..multiagent.base import MultiAgentBase
 
 logger = logging.getLogger(__name__)
 
@@ -303,20 +305,16 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         except ClientError as e:
             raise SessionException(f"S3 error reading messages: {e}") from e
 
-    def write_multi_agent_json(self, state: dict[str, Any]) -> None:
+    def write_multi_agent_json(self, source: "MultiAgentBase") -> None:
         """Write multi-agent state to S3.
 
         Args:
-            state: Multi-agent state dictionary to persist
+            source: Multi-agent source object to persist
         """
         session_prefix = self._get_session_path(self.session_id)
         state_key = self._join_key(session_prefix, "multi_agent_state.json")
+        state = source.serialize_state()
         self._write_s3_object(state_key, state)
-
-        session_key = self._join_key(session_prefix, "session.json")
-        metadata = self._read_s3_object(session_key) or {}
-        metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
-        self._write_s3_object(session_key, metadata)
 
     def read_multi_agent_json(self) -> dict[str, Any]:
         """Read multi-agent state from S3.

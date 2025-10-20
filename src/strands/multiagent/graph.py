@@ -327,13 +327,13 @@ class GraphBuilder:
         self._session_manager = session_manager
         return self
 
-    def set_hook_provider(self, hook_providers: list[HookProvider]) -> "GraphBuilder":
+    def set_hook_provider(self, hooks: list[HookProvider]) -> "GraphBuilder":
         """Set hook providers for the graph.
 
         Args:
-            hook_providers: Customer hooks user passes in
+            hooks: Customer hooks user passes in
         """
-        self._hooks = hook_providers
+        self._hooks = hooks
         return self
 
     def build(self) -> "Graph":
@@ -483,8 +483,6 @@ class Graph(MultiAgentBase):
                 start_time=start_time,
             )
         else:
-            if isinstance(self.state.task, (str, list)) and not self.state.task:
-                self.state.task = task
             self.state.status = Status.EXECUTING
             self.state.start_time = time.time()
         span = self.tracer.start_multiagent_span(task, "graph")
@@ -593,7 +591,7 @@ class Graph(MultiAgentBase):
 
     async def _execute_node(self, node: GraphNode, invocation_state: dict[str, Any]) -> None:
         """Execute a single node with error handling and timeout protection."""
-        # Reset the node's state if reset_on_revisit is enabled and it's being revisited
+        # Reset the node's state if reset_on_revisit is enabled, and it's being revisited
 
         async def _record_failure(exception: Exception) -> None:
             execution_time = round((time.time() - start_time) * 1000)
@@ -615,7 +613,6 @@ class Graph(MultiAgentBase):
                 AfterNodeCallEvent(source=self, node_id=node.node_id, invocation_state=invocation_state)
             )
 
-        # This is a placeholder for firing BeforeNodeCallEvent.
         self.hooks.invoke_callbacks(
             BeforeNodeCallEvent(source=self, node_id=node.node_id, invocation_state=invocation_state)
         )
@@ -838,7 +835,7 @@ class Graph(MultiAgentBase):
             "status": status_str,
             "completed_nodes": [n.node_id for n in self.state.completed_nodes],
             "node_results": {k: v.to_dict() for k, v in (self.state.results or {}).items()},
-            "next_node_to_execute": next_nodes,
+            "next_nodes_to_execute": next_nodes,
             "current_task": self.state.task,
             "execution_order": [n.node_id for n in self.state.execution_order],
         }
@@ -888,9 +885,7 @@ class Graph(MultiAgentBase):
             payload: Dictionary containing persisted state data including status,
                     completed nodes, results, and next nodes to execute.
         """
-        if payload.get("status") in (Status.COMPLETED.value, "completed") or (
-            payload.get("status") in (Status.FAILED.value, "failed") and not payload.get("next_node_to_execute")
-        ):
+        if not payload.get("next_nodes_to_execute"):
             # Reset all nodes
             for node in self.nodes.values():
                 node.reset_executor_state()
@@ -903,7 +898,7 @@ class Graph(MultiAgentBase):
             self._from_dict(payload)
             self._resume_from_persisted = True
 
-            next_node_ids = payload.get("next_node_to_execute") or []
+            next_node_ids = payload.get("next_nodes_to_execute") or []
             mapped = self._map_node_ids(next_node_ids)
             valid_ready: list[GraphNode] = []
             completed = set(self.state.completed_nodes)

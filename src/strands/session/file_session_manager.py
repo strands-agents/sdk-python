@@ -6,13 +6,16 @@ import os
 import shutil
 import tempfile
 from datetime import datetime, timezone
-from typing import Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from .. import _identifier
 from ..types.exceptions import SessionException
 from ..types.session import Session, SessionAgent, SessionMessage, SessionType
 from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
+
+if TYPE_CHECKING:
+    from ..multiagent.base import MultiAgentBase
 
 logger = logging.getLogger(__name__)
 
@@ -119,8 +122,6 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         tmp = f"{path}.tmp"
         with open(tmp, "w", encoding="utf-8", newline="\n") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())
         os.replace(tmp, path)
 
     def create_session(self, session: Session, **kwargs: Any) -> Session:
@@ -254,13 +255,13 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
 
         return messages
 
-    def write_multi_agent_json(self, state: dict[str, Any], **kwargs: Any) -> None:
+    def write_multi_agent_json(self, source: "MultiAgentBase") -> None:
         """Write multi-agent state to filesystem.
 
         Args:
-            state: Multi-agent state dictionary to persist
-            **kwargs: Additional keyword arguments for future extensibility
+            source: Multi-agent source object to persist
         """
+        state = source.serialize_state()
         state_path = os.path.join(self._get_session_path(self.session_id), "multi_agent_state.json")
         self._write_file(state_path, state)
 

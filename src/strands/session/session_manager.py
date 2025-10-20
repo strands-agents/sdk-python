@@ -1,7 +1,6 @@
 """Session manager interface for agent session management."""
 
 import logging
-import threading
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
@@ -38,10 +37,13 @@ class SessionManager(HookProvider, ABC):
             session_type: Type of session (AGENT or MULTI_AGENT)
         """
         self.session_type: SessionType = session_type
-        self._lock = threading.RLock()
 
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register hooks for persisting the agent to the session."""
+        if not hasattr(self, "session_type"):
+            self.session_type = SessionType.AGENT
+            logger.debug("Session type not set, defaulting to AGENT")
+
         if self.session_type == SessionType.AGENT:
             # After the normal Agent initialization behavior, call the session initialize function to restore the agent
             registry.add_callback(AgentInitializedEvent, lambda event: self.initialize(event.agent))
@@ -57,9 +59,9 @@ class SessionManager(HookProvider, ABC):
 
         elif self.session_type == SessionType.MULTI_AGENT:
             registry.add_callback(MultiAgentInitializedEvent, self._on_multiagent_initialized)
-            registry.add_callback(AfterNodeCallEvent, lambda event: self._persist_multi_agent_state(event.source))
+            registry.add_callback(AfterNodeCallEvent, lambda event: self.write_multi_agent_json(event.source))
             registry.add_callback(
-                AfterMultiAgentInvocationEvent, lambda event: self._persist_multi_agent_state(event.source)
+                AfterMultiAgentInvocationEvent, lambda event: self.write_multi_agent_json(event.source)
             )
 
     @abstractmethod
@@ -100,21 +102,11 @@ class SessionManager(HookProvider, ABC):
             **kwargs: Additional keyword arguments for future extensibility.
         """
 
-    def _persist_multi_agent_state(self, source: "MultiAgentBase") -> None:
-        """Thread-safe persistence of multi-agent state.
-
-        Args:
-            source: Multi-agent orchestrator to persist
-        """
-        with self._lock:
-            state = source.serialize_state()
-            self.write_multi_agent_json(state)
-
-    def write_multi_agent_json(self, state: dict[str, Any]) -> None:
+    def write_multi_agent_json(self, source: "MultiAgentBase") -> None:
         """Write multi-agent state to persistent storage.
 
         Args:
-            state: Multi-agent state dictionary to persist
+            source: Multi-agent source object to persist
         """
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support multi-agent persistence "
@@ -142,7 +134,4 @@ class SessionManager(HookProvider, ABC):
         if payload:
             source.deserialize_state(payload)
         else:
-            try:
-                self._persist_multi_agent_state(source)
-            except NotImplementedError:
-                pass
+            self.write_multi_agent_json(source)

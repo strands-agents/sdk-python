@@ -414,13 +414,20 @@ def test_write_read_multi_agent_json(file_manager, sample_session):
     """Test writing and reading multi-agent state."""
     file_manager.create_session(sample_session)
 
+    # Create mock MultiAgentBase object
+    class MockMultiAgent:
+        def serialize_state(self):
+            return {"type": "graph", "status": "completed", "nodes": ["node1", "node2"]}
+
+    mock_agent = MockMultiAgent()
+    expected_state = {"type": "graph", "status": "completed", "nodes": ["node1", "node2"]}
+
     # Write multi-agent state
-    state = {"type": "graph", "status": "completed", "nodes": ["node1", "node2"]}
-    file_manager.write_multi_agent_json(state)
+    file_manager.write_multi_agent_json(mock_agent)
 
     # Read multi-agent state
     result = file_manager.read_multi_agent_json()
-    assert result == state
+    assert result == expected_state
 
 
 def test_read_multi_agent_json_nonexistent(file_manager):

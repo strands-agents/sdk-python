@@ -492,7 +492,7 @@ class Swarm(MultiAgentBase):
         # Persist handoff msg incase we lose it.
         if self.session_manager is not None:
             try:
-                self.session_manager.write_multi_agent_json(self.serialize_state())
+                self.session_manager.write_multi_agent_json(self)
             except Exception as e:
                 logger.warning("Failed to persist swarm state after handoff: %s", e)
                 raise
@@ -663,7 +663,7 @@ class Swarm(MultiAgentBase):
             BeforeNodeCallEvent(source=self, node_id=node.node_id, invocation_state=invocation_state)
         )
         start_time = time.time()
-        node_name = node.node_id
+        node_id = node.node_id
 
         try:
             # Prepare context for node
@@ -705,7 +705,7 @@ class Swarm(MultiAgentBase):
             )
 
             # Store result in state
-            self.state.results[node_name] = node_result
+            self.state.results[node_id] = node_result
 
             # Accumulate metrics
             self._accumulate_metrics(node_result)
@@ -717,7 +717,7 @@ class Swarm(MultiAgentBase):
 
         except Exception as e:
             execution_time = round((time.time() - start_time) * 1000)
-            logger.exception("node=<%s> | node execution failed", node_name)
+            logger.exception("node=<%s> | node execution failed", node_id)
 
             # Create a NodeResult for the failed node
             node_result = NodeResult(
@@ -730,10 +730,10 @@ class Swarm(MultiAgentBase):
             )
 
             # Store result in state
-            self.state.results[node_name] = node_result
+            self.state.results[node_id] = node_result
 
             # Persist failure here
-            self.hooks.invoke_callbacks(AfterNodeCallEvent(self, node_id=node_name, invocation_state=invocation_state))
+            self.hooks.invoke_callbacks(AfterNodeCallEvent(self, node_id=node_id, invocation_state=invocation_state))
 
             raise
 
@@ -788,7 +788,7 @@ class Swarm(MultiAgentBase):
             "status": status_str,
             "node_history": [n.node_id for n in self.state.node_history],
             "node_results": {k: v.to_dict() for k, v in normalized_results.items()},
-            "next_node_to_execute": next_nodes,
+            "next_nodes_to_execute": next_nodes,
             "current_task": self.state.task,
             "context": {
                 "shared_context": getattr(self.state.shared_context, "context", {}) or {},
@@ -831,7 +831,7 @@ class Swarm(MultiAgentBase):
             self.state.task = payload.get("current_task", self.state.task)
 
             # Determine current node (if executing)
-            next_ids = list(payload.get("next_node_to_execute") or [])
+            next_ids = list(payload.get("next_nodes_to_execute") or [])
             if next_ids:
                 nid = next_ids[0]
                 found_node = self.nodes.get(nid)
@@ -863,7 +863,7 @@ class Swarm(MultiAgentBase):
             payload: Dictionary containing persisted state data
         """
         if payload.get("status") in (Status.COMPLETED.value, "completed") or (
-            payload.get("status") in (Status.FAILED.value, "failed") and not payload.get("next_node_to_execute")
+            payload.get("status") in (Status.FAILED.value, "failed") and not payload.get("next_nodes_to_execute")
         ):
             # Reset all nodes
             for node in self.nodes.values():

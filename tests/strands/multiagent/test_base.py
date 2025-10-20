@@ -152,9 +152,6 @@ def test_multi_agent_base_abstract_behavior():
         def deserialize_state(self, payload: dict) -> None:
             pass
 
-        def attempt_resume(self, payload: dict) -> None:
-            pass
-
     # Should not raise an exception - __call__ is provided by base class
     agent = CompleteMultiAgent()
     assert isinstance(agent, MultiAgentBase)

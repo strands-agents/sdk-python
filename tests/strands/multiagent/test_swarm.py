@@ -601,7 +601,7 @@ async def test_swarm_persistence(mock_strands_tracer, mock_use_span):
         "node_history": [],
         "node_results": {},
         "current_task": "persisted task",
-        "next_node_to_execute": ["test_agent"],
+        "next_nodes_to_execute": ["test_agent"],
         "context": {"shared_context": {"test_agent": {"key": "value"}}, "handoff_message": "test handoff"},
     }
 
