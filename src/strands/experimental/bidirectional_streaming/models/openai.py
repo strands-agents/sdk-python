@@ -89,10 +89,7 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
         voice_activity: VoiceActivityEvent = {"activityType": activity_type}
         return {"voiceActivity": voice_activity}
 
-    async def _create_conversation_item(self, item_data: dict) -> None:
-        """Create conversation item and trigger response."""
-        await self._send_event({"type": "conversation.item.create", "item": item_data})
-        await self._send_event({"type": "response.create"})
+
 
     async def initialize(
         self,
@@ -248,21 +245,16 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
             }
             return {"audioOutput": audio_output}
         
-        # Text output using helper method
-        elif event_type == "response.output_text.delta":
+        # Assistant text output events - combine multiple similar events
+        elif event_type in ["response.output_text.delta", "response.output_audio_transcript.delta"]:
             return self._create_text_event(openai_event["delta"], "assistant")
         
-        elif event_type == "response.output_audio_transcript.delta":
-            return self._create_text_event(openai_event["delta"], "assistant")
-        
-        # User transcription
-        elif event_type == "conversation.item.input_audio_transcription.delta":
-            transcript_delta = openai_event.get("delta", "")
-            return self._create_text_event(transcript_delta, "user") if transcript_delta.strip() else None
-        
-        elif event_type == "conversation.item.input_audio_transcription.completed":
-            transcript = openai_event.get("transcript", "")
-            return self._create_text_event(transcript, "user") if transcript.strip() else None
+        # User transcription events - combine multiple similar events
+        elif event_type in ["conversation.item.input_audio_transcription.delta", 
+                           "conversation.item.input_audio_transcription.completed"]:
+            text_key = "delta" if "delta" in event_type else "transcript"
+            text = openai_event.get(text_key, "")
+            return self._create_text_event(text, "user") if text.strip() else None
         
         elif event_type == "conversation.item.input_audio_transcription.segment":
             segment_data = openai_event.get("segment", {})
@@ -302,22 +294,22 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
                     del self._function_call_buffer[call_id]
             return None
         
-        # Voice activity detection using helper method
-        elif event_type == "input_audio_buffer.speech_started":
-            return self._create_voice_activity_event("speech_started")
-        elif event_type == "input_audio_buffer.speech_stopped":
-            return self._create_voice_activity_event("speech_stopped")
-        elif event_type == "input_audio_buffer.timeout_triggered":
-            return self._create_voice_activity_event("timeout")
+        # Voice activity detection events - combine similar events using mapping
+        elif event_type in ["input_audio_buffer.speech_started", "input_audio_buffer.speech_stopped", 
+                           "input_audio_buffer.timeout_triggered"]:
+            # Map event types to activity types
+            activity_map = {
+                "input_audio_buffer.speech_started": "speech_started",
+                "input_audio_buffer.speech_stopped": "speech_stopped", 
+                "input_audio_buffer.timeout_triggered": "timeout"
+            }
+            return self._create_voice_activity_event(activity_map[event_type])
         
-        # Lifecycle events (log only)
-        elif event_type == "conversation.item.retrieve":
+        # Lifecycle events (log only) - combine multiple similar events
+        elif event_type in ["conversation.item.retrieve", "conversation.item.added"]:
             item = openai_event.get("item", {})
-            logger.debug("OpenAI conversation item retrieved: %s", item.get("id"))
-            return None
-        
-        elif event_type == "conversation.item.added":
-            logger.debug("OpenAI conversation item added: %s", openai_event.get("item", {}).get("id"))
+            action = "retrieved" if "retrieve" in event_type else "added"
+            logger.debug("OpenAI conversation item %s: %s", action, item.get("id"))
             return None
             
         elif event_type == "conversation.item.done":
@@ -341,6 +333,7 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
                         return {"messageStop": {"message": message}}
             return None
         
+        # Response output events - combine similar events
         elif event_type in ["response.output_item.added", "response.output_item.done", 
                            "response.content_part.added", "response.content_part.done"]:
             item_data = openai_event.get("item") or openai_event.get("part")
@@ -359,6 +352,7 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
                             self._function_call_buffer[call_id]["name"] = function_name
             return None
         
+        # Session/buffer events - combine simple log-only events
         elif event_type in ["input_audio_buffer.committed", "input_audio_buffer.cleared",
                            "session.created", "session.updated"]:
             logger.debug("OpenAI %s event", event_type)
@@ -380,7 +374,7 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
         audio_base64 = base64.b64encode(audio_input["audioData"]).decode("utf-8")
         await self._send_event({"type": "input_audio_buffer.append", "audio": audio_base64})
 
-    async def send_text_content(self, text: str, **kwargs) -> None:
+    async def send_text_content(self, text: str) -> None:
         """Send text content to OpenAI for processing."""
         if not self._require_active():
             return
@@ -390,7 +384,8 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
             "role": "user",
             "content": [{"type": "input_text", "text": text}]
         }
-        await self._create_conversation_item(item_data)
+        await self._send_event({"type": "conversation.item.create", "item": item_data})
+        await self._send_event({"type": "response.create"})
 
     async def send_interrupt(self) -> None:
         """Send interruption signal to OpenAI."""
@@ -412,7 +407,8 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
             "call_id": tool_use_id,
             "output": result_text
         }
-        await self._create_conversation_item(item_data)
+        await self._send_event({"type": "conversation.item.create", "item": item_data})
+        await self._send_event({"type": "response.create"})
 
     async def close(self) -> None:
         """Close session and cleanup resources."""
