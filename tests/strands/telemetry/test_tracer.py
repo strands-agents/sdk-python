@@ -153,7 +153,7 @@ def test_start_model_invoke_span(mock_tracer):
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "chat"
-        assert mock_tracer.start_span.call_args[1]["kind"] == SpanKind.CLIENT
+        assert mock_tracer.start_span.call_args[1]["kind"] == SpanKind.INTERNAL
         mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
         mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "chat")
         mock_span.set_attribute.assert_any_call("gen_ai.request.model", model_id)
@@ -188,7 +188,7 @@ def test_start_model_invoke_span_latest_conventions(mock_tracer):
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "chat"
-        assert mock_tracer.start_span.call_args[1]["kind"] == SpanKind.CLIENT
+        assert mock_tracer.start_span.call_args[1]["kind"] == SpanKind.INTERNAL
         mock_span.set_attribute.assert_any_call("gen_ai.provider.name", "strands-agents")
         mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "chat")
         mock_span.set_attribute.assert_any_call("gen_ai.request.model", model_id)

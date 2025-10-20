@@ -293,7 +293,7 @@ class Tracer:
         # Add additional kwargs as attributes
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
 
-        span = self._start_span("chat", parent_span, attributes=attributes, span_kind=trace_api.SpanKind.CLIENT)
+        span = self._start_span("chat", parent_span, attributes=attributes, span_kind=trace_api.SpanKind.INTERNAL)
         self._add_event_messages(span, messages)
 
         return span
