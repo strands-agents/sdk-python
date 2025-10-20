@@ -13,14 +13,16 @@ Key improvements over custom WebSocket implementation:
 
 import asyncio
 import base64
+import json
 import logging
 import uuid
-from typing import Any, AsyncIterable, Dict, List, Optional
+from typing import Any, AsyncIterable, Dict, List, Optional, Union
 
 from google import genai
 from google.genai import types as genai_types
 from google.genai.types import LiveServerMessage, LiveServerContent
 
+from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolSpec, ToolUse
 from ..types.bidirectional_streaming import (
@@ -128,56 +130,104 @@ class GeminiLiveSession(BidirectionalModelSession):
                 await self.live_session.send_client_content(turns=content)
     
     async def receive_events(self) -> AsyncIterable[Dict[str, Any]]:
-        """Receive Gemini Live API events and convert to provider-agnostic format."""
+        """Receive Gemini Live API events and convert to new TypedEvent format."""
         
-        # Emit connection start event
-        connection_start: BidirectionalConnectionStartEvent = {
-            "connectionId": self.session_id,
-            "metadata": {"provider": "gemini_live", "model_id": self.config.get("model_id")}
-        }
-        yield {"BidirectionalConnectionStart": connection_start}
+        # Emit SessionStartEvent on connection
+        from ..types.bidirectional_streaming import SessionStartEvent
+        session_start = SessionStartEvent(
+            session_id=self.session_id,
+            model=self.model_id,
+            capabilities=["audio", "text", "tools", "images"]
+        )
+        yield session_start
+        
+        # Track turn state for TurnStartEvent emission
+        current_turn_id: Optional[str] = None
+        
+        restart_count = 0
+        max_restarts = 100
         
         try:
             # Wrap in while loop to restart after turn_complete (SDK limitation workaround)
-            while self._active:
+            while self._active and restart_count < max_restarts:
                 try:
                     async for message in self.live_session.receive():
                         if not self._active:
                             break
                         
-                        # Convert to provider-agnostic format
-                        provider_event = self._convert_gemini_live_event(message)
-                        if provider_event:
-                            yield provider_event
+                        # Convert to new TypedEvent format
+                        events = self._convert_gemini_live_event(message, current_turn_id)
+                        for event in events:
+                            # Track turn state
+                            from ..types.bidirectional_streaming import TurnStartEvent, TurnCompleteEvent
+                            if isinstance(event, TurnStartEvent):
+                                current_turn_id = event.turn_id
+                            elif isinstance(event, TurnCompleteEvent):
+                                current_turn_id = None
+                            
+                            yield event
                     
                     # SDK exits receive loop after turn_complete - restart automatically
                     if self._active:
-                        logger.debug("Restarting receive loop after turn completion")
+                        restart_count += 1
+                        logger.debug("Restarting receive loop after turn completion (%d/%d)", restart_count, max_restarts)
                     
                 except Exception as e:
                     logger.error("Error in receive iteration: %s", e)
+                    # Convert exception to ErrorEvent
+                    from ..types.bidirectional_streaming import ErrorEvent
+                    error_event = ErrorEvent(
+                        error=e,
+                        code="receive_error",
+                        details={"exception_type": type(e).__name__}
+                    )
+                    yield error_event
                     # Small delay before retrying to avoid tight error loops
                     await asyncio.sleep(0.1)
+            
+            if restart_count >= max_restarts:
+                logger.warning("Max restart count reached, ending receive loop")
                     
         except Exception as e:
             logger.error("Fatal error in receive loop: %s", e)
+            # Convert fatal exception to ErrorEvent
+            from ..types.bidirectional_streaming import ErrorEvent
+            error_event = ErrorEvent(
+                error=e,
+                code="fatal_error",
+                details={"exception_type": type(e).__name__}
+            )
+            yield error_event
         finally:
-            # Emit connection end event when exiting
-            connection_end: BidirectionalConnectionEndEvent = {
-                "connectionId": self.session_id,
-                "reason": "connection_complete",
-                "metadata": {"provider": "gemini_live"}
-            }
-            yield {"BidirectionalConnectionEnd": connection_end}
+            # Emit SessionEndEvent when exiting
+            from ..types.bidirectional_streaming import SessionEndEvent
+            session_end = SessionEndEvent(reason="complete")
+            yield session_end
     
-    def _convert_gemini_live_event(self, message: LiveServerMessage) -> Optional[Dict[str, Any]]:
-        """Convert Gemini Live API events to provider-agnostic format.
+    def _convert_gemini_live_event(self, message: LiveServerMessage, current_turn_id: Optional[str]) -> List[Any]:
+        """Convert Gemini Live API events to new TypedEvent format.
         
         Handles different types of text output:
-        - inputTranscription: User's speech transcribed to text (emitted as transcript event)
-        - outputTranscription: Model's audio transcribed to text (emitted as transcript event)
-        - modelTurn text: Actual text response from the model (emitted as textOutput)
+        - inputTranscription: User's speech transcribed to text (emitted as TranscriptStreamEvent)
+        - outputTranscription: Model's audio transcribed to text (emitted as TranscriptStreamEvent)
+        - modelTurn text: Actual text response from the model (emitted as TranscriptStreamEvent)
+        
+        Returns:
+            List of TypedEvent instances (may be empty if event should be ignored)
         """
+        from ....types._events import ToolUseStreamEvent
+        from ..types.bidirectional_streaming import (
+            TurnStartEvent,
+            AudioStreamEvent,
+            TranscriptStreamEvent,
+            InterruptionEvent,
+            TurnCompleteEvent,
+            MultimodalUsage,
+            ModalityUsage,
+        )
+        
+        events: List[Any] = []
+        
         try:
             # Log raw incoming event
             raw_event = {
@@ -187,101 +237,183 @@ class GeminiLiveSession(BidirectionalModelSession):
                 "server_content": str(message.server_content) if hasattr(message, 'server_content') and message.server_content else None,
             }
             self.event_logger.log_incoming("gemini_raw", raw_event)
-            # Handle interruption first (from server_content)
-            if message.server_content and message.server_content.interrupted:
-                interruption: InterruptionDetectedEvent = {
-                    "reason": "user_input"
-                }
-                return {"interruptionDetected": interruption}
             
-            # Handle input transcription (user's speech) - emit as transcript event
+            # Detect first content and emit TurnStartEvent if not already in a turn
+            has_content = (
+                (message.text and message.text.strip()) or
+                (message.data and len(message.data) > 0) or
+                (message.tool_call and message.tool_call.function_calls)
+            )
+            
+            if has_content and current_turn_id is None:
+                turn_id = str(uuid.uuid4())
+                events.append(TurnStartEvent(turn_id=turn_id))
+                # Update current_turn_id for subsequent events
+                current_turn_id = turn_id
+            
+            # Handle interruption (from server_content)
+            if message.server_content and message.server_content.interrupted:
+                events.append(InterruptionEvent(
+                    reason="user_speech",
+                    turn_id=current_turn_id
+                ))
+            
+            # Handle input transcription (user's speech) - emit as TranscriptStreamEvent
             if message.server_content and message.server_content.input_transcription:
                 input_transcript = message.server_content.input_transcription
                 # Check if the transcription object has text content
                 if hasattr(input_transcript, 'text') and input_transcript.text:
                     transcription_text = input_transcript.text
                     logger.debug(f"Input transcription detected: {transcription_text}")
-                    transcript: TranscriptEvent = {
-                        "text": transcription_text,
-                        "role": "user",
-                        "type": "input"
-                    }
-                    return {"transcript": transcript}
+                    events.append(TranscriptStreamEvent(
+                        text=transcription_text,
+                        source="user",
+                        is_final=True  # Gemini provides final transcripts
+                    ))
             
-            # Handle output transcription (model's audio) - emit as transcript event
+            # Handle output transcription (model's audio) - emit as TranscriptStreamEvent
             if message.server_content and message.server_content.output_transcription:
                 output_transcript = message.server_content.output_transcription
                 # Check if the transcription object has text content
                 if hasattr(output_transcript, 'text') and output_transcript.text:
                     transcription_text = output_transcript.text
                     logger.debug(f"Output transcription detected: {transcription_text}")
-                    transcript: TranscriptEvent = {
-                        "text": transcription_text,
-                        "role": "assistant",
-                        "type": "output"
-                    }
-                    return {"transcript": transcript}
+                    events.append(TranscriptStreamEvent(
+                        text=transcription_text,
+                        source="assistant",
+                        is_final=True  # Gemini provides final transcripts
+                    ))
             
             # Handle actual text output from model (not transcription)
             # The SDK's message.text property accesses modelTurn.parts[].text
             if message.text:
-                text_output: TextOutputEvent = {
-                    "text": message.text,
-                    "role": "assistant"
-                }
-                return {"textOutput": text_output}
+                events.append(TranscriptStreamEvent(
+                    text=message.text,
+                    source="assistant",
+                    is_final=True
+                ))
             
             # Handle audio output using SDK's built-in data property
             if message.data:
-                audio_output: AudioOutputEvent = {
-                    "audioData": message.data,
-                    "format": "pcm",
-                    "sampleRate": GEMINI_OUTPUT_SAMPLE_RATE,
-                    "channels": GEMINI_CHANNELS,
-                    "encoding": "raw"
-                }
-                return {"audioOutput": audio_output}
+                events.append(AudioStreamEvent(
+                    audio=message.data,
+                    format="pcm",
+                    sample_rate=GEMINI_OUTPUT_SAMPLE_RATE,
+                    channels=GEMINI_CHANNELS
+                ))
             
             # Handle tool calls
             if message.tool_call and message.tool_call.function_calls:
                 for func_call in message.tool_call.function_calls:
-                    tool_use_event: ToolUse = {
+                    # Gemini returns complete tool use (no streaming)
+                    # Create single delta with complete tool use
+                    tool_input_json = json.dumps(func_call.args or {})
+                    
+                    delta: Dict[str, Any] = {
+                        "toolUse": {
+                            "input": tool_input_json
+                        }
+                    }
+                    
+                    current_tool_use = {
                         "toolUseId": func_call.id,
                         "name": func_call.name,
-                        "input": func_call.args or {}
+                        "input": tool_input_json
                     }
-                    return {"toolUse": tool_use_event}
+                    
+                    events.append(ToolUseStreamEvent(delta, current_tool_use))
             
-            # Silently ignore setup_complete, turn_complete, generation_complete, and usage_metadata messages
-            return None
+            # Handle turn_complete or generation_complete
+            if message.server_content and (
+                message.server_content.turn_complete or 
+                hasattr(message.server_content, 'generation_complete')
+            ):
+                if current_turn_id:
+                    # Determine stop reason
+                    stop_reason = "complete"
+                    if message.server_content.interrupted:
+                        stop_reason = "interrupted"
+                    elif message.tool_call and message.tool_call.function_calls:
+                        stop_reason = "tool_use"
+                    
+                    events.append(TurnCompleteEvent(
+                        turn_id=current_turn_id,
+                        stop_reason=stop_reason
+                    ))
+            
+            # Handle usage metadata
+            if hasattr(message, 'usage_metadata') and message.usage_metadata:
+                usage_meta = message.usage_metadata
+                total_input = getattr(usage_meta, 'prompt_token_count', 0) or 0
+                total_output = getattr(usage_meta, 'candidates_token_count', 0) or 0
+                
+                # Gemini may not provide detailed modality breakdown
+                details: List[ModalityUsage] = []
+                if total_input > 0 or total_output > 0:
+                    # Create a generic entry since Gemini doesn't break down by modality
+                    details.append({
+                        "modality": "text",
+                        "input_tokens": total_input,
+                        "output_tokens": total_output
+                    })
+                
+                total_tokens = total_input + total_output
+                events.append(MultimodalUsage(
+                    input_tokens=total_input,
+                    output_tokens=total_output,
+                    total_tokens=total_tokens,
+                    modality_details=details if details else None
+                ))
+            
+            return events
             
         except Exception as e:
             logger.error("Error converting Gemini Live event: %s", e)
             logger.error("Message type: %s", type(message).__name__)
             logger.error("Message attributes: %s", [attr for attr in dir(message) if not attr.startswith('_')])
-            return None
+            return []
     
-    async def send_audio_content(self, audio_input: AudioInputEvent) -> None:
-        """Send audio content using Gemini Live API.
+    async def send(self, event: Union[AudioInputEvent, ImageInputEvent, ToolResultEvent]) -> None:
+        """Unified send method for all input event types.
         
-        Gemini Live expects continuous audio streaming via send_realtime_input.
-        This automatically triggers VAD and can interrupt ongoing responses.
+        Args:
+            event: Input event to send (AudioInputEvent, ImageInputEvent, or ToolResultEvent)
+        
+        Raises:
+            NotImplementedError: If the event type is not supported by this provider
         """
+        from ....types._events import ToolResultEvent
+        from ..types.bidirectional_streaming import AudioInputEvent, ImageInputEvent
+        
+        if isinstance(event, AudioInputEvent):
+            # Convert to Gemini's send_realtime_input with Blob type
+            await self._send_audio(event)
+        elif isinstance(event, ImageInputEvent):
+            # Convert to Gemini's send() with inline_data
+            await self._send_image(event)
+        elif isinstance(event, ToolResultEvent):
+            # Convert to Gemini's send_tool_response with FunctionResponse list
+            await self._send_tool_result(event)
+        else:
+            raise NotImplementedError(f"Unsupported event type: {type(event).__name__}")
+    
+    async def _send_audio(self, event: AudioInputEvent) -> None:
+        """Internal method to send audio input."""
         if not self._active:
             return
         
         try:
             # Log outgoing audio
             self.event_logger.log_outgoing("audio_input", {
-                "format": audio_input["format"],
-                "sampleRate": audio_input["sampleRate"],
-                "channels": audio_input["channels"],
-                "audioData": f"<{len(audio_input['audioData'])} bytes>"
+                "format": event.format,
+                "sampleRate": event.sample_rate,
+                "channels": event.channels,
+                "audioData": f"<{len(event.audio)} bytes>"
             })
             
             # Create audio blob for the SDK
             audio_blob = genai_types.Blob(
-                data=audio_input["audioData"],
+                data=event.audio,
                 mime_type=f"audio/pcm;rate={GEMINI_INPUT_SAMPLE_RATE}"
             )
             
@@ -291,43 +423,39 @@ class GeminiLiveSession(BidirectionalModelSession):
         except Exception as e:
             logger.error("Error sending audio content: %s", e)
     
-    async def send_image_content(self, image_input: ImageInputEvent) -> None:
-        """Send image content using Gemini Live API.
-        
-        Sends image frames following the same pattern as the GitHub example.
-        Images are sent as base64-encoded data with MIME type.
-        """
+    async def _send_image(self, event: ImageInputEvent) -> None:
+        """Internal method to send image input."""
         if not self._active:
             return
         
         try:
             # Log outgoing image
-            image_data_preview = image_input["imageData"]
+            image_data_preview = event.image
             if isinstance(image_data_preview, bytes):
                 image_data_preview = f"<{len(image_data_preview)} bytes>"
             elif isinstance(image_data_preview, str) and len(image_data_preview) > 100:
                 image_data_preview = image_data_preview[:100] + f"... (total: {len(image_data_preview)} chars)"
             
             self.event_logger.log_outgoing("image_input", {
-                "mimeType": image_input["mimeType"],
-                "encoding": image_input["encoding"],
+                "mimeType": event.mime_type,
+                "encoding": event.encoding,
                 "imageData": image_data_preview
             })
             
             # Prepare the message based on encoding
-            if image_input["encoding"] == "base64":
+            if event.encoding == "base64":
                 # Data is already base64 encoded
-                if isinstance(image_input["imageData"], bytes):
-                    data_str = image_input["imageData"].decode()
+                if isinstance(event.image, bytes):
+                    data_str = event.image.decode()
                 else:
-                    data_str = image_input["imageData"]
+                    data_str = event.image
             else:
                 # Raw bytes - need to base64 encode
-                data_str = base64.b64encode(image_input["imageData"]).decode()
+                data_str = base64.b64encode(event.image).decode()
             
             # Create the message in the format expected by Gemini Live
             msg = {
-                "mime_type": image_input["mimeType"],
+                "mime_type": event.mime_type,
                 "data": data_str
             }
             
@@ -337,68 +465,23 @@ class GeminiLiveSession(BidirectionalModelSession):
         except Exception as e:
             logger.error("Error sending image content: %s", e)
     
-    async def send_text_content(self, text: str, **kwargs) -> None:
-        """Send text content using Gemini Live API."""
-        if not self._active:
-            return
-        
-        try:
-            # Log outgoing text
-            self.event_logger.log_outgoing("text_input", {"text": text})
-            
-            # Create content with text
-            content = genai_types.Content(
-                role="user",
-                parts=[genai_types.Part(text=text)]
-            )
-            
-            # Send as client content
-            await self.live_session.send_client_content(turns=content)
-            
-        except Exception as e:
-            logger.error("Error sending text content: %s", e)
-    
-    async def send_interrupt(self) -> None:
-        """Send interruption signal to Gemini Live API.
-        
-        Gemini Live uses automatic VAD-based interruption. When new audio input
-        is detected, it automatically interrupts the ongoing generation.
-        We don't need to send explicit interrupt signals like Nova Sonic.
-        """
-        if not self._active:
-            return
-        
-        try:
-            # Gemini Live handles interruption automatically through VAD
-            # When new audio input is sent via send_realtime_input, it automatically
-            # interrupts any ongoing generation. No explicit interrupt signal needed.
-            logger.debug("Interrupt requested - Gemini Live handles this automatically via VAD")
-            
-        except Exception as e:
-            logger.error("Error in interrupt handling: %s", e)
-    
-    async def send_tool_result(self, tool_use_id: str, result: Dict[str, Any]) -> None:
-        """Send tool result using Gemini Live API."""
+    async def _send_tool_result(self, event: ToolResultEvent) -> None:
+        """Internal method to send tool result."""
         if not self._active:
             return
         
         try:
             # Create function response
             func_response = genai_types.FunctionResponse(
-                id=tool_use_id,
-                name=tool_use_id,  # Gemini uses name as identifier
-                response=result
+                id=event.tool_use_id,
+                name=event.tool_use_id,  # Gemini uses name as identifier
+                response=event.tool_result  # Use tool_result property, not result
             )
             
             # Send tool response
             await self.live_session.send_tool_response(function_responses=[func_response])
         except Exception as e:
             logger.error("Error sending tool result: %s", e)
-    
-    async def send_tool_error(self, tool_use_id: str, error: str) -> None:
-        """Send tool error using Gemini Live API."""
-        error_result = {"error": error}
-        await self.send_tool_result(tool_use_id, error_result)
     
     async def close(self) -> None:
         """Close Gemini Live API connection."""
@@ -510,6 +593,11 @@ class GeminiLiveBidirectionalModel(BidirectionalModel):
         """Format tool specs for Gemini Live API."""
         if not tool_specs:
             return []
+        
+        # Debug: Log the tool specs being formatted
+        for tool_spec in tool_specs:
+            logger.debug(f"Formatting tool: {tool_spec['name']}")
+            logger.debug(f"Tool schema: {tool_spec['inputSchema']['json']}")
             
         return [
             genai_types.Tool(

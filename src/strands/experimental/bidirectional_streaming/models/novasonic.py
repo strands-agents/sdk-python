@@ -19,24 +19,30 @@ import logging
 import time
 import traceback
 import uuid
-from typing import AsyncIterable
+from typing import Any, AsyncIterable, Dict, List, Optional
 
 from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
 from aws_sdk_bedrock_runtime.config import Config, HTTPAuthSchemeResolver, SigV4AuthScheme
 from aws_sdk_bedrock_runtime.models import BidirectionalInputPayloadPart, InvokeModelWithBidirectionalStreamInputChunk
 from smithy_aws_core.identity.environment import EnvironmentCredentialsResolver
 
+from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolSpec, ToolUse
 from ..types.bidirectional_streaming import (
     AudioInputEvent,
-    AudioOutputEvent,
+    AudioStreamEvent,
     BidirectionalConnectionEndEvent,
     BidirectionalConnectionStartEvent,
+    ErrorEvent,
     ImageInputEvent,
-    InterruptionDetectedEvent,
-    TextOutputEvent,
-    UsageMetricsEvent,
+    InterruptionEvent,
+    MultimodalUsage,
+    SessionEndEvent,
+    SessionStartEvent,
+    TranscriptStreamEvent,
+    TurnCompleteEvent,
+    TurnStartEvent,
 )
 from ..utils.event_logger import EventLogger
 from .bidirectional_model import BidirectionalModel, BidirectionalModelSession
@@ -82,7 +88,7 @@ class NovaSonicSession(BidirectionalModelSession):
     interface.
     """
 
-    def __init__(self, stream: any, config: dict[str, any]) -> None:
+    def __init__(self, stream: Any, config: Dict[str, Any]) -> None:
         """Initialize Nova Sonic connection.
 
         Args:
@@ -102,7 +108,13 @@ class NovaSonicSession(BidirectionalModelSession):
         self.audio_connection_active = False
         self.last_audio_time = None
         self.silence_threshold = SILENCE_THRESHOLD
-        self.silence_task = None
+        self.silence_task: Optional[asyncio.Task] = None
+        self._error_count = 0
+        self._max_errors = 10
+        
+        # Transcript deduplication (Nova sends duplicates)
+        self._seen_transcripts: set[str] = set()
+        self._transcript_window_size = 10
         
         # Event logger
         self.event_logger = EventLogger("nova")
@@ -136,9 +148,30 @@ class NovaSonicSession(BidirectionalModelSession):
             logger.error("Error during Nova Sonic initialization: %s", e)
             raise
 
+    async def send(self, event: AudioInputEvent | ImageInputEvent | ToolResultEvent) -> None:
+        """Unified send method for all input types.
+
+        Args:
+            event: Input event to send (AudioInputEvent, ImageInputEvent, or ToolResultEvent).
+
+        Raises:
+            NotImplementedError: If ImageInputEvent is provided (Nova Sonic doesn't support images).
+        """
+        if isinstance(event, AudioInputEvent):
+            # Convert AudioInputEvent to Nova Sonic's audioInput format
+            await self.send_audio_content(event)
+        elif isinstance(event, ImageInputEvent):
+            # Nova Sonic doesn't support image input
+            raise NotImplementedError("Nova Sonic does not support image input")
+        elif isinstance(event, ToolResultEvent):
+            # Convert ToolResultEvent to Nova Sonic's toolResult format
+            await self.send_tool_result(event.tool_use_id, event.tool_result)
+        else:
+            raise ValueError(f"Unsupported event type: {type(event)}")
+
     def _build_initialization_events(
-        self, system_prompt: str, tools: list[ToolSpec], messages: Messages | None
-    ) -> list[str]:
+        self, system_prompt: str, tools: List[ToolSpec], messages: Optional[Messages]
+    ) -> List[str]:
         """Build the sequence of initialization events."""
         events = [self._get_connection_start_event(), self._get_prompt_start_event(tools)]
 
@@ -149,9 +182,9 @@ class NovaSonicSession(BidirectionalModelSession):
 
         return events
 
-    async def _send_initialization_events(self, events: list[str]) -> None:
+    async def _send_initialization_events(self, events: List[str]) -> None:
         """Send initialization events with required delays."""
-        for i, event in enumerate(events):
+        for event in events:
             await self._send_nova_event(event)
             await asyncio.sleep(EVENT_DELAY)
 
@@ -172,7 +205,11 @@ class NovaSonicSession(BidirectionalModelSession):
                     await asyncio.sleep(0.1)
                     continue
                 except Exception as e:
-                    logger.warning(f"Nova Sonic response error: {e}")
+                    self._error_count += 1
+                    logger.warning("Nova Sonic response error (%d/%d): %s", self._error_count, self._max_errors, e)
+                    if self._error_count >= self._max_errors:
+                        logger.error("Max error count reached, stopping response processor")
+                        break
                     await asyncio.sleep(0.1)
                     continue
 
@@ -189,9 +226,7 @@ class NovaSonicSession(BidirectionalModelSession):
             if "event" in json_data:
                 nova_event = json_data["event"]
                 
-                # Log incoming event
                 self.event_logger.log_incoming("nova_raw", nova_event)
-                
                 self._log_event_type(nova_event)
 
                 if not hasattr(self, "_event_queue"):
@@ -199,9 +234,9 @@ class NovaSonicSession(BidirectionalModelSession):
 
                 await self._event_queue.put(nova_event)
         except json.JSONDecodeError as e:
-            logger.warning(f"Nova Sonic JSON decode error: {e}")
+            logger.warning("Nova Sonic JSON decode error: %s", e)
 
-    def _log_event_type(self, nova_event: dict[str, any]) -> None:
+    def _log_event_type(self, nova_event: Dict[str, Any]) -> None:
         """Log specific Nova Sonic event types for debugging."""
         if "usageEvent" in nova_event:
             logger.debug("Nova usage: %s", nova_event["usageEvent"])
@@ -215,7 +250,7 @@ class NovaSonicSession(BidirectionalModelSession):
             audio_bytes = base64.b64decode(audio_content)
             logger.debug("Nova audio output: %d bytes", len(audio_bytes))
 
-    async def receive_events(self) -> AsyncIterable[dict[str, any]]:
+    async def receive_events(self) -> AsyncIterable[Dict[str, Any]]:
         """Receive Nova Sonic events and convert to provider-agnostic format."""
         if not self.stream:
             logger.error("Stream is None")
@@ -223,12 +258,13 @@ class NovaSonicSession(BidirectionalModelSession):
 
         logger.debug("Nova events - starting event stream")
 
-        # Emit connection start event to Strands event system
-        connection_start: BidirectionalConnectionStartEvent = {
-            "connectionId": self.prompt_name,
-            "metadata": {"provider": "nova_sonic", "model_id": self.config.get("model_id")},
-        }
-        yield {"BidirectionalConnectionStart": connection_start}
+        # Emit SessionStartEvent immediately (Nova Sonic doesn't send one from server)
+        session_start = SessionStartEvent(
+            session_id=self.prompt_name,
+            model=self.config.get("model_id", "amazon.nova-sonic-v1:0"),
+            capabilities=["audio", "tools"]
+        )
+        yield session_start
 
         # Initialize event queue if not already done
         if not hasattr(self, "_event_queue"):
@@ -294,9 +330,9 @@ class NovaSonicSession(BidirectionalModelSession):
         # Log outgoing audio
         self.event_logger.log_outgoing("audio_input", {
             "format": audio_input["format"],
-            "sampleRate": audio_input["sampleRate"],
+            "sampleRate": audio_input["sample_rate"],
             "channels": audio_input["channels"],
-            "audioData": f"<{len(audio_input['audioData'])} bytes>"
+            "audioData": f"<{len(audio_input['audio'])} bytes>"
         })
 
         # Start audio connection if not already active
@@ -305,11 +341,15 @@ class NovaSonicSession(BidirectionalModelSession):
 
         # Update last audio time and cancel any pending silence task
         self.last_audio_time = time.time()
-        if self.silence_task and not self.silence_task.done():
+        if self.silence_task is not None and not self.silence_task.done():
             self.silence_task.cancel()
+            try:
+                await self.silence_task
+            except asyncio.CancelledError:
+                pass
 
         # Convert audio to Nova Sonic base64 format
-        nova_audio_data = base64.b64encode(audio_input["audioData"]).decode("utf-8")
+        nova_audio_data = base64.b64encode(audio_input["audio"]).decode("utf-8")
 
         # Send audio input event
         audio_event = json.dumps(
@@ -399,7 +439,7 @@ class NovaSonicSession(BidirectionalModelSession):
         }
         await self._send_nova_event(interrupt_event)
 
-    async def send_tool_result(self, tool_use_id: str, result: dict[str, any]) -> None:
+    async def send_tool_result(self, tool_use_id: str, result: Dict[str, Any]) -> None:
         """Send tool result using Nova Sonic toolResult format."""
         if not self._active:
             return
@@ -458,25 +498,38 @@ class NovaSonicSession(BidirectionalModelSession):
         finally:
             logger.debug("Nova connection closed")
 
-    def _convert_nova_event(self, nova_event: dict[str, any]) -> dict[str, any] | None:
-        """Convert Nova Sonic events to provider-agnostic format."""
-        # Handle audio output
-        if "audioOutput" in nova_event:
+    def _convert_nova_event(self, nova_event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Convert Nova Sonic events to provider-agnostic format.
+        
+        Dispatches to specific handler methods for complex event types.
+        """
+        # Simple events handled inline
+        if "sessionStart" in nova_event:
+            return SessionStartEvent(
+                session_id=self.prompt_name,
+                model=self.config.get("model_id", "amazon.nova-sonic-v1:0"),
+                capabilities=["audio", "tools"]
+            )
+
+        elif "completionStart" in nova_event:
+            completion_id = nova_event["completionStart"].get("completionId", str(uuid.uuid4()))
+            self._current_turn_id = completion_id
+            return TurnStartEvent(turn_id=completion_id)
+
+        elif "audioOutput" in nova_event:
             audio_content = nova_event["audioOutput"]["content"]
             audio_bytes = base64.b64decode(audio_content)
+            audio_stream = AudioStreamEvent(
+                audio=audio_bytes,
+                format="pcm",
+                sample_rate=24000,
+                channels=1
+            )
+            return {"audio_stream": audio_stream}
 
-            audio_output: AudioOutputEvent = {
-                "audioData": audio_bytes,
-                "format": "pcm",
-                "sampleRate": 24000,
-                "channels": 1,
-                "encoding": "base64",
-            }
-
-            return {"audioOutput": audio_output}
-
-        # Handle text output
+        # Complex events delegated to helper methods
         elif "textOutput" in nova_event:
+            return self._handle_text_output(nova_event)
             text_content = nova_event["textOutput"]["content"]
             # Use stored role from contentStart event, fallback to event role
             role = getattr(self, "_current_role", nova_event["textOutput"].get("role", "assistant"))
@@ -484,56 +537,161 @@ class NovaSonicSession(BidirectionalModelSession):
             # Check for Nova Sonic interruption pattern (matches working sample)
             if '{ "interrupted" : true }' in text_content:
                 logger.debug("Nova interruption detected in text")
-                interruption: InterruptionDetectedEvent = {"reason": "user_input"}
-                return {"interruptionDetected": interruption}
+                turn_id = getattr(self, "_current_turn_id", None)
+                interruption = InterruptionEvent(reason="user_speech", turn_id=turn_id)
+                return {"interruption": interruption}
 
-            # Show transcription for user speech - ALWAYS show these regardless of DEBUG flag
+            # Deduplicate transcripts (Nova sends the same text multiple times)
+            if text_content in self._seen_transcripts:
+                logger.debug("Skipping duplicate transcript: %s", text_content[:50])
+                return None
+            
+            # Add to seen transcripts and maintain window size
+            self._seen_transcripts.add(text_content)
+            if len(self._seen_transcripts) > self._transcript_window_size:
+                # Remove oldest (convert to list, remove first, convert back)
+                transcripts_list = list(self._seen_transcripts)
+                self._seen_transcripts = set(transcripts_list[1:])
+
+            # Log transcription for debugging (use DEBUG level to avoid duplicate prints)
             if role == "USER":
-                print(f"User: {text_content}")
+                logger.debug("User transcript: %s", text_content)
             elif role == "ASSISTANT":
-                print(f"Assistant: {text_content}")
+                logger.debug("Assistant transcript: %s", text_content)
 
-            text_output: TextOutputEvent = {"text": text_content, "role": role.lower()}
+            # Map role to source
+            source = "user" if role == "USER" else "assistant"
+            # Nova Sonic text outputs are typically final transcripts
+            is_final = True
 
-            return {"textOutput": text_output}
+            transcript_stream = TranscriptStreamEvent(
+                text=text_content,
+                source=source,
+                is_final=is_final
+            )
+            return {"transcript_stream": transcript_stream}
 
-        # Handle tool use
+        # Handle toolUse → ToolUseEvent
         elif "toolUse" in nova_event:
             tool_use = nova_event["toolUse"]
 
-            tool_use_event: ToolUse = {
+            # Nova Sonic returns complete tool use (no streaming)
+            # Create single delta with complete tool use
+            delta: Dict[str, Any] = {
+                "toolUse": {
+                    "input": tool_use["content"]  # Already JSON string
+                }
+            }
+            
+            current_tool_use = {
                 "toolUseId": tool_use["toolUseId"],
                 "name": tool_use["toolName"],
-                "input": json.loads(tool_use["content"]),
+                "input": tool_use["content"]  # Already JSON string
             }
+            
+            tool_use_event = ToolUseStreamEvent(delta, current_tool_use)
+            return {"tool_use": tool_use_event}
 
-            return {"toolUse": tool_use_event}
+        # Handle contentEnd with stopReason="INTERRUPTED" → InterruptionEvent
+        elif "contentEnd" in nova_event and nova_event["contentEnd"].get("stopReason") == "INTERRUPTED":
+            logger.debug("Nova interruption stop reason in contentEnd")
+            turn_id = getattr(self, "_current_turn_id", None)
+            interruption = InterruptionEvent(reason="user_speech", turn_id=turn_id)
+            return {"interruption": interruption}
 
-        # Handle interruption
-        elif nova_event.get("stopReason") == "INTERRUPTED":
-            logger.debug("Nova interruption stop reason")
+        # Handle completionEnd → TurnCompleteEvent
+        elif "completionEnd" in nova_event:
+            turn_id = getattr(self, "_current_turn_id", str(uuid.uuid4()))
+            stop_reason_map = {
+                "COMPLETE": "complete",
+                "INTERRUPTED": "interrupted",
+                "TOOL_USE": "tool_use",
+                "ERROR": "error"
+            }
+            nova_stop_reason = nova_event["completionEnd"].get("stopReason", "COMPLETE")
+            stop_reason = stop_reason_map.get(nova_stop_reason, "complete")
 
-            interruption: InterruptionDetectedEvent = {"reason": "user_input"}
+            turn_complete = TurnCompleteEvent(turn_id=turn_id, stop_reason=stop_reason)
+            return {"turn_complete": turn_complete}
 
-            return {"interruptionDetected": interruption}
-
-        # Handle usage events - convert to standardized format
+        # Handle usageEvent → UsageEvent
         elif "usageEvent" in nova_event:
             usage_data = nova_event["usageEvent"]
-            usage_metrics: UsageMetricsEvent = {
-                "totalTokens": usage_data.get("totalTokens"),
-                "inputTokens": usage_data.get("totalInputTokens"),
-                "outputTokens": usage_data.get("totalOutputTokens"),
-                "audioTokens": usage_data.get("details", {}).get("total", {}).get("output", {}).get("speechTokens")
-            }
-            return {"usageMetrics": usage_metrics}
+            
+            # Build modality breakdown
+            details = []
+            usage_details = usage_data.get("details", {})
+            
+            # Extract speech tokens (audio modality)
+            total_usage = usage_details.get("total", {})
+            input_speech = total_usage.get("input", {}).get("speechTokens", 0)
+            output_speech = total_usage.get("output", {}).get("speechTokens", 0)
+            if input_speech or output_speech:
+                details.append({
+                    "modality": "audio",
+                    "input_tokens": input_speech,
+                    "output_tokens": output_speech
+                })
+            
+            # Extract text tokens
+            input_text = total_usage.get("input", {}).get("textTokens", 0)
+            output_text = total_usage.get("output", {}).get("textTokens", 0)
+            if input_text or output_text:
+                details.append({
+                    "modality": "text",
+                    "input_tokens": input_text,
+                    "output_tokens": output_text
+                })
 
-        # Handle content start events (track role)
+            input_tokens = usage_data.get("totalInputTokens", 0)
+            output_tokens = usage_data.get("totalOutputTokens", 0)
+            total_tokens = input_tokens + output_tokens
+            
+            usage_event = MultimodalUsage(
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+                modality_details=details if details else None
+            )
+            return {"usage": usage_event}
+
+        # Handle sessionEnd → SessionEndEvent
+        elif "sessionEnd" in nova_event:
+            reason_map = {
+                "CLIENT_DISCONNECT": "client_disconnect",
+                "TIMEOUT": "timeout",
+                "ERROR": "error",
+                "COMPLETE": "complete"
+            }
+            nova_reason = nova_event["sessionEnd"].get("reason", "COMPLETE")
+            reason = reason_map.get(nova_reason, "complete")
+
+            session_end = SessionEndEvent(reason=reason)
+            return {"session_end": session_end}
+
+        # Handle content start events (track role and turn state)
         elif "contentStart" in nova_event:
             role = nova_event["contentStart"].get("role", "unknown")
             # Store role for subsequent text output events
             self._current_role = role
             return None
+
+        # Handle error responses → ErrorEvent
+        elif "error" in nova_event or "exception" in nova_event:
+            error_data = nova_event.get("error", nova_event.get("exception", {}))
+            error_code = error_data.get("code", "UNKNOWN_ERROR")
+            error_message = error_data.get("message", "An error occurred")
+            
+            # Create exception from error data
+            error_exception = Exception(error_message)
+            error_exception.__class__.__name__ = error_code  # Set exception name to error code
+            
+            error_event = ErrorEvent(
+                error=error_exception,
+                code=error_code,
+                details=error_data.get("details")
+            )
+            return {"error": error_event}
 
         # Handle other events
         else:
@@ -563,7 +721,7 @@ class NovaSonicSession(BidirectionalModelSession):
 
         return json.dumps(prompt_start_event)
 
-    def _build_tool_configuration(self, tools: list[ToolSpec]) -> list[dict]:
+    def _build_tool_configuration(self, tools: List[ToolSpec]) -> List[Dict[str, Any]]:
         """Build tool configuration from tool specs."""
         tool_config = []
         for tool in tools:
@@ -578,7 +736,7 @@ class NovaSonicSession(BidirectionalModelSession):
             )
         return tool_config
 
-    def _get_system_prompt_events(self, system_prompt: str) -> list[str]:
+    def _get_system_prompt_events(self, system_prompt: str) -> List[str]:
         """Generate system prompt events."""
         content_name = str(uuid.uuid4())
         return [
@@ -631,7 +789,7 @@ class NovaSonicSession(BidirectionalModelSession):
             {"event": {"textInput": {"promptName": self.prompt_name, "contentName": content_name, "content": text}}}
         )
 
-    def _get_tool_result_event(self, content_name: str, result: dict[str, any]) -> str:
+    def _get_tool_result_event(self, content_name: str, result: Dict[str, Any]) -> str:
         """Generate tool result event."""
         return json.dumps(
             {
@@ -670,6 +828,46 @@ class NovaSonicSession(BidirectionalModelSession):
             logger.error("Error sending Nova Sonic event: %s", e)
             logger.error("Event was: %s", event)
             raise
+    
+    def _handle_text_output(self, nova_event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Handle textOutput events (transcripts and interruptions)."""
+        text_content = nova_event["textOutput"]["content"]
+        role = getattr(self, "_current_role", nova_event["textOutput"].get("role", "assistant"))
+
+        # Check for interruption pattern
+        if '{ "interrupted" : true }' in text_content:
+            logger.debug("Nova interruption detected in text")
+            turn_id = getattr(self, "_current_turn_id", None)
+            interruption = InterruptionEvent(reason="user_speech", turn_id=turn_id)
+            return {"interruption": interruption}
+
+        # Deduplicate transcripts (Nova sends duplicates)
+        if text_content in self._seen_transcripts:
+            logger.debug("Skipping duplicate transcript: %s", text_content[:50])
+            return None
+        
+        # Add to seen transcripts and maintain window size
+        self._seen_transcripts.add(text_content)
+        if len(self._seen_transcripts) > self._transcript_window_size:
+            transcripts_list = list(self._seen_transcripts)
+            self._seen_transcripts = set(transcripts_list[1:])
+
+        # Log transcription
+        if role == "USER":
+            logger.debug("User transcript: %s", text_content)
+        elif role == "ASSISTANT":
+            logger.debug("Assistant transcript: %s", text_content)
+
+        # Map role to source
+        source = "user" if role == "USER" else "assistant"
+        is_final = True  # Nova Sonic text outputs are typically final
+
+        transcript_stream = TranscriptStreamEvent(
+            text=text_content,
+            source=source,
+            is_final=is_final
+        )
+        return {"transcript_stream": transcript_stream}
 
 
 class NovaSonicBidirectionalModel(BidirectionalModel):

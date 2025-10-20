@@ -212,6 +212,9 @@ async def _handle_interruption(session: BidirectionalConnection) -> None:
             except asyncio.QueueEmpty:
                 break
 
+        # Import event types to avoid circular imports
+        from ..types.bidirectional_streaming import AudioStreamEvent
+        
         # Also clear the agent's audio output queue
         audio_cleared = 0
         # Create a temporary list to hold non-audio events
@@ -219,7 +222,7 @@ async def _handle_interruption(session: BidirectionalConnection) -> None:
         try:
             while True:
                 event = session.agent._output_queue.get_nowait()
-                if event.get("audioOutput"):
+                if isinstance(event, AudioStreamEvent):
                     audio_cleared += 1
                 else:
                     # Keep non-audio events
@@ -257,42 +260,96 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
             if not session.active:
                 break
 
-            # Basic validation - skip invalid events
-            if not isinstance(provider_event, dict):
-                continue
-            
-            strands_event = provider_event
+            # Import event types locally to avoid circular imports
+            from ....types._events import ToolUseStreamEvent
+            from ..types.bidirectional_streaming import (
+                AudioStreamEvent,
+                ErrorEvent,
+                InterruptionEvent,
+                MultimodalUsage,
+                SessionEndEvent,
+                SessionStartEvent,
+                TranscriptStreamEvent,
+                TurnCompleteEvent,
+                TurnStartEvent,
+            )
 
-            # Handle interruption detection (provider converts raw patterns to interruptionDetected)
-            if strands_event.get("interruptionDetected"):
-                logger.debug("Interruption forwarded")
+            # Unwrap dict-wrapped events from models (legacy format)
+            if isinstance(provider_event, dict):
+                # Extract the actual TypedEvent from the dict wrapper
+                for key, value in provider_event.items():
+                    if isinstance(value, (
+                        SessionStartEvent, TurnStartEvent, AudioStreamEvent,
+                        TranscriptStreamEvent, ToolUseStreamEvent, InterruptionEvent,
+                        TurnCompleteEvent, MultimodalUsage, SessionEndEvent, ErrorEvent
+                    )):
+                        provider_event = value
+                        break
+
+            # Handle new TypedEvent instances using isinstance() checks
+            if isinstance(provider_event, InterruptionEvent):
+                logger.debug("Interruption detected: reason=%s, turn_id=%s", provider_event.reason, provider_event.turn_id)
                 await _handle_interruption(session)
                 # Forward interruption event to agent for application-level handling
-                await session.agent._output_queue.put(strands_event)
+                await session.agent._output_queue.put(provider_event)
                 continue
 
-            # Queue tool requests for concurrent execution
-            if strands_event.get("toolUse"):
-                logger.debug("Tool queued: %s", strands_event["toolUse"].get("name"))
-                await session.tool_queue.put(strands_event["toolUse"])
+            elif isinstance(provider_event, ToolUseStreamEvent):
+                current_tool = provider_event.get("current_tool_use", {})
+                logger.debug("Tool use requested: name=%s, tool_use_id=%s", current_tool.get("name"), current_tool.get("toolUseId"))
+                # Queue tool for concurrent execution
+                await session.tool_queue.put(provider_event)
                 continue
 
-            # Send output events to Agent for receive() method
-            if strands_event.get("audioOutput") or strands_event.get("textOutput"):
-                await session.agent._output_queue.put(strands_event)
+            elif isinstance(provider_event, AudioStreamEvent):
+                logger.debug("Audio stream chunk received: format=%s, sample_rate=%d", provider_event.format, provider_event.sample_rate)
+                # Forward audio to agent output queue
+                await session.agent._output_queue.put(provider_event)
+                continue
 
-            # Update Agent conversation history using existing patterns
-            if strands_event.get("messageStop"):
-                logger.debug("Message added to history")
-                session.agent.messages.append(strands_event["messageStop"]["message"])
-            
-            # Handle user audio transcripts - add to message history
-            if strands_event.get("textOutput") and strands_event["textOutput"].get("role") == "user":
-                user_transcript = strands_event["textOutput"]["text"]
-                if user_transcript.strip():  # Only add non-empty transcripts
-                    user_message = {"role": "user", "content": user_transcript}
+            elif isinstance(provider_event, TranscriptStreamEvent):
+                logger.debug("Transcript received: source=%s, is_final=%s, text=%s", provider_event.source, provider_event.is_final, provider_event.text[:50])
+                # Forward transcript to agent output queue
+                await session.agent._output_queue.put(provider_event)
+                
+                # Add final user transcripts to message history
+                if provider_event.source == "user" and provider_event.is_final and provider_event.text.strip():
+                    user_message = {"role": "user", "content": provider_event.text}
                     session.agent.messages.append(user_message)
                     logger.debug("User transcript added to history")
+                continue
+
+            elif isinstance(provider_event, TurnStartEvent):
+                logger.debug("Turn started: turn_id=%s", provider_event.turn_id)
+                # Forward to agent for turn tracking
+                await session.agent._output_queue.put(provider_event)
+                continue
+
+            elif isinstance(provider_event, TurnCompleteEvent):
+                logger.debug("Turn completed: turn_id=%s, stop_reason=%s", provider_event.turn_id, provider_event.stop_reason)
+                # Forward to agent for turn tracking
+                await session.agent._output_queue.put(provider_event)
+                continue
+
+            elif isinstance(provider_event, SessionStartEvent):
+                logger.debug("Session started: session_id=%s, model=%s", provider_event.session_id, provider_event.model)
+                await session.agent._output_queue.put(provider_event)
+                continue
+
+            elif isinstance(provider_event, SessionEndEvent):
+                logger.debug("Session ended: reason=%s", provider_event.reason)
+                await session.agent._output_queue.put(provider_event)
+                continue
+
+            elif isinstance(provider_event, MultimodalUsage):
+                logger.debug("Usage event: input_tokens=%d, output_tokens=%d", provider_event.input_tokens, provider_event.output_tokens)
+                await session.agent._output_queue.put(provider_event)
+                continue
+
+            elif isinstance(provider_event, ErrorEvent):
+                logger.error("Error event: code=%s, message=%s", provider_event.code, provider_event.message)
+                await session.agent._output_queue.put(provider_event)
+                continue
 
     except Exception as e:
         logger.error("Model events error: %s", str(e))
@@ -315,7 +372,20 @@ async def _process_tool_execution(session: BidirectionalConnection) -> None:
     while session.active:
         try:
             tool_use = await asyncio.wait_for(session.tool_queue.get(), timeout=TOOL_QUEUE_TIMEOUT)
-            logger.debug("Tool execution started: %s (id: %s)", tool_use.get("name"), tool_use.get("toolUseId"))
+            
+            # Import event types locally to avoid circular imports
+            from ....types._events import ToolUseStreamEvent
+            
+            # All tool uses should be ToolUseStreamEvent instances
+            if not isinstance(tool_use, ToolUseStreamEvent):
+                logger.error("Invalid tool use event type: %s", type(tool_use))
+                continue
+            
+            # Extract tool info from current_tool_use
+            current_tool_use = tool_use.get("current_tool_use", {})
+            tool_name = current_tool_use.get("name", "")
+            tool_id = current_tool_use.get("toolUseId", "")
+            logger.debug("Tool execution started: %s (id: %s)", tool_name, tool_id)
 
             task_id = str(uuid.uuid4())
             task = asyncio.create_task(_execute_tool_with_strands(session, tool_use))
@@ -363,7 +433,7 @@ async def _process_tool_execution(session: BidirectionalConnection) -> None:
 
 
 
-async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use: dict) -> None:
+async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use: "ToolUseStreamEvent") -> None:
     """Execute tool using Strands infrastructure with interruption support.
 
     Executes tools using the existing Strands tool system with proper asyncio
@@ -372,14 +442,35 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
 
     Args:
         session: BidirectionalConnection for context.
-        tool_use: Tool use event to execute.
+        tool_use: Tool use event to execute (ToolUseStreamEvent instance).
     """
-    tool_name = tool_use.get("name")
-    tool_id = tool_use.get("toolUseId")
+    # Import event types locally to avoid circular imports
+    from ....types._events import ToolResultEvent
+    
+    # Extract tool information from ToolUseStreamEvent
+    current_tool_use = tool_use.get("current_tool_use", {})
+    tool_name = current_tool_use.get("name", "")
+    tool_id = current_tool_use.get("toolUseId", "")
+    tool_input_str = current_tool_use.get("input", "{}")
+    
+    # Parse tool input from JSON string
+    import json
+    try:
+        tool_input = json.loads(tool_input_str) if tool_input_str else {}
+    except json.JSONDecodeError:
+        logger.error("Failed to parse tool input JSON: %s", tool_input_str)
+        tool_input = {}
+    
+    # Convert to dict for Strands tool system
+    tool_use_dict = {
+        "toolUseId": tool_id,
+        "name": tool_name,
+        "input": tool_input,
+    }
 
     try:
         # Create message structure for existing tool system
-        tool_message: Message = {"role": "assistant", "content": [{"toolUse": tool_use}]}
+        tool_message: Message = {"role": "assistant", "content": [{"toolUse": tool_use_dict}]}
 
         tool_uses: list[ToolUse] = []
         tool_results: list[ToolResult] = []
@@ -396,29 +487,31 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
             return
 
         # Execute tools directly (simpler approach for bidirectional)
-        for tool_use in valid_tool_uses:
-            tool_func = session.agent.tool_registry.registry.get(tool_use["name"])
+        for tool_use_item in valid_tool_uses:
+            tool_func = session.agent.tool_registry.registry.get(tool_use_item["name"])
 
             if tool_func:
                 try:
                     actual_func = _extract_callable_function(tool_func)
 
                     # Execute tool function with provided input
-                    result = actual_func(**tool_use.get("input", {}))
+                    result = actual_func(**tool_use_item.get("input", {}))
 
-                    tool_result = _create_success_result(tool_use["toolUseId"], result)
+                    tool_result = _create_success_result(tool_use_item["toolUseId"], result)
                     tool_results.append(tool_result)
 
                 except Exception as e:
                     logger.error("Tool execution failed: %s - %s", tool_name, str(e))
-                    tool_result = _create_error_result(tool_use["toolUseId"], str(e))
+                    tool_result = _create_error_result(tool_use_item["toolUseId"], str(e))
                     tool_results.append(tool_result)
             else:
                 logger.warning("Tool not found: %s", tool_name)
 
-        # Send results through provider-specific session
+        # Send results through provider-specific session using unified send() method
         for result in tool_results:
-            await session.model_session.send_tool_result(tool_use.get("toolUseId"), result)
+            # ToolResultEvent expects a ToolResult dict (which already contains toolUseId)
+            tool_result_event = ToolResultEvent(tool_result=result)
+            await session.model_session.send(tool_result_event)
 
         logger.debug("Tool execution completed: %s (%d results)", tool_name, len(tool_results))
 
@@ -427,10 +520,17 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
         logger.debug("Tool task cancelled gracefully: %s (id: %s)", tool_name, tool_id)
         raise  # Re-raise to properly handle cancellation
     except Exception as e:
-        logger.error("Tool execution error: %s - %s", tool_use.get("name"), str(e))
+        logger.error("Tool execution error: %s - %s", tool_name, str(e))
         
         try:
-            await session.model_session.send_tool_result(tool_use.get("toolUseId"), {"error": str(e)})
+            # Create error result with toolUseId
+            error_result = {
+                "toolUseId": tool_id,
+                "status": "error",
+                "content": [{"text": f"Error: {str(e)}"}]
+            }
+            error_result_event = ToolResultEvent(tool_result=error_result)
+            await session.model_session.send(error_result_event)
         except Exception as send_error:
             logger.error("Tool error send failed: %s", str(send_error))
 

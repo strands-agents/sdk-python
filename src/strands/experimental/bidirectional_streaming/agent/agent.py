@@ -21,7 +21,12 @@ from ....tools.registry import ToolRegistry
 from ....types.content import Messages
 from ..event_loop.bidirectional_event_loop import start_bidirectional_connection, stop_bidirectional_connection
 from ..models.bidirectional_model import BidirectionalModel
-from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent, ImageInputEvent
+from ..types import (
+    AudioInputEvent,
+    BidirectionalStreamEvent,
+    ImageInputEvent,
+    ToolResultEvent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,34 +104,42 @@ class BidirectionalAgent:
             # Add user text message to history
             self.messages.append({"role": "user", "content": input_data})
 
-            logger.debug("Text sent: %d characters", len(input_data))
-            await self._session.model_session.send_text_content(input_data)
-        elif isinstance(input_data, dict) and "audioData" in input_data:
-            # Handle audio input
-            await self._session.model_session.send_audio_content(input_data)
-        elif isinstance(input_data, dict) and "imageData" in input_data:
-            # Handle image input (ImageInputEvent)
-            await self._session.model_session.send_image_content(input_data)
+            # Text input not yet supported - deferred to P1
+            raise NotImplementedError(
+                "Text input is not yet supported in bidirectional streaming. "
+                "Use audio input via AudioInputEvent instead."
+            )
+        elif isinstance(input_data, AudioInputEvent):
+            logger.debug("Audio sent: format=%s, sample_rate=%d, channels=%d, size=%d bytes", 
+                        input_data.format, input_data.sample_rate, input_data.channels, len(input_data.audio))
+            await self._session.model_session.send(input_data)
+        elif isinstance(input_data, ImageInputEvent):
+            logger.debug("Image sent: mime_type=%s, encoding=%s", input_data.mime_type, input_data.encoding)
+            await self._session.model_session.send(input_data)
         else:
             raise ValueError(
-                "Input must be either a string (text), AudioInputEvent "
-                "(dict with audioData, format, sampleRate, channels), or ImageInputEvent "
-                "(dict with imageData, mimeType, encoding)"
+                "Input must be AudioInputEvent or ImageInputEvent instance"
             )
 
-    async def receive(self) -> AsyncIterable[BidirectionalStreamEvent]:
+    async def receive(self) -> AsyncIterable[dict]:
         """Receive events from the model including audio, text, and tool calls.
 
         Yields model output events processed by background tasks including audio output,
-        text responses, tool calls, and session updates.
+        text responses, tool calls, and session updates. Events are returned as dictionaries
+        for consistency with the core agent's callback handler pattern.
 
         Yields:
-            BidirectionalStreamEvent: Events from the model session.
+            dict: Event dictionaries with event-specific keys and data.
         """
         while self._session and self._session.active:
             try:
                 event = await asyncio.wait_for(self._output_queue.get(), timeout=0.1)
-                yield event
+                # Convert TypedEvent to dict using as_dict() method
+                if hasattr(event, 'as_dict'):
+                    yield event.as_dict()
+                else:
+                    # Fallback for legacy dict events
+                    yield event
             except asyncio.TimeoutError:
                 continue
 

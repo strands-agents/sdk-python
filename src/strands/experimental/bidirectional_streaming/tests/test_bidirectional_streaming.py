@@ -14,7 +14,7 @@ Requirements:
 - Provider API keys (see above)
 
 Usage:
-    python test_bidirectional_streaming.py [--provider gemini|nova|openai] [--duration 180]
+    python test_bidirectional_streaming.py [--provider gemini|nova|openai] [--duration 180] [--camera] [--debug]
 """
 
 import argparse
@@ -41,17 +41,18 @@ except ImportError as e:
     CAMERA_AVAILABLE = False
 
 import pyaudio
-from strands_tools import calculator
 
+from strands import tool
 from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
 from strands.experimental.bidirectional_streaming.models.gemini_live import GeminiLiveBidirectionalModel
 from strands.experimental.bidirectional_streaming.models.novasonic import NovaSonicBidirectionalModel
 from strands.experimental.bidirectional_streaming.models.openai import OpenAIRealtimeBidirectionalModel
+from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import (
+    AudioInputEvent,
+    ImageInputEvent,
+)
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-gemini_logger = logging.getLogger("strands.experimental.bidirectional_streaming.models.gemini_live")
-gemini_logger.setLevel(logging.DEBUG)
+# Logger will be configured in main() based on --debug flag
 logger = logging.getLogger(__name__)
 
 
@@ -151,59 +152,76 @@ async def record(context):
 
 
 async def receive(agent, context):
-    """Receive and process events from agent."""
+    """Receive and process events from agent - now returns dicts like normal agent."""
     try:
         async for event in agent.receive():
-            # Debug: Log all event types
-            event_types = [k for k in event.keys() if not k.startswith("_")]
-            if event_types:
-                logger.debug(f"Received event types: {event_types}")
-
-            # Handle audio output
-            if "audioOutput" in event:
+            # All events are now dicts (converted via as_dict())
+            # Check for specific event types by their discriminator keys
+            
+            if event.get("session_start"):
+                logger.info(f"Session started: {event.get('session_id')} with model {event.get('model')}")
+                
+            elif event.get("turn_start"):
+                logger.debug(f"Turn started: {event.get('turn_id')}")
+                
+            elif event.get("audio_stream"):
+                if not context.get("interrupted", False):
+                    context["audio_out"].put_nowait(event.get("audio"))
+                    
+            elif event.get("transcript_stream"):
+                # Print transcripts with special formatting
+                source = event.get("source")
+                text = event.get("text")
+                if source == "user":
+                    print(f"🎤 User: {text}")
+                elif source == "assistant":
+                    print(f"🔊 Assistant: {text}")
+                    
+            elif event.get("current_tool_use"):
+                # ToolUseStreamEvent from core
+                current = event.get("current_tool_use", {})
+                tool_name = current.get("name", "unknown")
+                tool_id = current.get("toolUseId", "unknown")
+                logger.info(f"Tool use requested: {tool_name} (id: {tool_id})")
+                print(f"Using tools: {tool_name}  (id: {tool_id})")
+            elif event.get("interruption"):
+                logger.debug(f"Interruption detected: {event.get('reason')}")
+                context["interrupted"] = True
+                
+            elif event.get("turn_complete"):
+                logger.debug(f"Turn complete: {event.get('turn_id')} (reason: {event.get('stop_reason')})")
+                context["interrupted"] = False
+                
+            elif event.get("type") == "multimodal_usage":
+                logger.debug(f"Usage: {event.get('inputTokens')} in, {event.get('outputTokens')} out")
+                
+            elif event.get("session_end"):
+                logger.info(f"Session ended: {event.get('reason')}")
+                context["active"] = False
+                
+            # Fallback: Handle legacy TypedDict events for backward compatibility
+            elif "audioOutput" in event:
                 if not context.get("interrupted", False):
                     context["audio_out"].put_nowait(event["audioOutput"]["audioData"])
-
-            # Handle interruption events
-            elif "interruptionDetected" in event:
+            
+            elif "interruptionDetected" in event or "interrupted" in event:
                 context["interrupted"] = True
-            elif "interrupted" in event:
-                context["interrupted"] = True
-
-            # Handle text output with interruption detection
+            
             elif "textOutput" in event:
                 text_content = event["textOutput"].get("text", "")
                 role = event["textOutput"].get("role", "unknown")
-
-                # Check for text-based interruption patterns
-                if '{ "interrupted" : true }' in text_content:
-                    context["interrupted"] = True
-                elif "interrupted" in text_content.lower():
-                    context["interrupted"] = True
-
-                # Log text output
                 if role.upper() == "USER":
                     print(f"User: {text_content}")
                 elif role.upper() == "ASSISTANT":
                     print(f"Assistant: {text_content}")
-
-            # Handle transcript events (audio transcriptions)
+            
             elif "transcript" in event:
                 transcript_text = event["transcript"].get("text", "")
                 transcript_role = event["transcript"].get("role", "unknown")
-                transcript_type = event["transcript"].get("type", "unknown")
-
-                # Print transcripts with special formatting to distinguish from text output
                 if transcript_role.upper() == "USER":
                     print(f"🎤 User (transcript): {transcript_text}")
                 elif transcript_role.upper() == "ASSISTANT":
                     print(f"🔊 Assistant (transcript): {transcript_text}")
-
-            # Handle turn complete events (if we add them back)
-            elif "turnComplete" in event:
-                logger.debug("Turn complete event received - model ready for next input")
-                # Reset interrupted state since the turn is complete
-                context["interrupted"] = False
 
     except asyncio.CancelledError:
         pass
@@ -253,9 +271,13 @@ async def get_frames(context):
             if frame is None:
                 break
 
-            # Send frame to agent as image input
+            # Send frame to agent as image input using new TypedEvent API
             try:
-                image_event = {"imageData": frame["data"], "mimeType": frame["mime_type"], "encoding": "base64"}
+                image_event = ImageInputEvent(
+                    image=frame["data"],
+                    mime_type=frame["mime_type"],
+                    encoding="base64"
+                )
                 await context["agent"].send(image_event)
                 print("📸 Frame sent to model")
             except Exception as e:
@@ -272,15 +294,20 @@ async def get_frames(context):
 
 
 async def send(agent, context):
-    """Send audio input to agent."""
+    """Send audio input to agent using new TypedEvent API."""
     try:
         while time.time() - context["start_time"] < context["duration"]:
             try:
                 audio_bytes = context["audio_in"].get_nowait()
-                audio_event = {"audioData": audio_bytes, "format": "pcm", "sampleRate": 16000, "channels": 1}
+                audio_event = AudioInputEvent(
+                    audio=audio_bytes,
+                    format="pcm",
+                    sample_rate=16000,
+                    channels=1
+                )
                 await agent.send(audio_event)
             except asyncio.QueueEmpty:
-                await asyncio.sleep(0.01)  # Restored to working timing
+                await asyncio.sleep(0.01)
             except asyncio.CancelledError:
                 break
 
@@ -324,6 +351,23 @@ def create_model(provider: str):
         model = OpenAIRealtimeBidirectionalModel(
             model_id="gpt-4o-realtime-preview-2024-12-17",
             api_key=api_key,
+            session={
+                "output_modalities": ["audio"],
+                "audio": {
+                    "input": {
+                        "format": {"type": "audio/pcm", "rate": 24000},
+                        "turn_detection": {
+                            "type": "server_vad",
+                            "threshold": 0.5,
+                            "silence_duration_ms": 700
+                        }
+                    },
+                    "output": {
+                        "format": {"type": "audio/pcm", "rate": 24000},
+                        "voice": "alloy"
+                    }
+                }
+            }
         )
         print("✓ Using OpenAI Realtime model")
         return model
@@ -332,14 +376,63 @@ def create_model(provider: str):
         raise ValueError(f"Unknown provider: {provider}. Choose from: gemini, nova, openai")
 
 
-async def main(provider: str = "nova", duration: int = 180, enable_camera: bool = True):
+def configure_logging(debug: bool = False):
+    """Configure logging based on debug flag."""
+
+    # Console handler - only errors and critical
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.ERROR)
+    console_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+    
+    # Configure root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
+    root_logger.addHandler(console_handler)
+    if debug:
+        # Debug mode: All logs to file, only errors to console
+        log_filename = f"bidirectional_streaming_debug_{int(time.time())}.log"
+        
+        
+        # File handler - captures everything at DEBUG level
+        file_handler = logging.FileHandler(log_filename)
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
+    
+        root_logger.addHandler(file_handler)
+        print(f"🐛 Debug logging enabled - writing to {log_filename}")
+        print(f"   All logs → {log_filename}")
+        print(f"   Errors only → terminal\n")
+        
+        # Enable debug logging for all bidirectional streaming modules
+        for module_name in [
+            "strands.experimental.bidirectional_streaming.models.gemini_live",
+            "strands.experimental.bidirectional_streaming.models.novasonic",
+            "strands.experimental.bidirectional_streaming.models.openai",
+            "strands.experimental.bidirectional_streaming.agent.agent",
+            "strands.experimental.bidirectional_streaming.event_loop.bidirectional_event_loop",
+        ]:
+            logging.getLogger(module_name).setLevel(logging.DEBUG)
+    else:
+        # Normal mode: Log to console with INFO level
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
+
+
+async def main(provider: str = "nova", duration: int = 180, enable_camera: bool = False, debug: bool = False):
     """Main function for bidirectional streaming test with camera support."""
+    # Configure logging first
+    configure_logging(debug)
+    
     print(f"\n{'='*60}")
     print("Bidirectional Streaming Test")
     print(f"{'='*60}")
     print(f"Provider: {provider.upper()}")
     print(f"Duration: {duration}s")
     print(f"Camera: {'Enabled' if enable_camera and CAMERA_AVAILABLE else 'Disabled'}")
+    if debug:
+        print(f"Debug: Enabled (logging to file)")
     print(f"{'='*60}\n")
 
     # Initialize model and agent
@@ -349,6 +442,31 @@ async def main(provider: str = "nova", duration: int = 180, enable_camera: bool 
         print(f"❌ Error: {e}")
         return
 
+    # Define a simple calculator tool
+    @tool
+    def calculator(operation: str, a: float, b: float) -> float:
+        """Perform basic math operations.
+        
+        Args:
+            operation: The operation to perform (add, subtract, multiply, divide)
+            a: First number
+            b: Second number
+            
+        Returns:
+            Result of the operation
+        """
+        print(f"🧮 Calculator: {operation} {a} {b}")
+        if operation == "add":
+            return a + b
+        elif operation == "subtract":
+            return a - b
+        elif operation == "multiply":
+            return a * b
+        elif operation == "divide":
+            return a / b if b != 0 else float('inf')
+        else:
+            raise ValueError(f"Unknown operation: {operation}")
+    
     agent = BidirectionalAgent(model=model, tools=[calculator], system_prompt="You are a helpful assistant.")
 
     await agent.start()
@@ -401,8 +519,14 @@ if __name__ == "__main__":
         help="Model provider to use (default: nova)",
     )
     parser.add_argument("--duration", type=int, default=180, help="Test duration in seconds (default: 180)")
-    parser.add_argument("--no-camera", action="store_true", help="Disable camera/video input")
+    parser.add_argument("--camera", action="store_true", help="Enable camera/video input (disabled by default)")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging to file")
 
     args = parser.parse_args()
 
-    asyncio.run(main(provider=args.provider, duration=args.duration, enable_camera=not args.no_camera))
+    asyncio.run(main(
+        provider=args.provider,
+        duration=args.duration,
+        enable_camera=args.camera,
+        debug=args.debug
+    ))
