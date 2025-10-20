@@ -147,7 +147,7 @@ class MultiAgentResult:
     def to_dict(self) -> dict[str, Any]:
         """Convert MultiAgentResult to JSON-serializable dict."""
         return {
-            "type": "mutiagent_result",
+            "type": "multiagent_result",
             "status": self.status.value,
             "results": {k: v.to_dict() for k, v in self.results.items()},
             "accumulated_usage": dict(self.accumulated_usage),
@@ -159,6 +159,9 @@ class MultiAgentResult:
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "MultiAgentResult":
         """Rehydrate a MultiAgentResult from persisted JSON."""
+        if data.get("type") != "multiagent_result":
+            raise TypeError(f"MultiAgentResult.from_dict: unexpected type {data.get('type')!r}")
+
         results = {k: NodeResult.from_dict(v) for k, v in data.get("results", {}).items()}
         usage_data = data.get("accumulated_usage", {})
         usage = Usage(
