@@ -10,6 +10,7 @@ from pathlib import Path
 
 # Add the src directory to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
+import os
 import time
 
 import pyaudio
@@ -17,6 +18,29 @@ from strands_tools import calculator
 
 from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
 from strands.experimental.bidirectional_streaming.models.novasonic import NovaSonicBidirectionalModel
+
+
+def test_direct_tools():
+    """Test direct tool calling."""
+    print("Testing direct tool calling...")
+
+    # Check AWS credentials
+    if not all([os.getenv("AWS_ACCESS_KEY_ID"), os.getenv("AWS_SECRET_ACCESS_KEY")]):
+        print("AWS credentials not set - skipping test")
+        return
+
+    try:
+        model = NovaSonicBidirectionalModel()
+        agent = BidirectionalAgent(model=model, tools=[calculator])
+
+        # Test calculator
+        result = agent.tool.calculator(expression="2 * 3")
+        content = result.get("content", [{}])[0].get("text", "")
+        print(f"Result: {content}")
+        print("Test completed")
+
+    except Exception as e:
+        print(f"Test failed: {e}")
 
 
 async def play(context):
@@ -195,4 +219,7 @@ async def main(duration=180):
 
 
 if __name__ == "__main__":
+    # Test direct tool calling first
+    test_direct_tools()
+
     asyncio.run(main())

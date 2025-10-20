@@ -121,7 +121,7 @@ class NovaSonicSession(BidirectionalModelSession):
 
             init_events = self._build_initialization_events(system_prompt, tools or [], messages)
 
-            logger.debug(f"Nova Sonic initialization - sending {len(init_events)} events")
+            logger.debug("Nova Sonic initialization - sending %d events", len(init_events))
             await self._send_initialization_events(init_events)
 
             logger.info("Nova Sonic connection initialized successfully")
@@ -146,7 +146,7 @@ class NovaSonicSession(BidirectionalModelSession):
 
     async def _send_initialization_events(self, events: list[str]) -> None:
         """Send initialization events with required delays."""
-        for i, event in enumerate(events):
+        for _i, event in enumerate(events):
             await self._send_nova_event(event)
             await asyncio.sleep(EVENT_DELAY)
 
@@ -167,12 +167,12 @@ class NovaSonicSession(BidirectionalModelSession):
                     await asyncio.sleep(0.1)
                     continue
                 except Exception as e:
-                    logger.warning(f"Nova Sonic response error: {e}")
+                    logger.warning("Nova Sonic response error: %s", e)
                     await asyncio.sleep(0.1)
                     continue
 
         except Exception as e:
-            logger.error(f"Nova Sonic fatal error: {e}")
+            logger.error("Nova Sonic fatal error: %s", e)
         finally:
             logger.debug("Nova Sonic response processor stopped")
 
@@ -190,7 +190,7 @@ class NovaSonicSession(BidirectionalModelSession):
 
                 await self._event_queue.put(nova_event)
         except json.JSONDecodeError as e:
-            logger.warning(f"Nova Sonic JSON decode error: {e}")
+            logger.warning("Nova Sonic JSON decode error: %s", e)
 
     def _log_event_type(self, nova_event: dict[str, any]) -> None:
         """Log specific Nova Sonic event types for debugging."""
@@ -383,10 +383,8 @@ class NovaSonicSession(BidirectionalModelSession):
             self._get_content_end_event(content_name),
         ]
 
-        for i, event in enumerate(events):
+        for _i, event in enumerate(events):
             await self._send_nova_event(event)
-
-
 
     async def close(self) -> None:
         """Close Nova Sonic connection with proper cleanup sequence."""

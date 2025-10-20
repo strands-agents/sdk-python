@@ -1,5 +1,4 @@
-"""Bidirectional streaming package.
-"""
+"""Bidirectional streaming package."""
 
 # Main components - Primary user interface
 from .agent.agent import BidirectionalAgent
