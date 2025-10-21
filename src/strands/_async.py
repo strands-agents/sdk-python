@@ -19,7 +19,6 @@ def run_async(async_func: Callable[[], Awaitable[T]]) -> T:
     Returns:
         The result of the async function
     """
-
     with ThreadPoolExecutor() as executor:
         future = executor.submit(asyncio.run, async_func())
         return future.result()
