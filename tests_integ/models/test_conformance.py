@@ -60,6 +60,7 @@ def test_structured_output_is_forced(skip_for, model):
 
     assert len(result.time) > 0
     assert len(result.weather) > 0
+    assert isinstance(result, Weather)
 
 
 def test_stream_reasoning(skip_for, model):

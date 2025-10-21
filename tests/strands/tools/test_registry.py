@@ -26,7 +26,10 @@ def test_process_tools_with_invalid_path():
     tool_registry = ToolRegistry()
     invalid_path = "not a filepath"
 
-    with pytest.raises(ValueError, match=f"Failed to load tool {invalid_path.split('.')[0]}: Tool file not found:.*"):
+    with pytest.raises(
+        ValueError,
+        match=f'Failed to load tool {invalid_path}: Tool string: "{invalid_path}" is not a valid tool string',
+    ):
         tool_registry.process_tools([invalid_path])
 
 
@@ -164,3 +167,96 @@ def test_register_tool_duplicate_name_with_hot_reload():
 
     # Verify the second tool replaced the first
     assert tool_registry.registry["hot_reload_tool"] == tool_2
+
+
+def test_register_strands_tools_from_module():
+    tool_registry = ToolRegistry()
+    tool_registry.process_tools(["tests.fixtures.say_tool"])
+
+    assert len(tool_registry.registry) == 2
+    assert "say" in tool_registry.registry
+    assert "dont_say" in tool_registry.registry
+
+
+def test_register_strands_tools_specific_tool_from_module():
+    tool_registry = ToolRegistry()
+    tool_registry.process_tools(["tests.fixtures.say_tool:say"])
+
+    assert len(tool_registry.registry) == 1
+    assert "say" in tool_registry.registry
+    assert "dont_say" not in tool_registry.registry
+
+
+def test_register_strands_tools_specific_tool_from_module_tool_missing():
+    tool_registry = ToolRegistry()
+
+    with pytest.raises(ValueError, match="Failed to load tool tests.fixtures.say_tool:nay: "):
+        tool_registry.process_tools(["tests.fixtures.say_tool:nay"])
+
+
+def test_register_strands_tools_specific_tool_from_module_not_a_tool():
+    tool_registry = ToolRegistry()
+
+    with pytest.raises(ValueError, match="Failed to load tool tests.fixtures.say_tool:not_a_tool: "):
+        tool_registry.process_tools(["tests.fixtures.say_tool:not_a_tool"])
+
+
+def test_register_strands_tools_with_dict():
+    tool_registry = ToolRegistry()
+    tool_registry.process_tools([{"path": "tests.fixtures.say_tool"}])
+
+    assert len(tool_registry.registry) == 2
+    assert "say" in tool_registry.registry
+    assert "dont_say" in tool_registry.registry
+
+
+def test_register_strands_tools_specific_tool_with_dict():
+    tool_registry = ToolRegistry()
+    tool_registry.process_tools([{"path": "tests.fixtures.say_tool", "name": "say"}])
+
+    assert len(tool_registry.registry) == 1
+    assert "say" in tool_registry.registry
+
+
+def test_register_strands_tools_specific_tool_with_dict_not_found():
+    tool_registry = ToolRegistry()
+
+    with pytest.raises(
+        ValueError,
+        match="Failed to load tool {'path': 'tests.fixtures.say_tool'"
+        ", 'name': 'nay'}: Tool \"nay\" not found in \"tests.fixtures.say_tool\"",
+    ):
+        tool_registry.process_tools([{"path": "tests.fixtures.say_tool", "name": "nay"}])
+
+
+def test_register_strands_tools_module_no_spec():
+    tool_registry = ToolRegistry()
+
+    with pytest.raises(
+        ValueError,
+        match="Failed to load tool tests.fixtures.mocked_model_provider: "
+        "The module mocked_model_provider is not a valid module",
+    ):
+        tool_registry.process_tools(["tests.fixtures.mocked_model_provider"])
+
+
+def test_register_strands_tools_module_no_function():
+    tool_registry = ToolRegistry()
+
+    with pytest.raises(
+        ValueError,
+        match="Failed to load tool tests.fixtures.tool_with_spec_but_no_function: "
+        "Module-based tool tool_with_spec_but_no_function missing function tool_with_spec_but_no_function",
+    ):
+        tool_registry.process_tools(["tests.fixtures.tool_with_spec_but_no_function"])
+
+
+def test_register_strands_tools_module_non_callable_function():
+    tool_registry = ToolRegistry()
+
+    with pytest.raises(
+        ValueError,
+        match="Failed to load tool tests.fixtures.tool_with_spec_but_non_callable_function:"
+        " Tool tool_with_spec_but_non_callable_function function is not callable",
+    ):
+        tool_registry.process_tools(["tests.fixtures.tool_with_spec_but_non_callable_function"])

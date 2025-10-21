@@ -635,8 +635,13 @@ class Swarm(MultiAgentBase):
             # Execute node
             result = None
             node.reset_executor_state()
-            # Unpacking since this is the agent class. Other executors should not unpack
-            result = await node.executor.invoke_async(node_input, **invocation_state)
+            result = await node.executor.invoke_async(node_input, invocation_state=invocation_state)
+
+            if result.stop_reason == "interrupt":
+                node.executor.messages.pop()  # remove interrupted tool use message
+                node.executor._interrupt_state.deactivate()
+
+                raise RuntimeError("user raised interrupt from agent | interrupts are not yet supported in swarms")
 
             execution_time = round((time.time() - start_time) * 1000)
 

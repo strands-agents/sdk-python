@@ -62,7 +62,8 @@ import docstring_parser
 from pydantic import BaseModel, Field, create_model
 from typing_extensions import override
 
-from ..types._events import ToolResultEvent, ToolStreamEvent
+from ..interrupt import InterruptException
+from ..types._events import ToolInterruptEvent, ToolResultEvent, ToolStreamEvent
 from ..types.tools import AgentTool, JSONSchema, ToolContext, ToolGenerator, ToolResult, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,8 @@ class FunctionToolMetadata:
         self.type_hints = get_type_hints(func)
         self._context_param = context_param
 
+        self._validate_signature()
+
         # Parse the docstring with docstring_parser
         doc_str = inspect.getdoc(func) or ""
         self.doc = docstring_parser.parse(doc_str)
@@ -110,6 +113,20 @@ class FunctionToolMetadata:
 
         # Create a Pydantic model for validation
         self.input_model = self._create_input_model()
+
+    def _validate_signature(self) -> None:
+        """Verify that ToolContext is used correctly in the function signature."""
+        for param in self.signature.parameters.values():
+            if param.annotation is ToolContext:
+                if self._context_param is None:
+                    raise ValueError("@tool(context) must be set if passing in ToolContext param")
+
+                if param.name != self._context_param:
+                    raise ValueError(
+                        f"param_name=<{param.name}> | ToolContext param must be named '{self._context_param}'"
+                    )
+                # Found the parameter, no need to check further
+                break
 
     def _create_input_model(self) -> Type[BaseModel]:
         """Create a Pydantic model from function signature for input validation.
@@ -476,6 +493,10 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             else:
                 result = await asyncio.to_thread(self._tool_func, **validated_input)  # type: ignore
                 yield self._wrap_tool_result(tool_use_id, result)
+
+        except InterruptException as e:
+            yield ToolInterruptEvent(tool_use, [e.interrupt])
+            return
 
         except ValueError as e:
             # Special handling for validation errors

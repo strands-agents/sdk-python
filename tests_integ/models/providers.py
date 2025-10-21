@@ -156,7 +156,7 @@ gemini = ProviderInfo(
     id="gemini",
     environment_variable="GOOGLE_API_KEY",
     factory=lambda: GeminiModel(
-        api_key=os.getenv("GOOGLE_API_KEY"),
+        client_args={"api_key": os.getenv("GOOGLE_API_KEY")},
         model_id="gemini-2.5-flash",
         params={
             "temperature": 0.7,

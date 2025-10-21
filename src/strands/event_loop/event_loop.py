@@ -17,7 +17,7 @@ from opentelemetry import trace as trace_api
 
 from ..hooks import AfterModelCallEvent, BeforeModelCallEvent, MessageAddedEvent
 from ..telemetry.metrics import Trace
-from ..telemetry.tracer import get_tracer
+from ..telemetry.tracer import Tracer, get_tracer
 from ..tools._validator import validate_and_prepare_tools
 from ..types._events import (
     EventLoopStopEvent,
@@ -27,6 +27,7 @@ from ..types._events import (
     ModelStopReason,
     StartEvent,
     StartEventLoopEvent,
+    ToolInterruptEvent,
     ToolResultMessageEvent,
     TypedEvent,
 )
@@ -37,7 +38,7 @@ from ..types.exceptions import (
     MaxTokensReachedException,
     ModelThrottledException,
 )
-from ..types.streaming import Metrics, StopReason
+from ..types.streaming import StopReason
 from ..types.tools import ToolResult, ToolUse
 from ._recover_message_on_max_tokens_reached import recover_message_on_max_tokens_reached
 from .streaming import stream_messages
@@ -106,104 +107,21 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
     )
     invocation_state["event_loop_cycle_span"] = cycle_span
 
-    # Create a trace for the stream_messages call
-    stream_trace = Trace("stream_messages", parent_id=cycle_trace.id)
-    cycle_trace.add_child(stream_trace)
+    # Skipping model invocation if in interrupt state as interrupts are currently only supported for tool calls.
+    if agent._interrupt_state.activated:
+        stop_reason: StopReason = "tool_use"
+        message = agent._interrupt_state.context["tool_use_message"]
 
-    # Process messages with exponential backoff for throttling
-    message: Message
-    stop_reason: StopReason
-    usage: Any
-    metrics: Metrics
+    else:
+        model_events = _handle_model_execution(agent, cycle_span, cycle_trace, invocation_state, tracer)
+        async for model_event in model_events:
+            if not isinstance(model_event, ModelStopReason):
+                yield model_event
 
-    # Retry loop for handling throttling exceptions
-    current_delay = INITIAL_DELAY
-    for attempt in range(MAX_ATTEMPTS):
-        model_id = agent.model.config.get("model_id") if hasattr(agent.model, "config") else None
-        model_invoke_span = tracer.start_model_invoke_span(
-            messages=agent.messages,
-            parent_span=cycle_span,
-            model_id=model_id,
-        )
-        with trace_api.use_span(model_invoke_span):
-            agent.hooks.invoke_callbacks(
-                BeforeModelCallEvent(
-                    agent=agent,
-                )
-            )
-
-            tool_specs = agent.tool_registry.get_all_tool_specs()
-
-            try:
-                async for event in stream_messages(agent.model, agent.system_prompt, agent.messages, tool_specs):
-                    if not isinstance(event, ModelStopReason):
-                        yield event
-
-                stop_reason, message, usage, metrics = event["stop"]
-                invocation_state.setdefault("request_state", {})
-
-                agent.hooks.invoke_callbacks(
-                    AfterModelCallEvent(
-                        agent=agent,
-                        stop_response=AfterModelCallEvent.ModelStopResponse(
-                            stop_reason=stop_reason,
-                            message=message,
-                        ),
-                    )
-                )
-
-                if stop_reason == "max_tokens":
-                    message = recover_message_on_max_tokens_reached(message)
-
-                if model_invoke_span:
-                    tracer.end_model_invoke_span(model_invoke_span, message, usage, stop_reason)
-                break  # Success! Break out of retry loop
-
-            except Exception as e:
-                if model_invoke_span:
-                    tracer.end_span_with_error(model_invoke_span, str(e), e)
-
-                agent.hooks.invoke_callbacks(
-                    AfterModelCallEvent(
-                        agent=agent,
-                        exception=e,
-                    )
-                )
-
-                if isinstance(e, ModelThrottledException):
-                    if attempt + 1 == MAX_ATTEMPTS:
-                        yield ForceStopEvent(reason=e)
-                        raise e
-
-                    logger.debug(
-                        "retry_delay_seconds=<%s>, max_attempts=<%s>, current_attempt=<%s> "
-                        "| throttling exception encountered "
-                        "| delaying before next retry",
-                        current_delay,
-                        MAX_ATTEMPTS,
-                        attempt + 1,
-                    )
-                    await asyncio.sleep(current_delay)
-                    current_delay = min(current_delay * 2, MAX_DELAY)
-
-                    yield EventLoopThrottleEvent(delay=current_delay)
-                else:
-                    raise e
-
-    try:
-        # Add message in trace and mark the end of the stream messages trace
-        stream_trace.add_message(message)
-        stream_trace.end()
-
-        # Add the response message to the conversation
-        agent.messages.append(message)
-        agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=message))
+        stop_reason, message, *_ = model_event["stop"]
         yield ModelMessageEvent(message=message)
 
-        # Update metrics
-        agent.event_loop_metrics.update_usage(usage)
-        agent.event_loop_metrics.update_metrics(metrics)
-
+    try:
         if stop_reason == "max_tokens":
             """
             Handle max_tokens limit reached by the model.
@@ -223,7 +141,7 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
         # If the model is requesting to use tools
         if stop_reason == "tool_use":
             # Handle tool execution
-            events = _handle_tool_execution(
+            tool_events = _handle_tool_execution(
                 stop_reason,
                 message,
                 agent=agent,
@@ -231,9 +149,10 @@ async def event_loop_cycle(agent: "Agent", invocation_state: dict[str, Any]) -> 
                 cycle_span=cycle_span,
                 cycle_start_time=cycle_start_time,
                 invocation_state=invocation_state,
+                tracer=tracer,
             )
-            async for typed_event in events:
-                yield typed_event
+            async for tool_event in tool_events:
+                yield tool_event
 
             return
 
@@ -301,6 +220,131 @@ async def recurse_event_loop(agent: "Agent", invocation_state: dict[str, Any]) -
     recursive_trace.end()
 
 
+async def _handle_model_execution(
+    agent: "Agent",
+    cycle_span: Any,
+    cycle_trace: Trace,
+    invocation_state: dict[str, Any],
+    tracer: Tracer,
+) -> AsyncGenerator[TypedEvent, None]:
+    """Handle model execution with retry logic for throttling exceptions.
+
+    Executes the model inference with automatic retry handling for throttling exceptions.
+    Manages tracing, hooks, and metrics collection throughout the process.
+
+    Args:
+        agent: The agent executing the model.
+        cycle_span: Span object for tracing the cycle.
+        cycle_trace: Trace object for the current event loop cycle.
+        invocation_state: State maintained across cycles.
+        tracer: Tracer instance for span management.
+
+    Yields:
+        Model stream events and throttle events during retries.
+
+    Raises:
+        ModelThrottledException: If max retry attempts are exceeded.
+        Exception: Any other model execution errors.
+    """
+    # Create a trace for the stream_messages call
+    stream_trace = Trace("stream_messages", parent_id=cycle_trace.id)
+    cycle_trace.add_child(stream_trace)
+
+    # Retry loop for handling throttling exceptions
+    current_delay = INITIAL_DELAY
+    for attempt in range(MAX_ATTEMPTS):
+        model_id = agent.model.config.get("model_id") if hasattr(agent.model, "config") else None
+        model_invoke_span = tracer.start_model_invoke_span(
+            messages=agent.messages,
+            parent_span=cycle_span,
+            model_id=model_id,
+        )
+        with trace_api.use_span(model_invoke_span):
+            agent.hooks.invoke_callbacks(
+                BeforeModelCallEvent(
+                    agent=agent,
+                )
+            )
+
+            tool_specs = agent.tool_registry.get_all_tool_specs()
+
+            try:
+                async for event in stream_messages(agent.model, agent.system_prompt, agent.messages, tool_specs):
+                    yield event
+
+                stop_reason, message, usage, metrics = event["stop"]
+                invocation_state.setdefault("request_state", {})
+
+                agent.hooks.invoke_callbacks(
+                    AfterModelCallEvent(
+                        agent=agent,
+                        stop_response=AfterModelCallEvent.ModelStopResponse(
+                            stop_reason=stop_reason,
+                            message=message,
+                        ),
+                    )
+                )
+
+                if stop_reason == "max_tokens":
+                    message = recover_message_on_max_tokens_reached(message)
+
+                if model_invoke_span:
+                    tracer.end_model_invoke_span(model_invoke_span, message, usage, metrics, stop_reason)
+                break  # Success! Break out of retry loop
+
+            except Exception as e:
+                if model_invoke_span:
+                    tracer.end_span_with_error(model_invoke_span, str(e), e)
+
+                agent.hooks.invoke_callbacks(
+                    AfterModelCallEvent(
+                        agent=agent,
+                        exception=e,
+                    )
+                )
+
+                if isinstance(e, ModelThrottledException):
+                    if attempt + 1 == MAX_ATTEMPTS:
+                        yield ForceStopEvent(reason=e)
+                        raise e
+
+                    logger.debug(
+                        "retry_delay_seconds=<%s>, max_attempts=<%s>, current_attempt=<%s> "
+                        "| throttling exception encountered "
+                        "| delaying before next retry",
+                        current_delay,
+                        MAX_ATTEMPTS,
+                        attempt + 1,
+                    )
+                    await asyncio.sleep(current_delay)
+                    current_delay = min(current_delay * 2, MAX_DELAY)
+
+                    yield EventLoopThrottleEvent(delay=current_delay)
+                else:
+                    raise e
+
+    try:
+        # Add message in trace and mark the end of the stream messages trace
+        stream_trace.add_message(message)
+        stream_trace.end()
+
+        # Add the response message to the conversation
+        agent.messages.append(message)
+        agent.hooks.invoke_callbacks(MessageAddedEvent(agent=agent, message=message))
+
+        # Update metrics
+        agent.event_loop_metrics.update_usage(usage)
+        agent.event_loop_metrics.update_metrics(metrics)
+
+    except Exception as e:
+        if cycle_span:
+            tracer.end_span_with_error(cycle_span, str(e), e)
+
+        yield ForceStopEvent(reason=e)
+        logger.exception("cycle failed")
+        raise EventLoopException(e, invocation_state["request_state"]) from e
+
+
 async def _handle_tool_execution(
     stop_reason: StopReason,
     message: Message,
@@ -309,6 +353,7 @@ async def _handle_tool_execution(
     cycle_span: Any,
     cycle_start_time: float,
     invocation_state: dict[str, Any],
+    tracer: Tracer,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Handles the execution of tools requested by the model during an event loop cycle.
 
@@ -320,6 +365,7 @@ async def _handle_tool_execution(
         cycle_span: Span object for tracing the cycle (type may vary).
         cycle_start_time: Start time of the current cycle.
         invocation_state: Additional keyword arguments, including request state.
+        tracer: Tracer instance for span management.
 
     Yields:
         Tool stream events along with events yielded from a recursive call to the event loop. The last event is a tuple
@@ -339,14 +385,44 @@ async def _handle_tool_execution(
         yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
         return
 
+    if agent._interrupt_state.activated:
+        tool_results.extend(agent._interrupt_state.context["tool_results"])
+
+        # Filter to only the interrupted tools when resuming from interrupt (tool uses without results)
+        tool_use_ids = {tool_result["toolUseId"] for tool_result in tool_results}
+        tool_uses = [tool_use for tool_use in tool_uses if tool_use["toolUseId"] not in tool_use_ids]
+
+    interrupts = []
     tool_events = agent.tool_executor._execute(
         agent, tool_uses, tool_results, cycle_trace, cycle_span, invocation_state
     )
     async for tool_event in tool_events:
+        if isinstance(tool_event, ToolInterruptEvent):
+            interrupts.extend(tool_event["tool_interrupt_event"]["interrupts"])
+
         yield tool_event
 
     # Store parent cycle ID for the next cycle
     invocation_state["event_loop_parent_cycle_id"] = invocation_state["event_loop_cycle_id"]
+
+    if interrupts:
+        # Session state stored on AfterInvocationEvent.
+        agent._interrupt_state.activate(context={"tool_use_message": message, "tool_results": tool_results})
+
+        agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
+        yield EventLoopStopEvent(
+            "interrupt",
+            message,
+            agent.event_loop_metrics,
+            invocation_state["request_state"],
+            interrupts,
+        )
+        if cycle_span:
+            tracer.end_event_loop_cycle_span(span=cycle_span, message=message)
+
+        return
+
+    agent._interrupt_state.deactivate()
 
     tool_result_message: Message = {
         "role": "user",
@@ -358,7 +434,6 @@ async def _handle_tool_execution(
     yield ToolResultMessageEvent(message=tool_result_message)
 
     if cycle_span:
-        tracer = get_tracer()
         tracer.end_event_loop_cycle_span(span=cycle_span, message=message, tool_result_message=tool_result_message)
 
     if invocation_state["request_state"].get("stop_event_loop", False):
