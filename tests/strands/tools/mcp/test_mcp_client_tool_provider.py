@@ -4,6 +4,7 @@ import re
 from unittest.mock import MagicMock, patch
 
 import pytest
+from mcp.types import Tool as MCPTool
 
 from strands.tools.mcp import MCPClient
 from strands.tools.mcp.mcp_agent_tool import MCPAgentTool
@@ -41,12 +42,18 @@ def mock_agent_tool(mock_mcp_tool):
     return agent_tool
 
 
-def create_mock_tool(name: str) -> MagicMock:
+def create_mock_tool(tool_name: str, mcp_tool_name: str | None = None) -> MagicMock:
     """Helper to create mock tools with specific names."""
     tool = MagicMock(spec=MCPAgentTool)
-    tool.tool_name = name
-    tool.mcp_tool = MagicMock()
-    tool.mcp_tool.name = name
+    tool.tool_name = tool_name
+    tool.tool_spec = {
+        "name": tool_name,
+        "description": f"Description for {tool_name}",
+        "inputSchema": {"json": {"type": "object", "properties": {}}},
+    }
+    tool.mcp_tool = MagicMock(spec=MCPTool)
+    tool.mcp_tool.name = mcp_tool_name or tool_name
+    tool.mcp_tool.description = f"Description for {tool_name}"
     return tool
 
 
@@ -146,8 +153,8 @@ async def test_load_tools_handles_pagination(mock_transport):
         # Should have called list_tools_sync twice
         assert mock_list_tools.call_count == 2
         # First call with no token, second call with "page2" token
-        mock_list_tools.assert_any_call(None)
-        mock_list_tools.assert_any_call("page2")
+        mock_list_tools.assert_any_call(None, prefix=None)
+        mock_list_tools.assert_any_call("page2", prefix=None)
 
         assert len(tools) == 2
         assert tools[0] is tool1
@@ -236,31 +243,44 @@ async def test_rejected_filter_string_match(mock_transport):
 @pytest.mark.asyncio
 async def test_prefix_renames_tools(mock_transport):
     """Test that prefix properly renames tools."""
-    original_tool = create_mock_tool("original_name")
-    original_tool.mcp_client = MagicMock()
+    # Create a mock MCP tool (not MCPAgentTool)
+    mock_mcp_tool = MagicMock()
+    mock_mcp_tool.name = "original_name"
 
     client = MCPClient(mock_transport, prefix="prefix")
     client._tool_provider_started = True
 
+    # Mock the session active state
+    mock_thread = MagicMock()
+    mock_thread.is_alive.return_value = True
+    client._background_thread = mock_thread
+
     with (
-        patch.object(client, "list_tools_sync") as mock_list_tools,
+        patch.object(client, "_invoke_on_background_thread") as mock_invoke,
         patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
     ):
-        mock_list_tools.return_value = PaginatedList([original_tool])
+        # Mock the MCP server response
+        mock_list_tools_result = MagicMock()
+        mock_list_tools_result.tools = [mock_mcp_tool]
+        mock_list_tools_result.nextCursor = None
 
-        new_tool = MagicMock(spec=MCPAgentTool)
-        new_tool.tool_name = "prefix_original_name"
-        mock_agent_tool_class.return_value = new_tool
+        mock_future = MagicMock()
+        mock_future.result.return_value = mock_list_tools_result
+        mock_invoke.return_value = mock_future
 
-        tools = await client.load_tools()
+        # Mock MCPAgentTool creation
+        mock_agent_tool = MagicMock(spec=MCPAgentTool)
+        mock_agent_tool.tool_name = "prefix_original_name"
+        mock_agent_tool_class.return_value = mock_agent_tool
 
-        # Should create new MCPAgentTool with prefixed name
-        mock_agent_tool_class.assert_called_once_with(
-            original_tool.mcp_tool, original_tool.mcp_client, name_override="prefix_original_name"
-        )
+        # Call list_tools_sync directly to test prefix functionality
+        result = client.list_tools_sync(prefix="prefix")
 
-        assert len(tools) == 1
-        assert tools[0] is new_tool
+        # Should create MCPAgentTool with prefixed name
+        mock_agent_tool_class.assert_called_once_with(mock_mcp_tool, client, name_override="prefix_original_name")
+
+        assert len(result) == 1
+        assert result[0] is mock_agent_tool
 
 
 @pytest.mark.asyncio
@@ -318,3 +338,41 @@ async def test_remove_consumer_cleanup_failure(mock_transport):
 
         with pytest.raises(ToolProviderException, match="Failed to cleanup MCP client: Cleanup failed"):
             await client.remove_consumer("consumer1")
+
+
+def test_mcp_client_reuse_across_multiple_agents(mock_transport):
+    """Test that a single MCPClient can be used across multiple agents."""
+    from strands import Agent
+
+    tool1 = create_mock_tool(tool_name="shared_echo", mcp_tool_name="echo")
+    client = MCPClient(mock_transport, tool_filters={"allowed": ["echo"]}, prefix="shared")
+
+    with (
+        patch.object(client, "list_tools_sync") as mock_list_tools,
+        patch.object(client, "start") as mock_start,
+        patch.object(client, "stop") as mock_stop,
+    ):
+        mock_list_tools.return_value = PaginatedList([tool1])
+
+        # Create two agents with the same client
+        agent_1 = Agent(tools=[client])
+        agent_2 = Agent(tools=[client])
+
+        # Both agents should have the same tool
+        assert "shared_echo" in agent_1.tool_names
+        assert "shared_echo" in agent_2.tool_names
+        assert agent_1.tool_names == agent_2.tool_names
+
+        # Client should only be started once
+        mock_start.assert_called_once()
+
+        # First agent cleanup - client should remain active
+        agent_1.cleanup()
+        mock_stop.assert_not_called()  # Should not stop yet
+
+        # Second agent should still work
+        assert "shared_echo" in agent_2.tool_names
+
+        # Final cleanup when last agent is removed
+        agent_2.cleanup()
+        mock_stop.assert_called_once()  # Now it should stop

@@ -1,3 +1,11 @@
 coverage:
-  ignore:
-    - "src/strands/experimental/tools/tool_provider.py" # This is an interface, cannot meaningfully cover
+  status:
+    project:
+      default:
+        target: 90%    # overall coverage threshold
+    patch:
+      default:
+        target: 90%    # patch coverage threshold
+        base: auto
+        # Only post patch coverage on decreases
+        only_pulls: true

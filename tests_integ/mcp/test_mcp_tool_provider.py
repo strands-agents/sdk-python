@@ -35,7 +35,7 @@ def test_mcp_client_tool_provider_filters():
     agent = Agent(tools=[client])
     tool_names = agent.tool_names
 
-    assert "echo_with_delay" not in [name.replace("test_", "") for name in tool_names]
+    assert "test_echo_with_delay" not in [name for name in tool_names]
     assert all(name.startswith("test_") for name in tool_names)
 
     agent.cleanup()
@@ -91,29 +91,6 @@ def test_mcp_client_tool_provider_reuse():
     assert agent1.tool_names == agent2.tool_names
 
     agent1.cleanup()
-    agent2.cleanup()
-
-
-def test_mcp_client_reference_counting():
-    """Test that MCPClient uses reference counting - cleanup only happens when last consumer is removed."""
-    filters: ToolFilters = {"allowed": ["echo"]}
-    client = MCPClient(
-        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"])),
-        tool_filters=filters,
-        prefix="ref",
-    )
-
-    # Create two agents with the same client
-    agent1 = Agent(tools=[client])
-    agent2 = Agent(tools=[client])
-
-    # Both should have the tool
-    assert "ref_echo" in agent1.tool_names
-    assert "ref_echo" in agent2.tool_names
-
-    # Agent 1 uses the tool
-    result1 = agent1.tool.ref_echo(to_echo="Agent 1 Test")
-    assert "Agent 1 Test" in str(result1)
 
     # Agent 1 cleans up - client should still be active for agent 2
     agent1.cleanup()
@@ -122,7 +99,6 @@ def test_mcp_client_reference_counting():
     result2 = agent2.tool.ref_echo(to_echo="Agent 2 Test")
     assert "Agent 2 Test" in str(result2)
 
-    # Agent 2 cleans up - now client should be fully cleaned up
     agent2.cleanup()
 
 

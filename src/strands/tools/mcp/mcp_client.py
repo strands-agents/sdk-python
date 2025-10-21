@@ -210,15 +210,13 @@ class MCPClient(ToolProvider):
 
             while True:
                 logger.debug("page=<%d>, token=<%s> | fetching tools page", page_count, pagination_token)
-                paginated_tools = self.list_tools_sync(pagination_token)
+                paginated_tools = self.list_tools_sync(pagination_token, prefix=self._prefix)
 
                 # Process each tool as we get it
                 for tool in paginated_tools:
                     # Apply filters
                     if self._should_include_tool(tool):
-                        # Apply prefix if needed
-                        processed_tool = self._apply_prefix(tool)
-                        self._loaded_tools.append(processed_tool)
+                        self._loaded_tools.append(tool)
 
                 logger.debug(
                     "page=<%d>, page_tools=<%d>, total_filtered=<%d> | processed page",
@@ -313,11 +311,17 @@ class MCPClient(ToolProvider):
         self._tool_provider_started = False
         self._consumers = set()
 
-    def list_tools_sync(self, pagination_token: Optional[str] = None) -> PaginatedList[MCPAgentTool]:
+    def list_tools_sync(
+        self, pagination_token: Optional[str] = None, prefix: Optional[str] = None
+    ) -> PaginatedList[MCPAgentTool]:
         """Synchronously retrieves the list of available tools from the MCP server.
 
         This method calls the asynchronous list_tools method on the MCP session
         and adapts the returned tools to the AgentTool interface.
+
+        Args:
+            pagination_token: Optional token for pagination
+            prefix: Optional prefix to apply to tool names
 
         Returns:
             List[AgentTool]: A list of available tools adapted to the AgentTool interface
@@ -332,7 +336,16 @@ class MCPClient(ToolProvider):
         list_tools_response: ListToolsResult = self._invoke_on_background_thread(_list_tools_async()).result()
         self._log_debug_with_thread("received %d tools from MCP server", len(list_tools_response.tools))
 
-        mcp_tools = [MCPAgentTool(tool, self) for tool in list_tools_response.tools]
+        mcp_tools = []
+        for tool in list_tools_response.tools:
+            if prefix:
+                prefixed_name = f"{prefix}_{tool.name}"
+                mcp_tool = MCPAgentTool(tool, self, name_override=prefixed_name)
+                logger.debug("tool_rename=<%s->%s> | renamed tool", tool.name, prefixed_name)
+            else:
+                mcp_tool = MCPAgentTool(tool, self)
+            mcp_tools.append(mcp_tool)
+
         self._log_debug_with_thread("successfully adapted %d MCP tools", len(mcp_tools))
         return PaginatedList[MCPAgentTool](mcp_tools, token=list_tools_response.nextCursor)
 
@@ -670,19 +683,8 @@ class MCPClient(ToolProvider):
             if self._matches_patterns(tool, self._tool_filters["rejected"]):
                 return False
 
+        print(f"Returning true for {tool.mcp_tool.name} {tool.tool_name}")
         return True
-
-    def _apply_prefix(self, tool: MCPAgentTool) -> MCPAgentTool:
-        """Apply prefix to a single tool if needed."""
-        if not self._prefix:
-            return tool
-
-        # Create new tool with prefixed agent name but preserve original MCP name
-        old_name = tool.tool_name
-        new_agent_name = f"{self._prefix}_{tool.mcp_tool.name}"
-        new_tool = MCPAgentTool(tool.mcp_tool, tool.mcp_client, name_override=new_agent_name)
-        logger.debug("tool_rename=<%s->%s> | renamed tool", old_name, new_agent_name)
-        return new_tool
 
     def _matches_patterns(self, tool: MCPAgentTool, patterns: list[_ToolFilterPattern]) -> bool:
         """Check if tool matches any of the given patterns."""
@@ -691,10 +693,11 @@ class MCPClient(ToolProvider):
                 if pattern(tool):
                     return True
             elif isinstance(pattern, Pattern):
-                if pattern.match(tool.tool_name):
+                if pattern.match(tool.mcp_tool.name):
                     return True
             elif isinstance(pattern, str):
-                if pattern == tool.tool_name:
+                print(f"checking {pattern} against {tool.mcp_tool.name}")
+                if pattern == tool.mcp_tool.name:
                     return True
         return False
 

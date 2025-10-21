@@ -540,7 +540,7 @@ class Agent:
         Note: This method uses a "belt and braces" approach with automatic cleanup
         through __del__ as a fallback, but explicit cleanup is recommended.
         """
-        if self._cleanup_called:
+        if getattr(self, "_cleanup_called", False):
             return
 
         run_async(self.cleanup_async)
@@ -552,18 +552,22 @@ class Agent:
         such as MCP clients. It should be called when the agent is no longer needed
         to ensure proper resource cleanup.
 
-        Note: This method uses a "belt and braces" approach with automatic cleanup
-        through __del__ as a fallback, but explicit cleanup is recommended.
+        This method is idempotent and safe to call multiple times.
         """
-        if self._cleanup_called:
+        # Use getattr with False default: if _cleanup_called was deleted during garbage collection,
+        # we default to False (cleanup not called) to ensure cleanup still runs
+        if getattr(self, "_cleanup_called", False):
             return
 
-        logger.debug("agent_id=<%s> | cleaning up agent resources", self.agent_id)
+        agent_id = getattr(self, "agent_id", None)
+        logger.debug("agent_id=<%s> | cleaning up agent resources", agent_id)
 
-        await self.tool_registry.cleanup_async()
+        tool_registry = getattr(self, "tool_registry", None)
+        if tool_registry:
+            await tool_registry.cleanup_async()
 
         self._cleanup_called = True
-        logger.debug("agent_id=<%s> | agent cleanup complete", self.agent_id)
+        logger.debug("agent_id=<%s> | agent cleanup complete", agent_id)
 
     def __del__(self) -> None:
         """Automatic cleanup when agent is garbage collected.
@@ -573,7 +577,8 @@ class Agent:
         try:
             self.cleanup()
         except Exception as e:
-            logger.debug("agent_id=<%s>, error=<%s> | exception during __del__ cleanup", self.agent_id, e)
+            agent_id = getattr(self, "agent_id", None)
+            logger.debug("agent_id=<%s>, error=<%s> | exception during __del__ cleanup", agent_id, e)
 
     async def stream_async(
         self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, **kwargs: Any
