@@ -494,6 +494,108 @@ def test_format_request_cache(model, messages, model_id, tool_spec, cache_type):
     assert tru_request == exp_request
 
 
+def test_format_request_cache_messages(model, model_id, cache_type):
+    """Test that cache_messages preserves existing cache points and adds one at the end."""
+    # Messages with existing cache points that should be preserved
+    messages_with_cache = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "First message"},
+                {"cachePoint": {"type": "default"}},  # Should be preserved
+            ],
+        },
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Response"},
+                {"cachePoint": {"type": "default"}},  # Should be preserved
+            ],
+        },
+        {
+            "role": "user",
+            "content": [{"text": "Second message"}],
+        },
+    ]
+
+    model.update_config(cache_messages=cache_type)
+    tru_request = model.format_request(messages_with_cache)
+
+    # Verify existing cache points are preserved and new one is added at the end
+    messages = tru_request["messages"]
+
+    # Check first message still has its cache point
+    assert messages[0]["content"] == [
+        {"text": "First message"},
+        {"cachePoint": {"type": "default"}},
+    ]
+
+    # Check second message still has its cache point
+    assert messages[1]["content"] == [
+        {"text": "Response"},
+        {"cachePoint": {"type": "default"}},
+    ]
+
+    # Check third message (last) has new cache point at the end
+    assert messages[2]["content"] == [
+        {"text": "Second message"},
+        {"cachePoint": {"type": cache_type}},
+    ]
+
+    # Verify the full request structure
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": [],
+    }
+    assert tru_request == exp_request
+
+
+def test_format_request_cache_messages_does_not_modify_original(model, cache_type):
+    """Test that format_request does not modify the original messages when cache_messages is set."""
+    # Create original messages
+    original_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"text": "First message"},
+                {"cachePoint": {"type": "default"}},
+            ],
+        },
+        {
+            "role": "assistant",
+            "content": [
+                {"text": "Response"},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [{"text": "Second message"}],
+        },
+    ]
+
+    # Create a deep copy for comparison
+    import copy
+
+    expected_messages = copy.deepcopy(original_messages)
+
+    # Call format_request with cache_messages enabled
+    model.update_config(cache_messages=cache_type)
+    _ = model.format_request(original_messages)
+
+    # Verify original messages are unchanged
+    assert original_messages == expected_messages
+
+    # Verify content lists are unchanged
+    assert original_messages[0]["content"] == [
+        {"text": "First message"},
+        {"cachePoint": {"type": "default"}},
+    ]
+    assert original_messages[1]["content"] == [{"text": "Response"}]
+    assert original_messages[2]["content"] == [{"text": "Second message"}]
+
+
 @pytest.mark.asyncio
 async def test_stream_throttling_exception_from_event_stream_error(bedrock_client, model, messages, alist):
     error_message = "Rate exceeded"
