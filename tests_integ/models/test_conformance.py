@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from strands import Agent
 from strands.models import Model
-from tests_integ.models.providers import ProviderInfo, all_providers, cohere, gemini, llama, mistral, openai, writer
+from tests_integ.models.providers import ProviderInfo, all_providers, cohere, llama, mistral
 
 
 def get_models():
@@ -61,13 +61,3 @@ def test_structured_output_is_forced(skip_for, model):
     assert len(result.time) > 0
     assert len(result.weather) > 0
     assert isinstance(result, Weather)
-
-
-def test_stream_reasoning(skip_for, model):
-    skip_for([cohere, gemini, llama, mistral, openai, writer], "reasoning is not supported")
-
-    agent = Agent(model)
-    result = agent("Please reason about the equation 2+2.")
-
-    assert "reasoningContent" in result.message["content"][0]
-    assert result.message["content"][0]["reasoningContent"]["reasoningText"]["text"]
