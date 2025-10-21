@@ -54,6 +54,7 @@ sagemaker = [
     "openai>=1.68.0,<2.0.0",  # SageMaker uses OpenAI-compatible interface
 ]
 otel = ["opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0"]
+dapr = ["dapr>=1.14.0", "grpcio>=1.60.0"]
 docs = [
     "sphinx>=5.0.0,<9.0.0",
     "sphinx-rtd-theme>=1.0.0,<2.0.0",
@@ -68,7 +69,7 @@ a2a = [
     "fastapi>=0.115.12,<1.0.0",
     "starlette>=0.46.2,<1.0.0",
 ]
-all = ["strands-agents[a2a,anthropic,docs,gemini,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel]"]
+all = ["strands-agents[a2a,anthropic,dapr,docs,gemini,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel]"]
 
 dev = [
     "commitizen>=4.4.0,<5.0.0",
@@ -81,6 +82,7 @@ dev = [
     "pytest-asyncio>=1.0.0,<1.3.0",
     "pytest-xdist>=3.0.0,<4.0.0",
     "ruff>=0.13.0,<0.14.0",
+    "testcontainers[redis]>=4.0.0",
 ]
 
 [project.urls]
@@ -134,6 +136,9 @@ dependencies = [
     "pytest-asyncio>=1.0.0,<1.3.0",
     "pytest-xdist>=3.0.0,<4.0.0",
     "moto>=5.1.0,<6.0.0",
+    "dapr>=1.14.0",
+    "grpcio>=1.60.0",
+    "testcontainers[redis]>=4.0.0",
 ]
 
 [[tool.hatch.envs.hatch-test.matrix]]
