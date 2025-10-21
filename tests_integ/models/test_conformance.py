@@ -57,5 +57,4 @@ def test_structured_output_is_forced(skip_for, model):
     agent = Agent(model)
 
     result = agent.structured_output(Weather, "How are you?")
-
     assert isinstance(result, Weather)
