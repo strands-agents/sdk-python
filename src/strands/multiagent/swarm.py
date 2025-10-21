@@ -260,7 +260,7 @@ class Swarm(MultiAgentBase):
         self._setup_swarm(nodes)
         self._inject_swarm_tools()
 
-        self._resume_from_persisted = False
+        self._resume_from_session = False
 
         self.hooks.invoke_callbacks(MultiAgentInitializedEvent(source=self))
 
@@ -302,8 +302,7 @@ class Swarm(MultiAgentBase):
 
         logger.debug("starting swarm execution")
 
-        # If resume
-        if not self._resume_from_persisted:
+        if not self._resume_from_session:
             initial_node = self._initial_node()
 
             self.state = SwarmState(
@@ -313,8 +312,6 @@ class Swarm(MultiAgentBase):
                 shared_context=self.shared_context,
             )
         else:
-            if isinstance(self.state.task, (str, list)) and not self.state.task:
-                self.state.task = task
             self.state.completion_status = Status.EXECUTING
             self.state.start_time = time.time()
 
@@ -340,7 +337,7 @@ class Swarm(MultiAgentBase):
                 self.hooks.invoke_callbacks(
                     AfterMultiAgentInvocationEvent(source=self, invocation_state=invocation_state)
                 )
-                self._resume_from_persisted = False
+                self._resume_from_session = False
 
             return self._build_result()
 
@@ -670,6 +667,9 @@ class Swarm(MultiAgentBase):
             context_text = self._build_node_input(node)
             node_input = [ContentBlock(text=f"Context:\n{context_text}\n\n")]
 
+            # Clear handoff message after it's been included in context
+            self.state.handoff_message = None
+
             if not isinstance(task, str):
                 # Include additional ContentBlocks in node input
                 node_input = node_input + task
@@ -709,9 +709,6 @@ class Swarm(MultiAgentBase):
 
             # Accumulate metrics
             self._accumulate_metrics(node_result)
-
-            # Clear handoff message after it's been included in context
-            self.state.handoff_message = None
 
             return result
 
@@ -862,9 +859,7 @@ class Swarm(MultiAgentBase):
         Args:
             payload: Dictionary containing persisted state data
         """
-        if payload.get("status") in (Status.COMPLETED.value, "completed") or (
-            payload.get("status") in (Status.FAILED.value, "failed") and not payload.get("next_nodes_to_execute")
-        ):
+        if not payload.get("next_nodes_to_execute"):
             # Reset all nodes
             for node in self.nodes.values():
                 node.reset_executor_state()
@@ -874,11 +869,11 @@ class Swarm(MultiAgentBase):
                 task="",
                 completion_status=Status.PENDING,
             )
-            self._resume_from_persisted = False
+            self._resume_from_session = False
             return
         else:
             self._from_dict(payload)
-            self._resume_from_persisted = True
+            self._resume_from_session = True
             logger.debug(
                 "Resumed from persisted state. Current node: %s",
                 self.state.current_node.node_id if self.state.current_node else "None",

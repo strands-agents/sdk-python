@@ -327,7 +327,7 @@ class GraphBuilder:
         self._session_manager = session_manager
         return self
 
-    def set_hook_provider(self, hooks: list[HookProvider]) -> "GraphBuilder":
+    def set_hook_providers(self, hooks: list[HookProvider]) -> "GraphBuilder":
         """Set hook providers for the graph.
 
         Args:
@@ -428,7 +428,7 @@ class Graph(MultiAgentBase):
             for hook in hooks:
                 self.hooks.add_hook(hook)
         # Resume flags
-        self._resume_from_persisted = False
+        self._resume_from_session = False
         self._resume_next_nodes: list[GraphNode] = []
 
         self.hooks.invoke_callbacks(MultiAgentInitializedEvent(source=self))
@@ -471,7 +471,7 @@ class Graph(MultiAgentBase):
 
         logger.debug("task=<%s> | starting graph execution", task)
 
-        if not self._resume_from_persisted:
+        if not self._resume_from_session:
             start_time = time.time()
             # Initialize state
             self.state = GraphState(
@@ -514,7 +514,7 @@ class Graph(MultiAgentBase):
                 self.hooks.invoke_callbacks(
                     AfterMultiAgentInvocationEvent(source=self, invocation_state=invocation_state)
                 )
-                self._resume_from_persisted = False
+                self._resume_from_session = False
                 self._resume_next_nodes.clear()
             return self._build_result()
 
@@ -532,7 +532,7 @@ class Graph(MultiAgentBase):
 
     async def _execute_graph(self, invocation_state: dict[str, Any]) -> None:
         """Unified execution flow with conditional routing."""
-        ready_nodes = self._resume_next_nodes if self._resume_from_persisted else list(self.entry_points)
+        ready_nodes = self._resume_next_nodes if self._resume_from_session else list(self.entry_points)
 
         while ready_nodes:
             # Check execution limits before continuing
@@ -891,12 +891,12 @@ class Graph(MultiAgentBase):
                 node.reset_executor_state()
             # Reset graph state
             self.state = GraphState()
-            self._resume_from_persisted = False
+            self._resume_from_session = False
             return
 
         try:
             self._from_dict(payload)
-            self._resume_from_persisted = True
+            self._resume_from_session = True
 
             next_node_ids = payload.get("next_nodes_to_execute") or []
             mapped = self._map_node_ids(next_node_ids)
@@ -921,6 +921,6 @@ class Graph(MultiAgentBase):
             logger.debug("Resumed from persisted state. Next nodes: %s", [n.node_id for n in self._resume_next_nodes])
         except Exception:
             logger.exception("Failed to apply resume payload")
-            self._resume_from_persisted = False
+            self._resume_from_session = False
             self._resume_next_nodes.clear()
             raise

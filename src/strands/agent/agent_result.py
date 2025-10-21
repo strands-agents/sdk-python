@@ -67,3 +67,19 @@ class AgentResult:
         stop_reason = cast(StopReason, data.get("stop_reason"))
 
         return cls(message=message, stop_reason=stop_reason, metrics=EventLoopMetrics(), state={})
+
+    @classmethod
+    def to_dict(cls, data: "AgentResult") -> dict[str, Any]:
+        """Convert an AgentResult to JSON-serializable dictionary.
+
+        Args:
+            data: AgentResult instance to serialize
+
+        Returns:
+            Dictionary containing serialized AgentResult data
+        """
+        return {
+            "type": "agent_result",
+            "message": data.message,
+            "stop_reason": data.stop_reason,
+        }

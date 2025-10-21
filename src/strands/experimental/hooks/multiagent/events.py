@@ -86,3 +86,8 @@ class AfterMultiAgentInvocationEvent(BaseHookEvent):
 
     source: "MultiAgentBase"
     invocation_state: dict[str, Any] | None = None
+
+    @property
+    def should_reverse_callbacks(self) -> bool:
+        """True to invoke callbacks in reverse order."""
+        return True

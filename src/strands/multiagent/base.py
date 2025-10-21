@@ -68,11 +68,7 @@ class NodeResult:
             result_data: dict[str, Any] = {"type": "exception", "message": str(self.result)}
         elif isinstance(self.result, AgentResult):
             # Serialize AgentResult without state field
-            result_data = {
-                "type": "agent_result",
-                "stop_reason": self.result.stop_reason,
-                "message": self.result.message,
-            }
+            result_data = AgentResult.to_dict(self.result)
         elif isinstance(self.result, MultiAgentResult):
             result_data = self.result.to_dict()
         else:
