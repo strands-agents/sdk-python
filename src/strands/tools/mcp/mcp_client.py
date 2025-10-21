@@ -20,6 +20,7 @@ from typing import Any, Callable, Coroutine, Dict, Optional, Pattern, Sequence, 
 
 import anyio
 from mcp import ClientSession, ListToolsResult
+from mcp.client.session import ElicitationFnT
 from mcp.types import BlobResourceContents, GetPromptResult, ListPromptsResult, TextResourceContents
 from mcp.types import CallToolResult as MCPCallToolResult
 from mcp.types import EmbeddedResource as MCPEmbeddedResource
@@ -98,19 +99,22 @@ class MCPClient(ToolProvider):
         startup_timeout: int = 30,
         tool_filters: ToolFilters | None = None,
         prefix: str | None = None,
-    ):
+        elicitation_callback: Optional[ElicitationFnT] = None,
+    ) -> None:
         """Initialize a new MCP Server connection.
 
         Args:
-            transport_callable: A callable that returns an MCPTransport (read_stream, write_stream) tuple
-            startup_timeout: Timeout after which MCP server initialization should be cancelled
+            transport_callable: A callable that returns an MCPTransport (read_stream, write_stream) tuple.
+            startup_timeout: Timeout after which MCP server initialization should be cancelled.
                 Defaults to 30.
             tool_filters: Optional filters to apply to tools.
             prefix: Optional prefix for tool names.
+            elicitation_callback: Optional callback function to handle elicitation requests from the MCP server.
         """
         self._startup_timeout = startup_timeout
         self._tool_filters = tool_filters
         self._prefix = prefix
+        self._elicitation_callback = elicitation_callback
 
         mcp_instrumentation()
         self._session_id = uuid.uuid4()
@@ -563,7 +567,10 @@ class MCPClient(ToolProvider):
             async with self._transport_callable() as (read_stream, write_stream, *_):
                 self._log_debug_with_thread("transport connection established")
                 async with ClientSession(
-                    read_stream, write_stream, message_handler=self._handle_error_message
+                    read_stream,
+                    write_stream,
+                    message_handler=self._handle_error_message,
+                    elicitation_callback=self._elicitation_callback,
                 ) as session:
                     self._log_debug_with_thread("initializing MCP session")
                     await session.initialize()
