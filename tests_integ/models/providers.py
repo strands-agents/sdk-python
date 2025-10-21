@@ -70,10 +70,7 @@ anthropic = ProviderInfo(
         max_tokens=512,
     ),
 )
-bedrock = ProviderInfo(
-    id="bedrock",
-    factory=lambda: BedrockModel(),
-)
+bedrock = ProviderInfo(id="bedrock", factory=lambda: BedrockModel())
 cohere = ProviderInfo(
     id="cohere",
     environment_variable="COHERE_API_KEY",
@@ -87,8 +84,7 @@ cohere = ProviderInfo(
     ),
 )
 litellm = ProviderInfo(
-    id="litellm",
-    factory=lambda: LiteLLMModel(model_id="bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0"),
+    id="litellm", factory=lambda: LiteLLMModel(model_id="bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0")
 )
 llama = ProviderInfo(
     id="llama",
