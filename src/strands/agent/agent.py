@@ -12,6 +12,9 @@ The Agent interface supports two complementary interaction patterns:
 import json
 import logging
 import random
+import uuid
+import warnings
+import weakref
 from typing import (
     Any,
     AsyncGenerator,
@@ -81,6 +84,26 @@ class _DefaultCallbackHandlerSentinel:
 _DEFAULT_CALLBACK_HANDLER = _DefaultCallbackHandlerSentinel()
 _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
+
+"""Global private store for agent cleanup - maps UUID to ToolRegistry.
+
+Why use weakref.finalize with a global store?
+
+MCP clients spawn background threads that must be properly cleaned up to prevent
+thread leaks. In __del__, the agent's references to these threads may already be
+deleted while the threads still exist, making cleanup impossible. The threads
+then continue running, consuming resources and causing interpreter shutdown hangs.
+
+weakref.finalize cannot access 'self' or instance attributes because:
+1. Finalizers run AFTER the object is garbage collected
+2. Accessing 'self' would create a circular reference preventing GC
+3. Instance attributes may be in an undefined state during finalization
+4. __del__ methods can access 'self' but are unreliable (may never run)
+
+The global store enables safe cleanup without circular references
+and reliable execution during interpreter shutdown.
+"""
+_AGENT_CLEANUP_STORE: dict[str, "ToolRegistry"] = {}
 
 
 class Agent:
@@ -240,8 +263,8 @@ class Agent:
                 - File paths (e.g., "/path/to/tool.py")
                 - Imported Python modules (e.g., from strands_tools import current_time)
                 - Dictionaries with name/path keys (e.g., {"name": "tool_name", "path": "/path/to/tool.py"})
-                - Functions decorated with `@strands.tool` decorator
                 - ToolProvider instances for managed tool collections
+                - Functions decorated with `@strands.tool` decorator.
 
                 If provided, only these tools will be available. If None, all tools will be available.
             system_prompt: System prompt to guide model behavior.
@@ -354,6 +377,10 @@ class Agent:
             for hook in hooks:
                 self.hooks.add_hook(hook)
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
+
+        self._agent_uuid = str(uuid.uuid4())
+        _AGENT_CLEANUP_STORE[self._agent_uuid] = self.tool_registry
+        self._finalizer = weakref.finalize(self, self._cleanup_on_finalize, self._agent_uuid, self.agent_id)
 
     @property
     def tool(self) -> ToolCaller:
@@ -470,19 +497,20 @@ class Agent:
     async def structured_output_async(self, output_model: Type[T], prompt: AgentInput = None) -> T:
         """This method allows you to get structured output from the agent.
 
-        If you pass in a prompt, it will be used temporarily without adding it to the conversation history.
-        If you don't pass in a prompt, it will use only the existing conversation history to respond.
+                If you pass in a prompt, it will be used temporarily without adding it to the conversation history.
+                If you don't pass in a prompt, it will use only the existing conversation history to respond.
 
-        For smaller models, you may want to use the optional prompt to add additional instructions to explicitly
-        instruct the model to output the structured data.
+                For smaller models, you may want to use the optional prompt to add additional instructions to explicitly
+                instruct the model to output the structured data.
 
         Args:
-            output_model: The output model (a JSON schema written as a Pydantic BaseModel)
-                that the agent will use when responding.
-            prompt: The prompt to use for the agent (will not be added to conversation history).
+                    output_model: The output model (a JSON schema written as a Pydantic BaseModel)
+                        that the agent will use when responding.
+                    prompt: The prompt to use for the agent (will not be added to conversation history).
 
         Raises:
-            ValueError: If no conversation history or prompt is provided.
+                    ValueError: If no conversation history or prompt is provided.
+        -
         """
         if self._interrupt_state.activated:
             raise RuntimeError("cannot call structured output during interrupt")
@@ -538,87 +566,51 @@ class Agent:
         to ensure proper resource cleanup.
 
         Note: This method uses a "belt and braces" approach with automatic cleanup
-        through __del__ as a fallback, but explicit cleanup is recommended.
+        through finalizers as a fallback, but explicit cleanup is recommended.
         """
-        if getattr(self, "_cleanup_called", False):
+        if self._cleanup_called:
             return
 
-        run_async(self.cleanup_async)
-
-    async def cleanup_async(self) -> None:
-        """Asynchronously clean up resources used by the agent.
-
-        This method cleans up all tool providers that require explicit cleanup,
-        such as MCP clients. It should be called when the agent is no longer needed
-        to ensure proper resource cleanup.
-
-        This method is idempotent and safe to call multiple times.
-        """
-        # Use getattr with False default: if _cleanup_called was deleted during garbage collection,
-        # we default to False (cleanup not called) to ensure cleanup still runs
-        if getattr(self, "_cleanup_called", False):
-            return
-
-        agent_id = getattr(self, "agent_id", None)
-        logger.debug("agent_id=<%s> | cleaning up agent resources", agent_id)
-
-        tool_registry = getattr(self, "tool_registry", None)
-        if tool_registry:
-            await tool_registry.cleanup_async()
-
+        self._cleanup_on_finalize(self._agent_uuid, self.agent_id)
         self._cleanup_called = True
-        logger.debug("agent_id=<%s> | agent cleanup complete", agent_id)
 
-    def __del__(self) -> None:
-        """Automatic cleanup when agent is garbage collected.
+    @staticmethod
+    def _cleanup_on_finalize(agent_uuid: str, agent_id: str) -> None:
+        """Static cleanup method called by weakref.finalize.
 
-        This serves as a fallback cleanup mechanism, but explicit cleanup() is preferred.
+        WHY SYNCHRONOUS CLEANUP IS CRITICAL:
+
+        weakref.finalize is safer than __del__ because:
+        1. Runs AFTER garbage collection completes, not during (no GIL deadlocks)
+        2. Cannot access 'self' so can't call methods that might block (no run_async deadlocks)
+        3. Executes in a controlled environment where Python isn't in restricted GC state
+        4. More reliable execution timing - __del__ can be delayed or skipped entirely
+        5. No circular reference issues that can prevent __del__ from being called
+        6. Uses global store to avoid copying complex objects at registration time
+
+        SYNCHRONOUS CONSUMER MANAGEMENT PREVENTS:
+        - GC Deadlocks: run_async() creates ThreadPoolExecutor while GIL is held during GC
+        - Interpreter Shutdown Hangs: ThreadPoolExecutor creation fails during shutdown
+        - Finalizer Threading Issues: weakref.finalize runs in restricted threading environment
+        - Resource Leaks: Ensures MCP background threads are properly stopped
+
+        The synchronous approach uses MCPClient.stop() which safely:
+        - Signals background thread via asyncio.Event
+        - Waits for thread completion with thread.join()
+        - Cleans up all resources without async/await
         """
-        try:
-            self.cleanup()
-        except Exception as e:
-            agent_id = getattr(self, "agent_id", None)
-            logger.debug("agent_id=<%s>, error=<%s> | exception during __del__ cleanup", agent_id, e)
+        logger.debug("agent_id=<%s> | starting finalize cleanup", agent_id)
+        tool_registry = _AGENT_CLEANUP_STORE.pop(agent_uuid, None)
+        if not tool_registry:
+            return
+
+        # Use synchronous cleanup to avoid run_async deadlocks during GC
+        tool_registry.cleanup()
 
     async def stream_async(
         self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> AsyncIterator[Any]:
-        """Process a natural language prompt and yield events as an async iterator.
-
-        This method provides an asynchronous interface for streaming agent events with multiple input patterns:
-        - String input: Simple text input
-        - ContentBlock list: Multi-modal content blocks
-        - Message list: Complete messages with roles
-        - No input: Use existing conversation history
-
-        Args:
-            prompt: User input in various formats:
-                - str: Simple text input
-                - list[ContentBlock]: Multi-modal content blocks
-                - list[Message]: Complete messages with roles
-                - None: Use existing conversation history
-            invocation_state: Additional parameters to pass through the event loop.
-            **kwargs: Additional parameters to pass to the event loop.[Deprecating]
-
-        Yields:
-            An async iterator that yields events. Each event is a dictionary containing
-               information about the current state of processing, such as:
-
-                - data: Text content being generated
-                - complete: Whether this is the final chunk
-                - current_tool_use: Information about tools being executed
-                - And other event data provided by the callback handler
-
-        Raises:
-            Exception: Any exceptions from the agent invocation will be propagated to the caller.
-
-        Example:
-            ```python
-            async for event in agent.stream_async("Analyze this data"):
-                if "data" in event:
-                    yield event["data"]
-            ```
-        """
+        """Process a natural language prompt and yield events as an async iterator."""
         self._resume_interrupt(prompt)
 
         merged_state = {}
@@ -663,14 +655,7 @@ class Agent:
                 raise
 
     def _resume_interrupt(self, prompt: AgentInput) -> None:
-        """Configure the interrupt state if resuming from an interrupt event.
-
-        Args:
-            prompt: User responses if resuming from interrupt.
-
-        Raises:
-            TypeError: If in interrupt state but user did not provide responses.
-        """
+        """Configure the interrupt state if resuming from an interrupt event."""
         if not self._interrupt_state.activated:
             return
 
@@ -695,15 +680,7 @@ class Agent:
             self._interrupt_state.interrupts[interrupt_id].response = interrupt_response
 
     async def _run_loop(self, messages: Messages, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
-        """Execute the agent's event loop with the given message and parameters.
-
-        Args:
-            messages: The input messages to add to the conversation.
-            invocation_state: Additional parameters to pass to the event loop.
-
-        Yields:
-            Events from the event loop cycle.
-        """
+        """Execute the agent's event loop with the given message and parameters."""
         self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
 
         try:
@@ -735,15 +712,7 @@ class Agent:
             self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
     async def _execute_event_loop_cycle(self, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
-        """Execute the event loop cycle with retry logic for context window limits.
-
-        This internal method handles the execution of the event loop cycle and implements
-        retry logic for handling context window overflow exceptions by reducing the
-        conversation context and retrying.
-
-        Yields:
-            Events of the loop cycle.
-        """
+        """Execute the event loop cycle with retry logic for context window limits."""
         # Add `Agent` to invocation_state to keep backwards-compatibility
         invocation_state["agent"] = self
 
@@ -805,20 +774,7 @@ class Agent:
         tool_result: ToolResult,
         user_message_override: Optional[str],
     ) -> None:
-        """Record a tool execution in the message history.
-
-        Creates a sequence of messages that represent the tool execution:
-
-        1. A user message describing the tool call
-        2. An assistant message with the tool use
-        3. A user message with the tool result
-        4. An assistant message acknowledging the tool call
-
-        Args:
-            tool: The tool call information.
-            tool_result: The result returned by the tool.
-            user_message_override: Optional custom message to include.
-        """
+        """Record a tool execution in the message history."""
         # Filter tool input parameters to only include those defined in tool spec
         filtered_input = self._filter_tool_parameters_for_recording(tool["name"], tool["input"])
 
@@ -865,11 +821,7 @@ class Agent:
         self._append_message(assistant_msg)
 
     def _start_agent_trace_span(self, messages: Messages) -> trace_api.Span:
-        """Starts a trace span for the agent.
-
-        Args:
-            messages: The input messages.
-        """
+        """Starts a trace span for the agent."""
         model_id = self.model.config.get("model_id") if hasattr(self.model, "config") else None
         return self.tracer.start_agent_span(
             messages=messages,
@@ -885,13 +837,7 @@ class Agent:
         response: Optional[AgentResult] = None,
         error: Optional[Exception] = None,
     ) -> None:
-        """Ends a trace span for the agent.
-
-        Args:
-            span: The span to end.
-            response: Response to record as a trace attribute.
-            error: Error to record as a trace attribute.
-        """
+        """Ends a trace span for the agent."""
         if self.trace_span:
             trace_attributes: dict[str, Any] = {
                 "span": self.trace_span,
@@ -905,15 +851,7 @@ class Agent:
             self.tracer.end_agent_span(**trace_attributes)
 
     def _filter_tool_parameters_for_recording(self, tool_name: str, input_params: dict[str, Any]) -> dict[str, Any]:
-        """Filter input parameters to only include those defined in the tool specification.
-
-        Args:
-            tool_name: Name of the tool to get specification for
-            input_params: Original input parameters
-
-        Returns:
-            Filtered parameters containing only those defined in tool spec
-        """
+        """Filter input parameters to only include those defined in the tool specification."""
         all_tools_config = self.tool_registry.get_all_tools_config()
         tool_spec = all_tools_config.get(tool_name)
 

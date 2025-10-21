@@ -33,7 +33,6 @@ from ...types.exceptions import MCPClientInitializationError, ToolProviderExcept
 from ...types.media import ImageFormat
 from ...types.tools import AgentTool, ToolResultContent, ToolResultStatus
 from .mcp_agent_tool import MCPAgentTool
-from .mcp_instrumentation import mcp_instrumentation
 from .mcp_types import MCPToolResult, MCPTransport
 
 logger = logging.getLogger(__name__)
@@ -108,7 +107,7 @@ class MCPClient(ToolProvider):
         self._tool_filters = tool_filters
         self._prefix = prefix
 
-        mcp_instrumentation()
+        # mcp_instrumentation()
         self._session_id = uuid.uuid4()
         self._log_debug_with_thread("initializing MCPClient connection")
         # Main thread blocks until future completesock
@@ -210,13 +209,14 @@ class MCPClient(ToolProvider):
 
             while True:
                 logger.debug("page=<%d>, token=<%s> | fetching tools page", page_count, pagination_token)
-                paginated_tools = self.list_tools_sync(pagination_token, prefix=self._prefix)
+                # Use constructor defaults for prefix and filters in load_tools
+                paginated_tools = self.list_tools_sync(
+                    pagination_token, prefix=self._prefix, tool_filters=self._tool_filters
+                )
 
-                # Process each tool as we get it
+                # Tools are already filtered by list_tools_sync, so add them all
                 for tool in paginated_tools:
-                    # Apply filters
-                    if self._should_include_tool(tool):
-                        self._loaded_tools.append(tool)
+                    self._loaded_tools.append(tool)
 
                 logger.debug(
                     "page=<%d>, page_tools=<%d>, total_filtered=<%d> | processed page",
@@ -235,20 +235,27 @@ class MCPClient(ToolProvider):
 
         return self._loaded_tools
 
-    async def add_consumer(self, id: Any, **kwargs: Any) -> None:
-        """Add a consumer to this tool provider."""
+    def add_consumer(self, id: Any, **kwargs: Any) -> None:
+        """Add a consumer to this tool provider.
+
+        Synchronous to prevent GC deadlocks when called from Agent finalizers.
+        """
         self._consumers.add(id)
         logger.debug("added provider consumer, count=%d", len(self._consumers))
 
-    async def remove_consumer(self, id: Any, **kwargs: Any) -> None:
-        """Remove a consumer from this tool provider."""
+    def remove_consumer(self, id: Any, **kwargs: Any) -> None:
+        """Remove a consumer from this tool provider.
+
+        Synchronous to prevent GC deadlocks when called from Agent finalizers.
+        Uses existing synchronous stop() method for safe cleanup.
+        """
         self._consumers.discard(id)
         logger.debug("removed provider consumer, count=%d", len(self._consumers))
 
         if not self._consumers and self._tool_provider_started:
             logger.debug("no consumers remaining, cleaning up")
             try:
-                self.stop(None, None, None)
+                self.stop(None, None, None)  # Existing sync method - safe for finalizers
                 self._tool_provider_started = False
                 self._loaded_tools = None
             except Exception as e:
@@ -312,7 +319,10 @@ class MCPClient(ToolProvider):
         self._consumers = set()
 
     def list_tools_sync(
-        self, pagination_token: Optional[str] = None, prefix: Optional[str] = None
+        self,
+        pagination_token: Optional[str] = None,
+        prefix: Optional[str] = None,
+        tool_filters: Optional[ToolFilters] = None,
     ) -> PaginatedList[MCPAgentTool]:
         """Synchronously retrieves the list of available tools from the MCP server.
 
@@ -321,7 +331,10 @@ class MCPClient(ToolProvider):
 
         Args:
             pagination_token: Optional token for pagination
-            prefix: Optional prefix to apply to tool names
+            prefix: Optional prefix to apply to tool names. If None, uses constructor default.
+                   If explicitly provided (including empty string), overrides constructor default.
+            tool_filters: Optional filters to apply to tools. If None, uses constructor default.
+                         If explicitly provided (including empty dict), overrides constructor default.
 
         Returns:
             List[AgentTool]: A list of available tools adapted to the AgentTool interface
@@ -329,6 +342,9 @@ class MCPClient(ToolProvider):
         self._log_debug_with_thread("listing MCP tools synchronously")
         if not self._is_session_active():
             raise MCPClientInitializationError(CLIENT_SESSION_NOT_RUNNING_ERROR_MESSAGE)
+
+        effective_prefix = self._prefix if prefix is None else prefix
+        effective_filters = self._tool_filters if tool_filters is None else tool_filters
 
         async def _list_tools_async() -> ListToolsResult:
             return await cast(ClientSession, self._background_thread_session).list_tools(cursor=pagination_token)
@@ -338,13 +354,17 @@ class MCPClient(ToolProvider):
 
         mcp_tools = []
         for tool in list_tools_response.tools:
-            if prefix:
-                prefixed_name = f"{prefix}_{tool.name}"
+            # Apply prefix if specified
+            if effective_prefix:
+                prefixed_name = f"{effective_prefix}_{tool.name}"
                 mcp_tool = MCPAgentTool(tool, self, name_override=prefixed_name)
                 logger.debug("tool_rename=<%s->%s> | renamed tool", tool.name, prefixed_name)
             else:
                 mcp_tool = MCPAgentTool(tool, self)
-            mcp_tools.append(mcp_tool)
+
+            # Apply filters if specified
+            if self._should_include_tool_with_filters(mcp_tool, effective_filters):
+                mcp_tools.append(mcp_tool)
 
         self._log_debug_with_thread("successfully adapted %d MCP tools", len(mcp_tools))
         return PaginatedList[MCPAgentTool](mcp_tools, token=list_tools_response.nextCursor)
@@ -669,21 +689,24 @@ class MCPClient(ToolProvider):
         return asyncio.run_coroutine_threadsafe(coro=coro, loop=self._background_thread_event_loop)
 
     def _should_include_tool(self, tool: MCPAgentTool) -> bool:
-        """Check if a tool should be included based on allowed/rejected filters."""
-        if not self._tool_filters:
+        """Check if a tool should be included based on constructor filters."""
+        return self._should_include_tool_with_filters(tool, self._tool_filters)
+
+    def _should_include_tool_with_filters(self, tool: MCPAgentTool, filters: Optional[ToolFilters]) -> bool:
+        """Check if a tool should be included based on provided filters."""
+        if not filters:
             return True
 
         # Apply allowed filter
-        if "allowed" in self._tool_filters:
-            if not self._matches_patterns(tool, self._tool_filters["allowed"]):
+        if "allowed" in filters:
+            if not self._matches_patterns(tool, filters["allowed"]):
                 return False
 
         # Apply rejected filter
-        if "rejected" in self._tool_filters:
-            if self._matches_patterns(tool, self._tool_filters["rejected"]):
+        if "rejected" in filters:
+            if self._matches_patterns(tool, filters["rejected"]):
                 return False
 
-        print(f"Returning true for {tool.mcp_tool.name} {tool.tool_name}")
         return True
 
     def _matches_patterns(self, tool: MCPAgentTool, patterns: list[_ToolFilterPattern]) -> bool:
@@ -696,7 +719,6 @@ class MCPClient(ToolProvider):
                 if pattern.match(tool.mcp_tool.name):
                     return True
             elif isinstance(pattern, str):
-                print(f"checking {pattern} against {tool.mcp_tool.name}")
                 if pattern == tool.mcp_tool.name:
                     return True
         return False

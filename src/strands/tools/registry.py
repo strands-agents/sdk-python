@@ -128,12 +128,11 @@ class ToolRegistry:
                 elif isinstance(tool, ToolProvider):
                     self._tool_providers.append(tool)
 
-                    async def get_tools_and_register_consumer() -> Sequence[AgentTool]:
-                        provider_tools = await tool.load_tools()
-                        await tool.add_consumer(self._registry_id)
-                        return provider_tools
+                    async def get_tools() -> Sequence[AgentTool]:
+                        return await tool.load_tools()
 
-                    provider_tools = run_async(get_tools_and_register_consumer)
+                    provider_tools = run_async(get_tools)
+                    tool.add_consumer(self._registry_id)  # Now sync
 
                     for provider_tool in provider_tools:
                         self.register_tool(provider_tool)
@@ -661,11 +660,20 @@ class ToolRegistry:
 
         return tools
 
-    async def cleanup_async(self, **kwargs: Any) -> None:
-        """Clean up all tool providers in this registry."""
+    def cleanup(self, **kwargs: Any) -> None:
+        """Synchronously clean up all tool providers in this registry.
+
+        This method is safe to call from Agent finalizers during garbage collection
+        because it avoids run_async() which can deadlock when the GIL is held.
+
+        The synchronous approach prevents:
+        1. GC deadlocks - run_async() creates ThreadPoolExecutor during GC
+        2. Interpreter shutdown hangs - ThreadPoolExecutor creation fails during shutdown
+        3. Finalizer threading issues - weakref.finalize runs in restricted environment
+        """
         for provider in self._tool_providers:
             try:
-                await provider.remove_consumer(self._registry_id)
+                provider.remove_consumer(self._registry_id)  # Now sync
                 logger.debug("provider=<%s> | removed provider consumer", type(provider).__name__)
             except Exception as e:
                 logger.warning(

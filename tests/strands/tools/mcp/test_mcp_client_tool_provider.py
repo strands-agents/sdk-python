@@ -153,8 +153,8 @@ async def test_load_tools_handles_pagination(mock_transport):
         # Should have called list_tools_sync twice
         assert mock_list_tools.call_count == 2
         # First call with no token, second call with "page2" token
-        mock_list_tools.assert_any_call(None, prefix=None)
-        mock_list_tools.assert_any_call("page2", prefix=None)
+        mock_list_tools.assert_any_call(None, prefix=None, tool_filters=None)
+        mock_list_tools.assert_any_call("page2", prefix=None, tool_filters=None)
 
         assert len(tools) == 2
         assert tools[0] is tool1
@@ -165,14 +165,14 @@ async def test_load_tools_handles_pagination(mock_transport):
 async def test_allowed_filter_string_match(mock_transport):
     """Test allowed filter with string matching."""
     tool1 = create_mock_tool("allowed_tool")
-    tool2 = create_mock_tool("rejected_tool")
 
     filters: ToolFilters = {"allowed": ["allowed_tool"]}
     client = MCPClient(mock_transport, tool_filters=filters)
     client._tool_provider_started = True
 
     with patch.object(client, "list_tools_sync") as mock_list_tools:
-        mock_list_tools.return_value = PaginatedList([tool1, tool2])
+        # Mock list_tools_sync to return filtered results (simulating the filtering)
+        mock_list_tools.return_value = PaginatedList([tool1])  # Only allowed tool
 
         tools = await client.load_tools()
 
@@ -184,14 +184,14 @@ async def test_allowed_filter_string_match(mock_transport):
 async def test_allowed_filter_regex_match(mock_transport):
     """Test allowed filter with regex matching."""
     tool1 = create_mock_tool("echo_tool")
-    tool2 = create_mock_tool("other_tool")
 
     filters: ToolFilters = {"allowed": [re.compile(r"echo_.*")]}
     client = MCPClient(mock_transport, tool_filters=filters)
     client._tool_provider_started = True
 
     with patch.object(client, "list_tools_sync") as mock_list_tools:
-        mock_list_tools.return_value = PaginatedList([tool1, tool2])
+        # Mock list_tools_sync to return filtered results
+        mock_list_tools.return_value = PaginatedList([tool1])  # Only echo tool
 
         tools = await client.load_tools()
 
@@ -203,7 +203,6 @@ async def test_allowed_filter_regex_match(mock_transport):
 async def test_allowed_filter_callable_match(mock_transport):
     """Test allowed filter with callable matching."""
     tool1 = create_mock_tool("short")
-    tool2 = create_mock_tool("very_long_tool_name")
 
     def short_names_only(tool) -> bool:
         return len(tool.tool_name) <= 10
@@ -213,7 +212,8 @@ async def test_allowed_filter_callable_match(mock_transport):
     client._tool_provider_started = True
 
     with patch.object(client, "list_tools_sync") as mock_list_tools:
-        mock_list_tools.return_value = PaginatedList([tool1, tool2])
+        # Mock list_tools_sync to return filtered results
+        mock_list_tools.return_value = PaginatedList([tool1])  # Only short tool
 
         tools = await client.load_tools()
 
@@ -225,14 +225,14 @@ async def test_allowed_filter_callable_match(mock_transport):
 async def test_rejected_filter_string_match(mock_transport):
     """Test rejected filter with string matching."""
     tool1 = create_mock_tool("good_tool")
-    tool2 = create_mock_tool("bad_tool")
 
     filters: ToolFilters = {"rejected": ["bad_tool"]}
     client = MCPClient(mock_transport, tool_filters=filters)
     client._tool_provider_started = True
 
     with patch.object(client, "list_tools_sync") as mock_list_tools:
-        mock_list_tools.return_value = PaginatedList([tool1, tool2])
+        # Mock list_tools_sync to return filtered results
+        mock_list_tools.return_value = PaginatedList([tool1])  # Only good tool
 
         tools = await client.load_tools()
 
@@ -283,34 +283,31 @@ async def test_prefix_renames_tools(mock_transport):
         assert result[0] is mock_agent_tool
 
 
-@pytest.mark.asyncio
-async def test_add_consumer(mock_transport):
+def test_add_consumer(mock_transport):
     """Test adding a provider consumer."""
     client = MCPClient(mock_transport)
 
-    await client.add_consumer("consumer1")
+    client.add_consumer("consumer1")
 
     assert "consumer1" in client._consumers
     assert len(client._consumers) == 1
 
 
-@pytest.mark.asyncio
-async def test_remove_consumer_without_cleanup(mock_transport):
+def test_remove_consumer_without_cleanup(mock_transport):
     """Test removing a provider consumer without triggering cleanup."""
     client = MCPClient(mock_transport)
     client._consumers.add("consumer1")
     client._consumers.add("consumer2")
     client._tool_provider_started = True
 
-    await client.remove_consumer("consumer1")
+    client.remove_consumer("consumer1")
 
     assert "consumer1" not in client._consumers
     assert "consumer2" in client._consumers
     assert client._tool_provider_started is True  # Should not cleanup yet
 
 
-@pytest.mark.asyncio
-async def test_remove_consumer_with_cleanup(mock_transport):
+def test_remove_consumer_with_cleanup(mock_transport):
     """Test removing the last provider consumer triggers cleanup."""
     client = MCPClient(mock_transport)
     client._consumers.add("consumer1")
@@ -318,7 +315,7 @@ async def test_remove_consumer_with_cleanup(mock_transport):
     client._loaded_tools = [MagicMock()]
 
     with patch.object(client, "stop") as mock_stop:
-        await client.remove_consumer("consumer1")
+        client.remove_consumer("consumer1")
 
         assert len(client._consumers) == 0
         assert client._tool_provider_started is False
@@ -326,8 +323,7 @@ async def test_remove_consumer_with_cleanup(mock_transport):
         mock_stop.assert_called_once_with(None, None, None)
 
 
-@pytest.mark.asyncio
-async def test_remove_consumer_cleanup_failure(mock_transport):
+def test_remove_consumer_cleanup_failure(mock_transport):
     """Test that remove_consumer raises ToolProviderException when cleanup fails."""
     client = MCPClient(mock_transport)
     client._consumers.add("consumer1")
@@ -337,7 +333,7 @@ async def test_remove_consumer_cleanup_failure(mock_transport):
         mock_stop.side_effect = Exception("Cleanup failed")
 
         with pytest.raises(ToolProviderException, match="Failed to cleanup MCP client: Cleanup failed"):
-            await client.remove_consumer("consumer1")
+            client.remove_consumer("consumer1")
 
 
 def test_mcp_client_reuse_across_multiple_agents(mock_transport):
@@ -376,3 +372,455 @@ def test_mcp_client_reuse_across_multiple_agents(mock_transport):
         # Final cleanup when last agent is removed
         agent_2.cleanup()
         mock_stop.assert_called_once()  # Now it should stop
+
+
+def test_list_tools_sync_prefix_override_constructor_default(mock_transport):
+    """Test that list_tools_sync can override constructor prefix."""
+    # Create a mock MCP tool
+    mock_mcp_tool = MagicMock()
+    mock_mcp_tool.name = "original_tool"
+
+    # Client with constructor prefix
+    client = MCPClient(mock_transport, prefix="constructor")
+    client._tool_provider_started = True
+
+    # Mock the session active state
+    mock_thread = MagicMock()
+    mock_thread.is_alive.return_value = True
+    client._background_thread = mock_thread
+
+    with (
+        patch.object(client, "_invoke_on_background_thread") as mock_invoke,
+        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+    ):
+        # Mock the MCP server response
+        mock_list_tools_result = MagicMock()
+        mock_list_tools_result.tools = [mock_mcp_tool]
+        mock_list_tools_result.nextCursor = None
+
+        mock_future = MagicMock()
+        mock_future.result.return_value = mock_list_tools_result
+        mock_invoke.return_value = mock_future
+
+        # Mock MCPAgentTool creation
+        mock_agent_tool = MagicMock(spec=MCPAgentTool)
+        mock_agent_tool.tool_name = "override_original_tool"
+        mock_agent_tool_class.return_value = mock_agent_tool
+
+        # Call with override prefix
+        result = client.list_tools_sync(prefix="override")
+
+        # Should use override prefix, not constructor prefix
+        mock_agent_tool_class.assert_called_once_with(mock_mcp_tool, client, name_override="override_original_tool")
+
+        assert len(result) == 1
+        assert result[0] is mock_agent_tool
+
+
+def test_list_tools_sync_prefix_override_with_empty_string(mock_transport):
+    """Test that list_tools_sync can override constructor prefix with empty string."""
+    # Create a mock MCP tool
+    mock_mcp_tool = MagicMock()
+    mock_mcp_tool.name = "original_tool"
+
+    # Client with constructor prefix
+    client = MCPClient(mock_transport, prefix="constructor")
+    client._tool_provider_started = True
+
+    # Mock the session active state
+    mock_thread = MagicMock()
+    mock_thread.is_alive.return_value = True
+    client._background_thread = mock_thread
+
+    with (
+        patch.object(client, "_invoke_on_background_thread") as mock_invoke,
+        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+    ):
+        # Mock the MCP server response
+        mock_list_tools_result = MagicMock()
+        mock_list_tools_result.tools = [mock_mcp_tool]
+        mock_list_tools_result.nextCursor = None
+
+        mock_future = MagicMock()
+        mock_future.result.return_value = mock_list_tools_result
+        mock_invoke.return_value = mock_future
+
+        # Mock MCPAgentTool creation
+        mock_agent_tool = MagicMock(spec=MCPAgentTool)
+        mock_agent_tool.tool_name = "original_tool"
+        mock_agent_tool_class.return_value = mock_agent_tool
+
+        # Call with empty string prefix (should override constructor default)
+        result = client.list_tools_sync(prefix="")
+
+        # Should use no prefix (empty string overrides constructor)
+        mock_agent_tool_class.assert_called_once_with(mock_mcp_tool, client)
+
+        assert len(result) == 1
+        assert result[0] is mock_agent_tool
+
+
+def test_list_tools_sync_prefix_uses_constructor_default_when_none(mock_transport):
+    """Test that list_tools_sync uses constructor prefix when None is passed."""
+    # Create a mock MCP tool
+    mock_mcp_tool = MagicMock()
+    mock_mcp_tool.name = "original_tool"
+
+    # Client with constructor prefix
+    client = MCPClient(mock_transport, prefix="constructor")
+    client._tool_provider_started = True
+
+    # Mock the session active state
+    mock_thread = MagicMock()
+    mock_thread.is_alive.return_value = True
+    client._background_thread = mock_thread
+
+    with (
+        patch.object(client, "_invoke_on_background_thread") as mock_invoke,
+        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+    ):
+        # Mock the MCP server response
+        mock_list_tools_result = MagicMock()
+        mock_list_tools_result.tools = [mock_mcp_tool]
+        mock_list_tools_result.nextCursor = None
+
+        mock_future = MagicMock()
+        mock_future.result.return_value = mock_list_tools_result
+        mock_invoke.return_value = mock_future
+
+        # Mock MCPAgentTool creation
+        mock_agent_tool = MagicMock(spec=MCPAgentTool)
+        mock_agent_tool.tool_name = "constructor_original_tool"
+        mock_agent_tool_class.return_value = mock_agent_tool
+
+        # Call with None prefix (should use constructor default)
+        result = client.list_tools_sync(prefix=None)
+
+        # Should use constructor prefix
+        mock_agent_tool_class.assert_called_once_with(mock_mcp_tool, client, name_override="constructor_original_tool")
+
+        assert len(result) == 1
+        assert result[0] is mock_agent_tool
+
+
+def test_list_tools_sync_tool_filters_override_constructor_default(mock_transport):
+    """Test that list_tools_sync can override constructor tool_filters."""
+    # Create mock tools
+    tool1 = create_mock_tool("allowed_tool")
+    tool2 = create_mock_tool("rejected_tool")
+
+    # Client with constructor filters that would allow both
+    constructor_filters: ToolFilters = {"allowed": ["allowed_tool", "rejected_tool"]}
+    client = MCPClient(mock_transport, tool_filters=constructor_filters)
+    client._tool_provider_started = True
+
+    # Mock the session active state
+    mock_thread = MagicMock()
+    mock_thread.is_alive.return_value = True
+    client._background_thread = mock_thread
+
+    with (
+        patch.object(client, "_invoke_on_background_thread") as mock_invoke,
+        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+    ):
+        # Mock the MCP server response
+        mock_list_tools_result = MagicMock()
+        mock_list_tools_result.tools = [MagicMock(name="allowed_tool"), MagicMock(name="rejected_tool")]
+        mock_list_tools_result.nextCursor = None
+
+        mock_future = MagicMock()
+        mock_future.result.return_value = mock_list_tools_result
+        mock_invoke.return_value = mock_future
+
+        # Mock MCPAgentTool creation to return our test tools
+        mock_agent_tool_class.side_effect = [tool1, tool2]
+
+        # Override filters to only allow one tool
+        override_filters: ToolFilters = {"allowed": ["allowed_tool"]}
+        result = client.list_tools_sync(tool_filters=override_filters)
+
+        # Should only include the allowed tool based on override filters
+        assert len(result) == 1
+        assert result[0] is tool1
+
+
+def test_list_tools_sync_tool_filters_override_with_empty_dict(mock_transport):
+    """Test that list_tools_sync can override constructor filters with empty dict."""
+    # Create mock tools
+    tool1 = create_mock_tool("tool1")
+    tool2 = create_mock_tool("tool2")
+
+    # Client with constructor filters that would reject tools
+    constructor_filters: ToolFilters = {"rejected": ["tool1", "tool2"]}
+    client = MCPClient(mock_transport, tool_filters=constructor_filters)
+    client._tool_provider_started = True
+
+    # Mock the session active state
+    mock_thread = MagicMock()
+    mock_thread.is_alive.return_value = True
+    client._background_thread = mock_thread
+
+    with (
+        patch.object(client, "_invoke_on_background_thread") as mock_invoke,
+        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+    ):
+        # Mock the MCP server response
+        mock_list_tools_result = MagicMock()
+        mock_list_tools_result.tools = [MagicMock(name="tool1"), MagicMock(name="tool2")]
+        mock_list_tools_result.nextCursor = None
+
+        mock_future = MagicMock()
+        mock_future.result.return_value = mock_list_tools_result
+        mock_invoke.return_value = mock_future
+
+        # Mock MCPAgentTool creation to return our test tools
+        mock_agent_tool_class.side_effect = [tool1, tool2]
+
+        # Override with empty filters (should allow all tools)
+        result = client.list_tools_sync(tool_filters={})
+
+        # Should include both tools since empty filters allow everything
+        assert len(result) == 2
+        assert result[0] is tool1
+        assert result[1] is tool2
+
+
+def test_list_tools_sync_tool_filters_uses_constructor_default_when_none(mock_transport):
+    """Test that list_tools_sync uses constructor filters when None is passed."""
+    # Create mock tools
+    tool1 = create_mock_tool("allowed_tool")
+    tool2 = create_mock_tool("rejected_tool")
+
+    # Client with constructor filters
+    constructor_filters: ToolFilters = {"allowed": ["allowed_tool"]}
+    client = MCPClient(mock_transport, tool_filters=constructor_filters)
+    client._tool_provider_started = True
+
+    # Mock the session active state
+    mock_thread = MagicMock()
+    mock_thread.is_alive.return_value = True
+    client._background_thread = mock_thread
+
+    with (
+        patch.object(client, "_invoke_on_background_thread") as mock_invoke,
+        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+    ):
+        # Mock the MCP server response
+        mock_list_tools_result = MagicMock()
+        mock_list_tools_result.tools = [MagicMock(name="allowed_tool"), MagicMock(name="rejected_tool")]
+        mock_list_tools_result.nextCursor = None
+
+        mock_future = MagicMock()
+        mock_future.result.return_value = mock_list_tools_result
+        mock_invoke.return_value = mock_future
+
+        # Mock MCPAgentTool creation to return our test tools
+        mock_agent_tool_class.side_effect = [tool1, tool2]
+
+        # Call with None filters (should use constructor default)
+        result = client.list_tools_sync(tool_filters=None)
+
+        # Should only include allowed tool based on constructor filters
+        assert len(result) == 1
+        assert result[0] is tool1
+
+
+def test_list_tools_sync_combined_prefix_and_filter_overrides(mock_transport):
+    """Test that list_tools_sync can override both prefix and filters simultaneously."""
+    # Client with constructor defaults
+    constructor_filters: ToolFilters = {"allowed": ["echo_tool", "other_tool"]}
+    client = MCPClient(mock_transport, tool_filters=constructor_filters, prefix="constructor")
+
+    # Create mock tools
+    mock_echo_tool = MagicMock()
+    mock_echo_tool.name = "echo_tool"
+    mock_other_tool = MagicMock()
+    mock_other_tool.name = "other_tool"
+
+    # Mock the MCP response
+    mock_result = MagicMock()
+    mock_result.tools = [mock_echo_tool, mock_other_tool]
+    mock_result.nextCursor = None
+
+    with (
+        patch.object(client, "_is_session_active", return_value=True),
+        patch.object(client, "_invoke_on_background_thread") as mock_invoke,
+        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+    ):
+        mock_future = MagicMock()
+        mock_future.result.return_value = mock_result
+        mock_invoke.return_value = mock_future
+
+        # Create mock agent tools
+        mock_agent_tool1 = MagicMock()
+        mock_agent_tool1.mcp_tool = mock_echo_tool
+        mock_agent_tool2 = MagicMock()
+        mock_agent_tool2.mcp_tool = mock_other_tool
+        mock_agent_tool_class.side_effect = [mock_agent_tool1, mock_agent_tool2]
+
+        # Override both prefix and filters
+        override_filters: ToolFilters = {"allowed": ["echo_tool"]}
+        result = client.list_tools_sync(prefix="override", tool_filters=override_filters)
+
+        # Verify prefix override: should use "override" not "constructor"
+        calls = mock_agent_tool_class.call_args_list
+        assert len(calls) == 2
+
+        # First tool should have override prefix
+        args1, kwargs1 = calls[0]
+        assert args1 == (mock_echo_tool, client)
+        assert kwargs1 == {"name_override": "override_echo_tool"}
+
+        # Second tool should have override prefix
+        args2, kwargs2 = calls[1]
+        assert args2 == (mock_other_tool, client)
+        assert kwargs2 == {"name_override": "override_other_tool"}
+
+        # Verify filter override: should only include echo_tool based on override filters
+        assert len(result) == 1
+        assert result[0] is mock_agent_tool1
+
+
+def test_list_tools_sync_direct_usage_without_constructor_defaults(mock_transport):
+    """Test direct usage of list_tools_sync without constructor defaults."""
+    # Client without constructor defaults
+    client = MCPClient(mock_transport)
+
+    # Create mock tools
+    mock_tool1 = MagicMock()
+    mock_tool1.name = "tool1"
+    mock_tool2 = MagicMock()
+    mock_tool2.name = "tool2"
+
+    # Mock the MCP response
+    mock_result = MagicMock()
+    mock_result.tools = [mock_tool1, mock_tool2]
+    mock_result.nextCursor = None
+
+    with (
+        patch.object(client, "_is_session_active", return_value=True),
+        patch.object(client, "_invoke_on_background_thread") as mock_invoke,
+        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+    ):
+        mock_future = MagicMock()
+        mock_future.result.return_value = mock_result
+        mock_invoke.return_value = mock_future
+
+        # Create mock agent tools
+        mock_agent_tool1 = MagicMock()
+        mock_agent_tool1.mcp_tool = mock_tool1
+        mock_agent_tool2 = MagicMock()
+        mock_agent_tool2.mcp_tool = mock_tool2
+        mock_agent_tool_class.side_effect = [mock_agent_tool1, mock_agent_tool2]
+
+        # Direct usage with explicit parameters
+        filters: ToolFilters = {"allowed": ["tool1"]}
+        result = client.list_tools_sync(prefix="direct", tool_filters=filters)
+
+        # Verify prefix is applied
+        calls = mock_agent_tool_class.call_args_list
+        assert len(calls) == 2
+
+        # Should create tools with direct prefix
+        args1, kwargs1 = calls[0]
+        assert args1 == (mock_tool1, client)
+        assert kwargs1 == {"name_override": "direct_tool1"}
+
+        args2, kwargs2 = calls[1]
+        assert args2 == (mock_tool2, client)
+        assert kwargs2 == {"name_override": "direct_tool2"}
+
+        # Verify filtering: should only include tool1
+        assert len(result) == 1
+        assert result[0] is mock_agent_tool1
+
+
+def test_list_tools_sync_regex_filter_override(mock_transport):
+    """Test list_tools_sync with regex filter override."""
+    # Client without constructor filters
+    client = MCPClient(mock_transport)
+
+    # Create mock tools
+    mock_echo_tool = MagicMock()
+    mock_echo_tool.name = "echo_command"
+    mock_list_tool = MagicMock()
+    mock_list_tool.name = "list_files"
+
+    # Mock the MCP response
+    mock_result = MagicMock()
+    mock_result.tools = [mock_echo_tool, mock_list_tool]
+    mock_result.nextCursor = None
+
+    with (
+        patch.object(client, "_is_session_active", return_value=True),
+        patch.object(client, "_invoke_on_background_thread") as mock_invoke,
+        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+    ):
+        mock_future = MagicMock()
+        mock_future.result.return_value = mock_result
+        mock_invoke.return_value = mock_future
+
+        # Create mock agent tools
+        mock_agent_tool1 = MagicMock()
+        mock_agent_tool1.mcp_tool = mock_echo_tool
+        mock_agent_tool2 = MagicMock()
+        mock_agent_tool2.mcp_tool = mock_list_tool
+        mock_agent_tool_class.side_effect = [mock_agent_tool1, mock_agent_tool2]
+
+        # Use regex filter to match only echo tools
+        regex_filters: ToolFilters = {"allowed": [re.compile(r"echo_.*")]}
+        result = client.list_tools_sync(tool_filters=regex_filters)
+
+        # Should create both tools
+        assert mock_agent_tool_class.call_count == 2
+
+        # Should only include echo tool (regex matches "echo_command")
+        assert len(result) == 1
+        assert result[0] is mock_agent_tool1
+
+
+def test_list_tools_sync_callable_filter_override(mock_transport):
+    """Test list_tools_sync with callable filter override."""
+    # Client without constructor filters
+    client = MCPClient(mock_transport)
+
+    # Create mock tools
+    mock_short_tool = MagicMock()
+    mock_short_tool.name = "short"
+    mock_long_tool = MagicMock()
+    mock_long_tool.name = "very_long_tool_name"
+
+    # Mock the MCP response
+    mock_result = MagicMock()
+    mock_result.tools = [mock_short_tool, mock_long_tool]
+    mock_result.nextCursor = None
+
+    with (
+        patch.object(client, "_is_session_active", return_value=True),
+        patch.object(client, "_invoke_on_background_thread") as mock_invoke,
+        patch("strands.tools.mcp.mcp_client.MCPAgentTool") as mock_agent_tool_class,
+    ):
+        mock_future = MagicMock()
+        mock_future.result.return_value = mock_result
+        mock_invoke.return_value = mock_future
+
+        # Create mock agent tools
+        mock_agent_tool1 = MagicMock()
+        mock_agent_tool1.mcp_tool = mock_short_tool
+        mock_agent_tool2 = MagicMock()
+        mock_agent_tool2.mcp_tool = mock_long_tool
+        mock_agent_tool_class.side_effect = [mock_agent_tool1, mock_agent_tool2]
+
+        # Use callable filter for short names only
+        def short_names_only(tool) -> bool:
+            return len(tool.mcp_tool.name) <= 10
+
+        callable_filters: ToolFilters = {"allowed": [short_names_only]}
+        result = client.list_tools_sync(tool_filters=callable_filters)
+
+        # Should create both tools
+        assert mock_agent_tool_class.call_count == 2
+
+        # Should only include short tool (name length <= 10)
+        assert len(result) == 1
+        assert result[0] is mock_agent_tool1
