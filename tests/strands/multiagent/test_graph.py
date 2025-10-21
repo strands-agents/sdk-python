@@ -640,7 +640,7 @@ async def test_graph_node_timeout(mock_strands_tracer, mock_use_span):
     graph = builder.set_max_node_executions(50).set_execution_timeout(900.0).set_node_timeout(0.1).build()
 
     # Execute the graph - should raise Exception due to timeout
-    with pytest.raises(Exception, match="Node 'timeout_node' execution timed out after 0.1s"):
+    with pytest.raises(asyncio.TimeoutError):
         await graph.invoke_async("Test node timeout")
 
     mock_strands_tracer.start_multiagent_span.assert_called()
@@ -1341,3 +1341,54 @@ def test_graph_kwargs_passing_sync(mock_strands_tracer, mock_use_span):
         [{"text": "Test kwargs passing sync"}], invocation_state=test_invocation_state
     )
     assert result.status == Status.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_graph_persisted(mock_strands_tracer, mock_use_span):
+    """Test graph persistence functionality."""
+    # Create mock session manager
+    session_manager = Mock(spec=SessionManager)
+    session_manager.read_multi_agent_json.return_value = None
+
+    # Create simple graph with session manager
+    builder = GraphBuilder()
+    agent = create_mock_agent("test_agent")
+    builder.add_node(agent, "test_node")
+    builder.set_entry_point("test_node")
+    builder.set_session_manager(session_manager)
+
+    graph = builder.build()
+
+    # Test get_state_from_orchestrator
+    state = graph.serialize_state()
+    assert state["type"] == "graph"
+    assert "status" in state
+    assert "completed_nodes" in state
+    assert "node_results" in state
+
+    # Test apply_state_from_dict with persisted state
+    persisted_state = {
+        "status": "executing",
+        "completed_nodes": [],
+        "node_results": {},
+        "current_task": "persisted task",
+        "execution_order": [],
+        "next_nodes_to_execute": ["test_node"],
+    }
+
+    graph._from_dict(persisted_state)
+    assert graph.state.task == "persisted task"
+
+    # Execute graph to test persistence integration
+    result = await graph.invoke_async("Test persistence")
+
+    # Verify execution completed
+    assert result.status == Status.COMPLETED
+    assert len(result.results) == 1
+    assert "test_node" in result.results
+
+    # Test state serialization after execution
+    final_state = graph.serialize_state()
+    assert final_state["status"] == "completed"
+    assert len(final_state["completed_nodes"]) == 1
+    assert "test_node" in final_state["node_results"]

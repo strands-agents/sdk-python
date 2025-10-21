@@ -26,6 +26,14 @@ from opentelemetry import trace as trace_api
 
 from ..agent import Agent
 from ..agent.state import AgentState
+from ..experimental.hooks.multiagent import (
+    AfterMultiAgentInvocationEvent,
+    AfterNodeCallEvent,
+    BeforeNodeCallEvent,
+    MultiAgentInitializedEvent,
+)
+from ..hooks import HookProvider, HookRegistry
+from ..session import SessionManager
 from ..telemetry import get_tracer
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
@@ -217,6 +225,10 @@ class GraphBuilder:
         self._node_timeout: Optional[float] = None
         self._reset_on_revisit: bool = False
 
+        # session manager
+        self._session_manager: Optional[SessionManager] = None
+        self._hooks: Optional[list[HookProvider]] = None
+
     def add_node(self, executor: Agent | MultiAgentBase, node_id: str | None = None) -> GraphNode:
         """Add an Agent or MultiAgentBase instance as a node to the graph."""
         _validate_node_executor(executor, self.nodes)
@@ -306,6 +318,24 @@ class GraphBuilder:
         self._node_timeout = timeout
         return self
 
+    def set_session_manager(self, session_manager: SessionManager) -> "GraphBuilder":
+        """Set session manager for the graph.
+
+        Args:
+            session_manager: SessionManager instance
+        """
+        self._session_manager = session_manager
+        return self
+
+    def set_hook_providers(self, hooks: list[HookProvider]) -> "GraphBuilder":
+        """Set hook providers for the graph.
+
+        Args:
+            hooks: Customer hooks user passes in
+        """
+        self._hooks = hooks
+        return self
+
     def build(self) -> "Graph":
         """Build and validate the graph with configured settings."""
         if not self.nodes:
@@ -331,6 +361,8 @@ class GraphBuilder:
             execution_timeout=self._execution_timeout,
             node_timeout=self._node_timeout,
             reset_on_revisit=self._reset_on_revisit,
+            session_manager=self._session_manager,
+            hooks=self._hooks,
         )
 
     def _validate_graph(self) -> None:
@@ -358,6 +390,8 @@ class Graph(MultiAgentBase):
         execution_timeout: Optional[float] = None,
         node_timeout: Optional[float] = None,
         reset_on_revisit: bool = False,
+        session_manager: Optional[SessionManager] = None,
+        hooks: Optional[list[HookProvider]] = None,
     ) -> None:
         """Initialize Graph with execution limits and reset behavior.
 
@@ -369,6 +403,8 @@ class Graph(MultiAgentBase):
             execution_timeout: Total execution timeout in seconds (default: None - no limit)
             node_timeout: Individual node timeout in seconds (default: None - no limit)
             reset_on_revisit: Whether to reset node state when revisited (default: False)
+            session_manager: Optional session manager for persistence
+            hooks: Optional custom hook providers for registry.
         """
         super().__init__()
 
@@ -384,6 +420,18 @@ class Graph(MultiAgentBase):
         self.reset_on_revisit = reset_on_revisit
         self.state = GraphState()
         self.tracer = get_tracer()
+        self.session_manager = session_manager
+        self.hooks = HookRegistry()
+        if self.session_manager is not None:
+            self.hooks.add_hook(self.session_manager)
+        if hooks:
+            for hook in hooks:
+                self.hooks.add_hook(hook)
+        # Resume flags
+        self._resume_from_session = False
+        self._resume_next_nodes: list[GraphNode] = []
+
+        self.hooks.invoke_callbacks(MultiAgentInitializedEvent(source=self))
 
     def __call__(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
@@ -423,17 +471,20 @@ class Graph(MultiAgentBase):
 
         logger.debug("task=<%s> | starting graph execution", task)
 
-        # Initialize state
-        start_time = time.time()
-        self.state = GraphState(
-            status=Status.EXECUTING,
-            task=task,
-            total_nodes=len(self.nodes),
-            edges=[(edge.from_node, edge.to_node) for edge in self.edges],
-            entry_points=list(self.entry_points),
-            start_time=start_time,
-        )
-
+        if not self._resume_from_session:
+            start_time = time.time()
+            # Initialize state
+            self.state = GraphState(
+                status=Status.EXECUTING,
+                task=task,
+                total_nodes=len(self.nodes),
+                edges=[(edge.from_node, edge.to_node) for edge in self.edges],
+                entry_points=list(self.entry_points),
+                start_time=start_time,
+            )
+        else:
+            self.state.status = Status.EXECUTING
+            self.state.start_time = time.time()
         span = self.tracer.start_multiagent_span(task, "graph")
         with trace_api.use_span(span, end_on_exit=True):
             try:
@@ -459,7 +510,12 @@ class Graph(MultiAgentBase):
                 self.state.status = Status.FAILED
                 raise
             finally:
-                self.state.execution_time = round((time.time() - start_time) * 1000)
+                self.state.execution_time = round((time.time() - self.state.start_time) * 1000)
+                self.hooks.invoke_callbacks(
+                    AfterMultiAgentInvocationEvent(source=self, invocation_state=invocation_state)
+                )
+                self._resume_from_session = False
+                self._resume_next_nodes.clear()
             return self._build_result()
 
     def _validate_graph(self, nodes: dict[str, GraphNode]) -> None:
@@ -476,7 +532,7 @@ class Graph(MultiAgentBase):
 
     async def _execute_graph(self, invocation_state: dict[str, Any]) -> None:
         """Unified execution flow with conditional routing."""
-        ready_nodes = list(self.entry_points)
+        ready_nodes = self._resume_next_nodes if self._resume_from_session else list(self.entry_points)
 
         while ready_nodes:
             # Check execution limits before continuing
@@ -512,8 +568,11 @@ class Graph(MultiAgentBase):
         return newly_ready
 
     def _is_node_ready_with_conditions(self, node: GraphNode, completed_batch: list["GraphNode"]) -> bool:
-        """Check if a node is ready considering conditional edges."""
-        # Get incoming edges to this node
+        """Check if a node is ready considering conditional edges.
+
+        A node is ready iff ALL incoming deps are completed AND their edge conditions pass,
+        and at least one of those deps was completed in THIS batch (so it's newly ready).
+        """
         incoming_edges = [edge for edge in self.edges if edge.to_node == node]
 
         # Check if at least one incoming edge condition is satisfied
@@ -532,111 +591,12 @@ class Graph(MultiAgentBase):
 
     async def _execute_node(self, node: GraphNode, invocation_state: dict[str, Any]) -> None:
         """Execute a single node with error handling and timeout protection."""
-        # Reset the node's state if reset_on_revisit is enabled and it's being revisited
-        if self.reset_on_revisit and node in self.state.completed_nodes:
-            logger.debug("node_id=<%s> | resetting node state for revisit", node.node_id)
-            node.reset_executor_state()
-            # Remove from completed nodes since we're re-executing it
-            self.state.completed_nodes.remove(node)
+        # Reset the node's state if reset_on_revisit is enabled, and it's being revisited
 
-        node.execution_status = Status.EXECUTING
-        logger.debug("node_id=<%s> | executing node", node.node_id)
-
-        start_time = time.time()
-        try:
-            # Build node input from satisfied dependencies
-            node_input = self._build_node_input(node)
-
-            # Execute with timeout protection (only if node_timeout is set)
-            try:
-                # Execute based on node type and create unified NodeResult
-                if isinstance(node.executor, MultiAgentBase):
-                    if self.node_timeout is not None:
-                        multi_agent_result = await asyncio.wait_for(
-                            node.executor.invoke_async(node_input, invocation_state),
-                            timeout=self.node_timeout,
-                        )
-                    else:
-                        multi_agent_result = await node.executor.invoke_async(node_input, invocation_state)
-
-                    # Create NodeResult with MultiAgentResult directly
-                    node_result = NodeResult(
-                        result=multi_agent_result,  # type is MultiAgentResult
-                        execution_time=multi_agent_result.execution_time,
-                        status=Status.COMPLETED,
-                        accumulated_usage=multi_agent_result.accumulated_usage,
-                        accumulated_metrics=multi_agent_result.accumulated_metrics,
-                        execution_count=multi_agent_result.execution_count,
-                    )
-
-                elif isinstance(node.executor, Agent):
-                    if self.node_timeout is not None:
-                        agent_response = await asyncio.wait_for(
-                            node.executor.invoke_async(node_input, invocation_state=invocation_state),
-                            timeout=self.node_timeout,
-                        )
-                    else:
-                        agent_response = await node.executor.invoke_async(node_input, invocation_state=invocation_state)
-
-                    if agent_response.stop_reason == "interrupt":
-                        node.executor.messages.pop()  # remove interrupted tool use message
-                        node.executor._interrupt_state.deactivate()
-
-                        raise RuntimeError(
-                            "user raised interrupt from agent | interrupts are not yet supported in graphs"
-                        )
-
-                    # Extract metrics from agent response
-                    usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
-                    metrics = Metrics(latencyMs=0)
-                    if hasattr(agent_response, "metrics") and agent_response.metrics:
-                        if hasattr(agent_response.metrics, "accumulated_usage"):
-                            usage = agent_response.metrics.accumulated_usage
-                        if hasattr(agent_response.metrics, "accumulated_metrics"):
-                            metrics = agent_response.metrics.accumulated_metrics
-
-                    node_result = NodeResult(
-                        result=agent_response,  # type is AgentResult
-                        execution_time=round((time.time() - start_time) * 1000),
-                        status=Status.COMPLETED,
-                        accumulated_usage=usage,
-                        accumulated_metrics=metrics,
-                        execution_count=1,
-                    )
-                else:
-                    raise ValueError(f"Node '{node.node_id}' of type '{type(node.executor)}' is not supported")
-
-            except asyncio.TimeoutError:
-                timeout_msg = f"Node '{node.node_id}' execution timed out after {self.node_timeout}s"
-                logger.exception(
-                    "node=<%s>, timeout=<%s>s | node execution timed out after timeout",
-                    node.node_id,
-                    self.node_timeout,
-                )
-                raise Exception(timeout_msg) from None
-
-            # Mark as completed
-            node.execution_status = Status.COMPLETED
-            node.result = node_result
-            node.execution_time = node_result.execution_time
-            self.state.completed_nodes.add(node)
-            self.state.results[node.node_id] = node_result
-            self.state.execution_order.append(node)
-
-            # Accumulate metrics
-            self._accumulate_metrics(node_result)
-
-            logger.debug(
-                "node_id=<%s>, execution_time=<%dms> | node completed successfully", node.node_id, node.execution_time
-            )
-
-        except Exception as e:
-            logger.error("node_id=<%s>, error=<%s> | node failed", node.node_id, e)
+        async def _record_failure(exception: Exception) -> None:
             execution_time = round((time.time() - start_time) * 1000)
-
-            # Create a NodeResult for the failed node
-            node_result = NodeResult(
-                result=e,  # Store exception as result
+            fail_result = NodeResult(
+                result=exception,
                 execution_time=execution_time,
                 status=Status.FAILED,
                 accumulated_usage=Usage(inputTokens=0, outputTokens=0, totalTokens=0),
@@ -645,11 +605,115 @@ class Graph(MultiAgentBase):
             )
 
             node.execution_status = Status.FAILED
-            node.result = node_result
+            node.result = fail_result
             node.execution_time = execution_time
             self.state.failed_nodes.add(node)
-            self.state.results[node.node_id] = node_result  # Store in results for consistency
+            self.state.results[node.node_id] = fail_result
+            self.hooks.invoke_callbacks(
+                AfterNodeCallEvent(source=self, node_id=node.node_id, invocation_state=invocation_state)
+            )
 
+        self.hooks.invoke_callbacks(
+            BeforeNodeCallEvent(source=self, node_id=node.node_id, invocation_state=invocation_state)
+        )
+
+        if self.reset_on_revisit and node in self.state.completed_nodes:
+            logger.debug("node_id=<%s> | resetting node state for revisit", node.node_id)
+            node.reset_executor_state()
+            # Remove from completed nodes since we're re-executing it
+            self.state.completed_nodes.remove(node)
+        node.execution_status = Status.EXECUTING
+        logger.debug("node_id=<%s> | executing node", node.node_id)
+
+        start_time = time.time()
+        try:
+            # Build node input from satisfied dependencies
+            node_input = self._build_node_input(node)
+
+            # Execute based on node type and create unified NodeResult
+            if isinstance(node.executor, MultiAgentBase):
+                if self.node_timeout is not None:
+                    multiagent_result = await asyncio.wait_for(
+                        node.executor.invoke_async(node_input, invocation_state),
+                        timeout=self.node_timeout,
+                    )
+                else:
+                    multiagent_result = await node.executor.invoke_async(node_input, invocation_state)
+
+                # Create NodeResult with MultiAgentResult directly
+                node_result = NodeResult(
+                    result=multiagent_result,  # type is MultiAgentResult
+                    execution_time=multiagent_result.execution_time,
+                    status=Status.COMPLETED,
+                    accumulated_usage=multiagent_result.accumulated_usage,
+                    accumulated_metrics=multiagent_result.accumulated_metrics,
+                    execution_count=multiagent_result.execution_count,
+                )
+
+            elif isinstance(node.executor, Agent):
+                if self.node_timeout is not None:
+                    agent_response = await asyncio.wait_for(
+                        node.executor.invoke_async(node_input, invocation_state=invocation_state),
+                        timeout=self.node_timeout,
+                    )
+                else:
+                    agent_response = await node.executor.invoke_async(node_input, invocation_state=invocation_state)
+
+                if agent_response.stop_reason == "interrupt":
+                    node.executor.messages.pop()  # remove interrupted tool use message
+                    node.executor._interrupt_state.deactivate()
+
+                    raise RuntimeError("user raised interrupt from agent | interrupts are not yet supported in graphs")
+
+                # Extract metrics from agent response
+                usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
+                metrics = Metrics(latencyMs=0)
+                if hasattr(agent_response, "metrics") and agent_response.metrics:
+                    if hasattr(agent_response.metrics, "accumulated_usage"):
+                        usage = agent_response.metrics.accumulated_usage
+                    if hasattr(agent_response.metrics, "accumulated_metrics"):
+                        metrics = agent_response.metrics.accumulated_metrics
+
+                node_result = NodeResult(
+                    result=agent_response,  # type is AgentResult
+                    execution_time=round((time.time() - start_time) * 1000),
+                    status=Status.COMPLETED,
+                    accumulated_usage=usage,
+                    accumulated_metrics=metrics,
+                    execution_count=1,
+                )
+            else:
+                raise ValueError(f"Node '{node.node_id}' of type '{type(node.executor)}' is not supported")
+
+            node.execution_status = Status.COMPLETED
+            node.result = node_result
+            node.execution_time = node_result.execution_time
+            self.state.completed_nodes.add(node)
+            self.state.results[node.node_id] = node_result
+            self.state.execution_order.append(node)
+            # Accumulate metrics
+            self._accumulate_metrics(node_result)
+            self.hooks.invoke_callbacks(
+                AfterNodeCallEvent(source=self, node_id=node.node_id, invocation_state=invocation_state)
+            )
+
+            logger.debug(
+                "node_id=<%s>, execution_time=<%dms> | node completed successfully", node.node_id, node.execution_time
+            )
+
+        except asyncio.TimeoutError:
+            timeout_msg = f"Node '{node.node_id}' execution timed out after {self.node_timeout}s"
+            logger.exception(
+                "node=<%s>, timeout=<%s>s | node execution timed out after timeout",
+                node.node_id,
+                self.node_timeout,
+            )
+            await _record_failure(asyncio.TimeoutError(timeout_msg))
+            raise
+
+        except Exception as e:
+            logger.error("node_id=<%s>, error=<%s> | node failed", node.node_id, e)
+            await _record_failure(e)
             raise
 
     def _accumulate_metrics(self, node_result: NodeResult) -> None:
@@ -696,7 +760,7 @@ class Graph(MultiAgentBase):
                 return self.state.task
 
         # Combine task with dependency outputs
-        node_input = []
+        node_input: list[ContentBlock] = []
 
         # Add original task
         if isinstance(self.state.task, str):
@@ -709,15 +773,11 @@ class Graph(MultiAgentBase):
         # Add dependency outputs
         node_input.append(ContentBlock(text="\nInputs from previous nodes:"))
 
-        for dep_id, node_result in dependency_results.items():
+        for dep_id, prev_result in dependency_results.items():
             node_input.append(ContentBlock(text=f"\nFrom {dep_id}:"))
-            # Get all agent results from this node (flattened if nested)
-            agent_results = node_result.get_agent_results()
-            for result in agent_results:
-                agent_name = getattr(result, "agent_name", "Agent")
-                result_text = str(result)
-                node_input.append(ContentBlock(text=f"  - {agent_name}: {result_text}"))
-
+            for agent_result in prev_result.get_agent_results():
+                agent_name = getattr(agent_result, "agent_name", "Agent")
+                node_input.append(ContentBlock(text=f"  - {agent_name}: {agent_result}"))
         return node_input
 
     def _build_result(self) -> GraphResult:
@@ -736,3 +796,131 @@ class Graph(MultiAgentBase):
             edges=self.state.edges,
             entry_points=self.state.entry_points,
         )
+
+    # Persistence Helper Functions
+
+    def _from_dict(self, payload: dict[str, Any]) -> None:
+        status_raw = payload.get("status", "pending")
+        self.state.status = Status(status_raw)
+
+        # Hydrate completed nodes & results
+        raw_results = payload.get("node_results") or {}
+        results: dict[str, NodeResult] = {}
+        for node_id, entry in raw_results.items():
+            if node_id not in self.nodes:
+                continue
+            try:
+                results[node_id] = NodeResult.from_dict(entry)
+            except Exception:
+                logger.exception("Failed to hydrate NodeResult for node_id=%s; skipping.", node_id)
+                raise
+        self.state.results = results
+
+        # Restore completed nodes from persisted data
+        completed_node_ids = payload.get("completed_nodes") or []
+        self.state.completed_nodes = {self.nodes[node_id] for node_id in completed_node_ids if node_id in self.nodes}
+
+        # Execution order (only nodes that still exist)
+        order_node_ids = payload.get("execution_order") or []
+        self.state.execution_order = [self.nodes[node_id] for node_id in order_node_ids if node_id in self.nodes]
+
+        # Task
+        self.state.task = payload.get("current_task", self.state.task)
+
+    def _to_dict(self) -> dict[str, Any]:
+        status_str = getattr(self.state.status, "value", str(self.state.status))
+        next_nodes = [n.node_id for n in self._compute_ready_nodes_for_resume()]
+        return {
+            "type": "graph",
+            "status": status_str,
+            "completed_nodes": [n.node_id for n in self.state.completed_nodes],
+            "node_results": {k: v.to_dict() for k, v in (self.state.results or {}).items()},
+            "next_nodes_to_execute": next_nodes,
+            "current_task": self.state.task,
+            "execution_order": [n.node_id for n in self.state.execution_order],
+        }
+
+    def _map_node_ids(self, node_ids: list[str] | None) -> list[GraphNode]:
+        if not node_ids:
+            return []
+        mapped_nodes = []
+        for node_id in node_ids:
+            node = self.nodes.get(node_id)
+            if node:
+                mapped_nodes.append(node)
+        return mapped_nodes
+
+    def _compute_ready_nodes_for_resume(self) -> list[GraphNode]:
+        ready_nodes: list[GraphNode] = []
+        completed_nodes = set(self.state.completed_nodes)
+        for node in self.nodes.values():
+            if node in completed_nodes:
+                continue
+            incoming = [e for e in self.edges if e.to_node is node]
+            if not incoming:
+                ready_nodes.append(node)
+            elif all(e.from_node in completed_nodes and e.should_traverse(self.state) for e in incoming):
+                ready_nodes.append(node)
+
+        return ready_nodes
+
+    def serialize_state(self) -> dict:
+        """Return a JSON-serializable snapshot of the orchestrator state.
+
+        Returns:
+            Dictionary containing the current graph state
+        """
+        return self._to_dict()
+
+    def deserialize_state(self, payload: dict) -> None:
+        """Restore orchestrator state from a session dict and prepare for execution.
+
+        This method handles two scenarios:
+        1. If the persisted status is COMPLETED, resets all nodes and graph state
+           to allow re-execution from the beginning.
+        2. Otherwise, restores the persisted state and prepares to resume execution
+           from the next ready nodes.
+
+        Args:
+            payload: Dictionary containing persisted state data including status,
+                    completed nodes, results, and next nodes to execute.
+        """
+        if not payload.get("next_nodes_to_execute"):
+            # Reset all nodes
+            for node in self.nodes.values():
+                node.reset_executor_state()
+            # Reset graph state
+            self.state = GraphState()
+            self._resume_from_session = False
+            return
+
+        try:
+            self._from_dict(payload)
+            self._resume_from_session = True
+
+            next_node_ids = payload.get("next_nodes_to_execute") or []
+            mapped = self._map_node_ids(next_node_ids)
+            valid_ready: list[GraphNode] = []
+            completed = set(self.state.completed_nodes)
+
+            for node in mapped:
+                if node in completed or node.execution_status == Status.COMPLETED:
+                    continue
+                # only include if it's dependency-ready
+                incoming = [edge for edge in self.edges if edge.to_node == node]
+                if not incoming:
+                    valid_ready.append(node)
+                    continue
+
+                if all(e.from_node in completed and e.should_traverse(self.state) for e in incoming):
+                    valid_ready.append(node)
+
+            if not valid_ready:
+                valid_ready = self._compute_ready_nodes_for_resume()
+            self._resume_next_nodes = valid_ready
+            logger.debug("Resumed from persisted state. Next nodes: %s", [n.node_id for n in self._resume_next_nodes])
+        except Exception:
+            logger.exception("Failed to apply resume payload")
+            self._resume_from_session = False
+            self._resume_next_nodes.clear()
+            raise
