@@ -32,7 +32,7 @@ def __getattr__(name: str) -> Any:
             return DaprSessionManager
         except ModuleNotFoundError as e:
             raise ImportError(
-                "DaprSessionManager requires the 'dapr' extra. " "Install it with: pip install strands-agents[dapr]"
+                "DaprSessionManager requires the 'dapr' extra. Install it with: pip install strands-agents[dapr]"
             ) from e
 
     if name == "DAPR_CONSISTENCY_EVENTUAL":
@@ -42,7 +42,7 @@ def __getattr__(name: str) -> Any:
             return DAPR_CONSISTENCY_EVENTUAL
         except ModuleNotFoundError as e:
             raise ImportError(
-                "DAPR_CONSISTENCY_EVENTUAL requires the 'dapr' extra. " "Install it with: pip install strands-agents[dapr]"
+                "DAPR_CONSISTENCY_EVENTUAL requires the 'dapr' extra. Install it with: pip install strands-agents[dapr]"
             ) from e
 
     if name == "DAPR_CONSISTENCY_STRONG":
@@ -52,7 +52,7 @@ def __getattr__(name: str) -> Any:
             return DAPR_CONSISTENCY_STRONG
         except ModuleNotFoundError as e:
             raise ImportError(
-                "DAPR_CONSISTENCY_STRONG requires the 'dapr' extra. " "Install it with: pip install strands-agents[dapr]"
+                "DAPR_CONSISTENCY_STRONG requires the 'dapr' extra. Install it with: pip install strands-agents[dapr]"
             ) from e
 
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

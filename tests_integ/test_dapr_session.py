@@ -126,11 +126,11 @@ def _wait_for_dapr_health(host: str, port: int, timeout: int = 60) -> bool:
                     return True
                 print(f"Dapr health check failed with status {response.status}")
         except URLError:
-            print(f"Dapr health check failed with URLError")
+            print("Dapr health check failed with URLError")
             pass
         except Exception as e:
             print(f"Dapr health check failed with exception {e}")
-        print(f"Dapr health check failed with timeout")
+        print("Dapr health check failed with timeout")
         time.sleep(1)
     return False
 
@@ -156,9 +156,11 @@ def test_agent_with_dapr_session(dapr_container: Any, monkeypatch: Any):
     session_manager_2 = None
     try:
         # Use mocked model to avoid real provider calls
-        model1 = MockedModelProvider([
-            {"role": "assistant", "content": [{"text": "ok"}]},
-        ])
+        model1 = MockedModelProvider(
+            [
+                {"role": "assistant", "content": [{"text": "ok"}]},
+            ]
+        )
         agent = Agent(session_manager=session_manager, model=model1)
         agent("Hello!")
         assert len(session_manager.list_messages(test_session_id, agent.agent_id)) == 2
@@ -170,9 +172,11 @@ def test_agent_with_dapr_session(dapr_container: Any, monkeypatch: Any):
             dapr_address=f"{dapr_host}:{dapr_port}",
             consistency=DAPR_CONSISTENCY_STRONG,
         )
-        model2 = MockedModelProvider([
-            {"role": "assistant", "content": [{"text": "ok"}]},
-        ])
+        model2 = MockedModelProvider(
+            [
+                {"role": "assistant", "content": [{"text": "ok"}]},
+            ]
+        )
         agent_2 = Agent(session_manager=session_manager_2, model=model2)
         assert len(agent_2.messages) == 2
         agent_2("Hello again!")
@@ -204,13 +208,15 @@ def test_agent_with_dapr_session_and_conversation_manager(dapr_container: Any, m
 
     session_manager_2 = None
     try:
-        model1 = MockedModelProvider([
-            {"role": "assistant", "content": [{"text": "ok"}]},
-        ])
+        model1 = MockedModelProvider(
+            [
+                {"role": "assistant", "content": [{"text": "ok"}]},
+            ]
+        )
         agent = Agent(
             session_manager=session_manager,
             model=model1,
-            conversation_manager=SlidingWindowConversationManager(window_size=1)
+            conversation_manager=SlidingWindowConversationManager(window_size=1),
         )
         agent("Hello!")
         assert len(session_manager.list_messages(test_session_id, agent.agent_id)) == 2
@@ -224,13 +230,15 @@ def test_agent_with_dapr_session_and_conversation_manager(dapr_container: Any, m
             dapr_address=f"{dapr_host}:{dapr_port}",
             consistency=DAPR_CONSISTENCY_STRONG,
         )
-        model2 = MockedModelProvider([
-            {"role": "assistant", "content": [{"text": "ok"}]},
-        ])
+        model2 = MockedModelProvider(
+            [
+                {"role": "assistant", "content": [{"text": "ok"}]},
+            ]
+        )
         agent_2 = Agent(
             session_manager=session_manager_2,
             model=model2,
-            conversation_manager=SlidingWindowConversationManager(window_size=1)
+            conversation_manager=SlidingWindowConversationManager(window_size=1),
         )
         assert len(agent_2.messages) == 1
         assert agent_2.conversation_manager.removed_message_count == 1
@@ -263,9 +271,11 @@ def test_agent_with_dapr_session_with_image(dapr_container: Any, yellow_img: byt
 
     session_manager_2 = None
     try:
-        model1 = MockedModelProvider([
-            {"role": "assistant", "content": [{"text": "ok"}]},
-        ])
+        model1 = MockedModelProvider(
+            [
+                {"role": "assistant", "content": [{"text": "ok"}]},
+            ]
+        )
         agent = Agent(session_manager=session_manager, model=model1)
         agent([{"image": {"format": "png", "source": {"bytes": yellow_img}}}])
         assert len(session_manager.list_messages(test_session_id, agent.agent_id)) == 2
@@ -277,9 +287,11 @@ def test_agent_with_dapr_session_with_image(dapr_container: Any, yellow_img: byt
             dapr_address=f"{dapr_host}:{dapr_port}",
             consistency=DAPR_CONSISTENCY_STRONG,
         )
-        model2 = MockedModelProvider([
-            {"role": "assistant", "content": [{"text": "ok"}]},
-        ])
+        model2 = MockedModelProvider(
+            [
+                {"role": "assistant", "content": [{"text": "ok"}]},
+            ]
+        )
         agent_2 = Agent(session_manager=session_manager_2, model=model2)
         assert len(agent_2.messages) == 2
         agent_2("Hello!")
@@ -312,17 +324,17 @@ def test_agent_with_dapr_session_forced_summarization(dapr_container: Any, monke
     session_manager_2 = None
     try:
         # Use a separate summarizer Agent without a session manager to avoid persisting summarization messages
-        summarizer_agent = Agent(model=MockedModelProvider([
-            {"role": "assistant", "content": [{"text": "Summary"}]}
-        ]))
+        summarizer_agent = Agent(model=MockedModelProvider([{"role": "assistant", "content": [{"text": "Summary"}]}]))
         convo_manager = SummarizingConversationManager(
             summarization_agent=summarizer_agent, summary_ratio=0.5, preserve_recent_messages=1
         )
-        model1 = MockedModelProvider([
-            {"role": "assistant", "content": [{"text": "ok"}]},
-            {"role": "assistant", "content": [{"text": "ok"}]},
-            {"role": "assistant", "content": [{"text": "ok"}]},
-        ])
+        model1 = MockedModelProvider(
+            [
+                {"role": "assistant", "content": [{"text": "ok"}]},
+                {"role": "assistant", "content": [{"text": "ok"}]},
+                {"role": "assistant", "content": [{"text": "ok"}]},
+            ]
+        )
         agent = Agent(session_manager=session_manager, conversation_manager=convo_manager, model=model1)
 
         # Add enough messages
@@ -381,9 +393,11 @@ def test_agent_with_dapr_session_and_summarizing_conversation_manager(dapr_conta
     session_manager_2 = None
     try:
         # Create agent with summarizing conversation manager
-        model1 = MockedModelProvider([
-            {"role": "assistant", "content": [{"text": "ok"}]},
-        ])
+        model1 = MockedModelProvider(
+            [
+                {"role": "assistant", "content": [{"text": "ok"}]},
+            ]
+        )
         agent = Agent(
             session_manager=session_manager,
             model=model1,
@@ -400,10 +414,12 @@ def test_agent_with_dapr_session_and_summarizing_conversation_manager(dapr_conta
             dapr_address=f"{dapr_host}:{dapr_port}",
             consistency=DAPR_CONSISTENCY_STRONG,
         )
-        model2 = MockedModelProvider([
-            {"role": "assistant", "content": [{"text": "ok"}]},
-            {"role": "assistant", "content": [{"text": "ok"}]},
-        ])
+        model2 = MockedModelProvider(
+            [
+                {"role": "assistant", "content": [{"text": "ok"}]},
+                {"role": "assistant", "content": [{"text": "ok"}]},
+            ]
+        )
         agent_2 = Agent(
             session_manager=session_manager_2,
             model=model2,

@@ -4,6 +4,7 @@ from typing import Any, Optional
 from unittest.mock import Mock
 
 import pytest
+
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
 from strands.session.dapr_session_manager import (
     DAPR_CONSISTENCY_EVENTUAL,
@@ -74,7 +75,10 @@ def fake_dapr_client() -> FakeDaprClient:
 def dapr_manager(fake_dapr_client: FakeDaprClient) -> DaprSessionManager:
     """Create DaprSessionManager for testing."""
     return DaprSessionManager(
-        session_id="test", state_store_name="statestore", dapr_client=fake_dapr_client, consistency=DAPR_CONSISTENCY_EVENTUAL
+        session_id="test",
+        state_store_name="statestore",
+        dapr_client=fake_dapr_client,
+        consistency=DAPR_CONSISTENCY_EVENTUAL,
     )
 
 
@@ -110,7 +114,9 @@ def test_consistency_constants():
     assert DAPR_CONSISTENCY_STRONG == "strong"
 
 
-def test_messages_shape_non_list_handling(dapr_manager: DaprSessionManager, sample_session: Session, sample_agent: SessionAgent):
+def test_messages_shape_non_list_handling(
+    dapr_manager: DaprSessionManager, sample_session: Session, sample_agent: SessionAgent
+):
     """Seed a non-list messages payload and verify graceful handling and overwrite by create_message."""
     dapr_manager.create_session(sample_session)
     dapr_manager.create_agent(sample_session.session_id, sample_agent)
