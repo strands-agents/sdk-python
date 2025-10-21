@@ -132,7 +132,7 @@ class ToolRegistry:
                         return await tool.load_tools()
 
                     provider_tools = run_async(get_tools)
-                    tool.add_consumer(self._registry_id)  # Now sync
+                    tool.add_consumer(self._registry_id)
 
                     for provider_tool in provider_tools:
                         self.register_tool(provider_tool)
@@ -661,23 +661,18 @@ class ToolRegistry:
         return tools
 
     def cleanup(self, **kwargs: Any) -> None:
-        """Synchronously clean up all tool providers in this registry.
-
-        This method is safe to call from Agent finalizers during garbage collection
-        because it avoids run_async() which can deadlock when the GIL is held.
-
-        The synchronous approach prevents:
-        1. GC deadlocks - run_async() creates ThreadPoolExecutor during GC
-        2. Interpreter shutdown hangs - ThreadPoolExecutor creation fails during shutdown
-        3. Finalizer threading issues - weakref.finalize runs in restricted environment
-        """
+        """Synchronously clean up all tool providers in this registry."""
+        # Attempt cleanup of all providers even if one fails to minimize resource leakage during garbage collection
+        exceptions = []
         for provider in self._tool_providers:
             try:
-                provider.remove_consumer(self._registry_id)  # Now sync
+                provider.remove_consumer(self._registry_id)
                 logger.debug("provider=<%s> | removed provider consumer", type(provider).__name__)
             except Exception as e:
-                logger.warning(
-                    "provider=<%s>, error=<%s> | failed to remove provider consumer",
-                    type(provider).__name__,
-                    e,
+                exceptions.append(e)
+                logger.error(
+                    "provider=<%s>, error=<%s> | failed to remove provider consumer", type(provider).__name__, e
                 )
+
+        if exceptions:
+            raise exceptions[0]

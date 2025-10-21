@@ -30,10 +30,6 @@ class ToolProvider(ABC):
     def add_consumer(self, id: Any, **kwargs: Any) -> None:
         """Add a consumer to this tool provider.
 
-        This method is synchronous to avoid deadlocks during garbage collection.
-        When Agent finalizers run during GC, they need to clean up tool providers
-        without using run_async() which can deadlock due to GIL restrictions.
-
         Args:
             id: Unique identifier for the consumer.
             **kwargs: Additional arguments for future compatibility.
@@ -43,10 +39,6 @@ class ToolProvider(ABC):
     @abstractmethod
     def remove_consumer(self, id: Any, **kwargs: Any) -> None:
         """Remove a consumer from this tool provider.
-
-        This method is synchronous to avoid deadlocks during garbage collection.
-        When Agent finalizers run during GC, they need to clean up tool providers
-        without using run_async() which can deadlock due to GIL restrictions.
 
         Provider may clean up resources when no consumers remain.
 

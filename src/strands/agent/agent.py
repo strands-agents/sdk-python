@@ -497,19 +497,19 @@ class Agent:
     async def structured_output_async(self, output_model: Type[T], prompt: AgentInput = None) -> T:
         """This method allows you to get structured output from the agent.
 
-                If you pass in a prompt, it will be used temporarily without adding it to the conversation history.
-                If you don't pass in a prompt, it will use only the existing conversation history to respond.
+        If you pass in a prompt, it will be used temporarily without adding it to the conversation history.
+        If you don't pass in a prompt, it will use only the existing conversation history to respond.
 
-                For smaller models, you may want to use the optional prompt to add additional instructions to explicitly
-                instruct the model to output the structured data.
+        For smaller models, you may want to use the optional prompt to add additional instructions to explicitly
+        instruct the model to output the structured data.
 
         Args:
-                    output_model: The output model (a JSON schema written as a Pydantic BaseModel)
-                        that the agent will use when responding.
-                    prompt: The prompt to use for the agent (will not be added to conversation history).
+            output_model: The output model (a JSON schema written as a Pydantic BaseModel)
+                that the agent will use when responding.
+            prompt: The prompt to use for the agent (will not be added to conversation history).
 
         Raises:
-                    ValueError: If no conversation history or prompt is provided.
+            ValueError: If no conversation history or prompt is provided.
         -
         """
         if self._interrupt_state.activated:
@@ -578,9 +578,7 @@ class Agent:
     def _cleanup_on_finalize(agent_uuid: str, agent_id: str) -> None:
         """Static cleanup method called by weakref.finalize.
 
-        WHY SYNCHRONOUS CLEANUP IS CRITICAL:
-
-        weakref.finalize is safer than __del__ because:
+        weakref.finalize is used over __del__ because:
         1. Runs AFTER garbage collection completes, not during (no GIL deadlocks)
         2. Cannot access 'self' so can't call methods that might block (no run_async deadlocks)
         3. Executes in a controlled environment where Python isn't in restricted GC state
@@ -610,7 +608,42 @@ class Agent:
     async def stream_async(
         self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> AsyncIterator[Any]:
-        """Process a natural language prompt and yield events as an async iterator."""
+        """Process a natural language prompt and yield events as an async iterator.
+
+        This method provides an asynchronous interface for streaming agent events with multiple input patterns:
+        - String input: Simple text input
+        - ContentBlock list: Multi-modal content blocks
+        - Message list: Complete messages with roles
+        - No input: Use existing conversation history
+
+        Args:
+            prompt: User input in various formats:
+                - str: Simple text input
+                - list[ContentBlock]: Multi-modal content blocks
+                - list[Message]: Complete messages with roles
+                - None: Use existing conversation history
+            invocation_state: Additional parameters to pass through the event loop.
+            **kwargs: Additional parameters to pass to the event loop.[Deprecating]
+
+        Yields:
+            An async iterator that yields events. Each event is a dictionary containing
+               information about the current state of processing, such as:
+
+                - data: Text content being generated
+                - complete: Whether this is the final chunk
+                - current_tool_use: Information about tools being executed
+                - And other event data provided by the callback handler
+
+        Raises:
+            Exception: Any exceptions from the agent invocation will be propagated to the caller.
+
+        Example:
+            ```python
+            async for event in agent.stream_async("Analyze this data"):
+                if "data" in event:
+                    yield event["data"]
+            ```
+        """
         self._resume_interrupt(prompt)
 
         merged_state = {}
@@ -655,7 +688,14 @@ class Agent:
                 raise
 
     def _resume_interrupt(self, prompt: AgentInput) -> None:
-        """Configure the interrupt state if resuming from an interrupt event."""
+        """Configure the interrupt state if resuming from an interrupt event.
+
+        Args:
+            prompt: User responses if resuming from interrupt.
+
+        Raises:
+            TypeError: If in interrupt state but user did not provide responses.
+        """
         if not self._interrupt_state.activated:
             return
 
@@ -680,7 +720,15 @@ class Agent:
             self._interrupt_state.interrupts[interrupt_id].response = interrupt_response
 
     async def _run_loop(self, messages: Messages, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
-        """Execute the agent's event loop with the given message and parameters."""
+        """Execute the agent's event loop with the given message and parameters.
+
+        Args:
+            messages: The input messages to add to the conversation.
+            invocation_state: Additional parameters to pass to the event loop.
+
+        Yields:
+            Events from the event loop cycle.
+        """
         self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
 
         try:
@@ -712,7 +760,15 @@ class Agent:
             self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
     async def _execute_event_loop_cycle(self, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
-        """Execute the event loop cycle with retry logic for context window limits."""
+        """Execute the event loop cycle with retry logic for context window limits.
+
+        This internal method handles the execution of the event loop cycle and implements
+        retry logic for handling context window overflow exceptions by reducing the
+        conversation context and retrying.
+
+        Yields:
+            Events of the loop cycle.
+        """
         # Add `Agent` to invocation_state to keep backwards-compatibility
         invocation_state["agent"] = self
 
@@ -774,7 +830,20 @@ class Agent:
         tool_result: ToolResult,
         user_message_override: Optional[str],
     ) -> None:
-        """Record a tool execution in the message history."""
+        """Record a tool execution in the message history.
+
+        Creates a sequence of messages that represent the tool execution:
+
+        1. A user message describing the tool call
+        2. An assistant message with the tool use
+        3. A user message with the tool result
+        4. An assistant message acknowledging the tool call
+
+        Args:
+            tool: The tool call information.
+            tool_result: The result returned by the tool.
+            user_message_override: Optional custom message to include.
+        """
         # Filter tool input parameters to only include those defined in tool spec
         filtered_input = self._filter_tool_parameters_for_recording(tool["name"], tool["input"])
 
@@ -821,7 +890,11 @@ class Agent:
         self._append_message(assistant_msg)
 
     def _start_agent_trace_span(self, messages: Messages) -> trace_api.Span:
-        """Starts a trace span for the agent."""
+        """Starts a trace span for the agent.
+
+        Args:
+            messages: The input messages.
+        """
         model_id = self.model.config.get("model_id") if hasattr(self.model, "config") else None
         return self.tracer.start_agent_span(
             messages=messages,
@@ -837,7 +910,13 @@ class Agent:
         response: Optional[AgentResult] = None,
         error: Optional[Exception] = None,
     ) -> None:
-        """Ends a trace span for the agent."""
+        """Ends a trace span for the agent.
+
+        Args:
+            span: The span to end.
+            response: Response to record as a trace attribute.
+            error: Error to record as a trace attribute.
+        """
         if self.trace_span:
             trace_attributes: dict[str, Any] = {
                 "span": self.trace_span,
@@ -851,7 +930,15 @@ class Agent:
             self.tracer.end_agent_span(**trace_attributes)
 
     def _filter_tool_parameters_for_recording(self, tool_name: str, input_params: dict[str, Any]) -> dict[str, Any]:
-        """Filter input parameters to only include those defined in the tool specification."""
+        """Filter input parameters to only include those defined in the tool specification.
+
+        Args:
+            tool_name: Name of the tool to get specification for
+            input_params: Original input parameters
+
+        Returns:
+            Filtered parameters containing only those defined in tool spec
+        """
         all_tools_config = self.tool_registry.get_all_tools_config()
         tool_spec = all_tools_config.get(tool_name)
 

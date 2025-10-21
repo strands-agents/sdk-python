@@ -44,7 +44,7 @@ class _ToolFilterCallback(Protocol):
     def __call__(self, tool: AgentTool, **kwargs: Any) -> bool: ...
 
 
-_ToolFilterPattern = str | Pattern[str] | _ToolFilterCallback
+_ToolMatcher = str | Pattern[str] | _ToolFilterCallback
 
 
 class ToolFilters(TypedDict, total=False):
@@ -55,8 +55,8 @@ class ToolFilters(TypedDict, total=False):
     2. Tools matching 'rejected' patterns are then excluded
     """
 
-    allowed: list[_ToolFilterPattern]
-    rejected: list[_ToolFilterPattern]
+    allowed: list[_ToolMatcher]
+    rejected: list[_ToolMatcher]
 
 
 MIME_TO_FORMAT: Dict[str, ImageFormat] = {
@@ -91,8 +91,8 @@ class MCPClient(ToolProvider):
         transport_callable: Callable[[], MCPTransport],
         *,
         startup_timeout: int = 30,
-        tool_filters: Optional[ToolFilters] = None,
-        prefix: Optional[str] = None,
+        tool_filters: ToolFilters | None = None,
+        prefix: str | None = None,
     ):
         """Initialize a new MCP Server connection.
 
@@ -320,9 +320,9 @@ class MCPClient(ToolProvider):
 
     def list_tools_sync(
         self,
-        pagination_token: Optional[str] = None,
-        prefix: Optional[str] = None,
-        tool_filters: Optional[ToolFilters] = None,
+        pagination_token: str | None = None,
+        prefix: str | None = None,
+        tool_filters: ToolFilters | None = None,
     ) -> PaginatedList[MCPAgentTool]:
         """Synchronously retrieves the list of available tools from the MCP server.
 
@@ -709,7 +709,7 @@ class MCPClient(ToolProvider):
 
         return True
 
-    def _matches_patterns(self, tool: MCPAgentTool, patterns: list[_ToolFilterPattern]) -> bool:
+    def _matches_patterns(self, tool: MCPAgentTool, patterns: list[_ToolMatcher]) -> bool:
         """Check if tool matches any of the given patterns."""
         for pattern in patterns:
             if callable(pattern):

@@ -36,6 +36,8 @@ class MockToolProvider(ToolProvider):
     def remove_consumer(self, consumer_id):
         self.remove_consumer_called = True
         self.remove_consumer_id = consumer_id
+        if self._cleanup_error:
+            raise self._cleanup_error
 
 
 @pytest.fixture
@@ -292,3 +294,35 @@ class TestToolRegistryToolProvider:
         # Verify remove_consumer was called with correct ID
         assert provider.remove_consumer_called
         assert provider.remove_consumer_id == registry._registry_id
+
+    def test_registry_cleanup_raises_exception_on_provider_error(self):
+        """Test that cleanup raises exception when provider removal fails."""
+        provider1 = MockToolProvider(cleanup_error=RuntimeError("Provider cleanup failed"))
+        provider2 = MockToolProvider()
+
+        registry = ToolRegistry()
+        registry._tool_providers = [provider1, provider2]
+
+        # Cleanup should raise the exception from first provider but still attempt cleanup of all
+        with pytest.raises(RuntimeError, match="Provider cleanup failed"):
+            registry.cleanup()
+
+        # Both providers should have had remove_consumer called
+        assert provider1.remove_consumer_called
+        assert provider2.remove_consumer_called
+
+    def test_registry_cleanup_raises_first_exception_on_multiple_provider_errors(self):
+        """Test that cleanup raises first exception when multiple providers fail but attempts all."""
+        provider1 = MockToolProvider(cleanup_error=RuntimeError("Provider 1 failed"))
+        provider2 = MockToolProvider(cleanup_error=ValueError("Provider 2 failed"))
+
+        registry = ToolRegistry()
+        registry._tool_providers = [provider1, provider2]
+
+        # Cleanup should raise first exception but still attempt cleanup of all
+        with pytest.raises(RuntimeError, match="Provider 1 failed"):
+            registry.cleanup()
+
+        # Both providers should have had remove_consumer called
+        assert provider1.remove_consumer_called
+        assert provider2.remove_consumer_called
