@@ -374,3 +374,27 @@ def test__get_message_path_invalid_message_id(message_id, s3_manager):
     """Test that message_id that is not an integer raises ValueError."""
     with pytest.raises(ValueError, match=r"message_id=<.*> \| message id must be an integer"):
         s3_manager._get_message_path("session1", "agent1", message_id)
+
+
+def test_write_read_multi_agent_json(s3_manager, sample_session):
+    """Test multi-agent state persistence."""
+    s3_manager.create_session(sample_session)
+
+    # Create mock MultiAgentBase object
+    class MockMultiAgent:
+        def serialize_state(self):
+            return {"type": "graph", "status": "completed"}
+
+    mock_agent = MockMultiAgent()
+    expected_state = {"type": "graph", "status": "completed"}
+
+    s3_manager.write_multi_agent_json(mock_agent)
+
+    result = s3_manager.read_multi_agent_json()
+    assert result == expected_state
+
+
+def test_read_multi_agent_json_nonexistent(s3_manager):
+    """Test reading multi-agent state when file doesn't exist."""
+    result = s3_manager.read_multi_agent_json()
+    assert result == {}
