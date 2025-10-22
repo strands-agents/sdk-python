@@ -3,56 +3,12 @@ Comprehensive integration tests for structured output passed into the agent func
 """
 
 from typing import List, Optional
-from unittest import SkipTest
 
 import pytest
 from pydantic import BaseModel, Field, field_validator
 
 from strands import Agent
 from strands.tools import tool
-from tests_integ.models.providers import (
-    ProviderInfo,
-    all_providers,
-    cohere,
-    llama,
-    mistral,
-    writer,
-)
-
-
-def get_models():
-    """Get all model providers for parameterized testing."""
-    return [
-        pytest.param(
-            provider_info,
-            id=provider_info.id,
-            marks=provider_info.mark,
-        )
-        for provider_info in all_providers
-    ]
-
-
-@pytest.fixture(params=get_models())
-def provider_info(request) -> ProviderInfo:
-    """Fixture that provides each model provider."""
-    return request.param
-
-
-@pytest.fixture()
-def skip_for(provider_info: ProviderInfo):
-    """Fixture to skip tests for specific providers."""
-
-    def skip_for_any_provider_in_list(providers: list[ProviderInfo], description: str):
-        if provider_info in providers:
-            raise SkipTest(f"Skipping test for {provider_info.id}: {description}")
-
-    return skip_for_any_provider_in_list
-
-
-@pytest.fixture()
-def model(provider_info):
-    """Create a model instance from the provider."""
-    return provider_info.create_model()
 
 
 # ========== Pydantic Models from notebook ==========
@@ -198,17 +154,17 @@ def calculator(operation: str, a: float, b: float) -> float:
 class TestBasicStructuredOutput:
     """Test basic structured output functionality."""
 
-    def test_regular_call_without_structured_output(self, skip_for, model):
+    def test_regular_call_without_structured_output(self):
         """Test that regular calls work without structured output."""
-        agent = Agent(model=model)
+        agent = Agent()
         result = agent("What can you do for me?")
 
         assert result.structured_output is None
         assert agent._default_structured_output_model is None
 
-    def test_simple_structured_output(self, skip_for, model):
+    def test_simple_structured_output(self):
         """Test basic structured output with UserProfile."""
-        agent = Agent(model=model)
+        agent = Agent()
 
         result = agent(
             "Create a profile for John Doe who is a 25 year old dentist", structured_output_model=UserProfile
@@ -220,9 +176,9 @@ class TestBasicStructuredOutput:
         assert result.structured_output.age == 25
         assert result.structured_output.occupation.lower() == "dentist"
 
-    def test_follow_up_without_structured_output(self, skip_for, model):
+    def test_follow_up_without_structured_output(self):
         """Test that follow-up calls work without structured output."""
-        agent = Agent(model=model)
+        agent = Agent()
 
         # First call with structured output
         result1 = agent(
@@ -238,9 +194,9 @@ class TestBasicStructuredOutput:
 class TestToolUsage:
     """Test structured output with tool usage."""
 
-    def test_tool_use_without_structured_output(self, skip_for, model):
+    def test_tool_use_without_structured_output(self):
         """Test tool usage without structured output."""
-        agent = Agent(model=model, tools=[calculator])
+        agent = Agent(tools=[calculator])
 
         result = agent("What is 2 + 2? Use the calculator tool.")
 
@@ -249,9 +205,9 @@ class TestToolUsage:
         assert result.metrics.tool_metrics is not None
         assert len(result.metrics.tool_metrics) > 0
 
-    def test_tool_use_with_structured_output(self, skip_for, model):
+    def test_tool_use_with_structured_output(self):
         """Test tool usage with structured output."""
-        agent = Agent(model=model, tools=[calculator])
+        agent = Agent(tools=[calculator])
 
         result = agent("Calculate 2 + 2 using the calculator tool", structured_output_model=MathResult)
 
@@ -267,9 +223,9 @@ class TestAsyncOperations:
     """Test async operations with structured output."""
 
     @pytest.mark.asyncio
-    async def test_async_structured_output(self, skip_for, model):
+    async def test_async_structured_output(self):
         """Test async invocation with structured output."""
-        agent = Agent(model=model)
+        agent = Agent()
 
         result = await agent.invoke_async(
             """
@@ -293,11 +249,9 @@ class TestStreamingOperations:
     """Test streaming with structured output."""
 
     @pytest.mark.asyncio
-    async def test_streaming_with_structured_output(self, skip_for, model):
+    async def test_streaming_with_structured_output(self):
         """Test streaming with structured output."""
-        skip_for([cohere, llama, writer], "Streaming with structured output not fully supported")
-
-        agent = Agent(model=model)
+        agent = Agent()
 
         result_found = False
         structured_output_found = False
@@ -324,9 +278,9 @@ class TestStreamingOperations:
 class TestMultipleInvocations:
     """Test multiple invocations with different structured output models."""
 
-    def test_multiple_invocations_different_models(self, skip_for, model):
+    def test_multiple_invocations_different_models(self):
         """Test using different structured output models in consecutive calls."""
-        agent = Agent(model=model)
+        agent = Agent()
 
         # First invocation with Person model
         person_result = agent("Extract person: John Doe, 35, john@test.com", structured_output_model=Person)
@@ -351,9 +305,9 @@ class TestMultipleInvocations:
 class TestAgentInitialization:
     """Test agent initialization with default structured output model."""
 
-    def test_agent_with_default_structured_output(self, skip_for, model):
+    def test_agent_with_default_structured_output(self):
         """Test agent initialized with default structured output model."""
-        agent = Agent(model=model, structured_output_model=UserProfile)
+        agent = Agent(structured_output_model=UserProfile)
 
         result = agent("Create a profile for John Doe who is a 25 year old dentist")
 
@@ -367,11 +321,9 @@ class TestAgentInitialization:
 class TestValidationRetry:
     """Test validation with retry logic."""
 
-    def test_validation_forces_retry(self, skip_for, model):
+    def test_validation_forces_retry(self):
         """Test that validation errors force the model to retry."""
-        skip_for([mistral, cohere, llama, writer], "Validation retry not fully supported")
-
-        agent = Agent(model=model)
+        agent = Agent()
 
         result = agent("What's Aaron's name?", structured_output_model=NameWithValidation)
 
