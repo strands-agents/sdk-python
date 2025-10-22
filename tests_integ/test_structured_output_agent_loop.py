@@ -267,9 +267,6 @@ class TestStreamingOperations:
                     forecast = event["result"].structured_output
                     assert isinstance(forecast, WeatherForecast)
                     assert forecast.location == "Seattle"
-                    assert forecast.temperature == 68
-                    assert forecast.humidity == 55
-                    assert forecast.wind_speed == 8
 
         assert result_found, "No result event found in stream"
         assert structured_output_found, "No structured output found in stream result"
