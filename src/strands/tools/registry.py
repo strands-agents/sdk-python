@@ -524,6 +524,21 @@ class ToolRegistry:
         tools: List[ToolSpec] = [tool_spec for tool_spec in all_tools.values()]
         return tools
 
+    def register_dynamic_tool(self, tool: AgentTool) -> None:
+        """Register a tool dynamically for temporary use.
+
+        Args:
+            tool: The tool to register dynamically
+
+        Raises:
+            ValueError: If a tool with this name already exists
+        """
+        if tool.tool_name in self.registry or tool.tool_name in self.dynamic_tools:
+            raise ValueError(f"Tool '{tool.tool_name}' already exists")
+
+        self.dynamic_tools[tool.tool_name] = tool
+        logger.debug("Registered dynamic tool: %s", tool.tool_name)
+
     def validate_tool_spec(self, tool_spec: ToolSpec) -> None:
         """Validate tool specification against required schema.
 
