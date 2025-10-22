@@ -137,7 +137,7 @@ class MultiAgentResult:
         metrics = _parse_metrics(data.get("accumulated_metrics", {}))
 
         multiagent_result = cls(
-            status=Status(data.get("status", Status.PENDING.value)),
+            status=Status(data.get("status")),
             results=results,
             accumulated_usage=usage,
             accumulated_metrics=metrics,
@@ -204,7 +204,7 @@ class MultiAgentBase(ABC):
         """Return a JSON-serializable snapshot of the orchestrator state."""
         raise NotImplementedError
 
-    def deserialize_state(self, payload: dict[str, Any]) -> None:
+    def restore_from_session(self, payload: dict[str, Any]) -> None:
         """Restore orchestrator state from a session dict."""
         raise NotImplementedError
 

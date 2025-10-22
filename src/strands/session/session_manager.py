@@ -1,14 +1,24 @@
 """Session manager interface for agent session management."""
 
+import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
+from ..experimental.hooks.multiagent.events import (
+    AfterMultiAgentInvocationEvent,
+    AfterNodeCallEvent,
+    MultiAgentInitializedEvent,
+)
 from ..hooks.events import AfterInvocationEvent, AgentInitializedEvent, MessageAddedEvent
 from ..hooks.registry import HookProvider, HookRegistry
 from ..types.content import Message
+from ..types.session import SessionType
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
+    from ..multiagent.base import MultiAgentBase
+
+logger = logging.getLogger(__name__)
 
 
 class SessionManager(HookProvider, ABC):
@@ -20,19 +30,39 @@ class SessionManager(HookProvider, ABC):
     for an agent, and should be persisted in the session.
     """
 
+    def __init__(self, session_type: SessionType = SessionType.AGENT) -> None:
+        """Initialize SessionManager with session type.
+
+        Args:
+            session_type: Type of session (AGENT or MULTI_AGENT)
+        """
+        self.session_type: SessionType = session_type
+
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register hooks for persisting the agent to the session."""
-        # After the normal Agent initialization behavior, call the session initialize function to restore the agent
-        registry.add_callback(AgentInitializedEvent, lambda event: self.initialize(event.agent))
+        if not hasattr(self, "session_type"):
+            self.session_type = SessionType.AGENT
+            logger.debug("Session type not set, defaulting to AGENT")
 
-        # For each message appended to the Agents messages, store that message in the session
-        registry.add_callback(MessageAddedEvent, lambda event: self.append_message(event.message, event.agent))
+        if self.session_type == SessionType.MULTI_AGENT:
+            registry.add_callback(MultiAgentInitializedEvent, self._on_multiagent_initialized)
+            registry.add_callback(AfterNodeCallEvent, lambda event: self.write_multi_agent_json(event.source))
+            registry.add_callback(
+                AfterMultiAgentInvocationEvent, lambda event: self.write_multi_agent_json(event.source)
+            )
 
-        # Sync the agent into the session for each message in case the agent state was updated
-        registry.add_callback(MessageAddedEvent, lambda event: self.sync_agent(event.agent))
+        else:
+            # After the normal Agent initialization behavior, call the session initialize function to restore the agent
+            registry.add_callback(AgentInitializedEvent, lambda event: self.initialize(event.agent))
 
-        # After an agent was invoked, sync it with the session to capture any conversation manager state updates
-        registry.add_callback(AfterInvocationEvent, lambda event: self.sync_agent(event.agent))
+            # For each message appended to the Agents messages, store that message in the session
+            registry.add_callback(MessageAddedEvent, lambda event: self.append_message(event.message, event.agent))
+
+            # Sync the agent into the session for each message in case the agent state was updated
+            registry.add_callback(MessageAddedEvent, lambda event: self.sync_agent(event.agent))
+
+            # After an agent was invoked, sync it with the session to capture any conversation manager state updates
+            registry.add_callback(AfterInvocationEvent, lambda event: self.sync_agent(event.agent))
 
     @abstractmethod
     def redact_latest_message(self, redact_message: Message, agent: "Agent", **kwargs: Any) -> None:
@@ -71,3 +101,41 @@ class SessionManager(HookProvider, ABC):
             agent: Agent to initialize
             **kwargs: Additional keyword arguments for future extensibility.
         """
+
+    def write_multi_agent_json(self, source: "MultiAgentBase") -> None:
+        """Write multi-agent state to persistent storage.
+
+        Args:
+            source: Multi-agent source object to persist
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support multi-agent persistence "
+            "(write_multi_agent_json). Provide an implementation or use a "
+            "SessionManager with session_type=SessionType.MULTI_AGENT."
+        )
+
+    def read_multi_agent_json(self) -> dict[str, Any]:
+        """Read multi-agent state from persistent storage.
+
+        Returns:
+            Multi-agent state dictionary or empty dict if not found
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not support multi-agent persistence "
+            "(read_multi_agent_json). Provide an implementation or use a "
+            "SessionManager with session_type=SessionType.MULTI_AGENT."
+        )
+
+    def _on_multiagent_initialized(self, event: MultiAgentInitializedEvent) -> None:
+        """Handle multi-agent initialization: restore from storage or create initial snapshot.
+
+        If existing state is found, deserializes it into the source. Otherwise,
+        persists the current state as the initial snapshot.
+        """
+        source: MultiAgentBase = event.source
+        payload = self.read_multi_agent_json()
+        # payload can be {} or Graph/Swarm state json
+        if payload:
+            source.restore_from_session(payload)
+        else:
+            self.write_multi_agent_json(source)

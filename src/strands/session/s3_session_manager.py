@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -10,9 +10,12 @@ from botocore.exceptions import ClientError
 
 from .. import _identifier
 from ..types.exceptions import SessionException
-from ..types.session import Session, SessionAgent, SessionMessage
+from ..types.session import Session, SessionAgent, SessionMessage, SessionType
 from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
+
+if TYPE_CHECKING:
+    from ..multiagent.base import MultiAgentBase
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +49,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         boto_session: Optional[boto3.Session] = None,
         boto_client_config: Optional[BotocoreConfig] = None,
         region_name: Optional[str] = None,
+        session_type: SessionType = SessionType.AGENT,
         **kwargs: Any,
     ):
         """Initialize S3SessionManager with S3 storage.
@@ -58,6 +62,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             boto_session: Optional boto3 session
             boto_client_config: Optional boto3 client configuration
             region_name: AWS region for S3 storage
+            session_type: single agent or multiagent.
             **kwargs: Additional keyword arguments for future extensibility.
         """
         self.bucket = bucket
@@ -78,7 +83,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             client_config = BotocoreConfig(user_agent_extra="strands-agents")
 
         self.client = session.client(service_name="s3", config=client_config)
-        super().__init__(session_id=session_id, session_repository=self)
+        super().__init__(session_id=session_id, session_type=session_type, session_repository=self)
 
     def _get_session_path(self, session_id: str) -> str:
         """Get session S3 prefix.
@@ -294,3 +299,24 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
 
         except ClientError as e:
             raise SessionException(f"S3 error reading messages: {e}") from e
+
+    def write_multi_agent_json(self, source: "MultiAgentBase") -> None:
+        """Write multi-agent state to S3.
+
+        Args:
+            source: Multi-agent source object to persist
+        """
+        session_prefix = self._get_session_path(self.session_id)
+        state_key = f"{session_prefix}multi_agent_state.json"
+        state = source.serialize_state()
+        self._write_s3_object(state_key, state)
+
+    def read_multi_agent_json(self) -> dict[str, Any]:
+        """Read multi-agent state from S3.
+
+        Returns:
+            Multi-agent state dictionary or empty dict if not found
+        """
+        session_prefix = self._get_session_path(self.session_id)
+        state_key = f"{session_prefix}multi_agent_state.json"
+        return self._read_s3_object(state_key) or {}
