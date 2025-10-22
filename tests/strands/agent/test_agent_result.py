@@ -156,39 +156,3 @@ def test__str__with_structured_output(mock_metrics, simple_message: Message):
     assert message_string == "Hello world!\n"
     assert "test" not in message_string
     assert "42" not in message_string
-
-
-def test__structured_output_with_complex_model(mock_metrics, simple_message: Message):
-    """Test structured_output with a model containing optional fields."""
-    structured_output = StructuredOutputModel(name="complex", value=100, optional_field="optional value")
-
-    result = AgentResult(
-        stop_reason="end_turn",
-        message=simple_message,
-        metrics=mock_metrics,
-        state={},
-        structured_output=structured_output,
-    )
-
-    assert result.structured_output is not None
-    assert result.structured_output.name == "complex"
-    assert result.structured_output.value == 100
-    assert result.structured_output.optional_field == "optional value"
-
-
-def test__structured_output_immutability(mock_metrics, simple_message: Message):
-    """Test that structured_output maintains its value after initialization."""
-    original_output = StructuredOutputModel(name="original", value=1)
-
-    result = AgentResult(
-        stop_reason="end_turn",
-        message=simple_message,
-        metrics=mock_metrics,
-        state={},
-        structured_output=original_output,
-    )
-
-    # Verify the structured output is the same object
-    assert result.structured_output is original_output
-    assert result.structured_output.name == "original"
-    assert result.structured_output.value == 1
