@@ -4,6 +4,7 @@ import json
 import os
 import textwrap
 import unittest.mock
+import warnings
 from uuid import uuid4
 
 import pytest
