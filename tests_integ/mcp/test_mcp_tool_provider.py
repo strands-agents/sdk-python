@@ -96,7 +96,7 @@ def test_mcp_client_tool_provider_reuse():
     agent1.cleanup()
 
     # Agent 2 should still be able to use the tool
-    result2 = agent2.tool.ref_echo(to_echo="Agent 2 Test")
+    result2 = agent2.tool.shared_echo(to_echo="Agent 2 Test")
     assert "Agent 2 Test" in str(result2)
 
     agent2.cleanup()
