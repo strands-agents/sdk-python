@@ -3,6 +3,7 @@ Integration tests for structured output with agents across all model providers.
 """
 
 import asyncio
+import os
 from typing import List, Optional
 from unittest import SkipTest
 
@@ -10,14 +11,29 @@ import pytest
 from pydantic import BaseModel, Field, field_validator
 
 from strands import Agent
+from strands.models.gemini import GeminiModel
 from strands.tools import tool
 from tests_integ.models.providers import (
     ProviderInfo,
     all_providers,
     cohere,
     llama,
+    gemini
 )
 
+
+# gemini flash needs tool choice becuase it's too weak to invoke without and our implementation did not yet add toolChoice. Therefore, we're using pro here
+all_providers.remove(gemini)
+gemini = ProviderInfo(
+    id="gemini",
+    environment_variable="GOOGLE_API_KEY",
+    factory=lambda: GeminiModel(
+        client_args={"api_key": os.getenv("GOOGLE_API_KEY")},
+        model_id="gemini-2.5-pro",
+        params={"temperature": 0.7},
+    ),
+)
+all_providers.append(gemini)        
 
 def get_models():
     """Get all model providers for parameterized testing."""
