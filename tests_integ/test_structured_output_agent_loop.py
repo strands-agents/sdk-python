@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field, field_validator
 from strands import Agent
 from strands.tools import tool
 
-
 # ========== Pydantic Models from notebook ==========
 
 
