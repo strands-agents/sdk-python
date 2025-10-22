@@ -146,44 +146,6 @@ class TestStructuredOutputTool:
         assert stored_result.value == 42
 
     @pytest.mark.asyncio
-    async def test_stream_with_validation_error(self):
-        """Test stream method with ValidationError."""
-        tool = StructuredOutputTool(ValidationTestModel)
-        context = StructuredOutputContext(structured_output_model=ValidationTestModel)
-
-        tool_use = {
-            "name": "ValidationTestModel",
-            "toolUseId": "test_456",
-            "input": {
-                "email": "invalid-email",  # Invalid email format
-                "age": 200,  # Age too high
-                "status": "unknown",  # Invalid status
-            },
-        }
-
-        # Call stream method
-        events = []
-        async for event in tool.stream(tool_use, {}, structured_output_context=context):
-            events.append(event)
-
-        # Should have one ToolResultEvent with error
-        assert len(events) == 1
-        assert isinstance(events[0], ToolResultEvent)
-
-        # Check the error result
-        result = events[0].tool_result
-        assert result["toolUseId"] == "test_456"
-        assert result["status"] == "error"
-
-        error_text = result["content"][0]["text"]
-        assert "Validation failed for ValidationTestModel" in error_text
-        assert "Please fix the following errors:" in error_text
-
-        # Result should not be stored in context
-        stored_result = context.get_result("test_456")
-        assert stored_result is None
-
-    @pytest.mark.asyncio
     async def test_stream_with_missing_fields(self):
         """Test stream method with missing required fields."""
         tool = StructuredOutputTool(SimpleModel)

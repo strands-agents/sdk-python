@@ -62,7 +62,6 @@ def test_structured_output_is_forced(skip_for, model):
 
 def test_structured_output_is_forced_when_provided_in_agent_invocation(skip_for, model):
     """Tests that structured_output is always forced to return a value even if model doesn't have any information."""
-    # skip_for([mistral, cohere, llama], "structured_output is not forced for provider ")
 
     class UserProfile(BaseModel):
         """Basic user profile model."""

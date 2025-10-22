@@ -165,9 +165,9 @@ async def test_stream_with_tool_choice_parameter(messages, tool_specs, system_pr
     assert events[1]["contentBlockDelta"]["delta"]["text"] == "Tool choice: any"
 
     # Test with tool_choice={"type": "tool", "name": "test_tool"}
-    response = model.stream(messages, tool_specs, system_prompt, tool_choice={"type": "tool", "name": "test_tool"})
+    response = model.stream(messages, tool_specs, system_prompt, tool_choice={"tool": {"name": "SampleModel"}})
     events = await alist(response)
-    assert events[1]["contentBlockDelta"]["delta"]["text"] == "Tool choice: {'type': 'tool', 'name': 'test_tool'}"
+    assert events[1]["contentBlockDelta"]["delta"]["text"] == "Tool choice: {'tool': {'name': 'SampleModel'}}"
 
     # Test without tool_choice
     response = model.stream(messages, tool_specs, system_prompt)

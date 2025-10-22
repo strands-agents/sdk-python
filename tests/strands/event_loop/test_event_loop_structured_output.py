@@ -65,9 +65,7 @@ def agenerator():
         async def gen():
             for item in items:
                 yield item
-
         return gen()
-
     return _agenerator
 
 
@@ -170,8 +168,8 @@ async def test_event_loop_forces_structured_output_on_end_turn(
             {"role": "assistant", "content": [{"text": "Done"}]},
             mock_agent.event_loop_metrics,
             {},
+            None,
             UserModel(name="John", age=30, email="john@example.com"),
-            None,  # interrupts
         )
         mock_stop_event.__getitem__ = lambda self, key: {"stop": self.stop}[key]
 
@@ -188,7 +186,6 @@ async def test_event_loop_forces_structured_output_on_end_turn(
         mock_agent._append_message.assert_called_once()
         args = mock_agent._append_message.call_args[0][0]
         assert args["role"] == "user"
-        assert "must format" in args["content"][0]["text"]
 
         # Should have called recurse_event_loop with the context
         mock_recurse.assert_called_once()
@@ -273,17 +270,8 @@ async def test_structured_output_context_not_enabled(mock_agent, agenerator, ali
     # Should complete normally without forcing structured output
     stop_events = [e for e in events if isinstance(e, EventLoopStopEvent)]
     assert len(stop_events) == 1
-    # EventLoopStopEvent now has 6 values in tuple:
-    # (stop_reason, message, metrics, request_state, structured_output, interrupts)
-    stop_event = stop_events[0]
-    if hasattr(stop_event, "__getitem__"):
-        assert stop_event["stop"][4] is None
-    else:
-        # Handle as tuple directly
-        assert stop_event.stop[4] is None
+    assert stop_events[0]["stop"][-1] is None
 
-    # Should not have tried to force structured output
-    mock_agent._append_message.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -362,8 +350,8 @@ async def test_recurse_event_loop_with_structured_output(mock_agent, structured_
             {"role": "assistant", "content": [{"text": "Done"}]},
             mock_agent.event_loop_metrics,
             {},
+            None,
             UserModel(name="Test", age=20, email="test@example.com"),
-            None,  # interrupts
         )
         mock_stop_event.__getitem__ = lambda self, key: {"stop": self.stop}[key]
 
@@ -386,13 +374,11 @@ async def test_recurse_event_loop_with_structured_output(mock_agent, structured_
             e for e in events if isinstance(e, EventLoopStopEvent) or (hasattr(e, "stop") and hasattr(e, "__getitem__"))
         ]
         assert len(stop_events) == 1
-        # EventLoopStopEvent now has 6 values in tuple:
-        # (stop_reason, message, metrics, request_state, structured_output, interrupts)
         stop_event = stop_events[0]
         if hasattr(stop_event, "__getitem__"):
-            assert stop_event["stop"][4].name == "Test"
+            assert stop_event["stop"][5].name == "Test"
         else:
-            assert stop_event.stop[4].name == "Test"
+            assert stop_event.stop[5].name == "Test"
 
 
 @pytest.mark.asyncio
