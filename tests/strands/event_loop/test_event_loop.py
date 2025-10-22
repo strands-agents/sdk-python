@@ -885,7 +885,7 @@ async def test_event_loop_cycle_interrupt(agent, model, tool_stream, agenerator,
     exp_stop_reason = "interrupt"
     exp_interrupts = [
         Interrupt(
-            id="v1:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
+            id="v1:before_tool_call:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
             name="test_name",
             reason="test reason",
         ),
@@ -912,8 +912,8 @@ async def test_event_loop_cycle_interrupt(agent, model, tool_stream, agenerator,
             },
         },
         "interrupts": {
-            "v1:t1:78714d6c-613c-5cf4-bf25-7037569941f9": {
-                "id": "v1:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
+            "v1:before_tool_call:t1:78714d6c-613c-5cf4-bf25-7037569941f9": {
+                "id": "v1:before_tool_call:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
                 "name": "test_name",
                 "reason": "test reason",
                 "response": None,
@@ -926,7 +926,7 @@ async def test_event_loop_cycle_interrupt(agent, model, tool_stream, agenerator,
 @pytest.mark.asyncio
 async def test_event_loop_cycle_interrupt_resume(agent, model, tool, tool_times_2, agenerator, alist):
     interrupt = Interrupt(
-        id="v1:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
+        id="v1:before_tool_call:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
         name="test_name",
         reason="test reason",
         response="test response",

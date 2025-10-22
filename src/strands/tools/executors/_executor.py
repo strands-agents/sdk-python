@@ -168,11 +168,16 @@ class ToolExecutor(abc.ABC):
                 # we yield it directly; all other cases (non-sdk AgentTools), we wrap events in
                 # ToolStreamEvent and the last event is just the result.
 
+                if isinstance(event, ToolInterruptEvent):
+                    yield event
+                    return
+
                 if isinstance(event, ToolResultEvent):
                     # below the last "event" must point to the tool_result
                     event = event.tool_result
                     break
-                elif isinstance(event, ToolStreamEvent):
+
+                if isinstance(event, ToolStreamEvent):
                     yield event
                 else:
                     yield ToolStreamEvent(tool_use, event)

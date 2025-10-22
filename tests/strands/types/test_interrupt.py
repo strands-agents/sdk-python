@@ -4,7 +4,7 @@ import pytest
 
 from strands.agent.interrupt import InterruptState
 from strands.interrupt import Interrupt, InterruptException
-from strands.types.interrupt import InterruptHookEvent
+from strands.types.interrupt import _Interruptible
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def agent():
 
 @pytest.fixture
 def interrupt_hook_event(agent):
-    class Event(InterruptHookEvent):
+    class Event(_Interruptible):
         def __init__(self):
             self.agent = agent
 

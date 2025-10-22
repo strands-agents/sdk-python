@@ -1,0 +1,6 @@
+{
+    "model": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "tools": ["tests_integ.fixtures.say_tool:say"],
+    "prompt": "You use the say tool to communicate",
+    "name": "Sayer"
+}

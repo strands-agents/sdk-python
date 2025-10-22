@@ -99,6 +99,51 @@ def test__str__non_dict_content(mock_metrics):
     assert message_string == "Valid text\nMore valid text\n"
 
 
+def test_to_dict(mock_metrics, simple_message: Message):
+    """Test that to_dict serializes AgentResult correctly."""
+    result = AgentResult(stop_reason="end_turn", message=simple_message, metrics=mock_metrics, state={"key": "value"})
+
+    data = result.to_dict()
+
+    assert data == {
+        "type": "agent_result",
+        "message": simple_message,
+        "stop_reason": "end_turn",
+    }
+
+
+def test_from_dict():
+    """Test that from_dict works with valid data."""
+    data = {
+        "type": "agent_result",
+        "message": {"role": "assistant", "content": [{"text": "Test response"}]},
+        "stop_reason": "end_turn",
+    }
+
+    result = AgentResult.from_dict(data)
+
+    assert result.message == data["message"]
+    assert result.stop_reason == data["stop_reason"]
+    assert isinstance(result.metrics, EventLoopMetrics)
+    assert result.state == {}
+
+
+def test_roundtrip_serialization(mock_metrics, complex_message: Message):
+    """Test that to_dict() and from_dict() work together correctly."""
+    original = AgentResult(
+        stop_reason="max_tokens", message=complex_message, metrics=mock_metrics, state={"test": "data"}
+    )
+
+    # Serialize and deserialize
+    data = original.to_dict()
+    restored = AgentResult.from_dict(data)
+
+    assert restored.message == original.message
+    assert restored.stop_reason == original.stop_reason
+    assert isinstance(restored.metrics, EventLoopMetrics)
+    assert restored.state == {}  # State is not serialized
+
+
 # Tests for structured output functionality
 class StructuredOutputModel(BaseModel):
     """Test model for structured output."""

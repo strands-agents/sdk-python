@@ -16,6 +16,7 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
+from .._exception_notes import add_exception_note
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
 from ..tools._tool_helpers import noop_tool
@@ -723,29 +724,29 @@ class BedrockModel(Model):
 
             region = self.client.meta.region_name
 
-            # add_note added in Python 3.11
-            if hasattr(e, "add_note"):
-                # Aid in debugging by adding more information
-                e.add_note(f"└ Bedrock region: {region}")
-                e.add_note(f"└ Model id: {self.config.get('model_id')}")
+            # Aid in debugging by adding more information
+            add_exception_note(e, f"└ Bedrock region: {region}")
+            add_exception_note(e, f"└ Model id: {self.config.get('model_id')}")
 
-                if (
-                    e.response["Error"]["Code"] == "AccessDeniedException"
-                    and "You don't have access to the model" in error_message
-                ):
-                    e.add_note(
-                        "└ For more information see "
-                        "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue"
-                    )
+            if (
+                e.response["Error"]["Code"] == "AccessDeniedException"
+                and "You don't have access to the model" in error_message
+            ):
+                add_exception_note(
+                    e,
+                    "└ For more information see "
+                    "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue",
+                )
 
-                if (
-                    e.response["Error"]["Code"] == "ValidationException"
-                    and "with on-demand throughput isn’t supported" in error_message
-                ):
-                    e.add_note(
-                        "└ For more information see "
-                        "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported"
-                    )
+            if (
+                e.response["Error"]["Code"] == "ValidationException"
+                and "with on-demand throughput isn’t supported" in error_message
+            ):
+                add_exception_note(
+                    e,
+                    "└ For more information see "
+                    "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
+                )
 
             raise e
 

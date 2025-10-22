@@ -1961,7 +1961,7 @@ def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
     )
 
     interrupt = Interrupt(
-        id="v1:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
+        id="v1:before_tool_call:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
         name="test_name",
         reason="test reason",
     )
