@@ -44,9 +44,11 @@ def mock_model():
     model.stream.side_effect = lambda *args, **kwargs: mock_stream(*args, **kwargs)
     return model
 
+
 @pytest.fixture
 def mock_metrics():
     return mock.Mock(spec=EventLoopMetrics)
+
 
 @pytest.fixture
 def user_model():
@@ -112,11 +114,14 @@ class TestAgentStructuredOutputInvocation:
         assert "structured_output_context" in call_kwargs
 
     @patch("strands.agent.agent.event_loop_cycle")
-    def test_agent_call_with_default_structured_output_model(self, mock_event_loop, product_model, mock_model, mock_metrics):
+    def test_agent_call_with_default_structured_output_model(
+        self, mock_event_loop, product_model, mock_model, mock_metrics
+    ):
         """Test Agent.__call__ uses default structured_output_model when not specified."""
 
         # Setup mock event loop
         pm = ProductModel(title="Widget", price=9.99)
+
         async def mock_cycle(*args, **kwargs):
             structured_output_context = kwargs.get("structured_output_context")
             assert structured_output_context is not None
@@ -147,6 +152,7 @@ class TestAgentStructuredOutputInvocation:
 
         # Setup mock event loop
         um = UserModel(name="Jane", age=25, email="jane@example.com")
+
         async def mock_cycle(*args, **kwargs):
             structured_output_context = kwargs.get("structured_output_context")
             # Should use user_model, not the default product_model
@@ -171,11 +177,14 @@ class TestAgentStructuredOutputInvocation:
 
     @pytest.mark.asyncio
     @patch("strands.agent.agent.event_loop_cycle")
-    async def test_agent_invoke_async_with_structured_output(self, mock_event_loop, user_model, mock_model, mock_metrics):
+    async def test_agent_invoke_async_with_structured_output(
+        self, mock_event_loop, user_model, mock_model, mock_metrics
+    ):
         """Test Agent.invoke_async with structured_output_model."""
 
         # Setup mock event loop
         um = UserModel(name="Alice", age=28, email="alice@example.com")
+
         async def mock_cycle(*args, **kwargs):
             structured_output_context = kwargs.get("structured_output_context")
             assert structured_output_context is not None
@@ -200,11 +209,14 @@ class TestAgentStructuredOutputInvocation:
 
     @pytest.mark.asyncio
     @patch("strands.agent.agent.event_loop_cycle")
-    async def test_agent_stream_async_with_structured_output(self, mock_event_loop, product_model, mock_model, mock_metrics):
+    async def test_agent_stream_async_with_structured_output(
+        self, mock_event_loop, product_model, mock_model, mock_metrics
+    ):
         """Test Agent.stream_async with structured_output_model."""
 
         # Setup mock event loop
         pm = ProductModel(title="Gadget", price=19.99, description="Cool gadget")
+
         async def mock_cycle(*args, **kwargs):
             structured_output_context = kwargs.get("structured_output_context")
             assert structured_output_context is not None
@@ -232,6 +244,7 @@ class TestAgentStructuredOutputInvocation:
         assert "result" in result_event
         result = result_event["result"]
         assert result.structured_output is pm
+
 
 class TestAgentStructuredOutputContext:
     """Test StructuredOutputContext integration with Agent."""
@@ -365,6 +378,7 @@ class TestAgentStructuredOutputEdgeCases:
         # First call with user model
         with patch("strands.agent.agent.event_loop_cycle") as mock_event_loop:
             um = UserModel(name="Bob", age=40, email="bob@example.com")
+
             async def mock_user_cycle(*args, **kwargs):
                 ctx = kwargs.get("structured_output_context")
                 assert ctx.structured_output_model == user_model
@@ -383,6 +397,7 @@ class TestAgentStructuredOutputEdgeCases:
         # Second call with product model
         with patch("strands.agent.agent.event_loop_cycle") as mock_event_loop:
             pm = ProductModel(title="Item", price=5.99)
+
             async def mock_product_cycle(*args, **kwargs):
                 ctx = kwargs.get("structured_output_context")
                 assert ctx.structured_output_model == product_model

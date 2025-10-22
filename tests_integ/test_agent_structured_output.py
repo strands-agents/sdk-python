@@ -3,15 +3,11 @@ Integration tests for structured output with agents across all model providers.
 """
 
 import asyncio
-import os
-import time
 from typing import List, Optional
 from unittest import SkipTest
 
 import pytest
 from pydantic import BaseModel, Field, field_validator
-
-from strands.afarnsandbox.secrets import *
 
 from strands import Agent
 from strands.tools import tool
@@ -311,14 +307,14 @@ class TestStructuredOutputAsync:
 
         # Final result should be in the last event
         assert len(events) > 0
-        
+
         # Look for the result event
         result_event = None
         for event in events:
             if "result" in event:
                 result_event = event
                 break
-        
+
         if result_event:
             result = result_event["result"]
             if result.structured_output:
@@ -408,4 +404,3 @@ class TestStructuredOutputEdgeCases:
         assert isinstance(result.structured_output, Person)
         assert isinstance(result.structured_output.address, Address)
         assert result.structured_output.address.zip_code == "12345"
-

@@ -1,5 +1,5 @@
-from pydantic import BaseModel
 import pytest
+from pydantic import BaseModel
 
 from strands.hooks import BeforeToolCallEvent
 from strands.interrupt import Interrupt

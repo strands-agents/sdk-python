@@ -65,7 +65,9 @@ def agenerator():
         async def gen():
             for item in items:
                 yield item
+
         return gen()
+
     return _agenerator
 
 
@@ -271,7 +273,6 @@ async def test_structured_output_context_not_enabled(mock_agent, agenerator, ali
     stop_events = [e for e in events if isinstance(e, EventLoopStopEvent)]
     assert len(stop_events) == 1
     assert stop_events[0]["stop"][-1] is None
-
 
 
 @pytest.mark.asyncio
