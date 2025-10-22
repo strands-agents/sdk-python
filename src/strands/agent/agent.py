@@ -16,6 +16,7 @@ import uuid
 import warnings
 import weakref
 from typing import (
+    TYPE_CHECKING,
     Any,
     AsyncGenerator,
     AsyncIterator,
@@ -34,7 +35,9 @@ from pydantic import BaseModel
 from .. import _identifier
 from .._async import run_async
 from ..event_loop.event_loop import event_loop_cycle
-from ..experimental.tools import ToolProvider
+
+if TYPE_CHECKING:
+    from ..experimental.tools import ToolProvider
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
     AfterInvocationEvent,
@@ -231,7 +234,7 @@ class Agent:
         self,
         model: Union[Model, str, None] = None,
         messages: Optional[Messages] = None,
-        tools: Optional[list[Union[str, dict[str, str], ToolProvider, Any]]] = None,
+        tools: Optional[list[Union[str, dict[str, str], "ToolProvider", Any]]] = None,
         system_prompt: Optional[str] = None,
         callback_handler: Optional[
             Union[Callable[..., Any], _DefaultCallbackHandlerSentinel]
