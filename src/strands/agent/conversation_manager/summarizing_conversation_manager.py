@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING, Any, List, Optional, cast
 
 from typing_extensions import override
 
+from ...tools._tool_helpers import noop_tool
 from ...tools.registry import ToolRegistry
-from ...tools.tool_helpers import _noop_tool
 from ...types.content import Message
 from ...types.exceptions import ContextWindowOverflowException
 from ...types.tools import AgentTool
@@ -209,7 +209,7 @@ class SummarizingConversationManager(ConversationManager):
             # Add no-op tool if agent has no tools to satisfy tool spec requirement
             if not summarization_agent.tool_names:
                 tool_registry = ToolRegistry()
-                tool_registry.register_tool(cast(AgentTool, _noop_tool))
+                tool_registry.register_tool(cast(AgentTool, noop_tool))
                 summarization_agent.tool_registry = tool_registry
 
             summarization_agent.messages = messages

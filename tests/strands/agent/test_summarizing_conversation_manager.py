@@ -613,7 +613,7 @@ def test_summarizing_conversation_manager_properly_records_removed_message_count
 
 
 @patch("strands.agent.conversation_manager.summarizing_conversation_manager.ToolRegistry")
-def test_summarizing_conversation_manager_generate_summary_with__noop_tool(mock_registry_cls, summarizing_manager):
+def test_summarizing_conversation_manager_generate_summary_with_noop_tool(mock_registry_cls, summarizing_manager):
     mock_registry = mock_registry_cls.return_value
 
     messages = [{"role": "user", "content": [{"text": "test"}]}]
