@@ -127,7 +127,7 @@ class ToolRegistry:
                         add_tool(t)
 
                 # Case 5: ToolProvider
-                elif hasattr(tool, 'load_tools') and hasattr(tool, 'add_consumer') and hasattr(tool, 'remove_consumer'):
+                elif isinstance(tool, ToolProvider):
                     self._tool_providers.append(tool)
 
                     async def get_tools() -> Sequence[AgentTool]:
