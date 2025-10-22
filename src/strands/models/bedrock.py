@@ -8,7 +8,7 @@ import json
 import logging
 import os
 import warnings
-from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union, ValuesView, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -868,18 +868,12 @@ class BedrockModel(Model):
             if input.get("action") == "BLOCKED" and input.get("detected") and isinstance(input.get("detected"), bool):
                 return True
 
-            # Recursively check all values in the dictionary
-            for value in input.values():
-                if isinstance(value, dict):
-                    return self._find_detected_and_blocked_policy(value)
-                # Handle case where value is a list of dictionaries
-                elif isinstance(value, list):
-                    for item in value:
-                        return self._find_detected_and_blocked_policy(item)
-        elif isinstance(input, list):
-            # Handle case where input is a list of dictionaries
-            for item in input:
-                return self._find_detected_and_blocked_policy(item)
+            # Otherwise, recursively check all values in the dictionary
+            return self._find_detected_and_blocked_policy(input.values())
+
+        elif isinstance(input, (list, ValuesView)):
+            # Handle case where input is a list or dict_values
+            return any(self._find_detected_and_blocked_policy(item) for item in input)
         # Otherwise return False
         return False
 
