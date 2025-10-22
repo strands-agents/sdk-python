@@ -127,7 +127,7 @@ class ToolRegistry:
                         add_tool(t)
 
                 # Case 5: ToolProvider
-                elif isinstance(tool, ToolProvider):
+                elif isinstance(tool, "ToolProvider"):
                     self._tool_providers.append(tool)
 
                     async def get_tools() -> Sequence[AgentTool]:
