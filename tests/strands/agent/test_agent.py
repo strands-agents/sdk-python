@@ -2065,3 +2065,44 @@ def test_agent_tool_caller_interrupt(user):
     exp_message = r"cannot directly call tool during interrupt"
     with pytest.raises(RuntimeError, match=exp_message):
         agent.tool.test_tool()
+
+
+def test_agent__call__invalid_tool_name():
+    @strands.tool
+    def shell(command: str):
+        pass
+
+    model = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "tool_use_id",
+                            "name": "invalid tool",
+                            "input": "{}",
+                        }
+                    }
+                ],
+            },
+            {"role": "assistant", "content": [{"text": "I invoked a tool!"}]},
+        ]
+    )
+
+    agent = Agent(tools=[shell], model=model)
+    agent("Test")
+
+    # Assert that there exists a message with a toolResponse
+    assert agent.messages[-2] == {
+        "content": [
+            {
+                "toolResult": {
+                    "content": [{"text": "Error: tool_name=<invalid tool> | invalid tool name pattern"}],
+                    "status": "error",
+                    "toolUseId": "tool_use_id",
+                }
+            }
+        ],
+        "role": "user",
+    }

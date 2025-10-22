@@ -427,9 +427,6 @@ async def _handle_tool_execution(
 
     validate_and_prepare_tools(message, tool_uses, tool_results, invalid_tool_use_ids)
     tool_uses = [tool_use for tool_use in tool_uses if tool_use.get("toolUseId") not in invalid_tool_use_ids]
-    if not tool_uses:
-        yield EventLoopStopEvent(stop_reason, message, agent.event_loop_metrics, invocation_state["request_state"])
-        return
 
     if agent._interrupt_state.activated:
         tool_results.extend(agent._interrupt_state.context["tool_results"])
