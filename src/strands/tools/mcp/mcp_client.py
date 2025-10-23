@@ -235,21 +235,24 @@ class MCPClient(ToolProvider):
 
         return self._loaded_tools
 
-    def add_consumer(self, id: Any, **kwargs: Any) -> None:
+    def add_consumer(self, consumer_id: Any, **kwargs: Any) -> None:
         """Add a consumer to this tool provider.
 
         Synchronous to prevent GC deadlocks when called from Agent finalizers.
         """
-        self._consumers.add(id)
+        self._consumers.add(consumer_id)
         logger.debug("added provider consumer, count=%d", len(self._consumers))
 
-    def remove_consumer(self, id: Any, **kwargs: Any) -> None:
+    def remove_consumer(self, consumer_id: Any, **kwargs: Any) -> None:
         """Remove a consumer from this tool provider.
+
+        This method is idempotent - calling it multiple times with the same ID
+        has no additional effect after the first call.
 
         Synchronous to prevent GC deadlocks when called from Agent finalizers.
         Uses existing synchronous stop() method for safe cleanup.
         """
-        self._consumers.discard(id)
+        self._consumers.discard(consumer_id)
         logger.debug("removed provider consumer, count=%d", len(self._consumers))
 
         if not self._consumers and self._tool_provider_started:

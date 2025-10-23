@@ -127,12 +127,12 @@ class ToolRegistry:
                 # Case 5: ToolProvider
                 elif isinstance(tool, ToolProvider):
                     self._tool_providers.append(tool)
+                    tool.add_consumer(self._registry_id)
 
                     async def get_tools() -> Sequence[AgentTool]:
                         return await tool.load_tools()
 
                     provider_tools = run_async(get_tools)
-                    tool.add_consumer(self._registry_id)
 
                     for provider_tool in provider_tools:
                         self.register_tool(provider_tool)
@@ -662,7 +662,7 @@ class ToolRegistry:
 
     def cleanup(self, **kwargs: Any) -> None:
         """Synchronously clean up all tool providers in this registry."""
-        # Attempt cleanup of all providers even if one fails to minimize resource leakage during garbage collection
+        # Attempt cleanup of all providers even if one fails to minimize resource leakage
         exceptions = []
         for provider in self._tool_providers:
             try:

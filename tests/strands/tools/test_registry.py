@@ -260,3 +260,148 @@ def test_register_strands_tools_module_non_callable_function():
         " Tool tool_with_spec_but_non_callable_function function is not callable",
     ):
         tool_registry.process_tools(["tests.fixtures.tool_with_spec_but_non_callable_function"])
+
+
+def test_tool_registry_cleanup_with_mcp_client():
+    """Test that ToolRegistry cleanup properly handles MCP clients without orphaning threads."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from strands.tools.mcp import MCPClient
+
+    # Create a mock MCP client that simulates a real tool provider
+    mock_transport = MagicMock()
+    mock_client = MCPClient(mock_transport)
+
+    # Mock the client to avoid actual network operations
+    mock_client.load_tools = AsyncMock(return_value=[])
+
+    registry = ToolRegistry()
+
+    # Use process_tools to properly register the client
+    registry.process_tools([mock_client])
+
+    # Verify the client was registered as a consumer
+    assert registry._registry_id in mock_client._consumers
+
+    # Test cleanup calls remove_consumer
+    registry.cleanup()
+
+    # Verify cleanup was attempted
+    assert registry._registry_id not in mock_client._consumers
+
+
+def test_tool_registry_cleanup_exception_handling():
+    """Test that ToolRegistry cleanup attempts all providers even if some fail."""
+    from unittest.mock import MagicMock
+
+    # Create mock providers - one that fails, one that succeeds
+    failing_provider = MagicMock()
+    failing_provider.remove_consumer.side_effect = Exception("Cleanup failed")
+
+    working_provider = MagicMock()
+
+    registry = ToolRegistry()
+    registry._tool_providers = [failing_provider, working_provider]
+
+    # Cleanup should attempt both providers and raise the first exception
+    with pytest.raises(Exception, match="Cleanup failed"):
+        registry.cleanup()
+
+    # Verify both providers were attempted
+    failing_provider.remove_consumer.assert_called_once()
+    working_provider.remove_consumer.assert_called_once()
+
+
+def test_tool_registry_cleanup_idempotent():
+    """Test that ToolRegistry cleanup is idempotent."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from strands.experimental.tools import ToolProvider
+
+    provider = MagicMock(spec=ToolProvider)
+    provider.load_tools = AsyncMock(return_value=[])
+
+    registry = ToolRegistry()
+
+    # Use process_tools to properly register the provider
+    registry.process_tools([provider])
+
+    # First cleanup should call remove_consumer
+    registry.cleanup()
+    provider.remove_consumer.assert_called_once_with(registry._registry_id)
+
+    # Reset mock call count
+    provider.remove_consumer.reset_mock()
+
+    # Second cleanup should call remove_consumer again (not idempotent yet)
+    # This test documents current behavior - registry cleanup is not idempotent
+    registry.cleanup()
+    provider.remove_consumer.assert_called_once_with(registry._registry_id)
+
+
+def test_tool_registry_process_tools_exception_after_add_consumer():
+    """Test that tool provider is still tracked for cleanup even if load_tools fails."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from strands.experimental.tools import ToolProvider
+
+    # Create a mock tool provider that fails during load_tools
+    mock_provider = MagicMock(spec=ToolProvider)
+    mock_provider.add_consumer = MagicMock()
+    mock_provider.remove_consumer = MagicMock()
+
+    async def failing_load_tools():
+        raise Exception("Failed to load tools")
+
+    mock_provider.load_tools = AsyncMock(side_effect=failing_load_tools)
+
+    registry = ToolRegistry()
+
+    # Processing should fail but provider should still be tracked
+    with pytest.raises(ValueError, match="Failed to load tool"):
+        registry.process_tools([mock_provider])
+
+    # Verify provider was added to registry for cleanup tracking
+    assert mock_provider in registry._tool_providers
+
+    # Verify add_consumer was called before the failure
+    mock_provider.add_consumer.assert_called_once_with(registry._registry_id)
+
+    # Cleanup should still work
+    registry.cleanup()
+    mock_provider.remove_consumer.assert_called_once_with(registry._registry_id)
+
+
+def test_tool_registry_add_consumer_before_load_tools():
+    """Test that add_consumer is called before load_tools to ensure cleanup tracking."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from strands.experimental.tools import ToolProvider
+
+    # Create a mock tool provider that tracks call order
+    mock_provider = MagicMock(spec=ToolProvider)
+    call_order = []
+
+    def track_add_consumer(*args, **kwargs):
+        call_order.append("add_consumer")
+
+    async def track_load_tools(*args, **kwargs):
+        call_order.append("load_tools")
+        return []
+
+    mock_provider.add_consumer.side_effect = track_add_consumer
+    mock_provider.load_tools = AsyncMock(side_effect=track_load_tools)
+
+    registry = ToolRegistry()
+
+    # Process the tool provider
+    registry.process_tools([mock_provider])
+
+    # Verify add_consumer was called before load_tools
+    assert call_order == ["add_consumer", "load_tools"]
+
+    # Verify the provider was added to the registry for cleanup
+    assert mock_provider in registry._tool_providers
+
+    # Verify add_consumer was called with the registry ID
+    mock_provider.add_consumer.assert_called_once_with(registry._registry_id)

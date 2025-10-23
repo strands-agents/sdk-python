@@ -27,23 +27,26 @@ class ToolProvider(ABC):
         pass
 
     @abstractmethod
-    def add_consumer(self, id: Any, **kwargs: Any) -> None:
+    def add_consumer(self, consumer_id: Any, **kwargs: Any) -> None:
         """Add a consumer to this tool provider.
 
         Args:
-            id: Unique identifier for the consumer.
+            consumer_id: Unique identifier for the consumer.
             **kwargs: Additional arguments for future compatibility.
         """
         pass
 
     @abstractmethod
-    def remove_consumer(self, id: Any, **kwargs: Any) -> None:
+    def remove_consumer(self, consumer_id: Any, **kwargs: Any) -> None:
         """Remove a consumer from this tool provider.
+
+        This method must be idempotent - calling it multiple times with the same ID
+        should have no additional effect after the first call.
 
         Provider may clean up resources when no consumers remain.
 
         Args:
-            id: Unique identifier for the consumer.
+            consumer_id: Unique identifier for the consumer.
             **kwargs: Additional arguments for future compatibility.
         """
         pass

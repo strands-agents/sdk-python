@@ -12,9 +12,7 @@ The Agent interface supports two complementary interaction patterns:
 import json
 import logging
 import random
-import uuid
 import warnings
-import weakref
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -87,26 +85,6 @@ class _DefaultCallbackHandlerSentinel:
 _DEFAULT_CALLBACK_HANDLER = _DefaultCallbackHandlerSentinel()
 _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
-
-"""Global private store for agent cleanup - maps UUID to ToolRegistry.
-
-Why use weakref.finalize with a global store?
-
-MCP clients spawn background threads that must be properly cleaned up to prevent
-thread leaks. In __del__, the agent's references to these threads may already be
-deleted while the threads still exist, making cleanup impossible. The threads
-then continue running, consuming resources and causing interpreter shutdown hangs.
-
-weakref.finalize cannot access 'self' or instance attributes because:
-1. Finalizers run AFTER the object is garbage collected
-2. Accessing 'self' would create a circular reference preventing GC
-3. Instance attributes may be in an undefined state during finalization
-4. __del__ methods can access 'self' but are unreliable (may never run)
-
-The global store enables safe cleanup without circular references
-and reliable execution during interpreter shutdown.
-"""
-_AGENT_CLEANUP_STORE: dict[str, "ToolRegistry"] = {}
 
 
 class Agent:
@@ -360,9 +338,6 @@ class Agent:
         else:
             self.state = AgentState()
 
-        # Track cleanup state
-        self._cleanup_called = False
-
         self.tool_caller = Agent.ToolCaller(self)
 
         self.hooks = HookRegistry()
@@ -380,10 +355,6 @@ class Agent:
             for hook in hooks:
                 self.hooks.add_hook(hook)
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
-
-        self._agent_uuid = str(uuid.uuid4())
-        _AGENT_CLEANUP_STORE[self._agent_uuid] = self.tool_registry
-        self._finalizer = weakref.finalize(self, self._cleanup_on_finalize, self._agent_uuid, self.agent_id)
 
     @property
     def tool(self) -> ToolCaller:
@@ -571,42 +542,14 @@ class Agent:
         Note: This method uses a "belt and braces" approach with automatic cleanup
         through finalizers as a fallback, but explicit cleanup is recommended.
         """
-        if self._cleanup_called:
-            return
+        self.tool_registry.cleanup()
 
-        self._cleanup_on_finalize(self._agent_uuid, self.agent_id)
-        self._cleanup_called = True
-
-    @staticmethod
-    def _cleanup_on_finalize(agent_uuid: str, agent_id: str) -> None:
-        """Static cleanup method called by weakref.finalize.
-
-        weakref.finalize is used over __del__ because:
-        1. Runs AFTER garbage collection completes, not during (no GIL deadlocks)
-        2. Cannot access 'self' so can't call methods that might block (no run_async deadlocks)
-        3. Executes in a controlled environment where Python isn't in restricted GC state
-        4. More reliable execution timing - __del__ can be delayed or skipped entirely
-        5. No circular reference issues that can prevent __del__ from being called
-        6. Uses global store to avoid copying complex objects at registration time
-
-        SYNCHRONOUS CONSUMER MANAGEMENT PREVENTS:
-        - GC Deadlocks: run_async() creates ThreadPoolExecutor while GIL is held during GC
-        - Interpreter Shutdown Hangs: ThreadPoolExecutor creation fails during shutdown
-        - Finalizer Threading Issues: weakref.finalize runs in restricted threading environment
-        - Resource Leaks: Ensures MCP background threads are properly stopped
-
-        The synchronous approach uses MCPClient.stop() which safely:
-        - Signals background thread via asyncio.Event
-        - Waits for thread completion with thread.join()
-        - Cleans up all resources without async/await
-        """
-        logger.debug("agent_id=<%s> | starting finalize cleanup", agent_id)
-        tool_registry = _AGENT_CLEANUP_STORE.pop(agent_uuid, None)
-        if not tool_registry:
-            return
-
-        # Use synchronous cleanup to avoid run_async deadlocks during GC
-        tool_registry.cleanup()
+    def __del__(self) -> None:
+        """Clean up resources when agent is garbage collected."""
+        # __del__ is called even when an exception is thrown in the constructor,
+        # so there is no guarantee tool_registry was set..
+        if hasattr(self, "tool_registry"):
+            self.tool_registry.cleanup()
 
     async def stream_async(
         self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, **kwargs: Any

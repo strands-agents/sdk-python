@@ -2057,3 +2057,10 @@ def test_agent_tool_caller_interrupt(user):
     exp_message = r"cannot directly call tool during interrupt"
     with pytest.raises(RuntimeError, match=exp_message):
         agent.tool.test_tool()
+
+
+def test_agent_del_before_tool_registry_set():
+    """Test that Agent.__del__ doesn't fail if called before tool_registry is set."""
+    agent = Agent()
+    del agent.tool_registry
+    agent.__del__()  # Should not raise
