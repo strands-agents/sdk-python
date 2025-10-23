@@ -16,6 +16,7 @@ logger.debug("field1=<%s>, field2=<%s>, ... | human readable message", field1, f
 
 ### Guidelines
 
+
 1. **Context**:
    - Add context as `<FIELD>=<VALUE>` pairs at the beginning of the log
      - Many log services (CloudWatch, Splunk, etc.) look for these patterns to extract fields for searching
