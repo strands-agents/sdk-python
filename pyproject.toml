@@ -54,7 +54,7 @@ sagemaker = [
     "openai>=1.68.0,<2.0.0",  # SageMaker uses OpenAI-compatible interface
 ]
 otel = ["opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0"]
-dapr = ["dapr>=1.14.0", "grpcio>=1.60.0"]
+dapr = ["dapr>=1.16.0", "grpcio>=1.60.0"]
 docs = [
     "sphinx>=5.0.0,<9.0.0",
     "sphinx-rtd-theme>=1.0.0,<2.0.0",

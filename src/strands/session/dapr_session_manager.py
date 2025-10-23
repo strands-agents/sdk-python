@@ -233,7 +233,6 @@ class DaprSessionManager(RepositorySessionManager, SessionRepository):
             self._dapr_client.delete_state(
                 store_name=self._state_store_name,
                 key=key,
-                state_metadata=self._get_read_metadata(),
                 options=self._get_state_options(),
             )
         except Exception as e:
