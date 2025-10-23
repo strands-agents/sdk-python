@@ -105,6 +105,7 @@ def test_guardrail_input_intervention(boto_session, bedrock_guardrail):
         guardrail_id=bedrock_guardrail,
         guardrail_version="DRAFT",
         boto_session=boto_session,
+        guardrail_redact_input_message="Redacted.",
     )
 
     agent = Agent(model=bedrock_model, system_prompt="You are a helpful assistant.", callback_handler=None)
@@ -116,6 +117,7 @@ def test_guardrail_input_intervention(boto_session, bedrock_guardrail):
     assert str(response1).strip() == BLOCKED_INPUT
     assert response2.stop_reason != "guardrail_intervened"
     assert str(response2).strip() != BLOCKED_INPUT
+    assert agent.messages[0]["content"][0]["text"] == "Redacted."
 
 
 @pytest.mark.parametrize("processing_mode", ["sync", "async"])
@@ -193,6 +195,10 @@ def test_guardrail_output_intervention_redact_output(bedrock_guardrail, processi
         assert REDACT_MESSAGE in str(response1)
         assert response2.stop_reason != "guardrail_intervened"
         assert REDACT_MESSAGE not in str(response2)
+        # Input not redacted being an output intervention
+        assert agent.messages[0]["content"][0]["text"] != REDACT_MESSAGE
+        # Output correctly redacted
+        assert agent.messages[1]["content"][0]["text"] == REDACT_MESSAGE
     else:
         cactus_returned_in_response1_blocked_by_input_guardrail = BLOCKED_INPUT in str(response2)
         cactus_blocked_in_response1_allows_next_response = (
