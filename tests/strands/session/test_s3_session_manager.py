@@ -388,13 +388,13 @@ def test_write_read_multi_agent_json(s3_manager, sample_session):
     mock_agent = MockMultiAgent()
     expected_state = {"type": "graph", "status": "completed"}
 
-    s3_manager.write_multi_agent_json(mock_agent)
+    s3_manager.sync_multi_agent(mock_agent)
 
-    result = s3_manager.read_multi_agent_json()
+    result = s3_manager.initialize_multi_agent()
     assert result == expected_state
 
 
 def test_read_multi_agent_json_nonexistent(s3_manager):
     """Test reading multi-agent state when file doesn't exist."""
-    result = s3_manager.read_multi_agent_json()
+    result = s3_manager.initialize_multi_agent()
     assert result == {}

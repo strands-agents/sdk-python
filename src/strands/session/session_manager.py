@@ -46,10 +46,8 @@ class SessionManager(HookProvider, ABC):
 
         if self.session_type == SessionType.MULTI_AGENT:
             registry.add_callback(MultiAgentInitializedEvent, self._on_multiagent_initialized)
-            registry.add_callback(AfterNodeCallEvent, lambda event: self.write_multi_agent_json(event.source))
-            registry.add_callback(
-                AfterMultiAgentInvocationEvent, lambda event: self.write_multi_agent_json(event.source)
-            )
+            registry.add_callback(AfterNodeCallEvent, lambda event: self.sync_multi_agent(event.source))
+            registry.add_callback(AfterMultiAgentInvocationEvent, lambda event: self.sync_multi_agent(event.source))
 
         else:
             # After the normal Agent initialization behavior, call the session initialize function to restore the agent
@@ -102,19 +100,20 @@ class SessionManager(HookProvider, ABC):
             **kwargs: Additional keyword arguments for future extensibility.
         """
 
-    def write_multi_agent_json(self, source: "MultiAgentBase") -> None:
+    def sync_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:
         """Write multi-agent state to persistent storage.
 
         Args:
             source: Multi-agent source object to persist
+            **kwargs: Additional keyword arguments for future extensibility.
         """
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support multi-agent persistence "
-            "(write_multi_agent_json). Provide an implementation or use a "
+            "(sync_multi_agent). Provide an implementation or use a "
             "SessionManager with session_type=SessionType.MULTI_AGENT."
         )
 
-    def read_multi_agent_json(self) -> dict[str, Any]:
+    def initialize_multi_agent(self) -> dict[str, Any]:
         """Read multi-agent state from persistent storage.
 
         Returns:
@@ -122,7 +121,7 @@ class SessionManager(HookProvider, ABC):
         """
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support multi-agent persistence "
-            "(read_multi_agent_json). Provide an implementation or use a "
+            "(initialize_multi_agent). Provide an implementation or use a "
             "SessionManager with session_type=SessionType.MULTI_AGENT."
         )
 
@@ -133,9 +132,9 @@ class SessionManager(HookProvider, ABC):
         persists the current state as the initial snapshot.
         """
         source: MultiAgentBase = event.source
-        payload = self.read_multi_agent_json()
+        payload = self.initialize_multi_agent()
         # payload can be {} or Graph/Swarm state json
         if payload:
             source.deserialize_state(payload)
         else:
-            self.write_multi_agent_json(source)
+            self.sync_multi_agent(source)

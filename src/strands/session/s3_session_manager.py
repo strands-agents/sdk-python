@@ -300,18 +300,19 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         except ClientError as e:
             raise SessionException(f"S3 error reading messages: {e}") from e
 
-    def write_multi_agent_json(self, source: "MultiAgentBase") -> None:
+    def sync_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:
         """Write multi-agent state to S3.
 
         Args:
             source: Multi-agent source object to persist
+            **kwargs: Additional keyword arguments for future extensibility.
         """
         session_prefix = self._get_session_path(self.session_id)
         state_key = f"{session_prefix}multi_agent_state.json"
         state = source.serialize_state()
         self._write_s3_object(state_key, state)
 
-    def read_multi_agent_json(self) -> dict[str, Any]:
+    def initialize_multi_agent(self) -> dict[str, Any]:
         """Read multi-agent state from S3.
 
         Returns:

@@ -423,16 +423,16 @@ def test_write_read_multi_agent_json(file_manager, sample_session):
     expected_state = {"type": "graph", "status": "completed", "nodes": ["node1", "node2"]}
 
     # Write multi-agent state
-    file_manager.write_multi_agent_json(mock_agent)
+    file_manager.sync_multi_agent(mock_agent)
 
     # Read multi-agent state
-    result = file_manager.read_multi_agent_json()
+    result = file_manager.initialize_multi_agent()
     assert result == expected_state
 
 
 def test_read_multi_agent_json_nonexistent(file_manager):
     """Test reading multi-agent state when file doesn't exist."""
-    result = file_manager.read_multi_agent_json()
+    result = file_manager.initialize_multi_agent()
     assert result == {}
 
 
