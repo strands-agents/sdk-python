@@ -113,14 +113,6 @@ class MCPClient(ToolProvider):
         self._tool_filters = tool_filters
         self._prefix = prefix
 
-        # Warn about experimental ToolProvider interface
-        warnings.warn(
-            "MCPClient implements the experimental ToolProvider interface. "
-            "This interface and its methods are subject to change in future versions.",
-            FutureWarning,
-            stacklevel=2
-        )
-
         mcp_instrumentation()
         self._session_id = uuid.uuid4()
         self._log_debug_with_thread("initializing MCPClient connection")
