@@ -142,39 +142,71 @@ def test_format_request_message_content(content, exp_result):
 
 @pytest.mark.asyncio
 async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator, alist):
-    mock_tool_call_1_part_1 = unittest.mock.Mock(index=0)
-    mock_tool_call_2_part_1 = unittest.mock.Mock(index=1)
     mock_delta_1 = unittest.mock.Mock(
         reasoning_content="",
         content=None,
         tool_calls=None,
     )
+
     mock_delta_2 = unittest.mock.Mock(
         reasoning_content="\nI'm thinking",
         content=None,
         tool_calls=None,
     )
     mock_delta_3 = unittest.mock.Mock(
+        reasoning_content=None,
+        content="One second",
+        tool_calls=None,
+    )
+    mock_delta_4 = unittest.mock.Mock(
+        reasoning_content="\nI'm think",
+        content=None,
+        tool_calls=None,
+    )
+    mock_delta_5 = unittest.mock.Mock(
+        reasoning_content="ing again",
+        content=None,
+        tool_calls=None,
+    )
+
+    mock_tool_call_1_part_1 = unittest.mock.Mock(index=0)
+    mock_tool_call_2_part_1 = unittest.mock.Mock(index=1)
+    mock_delta_6 = unittest.mock.Mock(
         content="I'll calculate", tool_calls=[mock_tool_call_1_part_1, mock_tool_call_2_part_1], reasoning_content=None
     )
 
     mock_tool_call_1_part_2 = unittest.mock.Mock(index=0)
     mock_tool_call_2_part_2 = unittest.mock.Mock(index=1)
-    mock_delta_4 = unittest.mock.Mock(
+    mock_delta_7 = unittest.mock.Mock(
         content="that for you", tool_calls=[mock_tool_call_1_part_2, mock_tool_call_2_part_2], reasoning_content=None
     )
 
-    mock_delta_5 = unittest.mock.Mock(content="", tool_calls=None, reasoning_content=None)
+    mock_delta_8 = unittest.mock.Mock(content="", tool_calls=None, reasoning_content=None)
 
     mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_1)])
     mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_2)])
     mock_event_3 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_3)])
     mock_event_4 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_4)])
-    mock_event_5 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="tool_calls", delta=mock_delta_5)])
-    mock_event_6 = unittest.mock.Mock()
+    mock_event_5 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_5)])
+    mock_event_6 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_6)])
+    mock_event_7 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_7)])
+    mock_event_8 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="tool_calls", delta=mock_delta_8)])
+    mock_event_9 = unittest.mock.Mock()
 
     litellm_acompletion.side_effect = unittest.mock.AsyncMock(
-        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5, mock_event_6])
+        return_value=agenerator(
+            [
+                mock_event_1,
+                mock_event_2,
+                mock_event_3,
+                mock_event_4,
+                mock_event_5,
+                mock_event_6,
+                mock_event_7,
+                mock_event_8,
+                mock_event_9,
+            ]
+        )
     )
 
     messages = [{"role": "user", "content": [{"type": "text", "text": "calculate 2+2"}]}]
@@ -184,6 +216,15 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
         {"messageStart": {"role": "assistant"}},
         {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "\nI'm thinking"}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "One second"}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "\nI'm think"}}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "ing again"}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"text": "I'll calculate"}}},
         {"contentBlockDelta": {"delta": {"text": "that for you"}}},
         {"contentBlockStop": {}},
@@ -211,9 +252,9 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
         {
             "metadata": {
                 "usage": {
-                    "inputTokens": mock_event_6.usage.prompt_tokens,
-                    "outputTokens": mock_event_6.usage.completion_tokens,
-                    "totalTokens": mock_event_6.usage.total_tokens,
+                    "inputTokens": mock_event_9.usage.prompt_tokens,
+                    "outputTokens": mock_event_9.usage.completion_tokens,
+                    "totalTokens": mock_event_9.usage.total_tokens,
                 },
                 "metrics": {"latencyMs": 0},
             }
@@ -253,8 +294,6 @@ async def test_stream_empty(litellm_acompletion, api_key, model_id, model, agene
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
-        {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn"}},
     ]
 

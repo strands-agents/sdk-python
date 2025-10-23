@@ -12,6 +12,7 @@ from ._executor import ToolExecutor
 
 if TYPE_CHECKING:  # pragma: no cover
     from ...agent import Agent
+    from ..structured_output._structured_output_context import StructuredOutputContext
 
 
 class ConcurrentToolExecutor(ToolExecutor):
@@ -26,6 +27,7 @@ class ConcurrentToolExecutor(ToolExecutor):
         cycle_trace: Trace,
         cycle_span: Any,
         invocation_state: dict[str, Any],
+        structured_output_context: "StructuredOutputContext",
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute tools concurrently.
 
@@ -36,6 +38,7 @@ class ConcurrentToolExecutor(ToolExecutor):
             cycle_trace: Trace object for the current event loop cycle.
             cycle_span: Span object for tracing the cycle.
             invocation_state: Context for the tool invocation.
+            structured_output_context: Context for structured output handling.
 
         Yields:
             Events from the tool execution stream.
@@ -57,6 +60,7 @@ class ConcurrentToolExecutor(ToolExecutor):
                     task_queue,
                     task_events[task_id],
                     stop_event,
+                    structured_output_context,
                 )
             )
             for task_id, tool_use in enumerate(tool_uses)
@@ -84,6 +88,7 @@ class ConcurrentToolExecutor(ToolExecutor):
         task_queue: asyncio.Queue,
         task_event: asyncio.Event,
         stop_event: object,
+        structured_output_context: "StructuredOutputContext",
     ) -> None:
         """Execute a single tool and put results in the task queue.
 
@@ -98,10 +103,11 @@ class ConcurrentToolExecutor(ToolExecutor):
             task_queue: Queue to put tool events into.
             task_event: Event to signal when task can continue.
             stop_event: Sentinel object to signal task completion.
+            structured_output_context: Context for structured output handling.
         """
         try:
             events = ToolExecutor._stream_with_trace(
-                agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state
+                agent, tool_use, tool_results, cycle_trace, cycle_span, invocation_state, structured_output_context
             )
             async for event in events:
                 task_queue.put_nowait((task_id, event))

@@ -50,6 +50,7 @@ from ..telemetry.tracer import get_tracer, serialize
 from ..tools.executors import ConcurrentToolExecutor
 from ..tools.executors._executor import ToolExecutor
 from ..tools.registry import ToolRegistry
+from ..tools.structured_output._structured_output_context import StructuredOutputContext
 from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
 from ..types.agent import AgentInput
@@ -216,6 +217,7 @@ class Agent:
         messages: Optional[Messages] = None,
         tools: Optional[list[Union[str, dict[str, str], Any]]] = None,
         system_prompt: Optional[str] = None,
+        structured_output_model: Optional[Type[BaseModel]] = None,
         callback_handler: Optional[
             Union[Callable[..., Any], _DefaultCallbackHandlerSentinel]
         ] = _DEFAULT_CALLBACK_HANDLER,
@@ -251,6 +253,10 @@ class Agent:
                 If provided, only these tools will be available. If None, all tools will be available.
             system_prompt: System prompt to guide model behavior.
                 If None, the model will behave according to its default settings.
+            structured_output_model: Pydantic model type(s) for structured output.
+                When specified, all agent calls will attempt to return structured output of this type.
+                This can be overridden on the agent invocation.
+                Defaults to None (no structured output).
             callback_handler: Callback for processing events as they happen during agent execution.
                 If not provided (using the default), a new PrintingCallbackHandler instance is created.
                 If explicitly set to None, null_callback_handler is used.
@@ -280,8 +286,8 @@ class Agent:
         """
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
-
         self.system_prompt = system_prompt
+        self._default_structured_output_model = structured_output_model
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
@@ -383,7 +389,12 @@ class Agent:
         return list(all_tools.keys())
 
     def __call__(
-        self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self,
+        prompt: AgentInput = None,
+        *,
+        invocation_state: dict[str, Any] | None = None,
+        structured_output_model: Type[BaseModel] | None = None,
+        **kwargs: Any,
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
@@ -400,6 +411,7 @@ class Agent:
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
             invocation_state: Additional parameters to pass through the event loop.
+            structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
@@ -409,17 +421,27 @@ class Agent:
                 - message: The final message from the model
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
+                - structured_output: Parsed structured output when structured_output_model was specified
         """
 
         def execute() -> AgentResult:
-            return asyncio.run(self.invoke_async(prompt, invocation_state=invocation_state, **kwargs))
+            return asyncio.run(
+                self.invoke_async(
+                    prompt, invocation_state=invocation_state, structured_output_model=structured_output_model, **kwargs
+                )
+            )
 
         with ThreadPoolExecutor() as executor:
             future = executor.submit(execute)
             return future.result()
 
     async def invoke_async(
-        self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self,
+        prompt: AgentInput = None,
+        *,
+        invocation_state: dict[str, Any] | None = None,
+        structured_output_model: Type[BaseModel] | None = None,
+        **kwargs: Any,
     ) -> AgentResult:
         """Process a natural language prompt through the agent's event loop.
 
@@ -436,6 +458,7 @@ class Agent:
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
             invocation_state: Additional parameters to pass through the event loop.
+            structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             **kwargs: Additional parameters to pass through the event loop.[Deprecating]
 
         Returns:
@@ -446,7 +469,9 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
-        events = self.stream_async(prompt, invocation_state=invocation_state, **kwargs)
+        events = self.stream_async(
+            prompt, invocation_state=invocation_state, structured_output_model=structured_output_model, **kwargs
+        )
         async for event in events:
             _ = event
 
@@ -473,6 +498,13 @@ class Agent:
         Raises:
             ValueError: If no conversation history or prompt is provided.
         """
+        warnings.warn(
+            "Agent.structured_output method is deprecated."
+            " You should pass in `structured_output_model` directly into the agent invocation."
+            " see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/",
+            category=DeprecationWarning,
+            stacklevel=2,
+        )
 
         def execute() -> T:
             return asyncio.run(self.structured_output_async(output_model, prompt))
@@ -501,6 +533,13 @@ class Agent:
         if self._interrupt_state.activated:
             raise RuntimeError("cannot call structured output during interrupt")
 
+        warnings.warn(
+            "Agent.structured_output_async method is deprecated."
+            " You should pass in `structured_output_model` directly into the agent invocation."
+            " see: https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/",
+            category=DeprecationWarning,
+            stacklevel=2,
+        )
         self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
         with self.tracer.tracer.start_as_current_span(
             "execute_structured_output", kind=trace_api.SpanKind.CLIENT
@@ -545,7 +584,12 @@ class Agent:
                 self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
     async def stream_async(
-        self, prompt: AgentInput = None, *, invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self,
+        prompt: AgentInput = None,
+        *,
+        invocation_state: dict[str, Any] | None = None,
+        structured_output_model: Type[BaseModel] | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[Any]:
         """Process a natural language prompt and yield events as an async iterator.
 
@@ -562,6 +606,7 @@ class Agent:
                 - list[Message]: Complete messages with roles
                 - None: Use existing conversation history
             invocation_state: Additional parameters to pass through the event loop.
+            structured_output_model: Pydantic model type(s) for structured output (overrides agent default).
             **kwargs: Additional parameters to pass to the event loop.[Deprecating]
 
         Yields:
@@ -606,7 +651,7 @@ class Agent:
 
         with trace_api.use_span(self.trace_span):
             try:
-                events = self._run_loop(messages, invocation_state=merged_state)
+                events = self._run_loop(messages, merged_state, structured_output_model)
 
                 async for event in events:
                     event.prepare(invocation_state=merged_state)
@@ -658,12 +703,18 @@ class Agent:
 
             self._interrupt_state.interrupts[interrupt_id].response = interrupt_response
 
-    async def _run_loop(self, messages: Messages, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
+    async def _run_loop(
+        self,
+        messages: Messages,
+        invocation_state: dict[str, Any],
+        structured_output_model: Type[BaseModel] | None = None,
+    ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the agent's event loop with the given message and parameters.
 
         Args:
             messages: The input messages to add to the conversation.
             invocation_state: Additional parameters to pass to the event loop.
+            structured_output_model: Optional Pydantic model type for structured output.
 
         Yields:
             Events from the event loop cycle.
@@ -676,8 +727,12 @@ class Agent:
             for message in messages:
                 self._append_message(message)
 
+            structured_output_context = StructuredOutputContext(
+                structured_output_model or self._default_structured_output_model
+            )
+
             # Execute the event loop cycle with retry logic for context limits
-            events = self._execute_event_loop_cycle(invocation_state)
+            events = self._execute_event_loop_cycle(invocation_state, structured_output_context)
             async for event in events:
                 # Signal from the model provider that the message sent by the user should be redacted,
                 # likely due to a guardrail.
@@ -698,12 +753,18 @@ class Agent:
             self.conversation_manager.apply_management(self)
             self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
-    async def _execute_event_loop_cycle(self, invocation_state: dict[str, Any]) -> AsyncGenerator[TypedEvent, None]:
+    async def _execute_event_loop_cycle(
+        self, invocation_state: dict[str, Any], structured_output_context: StructuredOutputContext | None = None
+    ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the event loop cycle with retry logic for context window limits.
 
         This internal method handles the execution of the event loop cycle and implements
         retry logic for handling context window overflow exceptions by reducing the
         conversation context and retrying.
+
+        Args:
+            invocation_state: Additional parameters to pass to the event loop.
+            structured_output_context: Optional structured output context for this invocation.
 
         Yields:
             Events of the loop cycle.
@@ -711,11 +772,14 @@ class Agent:
         # Add `Agent` to invocation_state to keep backwards-compatibility
         invocation_state["agent"] = self
 
+        if structured_output_context:
+            structured_output_context.register_tool(self.tool_registry)
+
         try:
-            # Execute the main event loop cycle
             events = event_loop_cycle(
                 agent=self,
                 invocation_state=invocation_state,
+                structured_output_context=structured_output_context,
             )
             async for event in events:
                 yield event
@@ -728,9 +792,13 @@ class Agent:
             if self._session_manager:
                 self._session_manager.sync_agent(self)
 
-            events = self._execute_event_loop_cycle(invocation_state)
+            events = self._execute_event_loop_cycle(invocation_state, structured_output_context)
             async for event in events:
                 yield event
+
+        finally:
+            if structured_output_context:
+                structured_output_context.cleanup(self.tool_registry)
 
     def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
         if self._interrupt_state.activated:

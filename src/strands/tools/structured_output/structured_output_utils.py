@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional, Type, Union
 
 from pydantic import BaseModel
 
-from ..types.tools import ToolSpec
+from ...types.tools import ToolSpec
 
 
 def _flatten_schema(schema: Dict[str, Any]) -> Dict[str, Any]:

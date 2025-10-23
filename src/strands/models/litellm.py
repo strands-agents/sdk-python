@@ -111,6 +111,26 @@ class LiteLLMModel(OpenAIModel):
 
         return super().format_request_message_content(content)
 
+    def _stream_switch_content(self, data_type: str, prev_data_type: str | None) -> tuple[list[StreamEvent], str]:
+        """Handle switching to a new content stream.
+
+        Args:
+            data_type: The next content data type.
+            prev_data_type: The previous content data type.
+
+        Returns:
+            Tuple containing:
+            - Stop block for previous content and the start block for the next content.
+            - Next content data type.
+        """
+        chunks = []
+        if data_type != prev_data_type:
+            if prev_data_type is not None:
+                chunks.append(self.format_chunk({"chunk_type": "content_stop", "data_type": prev_data_type}))
+            chunks.append(self.format_chunk({"chunk_type": "content_start", "data_type": data_type}))
+
+        return chunks, data_type
+
     @override
     async def stream(
         self,
@@ -146,9 +166,9 @@ class LiteLLMModel(OpenAIModel):
 
         logger.debug("got response from model")
         yield self.format_chunk({"chunk_type": "message_start"})
-        yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
         tool_calls: dict[int, list[Any]] = {}
+        data_type: str | None = None
 
         async for event in response:
             # Defensive: skip events with empty or missing choices
@@ -156,27 +176,35 @@ class LiteLLMModel(OpenAIModel):
                 continue
             choice = event.choices[0]
 
-            if choice.delta.content:
-                yield self.format_chunk(
-                    {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
-                )
-
             if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
+                chunks, data_type = self._stream_switch_content("reasoning_content", data_type)
+                for chunk in chunks:
+                    yield chunk
+
                 yield self.format_chunk(
                     {
                         "chunk_type": "content_delta",
-                        "data_type": "reasoning_content",
+                        "data_type": data_type,
                         "data": choice.delta.reasoning_content,
                     }
+                )
+
+            if choice.delta.content:
+                chunks, data_type = self._stream_switch_content("text", data_type)
+                for chunk in chunks:
+                    yield chunk
+
+                yield self.format_chunk(
+                    {"chunk_type": "content_delta", "data_type": data_type, "data": choice.delta.content}
                 )
 
             for tool_call in choice.delta.tool_calls or []:
                 tool_calls.setdefault(tool_call.index, []).append(tool_call)
 
             if choice.finish_reason:
+                if data_type:
+                    yield self.format_chunk({"chunk_type": "content_stop", "data_type": data_type})
                 break
-
-        yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
 
         for tool_deltas in tool_calls.values():
             yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]})

@@ -12,4 +12,5 @@ __pycache__*
 dist
 repl_state
 .kiro
+uv.lock
 .idea

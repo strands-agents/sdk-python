@@ -121,6 +121,22 @@ async def test_agent_stream_async(agent):
     assert all(string in text for string in ["12:00", "sunny"])
 
 
+def test_agent_invoke_reasoning(agent, model):
+    model.update_config(
+        params={
+            "thinking": {
+                "budget_tokens": 1024,
+                "type": "enabled",
+            },
+        },
+    )
+
+    result = agent("Please reason about the equation 2+2.")
+
+    assert "reasoningContent" in result.message["content"][0]
+    assert result.message["content"][0]["reasoningContent"]["reasoningText"]["text"]
+
+
 def test_structured_output(agent, weather):
     tru_weather = agent.structured_output(type(weather), "The time is 12:00 and the weather is sunny")
     exp_weather = weather
