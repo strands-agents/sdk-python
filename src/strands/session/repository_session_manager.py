@@ -28,6 +28,7 @@ class RepositorySessionManager(SessionManager):
         self,
         session_id: str,
         session_repository: SessionRepository,
+        *,
         session_type: SessionType = SessionType.AGENT,
         **kwargs: Any,
     ):

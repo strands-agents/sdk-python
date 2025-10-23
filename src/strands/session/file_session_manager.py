@@ -45,6 +45,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         self,
         session_id: str,
         storage_dir: Optional[str] = None,
+        *,
         session_type: SessionType = SessionType.AGENT,
         **kwargs: Any,
     ):
