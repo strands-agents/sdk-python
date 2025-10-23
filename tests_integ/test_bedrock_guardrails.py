@@ -5,7 +5,7 @@ from uuid import uuid4
 import boto3
 import pytest
 
-from strands import Agent
+from strands import Agent, tool
 from strands.models.bedrock import BedrockModel
 from strands.session.file_session_manager import FileSessionManager
 
@@ -187,7 +187,7 @@ def test_guardrail_output_intervention_redact_output(bedrock_guardrail, processi
     In async streaming: The buffering is non-blocking. 
     Tokens are streamed while Guardrails processes the buffered content in the background. 
     This means the response may be returned before Guardrails has finished processing.
-    As a result, we cannot guarantee that the REDACT_MESSAGE is in the response
+    As a result, we cannot guarantee that the REDACT_MESSAGE is in the response.
     """
     if processing_mode == "sync":
         assert REDACT_MESSAGE in str(response1)
@@ -201,6 +201,79 @@ def test_guardrail_output_intervention_redact_output(bedrock_guardrail, processi
         assert (
             cactus_returned_in_response1_blocked_by_input_guardrail or cactus_blocked_in_response1_allows_next_response
         )
+
+
+@pytest.mark.parametrize("processing_mode", ["sync", "async"])
+def test_guardrail_intervention_properly_redacts_tool_result(bedrock_guardrail, processing_mode):
+    INPUT_REDACT_MESSAGE = "Input redacted."
+    OUTPUT_REDACT_MESSAGE = "Output redacted."
+    bedrock_model = BedrockModel(
+        guardrail_id=bedrock_guardrail,
+        guardrail_version="DRAFT",
+        guardrail_stream_processing_mode=processing_mode,
+        guardrail_redact_output=True,
+        guardrail_redact_input_message=INPUT_REDACT_MESSAGE,
+        guardrail_redact_output_message=OUTPUT_REDACT_MESSAGE,
+        region_name="us-east-1",
+    )
+
+    @tool
+    def list_users() -> str:
+        "List my users"
+        return """[{"name": "Jerry Merry"}, {"name": "Mr. CACTUS"}]"""
+
+    agent = Agent(
+        model=bedrock_model,
+        system_prompt="You are a helpful assistant.",
+        callback_handler=None,
+        load_tools_from_directory=False,
+        tools=[list_users],
+    )
+
+    response1 = agent("List my users.")
+    response2 = agent("Thank you!")
+
+    """ Message sequence:
+    0 (user): request1
+    1 (assistant): reasoning + tool call
+    2 (user): tool result
+    3 (assistant): response1 -> output guardrail intervenes
+    4 (user): request2
+    5 (assistant): response2
+
+    Guardrail intervened on output in message 3 will cause
+    the redaction of the preceding input (message 2) and message 3.
+    """
+
+    assert response1.stop_reason == "guardrail_intervened"
+
+    if processing_mode == "sync":
+        """ In sync mode the guardrail processing is blocking.
+        The response is already blocked and redacted. """
+
+        assert OUTPUT_REDACT_MESSAGE in str(response1)
+        assert OUTPUT_REDACT_MESSAGE not in str(response2)
+
+    """
+    In async streaming, the buffering is non-blocking,
+    so the response may be returned before Guardrails has finished processing.
+
+    However, in both sync and async, with guardrail_redact_output=True:
+    
+    1. the content should be properly redacted in memory, so that
+    response2 is not blocked by guardrails;
+    """
+    assert response2.stop_reason != "guardrail_intervened"
+
+    """
+    2. the tool result block should be redacted properly, so that the
+    conversation is not corrupted.
+    """
+
+    tool_call = [b for b in agent.messages[1]["content"] if "toolUse" in b][0]["toolUse"]
+    tool_result = [b for b in agent.messages[2]["content"] if "toolResult" in b][0]["toolResult"]
+    assert tool_result["toolUseId"] == tool_call["toolUseId"]
+    assert tool_result["content"][0]["text"] == INPUT_REDACT_MESSAGE
 
 
 def test_guardrail_input_intervention_properly_redacts_in_session(boto_session, bedrock_guardrail, temp_dir):

@@ -2061,3 +2061,58 @@ def test_agent_tool_caller_interrupt(user):
     exp_message = r"cannot directly call tool during interrupt"
     with pytest.raises(RuntimeError, match=exp_message):
         agent.tool.test_tool()
+
+
+@pytest.mark.parametrize(
+    "content, expected",
+    [
+        # Single toolResult block - preserves structure, redacts content
+        (
+            [{"toolResult": {"toolUseId": "123", "content": [{"text": "original result"}], "status": "success"}}],
+            [{"toolResult": {"toolUseId": "123", "content": [{"text": "REDACTED"}], "status": "success"}}],
+        ),
+        # Multiple toolResult blocks - preserves all, redacts each content
+        (
+            [
+                {"toolResult": {"toolUseId": "123", "content": [{"text": "result1"}], "status": "success"}},
+                {"toolResult": {"toolUseId": "456", "content": [{"text": "result2"}], "status": "error"}},
+            ],
+            [
+                {"toolResult": {"toolUseId": "123", "content": [{"text": "REDACTED"}], "status": "success"}},
+                {"toolResult": {"toolUseId": "456", "content": [{"text": "REDACTED"}], "status": "error"}},
+            ],
+        ),
+        # Text only content - replaces with single text block
+        (
+            [{"text": "sensitive data"}],
+            [{"text": "REDACTED"}],
+        ),
+        # Mixed content with toolResult - keeps only toolResult blocks
+        # (This should not actually happen, toolResult is never mixed with other content)
+        (
+            [
+                {"text": "some text"},
+                {"toolResult": {"toolUseId": "789", "content": [{"text": "tool output"}], "status": "success"}},
+                {"image": {"format": "png", "source": {"bytes": b"fake_data"}}},
+            ],
+            [{"toolResult": {"toolUseId": "789", "content": [{"text": "REDACTED"}], "status": "success"}}],
+        ),
+        # Empty content - returns single text block
+        (
+            [],
+            [{"text": "REDACTED"}],
+        ),
+    ],
+    ids=[
+        "single_tool_result",
+        "multiple_tool_results",
+        "text_only",
+        "mixed_content_with_tool_result",
+        "empty_content",
+    ],
+)
+def test_redact_user_content(content, expected):
+    """Test _redact_user_content function with various content types."""
+    agent = Agent()
+    result = agent._redact_user_content(content, "REDACTED")
+    assert result == expected
