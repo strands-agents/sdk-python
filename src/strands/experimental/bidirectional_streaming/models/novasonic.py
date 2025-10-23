@@ -35,10 +35,10 @@ from ..types.bidirectional_streaming import (
     BidirectionalConnectionStartEvent,
     InterruptionDetectedEvent,
     TextOutputEvent,
-    UsageMetricsEvent
+    UsageMetricsEvent,
 )
-
-from .bidirectional_model import BidirectionalModel, BidirectionalModelSession
+from .base_model import BidirectionalModel
+from .base_session import BidirectionalModelSession
 
 logger = logging.getLogger(__name__)
 

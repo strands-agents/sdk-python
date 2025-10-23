@@ -83,6 +83,26 @@ class TextOutputEvent(TypedDict):
     role: Role
 
 
+class ImageInputEvent(TypedDict):
+    """Image input event for sending images/video frames to the model.
+
+    Supports multiple input methods following OpenAI realtime API patterns:
+    - Base64 data URLs (data:image/png;base64,...)
+    - Hosted URLs (https://...)
+    - OpenAI file IDs (file-...)
+    - Raw bytes with MIME type
+
+    Attributes:
+        image_url: Data URL, hosted URL, or OpenAI file ID.
+        imageData: Raw image bytes (alternative to image_url).
+        mimeType: MIME type when using imageData.
+    """
+
+    image_url: Optional[str]  # Primary: data URL, hosted URL, or file ID
+    imageData: Optional[bytes]  # Alternative: raw bytes
+    mimeType: Optional[str]  # Required when using imageData
+
+
 class InterruptionDetectedEvent(TypedDict):
     """Interruption detection event.
 
@@ -119,6 +139,19 @@ class BidirectionalConnectionEndEvent(TypedDict):
     reason: Literal["user_request", "timeout", "error", "connection_complete"]
     connectionId: Optional[str]
     metadata: Optional[Dict[str, Any]]
+
+
+class ToolResultInputEvent(TypedDict):
+    """Tool result input event for sending tool execution results.
+
+    Attributes:
+        tool_use_id: Identifier for the tool use being responded to.
+        result: Tool execution result data.
+    """
+
+    tool_use_id: str
+    result: Dict[str, Any]
+
 
 class UsageMetricsEvent(TypedDict):
     """Token usage and performance tracking.
@@ -162,4 +195,3 @@ class BidirectionalStreamEvent(StreamEvent, total=False):
     BidirectionalConnectionStart: Optional[BidirectionalConnectionStartEvent]
     BidirectionalConnectionEnd: Optional[BidirectionalConnectionEndEvent]
     usageMetrics: Optional[UsageMetricsEvent]
-

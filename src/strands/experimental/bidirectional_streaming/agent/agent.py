@@ -30,9 +30,8 @@ from ....types.content import Message, Messages
 from ....types.tools import ToolResult, ToolUse
 from ....types.traces import AttributeValue
 from ..event_loop.bidirectional_event_loop import start_bidirectional_connection, stop_bidirectional_connection
-from ..models.bidirectional_model import BidirectionalModel
+from ..models.base_model import BidirectionalModel
 from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent
-
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +80,7 @@ class BidirectionalAgent:
 
                 Args:
                     user_message_override: Optional custom message to record instead of default
-                    record_direct_tool_call: Whether to record direct tool calls in message history. 
+                    record_direct_tool_call: Whether to record direct tool calls in message history.
                         For bidirectional agents, this is always True to maintain conversation history.
                     **kwargs: Keyword arguments to pass to the tool.
 
@@ -186,12 +185,12 @@ class BidirectionalAgent:
         self.model = model
         self.system_prompt = system_prompt
         self.messages = messages or []
-        
+
         # Agent identification
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
-        
+
         # Tool execution configuration
         self.record_direct_tool_call = record_direct_tool_call
         self.load_tools_from_directory = load_tools_from_directory
@@ -207,25 +206,25 @@ class BidirectionalAgent:
 
         # Initialize tool registry
         self.tool_registry = ToolRegistry()
-        
+
         if tools is not None:
             self.tool_registry.process_tools(tools)
-            
+
         self.tool_registry.initialize_tools(self.load_tools_from_directory)
-        
+
         # Initialize tool watcher if directory loading is enabled
         if self.load_tools_from_directory:
             self.tool_watcher = ToolWatcher(tool_registry=self.tool_registry)
 
         # Initialize tool executor
         self.tool_executor = tool_executor or ConcurrentToolExecutor()
-        
+
         # Initialize hooks system
         self.hooks = HookRegistry()
         if hooks:
             for hook in hooks:
                 self.hooks.add_hook(hook)
-                
+
         # Initialize other components
         self.event_loop_metrics = EventLoopMetrics()
         self.tool_caller = BidirectionalAgent.ToolCaller(self)

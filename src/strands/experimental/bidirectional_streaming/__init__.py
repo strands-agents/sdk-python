@@ -2,9 +2,8 @@
 
 # Main components - Primary user interface
 from .agent.agent import BidirectionalAgent
-
-# Advanced interfaces (for custom implementations)
-from .models.bidirectional_model import BidirectionalModel, BidirectionalModelSession
+from .models.base_model import BidirectionalModel
+from .models.base_session import BidirectionalModelSession
 
 # Model providers - What users need to create models
 from .models.novasonic import NovaSonicBidirectionalModel

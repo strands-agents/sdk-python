@@ -1,6 +1,7 @@
 """Bidirectional model interfaces and implementations."""
 
-from .bidirectional_model import BidirectionalModel, BidirectionalModelSession
+from .base_model import BidirectionalModel
+from .base_session import BidirectionalModelSession
 from .novasonic import NovaSonicBidirectionalModel, NovaSonicSession
 
 __all__ = [
