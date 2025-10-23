@@ -5,11 +5,10 @@ on:
     branches: main
 
 jobs:
-  size-label:
+  label-size:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      pull-requests: read
+      pull-requests: write
       issues: write
     steps:
       - name: Calculate PR size and apply label
