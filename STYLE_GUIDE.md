@@ -26,7 +26,8 @@ logger.debug("field1=<%s>, field2=<%s>, ... | human readable message", field1, f
    - Use `%s` for string interpolation as recommended by Python logging
      - This is an optimization to skip string interpolation when the log level is not enabled
 
-1. **Messages**:
+1. **Messages**:a
+2. 
    - Add human-readable messages at the end of the log
    - Use lowercase for consistency
    - Avoid punctuation (periods, exclamation points, etc.) to reduce clutter
