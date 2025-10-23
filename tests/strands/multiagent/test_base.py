@@ -148,7 +148,7 @@ def test_multi_agent_base_abstract_behavior():
         def serialize_state(self) -> dict:
             return {}
 
-        def restore_from_session(self, payload: dict) -> None:
+        def deserialize_state(self, payload: dict) -> None:
             pass
 
     # Should not raise an exception - __call__ is provided by base class
@@ -177,7 +177,7 @@ def test_multi_agent_base_call_method():
         def serialize_state(self) -> dict:
             return {}
 
-        def restore_from_session(self, payload: dict) -> None:
+        def deserialize_state(self, payload: dict) -> None:
             pass
 
     agent = TestMultiAgent()

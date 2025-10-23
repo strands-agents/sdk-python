@@ -136,6 +136,6 @@ class SessionManager(HookProvider, ABC):
         payload = self.read_multi_agent_json()
         # payload can be {} or Graph/Swarm state json
         if payload:
-            source.restore_from_session(payload)
+            source.deserialize_state(payload)
         else:
             self.write_multi_agent_json(source)

@@ -204,7 +204,7 @@ class MultiAgentBase(ABC):
         """Return a JSON-serializable snapshot of the orchestrator state."""
         raise NotImplementedError
 
-    def restore_from_session(self, payload: dict[str, Any]) -> None:
+    def deserialize_state(self, payload: dict[str, Any]) -> None:
         """Restore orchestrator state from a session dict."""
         raise NotImplementedError
 
