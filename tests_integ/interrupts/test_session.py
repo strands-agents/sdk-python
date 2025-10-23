@@ -47,7 +47,6 @@ def agent(interrupt_hook, time_tool, weather_tool):
     return Agent(hooks=[interrupt_hook], tools=[time_tool, weather_tool])
 
 
-@pytest.mark.asyncio
 def test_interrupt_session(interrupt_hook, time_tool, weather_tool, tmpdir):
     session_manager = FileSessionManager(session_id="strands-interrupt-test", storage_dir=tmpdir)
     agent = Agent(hooks=[interrupt_hook], session_manager=session_manager, tools=[time_tool, weather_tool])
