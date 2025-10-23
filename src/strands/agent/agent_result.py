@@ -6,6 +6,8 @@ This module defines the AgentResult class which encapsulates the complete respon
 from dataclasses import dataclass
 from typing import Any, Sequence, cast
 
+from pydantic import BaseModel
+
 from ..interrupt import Interrupt
 from ..telemetry.metrics import EventLoopMetrics
 from ..types.content import Message
@@ -22,6 +24,7 @@ class AgentResult:
         metrics: Performance metrics collected during processing.
         state: Additional state information from the event loop.
         interrupts: List of interrupts if raised by user.
+        structured_output: Parsed structured output when structured_output_model was specified.
     """
 
     stop_reason: StopReason
@@ -29,6 +32,7 @@ class AgentResult:
     metrics: EventLoopMetrics
     state: Any
     interrupts: Sequence[Interrupt] | None = None
+    structured_output: BaseModel | None = None
 
     def __str__(self) -> str:
         """Get the agent's last message as a string.
