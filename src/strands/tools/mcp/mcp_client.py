@@ -12,7 +12,6 @@ import base64
 import logging
 import threading
 import uuid
-import warnings
 from asyncio import AbstractEventLoop
 from concurrent import futures
 from datetime import timedelta
