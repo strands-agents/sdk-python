@@ -119,6 +119,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
     def _write_file(self, path: str, data: dict[str, Any]) -> None:
         """Write JSON file."""
         os.makedirs(os.path.dirname(path), exist_ok=True)
+        # This automic write ensure the completeness of session files in both single agent/ multi agents
         tmp = f"{path}.tmp"
         with open(tmp, "w", encoding="utf-8", newline="\n") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
@@ -255,11 +256,12 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
 
         return messages
 
-    def write_multi_agent_json(self, source: "MultiAgentBase") -> None:
+    def sync_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:
         """Write multi-agent state to filesystem.
 
         Args:
             source: Multi-agent source object to persist
+            **kwargs: Additional keyword arguments for future extensibility.
         """
         state = source.serialize_state()
         state_path = os.path.join(self._get_session_path(self.session_id), "multi_agent_state.json")
@@ -273,7 +275,7 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
             metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
             self._write_file(session_file, metadata)
 
-    def read_multi_agent_json(self) -> dict[str, Any]:
+    def initialize_multi_agent(self) -> dict[str, Any]:
         """Read multi-agent state from filesystem.
 
         Returns:
