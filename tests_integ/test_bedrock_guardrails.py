@@ -100,7 +100,14 @@ def wait_for_guardrail_active(bedrock_client, guardrail_id, max_attempts=10, del
     raise RuntimeError("Guardrail did not become active.")
 
 
-@pytest.mark.parametrize("guardrail_trace", ["enabled", "enabled_full"])
+@pytest.mark.parametrize(
+    "guardrail_trace",
+    [
+        pytest.param("disabled", marks=pytest.mark.xfail(reason='redact fails with trace="disabled"')),
+        "enabled",
+        "enabled_full",
+    ],
+)
 def test_guardrail_input_intervention(boto_session, bedrock_guardrail, guardrail_trace):
     bedrock_model = BedrockModel(
         guardrail_id=bedrock_guardrail,
