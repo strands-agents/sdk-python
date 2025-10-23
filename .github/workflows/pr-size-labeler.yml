@@ -2,7 +2,7 @@ name: PR Size Labeler
 
 on:
   pull_request:
-    branches: main, pr-size-labeler
+    branches: pr-size-labeler
 
 jobs:
   size-label:
