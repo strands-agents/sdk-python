@@ -33,6 +33,7 @@ from ...types.exceptions import MCPClientInitializationError, ToolProviderExcept
 from ...types.media import ImageFormat
 from ...types.tools import AgentTool, ToolResultContent, ToolResultStatus
 from .mcp_agent_tool import MCPAgentTool
+from .mcp_instrumentation import mcp_instrumentation
 from .mcp_types import MCPToolResult, MCPTransport
 
 logger = logging.getLogger(__name__)
@@ -107,7 +108,7 @@ class MCPClient(ToolProvider):
         self._tool_filters = tool_filters
         self._prefix = prefix
 
-        # mcp_instrumentation()
+        mcp_instrumentation()
         self._session_id = uuid.uuid4()
         self._log_debug_with_thread("initializing MCPClient connection")
         # Main thread blocks until future completesock
