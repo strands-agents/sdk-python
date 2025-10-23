@@ -18,6 +18,25 @@ jobs:
             const pr = context.payload.pull_request;
             const totalChanges = pr.additions + pr.deletions;
             
+            // Remove existing size labels
+            const labels = await github.rest.issues.listLabelsOnIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number
+            });
+            
+            for (const label of labels.data) {
+              if (label.name.startsWith('size/')) {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.payload.pull_request.number,
+                  name: label.name
+                });
+              }
+            }
+            
+            // Determine and apply new size label
             let sizeLabel;
             if (totalChanges <= 20) sizeLabel = 'size/xs';
             else if (totalChanges <= 100) sizeLabel = 'size/s';
