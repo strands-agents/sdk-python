@@ -53,6 +53,6 @@ jobs:
               labels: [sizeLabel]
             });
 
-            if (sizeLabel = 'size/xl') {
+            if (sizeLabel === 'size/xl') {
               core.setFailed(`PR is too large (${totalChanges} lines). Please split into smaller PRs.`);
             }
