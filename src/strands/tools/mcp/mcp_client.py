@@ -12,6 +12,7 @@ import base64
 import logging
 import threading
 import uuid
+import warnings
 from asyncio import AbstractEventLoop
 from concurrent import futures
 from datetime import timedelta
@@ -85,6 +86,10 @@ class MCPClient(ToolProvider):
     The connection runs in a background thread to avoid blocking the main application thread
     while maintaining communication with the MCP service. When structured content is available
     from MCP tools, it will be returned as the last item in the content array of the ToolResult.
+    
+    Warning:
+        This class implements the experimental ToolProvider interface and its methods
+        are subject to change.
     """
 
     def __init__(
@@ -107,6 +112,14 @@ class MCPClient(ToolProvider):
         self._startup_timeout = startup_timeout
         self._tool_filters = tool_filters
         self._prefix = prefix
+
+        # Warn about experimental ToolProvider interface
+        warnings.warn(
+            "MCPClient implements the experimental ToolProvider interface. "
+            "This interface and its methods are subject to change in future versions.",
+            FutureWarning,
+            stacklevel=2
+        )
 
         mcp_instrumentation()
         self._session_id = uuid.uuid4()
