@@ -100,11 +100,21 @@ def wait_for_guardrail_active(bedrock_client, guardrail_id, max_attempts=10, del
     raise RuntimeError("Guardrail did not become active.")
 
 
-def test_guardrail_input_intervention(boto_session, bedrock_guardrail):
+@pytest.mark.parametrize(
+    "guardrail_trace",
+    [
+        pytest.param("disabled", marks=pytest.mark.xfail(reason='redact fails with trace="disabled"')),
+        "enabled",
+        "enabled_full",
+    ],
+)
+def test_guardrail_input_intervention(boto_session, bedrock_guardrail, guardrail_trace):
     bedrock_model = BedrockModel(
         guardrail_id=bedrock_guardrail,
         guardrail_version="DRAFT",
         boto_session=boto_session,
+        guardrail_trace=guardrail_trace,
+        guardrail_redact_input_message="Redacted.",
     )
 
     agent = Agent(model=bedrock_model, system_prompt="You are a helpful assistant.", callback_handler=None)
@@ -116,6 +126,7 @@ def test_guardrail_input_intervention(boto_session, bedrock_guardrail):
     assert str(response1).strip() == BLOCKED_INPUT
     assert response2.stop_reason != "guardrail_intervened"
     assert str(response2).strip() != BLOCKED_INPUT
+    assert agent.messages[0]["content"][0]["text"] == "Redacted."
 
 
 @pytest.mark.parametrize("processing_mode", ["sync", "async"])
@@ -159,13 +170,15 @@ def test_guardrail_output_intervention(boto_session, bedrock_guardrail, processi
         )
 
 
+@pytest.mark.parametrize("guardrail_trace", ["enabled", "enabled_full"])
 @pytest.mark.parametrize("processing_mode", ["sync", "async"])
-def test_guardrail_output_intervention_redact_output(bedrock_guardrail, processing_mode):
+def test_guardrail_output_intervention_redact_output(bedrock_guardrail, processing_mode, guardrail_trace):
     REDACT_MESSAGE = "Redacted."
     bedrock_model = BedrockModel(
         guardrail_id=bedrock_guardrail,
         guardrail_version="DRAFT",
         guardrail_stream_processing_mode=processing_mode,
+        guardrail_trace=guardrail_trace,
         guardrail_redact_output=True,
         guardrail_redact_output_message=REDACT_MESSAGE,
         region_name="us-east-1",
