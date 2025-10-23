@@ -1,60 +1,22 @@
 """Interrupt related type definitions for human-in-the-loop workflows.
 
 Interrupt Flow:
-    ┌─────────────────┐
-    │ Agent Invoke    │
-    └────────┬────────┘
-             │
-             ▼
-    ┌─────────────────┐
-    │ Hook Calls      │
-    | on Event        |
-    └────────┬────────┘
-             │
-             ▼
-    ┌─────────────────┐    No     ┌─────────────────┐
-    │ Interrupts      │ ────────► │ Continue        │
-    │ Raised?         │           │ Execution       │
-    └────────┬────────┘           └─────────────────┘
-             │ Yes
-             ▼
-    ┌─────────────────┐
-    │ Stop Event Loop │◄───────────────────┐
-    └────────┬────────┘                    |
-             │                             |
-             ▼                             |
-    ┌─────────────────┐                    |
-    │ Return          |                    |
-    | Interrupts      │                    |
-    └────────┬────────┘                    |
-             │                             |
-             ▼                             |
-    ┌─────────────────┐                    |
-    │ Agent Invoke    │                    |
-    │ with Responses  │                    |
-    └────────┬────────┘                    |
-             │                             |
-             ▼                             |
-    ┌─────────────────┐                    |
-    │ Hook Calls      │                    |
-    | on Event        |                    |
-    | with Responses  |                    |
-    └────────┬────────┘                    |
-             │                             |
-             ▼                             |
-    ┌─────────────────┐    Yes    ┌────────┴────────┐
-    │ New Interrupts  │ ────────► │ Store State     │
-    │ Raised?         │           │                 │
-    └────────┬────────┘           └─────────────────┘
-             │ No
-             ▼
-    ┌─────────────────┐
-    │ Continue        │
-    │ Execution       │
-    └─────────────────┘
+    ```mermaid
+    flowchart TD
+        A[Invoke Agent] --> B[Execute Hook/Tool]
+        B --> C{Interrupts Raised?}
+        C -->|No| D[Continue Agent Loop]
+        C -->|Yes| E[Stop Agent Loop]
+        E --> F[Return Interrupts]
+        F --> G[Respond to Interrupts]
+        G --> H[Execute Hook/Tool with Responses]
+        H --> I{New Interrupts?}
+        I -->|Yes| E
+        I -->|No| D
+    ```
 
 Example:
-    ```
+    ```Python
     from typing import Any
 
     from strands import Agent, tool
@@ -99,7 +61,6 @@ Example:
     ```
 
 Details:
-
     - User raises interrupt on their hook event by calling `event.interrupt()`.
     - User can raise one interrupt per hook callback.
     - Interrupts stop the agent event loop.
