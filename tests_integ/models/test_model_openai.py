@@ -148,7 +148,6 @@ def test_structured_output_multi_modal_input(agent, yellow_img, yellow_color):
     assert tru_color == exp_color
 
 
-@pytest.mark.skip("https://github.com/strands-agents/sdk-python/issues/320")
 def test_tool_returning_images(model, yellow_img):
     @tool
     def tool_with_image_return():
