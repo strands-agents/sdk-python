@@ -401,36 +401,6 @@ async def test_event_loop_cycle_tool_result_error(
 
 
 @pytest.mark.asyncio
-async def test_event_loop_with_tool_result_valid(
-    agent,
-    model,
-    tool_stream,
-    mock_tracer,
-    agenerator,
-    alist,
-):
-    # Setup
-
-    # Set up model to return tool use and then text response
-    model.stream.side_effect = [
-        agenerator(tool_stream),
-        agenerator(
-            [
-                {"contentBlockDelta": {"delta": {"text": "test text"}}},
-                {"contentBlockStop": {}},
-            ]
-        ),
-    ]
-
-    # Call event_loop_cycle which should execute a tool
-    stream = strands.event_loop.event_loop.event_loop_cycle(
-        agent=agent,
-        invocation_state={},
-    )
-    await alist(stream)
-
-
-@pytest.mark.asyncio
 async def test_event_loop_cycle_tool_result_no_tool_handler(
     agent,
     model,

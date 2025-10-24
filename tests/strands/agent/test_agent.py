@@ -2091,7 +2091,10 @@ def test_agent__call__invalid_tool_name():
     )
 
     agent = Agent(tools=[shell], model=model)
-    agent("Test")
+    result = agent("Test")
+
+    # Ensure the stop_reason is
+    assert result.stop_reason == "end_turn"
 
     # Assert that there exists a message with a toolResponse
     assert agent.messages[-2] == {
@@ -2106,3 +2109,6 @@ def test_agent__call__invalid_tool_name():
         ],
         "role": "user",
     }
+
+    # And that it continued to the LLM call
+    assert agent.messages[-1] == {"content": [{"text": "I invoked a tool!"}], "role": "assistant"}
