@@ -2068,3 +2068,50 @@ def test_agent_del_before_tool_registry_set():
     agent = Agent()
     del agent.tool_registry
     agent.__del__()  # Should not raise
+
+    
+def test_agent__call__invalid_tool_name():
+    @strands.tool
+    def shell(command: str):
+        pass
+
+    model = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "tool_use_id",
+                            "name": "invalid tool",
+                            "input": "{}",
+                        }
+                    }
+                ],
+            },
+            {"role": "assistant", "content": [{"text": "I invoked a tool!"}]},
+        ]
+    )
+
+    agent = Agent(tools=[shell], model=model)
+    result = agent("Test")
+
+    # Ensure the stop_reason is
+    assert result.stop_reason == "end_turn"
+
+    # Assert that there exists a message with a toolResponse
+    assert agent.messages[-2] == {
+        "content": [
+            {
+                "toolResult": {
+                    "content": [{"text": "Error: tool_name=<invalid tool> | invalid tool name pattern"}],
+                    "status": "error",
+                    "toolUseId": "tool_use_id",
+                }
+            }
+        ],
+        "role": "user",
+    }
+
+    # And that it continued to the LLM call
+    assert agent.messages[-1] == {"content": [{"text": "I invoked a tool!"}], "role": "assistant"}
