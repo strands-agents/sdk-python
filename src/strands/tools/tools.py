@@ -7,13 +7,14 @@ Python module-based tools, as well as utilities for validating tool uses and nor
 import asyncio
 import inspect
 import logging
-import re
+import warnings
 from typing import Any
 
 from typing_extensions import override
 
 from ..types._events import ToolResultEvent
 from ..types.tools import AgentTool, ToolFunc, ToolGenerator, ToolSpec, ToolUse
+from ._validator import check_tool_name_validity
 
 logger = logging.getLogger(__name__)
 
@@ -27,14 +28,23 @@ class InvalidToolUseNameException(Exception):
 def validate_tool_use(tool: ToolUse) -> None:
     """Validate a tool use request.
 
+    !!deprecated!!
+
     Args:
         tool: The tool use to validate.
     """
+    warnings.warn(
+        "validate_tool_use is deprecated and will be removed in Strands SDK 2.0.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     validate_tool_use_name(tool)
 
 
 def validate_tool_use_name(tool: ToolUse) -> None:
     """Validate the name of a tool use.
+
+    !!deprecated!!
 
     Args:
         tool: The tool use to validate.
@@ -42,25 +52,13 @@ def validate_tool_use_name(tool: ToolUse) -> None:
     Raises:
         InvalidToolUseNameException: If the tool name is invalid.
     """
-    # We need to fix some typing here, because we don't actually expect a ToolUse, but dict[str, Any]
-    if "name" not in tool:
-        message = "tool name missing"  # type: ignore[unreachable]
-        logger.warning(message)
-        raise InvalidToolUseNameException(message)
-
-    tool_name = tool["name"]
-    tool_name_pattern = r"^[a-zA-Z0-9_\-]{1,}$"
-    tool_name_max_length = 64
-    valid_name_pattern = bool(re.match(tool_name_pattern, tool_name))
-    tool_name_len = len(tool_name)
-
-    if not valid_name_pattern:
-        message = f"tool_name=<{tool_name}> | invalid tool name pattern"
-        logger.warning(message)
-        raise InvalidToolUseNameException(message)
-
-    if tool_name_len > tool_name_max_length:
-        message = f"tool_name=<{tool_name}>, tool_name_max_length=<{tool_name_max_length}> | invalid tool name length"
+    warnings.warn(
+        "validate_tool_use_name is deprecated and will be removed in Strands SDK 2.0.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    is_valid, message = check_tool_name_validity(tool)
+    if not is_valid:
         logger.warning(message)
         raise InvalidToolUseNameException(message)
 

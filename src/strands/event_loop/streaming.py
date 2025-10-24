@@ -3,9 +3,11 @@
 import json
 import logging
 import time
+import warnings
 from typing import Any, AsyncGenerator, AsyncIterable, Optional
 
 from ..models.model import Model
+from ..tools._validator import check_tool_name_validity
 from ..types._events import (
     CitationStreamEvent,
     ModelStopReason,
@@ -38,7 +40,7 @@ from ..types.tools import ToolSpec, ToolUse
 logger = logging.getLogger(__name__)
 
 
-def remove_blank_messages_content_text(messages: Messages) -> Messages:
+def _normalize_messages(messages: Messages) -> Messages:
     """Remove or replace blank text in message content.
 
     Args:
@@ -47,6 +49,74 @@ def remove_blank_messages_content_text(messages: Messages) -> Messages:
     Returns:
         Updated messages.
     """
+    removed_blank_message_content_text = False
+    replaced_blank_message_content_text = False
+    replaced_tool_names = False
+
+    for message in messages:
+        # only modify assistant messages
+        if "role" in message and message["role"] != "assistant":
+            continue
+        if "content" in message:
+            content = message["content"]
+            if len(content) == 0:
+                content.append({"text": "[blank text]"})
+                continue
+
+            has_tool_use = False
+
+            # Ensure the tool-uses always have invalid names before sending
+            # https://github.com/strands-agents/sdk-python/issues/1069
+            for item in content:
+                if "toolUse" in item:
+                    has_tool_use = True
+                    tool_use: ToolUse = item["toolUse"]
+
+                    is_valid, _ = check_tool_name_validity(tool_use)
+                    if not is_valid:
+                        tool_use["name"] = "INVALID_TOOL_NAME"
+                        replaced_tool_names = True
+
+            if has_tool_use:
+                # Remove blank 'text' items for assistant messages
+                before_len = len(content)
+                content[:] = [item for item in content if "text" not in item or item["text"].strip()]
+                if not removed_blank_message_content_text and before_len != len(content):
+                    removed_blank_message_content_text = True
+            else:
+                # Replace blank 'text' with '[blank text]' for assistant messages
+                for item in content:
+                    if "text" in item and not item["text"].strip():
+                        replaced_blank_message_content_text = True
+                        item["text"] = "[blank text]"
+
+    if removed_blank_message_content_text:
+        logger.debug("removed blank message context text")
+    if replaced_blank_message_content_text:
+        logger.debug("replaced blank message context text")
+    if replaced_tool_names:
+        logger.debug("replaced invalid tool name")
+
+    return messages
+
+
+def remove_blank_messages_content_text(messages: Messages) -> Messages:
+    """Remove or replace blank text in message content.
+
+    !!deprecated!!
+        This function is deprecated and will be removed in a future version.
+
+    Args:
+        messages: Conversation messages to update.
+
+    Returns:
+        Updated messages.
+    """
+    warnings.warn(
+        "remove_blank_messages_content_text is deprecated and will be removed in a future version.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     removed_blank_message_content_text = False
     replaced_blank_message_content_text = False
 
@@ -362,7 +432,7 @@ async def stream_messages(
     """
     logger.debug("model=<%s> | streaming messages", model)
 
-    messages = remove_blank_messages_content_text(messages)
+    messages = _normalize_messages(messages)
     start_time = time.time()
     chunks = model.stream(messages, tool_specs if tool_specs else None, system_prompt, tool_choice=tool_choice)
 
