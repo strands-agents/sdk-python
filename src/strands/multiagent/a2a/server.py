@@ -5,7 +5,7 @@ allowing it to be used in A2A-compatible systems.
 """
 
 import logging
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 from urllib.parse import urlparse
 
 import uvicorn
@@ -18,6 +18,7 @@ from fastapi import FastAPI
 from starlette.applications import Starlette
 
 from ...agent.agent import Agent as SAAgent
+from ...session.session_manager import SessionManager
 from .executor import StrandsA2AExecutor
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ class A2AServer:
         self,
         agent: SAAgent,
         *,
+        session_manager_factory: Callable[[str], SessionManager] | None = None,
         # AgentCard
         host: str = "127.0.0.1",
         port: int = 9000,
@@ -47,6 +49,9 @@ class A2AServer:
 
         Args:
             agent: The Strands Agent to wrap with A2A compatibility.
+            session_manager_factory: A callable that takes a session_id (str) and returns a SessionManager.
+                This factory will be used to create session managers for each agent context.
+                If None, defaults to using FileSessionManager with a warning.
             host: The hostname or IP address to bind the A2A server to. Defaults to "127.0.0.1".
             port: The port to bind the A2A server to. Defaults to 9000.
             http_url: The public HTTP URL where this agent will be accessible. If provided,
@@ -90,7 +95,10 @@ class A2AServer:
         self.description = self.strands_agent.description
         self.capabilities = AgentCapabilities(streaming=True)
         self.request_handler = DefaultRequestHandler(
-            agent_executor=StrandsA2AExecutor(self.strands_agent),
+            agent_executor=StrandsA2AExecutor(
+                agent=self.strands_agent,
+                session_manager_factory=session_manager_factory,
+            ),
             task_store=task_store or InMemoryTaskStore(),
             queue_manager=queue_manager,
             push_config_store=push_config_store,
