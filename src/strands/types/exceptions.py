@@ -82,15 +82,15 @@ class ToolProviderException(Exception):
 
     pass
 
-  
+
 class StructuredOutputException(Exception):
-  """Exception raised when structured output validation fails after maximum retry attempts."""
+    """Exception raised when structured output validation fails after maximum retry attempts."""
 
-  def __init__(self, message: str):
-      """Initialize the exception with details about the failure.
+    def __init__(self, message: str):
+        """Initialize the exception with details about the failure.
 
-      Args:
-          message: The error message describing the structured output failure
-      """
-      self.message = message
-      super().__init__(message)
+        Args:
+            message: The error message describing the structured output failure
+        """
+        self.message = message
+        super().__init__(message)

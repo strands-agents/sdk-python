@@ -498,7 +498,7 @@ class Agent:
             category=DeprecationWarning,
             stacklevel=2,
         )
-  
+
         return run_async(lambda: self.structured_output_async(output_model, prompt))
 
     async def structured_output_async(self, output_model: Type[T], prompt: AgentInput = None) -> T:

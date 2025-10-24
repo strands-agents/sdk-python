@@ -85,7 +85,7 @@ class MCPClient(ToolProvider):
     The connection runs in a background thread to avoid blocking the main application thread
     while maintaining communication with the MCP service. When structured content is available
     from MCP tools, it will be returned as the last item in the content array of the ToolResult.
-    
+
     Warning:
         This class implements the experimental ToolProvider interface and its methods
         are subject to change.

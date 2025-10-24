@@ -2069,7 +2069,7 @@ def test_agent_del_before_tool_registry_set():
     del agent.tool_registry
     agent.__del__()  # Should not raise
 
-    
+
 def test_agent__call__invalid_tool_name():
     @strands.tool
     def shell(command: str):

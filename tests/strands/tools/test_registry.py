@@ -11,6 +11,7 @@ from strands.experimental.tools import ToolProvider
 from strands.tools import PythonAgentTool
 from strands.tools.decorator import DecoratedFunctionTool, tool
 from strands.tools.mcp import MCPClient
+from strands.tools.registry import ToolRegistry
 
 
 def test_load_tool_from_filepath_failure():
