@@ -266,8 +266,8 @@ class LiteLLMModel(OpenAIModel):
 
         if len(response.choices) > 1:
             raise ValueError("Multiple choices found in the response.")
-        if not response.choices or response.choices[0].finish_reason != "tool_calls":
-            raise ValueError("No tool_calls found in response")
+        if not response.choices:
+            raise ValueError("No choices found in response")
 
         choice = response.choices[0]
         try:
