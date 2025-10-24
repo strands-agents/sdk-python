@@ -15,13 +15,12 @@ Key capabilities:
 import asyncio
 import json
 import logging
-import random
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, AsyncIterable, Callable, Mapping, Optional
+from typing import Any, AsyncIterable, Mapping, Optional, Union, TYPE_CHECKING
 
 from .... import _identifier
 from ....hooks import HookProvider, HookRegistry
 from ....telemetry.metrics import EventLoopMetrics
+from ....tools.caller import ToolCaller
 from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
@@ -32,6 +31,10 @@ from ....types.traces import AttributeValue
 from ..event_loop.bidirectional_event_loop import start_bidirectional_connection, stop_bidirectional_connection
 from ..models.bidirectional_model import BidirectionalModel
 from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent
+from ..models.novasonic import NovaSonicBidirectionalModel
+
+if TYPE_CHECKING:
+    from ..event_loop.bidirectional_event_loop import BidirectionalEventLoop
 
 
 logger = logging.getLogger(__name__)
@@ -47,117 +50,12 @@ class BidirectionalAgent:
     sessions. Supports concurrent tool execution and interruption handling.
     """
 
-    class ToolCaller:
-        """Call tool as a function for bidirectional agent."""
-
-        def __init__(self, agent: "BidirectionalAgent") -> None:
-            """Initialize tool caller with agent reference."""
-            # WARNING: Do not add any other member variables or methods as this could result in a name conflict with
-            #          agent tools and thus break their execution.
-            self._agent = agent
-
-        def __getattr__(self, name: str) -> Callable[..., Any]:
-            """Call tool as a function.
-
-            This method enables the method-style interface (e.g., `agent.tool.tool_name(param="value")`).
-            It matches underscore-separated names to hyphenated tool names (e.g., 'some_thing' matches 'some-thing').
-
-            Args:
-                name: The name of the attribute (tool) being accessed.
-
-            Returns:
-                A function that when called will execute the named tool.
-
-            Raises:
-                AttributeError: If no tool with the given name exists or if multiple tools match the given name.
-            """
-
-            def caller(
-                user_message_override: Optional[str] = None,
-                record_direct_tool_call: Optional[bool] = None,
-                **kwargs: Any,
-            ) -> Any:
-                """Call a tool directly by name.
-
-                Args:
-                    user_message_override: Optional custom message to record instead of default
-                    record_direct_tool_call: Whether to record direct tool calls in message history. 
-                        For bidirectional agents, this is always True to maintain conversation history.
-                    **kwargs: Keyword arguments to pass to the tool.
-
-                Returns:
-                    The result returned by the tool.
-
-                Raises:
-                    AttributeError: If the tool doesn't exist.
-                """
-                normalized_name = self._find_normalized_tool_name(name)
-
-                # Create unique tool ID and set up the tool request
-                tool_id = f"tooluse_{name}_{random.randint(100000000, 999999999)}"
-                tool_use: ToolUse = {
-                    "toolUseId": tool_id,
-                    "name": normalized_name,
-                    "input": kwargs.copy(),
-                }
-                tool_results: list[ToolResult] = []
-                invocation_state = kwargs
-
-                async def acall() -> ToolResult:
-                    async for event in ToolExecutor._stream(self._agent, tool_use, tool_results, invocation_state):
-                        _ = event
-
-                    return tool_results[0]
-
-                def tcall() -> ToolResult:
-                    return asyncio.run(acall())
-
-                with ThreadPoolExecutor() as executor:
-                    future = executor.submit(tcall)
-                    tool_result = future.result()
-
-                # Always record direct tool calls for bidirectional agents to maintain conversation history
-                # Use agent's record_direct_tool_call setting if not overridden
-                if record_direct_tool_call is not None:
-                    should_record_direct_tool_call = record_direct_tool_call
-                else:
-                    should_record_direct_tool_call = self._agent.record_direct_tool_call
-
-                if should_record_direct_tool_call:
-                    # Create a record of this tool execution in the message history
-                    self._agent._record_tool_execution(tool_use, tool_result, user_message_override)
-
-                return tool_result
-
-            return caller
-
-        def _find_normalized_tool_name(self, name: str) -> str:
-            """Lookup the tool represented by name, replacing characters with underscores as necessary."""
-            tool_registry = self._agent.tool_registry.registry
-
-            if tool_registry.get(name, None):
-                return name
-
-            # If the desired name contains underscores, it might be a placeholder for characters that can't be
-            # represented as python identifiers but are valid as tool names, such as dashes. In that case, find
-            # all tools that can be represented with the normalized name
-            if "_" in name:
-                filtered_tools = [
-                    tool_name for (tool_name, tool) in tool_registry.items() if tool_name.replace("-", "_") == name
-                ]
-
-                # The registry itself defends against similar names, so we can just take the first match
-                if filtered_tools:
-                    return filtered_tools[0]
-
-            raise AttributeError(f"Tool '{name}' not found")
-
     def __init__(
         self,
-        model: BidirectionalModel,
-        tools: list | None = None,
-        system_prompt: str | None = None,
-        messages: Messages | None = None,
+        model: Union[BidirectionalModel, str, None] = None,
+        tools: Optional[list[Union[str, dict[str, str], Any]]] = None,
+        system_prompt: Optional[str] = None,
+        messages: Optional[Messages] = None,
         record_direct_tool_call: bool = True,
         load_tools_from_directory: bool = False,
         agent_id: Optional[str] = None,
@@ -166,12 +64,13 @@ class BidirectionalAgent:
         hooks: Optional[list[HookProvider]] = None,
         trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
         description: Optional[str] = None,
+        **kwargs: Any,
     ):
-        """Initialize bidirectional agent with required model and optional configuration.
+        """Initialize bidirectional agent with flexible model support and extensible configuration.
 
         Args:
-            model: BidirectionalModel instance supporting streaming sessions.
-            tools: Optional list of tools available to the model.
+            model: BidirectionalModel instance, string model_id, or None for default detection.
+            tools: Optional list of tools with flexible format support.
             system_prompt: Optional system prompt for conversations.
             messages: Optional conversation history to initialize with.
             record_direct_tool_call: Whether to record direct tool calls in message history.
@@ -182,16 +81,28 @@ class BidirectionalAgent:
             hooks: Hooks to be added to the agent hook registry.
             trace_attributes: Custom trace attributes to apply to the agent's trace span.
             description: Description of what the Agent does.
+            **kwargs: Additional configuration for future extensibility.
+
+        Raises:
+            ValueError: If model configuration is invalid.
+            TypeError: If model type is unsupported.
         """
-        self.model = model
+
+        self.model = (
+            NovaSonicBidirectionalModel()
+            if not model
+            else NovaSonicBidirectionalModel(model_id=model)
+            if isinstance(model, str)
+            else model
+        )
         self.system_prompt = system_prompt
         self.messages = messages or []
-        
+
         # Agent identification
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
-        
+
         # Tool execution configuration
         self.record_direct_tool_call = record_direct_tool_call
         self.load_tools_from_directory = load_tools_from_directory
@@ -207,39 +118,42 @@ class BidirectionalAgent:
 
         # Initialize tool registry
         self.tool_registry = ToolRegistry()
-        
+
         if tools is not None:
             self.tool_registry.process_tools(tools)
-            
+
         self.tool_registry.initialize_tools(self.load_tools_from_directory)
-        
+
         # Initialize tool watcher if directory loading is enabled
         if self.load_tools_from_directory:
             self.tool_watcher = ToolWatcher(tool_registry=self.tool_registry)
 
         # Initialize tool executor
         self.tool_executor = tool_executor or ConcurrentToolExecutor()
-        
+
         # Initialize hooks system
         self.hooks = HookRegistry()
         if hooks:
             for hook in hooks:
                 self.hooks.add_hook(hook)
-                
+
         # Initialize other components
         self.event_loop_metrics = EventLoopMetrics()
-        self.tool_caller = BidirectionalAgent.ToolCaller(self)
+        self.tool_caller = ToolCaller(self)
 
         # Session management
         self._session = None
         self._output_queue = asyncio.Queue()
+
+        # Store extensibility kwargs for future use
+        self._config_kwargs = kwargs
 
     @property
     def tool(self) -> ToolCaller:
         """Call tool as a function.
 
         Returns:
-            Tool caller through which user can invoke tool as a function.
+            ToolCaller for method-style tool execution.
 
         Example:
             ```
@@ -359,10 +273,11 @@ class BidirectionalAgent:
             raise ValueError("Conversation already active. Call end() first.")
 
         logger.debug("Conversation start - initializing session")
+
         self._session = await start_bidirectional_connection(self)
         logger.debug("Conversation ready")
 
-    async def send(self, input_data: str | AudioInputEvent) -> None:
+    async def send(self, input_data: Union[str, AudioInputEvent]) -> None:
         """Send input to the model (text or audio).
 
         Unified method for sending both text and audio input to the model during
@@ -379,7 +294,9 @@ class BidirectionalAgent:
 
         if isinstance(input_data, str):
             # Add user text message to history
-            self.messages.append({"role": "user", "content": input_data})
+            user_message: Message = {"role": "user", "content": [{"text": input_data}]}
+
+            self.messages.append(user_message)
 
             logger.debug("Text sent: %d characters", len(input_data))
             await self._session.model_session.send_text_content(input_data)
