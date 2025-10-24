@@ -687,7 +687,7 @@ async def test_stream_stream_output_guardrails(
 
 
 @pytest.mark.asyncio
-async def test_stream_output_guardrails_redacts_input_and_output(
+async def test_stream_output_guardrails_redacts_output(
     bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
 ):
     model.update_config(guardrail_redact_output=True)
@@ -735,7 +735,6 @@ async def test_stream_output_guardrails_redacts_input_and_output(
 
     tru_chunks = await alist(response)
     exp_chunks = [
-        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
         {"redactContent": {"redactAssistantContentMessage": "[Assistant output redacted.]"}},
         metadata_event,
     ]
@@ -1070,7 +1069,10 @@ async def test_stream_input_guardrails(bedrock_client, alist, messages):
 
 @pytest.mark.asyncio
 async def test_stream_output_guardrails(bedrock_client, alist, messages):
-    """Test stream method with streaming=False."""
+    """Test stream method with streaming=False.
+
+    Output guardrail should not redact the input.
+    """
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
         "trace": {
@@ -1113,7 +1115,6 @@ async def test_stream_output_guardrails(bedrock_client, alist, messages):
                 }
             }
         },
-        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
     ]
     assert tru_events == exp_events
 
@@ -1122,7 +1123,7 @@ async def test_stream_output_guardrails(bedrock_client, alist, messages):
 
 
 @pytest.mark.asyncio
-async def test_stream_output_guardrails_redacts_output(bedrock_client, alist, messages):
+async def test_stream_output_guardrails_does_not_redact_input(bedrock_client, alist, messages):
     """Test stream method with streaming=False."""
     bedrock_client.converse.return_value = {
         "output": {"message": {"role": "assistant", "content": [{"text": "test"}]}},
@@ -1166,7 +1167,6 @@ async def test_stream_output_guardrails_redacts_output(bedrock_client, alist, me
                 }
             }
         },
-        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
     ]
     assert tru_events == exp_events
 

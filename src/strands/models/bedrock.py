@@ -8,7 +8,7 @@ import json
 import logging
 import os
 import warnings
-from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Tuple, Type, TypeVar, Union, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -525,7 +525,7 @@ class BedrockModel(Model):
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
-    def _has_blocked_guardrail(self, guardrail_data: dict[str, Any]) -> bool:
+    def _has_blocked_guardrail(self, guardrail_data: dict[str, Any]) -> Tuple[bool, bool]:
         """Check if guardrail data contains any blocked policies.
 
         Args:
@@ -537,17 +537,19 @@ class BedrockModel(Model):
         input_assessment = guardrail_data.get("inputAssessment", {})
         output_assessments = guardrail_data.get("outputAssessments", {})
 
+        blocked_input, blocked_output = False, False
+
         # Check input assessments
         if any(self._find_detected_and_blocked_policy(assessment) for assessment in input_assessment.values()):
-            return True
+            blocked_input = True
 
         # Check output assessments
         if any(self._find_detected_and_blocked_policy(assessment) for assessment in output_assessments.values()):
-            return True
+            blocked_output = True
 
-        return False
+        return blocked_input, blocked_output
 
-    def _generate_redaction_events(self) -> list[StreamEvent]:
+    def _generate_redaction_events(self, redact_input: bool, redact_output: bool) -> list[StreamEvent]:
         """Generate redaction events based on configuration.
 
         Returns:
@@ -555,7 +557,7 @@ class BedrockModel(Model):
         """
         events: list[StreamEvent] = []
 
-        if self.config.get("guardrail_redact_input", True):
+        if redact_input and self.config.get("guardrail_redact_input", True):
             logger.debug("Redacting user input due to guardrail.")
             events.append(
                 {
@@ -567,7 +569,7 @@ class BedrockModel(Model):
                 }
             )
 
-        if self.config.get("guardrail_redact_output", False):
+        if redact_output and self.config.get("guardrail_redact_output", False):
             logger.debug("Redacting assistant output due to guardrail.")
             events.append(
                 {
@@ -676,9 +678,9 @@ class BedrockModel(Model):
                         and "guardrail" in chunk["metadata"]["trace"]
                     ):
                         guardrail_data = chunk["metadata"]["trace"]["guardrail"]
-                        if self._has_blocked_guardrail(guardrail_data):
-                            for event in self._generate_redaction_events():
-                                callback(event)
+                        blocked_input, blocked_output = self._has_blocked_guardrail(guardrail_data)
+                        for event in self._generate_redaction_events(blocked_input, blocked_output):
+                            callback(event)
 
                     # Track if we see tool use events
                     if "contentBlockStart" in chunk and chunk["contentBlockStart"].get("start", {}).get("toolUse"):
@@ -704,12 +706,10 @@ class BedrockModel(Model):
                 for event in self._convert_non_streaming_to_streaming(response):
                     callback(event)
 
-                if (
-                    "trace" in response
-                    and "guardrail" in response["trace"]
-                    and self._has_blocked_guardrail(response["trace"]["guardrail"])
-                ):
-                    for event in self._generate_redaction_events():
+                if "trace" in response and "guardrail" in response["trace"]:
+                    guardrail_data = response["trace"]["guardrail"]
+                    blocked_input, blocked_output = self._has_blocked_guardrail(guardrail_data)
+                    for event in self._generate_redaction_events(blocked_input, blocked_output):
                         callback(event)
 
         except ClientError as e:

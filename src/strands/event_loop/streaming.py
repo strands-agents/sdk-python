@@ -265,7 +265,10 @@ def handle_redact_content(event: RedactContentEvent, state: dict[str, Any]) -> N
         state: The current state of message processing.
     """
     if event.get("redactAssistantContentMessage") is not None:
-        state["message"]["content"] = [{"text": event["redactAssistantContentMessage"]}]
+        # Always keep toolUse or toolResult blocks to avoid destroying the history
+        content = [block for block in state["message"]["content"] if "toolResult" in block or "toolUse" in block]
+        content.append({"text": event["redactAssistantContentMessage"]})
+        state["message"]["content"] = content
 
 
 def extract_usage_metrics(event: MetadataEvent, time_to_first_byte_ms: int | None = None) -> tuple[Usage, Metrics]:
