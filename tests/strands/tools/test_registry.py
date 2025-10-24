@@ -2,14 +2,15 @@
 Tests for the SDK tool registry module.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 import strands
+from strands.experimental.tools import ToolProvider
 from strands.tools import PythonAgentTool
 from strands.tools.decorator import DecoratedFunctionTool, tool
-from strands.tools.registry import ToolRegistry
+from strands.tools.mcp import MCPClient
 
 
 def test_load_tool_from_filepath_failure():
@@ -264,10 +265,6 @@ def test_register_strands_tools_module_non_callable_function():
 
 def test_tool_registry_cleanup_with_mcp_client():
     """Test that ToolRegistry cleanup properly handles MCP clients without orphaning threads."""
-    from unittest.mock import AsyncMock, MagicMock
-
-    from strands.tools.mcp import MCPClient
-
     # Create a mock MCP client that simulates a real tool provider
     mock_transport = MagicMock()
     mock_client = MCPClient(mock_transport)
@@ -292,8 +289,6 @@ def test_tool_registry_cleanup_with_mcp_client():
 
 def test_tool_registry_cleanup_exception_handling():
     """Test that ToolRegistry cleanup attempts all providers even if some fail."""
-    from unittest.mock import MagicMock
-
     # Create mock providers - one that fails, one that succeeds
     failing_provider = MagicMock()
     failing_provider.remove_consumer.side_effect = Exception("Cleanup failed")
@@ -314,10 +309,6 @@ def test_tool_registry_cleanup_exception_handling():
 
 def test_tool_registry_cleanup_idempotent():
     """Test that ToolRegistry cleanup is idempotent."""
-    from unittest.mock import AsyncMock, MagicMock
-
-    from strands.experimental.tools import ToolProvider
-
     provider = MagicMock(spec=ToolProvider)
     provider.load_tools = AsyncMock(return_value=[])
 
@@ -341,10 +332,6 @@ def test_tool_registry_cleanup_idempotent():
 
 def test_tool_registry_process_tools_exception_after_add_consumer():
     """Test that tool provider is still tracked for cleanup even if load_tools fails."""
-    from unittest.mock import AsyncMock, MagicMock
-
-    from strands.experimental.tools import ToolProvider
-
     # Create a mock tool provider that fails during load_tools
     mock_provider = MagicMock(spec=ToolProvider)
     mock_provider.add_consumer = MagicMock()
@@ -374,10 +361,6 @@ def test_tool_registry_process_tools_exception_after_add_consumer():
 
 def test_tool_registry_add_consumer_before_load_tools():
     """Test that add_consumer is called before load_tools to ensure cleanup tracking."""
-    from unittest.mock import AsyncMock, MagicMock
-
-    from strands.experimental.tools import ToolProvider
-
     # Create a mock tool provider that tracks call order
     mock_provider = MagicMock(spec=ToolProvider)
     call_order = []
