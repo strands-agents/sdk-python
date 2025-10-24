@@ -242,21 +242,16 @@ class LiteLLMModel(OpenAIModel):
             raise ValueError("No choices found in response")
 
         choice = response.choices[0]
-        if choice.finish_reason == "tool_calls" and getattr(choice.message, "tool_calls", None):
-            try:
-                tool_call = choice.message.tool_calls[0]
-                tool_call_data = json.loads(tool_call.function.arguments)
-                return output_model(**tool_call_data)
-            except ContextWindowExceededError as e:
-                logger.warning("litellm client raised context window overflow in structured_output")
-                raise ContextWindowOverflowException(e) from e
-            except (json.JSONDecodeError, TypeError, ValueError) as e:
-                raise ValueError(f"Failed to parse or load content into model: {e}") from e
-        else:
-            try:
-                return output_model.parse_raw(choice.message.content)
-            except Exception as e:
-                raise ValueError("No tool_calls found in response and could not parse plain text as model") from e
+        try:
+            # Parse the message content as JSON
+            tool_call_data = json.loads(choice.message.content)
+            # Instantiate the output model with the parsed data
+            return output_model(**tool_call_data)
+        except ContextWindowExceededError as e:
+            logger.warning("litellm client raised context window overflow in structured_output")
+            raise ContextWindowOverflowException(e) from e
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            raise ValueError(f"Failed to parse or load content into model: {e}") from e
 
     async def _structured_output_using_tool(
         self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None
