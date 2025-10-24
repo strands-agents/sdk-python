@@ -340,6 +340,21 @@ class MockPydanticParams:
 
 
 class TestMCPInstrumentation:
+    def test_mcp_instrumentation_called_on_client_init(self):
+        """Test that mcp_instrumentation is called when MCPClient is initialized."""
+        with patch("strands.tools.mcp.mcp_client.mcp_instrumentation") as mock_instrumentation:
+            # Mock transport
+            def mock_transport():
+                read_stream = AsyncMock()
+                write_stream = AsyncMock()
+                return read_stream, write_stream
+
+            # Create MCPClient instance - should call mcp_instrumentation
+            MCPClient(mock_transport)
+
+            # Verify mcp_instrumentation was called
+            mock_instrumentation.assert_called_once()
+
     def test_mcp_instrumentation_idempotent_with_multiple_clients(self):
         """Test that mcp_instrumentation is only called once even with multiple MCPClient instances."""
 

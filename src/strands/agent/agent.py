@@ -9,13 +9,12 @@ The Agent interface supports two complementary interaction patterns:
 2. Method-style for direct tool access: `agent.tool.tool_name(param1="value")`
 """
 
-import asyncio
 import json
 import logging
 import random
 import warnings
-from concurrent.futures import ThreadPoolExecutor
 from typing import (
+    TYPE_CHECKING,
     Any,
     AsyncGenerator,
     AsyncIterator,
@@ -32,7 +31,11 @@ from opentelemetry import trace as trace_api
 from pydantic import BaseModel
 
 from .. import _identifier
+from .._async import run_async
 from ..event_loop.event_loop import event_loop_cycle
+
+if TYPE_CHECKING:
+    from ..experimental.tools import ToolProvider
 from ..handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
 from ..hooks import (
     AfterInvocationEvent,
@@ -167,12 +170,7 @@ class Agent:
 
                     return tool_results[0]
 
-                def tcall() -> ToolResult:
-                    return asyncio.run(acall())
-
-                with ThreadPoolExecutor() as executor:
-                    future = executor.submit(tcall)
-                    tool_result = future.result()
+                tool_result = run_async(acall)
 
                 if record_direct_tool_call is not None:
                     should_record_direct_tool_call = record_direct_tool_call
@@ -215,7 +213,7 @@ class Agent:
         self,
         model: Union[Model, str, None] = None,
         messages: Optional[Messages] = None,
-        tools: Optional[list[Union[str, dict[str, str], Any]]] = None,
+        tools: Optional[list[Union[str, dict[str, str], "ToolProvider", Any]]] = None,
         system_prompt: Optional[str] = None,
         structured_output_model: Optional[Type[BaseModel]] = None,
         callback_handler: Optional[
@@ -248,6 +246,7 @@ class Agent:
                 - File paths (e.g., "/path/to/tool.py")
                 - Imported Python modules (e.g., from strands_tools import current_time)
                 - Dictionaries with name/path keys (e.g., {"name": "tool_name", "path": "/path/to/tool.py"})
+                - ToolProvider instances for managed tool collections
                 - Functions decorated with `@strands.tool` decorator.
 
                 If provided, only these tools will be available. If None, all tools will be available.
@@ -423,17 +422,11 @@ class Agent:
                 - state: The final state of the event loop
                 - structured_output: Parsed structured output when structured_output_model was specified
         """
-
-        def execute() -> AgentResult:
-            return asyncio.run(
-                self.invoke_async(
-                    prompt, invocation_state=invocation_state, structured_output_model=structured_output_model, **kwargs
-                )
+        return run_async(
+            lambda: self.invoke_async(
+                prompt, invocation_state=invocation_state, structured_output_model=structured_output_model, **kwargs
             )
-
-        with ThreadPoolExecutor() as executor:
-            future = executor.submit(execute)
-            return future.result()
+        )
 
     async def invoke_async(
         self,
@@ -506,12 +499,7 @@ class Agent:
             stacklevel=2,
         )
 
-        def execute() -> T:
-            return asyncio.run(self.structured_output_async(output_model, prompt))
-
-        with ThreadPoolExecutor() as executor:
-            future = executor.submit(execute)
-            return future.result()
+        return run_async(lambda: self.structured_output_async(output_model, prompt))
 
     async def structured_output_async(self, output_model: Type[T], prompt: AgentInput = None) -> T:
         """This method allows you to get structured output from the agent.
@@ -529,6 +517,7 @@ class Agent:
 
         Raises:
             ValueError: If no conversation history or prompt is provided.
+        -
         """
         if self._interrupt_state.activated:
             raise RuntimeError("cannot call structured output during interrupt")
@@ -582,6 +571,25 @@ class Agent:
 
             finally:
                 self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
+
+    def cleanup(self) -> None:
+        """Clean up resources used by the agent.
+
+        This method cleans up all tool providers that require explicit cleanup,
+        such as MCP clients. It should be called when the agent is no longer needed
+        to ensure proper resource cleanup.
+
+        Note: This method uses a "belt and braces" approach with automatic cleanup
+        through finalizers as a fallback, but explicit cleanup is recommended.
+        """
+        self.tool_registry.cleanup()
+
+    def __del__(self) -> None:
+        """Clean up resources when agent is garbage collected."""
+        # __del__ is called even when an exception is thrown in the constructor,
+        # so there is no guarantee tool_registry was set..
+        if hasattr(self, "tool_registry"):
+            self.tool_registry.cleanup()
 
     async def stream_async(
         self,
