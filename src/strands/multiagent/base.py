@@ -138,7 +138,7 @@ class MultiAgentResult:
         metrics = _parse_metrics(data.get("accumulated_metrics", {}))
 
         multiagent_result = cls(
-            status=Status(data.get("status", Status.PENDING.value)),
+            status=Status(data.get("status")),
             results=results,
             accumulated_usage=usage,
             accumulated_metrics=metrics,
