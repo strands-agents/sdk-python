@@ -329,6 +329,7 @@ def test_agent__call__(
                 ],
                 [tool.tool_spec],
                 system_prompt,
+                tool_choice=None,
             ),
             unittest.mock.call(
                 [
@@ -365,6 +366,7 @@ def test_agent__call__(
                 ],
                 [tool.tool_spec],
                 system_prompt,
+                tool_choice=None,
             ),
         ],
     )
@@ -484,6 +486,7 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
         expected_messages,
         unittest.mock.ANY,
         unittest.mock.ANY,
+        tool_choice=None,
     )
 
     conversation_manager_spy.reduce_context.assert_called_once()
@@ -627,6 +630,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
         expected_messages,
         unittest.mock.ANY,
         unittest.mock.ANY,
+        tool_choice=None,
     )
 
     assert conversation_manager_spy.reduce_context.call_count == 2
@@ -2082,3 +2086,50 @@ def test_latest_message_tool_use_skips_model_invoke(tool_decorated):
     assert len(agent.messages) == 3
     assert agent.messages[1]["content"][0]["toolResult"]["content"][0]["text"] == "Hello"
     assert agent.messages[2]["content"][0]["text"] == "I see the tool result"
+
+
+def test_agent__call__invalid_tool_name():
+    @strands.tool
+    def shell(command: str):
+        pass
+
+    model = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "tool_use_id",
+                            "name": "invalid tool",
+                            "input": "{}",
+                        }
+                    }
+                ],
+            },
+            {"role": "assistant", "content": [{"text": "I invoked a tool!"}]},
+        ]
+    )
+
+    agent = Agent(tools=[shell], model=model)
+    result = agent("Test")
+
+    # Ensure the stop_reason is
+    assert result.stop_reason == "end_turn"
+
+    # Assert that there exists a message with a toolResponse
+    assert agent.messages[-2] == {
+        "content": [
+            {
+                "toolResult": {
+                    "content": [{"text": "Error: tool_name=<invalid tool> | invalid tool name pattern"}],
+                    "status": "error",
+                    "toolUseId": "tool_use_id",
+                }
+            }
+        ],
+        "role": "user",
+    }
+
+    # And that it continued to the LLM call
+    assert agent.messages[-1] == {"content": [{"text": "I invoked a tool!"}], "role": "assistant"}

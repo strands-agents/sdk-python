@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from typing_extensions import Required, Unpack, override
 
 from ..event_loop.streaming import process_stream
-from ..tools import convert_pydantic_to_tool_spec
+from ..tools.structured_output.structured_output_utils import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
