@@ -65,12 +65,13 @@ def _has_tool_use_in_latest_message(messages: "Messages") -> bool:
     Returns:
         True if the latest message contains at least one ToolUse content block, False otherwise.
     """
-    latest_message = messages[-1]
-    content_blocks = latest_message.get("content", [])
+    if len(messages) > 0:
+        latest_message = messages[-1]
+        content_blocks = latest_message.get("content", [])
 
-    for content_block in content_blocks:
-        if "toolUse" in content_block:
-            return True
+        for content_block in content_blocks:
+            if "toolUse" in content_block:
+                return True
 
     return False
 
