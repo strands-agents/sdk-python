@@ -415,9 +415,10 @@ def test_create_multi_agent(multi_agent_manager, multi_agent_session, mock_multi
     multi_agent_manager.create_multi_agent(multi_agent_session.session_id, mock_multi_agent)
 
     # Verify S3 object created
-    key = f"{
-        multi_agent_manager._get_multi_agent_path(multi_agent_session.session_id, mock_multi_agent.id)
-    }multi_agent.json"
+    key = (
+        f"{multi_agent_manager._get_multi_agent_path(multi_agent_session.session_id, mock_multi_agent.id)}"
+        f"multi_agent.json"
+    )
     response = multi_agent_manager.client.get_object(Bucket=multi_agent_manager.bucket, Key=key)
     data = json.loads(response["Body"].read().decode("utf-8"))
 
