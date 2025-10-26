@@ -45,7 +45,7 @@ class SessionManager(HookProvider, ABC):
             logger.debug("Session type not set, defaulting to AGENT")
 
         if self.session_type == SessionType.MULTI_AGENT:
-            registry.add_callback(MultiAgentInitializedEvent, self._on_multiagent_initialized)
+            registry.add_callback(MultiAgentInitializedEvent, lambda event: self.initialize_multi_agent(event.source))
             registry.add_callback(AfterNodeCallEvent, lambda event: self.sync_multi_agent(event.source))
             registry.add_callback(AfterMultiAgentInvocationEvent, lambda event: self.sync_multi_agent(event.source))
 
@@ -101,7 +101,7 @@ class SessionManager(HookProvider, ABC):
         """
 
     def sync_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:
-        """Write multi-agent state to persistent storage.
+        """Serialize and sync multi-agent with the session storage.
 
         Args:
             source: Multi-agent source object to persist
@@ -113,28 +113,19 @@ class SessionManager(HookProvider, ABC):
             "SessionManager with session_type=SessionType.MULTI_AGENT."
         )
 
-    def initialize_multi_agent(self) -> dict[str, Any]:
+    def initialize_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:
         """Read multi-agent state from persistent storage.
+
+        Args:
+            **kwargs: Additional keyword arguments for future extensibility.
+            source: Multi-agent state to initialize.
 
         Returns:
             Multi-agent state dictionary or empty dict if not found
+
         """
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support multi-agent persistence "
             "(initialize_multi_agent). Provide an implementation or use a "
             "SessionManager with session_type=SessionType.MULTI_AGENT."
         )
-
-    def _on_multiagent_initialized(self, event: MultiAgentInitializedEvent) -> None:
-        """Handle multi-agent initialization: restore from storage or create initial snapshot.
-
-        If existing state is found, deserializes it into the source. Otherwise,
-        persists the current state as the initial snapshot.
-        """
-        source: MultiAgentBase = event.source
-        payload = self.initialize_multi_agent()
-        # payload can be {} or Graph/Swarm state json
-        if payload:
-            source.deserialize_state(payload)
-        else:
-            self.sync_multi_agent(source)

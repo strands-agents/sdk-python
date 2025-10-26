@@ -11,6 +11,7 @@ class MockedSessionRepository(SessionRepository):
         self.sessions = {}
         self.agents = {}
         self.messages = {}
+        self.multi_agents = {}
 
     def create_session(self, session) -> None:
         """Create a session."""
@@ -20,10 +21,18 @@ class MockedSessionRepository(SessionRepository):
         self.sessions[session_id] = session
         self.agents[session_id] = {}
         self.messages[session_id] = {}
+        self.multi_agents[session_id] = {}
 
     def read_session(self, session_id) -> SessionAgent:
         """Read a session."""
         return self.sessions.get(session_id)
+
+    def update_session(self, session_id, **kwargs) -> None:
+        """Update a session."""
+        if session_id not in self.sessions:
+            raise SessionException(f"Session {session_id} does not exist")
+        # Mock implementation - just mark as updated
+        pass
 
     def create_agent(self, session_id, session_agent) -> None:
         """Create an agent."""
@@ -95,3 +104,26 @@ class MockedSessionRepository(SessionRepository):
         if limit is not None:
             return sorted_messages[offset : offset + limit]
         return sorted_messages[offset:]
+
+    def create_multi_agent(self, session_id, multi_agent, **kwargs) -> None:
+        """Create multi-agent state."""
+        multi_agent_id = multi_agent.id
+        if session_id not in self.sessions:
+            raise SessionException(f"Session {session_id} does not exist")
+        state = multi_agent.serialize_state()
+        self.multi_agents.setdefault(session_id, {})[multi_agent_id] = state
+
+    def read_multi_agent(self, session_id, multi_agent_id, **kwargs):
+        """Read multi-agent state."""
+        if session_id not in self.sessions:
+            return None
+        return self.multi_agents.get(session_id, {}).get(multi_agent_id)
+
+    def update_multi_agent(self, session_id, multi_agent_state, **kwargs) -> None:
+        """Update multi-agent state."""
+        multi_agent_id = multi_agent_state.get("id")
+        if session_id not in self.sessions:
+            raise SessionException(f"Session {session_id} does not exist")
+        if multi_agent_id not in self.multi_agents.get(session_id, {}):
+            raise SessionException(f"MultiAgent {multi_agent_id} does not exist in session {session_id}")
+        self.multi_agents[session_id][multi_agent_id] = multi_agent_state

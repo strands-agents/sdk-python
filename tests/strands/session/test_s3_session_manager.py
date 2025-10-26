@@ -376,25 +376,95 @@ def test__get_message_path_invalid_message_id(message_id, s3_manager):
         s3_manager._get_message_path("session1", "agent1", message_id)
 
 
-def test_write_read_multi_agent_json(s3_manager, sample_session):
-    """Test multi-agent state persistence."""
-    s3_manager.create_session(sample_session)
+@pytest.fixture
+def mock_multi_agent():
+    """Create mock multi-agent for testing."""
+    from unittest.mock import Mock
 
-    # Create mock MultiAgentBase object
-    class MockMultiAgent:
-        def serialize_state(self):
-            return {"type": "graph", "status": "completed"}
-
-    mock_agent = MockMultiAgent()
-    expected_state = {"type": "graph", "status": "completed"}
-
-    s3_manager.sync_multi_agent(mock_agent)
-
-    result = s3_manager.initialize_multi_agent()
-    assert result == expected_state
+    mock = Mock()
+    mock.id = "test-multi-agent"
+    mock.state = {"key": "value"}
+    mock.serialize_state.return_value = {"id": "test-multi-agent", "state": {"key": "value"}}
+    return mock
 
 
-def test_read_multi_agent_json_nonexistent(s3_manager):
-    """Test reading multi-agent state when file doesn't exist."""
-    result = s3_manager.initialize_multi_agent()
-    assert result == {}
+@pytest.fixture
+def multi_agent_session():
+    """Create sample multi-agent session for testing."""
+    return Session(
+        session_id="test-multi-session",
+        session_type=SessionType.MULTI_AGENT,
+    )
+
+
+@pytest.fixture
+def multi_agent_manager(mocked_aws, s3_bucket):
+    """Create S3SessionManager with multi-agent session type."""
+    yield S3SessionManager(
+        session_id="test-multi",
+        bucket=s3_bucket,
+        prefix="sessions/",
+        region_name="us-west-2",
+        session_type=SessionType.MULTI_AGENT,
+    )
+
+
+def test_create_multi_agent(multi_agent_manager, multi_agent_session, mock_multi_agent):
+    """Test creating multi-agent state in S3."""
+    multi_agent_manager.create_session(multi_agent_session)
+    multi_agent_manager.create_multi_agent(multi_agent_session.session_id, mock_multi_agent)
+
+    # Verify S3 object created
+    key = f"{
+        multi_agent_manager._get_multi_agent_path(multi_agent_session.session_id, mock_multi_agent.id)
+    }multi_agent.json"
+    response = multi_agent_manager.client.get_object(Bucket=multi_agent_manager.bucket, Key=key)
+    data = json.loads(response["Body"].read().decode("utf-8"))
+
+    assert data["id"] == mock_multi_agent.id
+    assert data["state"] == mock_multi_agent.state
+
+
+def test_read_multi_agent(multi_agent_manager, multi_agent_session, mock_multi_agent):
+    """Test reading multi-agent state from S3."""
+    # Create session and multi-agent
+    multi_agent_manager.create_session(multi_agent_session)
+    multi_agent_manager.create_multi_agent(multi_agent_session.session_id, mock_multi_agent)
+
+    # Read multi-agent
+    result = multi_agent_manager.read_multi_agent(multi_agent_session.session_id, mock_multi_agent.id)
+
+    assert result["id"] == mock_multi_agent.id
+    assert result["state"] == mock_multi_agent.state
+
+
+def test_read_nonexistent_multi_agent(multi_agent_manager, multi_agent_session):
+    """Test reading multi-agent state that doesn't exist."""
+    multi_agent_manager.create_session(multi_agent_session)
+    result = multi_agent_manager.read_multi_agent(multi_agent_session.session_id, "nonexistent")
+    assert result is None
+
+
+def test_update_multi_agent(multi_agent_manager, multi_agent_session, mock_multi_agent):
+    """Test updating multi-agent state in S3."""
+    # Create session and multi-agent
+    multi_agent_manager.create_session(multi_agent_session)
+    multi_agent_manager.create_multi_agent(multi_agent_session.session_id, mock_multi_agent)
+
+    # Update multi-agent
+    updated_state = {"id": mock_multi_agent.id, "state": {"updated": "value"}}
+    multi_agent_manager.update_multi_agent(multi_agent_session.session_id, updated_state)
+
+    # Verify update
+    result = multi_agent_manager.read_multi_agent(multi_agent_session.session_id, mock_multi_agent.id)
+    assert result["state"] == {"updated": "value"}
+
+
+def test_update_nonexistent_multi_agent(multi_agent_manager, multi_agent_session):
+    """Test updating multi-agent state that doesn't exist."""
+    # Create session
+    multi_agent_manager.create_session(multi_agent_session)
+
+    # Update nonexistent multi-agent
+    with pytest.raises(SessionException):
+        multi_agent_manager.update_multi_agent(multi_agent_session.session_id, {"id": "nonexistent"})

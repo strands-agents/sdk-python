@@ -166,6 +166,8 @@ class MultiAgentBase(ABC):
     multi-agent orchestration capabilities.
     """
 
+    id: str
+
     @abstractmethod
     async def invoke_async(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any

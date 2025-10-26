@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 SESSION_PREFIX = "session_"
 AGENT_PREFIX = "agent_"
 MESSAGE_PREFIX = "message_"
+MULTI_AGENT_PREFIX = "multi_agent_"
 
 
 class S3SessionManager(RepositorySessionManager, SessionRepository):
@@ -300,24 +301,32 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         except ClientError as e:
             raise SessionException(f"S3 error reading messages: {e}") from e
 
-    def sync_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:
-        """Write multi-agent state to S3.
+    def _get_multi_agent_path(self, session_id: str, multi_agent_id: str) -> str:
+        """Get multi-agent S3 prefix."""
+        session_path = self._get_session_path(session_id)
+        multi_agent_id = _identifier.validate(multi_agent_id, _identifier.Identifier.AGENT)
+        return f"{session_path}multi_agents/{MULTI_AGENT_PREFIX}{multi_agent_id}/"
 
-        Args:
-            source: Multi-agent source object to persist
-            **kwargs: Additional keyword arguments for future extensibility.
-        """
-        session_prefix = self._get_session_path(self.session_id)
-        state_key = f"{session_prefix}multi_agent_state.json"
-        state = source.serialize_state()
-        self._write_s3_object(state_key, state)
+    def create_multi_agent(self, session_id: str, multi_agent: "MultiAgentBase", **kwargs: Any) -> None:
+        """Create a new multiagent state in S3."""
+        multi_agent_id = multi_agent.id
+        multi_agent_key = f"{self._get_multi_agent_path(session_id, multi_agent_id)}multi_agent.json"
+        session_data = multi_agent.serialize_state()
+        self._write_s3_object(multi_agent_key, session_data)
 
-    def initialize_multi_agent(self) -> dict[str, Any]:
-        """Read multi-agent state from S3.
+    def read_multi_agent(self, session_id: str, multi_agent_id: str, **kwargs: Any) -> Optional[dict[str, Any]]:
+        """Read multi-agent state from S3."""
+        multi_agent_key = f"{self._get_multi_agent_path(session_id, multi_agent_id)}multi_agent.json"
+        return self._read_s3_object(multi_agent_key)
 
-        Returns:
-            Multi-agent state dictionary or empty dict if not found
-        """
-        session_prefix = self._get_session_path(self.session_id)
-        state_key = f"{session_prefix}multi_agent_state.json"
-        return self._read_s3_object(state_key) or {}
+    def update_multi_agent(self, session_id: str, multi_agent_state: dict[str, Any], **kwargs: Any) -> None:
+        """Update multi-agent state in S3."""
+        multi_agent_id = multi_agent_state.get("id")
+        if multi_agent_id is None:
+            raise SessionException("MultiAgent state must have an 'id' field")
+        previous_multi_agent_state = self.read_multi_agent(session_id=session_id, multi_agent_id=multi_agent_id)
+        if previous_multi_agent_state is None:
+            raise SessionException(f"MultiAgent state {multi_agent_id} in session {session_id} does not exist")
+
+        multi_agent_key = f"{self._get_multi_agent_path(session_id, multi_agent_id)}multi_agent.json"
+        self._write_s3_object(multi_agent_key, multi_agent_state)

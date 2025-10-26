@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 SESSION_PREFIX = "session_"
 AGENT_PREFIX = "agent_"
 MESSAGE_PREFIX = "message_"
+MULTI_AGENT_PREFIX = "multi_agent_"
 
 
 class FileSessionManager(RepositorySessionManager, SessionRepository):
@@ -135,7 +136,8 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         os.makedirs(session_dir, exist_ok=True)
         if self.session_type == SessionType.AGENT:
             os.makedirs(os.path.join(session_dir, "agents"), exist_ok=True)
-
+        else:
+            os.makedirs(os.path.join(session_dir, "multi_agents"), exist_ok=True)
         # Write session file
         session_file = os.path.join(session_dir, "session.json")
         session_dict = session.to_dict()
@@ -151,6 +153,15 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
 
         session_data = self._read_file(session_file)
         return Session.from_dict(session_data)
+
+    def update_session(self, session_id: str, **kwargs: Any) -> None:
+        """Update session updated_at field."""
+        session_file = os.path.join(self._get_session_path(session_id), "session.json")
+        session_data = self.read_session(session_id)
+        if session_data is None:
+            raise SessionException(f"Session {session_id} does not exist")
+        session_data.updated_at = datetime.now(timezone.utc).isoformat()
+        self._write_file(session_file, session_data.to_dict())
 
     def delete_session(self, session_id: str, **kwargs: Any) -> None:
         """Delete session and all associated data."""
@@ -256,33 +267,40 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
 
         return messages
 
-    def sync_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:
-        """Write multi-agent state to filesystem.
+    def _get_multi_agent_path(self, session_id: str, multi_agent_id: str) -> str:
+        """Get multi-agent state file path."""
+        session_path = self._get_session_path(session_id)
+        multi_agent_id = _identifier.validate(multi_agent_id, _identifier.Identifier.AGENT)
+        return os.path.join(session_path, "multi_agents", f"{MULTI_AGENT_PREFIX}{multi_agent_id}")
 
-        Args:
-            source: Multi-agent source object to persist
-            **kwargs: Additional keyword arguments for future extensibility.
-        """
-        state = source.serialize_state()
-        state_path = os.path.join(self._get_session_path(self.session_id), "multi_agent_state.json")
-        self._write_file(state_path, state)
+    def create_multi_agent(self, session_id: str, multi_agent: "MultiAgentBase", **kwargs: Any) -> None:
+        """Create a new multiagent state in the session."""
+        multi_agent_id = multi_agent.id
+        multi_agent_dir = self._get_multi_agent_path(session_id, multi_agent_id)
+        os.makedirs(multi_agent_dir, exist_ok=True)
 
-        # Update session metadata
-        session_dir = self._get_session_path(self.session.session_id)
-        session_file = os.path.join(session_dir, "session.json")
-        with open(session_file, "r", encoding="utf-8") as f:
-            metadata = json.load(f)
-            metadata["updated_at"] = datetime.now(timezone.utc).isoformat()
-            self._write_file(session_file, metadata)
+        multi_agent_file = os.path.join(multi_agent_dir, "multi_agent.json")
+        session_data = multi_agent.serialize_state()
+        self._write_file(multi_agent_file, session_data)
 
-    def initialize_multi_agent(self) -> dict[str, Any]:
-        """Read multi-agent state from filesystem.
+    def read_multi_agent(self, session_id: str, multi_agent_id: str, **kwargs: Any) -> Optional[dict[str, Any]]:
+        """Read multi-agent state from filesystem."""
+        multi_agent_file = os.path.join(self._get_multi_agent_path(session_id, multi_agent_id), "multi_agent.json")
+        if not os.path.exists(multi_agent_file):
+            return None
+        return self._read_file(multi_agent_file)
 
-        Returns:
-            Multi-agent state dictionary or empty dict if not found
-        """
-        state_path = os.path.join(self._get_session_path(self.session_id), "multi_agent_state.json")
-        if not os.path.exists(state_path):
-            return {}
-        state_data = self._read_file(state_path)
-        return state_data
+    def update_multi_agent(self, session_id: str, multi_agent_state: dict[str, Any], **kwargs: Any) -> None:
+        """Update multi-agent state from filesystem."""
+        multi_agent_id = multi_agent_state.get("id")
+        if multi_agent_id is None:
+            raise SessionException("MultiAgent state must have an 'id' field")
+        previous_multi_agent_state = self.read_multi_agent(session_id=session_id, multi_agent_id=multi_agent_id)
+        if previous_multi_agent_state is None:
+            raise SessionException(f"MultiAgent state {multi_agent_id} in session {session_id} does not exist")
+
+        multi_agent_file = os.path.join(self._get_multi_agent_path(session_id, multi_agent_id), "multi_agent.json")
+        self._write_file(multi_agent_file, multi_agent_state)
+
+        # Update session.update_at
+        self.update_session(session_id)

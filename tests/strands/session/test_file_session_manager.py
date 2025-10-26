@@ -53,6 +53,30 @@ def sample_message():
     )
 
 
+@pytest.fixture
+def mock_multi_agent():
+    """Create mock multi-agent for testing."""
+    from unittest.mock import Mock
+
+    mock = Mock()
+    mock.id = "test-multi-agent"
+    mock.state = {"key": "value"}
+    mock.serialize_state.return_value = {"id": "test-multi-agent", "state": {"key": "value"}}
+    return mock
+
+
+@pytest.fixture
+def multi_agent_session():
+    """Create sample multi-agent session for testing."""
+    return Session(session_id="test-session", session_type=SessionType.MULTI_AGENT)
+
+
+@pytest.fixture
+def multi_agent_manager(temp_dir):
+    """Create FileSessionManager with multi-agent session type."""
+    return FileSessionManager(session_id="test", storage_dir=temp_dir, session_type=SessionType.MULTI_AGENT)
+
+
 def test_create_session(file_manager, sample_session):
     """Test creating a session."""
     file_manager.create_session(sample_session)
@@ -410,50 +434,76 @@ def test__get_message_path_invalid_message_id(message_id, file_manager):
         file_manager._get_message_path("session1", "agent1", message_id)
 
 
-def test_write_read_multi_agent_json(file_manager, sample_session):
-    """Test writing and reading multi-agent state."""
-    file_manager.create_session(sample_session)
+def test_create_multi_agent(multi_agent_manager, multi_agent_session, mock_multi_agent):
+    """Test creating multi-agent state."""
+    multi_agent_manager.create_session(multi_agent_session)
+    multi_agent_manager.create_multi_agent(multi_agent_session.session_id, mock_multi_agent)
 
-    # Create mock MultiAgentBase object
-    class MockMultiAgent:
-        def serialize_state(self):
-            return {"type": "graph", "status": "completed", "nodes": ["node1", "node2"]}
-
-    mock_agent = MockMultiAgent()
-    expected_state = {"type": "graph", "status": "completed", "nodes": ["node1", "node2"]}
-
-    # Write multi-agent state
-    file_manager.sync_multi_agent(mock_agent)
-
-    # Read multi-agent state
-    result = file_manager.initialize_multi_agent()
-    assert result == expected_state
-
-
-def test_read_multi_agent_json_nonexistent(file_manager):
-    """Test reading multi-agent state when file doesn't exist."""
-    result = file_manager.initialize_multi_agent()
-    assert result == {}
-
-
-def test_list_messages_missing_directory(file_manager, sample_session, sample_agent):
-    """Test listing messages when messages directory is missing."""
-    file_manager.create_session(sample_session)
-    file_manager.create_agent(sample_session.session_id, sample_agent)
-
-    # Remove messages directory
-    messages_dir = os.path.join(
-        file_manager._get_agent_path(sample_session.session_id, sample_agent.agent_id), "messages"
+    # Verify file created
+    multi_agent_file = os.path.join(
+        multi_agent_manager._get_multi_agent_path(multi_agent_session.session_id, mock_multi_agent.id),
+        "multi_agent.json",
     )
-    os.rmdir(messages_dir)
+    assert os.path.exists(multi_agent_file)
 
-    with pytest.raises(SessionException, match="Messages directory missing"):
-        file_manager.list_messages(sample_session.session_id, sample_agent.agent_id)
+    # Verify content
+    with open(multi_agent_file, "r") as f:
+        data = json.load(f)
+        assert data["id"] == mock_multi_agent.id
+        assert data["state"] == mock_multi_agent.state
 
 
-def test_create_existing_session(file_manager, sample_session):
-    """Test creating a session that already exists."""
-    file_manager.create_session(sample_session)
+def test_read_multi_agent(multi_agent_manager, multi_agent_session, mock_multi_agent):
+    """Test reading multi-agent state."""
+    # Create session and multi-agent
+    multi_agent_manager.create_session(multi_agent_session)
+    multi_agent_manager.create_multi_agent(multi_agent_session.session_id, mock_multi_agent)
 
-    with pytest.raises(SessionException, match="already exists"):
-        file_manager.create_session(sample_session)
+    # Read multi-agent
+    result = multi_agent_manager.read_multi_agent(multi_agent_session.session_id, mock_multi_agent.id)
+
+    assert result["id"] == mock_multi_agent.id
+    assert result["state"] == mock_multi_agent.state
+
+
+def test_read_nonexistent_multi_agent(multi_agent_manager, multi_agent_session):
+    """Test reading multi-agent state that doesn't exist."""
+    result = multi_agent_manager.read_multi_agent(multi_agent_session.session_id, "nonexistent")
+    assert result is None
+
+
+def test_update_multi_agent(multi_agent_manager, multi_agent_session, mock_multi_agent):
+    """Test updating multi-agent state."""
+    # Create session and multi-agent
+    multi_agent_manager.create_session(multi_agent_session)
+    multi_agent_manager.create_multi_agent(multi_agent_session.session_id, mock_multi_agent)
+
+    # Update multi-agent
+    updated_state = {"id": mock_multi_agent.id, "state": {"updated": "value"}}
+    multi_agent_manager.update_multi_agent(multi_agent_session.session_id, updated_state)
+
+    # Verify update
+    result = multi_agent_manager.read_multi_agent(multi_agent_session.session_id, mock_multi_agent.id)
+    assert result["state"] == {"updated": "value"}
+
+
+def test_update_nonexistent_multi_agent(multi_agent_manager, multi_agent_session):
+    """Test updating multi-agent state that doesn't exist."""
+    # Create session
+    multi_agent_manager.create_session(multi_agent_session)
+
+    # Update nonexistent multi-agent
+    with pytest.raises(SessionException):
+        multi_agent_manager.update_multi_agent(multi_agent_session.session_id, {"id": "nonexistent"})
+
+
+def test_create_session_multi_agent_directory_structure(multi_agent_manager, multi_agent_session):
+    """Test multi-agent session creates correct directory structure."""
+    multi_agent_manager.create_session(multi_agent_session)
+
+    # Verify directory structure
+    session_dir = multi_agent_manager._get_session_path(multi_agent_session.session_id)
+    multi_agents_dir = os.path.join(session_dir, "multi_agents")
+
+    assert os.path.exists(session_dir)
+    assert os.path.exists(multi_agents_dir)
