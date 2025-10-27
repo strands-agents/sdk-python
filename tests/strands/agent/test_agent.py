@@ -2073,6 +2073,10 @@ def test_agent_tool_caller_interrupt():
     }
     assert tru_state == exp_state
 
+    tru_messages = agent.messages
+    exp_messages = []
+    assert tru_messages == exp_messages
+
 
 def test_agent_tool_caller_interrupt_activated():
     agent = Agent()
