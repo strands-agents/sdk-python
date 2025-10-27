@@ -137,7 +137,7 @@ class MultiAgentResult:
         metrics = _parse_metrics(data.get("accumulated_metrics", {}))
 
         multiagent_result = cls(
-            status=Status(data.get("status")),
+            status=Status(data["status"]),
             results=results,
             accumulated_usage=usage,
             accumulated_metrics=metrics,
@@ -164,6 +164,9 @@ class MultiAgentBase(ABC):
 
     This class integrates with existing Strands Agent instances and provides
     multi-agent orchestration capabilities.
+
+    Attributes:
+        id: Unique MultiAgent id for session management,etc.
     """
 
     id: str

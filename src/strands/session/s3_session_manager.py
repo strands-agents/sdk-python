@@ -50,6 +50,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         boto_session: Optional[boto3.Session] = None,
         boto_client_config: Optional[BotocoreConfig] = None,
         region_name: Optional[str] = None,
+        *,
         session_type: SessionType = SessionType.AGENT,
         **kwargs: Any,
     ):

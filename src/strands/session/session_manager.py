@@ -121,7 +121,7 @@ class SessionManager(HookProvider, ABC):
             source: Multi-agent state to initialize.
 
         Returns:
-            Multi-agent state dictionary or empty dict if not found
+            Multi-agent state dictionary or empty dict if not found.
 
         """
         raise NotImplementedError(

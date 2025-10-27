@@ -53,14 +53,14 @@ class SessionRepository(ABC):
     ) -> list[SessionMessage]:
         """List Messages from an Agent with pagination."""
 
-    @abstractmethod
     def create_multi_agent(self, session_id: str, multi_agent: "MultiAgentBase", **kwargs: Any) -> None:
         """Create a new MultiAgent state for the Session."""
+        raise NotImplementedError("MultiAgent is not implemented for this repository")
 
-    @abstractmethod
     def read_multi_agent(self, session_id: str, multi_agent_id: str, **kwargs: Any) -> Optional[dict[str, Any]]:
         """Read the MultiAgent state for the Session."""
+        raise NotImplementedError("MultiAgent is not implemented for this repository")
 
-    @abstractmethod
     def update_multi_agent(self, session_id: str, multi_agent_state: dict[str, Any], **kwargs: Any) -> None:
         """Update the MultiAgent state for the Session."""
+        raise NotImplementedError("MultiAgent is not implemented for this repository")
