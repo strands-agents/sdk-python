@@ -2054,7 +2054,19 @@ def test_agent_structured_output_interrupt(user):
         agent.structured_output(type(user), "invalid")
 
 
-def test_agent_tool_caller_interrupt(user):
+def test_agent_tool_caller_interrupt():
+    @strands.tool(context=True)
+    def test_tool(tool_context):
+        tool_context.interrupt("test-interrupt")
+
+    agent = Agent(tools=[test_tool])
+
+    exp_message = r"cannot raise interrupt in direct tool call"
+    with pytest.raises(RuntimeError, match=exp_message):
+        agent.tool.test_tool(agent=agent)
+
+
+def test_agent_tool_caller_interrupt_activated():
     agent = Agent()
     agent._interrupt_state.activated = True
 

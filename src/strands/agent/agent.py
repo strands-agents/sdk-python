@@ -55,7 +55,7 @@ from ..tools.executors._executor import ToolExecutor
 from ..tools.registry import ToolRegistry
 from ..tools.structured_output._structured_output_context import StructuredOutputContext
 from ..tools.watcher import ToolWatcher
-from ..types._events import AgentResultEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
+from ..types._events import AgentResultEvent, InitEventLoopEvent, ModelStreamChunkEvent, ToolInterruptEvent, TypedEvent
 from ..types.agent import AgentInput
 from ..types.content import ContentBlock, Message, Messages
 from ..types.exceptions import ContextWindowOverflowException
@@ -166,7 +166,8 @@ class Agent:
 
                 async def acall() -> ToolResult:
                     async for event in ToolExecutor._stream(self._agent, tool_use, tool_results, invocation_state):
-                        _ = event
+                        if isinstance(event, ToolInterruptEvent):
+                            raise RuntimeError("cannot raise interrupt in direct tool call")
 
                     return tool_results[0]
 
