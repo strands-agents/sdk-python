@@ -77,6 +77,12 @@ class SessionException(Exception):
     pass
 
 
+class ToolProviderException(Exception):
+    """Exception raised when a tool provider fails to load or cleanup tools."""
+
+    pass
+
+
 class StructuredOutputException(Exception):
     """Exception raised when structured output validation fails after maximum retry attempts."""
 

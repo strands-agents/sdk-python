@@ -894,10 +894,6 @@ def test_agent_tool_names(tools, agent):
     assert actual == expected
 
 
-def test_agent__del__(agent):
-    del agent
-
-
 def test_agent_init_with_no_model_or_model_id():
     agent = Agent()
     assert agent.model is not None
@@ -2086,6 +2082,13 @@ def test_latest_message_tool_use_skips_model_invoke(tool_decorated):
     assert len(agent.messages) == 3
     assert agent.messages[1]["content"][0]["toolResult"]["content"][0]["text"] == "Hello"
     assert agent.messages[2]["content"][0]["text"] == "I see the tool result"
+
+
+def test_agent_del_before_tool_registry_set():
+    """Test that Agent.__del__ doesn't fail if called before tool_registry is set."""
+    agent = Agent()
+    del agent.tool_registry
+    agent.__del__()  # Should not raise
 
 
 def test_agent__call__invalid_tool_name():
