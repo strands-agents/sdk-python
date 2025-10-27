@@ -715,7 +715,10 @@ class BedrockModel(Model):
         except ClientError as e:
             error_message = str(e)
 
-            if e.response["Error"]["Code"] == "ThrottlingException":
+            if (
+                e.response["Error"]["Code"] == "ThrottlingException"
+                or e.response["Error"]["Code"] == "throttlingException"
+            ):
                 raise ModelThrottledException(error_message) from e
 
             if any(overflow_message in error_message for overflow_message in BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES):
