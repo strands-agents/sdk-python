@@ -33,7 +33,7 @@ from ..types._events import (
     ToolResultMessageEvent,
     TypedEvent,
 )
-from ..types.content import Message
+from ..types.content import Message, Messages
 from ..types.exceptions import (
     ContextWindowOverflowException,
     EventLoopException,
@@ -54,6 +54,26 @@ logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 6
 INITIAL_DELAY = 4
 MAX_DELAY = 240  # 4 minutes
+
+
+def _has_tool_use_in_latest_message(messages: "Messages") -> bool:
+    """Check if the latest message contains any ToolUse content blocks.
+
+    Args:
+        messages: List of messages in the conversation.
+
+    Returns:
+        True if the latest message contains at least one ToolUse content block, False otherwise.
+    """
+    if len(messages) > 0:
+        latest_message = messages[-1]
+        content_blocks = latest_message.get("content", [])
+
+        for content_block in content_blocks:
+            if "toolUse" in content_block:
+                return True
+
+    return False
 
 
 async def event_loop_cycle(
@@ -121,7 +141,10 @@ async def event_loop_cycle(
     if agent._interrupt_state.activated:
         stop_reason: StopReason = "tool_use"
         message = agent._interrupt_state.context["tool_use_message"]
-
+    # Skip model invocation if the latest message contains ToolUse
+    elif _has_tool_use_in_latest_message(agent.messages):
+        stop_reason = "tool_use"
+        message = agent.messages[-1]
     else:
         model_events = _handle_model_execution(
             agent, cycle_span, cycle_trace, invocation_state, tracer, structured_output_context
