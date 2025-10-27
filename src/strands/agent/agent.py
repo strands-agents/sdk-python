@@ -167,6 +167,7 @@ class Agent:
                 async def acall() -> ToolResult:
                     async for event in ToolExecutor._stream(self._agent, tool_use, tool_results, invocation_state):
                         if isinstance(event, ToolInterruptEvent):
+                            self._agent._interrupt_state.deactivate()
                             raise RuntimeError("cannot raise interrupt in direct tool call")
 
                     return tool_results[0]

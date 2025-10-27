@@ -2065,6 +2065,14 @@ def test_agent_tool_caller_interrupt():
     with pytest.raises(RuntimeError, match=exp_message):
         agent.tool.test_tool(agent=agent)
 
+    tru_state = agent._interrupt_state.to_dict()
+    exp_state = {
+        "activated": False,
+        "context": {},
+        "interrupts": {},
+    }
+    assert tru_state == exp_state
+
 
 def test_agent_tool_caller_interrupt_activated():
     agent = Agent()
