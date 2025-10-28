@@ -1,5 +1,7 @@
 """Tests for AgentSessionManager."""
 
+from unittest.mock import Mock
+
 import pytest
 
 from strands.agent.agent import Agent
@@ -34,7 +36,6 @@ def agent():
 @pytest.fixture
 def mock_multi_agent():
     """Create mock multi-agent for testing."""
-    from unittest.mock import Mock
 
     mock = Mock()
     mock.id = "test-multi-agent"
@@ -240,7 +241,6 @@ def test_initialize_multi_agent_existing(multi_agent_session_manager, mock_multi
     multi_agent_session_manager.session_repository.create_multi_agent("test-multi-session", mock_multi_agent)
 
     # Create a mock with updated state for the update call
-    from unittest.mock import Mock
 
     updated_mock = Mock()
     updated_mock.id = "test-multi-agent"
