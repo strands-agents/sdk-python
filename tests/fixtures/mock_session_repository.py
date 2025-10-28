@@ -27,13 +27,6 @@ class MockedSessionRepository(SessionRepository):
         """Read a session."""
         return self.sessions.get(session_id)
 
-    def update_session(self, session_id, **kwargs) -> None:
-        """Update a session."""
-        if session_id not in self.sessions:
-            raise SessionException(f"Session {session_id} does not exist")
-        # Mock implementation - just mark as updated
-        pass
-
     def create_agent(self, session_id, session_agent) -> None:
         """Create an agent."""
         agent_id = session_agent.agent_id
