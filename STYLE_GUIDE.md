@@ -16,7 +16,6 @@ logger.debug("field1=<%s>, field2=<%s>, ... | human readable message", field1, f
 
 ### Guidelines
 
-
 1. **Context**:
    - Add context as `<FIELD>=<VALUE>` pairs at the beginning of the log
      - Many log services (CloudWatch, Splunk, etc.) look for these patterns to extract fields for searching
@@ -27,7 +26,6 @@ logger.debug("field1=<%s>, field2=<%s>, ... | human readable message", field1, f
      - This is an optimization to skip string interpolation when the log level is not enabled
 
 1. **Messages**:
-2. 
    - Add human-readable messages at the end of the log
    - Use lowercase for consistency
    - Avoid punctuation (periods, exclamation points, etc.) to reduce clutter
