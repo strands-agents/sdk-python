@@ -756,6 +756,50 @@ def test_tool_choice_none_no_warning(model, messages, captured_warnings):
     assert len(captured_warnings) == 0
 
 
+@pytest.mark.parametrize(
+    "new_data_type, prev_data_type, expected_chunks, expected_data_type",
+    [
+        ("text", None, [{"contentBlockStart": {"start": {}}}], "text"),
+        (
+            "reasoning_content",
+            "text",
+            [{"contentBlockStop": {}}, {"contentBlockStart": {"start": {}}}],
+            "reasoning_content",
+        ),
+        ("text", "text", [], "text"),
+    ],
+)
+def test__stream_switch_content(model, new_data_type, prev_data_type, expected_chunks, expected_data_type):
+    """Test _stream_switch_content method for content type switching."""
+    chunks, data_type = model._stream_switch_content(new_data_type, prev_data_type)
+    assert chunks == expected_chunks
+    assert data_type == expected_data_type
+
+
+def test_format_request_messages_excludes_reasoning_content():
+    """Test that reasoningContent is excluded from formatted messages."""
+    messages = [
+        {
+            "content": [
+                {"text": "Hello"},
+                {"reasoningContent": {"reasoningText": {"text": "excluded"}}},
+            ],
+            "role": "user",
+        },
+    ]
+
+    tru_result = OpenAIModel.format_request_messages(messages)
+
+    # Only text content should be included
+    exp_result = [
+        {
+            "content": [{"text": "Hello", "type": "text"}],
+            "role": "user",
+        },
+    ]
+    assert tru_result == exp_result
+
+
 @pytest.mark.asyncio
 async def test_stream_context_overflow_exception(openai_client, model, messages):
     """Test that OpenAI context overflow errors are properly converted to ContextWindowOverflowException."""
