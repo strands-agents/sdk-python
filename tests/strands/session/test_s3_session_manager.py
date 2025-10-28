@@ -452,9 +452,13 @@ def test_update_multi_agent(multi_agent_manager, multi_agent_session, mock_multi
     multi_agent_manager.create_session(multi_agent_session)
     multi_agent_manager.create_multi_agent(multi_agent_session.session_id, mock_multi_agent)
 
-    # Update multi-agent
-    updated_state = {"id": mock_multi_agent.id, "state": {"updated": "value"}}
-    multi_agent_manager.update_multi_agent(multi_agent_session.session_id, updated_state)
+    # Update multi-agent - create a new mock with updated state
+    from unittest.mock import Mock
+
+    updated_mock = Mock()
+    updated_mock.id = mock_multi_agent.id
+    updated_mock.serialize_state.return_value = {"id": mock_multi_agent.id, "state": {"updated": "value"}}
+    multi_agent_manager.update_multi_agent(multi_agent_session.session_id, updated_mock)
 
     # Verify update
     result = multi_agent_manager.read_multi_agent(multi_agent_session.session_id, mock_multi_agent.id)
@@ -467,5 +471,9 @@ def test_update_nonexistent_multi_agent(multi_agent_manager, multi_agent_session
     multi_agent_manager.create_session(multi_agent_session)
 
     # Update nonexistent multi-agent
+    from unittest.mock import Mock
+
+    nonexistent_mock = Mock()
+    nonexistent_mock.id = "nonexistent"
     with pytest.raises(SessionException):
-        multi_agent_manager.update_multi_agent(multi_agent_session.session_id, {"id": "nonexistent"})
+        multi_agent_manager.update_multi_agent(multi_agent_session.session_id, nonexistent_mock)

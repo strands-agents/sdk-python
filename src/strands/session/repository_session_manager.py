@@ -173,7 +173,7 @@ class RepositorySessionManager(SessionManager):
             source: Multi-agent source object to sync to the session.
             **kwargs: Additional keyword arguments for future extensibility.
         """
-        self.session_repository.update_multi_agent(self.session_id, source.serialize_state())
+        self.session_repository.update_multi_agent(self.session_id, source)
 
     def initialize_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:
         """Initialize multi-agent state from the session repository.

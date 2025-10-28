@@ -5,7 +5,6 @@ import logging
 import os
 import shutil
 import tempfile
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 from .. import _identifier
@@ -154,15 +153,6 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         session_data = self._read_file(session_file)
         return Session.from_dict(session_data)
 
-    def update_session(self, session_id: str, **kwargs: Any) -> None:
-        """Update session updated_at field."""
-        session_file = os.path.join(self._get_session_path(session_id), "session.json")
-        session_data = self.read_session(session_id)
-        if session_data is None:
-            raise SessionException(f"Session {session_id} does not exist")
-        session_data.updated_at = datetime.now(timezone.utc).isoformat()
-        self._write_file(session_file, session_data.to_dict())
-
     def delete_session(self, session_id: str, **kwargs: Any) -> None:
         """Delete session and all associated data."""
         session_dir = self._get_session_path(session_id)
@@ -290,17 +280,12 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
             return None
         return self._read_file(multi_agent_file)
 
-    def update_multi_agent(self, session_id: str, multi_agent_state: dict[str, Any], **kwargs: Any) -> None:
+    def update_multi_agent(self, session_id: str, multi_agent: "MultiAgentBase", **kwargs: Any) -> None:
         """Update multi-agent state from filesystem."""
-        multi_agent_id = multi_agent_state.get("id")
-        if multi_agent_id is None:
-            raise SessionException("MultiAgent state must have an 'id' field")
-        previous_multi_agent_state = self.read_multi_agent(session_id=session_id, multi_agent_id=multi_agent_id)
+        multi_agent_state = multi_agent.serialize_state()
+        previous_multi_agent_state = self.read_multi_agent(session_id=session_id, multi_agent_id=multi_agent.id)
         if previous_multi_agent_state is None:
-            raise SessionException(f"MultiAgent state {multi_agent_id} in session {session_id} does not exist")
+            raise SessionException(f"MultiAgent state {multi_agent.id} in session {session_id} does not exist")
 
-        multi_agent_file = os.path.join(self._get_multi_agent_path(session_id, multi_agent_id), "multi_agent.json")
+        multi_agent_file = os.path.join(self._get_multi_agent_path(session_id, multi_agent.id), "multi_agent.json")
         self._write_file(multi_agent_file, multi_agent_state)
-
-        # Update session.update_at
-        self.update_session(session_id)

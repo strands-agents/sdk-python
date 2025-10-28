@@ -61,6 +61,6 @@ class SessionRepository(ABC):
         """Read the MultiAgent state for the Session."""
         raise NotImplementedError("MultiAgent is not implemented for this repository")
 
-    def update_multi_agent(self, session_id: str, multi_agent_state: dict[str, Any], **kwargs: Any) -> None:
+    def update_multi_agent(self, session_id: str, multi_agent: "MultiAgentBase", **kwargs: Any) -> None:
         """Update the MultiAgent state for the Session."""
         raise NotImplementedError("MultiAgent is not implemented for this repository")

@@ -119,11 +119,12 @@ class MockedSessionRepository(SessionRepository):
             return None
         return self.multi_agents.get(session_id, {}).get(multi_agent_id)
 
-    def update_multi_agent(self, session_id, multi_agent_state, **kwargs) -> None:
+    def update_multi_agent(self, session_id, multi_agent, **kwargs) -> None:
         """Update multi-agent state."""
-        multi_agent_id = multi_agent_state.get("id")
+        multi_agent_id = multi_agent.id
         if session_id not in self.sessions:
             raise SessionException(f"Session {session_id} does not exist")
         if multi_agent_id not in self.multi_agents.get(session_id, {}):
-            raise SessionException(f"MultiAgent {multi_agent_id} does not exist in session {session_id}")
-        self.multi_agents[session_id][multi_agent_id] = multi_agent_state
+            raise SessionException(f"MultiAgent {multi_agent} does not exist in session {session_id}")
+        state = multi_agent.serialize_state()
+        self.multi_agents[session_id][multi_agent_id] = state

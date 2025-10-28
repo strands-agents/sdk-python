@@ -238,8 +238,15 @@ def test_initialize_multi_agent_existing(multi_agent_session_manager, mock_multi
     """Test initializing existing multi-agent state."""
     # Create existing state first
     multi_agent_session_manager.session_repository.create_multi_agent("test-multi-session", mock_multi_agent)
+
+    # Create a mock with updated state for the update call
+    from unittest.mock import Mock
+
+    updated_mock = Mock()
+    updated_mock.id = "test-multi-agent"
     existing_state = {"id": "test-multi-agent", "state": {"restored": "data"}}
-    multi_agent_session_manager.session_repository.update_multi_agent("test-multi-session", existing_state)
+    updated_mock.serialize_state.return_value = existing_state
+    multi_agent_session_manager.session_repository.update_multi_agent("test-multi-session", updated_mock)
 
     # Initialize multi-agent
     multi_agent_session_manager.initialize_multi_agent(mock_multi_agent)

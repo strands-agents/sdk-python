@@ -320,14 +320,12 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         multi_agent_key = f"{self._get_multi_agent_path(session_id, multi_agent_id)}multi_agent.json"
         return self._read_s3_object(multi_agent_key)
 
-    def update_multi_agent(self, session_id: str, multi_agent_state: dict[str, Any], **kwargs: Any) -> None:
+    def update_multi_agent(self, session_id: str, multi_agent: "MultiAgentBase", **kwargs: Any) -> None:
         """Update multi-agent state in S3."""
-        multi_agent_id = multi_agent_state.get("id")
-        if multi_agent_id is None:
-            raise SessionException("MultiAgent state must have an 'id' field")
-        previous_multi_agent_state = self.read_multi_agent(session_id=session_id, multi_agent_id=multi_agent_id)
+        multi_agent_state = multi_agent.serialize_state()
+        previous_multi_agent_state = self.read_multi_agent(session_id=session_id, multi_agent_id=multi_agent.id)
         if previous_multi_agent_state is None:
-            raise SessionException(f"MultiAgent state {multi_agent_id} in session {session_id} does not exist")
+            raise SessionException(f"MultiAgent state {multi_agent.id} in session {session_id} does not exist")
 
-        multi_agent_key = f"{self._get_multi_agent_path(session_id, multi_agent_id)}multi_agent.json"
+        multi_agent_key = f"{self._get_multi_agent_path(session_id, multi_agent.id)}multi_agent.json"
         self._write_s3_object(multi_agent_key, multi_agent_state)
