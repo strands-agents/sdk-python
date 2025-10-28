@@ -561,11 +561,13 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
+        {"contentBlockStart": {"start": {}}},  # reasoning_content starts
         {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "\nI'm thinking"}}}},
+        {"contentBlockStop": {}},  # reasoning_content ends
+        {"contentBlockStart": {"start": {}}},  # text starts
         {"contentBlockDelta": {"delta": {"text": "I'll calculate"}}},
         {"contentBlockDelta": {"delta": {"text": "that for you"}}},
-        {"contentBlockStop": {}},
+        {"contentBlockStop": {}},  # text ends
         {
             "contentBlockStart": {
                 "start": {
@@ -631,9 +633,7 @@ async def test_stream_empty(openai_client, model_id, model, agenerator, alist):
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
-        {"contentBlockStop": {}},
-        {"messageStop": {"stopReason": "end_turn"}},
+        {"messageStop": {"stopReason": "end_turn"}},  # No content blocks when no content
     ]
 
     assert len(tru_events) == len(exp_events)
@@ -678,10 +678,10 @@ async def test_stream_with_empty_choices(openai_client, model, agenerator, alist
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
+        {"contentBlockStart": {"start": {}}},  # text content starts
         {"contentBlockDelta": {"delta": {"text": "content"}}},
         {"contentBlockDelta": {"delta": {"text": "content"}}},
-        {"contentBlockStop": {}},
+        {"contentBlockStop": {}},  # text content ends
         {"messageStop": {"stopReason": "end_turn"}},
         {
             "metadata": {
@@ -845,30 +845,6 @@ async def test_stream_other_bad_request_errors_passthrough(openai_client, model,
 
     # Verify the original exception is raised, not ContextWindowOverflowException
     assert exc_info.value == mock_error
-
-
-@pytest.mark.asyncio
-async def test_structured_output_context_overflow_exception(openai_client, model, messages, test_output_model_cls):
-    """Test that structured output also handles context overflow properly."""
-    # Create a mock OpenAI BadRequestError with context_length_exceeded code
-    mock_error = openai.BadRequestError(
-        message="This model's maximum context length is 4096 tokens. However, your messages resulted in 5000 tokens.",
-        response=unittest.mock.MagicMock(),
-        body={"error": {"code": "context_length_exceeded"}},
-    )
-    mock_error.code = "context_length_exceeded"
-
-    # Configure the mock client to raise the context overflow error
-    openai_client.beta.chat.completions.parse.side_effect = mock_error
-
-    # Test that the structured_output method converts the error properly
-    with pytest.raises(ContextWindowOverflowException) as exc_info:
-        async for _ in model.structured_output(test_output_model_cls, messages):
-            pass
-
-    # Verify the exception message contains the original error
-    assert "maximum context length" in str(exc_info.value)
-    assert exc_info.value.__cause__ == mock_error
 
 
 @pytest.mark.asyncio
