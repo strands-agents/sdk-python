@@ -8,14 +8,14 @@ continuous responses including audio output.
 Key capabilities:
 - Persistent conversation sessions with concurrent processing
 - Real-time audio input/output streaming
-- Mid-conversation interruption and tool execution
+- Automatic interruption detection and tool execution
 - Event-driven communication with model providers
 """
 
 import asyncio
 import json
 import logging
-from typing import Any, AsyncIterable, Mapping, Optional, Union, TYPE_CHECKING
+from typing import Any, AsyncIterable, Mapping, Optional, Union
 
 from .... import _identifier
 from ....hooks import HookProvider, HookRegistry
@@ -28,14 +28,10 @@ from ....tools.watcher import ToolWatcher
 from ....types.content import Message, Messages
 from ....types.tools import ToolResult, ToolUse
 from ....types.traces import AttributeValue
-from ..event_loop.bidirectional_event_loop import start_bidirectional_connection, stop_bidirectional_connection
+from ..event_loop.bidirectional_event_loop import BidirectionalAgentLoop
 from ..models.bidirectional_model import BidirectionalModel
-from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent
 from ..models.novasonic import NovaSonicBidirectionalModel
-
-if TYPE_CHECKING:
-    from ..event_loop.bidirectional_event_loop import BidirectionalEventLoop
-
+from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +83,6 @@ class BidirectionalAgent:
             ValueError: If model configuration is invalid.
             TypeError: If model type is unsupported.
         """
-
         self.model = (
             NovaSonicBidirectionalModel()
             if not model
@@ -142,7 +137,7 @@ class BidirectionalAgent:
         self.tool_caller = ToolCaller(self)
 
         # Session management
-        self._session = None
+        self._session: Optional["BidirectionalAgentLoop"] = None
         self._output_queue = asyncio.Queue()
 
         # Store extensibility kwargs for future use
@@ -274,7 +269,14 @@ class BidirectionalAgent:
 
         logger.debug("Conversation start - initializing session")
 
-        self._session = await start_bidirectional_connection(self)
+        # Create model session and event loop directly
+        model_session = await self.model.create_bidirectional_connection(
+            system_prompt=self.system_prompt, tools=self.tool_registry.get_all_tool_specs(), messages=self.messages
+        )
+
+        self._session = BidirectionalAgentLoop(model_session=model_session, agent=self)
+        await self._session.start()
+
         logger.debug("Conversation ready")
 
     async def send(self, input_data: Union[str, AudioInputEvent]) -> None:
@@ -325,18 +327,6 @@ class BidirectionalAgent:
             except asyncio.TimeoutError:
                 continue
 
-    async def interrupt(self) -> None:
-        """Interrupt the current model generation and clear audio buffers.
-
-        Sends interruption signal to stop generation immediately and clears
-        pending audio output for responsive conversation flow.
-
-        Raises:
-            ValueError: If no active session.
-        """
-        self._validate_active_session()
-        await self._session.model_session.send_interrupt()
-
     async def end(self) -> None:
         """End the conversation session and cleanup all resources.
 
@@ -344,7 +334,7 @@ class BidirectionalAgent:
         closes the connection to the model provider.
         """
         if self._session:
-            await stop_bidirectional_connection(self._session)
+            await self._session.stop()
             self._session = None
 
     def _validate_active_session(self) -> None:
