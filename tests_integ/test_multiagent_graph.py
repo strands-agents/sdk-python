@@ -1,3 +1,6 @@
+from unittest.mock import patch
+from uuid import uuid4
+
 from typing import Any, AsyncIterator
 
 import pytest
@@ -11,8 +14,10 @@ from strands.hooks import (
     BeforeModelCallEvent,
     MessageAddedEvent,
 )
+from strands.multiagent.base import Status
 from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 from strands.multiagent.graph import GraphBuilder
+from strands.session.file_session_manager import FileSessionManager
 from strands.types.content import ContentBlock
 from tests.fixtures.mock_hook_provider import MockHookProvider
 
@@ -458,3 +463,72 @@ async def test_graph_metrics_accumulation():
     # Verify accumulated metrics are sum of node metrics
     total_tokens = sum(node_result.accumulated_usage["totalTokens"] for node_result in result.results.values())
     assert result.accumulated_usage["totalTokens"] == total_tokens, "Accumulated tokens don't match sum of node tokens"
+
+
+@pytest.mark.asyncio
+async def test_graph_interrupt_and_resume():
+    """Test graph interruption and resume functionality with FileSessionManager."""
+
+    session_id = str(uuid4())
+
+    # Create real agents
+    agent1 = Agent(model="us.amazon.nova-pro-v1:0", system_prompt="You are agent 1", name="agent1")
+    agent2 = Agent(model="us.amazon.nova-pro-v1:0", system_prompt="You are agent 2", name="agent2")
+    agent3 = Agent(model="us.amazon.nova-pro-v1:0", system_prompt="You are agent 3", name="agent3")
+
+    session_manager = FileSessionManager(session_id=session_id)
+
+    builder = GraphBuilder()
+    builder.add_node(agent1, "node1")
+    builder.add_node(agent2, "node2")
+    builder.add_node(agent3, "node3")
+    builder.add_edge("node1", "node2")
+    builder.add_edge("node2", "node3")
+    builder.set_entry_point("node1")
+    builder.set_session_manager(session_manager)
+
+    graph = builder.build()
+
+    # Mock agent2 to fail on first execution
+    async def failing_invoke(*args, **kwargs):
+        raise Exception("Simulated failure in agent2")
+
+    with patch.object(agent2, "invoke_async", side_effect=failing_invoke):
+        # First execution - should fail at agent2
+        try:
+            await graph.invoke_async("Test task")
+        except Exception as e:
+            assert "Simulated failure in agent2" in str(e)
+
+    # Verify partial execution was persisted
+    persisted_state = session_manager.read_multi_agent(session_id, graph.id)
+    assert persisted_state is not None
+    assert persisted_state["type"] == "graph"
+    assert persisted_state["status"] == "failed"
+    assert len(persisted_state["completed_nodes"]) == 1  # Only node1 completed
+    assert "node1" in persisted_state["completed_nodes"]
+    assert "node2" in persisted_state["next_nodes_to_execute"]
+    assert "node2" in persisted_state["failed_nodes"]
+
+    # Track execution count before resume
+    initial_execution_count = graph.state.execution_count
+
+    # Execute graph again
+    result = await graph.invoke_async("Test task")
+
+    # Verify successful completion
+    assert result.status == Status.COMPLETED
+    assert len(result.results) == 3
+
+    execution_order_ids = [node.node_id for node in result.execution_order]
+    assert execution_order_ids == ["node1", "node2", "node3"]
+
+    # Verify only 2 additional nodes were executed
+    assert result.execution_count == initial_execution_count + 2
+
+    final_state = session_manager.read_multi_agent(session_id, graph.id)
+    assert final_state["status"] == "completed"
+    assert len(final_state["completed_nodes"]) == 3
+
+    # Clean up
+    session_manager.delete_session(session_id)
