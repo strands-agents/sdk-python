@@ -456,6 +456,15 @@ def test_graph_builder_validation():
     with pytest.raises(ValueError, match="Source node 'nonexistent' not found"):
         builder.add_edge("nonexistent", "node1")
 
+    # Test edge validation with node object not added to graph
+    builder = GraphBuilder()
+    builder.add_node(agent1, "node1")
+    orphan_node = GraphNode("orphan", agent2)
+    with pytest.raises(ValueError, match="Source node object has not been added to the graph"):
+        builder.add_edge(orphan_node, "node1")
+    with pytest.raises(ValueError, match="Target node object has not been added to the graph"):
+        builder.add_edge("node1", orphan_node)
+
     # Test invalid entry point
     with pytest.raises(ValueError, match="Node 'invalid_entry' not found"):
         builder.set_entry_point("invalid_entry")
@@ -1918,3 +1927,55 @@ async def test_graph_timeout_cleanup_on_exception():
 
     # Verify execution_time is set even on failure (via finally block)
     assert graph.state.execution_time > 0, "execution_time should be set even when exception occurs"
+
+
+@pytest.mark.asyncio
+async def test_graph_agent_no_result_event(mock_strands_tracer, mock_use_span):
+    """Test that graph raises error when agent stream doesn't produce result event."""
+    # Create an agent that streams events but never yields a result
+    no_result_agent = create_mock_agent("no_result_agent", "Should fail")
+
+    async def stream_without_result(*args, **kwargs):
+        """Stream that yields events but no result."""
+        yield {"agent_start": True}
+        yield {"agent_thinking": True, "thought": "Processing"}
+        # Missing: yield {"result": ...}
+
+    no_result_agent.stream_async = Mock(side_effect=stream_without_result)
+
+    builder = GraphBuilder()
+    builder.add_node(no_result_agent, "no_result_node")
+    graph = builder.build()
+
+    # Execute - should raise ValueError about missing result event
+    with pytest.raises(ValueError, match="Node 'no_result_node' did not produce a result event"):
+        await graph.invoke_async("Test missing result event")
+
+    mock_strands_tracer.start_multiagent_span.assert_called()
+    mock_use_span.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_graph_multiagent_no_result_event(mock_strands_tracer, mock_use_span):
+    """Test that graph raises error when multi-agent stream doesn't produce result event."""
+    # Create a multi-agent that streams events but never yields a result
+    no_result_multiagent = create_mock_multi_agent("no_result_multiagent", "Should fail")
+
+    async def stream_without_result(*args, **kwargs):
+        """Stream that yields events but no result."""
+        yield {"multi_agent_start": True}
+        yield {"multi_agent_progress": True, "step": "processing"}
+        # Missing: yield {"result": ...}
+
+    no_result_multiagent.stream_async = Mock(side_effect=stream_without_result)
+
+    builder = GraphBuilder()
+    builder.add_node(no_result_multiagent, "no_result_multiagent_node")
+    graph = builder.build()
+
+    # Execute - should raise ValueError about missing result event
+    with pytest.raises(ValueError, match="Node 'no_result_multiagent_node' did not produce a result event"):
+        await graph.invoke_async("Test missing result event from multiagent")
+
+    mock_strands_tracer.start_multiagent_span.assert_called()
+    mock_use_span.assert_called_once()

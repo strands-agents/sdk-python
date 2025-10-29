@@ -10,6 +10,7 @@ from strands.hooks.registry import HookRegistry
 from strands.multiagent.base import Status
 from strands.multiagent.swarm import SharedContext, Swarm, SwarmNode, SwarmResult, SwarmState
 from strands.session.session_manager import SessionManager
+from strands.types._events import MultiAgentNodeStartEvent
 from strands.types.content import ContentBlock
 
 
@@ -1047,3 +1048,53 @@ async def test_swarm_timeout_cleanup_on_exception():
     assert "test_agent" in result.results
     assert result.results["test_agent"].status == Status.FAILED
     assert result.status == Status.FAILED
+
+
+@pytest.mark.asyncio
+async def test_swarm_invoke_async_no_result_event(mock_strands_tracer, mock_use_span):
+    """Test that invoke_async raises ValueError when stream produces no result event."""
+    # Create a mock swarm that produces events but no final result
+    agent = create_mock_agent("test_agent", "Test response")
+    swarm = Swarm(nodes=[agent])
+
+    # Mock stream_async to yield events but no result event
+    async def no_result_stream(*args, **kwargs):
+        """Simulate a stream that yields events but no result."""
+        yield {"agent_start": True, "node": "test_agent"}
+        yield {"agent_thinking": True, "thought": "Processing"}
+        # Intentionally don't yield a result event
+
+    swarm.stream_async = Mock(side_effect=no_result_stream)
+
+    # Execute - should raise ValueError
+    with pytest.raises(ValueError, match="Swarm streaming completed without producing a result event"):
+        await swarm.invoke_async("Test no result event")
+
+
+@pytest.mark.asyncio
+async def test_swarm_stream_async_exception_in_execute_swarm(mock_strands_tracer, mock_use_span):
+    """Test that stream_async logs exception when _execute_swarm raises an error."""
+    # Create an agent
+    agent = create_mock_agent("test_agent", "Test response")
+
+    # Create swarm
+    swarm = Swarm(nodes=[agent])
+
+    # Mock _execute_swarm to raise an exception after yielding an event
+    async def failing_execute_swarm(*args, **kwargs):
+        """Simulate _execute_swarm raising an exception."""
+        # Yield a valid event first
+
+        yield MultiAgentNodeStartEvent(node_id="test_agent", node_type="agent")
+        # Then raise an exception
+        raise RuntimeError("Simulated failure in _execute_swarm")
+
+    swarm._execute_swarm = Mock(side_effect=failing_execute_swarm)
+
+    # Execute - should raise the exception and log it
+    with pytest.raises(RuntimeError, match="Simulated failure in _execute_swarm"):
+        async for _ in swarm.stream_async("Test exception logging"):
+            pass
+
+    # Verify the swarm status is FAILED
+    assert swarm.state.completion_status == Status.FAILED
