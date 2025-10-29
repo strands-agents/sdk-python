@@ -57,6 +57,21 @@ def test_structured_output_is_forced(skip_for, model):
     agent = Agent(model)
 
     result = agent.structured_output(Weather, "How are you?")
+    assert isinstance(result, Weather)
 
-    assert len(result.time) > 0
-    assert len(result.weather) > 0
+
+def test_structured_output_is_forced_when_provided_in_agent_invocation(skip_for, model):
+    """Tests that structured_output is always forced to return a value even if model doesn't have any information."""
+
+    class UserProfile(BaseModel):
+        """Basic user profile model."""
+
+        name: str
+        age: int
+        occupation: str
+
+    agent = Agent()
+    result = agent("Create a profile for John who is a 25 year old dentist", structured_output_model=UserProfile)
+    assert result.structured_output.name == "John"
+    assert result.structured_output.age == 25
+    assert result.structured_output.occupation == "dentist"

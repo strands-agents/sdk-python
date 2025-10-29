@@ -4,6 +4,7 @@ import json
 import os
 import textwrap
 import unittest.mock
+import warnings
 from uuid import uuid4
 
 import pytest
@@ -16,6 +17,8 @@ from strands.agent.conversation_manager.null_conversation_manager import NullCon
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.state import AgentState
 from strands.handlers.callback_handler import PrintingCallbackHandler, null_callback_handler
+from strands.hooks import BeforeToolCallEvent
+from strands.interrupt import Interrupt
 from strands.models.bedrock import DEFAULT_BEDROCK_MODEL_ID, BedrockModel
 from strands.session.repository_session_manager import RepositorySessionManager
 from strands.telemetry.tracer import serialize
@@ -326,6 +329,7 @@ def test_agent__call__(
                 ],
                 [tool.tool_spec],
                 system_prompt,
+                tool_choice=None,
             ),
             unittest.mock.call(
                 [
@@ -362,6 +366,7 @@ def test_agent__call__(
                 ],
                 [tool.tool_spec],
                 system_prompt,
+                tool_choice=None,
             ),
         ],
     )
@@ -481,6 +486,7 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
         expected_messages,
         unittest.mock.ANY,
         unittest.mock.ANY,
+        tool_choice=None,
     )
 
     conversation_manager_spy.reduce_context.assert_called_once()
@@ -624,6 +630,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
         expected_messages,
         unittest.mock.ANY,
         unittest.mock.ANY,
+        tool_choice=None,
     )
 
     assert conversation_manager_spy.reduce_context.call_count == 2
@@ -885,10 +892,6 @@ def test_agent_tool_names(tools, agent):
     expected = list(agent.tool_registry.get_all_tools_config().keys())
 
     assert actual == expected
-
-
-def test_agent__del__(agent):
-    del agent
 
 
 def test_agent_init_with_no_model_or_model_id():
@@ -1877,3 +1880,283 @@ def test_agent_tool_call_parameter_filtering_integration(mock_randint):
     assert '"action": "test_value"' in tool_call_text
     assert '"agent"' not in tool_call_text
     assert '"extra_param"' not in tool_call_text
+
+
+def test_agent__call__handles_none_invocation_state(mock_model, agent):
+    """Test that agent handles None invocation_state without AttributeError."""
+    mock_model.mock_stream.return_value = [
+        {"contentBlockDelta": {"delta": {"text": "test response"}}},
+        {"contentBlockStop": {}},
+    ]
+
+    # This should not raise AttributeError: 'NoneType' object has no attribute 'get'
+    result = agent("test", invocation_state=None)
+
+    assert result.message["content"][0]["text"] == "test response"
+    assert result.stop_reason == "end_turn"
+
+
+def test_agent__call__invocation_state_with_kwargs_deprecation_warning(agent, mock_event_loop_cycle):
+    """Test that kwargs trigger deprecation warning and are merged correctly with invocation_state."""
+
+    async def check_invocation_state(**kwargs):
+        invocation_state = kwargs["invocation_state"]
+        # Should have nested structure when both invocation_state and kwargs are provided
+        assert invocation_state["invocation_state"] == {"my": "state"}
+        assert invocation_state["other_kwarg"] == "foobar"
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
+
+    mock_event_loop_cycle.side_effect = check_invocation_state
+
+    with warnings.catch_warnings(record=True) as captured_warnings:
+        warnings.simplefilter("always")
+        agent("hello!", invocation_state={"my": "state"}, other_kwarg="foobar")
+
+    # Verify deprecation warning was issued
+    assert len(captured_warnings) == 1
+    assert issubclass(captured_warnings[0].category, UserWarning)
+    assert "`**kwargs` parameter is deprecating, use `invocation_state` instead." in str(captured_warnings[0].message)
+
+
+def test_agent__call__invocation_state_only_no_warning(agent, mock_event_loop_cycle):
+    """Test that using only invocation_state does not trigger warning and passes state directly."""
+
+    async def check_invocation_state(**kwargs):
+        invocation_state = kwargs["invocation_state"]
+
+        assert invocation_state["my"] == "state"
+        assert "agent" in invocation_state
+        yield EventLoopStopEvent("stop", {"role": "assistant", "content": [{"text": "Response"}]}, {}, {})
+
+    mock_event_loop_cycle.side_effect = check_invocation_state
+
+    with warnings.catch_warnings(record=True) as captured_warnings:
+        warnings.simplefilter("always")
+        agent("hello!", invocation_state={"my": "state"})
+
+    assert len(captured_warnings) == 0
+
+
+def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
+    tool_use_message = {
+        "role": "assistant",
+        "content": [
+            {
+                "toolUse": {
+                    "toolUseId": "t1",
+                    "name": "tool_decorated",
+                    "input": {"random_string": "test input"},
+                }
+            },
+        ],
+    }
+    agent = Agent(
+        messages=[tool_use_message],
+        model=mock_model,
+        tools=[tool_decorated],
+    )
+
+    interrupt = Interrupt(
+        id="v1:before_tool_call:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
+        name="test_name",
+        reason="test reason",
+    )
+
+    agent._interrupt_state.activate(context={"tool_use_message": tool_use_message, "tool_results": []})
+    agent._interrupt_state.interrupts[interrupt.id] = interrupt
+
+    interrupt_response = {}
+
+    def interrupt_callback(event):
+        interrupt_response["response"] = event.interrupt("test_name", "test reason")
+
+    agent.hooks.add_callback(BeforeToolCallEvent, interrupt_callback)
+
+    mock_model.mock_stream.return_value = agenerator(
+        [
+            {"contentBlockStart": {"start": {"text": ""}}},
+            {"contentBlockDelta": {"delta": {"text": "resumed"}}},
+            {"contentBlockStop": {}},
+        ]
+    )
+
+    prompt = [
+        {
+            "interruptResponse": {
+                "interruptId": interrupt.id,
+                "response": "test response",
+            }
+        }
+    ]
+    agent(prompt)
+
+    tru_result_message = agent.messages[-2]
+    exp_result_message = {
+        "role": "user",
+        "content": [
+            {
+                "toolResult": {
+                    "toolUseId": "t1",
+                    "status": "success",
+                    "content": [{"text": "test input"}],
+                },
+            },
+        ],
+    }
+    assert tru_result_message == exp_result_message
+
+    tru_response = interrupt_response["response"]
+    exp_response = "test response"
+    assert tru_response == exp_response
+
+    tru_state = agent._interrupt_state.to_dict()
+    exp_state = {
+        "activated": False,
+        "context": {},
+        "interrupts": {},
+    }
+    assert tru_state == exp_state
+
+
+def test_agent__call__resume_interrupt_invalid_prompt():
+    agent = Agent()
+    agent._interrupt_state.activated = True
+
+    exp_message = r"prompt_type=<class 'str'> \| must resume from interrupt with list of interruptResponse's"
+    with pytest.raises(TypeError, match=exp_message):
+        agent("invalid")
+
+
+def test_agent__call__resume_interrupt_invalid_content():
+    agent = Agent()
+    agent._interrupt_state.activated = True
+
+    exp_message = r"content_types=<\['text'\]> \| must resume from interrupt with list of interruptResponse's"
+    with pytest.raises(TypeError, match=exp_message):
+        agent([{"text": "invalid"}])
+
+
+def test_agent__call__resume_interrupt_invalid_id():
+    agent = Agent()
+    agent._interrupt_state.activated = True
+
+    exp_message = r"interrupt_id=<invalid> \| no interrupt found"
+    with pytest.raises(KeyError, match=exp_message):
+        agent([{"interruptResponse": {"interruptId": "invalid", "response": None}}])
+
+
+def test_agent_structured_output_interrupt(user):
+    agent = Agent()
+    agent._interrupt_state.activated = True
+
+    exp_message = r"cannot call structured output during interrupt"
+    with pytest.raises(RuntimeError, match=exp_message):
+        agent.structured_output(type(user), "invalid")
+
+
+def test_agent_tool_caller_interrupt():
+    @strands.tool(context=True)
+    def test_tool(tool_context):
+        tool_context.interrupt("test-interrupt")
+
+    agent = Agent(tools=[test_tool])
+
+    exp_message = r"cannot raise interrupt in direct tool call"
+    with pytest.raises(RuntimeError, match=exp_message):
+        agent.tool.test_tool(agent=agent)
+
+    tru_state = agent._interrupt_state.to_dict()
+    exp_state = {
+        "activated": False,
+        "context": {},
+        "interrupts": {},
+    }
+    assert tru_state == exp_state
+
+    tru_messages = agent.messages
+    exp_messages = []
+    assert tru_messages == exp_messages
+
+
+def test_agent_tool_caller_interrupt_activated():
+    agent = Agent()
+    agent._interrupt_state.activated = True
+
+    exp_message = r"cannot directly call tool during interrupt"
+    with pytest.raises(RuntimeError, match=exp_message):
+        agent.tool.test_tool()
+
+
+def test_latest_message_tool_use_skips_model_invoke(tool_decorated):
+    mock_model = MockedModelProvider([{"role": "assistant", "content": [{"text": "I see the tool result"}]}])
+
+    messages: Messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "123", "name": "tool_decorated", "input": {"random_string": "Hello"}}}
+            ],
+        }
+    ]
+    agent = Agent(model=mock_model, tools=[tool_decorated], messages=messages)
+
+    agent()
+
+    assert mock_model.index == 1
+    assert len(agent.messages) == 3
+    assert agent.messages[1]["content"][0]["toolResult"]["content"][0]["text"] == "Hello"
+    assert agent.messages[2]["content"][0]["text"] == "I see the tool result"
+
+
+def test_agent_del_before_tool_registry_set():
+    """Test that Agent.__del__ doesn't fail if called before tool_registry is set."""
+    agent = Agent()
+    del agent.tool_registry
+    agent.__del__()  # Should not raise
+
+
+def test_agent__call__invalid_tool_name():
+    @strands.tool
+    def shell(command: str):
+        pass
+
+    model = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "tool_use_id",
+                            "name": "invalid tool",
+                            "input": "{}",
+                        }
+                    }
+                ],
+            },
+            {"role": "assistant", "content": [{"text": "I invoked a tool!"}]},
+        ]
+    )
+
+    agent = Agent(tools=[shell], model=model)
+    result = agent("Test")
+
+    # Ensure the stop_reason is
+    assert result.stop_reason == "end_turn"
+
+    # Assert that there exists a message with a toolResponse
+    assert agent.messages[-2] == {
+        "content": [
+            {
+                "toolResult": {
+                    "content": [{"text": "Error: tool_name=<invalid tool> | invalid tool name pattern"}],
+                    "status": "error",
+                    "toolUseId": "tool_use_id",
+                }
+            }
+        ],
+        "role": "user",
+    }
+
+    # And that it continued to the LLM call
+    assert agent.messages[-1] == {"content": [{"text": "I invoked a tool!"}], "role": "assistant"}

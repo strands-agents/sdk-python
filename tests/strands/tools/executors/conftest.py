@@ -4,8 +4,10 @@ import unittest.mock
 import pytest
 
 import strands
+from strands.agent.interrupt import InterruptState
 from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent, HookRegistry
 from strands.tools.registry import ToolRegistry
+from strands.types.tools import ToolContext
 
 
 @pytest.fixture
@@ -78,12 +80,22 @@ def thread_tool(tool_events):
 
 
 @pytest.fixture
-def tool_registry(weather_tool, temperature_tool, exception_tool, thread_tool):
+def interrupt_tool():
+    @strands.tool(name="interrupt_tool", context=True)
+    def func(tool_context: ToolContext) -> str:
+        return tool_context.interrupt("test_name", reason="test reason")
+
+    return func
+
+
+@pytest.fixture
+def tool_registry(weather_tool, temperature_tool, exception_tool, thread_tool, interrupt_tool):
     registry = ToolRegistry()
     registry.register_tool(weather_tool)
     registry.register_tool(temperature_tool)
     registry.register_tool(exception_tool)
     registry.register_tool(thread_tool)
+    registry.register_tool(interrupt_tool)
     return registry
 
 
@@ -92,6 +104,7 @@ def agent(tool_registry, hook_registry):
     mock_agent = unittest.mock.Mock()
     mock_agent.tool_registry = tool_registry
     mock_agent.hooks = hook_registry
+    mock_agent._interrupt_state = InterruptState()
     return mock_agent
 
 
@@ -111,5 +124,5 @@ def cycle_span():
 
 
 @pytest.fixture
-def invocation_state():
-    return {}
+def invocation_state(agent):
+    return {"agent": agent}

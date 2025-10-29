@@ -18,12 +18,12 @@ import asyncio
 import copy
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Tuple
 
 from opentelemetry import trace as trace_api
 
+from .._async import run_async
 from ..agent import Agent
 from ..agent.state import AgentState
 from ..telemetry import get_tracer
@@ -399,12 +399,7 @@ class Graph(MultiAgentBase):
         if invocation_state is None:
             invocation_state = {}
 
-        def execute() -> GraphResult:
-            return asyncio.run(self.invoke_async(task, invocation_state))
-
-        with ThreadPoolExecutor() as executor:
-            future = executor.submit(execute)
-            return future.result()
+        return run_async(lambda: self.invoke_async(task, invocation_state))
 
     async def invoke_async(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
@@ -572,11 +567,19 @@ class Graph(MultiAgentBase):
                 elif isinstance(node.executor, Agent):
                     if self.node_timeout is not None:
                         agent_response = await asyncio.wait_for(
-                            node.executor.invoke_async(node_input, **invocation_state),
+                            node.executor.invoke_async(node_input, invocation_state=invocation_state),
                             timeout=self.node_timeout,
                         )
                     else:
-                        agent_response = await node.executor.invoke_async(node_input, **invocation_state)
+                        agent_response = await node.executor.invoke_async(node_input, invocation_state=invocation_state)
+
+                    if agent_response.stop_reason == "interrupt":
+                        node.executor.messages.pop()  # remove interrupted tool use message
+                        node.executor._interrupt_state.deactivate()
+
+                        raise RuntimeError(
+                            "user raised interrupt from agent | interrupts are not yet supported in graphs"
+                        )
 
                     # Extract metrics from agent response
                     usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)

@@ -17,13 +17,14 @@ import copy
 import json
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Tuple
 
 from opentelemetry import trace as trace_api
 
-from ..agent import Agent, AgentResult
+from .._async import run_async
+from ..agent import Agent
+from ..agent.agent_result import AgentResult
 from ..agent.state import AgentState
 from ..telemetry import get_tracer
 from ..tools.decorator import tool
@@ -254,12 +255,7 @@ class Swarm(MultiAgentBase):
         if invocation_state is None:
             invocation_state = {}
 
-        def execute() -> SwarmResult:
-            return asyncio.run(self.invoke_async(task, invocation_state))
-
-        with ThreadPoolExecutor() as executor:
-            future = executor.submit(execute)
-            return future.result()
+        return run_async(lambda: self.invoke_async(task, invocation_state))
 
     async def invoke_async(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
@@ -635,8 +631,13 @@ class Swarm(MultiAgentBase):
             # Execute node
             result = None
             node.reset_executor_state()
-            # Unpacking since this is the agent class. Other executors should not unpack
-            result = await node.executor.invoke_async(node_input, **invocation_state)
+            result = await node.executor.invoke_async(node_input, invocation_state=invocation_state)
+
+            if result.stop_reason == "interrupt":
+                node.executor.messages.pop()  # remove interrupted tool use message
+                node.executor._interrupt_state.deactivate()
+
+                raise RuntimeError("user raised interrupt from agent | interrupts are not yet supported in swarms")
 
             execution_time = round((time.time() - start_time) * 1000)
 

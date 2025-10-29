@@ -1,5 +1,6 @@
 import os
 import sys
+import traceback
 import unittest.mock
 from unittest.mock import ANY
 
@@ -10,6 +11,7 @@ from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError, EventStreamError
 
 import strands
+from strands import _exception_notes
 from strands.models import BedrockModel
 from strands.models.bedrock import (
     _DEFAULT_BEDROCK_MODEL_ID,
@@ -531,6 +533,40 @@ async def test_stream_throttling_exception_from_general_exception(bedrock_client
     bedrock_client.converse_stream.assert_called_once_with(
         modelId="m1", messages=messages, system=[], inferenceConfig={}
     )
+
+
+@pytest.mark.asyncio
+async def test_stream_throttling_exception_lowercase(bedrock_client, model, messages, alist):
+    """Test that lowercase throttlingException is converted to ModelThrottledException."""
+    error_message = "throttlingException: Rate exceeded for ConverseStream"
+    bedrock_client.converse_stream.side_effect = ClientError(
+        {"Error": {"Message": error_message, "Code": "throttlingException"}}, "Any"
+    )
+
+    with pytest.raises(ModelThrottledException) as excinfo:
+        await alist(model.stream(messages))
+
+    assert error_message in str(excinfo.value)
+    bedrock_client.converse_stream.assert_called_once_with(
+        modelId="m1", messages=messages, system=[], inferenceConfig={}
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_throttling_exception_lowercase_non_streaming(bedrock_client, messages, alist):
+    """Test that lowercase throttlingException is converted to ModelThrottledException in non-streaming mode."""
+    error_message = "throttlingException: Rate exceeded for Converse"
+    bedrock_client.converse.side_effect = ClientError(
+        {"Error": {"Message": error_message, "Code": "throttlingException"}}, "Any"
+    )
+
+    model = BedrockModel(model_id="test-model", streaming=False)
+    with pytest.raises(ModelThrottledException) as excinfo:
+        await alist(model.stream(messages))
+
+    assert error_message in str(excinfo.value)
+    bedrock_client.converse.assert_called_once()
+    bedrock_client.converse_stream.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -1207,6 +1243,23 @@ async def test_add_note_on_client_error(bedrock_client, model, alist, messages):
         await alist(model.stream(messages))
 
     assert err.value.__notes__ == ["└ Bedrock region: us-west-2", "└ Model id: m1"]
+
+
+@pytest.mark.asyncio
+async def test_add_note_on_client_error_without_add_notes(bedrock_client, model, alist, messages):
+    """Test that when add_note is not used, the region & model are still included in the error output."""
+    with unittest.mock.patch.object(_exception_notes, "supports_add_note", False):
+        # Mock the client error response
+        error_response = {"Error": {"Code": "ValidationException", "Message": "Some error message"}}
+        bedrock_client.converse_stream.side_effect = ClientError(error_response, "ConversationStream")
+
+        # Call the stream method which should catch and add notes to the exception
+        with pytest.raises(ClientError) as err:
+            await alist(model.stream(messages))
+
+    error_str = "".join(traceback.format_exception(err.value))
+    assert "└ Bedrock region: us-west-2" in error_str
+    assert "└ Model id: m1" in error_str
 
 
 @pytest.mark.asyncio
