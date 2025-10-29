@@ -1,14 +1,17 @@
-"""Bidirectional model interface for real-time streaming conversations.
+"""Protocol interface for real-time bidirectional streaming AI models.
 
-Defines the interface for models that support bidirectional streaming capabilities.
-Provides abstractions for different model providers with connection-based communication
-patterns that support real-time audio and text interaction.
+This module defines the BaseModel protocol that standardizes how AI models handle
+real-time, two-way communication with audio, text, images, and tool interactions.
+It abstracts provider-specific implementations (Gemini Live, Nova Sonic, OpenAI Realtime)
+into a unified interface for seamless integration.
 
-Features:
-- connection-based persistent connections
-- Real-time bidirectional communication
-- Provider-agnostic event normalization
-- Tool execution integration
+The protocol enables:
+- Persistent streaming connections with automatic reconnection
+- Real-time audio input/output with interruption support
+- Multi-modal content (text, audio, images) in both directions
+- Function calling and tool execution during conversations
+- Standardized event formats across different AI providers
+- Async/await patterns for non-blocking operations
 """
 
 from typing import AsyncIterable, Protocol, Union
@@ -24,10 +27,19 @@ from ..types.bidirectional_streaming import (
 
 
 class BaseModel(Protocol):
-    """Unified interface for bidirectional streaming models.
+    """Protocol defining the interface for real-time bidirectional AI models.
 
-    Combines model configuration and session communication in a single abstraction.
-    Providers implement this directly without separate model/session classes.
+    This protocol standardizes how AI models handle persistent streaming connections
+    for real-time conversations with audio, text, images, and tool interactions.
+    Implementations handle provider-specific connection management, event processing,
+    and content serialization while exposing a consistent async interface.
+
+    Models implementing this protocol support:
+    - WebSocket or streaming API connections
+    - Real-time audio input/output with voice activity detection
+    - Multi-modal content streaming (text, audio, images)
+    - Function calling and tool execution
+    - Interruption handling and conversation state management
     """
 
     async def connect(
