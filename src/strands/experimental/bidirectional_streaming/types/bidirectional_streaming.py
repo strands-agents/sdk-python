@@ -139,6 +139,38 @@ class UsageMetricsEvent(TypedDict):
     audioTokens: Optional[int]
 
 
+class VoiceActivityEvent(TypedDict):
+    """Voice activity detection event for speech monitoring.
+
+    Provides standardized voice activity detection events across providers
+    to enable speech-aware applications and better conversation flow.
+
+    Attributes:
+        activityType: Type of voice activity detected.
+    """
+
+    activityType: Literal["speech_started", "speech_stopped", "timeout"]
+
+
+class UsageMetricsEvent(TypedDict):
+    """Token usage and performance tracking.
+
+    Provides standardized usage metrics across providers for cost monitoring
+    and performance optimization.
+
+    Attributes:
+        totalTokens: Total tokens used in the interaction.
+        inputTokens: Tokens used for input processing.
+        outputTokens: Tokens used for output generation.
+        audioTokens: Tokens used specifically for audio processing.
+    """
+
+    totalTokens: Optional[int]
+    inputTokens: Optional[int]
+    outputTokens: Optional[int]
+    audioTokens: Optional[int]
+
+
 class BidirectionalStreamEvent(StreamEvent, total=False):
     """Bidirectional stream event extending existing StreamEvent.
 
@@ -152,6 +184,7 @@ class BidirectionalStreamEvent(StreamEvent, total=False):
         interruptionDetected: User interruption detection.
         BidirectionalConnectionStart: connection start event.
         BidirectionalConnectionEnd: connection end event.
+        voiceActivity: Voice activity detection events.
         usageMetrics: Token usage and performance metrics.
     """
 
@@ -161,5 +194,5 @@ class BidirectionalStreamEvent(StreamEvent, total=False):
     interruptionDetected: Optional[InterruptionDetectedEvent]
     BidirectionalConnectionStart: Optional[BidirectionalConnectionStartEvent]
     BidirectionalConnectionEnd: Optional[BidirectionalConnectionEndEvent]
+    voiceActivity: Optional[VoiceActivityEvent]
     usageMetrics: Optional[UsageMetricsEvent]
-

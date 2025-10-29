@@ -23,7 +23,7 @@ from typing import AsyncIterable
 
 from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
 from aws_sdk_bedrock_runtime.config import Config, HTTPAuthSchemeResolver, SigV4AuthScheme
-from aws_sdk_bedrock_runtime.models import BidirectionalInputPayloadPart, InvokeModelWithBidirectionalStreamInputChunk
+from aws_sdk_bedrock_runtime.models import BidirectionalInputPayloadPart, InvokeModelWithBidirectionalStreamInputChunk, InvokeModelWithBidirectionalStreamOperationOutput
 from smithy_aws_core.identity.environment import EnvironmentCredentialsResolver
 
 from ....types.content import Messages
@@ -35,9 +35,8 @@ from ..types.bidirectional_streaming import (
     BidirectionalConnectionStartEvent,
     InterruptionDetectedEvent,
     TextOutputEvent,
-    UsageMetricsEvent
+    UsageMetricsEvent,
 )
-
 from .bidirectional_model import BidirectionalModel, BidirectionalModelSession
 
 logger = logging.getLogger(__name__)
@@ -81,11 +80,11 @@ class NovaSonicSession(BidirectionalModelSession):
     interface.
     """
 
-    def __init__(self, stream: any, config: dict[str, any]) -> None:
+    def __init__(self, stream: InvokeModelWithBidirectionalStreamOperationOutput, config: dict[str, any]) -> None:
         """Initialize Nova Sonic connection.
 
         Args:
-            stream: Nova Sonic bidirectional stream.
+            stream: Nova Sonic bidirectional stream operation output from AWS SDK.
             config: Model configuration.
         """
         self.stream = stream
@@ -487,14 +486,14 @@ class NovaSonicSession(BidirectionalModelSession):
 
             return {"interruptionDetected": interruption}
 
-        # Handle usage events (ignore)
+        # Handle usage events - convert to standardized format
         elif "usageEvent" in nova_event:
             usage_data = nova_event["usageEvent"]
             usage_metrics: UsageMetricsEvent = {
-                "totalTokens": usage_data.get("totalTokens"),
-                "inputTokens": usage_data.get("totalInputTokens"),
-                "outputTokens": usage_data.get("totalOutputTokens"),
-                "audioTokens": usage_data.get("details", {}).get("total", {}).get("output", {}).get("speechTokens"),
+                "totalTokens": usage_data.get("totalTokens", 0),
+                "inputTokens": usage_data.get("totalInputTokens", 0),
+                "outputTokens": usage_data.get("totalOutputTokens", 0),
+                "audioTokens": usage_data.get("details", {}).get("total", {}).get("output", {}).get("speechTokens", 0)
             }
             return {"usageMetrics": usage_metrics}
 

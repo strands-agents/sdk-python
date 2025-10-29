@@ -13,6 +13,8 @@ from .bidirectional_streaming import (
     BidirectionalStreamEvent,
     InterruptionDetectedEvent,
     TextOutputEvent,
+    UsageMetricsEvent,
+    VoiceActivityEvent,
 )
 
 __all__ = [
@@ -23,6 +25,8 @@ __all__ = [
     "BidirectionalStreamEvent",
     "InterruptionDetectedEvent",
     "TextOutputEvent",
+    "UsageMetricsEvent",
+    "VoiceActivityEvent",
     "SUPPORTED_AUDIO_FORMATS",
     "SUPPORTED_SAMPLE_RATES",
     "SUPPORTED_CHANNELS",

@@ -54,12 +54,24 @@ sagemaker = [
     "boto3-stubs[sagemaker-runtime]>=1.26.0,<2.0.0",
     "openai>=1.68.0,<2.0.0",  # SageMaker uses OpenAI-compatible interface
 ]
+bidirectional-streaming-nova = [
+    "pyaudio>=0.2.13",
+    "rx>=3.2.0",
+    "smithy-aws-core>=0.0.1",
+    "pytz",
+    "aws_sdk_bedrock_runtime",
+]
+bidirectional-streaming-openai = [
+    "pyaudio>=0.2.13",
+    "websockets>=12.0,<14.0",
+]
 bidirectional-streaming = [
     "pyaudio>=0.2.13",
     "rx>=3.2.0",
     "smithy-aws-core>=0.0.1",
     "pytz",
     "aws_sdk_bedrock_runtime",
+    "websockets>=12.0,<14.0",
 ]
 otel = ["opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0"]
 docs = [
