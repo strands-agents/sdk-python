@@ -33,7 +33,7 @@ from ..types.bidirectional_streaming import (
     TextOutputEvent,
     TranscriptEvent,
 )
-from .bidirectional_model import BidirectionalModel, BidirectionalModelSession
+from .base_model import BaseModel
 
 logger = logging.getLogger(__name__)
 

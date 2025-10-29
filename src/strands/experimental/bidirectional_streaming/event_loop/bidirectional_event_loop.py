@@ -21,7 +21,7 @@ from ....telemetry.metrics import Trace
 from ....types._events import ToolResultEvent, ToolStreamEvent
 from ....types.content import Message
 from ....types.tools import ToolResult, ToolUse
-from ..models.bidirectional_model import BidirectionalModelSession
+from ..models.base_model import BaseModel
 
 logger = logging.getLogger(__name__)
 

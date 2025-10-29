@@ -87,6 +87,16 @@ class ImageInputEvent(TypedDict):
     mimeType: str
     encoding: Literal["base64", "raw"]
 
+class TextInputEvent(TypedDict):
+    """Text input event for sending text messages to the model.
+
+    Used for sending text messages through the send() method.
+
+    Attributes:
+        text: The text content to send to the model.
+    """
+
+    text: str
 
 class TextOutputEvent(TypedDict):
     """Text output event from the model during bidirectional streaming.

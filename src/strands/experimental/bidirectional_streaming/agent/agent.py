@@ -30,7 +30,7 @@ from ....types.content import Message, Messages
 from ....types.tools import ToolResult, ToolUse
 from ....types.traces import AttributeValue
 from ..event_loop.bidirectional_event_loop import start_bidirectional_connection, stop_bidirectional_connection
-from ..models.bidirectional_model import BidirectionalModel
+from ..models.base_model import BaseModel
 from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent, ImageInputEvent
 
 logger = logging.getLogger(__name__)
