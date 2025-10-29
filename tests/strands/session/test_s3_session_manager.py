@@ -388,86 +388,62 @@ def mock_multi_agent():
     return mock
 
 
-@pytest.fixture
-def multi_agent_session():
-    """Create sample multi-agent session for testing."""
-    return Session(
-        session_id="test-multi-session",
-        session_type=SessionType.MULTI_AGENT,
-    )
-
-
-@pytest.fixture
-def multi_agent_manager(mocked_aws, s3_bucket):
-    """Create S3SessionManager with multi-agent session type."""
-    yield S3SessionManager(
-        session_id="test-multi",
-        bucket=s3_bucket,
-        prefix="sessions/",
-        region_name="us-west-2",
-        session_type=SessionType.MULTI_AGENT,
-    )
-
-
-def test_create_multi_agent(multi_agent_manager, multi_agent_session, mock_multi_agent):
+def test_create_multi_agent(s3_manager, sample_session, mock_multi_agent):
     """Test creating multi-agent state in S3."""
-    multi_agent_manager.create_session(multi_agent_session)
-    multi_agent_manager.create_multi_agent(multi_agent_session.session_id, mock_multi_agent)
+    s3_manager.create_session(sample_session)
+    s3_manager.create_multi_agent(sample_session.session_id, mock_multi_agent)
 
     # Verify S3 object created
-    key = (
-        f"{multi_agent_manager._get_multi_agent_path(multi_agent_session.session_id, mock_multi_agent.id)}"
-        f"multi_agent.json"
-    )
-    response = multi_agent_manager.client.get_object(Bucket=multi_agent_manager.bucket, Key=key)
+    key = f"{s3_manager._get_multi_agent_path(sample_session.session_id, mock_multi_agent.id)}multi_agent.json"
+    response = s3_manager.client.get_object(Bucket=s3_manager.bucket, Key=key)
     data = json.loads(response["Body"].read().decode("utf-8"))
 
     assert data["id"] == mock_multi_agent.id
     assert data["state"] == mock_multi_agent.state
 
 
-def test_read_multi_agent(multi_agent_manager, multi_agent_session, mock_multi_agent):
+def test_read_multi_agent(s3_manager, sample_session, mock_multi_agent):
     """Test reading multi-agent state from S3."""
     # Create session and multi-agent
-    multi_agent_manager.create_session(multi_agent_session)
-    multi_agent_manager.create_multi_agent(multi_agent_session.session_id, mock_multi_agent)
+    s3_manager.create_session(sample_session)
+    s3_manager.create_multi_agent(sample_session.session_id, mock_multi_agent)
 
     # Read multi-agent
-    result = multi_agent_manager.read_multi_agent(multi_agent_session.session_id, mock_multi_agent.id)
+    result = s3_manager.read_multi_agent(sample_session.session_id, mock_multi_agent.id)
 
     assert result["id"] == mock_multi_agent.id
     assert result["state"] == mock_multi_agent.state
 
 
-def test_read_nonexistent_multi_agent(multi_agent_manager, multi_agent_session):
+def test_read_nonexistent_multi_agent(s3_manager, sample_session):
     """Test reading multi-agent state that doesn't exist."""
-    multi_agent_manager.create_session(multi_agent_session)
-    result = multi_agent_manager.read_multi_agent(multi_agent_session.session_id, "nonexistent")
+    s3_manager.create_session(sample_session)
+    result = s3_manager.read_multi_agent(sample_session.session_id, "nonexistent")
     assert result is None
 
 
-def test_update_multi_agent(multi_agent_manager, multi_agent_session, mock_multi_agent):
+def test_update_multi_agent(s3_manager, sample_session, mock_multi_agent):
     """Test updating multi-agent state in S3."""
     # Create session and multi-agent
-    multi_agent_manager.create_session(multi_agent_session)
-    multi_agent_manager.create_multi_agent(multi_agent_session.session_id, mock_multi_agent)
+    s3_manager.create_session(sample_session)
+    s3_manager.create_multi_agent(sample_session.session_id, mock_multi_agent)
 
     updated_mock = Mock()
     updated_mock.id = mock_multi_agent.id
     updated_mock.serialize_state.return_value = {"id": mock_multi_agent.id, "state": {"updated": "value"}}
-    multi_agent_manager.update_multi_agent(multi_agent_session.session_id, updated_mock)
+    s3_manager.update_multi_agent(sample_session.session_id, updated_mock)
 
     # Verify update
-    result = multi_agent_manager.read_multi_agent(multi_agent_session.session_id, mock_multi_agent.id)
+    result = s3_manager.read_multi_agent(sample_session.session_id, mock_multi_agent.id)
     assert result["state"] == {"updated": "value"}
 
 
-def test_update_nonexistent_multi_agent(multi_agent_manager, multi_agent_session):
+def test_update_nonexistent_multi_agent(s3_manager, sample_session):
     """Test updating multi-agent state that doesn't exist."""
     # Create session
-    multi_agent_manager.create_session(multi_agent_session)
+    s3_manager.create_session(sample_session)
 
     nonexistent_mock = Mock()
     nonexistent_mock.id = "nonexistent"
     with pytest.raises(SessionException):
-        multi_agent_manager.update_multi_agent(multi_agent_session.session_id, nonexistent_mock)
+        s3_manager.update_multi_agent(sample_session.session_id, nonexistent_mock)

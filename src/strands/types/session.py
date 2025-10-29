@@ -17,12 +17,11 @@ if TYPE_CHECKING:
 class SessionType(str, Enum):
     """Enumeration of session types.
 
-    As sessions are expanded to support new usecases like multi-agent patterns,
+    As sessions are expanded to support new use cases like multi-agent patterns,
     new types will be added here.
     """
 
     AGENT = "AGENT"
-    MULTI_AGENT = "MULTI_AGENT"
 
 
 def encode_bytes_values(obj: Any) -> Any:

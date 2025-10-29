@@ -12,7 +12,6 @@ from ..experimental.hooks.multiagent.events import (
 from ..hooks.events import AfterInvocationEvent, AgentInitializedEvent, MessageAddedEvent
 from ..hooks.registry import HookProvider, HookRegistry
 from ..types.content import Message
-from ..types.session import SessionType
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
@@ -30,37 +29,23 @@ class SessionManager(HookProvider, ABC):
     for an agent, and should be persisted in the session.
     """
 
-    def __init__(self, session_type: SessionType = SessionType.AGENT) -> None:
-        """Initialize SessionManager with session type.
-
-        Args:
-            session_type: Type of session (AGENT or MULTI_AGENT)
-        """
-        self.session_type: SessionType = session_type
-
     def register_hooks(self, registry: HookRegistry, **kwargs: Any) -> None:
         """Register hooks for persisting the agent to the session."""
-        if not hasattr(self, "session_type"):
-            self.session_type = SessionType.AGENT
-            logger.debug("Session type not set, defaulting to AGENT")
+        # After the normal Agent initialization behavior, call the session initialize function to restore the agent
+        registry.add_callback(AgentInitializedEvent, lambda event: self.initialize(event.agent))
 
-        if self.session_type == SessionType.MULTI_AGENT:
-            registry.add_callback(MultiAgentInitializedEvent, lambda event: self.initialize_multi_agent(event.source))
-            registry.add_callback(AfterNodeCallEvent, lambda event: self.sync_multi_agent(event.source))
-            registry.add_callback(AfterMultiAgentInvocationEvent, lambda event: self.sync_multi_agent(event.source))
+        # For each message appended to the Agents messages, store that message in the session
+        registry.add_callback(MessageAddedEvent, lambda event: self.append_message(event.message, event.agent))
 
-        else:
-            # After the normal Agent initialization behavior, call the session initialize function to restore the agent
-            registry.add_callback(AgentInitializedEvent, lambda event: self.initialize(event.agent))
+        # Sync the agent into the session for each message in case the agent state was updated
+        registry.add_callback(MessageAddedEvent, lambda event: self.sync_agent(event.agent))
 
-            # For each message appended to the Agents messages, store that message in the session
-            registry.add_callback(MessageAddedEvent, lambda event: self.append_message(event.message, event.agent))
+        # After an agent was invoked, sync it with the session to capture any conversation manager state updates
+        registry.add_callback(AfterInvocationEvent, lambda event: self.sync_agent(event.agent))
 
-            # Sync the agent into the session for each message in case the agent state was updated
-            registry.add_callback(MessageAddedEvent, lambda event: self.sync_agent(event.agent))
-
-            # After an agent was invoked, sync it with the session to capture any conversation manager state updates
-            registry.add_callback(AfterInvocationEvent, lambda event: self.sync_agent(event.agent))
+        registry.add_callback(MultiAgentInitializedEvent, lambda event: self.initialize_multi_agent(event.source))
+        registry.add_callback(AfterNodeCallEvent, lambda event: self.sync_multi_agent(event.source))
+        registry.add_callback(AfterMultiAgentInvocationEvent, lambda event: self.sync_multi_agent(event.source))
 
     @abstractmethod
     def redact_latest_message(self, redact_message: Message, agent: "Agent", **kwargs: Any) -> None:

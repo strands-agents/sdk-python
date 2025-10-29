@@ -29,8 +29,6 @@ class RepositorySessionManager(SessionManager):
         self,
         session_id: str,
         session_repository: SessionRepository,
-        *,
-        session_type: SessionType = SessionType.AGENT,
         **kwargs: Any,
     ):
         """Initialize the RepositorySessionManager.
@@ -42,27 +40,22 @@ class RepositorySessionManager(SessionManager):
             session_id: ID to use for the session. A new session with this id will be created if it does
                 not exist in the repository yet
             session_repository: Underlying session repository to use to store the sessions state.
-            session_type: single agent or multiagent.
             **kwargs: Additional keyword arguments for future extensibility.
 
         """
-        super().__init__(session_type=session_type)
-
         self.session_repository = session_repository
         self.session_id = session_id
         session = session_repository.read_session(session_id)
         # Create a session if it does not exist yet
         if session is None:
             logger.debug("session_id=<%s> | session not found, creating new session", self.session_id)
-            session = Session(session_id=session_id, session_type=session_type)
+            session = Session(session_id=session_id, session_type=SessionType.AGENT)
             session_repository.create_session(session)
 
         self.session = session
-        self.session_type = session.session_type
 
         # Keep track of the latest message of each agent in case we need to redact it.
-        if self.session_type == SessionType.AGENT:
-            self._latest_agent_message: dict[str, Optional[SessionMessage]] = {}
+        self._latest_agent_message: dict[str, Optional[SessionMessage]] = {}
 
     def append_message(self, message: Message, agent: "Agent", **kwargs: Any) -> None:
         """Append a message to the agent's session.

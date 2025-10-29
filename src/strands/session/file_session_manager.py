@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 
 from .. import _identifier
 from ..types.exceptions import SessionException
-from ..types.session import Session, SessionAgent, SessionMessage, SessionType
+from ..types.session import Session, SessionAgent, SessionMessage
 from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
 
@@ -45,8 +45,6 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
         self,
         session_id: str,
         storage_dir: Optional[str] = None,
-        *,
-        session_type: SessionType = SessionType.AGENT,
         **kwargs: Any,
     ):
         """Initialize FileSession with filesystem storage.
@@ -55,13 +53,12 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
             session_id: ID for the session.
                 ID is not allowed to contain path separators (e.g., a/b).
             storage_dir: Directory for local filesystem storage (defaults to temp dir).
-            session_type: single agent or multiagent.
             **kwargs: Additional keyword arguments for future extensibility.
         """
         self.storage_dir = storage_dir or os.path.join(tempfile.gettempdir(), "strands/sessions")
         os.makedirs(self.storage_dir, exist_ok=True)
 
-        super().__init__(session_id=session_id, session_repository=self, session_type=session_type)
+        super().__init__(session_id=session_id, session_repository=self)
 
     def _get_session_path(self, session_id: str) -> str:
         """Get session directory path.
@@ -133,10 +130,9 @@ class FileSessionManager(RepositorySessionManager, SessionRepository):
 
         # Create directory structure
         os.makedirs(session_dir, exist_ok=True)
-        if self.session_type == SessionType.AGENT:
-            os.makedirs(os.path.join(session_dir, "agents"), exist_ok=True)
-        else:
-            os.makedirs(os.path.join(session_dir, "multi_agents"), exist_ok=True)
+        os.makedirs(os.path.join(session_dir, "agents"), exist_ok=True)
+        os.makedirs(os.path.join(session_dir, "multi_agents"), exist_ok=True)
+
         # Write session file
         session_file = os.path.join(session_dir, "session.json")
         session_dict = session.to_dict()

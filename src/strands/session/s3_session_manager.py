@@ -10,7 +10,7 @@ from botocore.exceptions import ClientError
 
 from .. import _identifier
 from ..types.exceptions import SessionException
-from ..types.session import Session, SessionAgent, SessionMessage, SessionType
+from ..types.session import Session, SessionAgent, SessionMessage
 from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
 
@@ -50,8 +50,6 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
         boto_session: Optional[boto3.Session] = None,
         boto_client_config: Optional[BotocoreConfig] = None,
         region_name: Optional[str] = None,
-        *,
-        session_type: SessionType = SessionType.AGENT,
         **kwargs: Any,
     ):
         """Initialize S3SessionManager with S3 storage.
@@ -64,7 +62,6 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             boto_session: Optional boto3 session
             boto_client_config: Optional boto3 client configuration
             region_name: AWS region for S3 storage
-            session_type: single agent or multiagent.
             **kwargs: Additional keyword arguments for future extensibility.
         """
         self.bucket = bucket
@@ -85,7 +82,7 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             client_config = BotocoreConfig(user_agent_extra="strands-agents")
 
         self.client = session.client(service_name="s3", config=client_config)
-        super().__init__(session_id=session_id, session_type=session_type, session_repository=self)
+        super().__init__(session_id=session_id, session_repository=self)
 
     def _get_session_path(self, session_id: str) -> str:
         """Get session S3 prefix.
