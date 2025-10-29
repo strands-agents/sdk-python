@@ -374,6 +374,7 @@ class Swarm(MultiAgentBase):
             finally:
                 self.state.execution_time = round((time.time() - start_time) * 1000)
                 self.hooks.invoke_callbacks(AfterMultiAgentInvocationEvent(self, invocation_state))
+                self._resume_from_session = False
 
             # Yield final result after execution_time is set
             result = self._build_result()

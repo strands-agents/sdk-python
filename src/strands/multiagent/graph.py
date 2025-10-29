@@ -329,7 +329,7 @@ class GraphBuilder:
         """Set graph id.
 
         Args:
-            graph_id: Unique graph id default to uuid4
+            graph_id: Unique graph id
         """
         self._id = graph_id
         return self
