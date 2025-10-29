@@ -177,7 +177,7 @@ class RepositorySessionManager(SessionManager):
         """
         state = self.session_repository.read_multi_agent(self.session_id, source.id, **kwargs)
         if state is None:
-            self.session_repository.create_multi_agent(self.session_id, source)
+            self.session_repository.create_multi_agent(self.session_id, source, **kwargs)
         else:
             logger.debug("session_id=<%s> | restoring multi-agent state", self.session_id)
             source.deserialize_state(state)
