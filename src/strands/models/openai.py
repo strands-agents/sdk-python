@@ -50,10 +50,13 @@ class OpenAIModel(Model):
             params: Model parameters (e.g., max_tokens).
                 For a complete list of supported parameters, see
                 https://platform.openai.com/docs/api-reference/chat/create.
+            streaming: Optional flag to indicate whether provider streaming should be used.
+                If omitted, defaults to True (preserves existing behaviour).
         """
 
         model_id: str
         params: Optional[dict[str, Any]]
+        streaming: bool | None
 
     def __init__(self, client_args: Optional[dict[str, Any]] = None, **model_config: Unpack[OpenAIConfig]) -> None:
         """Initialize provider instance.
@@ -263,7 +266,7 @@ class OpenAIModel(Model):
         return {
             "messages": self.format_request_messages(messages, system_prompt),
             "model": self.config["model_id"],
-            "stream": True,
+            "stream": self.config.get("streaming", True),
             "stream_options": {"include_usage": True},
             "tools": [
                 {
@@ -352,6 +355,68 @@ class OpenAIModel(Model):
             case _:
                 raise RuntimeError(f"chunk_type=<{event['chunk_type']} | unknown type")
 
+    def _convert_non_streaming_to_streaming(self, response: Any) -> list[StreamEvent]:
+        """Convert a provider non-streaming response into streaming-style events.
+
+        This helper intentionally *does not* emit the initial message_start/content_start events,
+        because the caller (stream) already yields them to preserve parity with streaming flow.
+        """
+        events: list[StreamEvent] = []
+
+        # Extract main text content from first choice if available
+        if getattr(response, "choices", None):
+            choice = response.choices[0]
+            content = None
+            if hasattr(choice, "message") and hasattr(choice.message, "content"):
+                content = choice.message.content
+
+            # handle str content
+            if isinstance(content, str):
+                events.append(self.format_chunk({"chunk_type": "content_delta", "data_type": "text", "data": content}))
+            # handle list content (list of blocks/dicts)
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict):
+                        # reasoning content
+                        if "reasoningContent" in block and isinstance(block["reasoningContent"], dict):
+                            try:
+                                text = block["reasoningContent"]["reasoningText"]["text"]
+                                events.append(
+                                    self.format_chunk(
+                                        {"chunk_type": "content_delta", "data_type": "reasoning_content", "data": text}
+                                    )
+                                )
+                            except Exception:
+                                # fall back to keeping the block as text if malformed
+                                pass
+                        # text block
+                        elif "text" in block:
+                            events.append(
+                                self.format_chunk(
+                                    {"chunk_type": "content_delta", "data_type": "text", "data": block["text"]}
+                                )
+                            )
+                        # ignore other block types for now
+                    elif isinstance(block, str):
+                        events.append(
+                            self.format_chunk({"chunk_type": "content_delta", "data_type": "text", "data": block})
+                        )
+
+        # content stop
+        events.append(self.format_chunk({"chunk_type": "content_stop"}))
+
+        # message stop — convert finish reason if available
+        stop_reason = None
+        if getattr(response, "choices", None):
+            stop_reason = getattr(response.choices[0], "finish_reason", None)
+        events.append(self.format_chunk({"chunk_type": "message_stop", "data": stop_reason or "stop"}))
+
+        # metadata (usage) if present
+        if getattr(response, "usage", None):
+            events.append(self.format_chunk({"chunk_type": "metadata", "data": response.usage}))
+
+        return events
+
     @override
     async def stream(
         self,
@@ -409,50 +474,63 @@ class OpenAIModel(Model):
 
             tool_calls: dict[int, list[Any]] = {}
 
-            async for event in response:
-                # Defensive: skip events with empty or missing choices
-                if not getattr(event, "choices", None):
-                    continue
-                choice = event.choices[0]
+            streaming = self.config.get("streaming", True)
 
-                if choice.delta.content:
+            if streaming:
+                # response is an async iterator when streaming=True
+                async for event in response:
+                    # Defensive: skip events with empty or missing choices
+                    if not getattr(event, "choices", None):
+                        continue
+                    choice = event.choices[0]
+
+                    if choice.delta.content:
+                        yield self.format_chunk(
+                            {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
+                        )
+
+                    if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
+                        yield self.format_chunk(
+                            {
+                                "chunk_type": "content_delta",
+                                "data_type": "reasoning_content",
+                                "data": choice.delta.reasoning_content,
+                            }
+                        )
+
+                    for tool_call in choice.delta.tool_calls or []:
+                        tool_calls.setdefault(tool_call.index, []).append(tool_call)
+
+                    if choice.finish_reason:
+                        break
+
+                yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
+
+                for tool_deltas in tool_calls.values():
                     yield self.format_chunk(
-                        {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
+                        {"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]}
                     )
 
-                if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
-                    yield self.format_chunk(
-                        {
-                            "chunk_type": "content_delta",
-                            "data_type": "reasoning_content",
-                            "data": choice.delta.reasoning_content,
-                        }
-                    )
+                    for tool_delta in tool_deltas:
+                        yield self.format_chunk(
+                            {"chunk_type": "content_delta", "data_type": "tool", "data": tool_delta}
+                        )
 
-                for tool_call in choice.delta.tool_calls or []:
-                    tool_calls.setdefault(tool_call.index, []).append(tool_call)
+                    yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
 
-                if choice.finish_reason:
-                    break
+                yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
 
-            yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
+                # Skip remaining events as we don't have use for anything except the final usage payload
+                async for event in response:
+                    _ = event
 
-            for tool_deltas in tool_calls.values():
-                yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]})
-
-                for tool_delta in tool_deltas:
-                    yield self.format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": tool_delta})
-
-                yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
-
-            yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
-
-            # Skip remaining events as we don't have use for anything except the final usage payload
-            async for event in response:
-                _ = event
-
-            if event.usage:
-                yield self.format_chunk({"chunk_type": "metadata", "data": event.usage})
+                if event.usage:
+                    yield self.format_chunk({"chunk_type": "metadata", "data": event.usage})
+            else:
+                # Non-streaming provider response — convert to streaming-style events (excluding the initial
+                # message_start/content_start because we already emitted them above).
+                for ev in self._convert_non_streaming_to_streaming(response):
+                    yield ev
 
         logger.debug("finished streaming response from model")
 

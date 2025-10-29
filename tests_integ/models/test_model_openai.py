@@ -221,3 +221,27 @@ def test_rate_limit_throttling_integration_no_retries(model):
         # Verify it's a rate limit error
         error_message = str(exc_info.value).lower()
         assert "rate limit" in error_message or "tokens per min" in error_message
+
+
+@pytest.mark.asyncio
+async def test_openai_non_streaming(alist):
+    """Integration test for non-streaming OpenAI responses."""
+    model = OpenAIModel(
+        model_id="gpt-4o-mini",
+        streaming=False,
+        client_args={"api_key": os.getenv("OPENAI_API_KEY")},
+    )
+
+    response_gen = model.stream([{"role": "user", "content": [{"text": "hi"}]}])
+    events = await alist(response_gen)
+
+    # In non-streaming mode, we expect a consolidated response converted to stream events.
+    # The exact number of events can vary slightly, but the core structure should be consistent.
+    assert len(events) >= 5, "Should receive at least 5 events for a non-streaming response"
+
+    assert events[0] == {"messageStart": {"role": "assistant"}}, "First event should be messageStart"
+    assert events[1] == {"contentBlockStart": {"start": {}}}, "Second event should be contentBlockStart"
+    assert "contentBlockDelta" in events[2], "Third event should be contentBlockDelta"
+    assert "text" in events[2]["contentBlockDelta"]["delta"], "Delta should contain text"
+    assert events[3] == {"contentBlockStop": {}}, "Fourth event should be contentBlockStop"
+    assert "messageStop" in events[4], "Fifth event should be messageStop"
