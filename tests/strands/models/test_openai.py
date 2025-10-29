@@ -801,6 +801,30 @@ def test_format_request_messages_excludes_reasoning_content():
 
 
 @pytest.mark.asyncio
+async def test_structured_output_context_overflow_exception(openai_client, model, messages, test_output_model_cls):
+    """Test that structured output also handles context overflow properly."""
+    # Create a mock OpenAI BadRequestError with context_length_exceeded code
+    mock_error = openai.BadRequestError(
+        message="This model's maximum context length is 4096 tokens. However, your messages resulted in 5000 tokens.",
+        response=unittest.mock.MagicMock(),
+        body={"error": {"code": "context_length_exceeded"}},
+    )
+    mock_error.code = "context_length_exceeded"
+
+    # Configure the mock client to raise the context overflow error
+    openai_client.beta.chat.completions.parse.side_effect = mock_error
+
+    # Test that the structured_output method converts the error properly
+    with pytest.raises(ContextWindowOverflowException) as exc_info:
+        async for _ in model.structured_output(test_output_model_cls, messages):
+            pass
+
+    # Verify the exception message contains the original error
+    assert "maximum context length" in str(exc_info.value)
+    assert exc_info.value.__cause__ == mock_error
+
+
+@pytest.mark.asyncio
 async def test_stream_context_overflow_exception(openai_client, model, messages):
     """Test that OpenAI context overflow errors are properly converted to ContextWindowOverflowException."""
     # Create a mock OpenAI BadRequestError with context_length_exceeded code

@@ -214,6 +214,12 @@ class OpenAIModel(Model):
         for message in messages:
             contents = message["content"]
 
+            # Check for reasoningContent and warn user
+            if any("reasoningContent" in content for content in contents):
+                logger.warning(
+                    "reasoningContent is not supported in multi-turn conversations with the Chat Completions API."
+                )
+
             formatted_contents = [
                 cls.format_request_message_content(content)
                 for content in contents
@@ -407,7 +413,6 @@ class OpenAIModel(Model):
             yield self.format_chunk({"chunk_type": "message_start"})
             tool_calls: dict[int, list[Any]] = {}
             data_type = None
-            choice = None  # Initialize for scope safety
             finish_reason = None  # Store finish_reason for later use
             event = None  # Initialize for scope safety
 
