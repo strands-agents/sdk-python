@@ -17,12 +17,12 @@ import copy
 import json
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable, Tuple, cast
 
 from opentelemetry import trace as trace_api
 
+from .._async import run_async
 from ..agent import Agent
 from ..agent.state import AgentState
 from ..telemetry import get_tracer
@@ -261,12 +261,7 @@ class Swarm(MultiAgentBase):
         if invocation_state is None:
             invocation_state = {}
 
-        def execute() -> SwarmResult:
-            return asyncio.run(self.invoke_async(task, invocation_state))
-
-        with ThreadPoolExecutor() as executor:
-            future = executor.submit(execute)
-            return future.result()
+        return run_async(lambda: self.invoke_async(task, invocation_state))
 
     async def invoke_async(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any

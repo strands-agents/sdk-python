@@ -192,3 +192,107 @@ async def test_swarm_streaming(alist):
     researcher_events = [e for e in events if e.get("node_id") == "researcher"]
     analyst_events = [e for e in events if e.get("node_id") == "analyst"]
     assert len(researcher_events) > 0 or len(analyst_events) > 0, "Expected events from at least one agent"
+
+
+@pytest.mark.asyncio
+async def test_swarm_node_result_contains_agent_result():
+    """Test that NodeResult properly contains AgentResult after swarm execution."""
+    from strands.agent.agent_result import AgentResult
+    from strands.multiagent.base import NodeResult
+
+    researcher = Agent(
+        name="researcher",
+        model="us.amazon.nova-pro-v1:0",
+        system_prompt="You are a researcher. Answer the question directly without handing off.",
+    )
+
+    swarm = Swarm([researcher])
+
+    # Execute the swarm
+    result = await swarm.invoke_async("What is 2 + 2?")
+
+    # Verify the result structure
+    assert result.status.value == "completed"
+    assert len(result.results) == 1
+    assert "researcher" in result.results
+
+    # Verify NodeResult contains AgentResult
+    node_result = result.results["researcher"]
+    assert isinstance(node_result, NodeResult)
+    assert isinstance(node_result.result, AgentResult)
+
+    # Verify AgentResult has expected attributes
+    agent_result = node_result.result
+    assert hasattr(agent_result, "message")
+    assert hasattr(agent_result, "stop_reason")
+    assert hasattr(agent_result, "metrics")
+    assert agent_result.message is not None
+    assert agent_result.stop_reason in ["end_turn", "max_tokens", "stop_sequence"]
+
+    # Verify metrics are properly accumulated
+    assert node_result.accumulated_usage["totalTokens"] > 0
+    assert node_result.accumulated_metrics["latencyMs"] > 0
+
+
+@pytest.mark.asyncio
+async def test_swarm_multiple_handoffs_with_agent_results():
+    """Test that multiple handoffs properly preserve AgentResult in each NodeResult."""
+    from strands.agent.agent_result import AgentResult
+
+    agent1 = Agent(
+        name="agent1",
+        model="us.amazon.nova-pro-v1:0",
+        system_prompt="You are agent1. Hand off to agent2 immediately.",
+    )
+    agent2 = Agent(
+        name="agent2",
+        model="us.amazon.nova-pro-v1:0",
+        system_prompt="You are agent2. Hand off to agent3 immediately.",
+    )
+    agent3 = Agent(
+        name="agent3",
+        model="us.amazon.nova-pro-v1:0",
+        system_prompt="You are agent3. Complete the task without handing off.",
+    )
+
+    swarm = Swarm([agent1, agent2, agent3])
+
+    # Execute the swarm
+    result = await swarm.invoke_async("Complete this task")
+
+    # Verify all agents executed
+    assert result.status.value == "completed"
+    assert len(result.node_history) >= 2  # At least 2 agents should have executed
+
+    # Verify each NodeResult contains a valid AgentResult
+    for node_id, node_result in result.results.items():
+        assert isinstance(node_result.result, AgentResult), f"Node {node_id} result is not an AgentResult"
+        assert node_result.result.message is not None, f"Node {node_id} AgentResult has no message"
+        assert node_result.accumulated_usage["totalTokens"] >= 0, f"Node {node_id} has invalid token usage"
+
+
+@pytest.mark.asyncio
+async def test_swarm_get_agent_results_flattening():
+    """Test that get_agent_results() properly extracts AgentResult objects from NodeResults."""
+    from strands.agent.agent_result import AgentResult
+
+    agent1 = Agent(
+        name="agent1",
+        model="us.amazon.nova-pro-v1:0",
+        system_prompt="You are agent1. Answer directly.",
+    )
+
+    swarm = Swarm([agent1])
+
+    # Execute the swarm
+    result = await swarm.invoke_async("What is the capital of France?")
+
+    # Verify we can extract AgentResults
+    assert "agent1" in result.results
+    node_result = result.results["agent1"]
+
+    # Test get_agent_results() method
+    agent_results = node_result.get_agent_results()
+    assert len(agent_results) == 1
+    assert isinstance(agent_results[0], AgentResult)
+    assert agent_results[0].message is not None

@@ -31,9 +31,9 @@ def validate_and_prepare_tools(
         try:
             validate_tool_use(tool)
         except InvalidToolUseNameException as e:
-            # Replace the invalid toolUse name and return invalid name error as ToolResult to the LLM as context
+            # Return invalid name error as ToolResult to the LLM as context
+            # The replacement of the tool name to INVALID_TOOL_NAME happens in streaming.py now
             tool_uses.remove(tool)
-            tool["name"] = "INVALID_TOOL_NAME"
             invalid_tool_use_ids.append(tool["toolUseId"])
             tool_uses.append(tool)
             tool_results.append(

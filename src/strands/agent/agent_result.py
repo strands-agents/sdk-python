@@ -4,7 +4,9 @@ This module defines the AgentResult class which encapsulates the complete respon
 """
 
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Sequence, cast
+
+from pydantic import BaseModel
 
 from ..interrupt import Interrupt
 from ..telemetry.metrics import EventLoopMetrics
@@ -22,6 +24,7 @@ class AgentResult:
         metrics: Performance metrics collected during processing.
         state: Additional state information from the event loop.
         interrupts: List of interrupts if raised by user.
+        structured_output: Parsed structured output when structured_output_model was specified.
     """
 
     stop_reason: StopReason
@@ -29,6 +32,7 @@ class AgentResult:
     metrics: EventLoopMetrics
     state: Any
     interrupts: Sequence[Interrupt] | None = None
+    structured_output: BaseModel | None = None
 
     def __str__(self) -> str:
         """Get the agent's last message as a string.
@@ -46,3 +50,34 @@ class AgentResult:
             if isinstance(item, dict) and "text" in item:
                 result += item.get("text", "") + "\n"
         return result
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "AgentResult":
+        """Rehydrate an AgentResult from persisted JSON.
+
+        Args:
+            data: Dictionary containing the serialized AgentResult data
+        Returns:
+            AgentResult instance
+        Raises:
+            TypeError: If the data format is invalid@
+        """
+        if data.get("type") != "agent_result":
+            raise TypeError(f"AgentResult.from_dict: unexpected type {data.get('type')!r}")
+
+        message = cast(Message, data.get("message"))
+        stop_reason = cast(StopReason, data.get("stop_reason"))
+
+        return cls(message=message, stop_reason=stop_reason, metrics=EventLoopMetrics(), state={})
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert this AgentResult to JSON-serializable dictionary.
+
+        Returns:
+            Dictionary containing serialized AgentResult data
+        """
+        return {
+            "type": "agent_result",
+            "message": self.message,
+            "stop_reason": self.stop_reason,
+        }

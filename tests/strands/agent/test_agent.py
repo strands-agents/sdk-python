@@ -329,6 +329,7 @@ def test_agent__call__(
                 ],
                 [tool.tool_spec],
                 system_prompt,
+                tool_choice=None,
             ),
             unittest.mock.call(
                 [
@@ -365,6 +366,7 @@ def test_agent__call__(
                 ],
                 [tool.tool_spec],
                 system_prompt,
+                tool_choice=None,
             ),
         ],
     )
@@ -484,6 +486,7 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
         expected_messages,
         unittest.mock.ANY,
         unittest.mock.ANY,
+        tool_choice=None,
     )
 
     conversation_manager_spy.reduce_context.assert_called_once()
@@ -627,6 +630,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
         expected_messages,
         unittest.mock.ANY,
         unittest.mock.ANY,
+        tool_choice=None,
     )
 
     assert conversation_manager_spy.reduce_context.call_count == 2
@@ -888,10 +892,6 @@ def test_agent_tool_names(tools, agent):
     expected = list(agent.tool_registry.get_all_tools_config().keys())
 
     assert actual == expected
-
-
-def test_agent__del__(agent):
-    del agent
 
 
 def test_agent_init_with_no_model_or_model_id():
@@ -1957,7 +1957,7 @@ def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
     )
 
     interrupt = Interrupt(
-        id="v1:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
+        id="v1:before_tool_call:t1:78714d6c-613c-5cf4-bf25-7037569941f9",
         name="test_name",
         reason="test reason",
     )
@@ -2054,10 +2054,109 @@ def test_agent_structured_output_interrupt(user):
         agent.structured_output(type(user), "invalid")
 
 
-def test_agent_tool_caller_interrupt(user):
+def test_agent_tool_caller_interrupt():
+    @strands.tool(context=True)
+    def test_tool(tool_context):
+        tool_context.interrupt("test-interrupt")
+
+    agent = Agent(tools=[test_tool])
+
+    exp_message = r"cannot raise interrupt in direct tool call"
+    with pytest.raises(RuntimeError, match=exp_message):
+        agent.tool.test_tool(agent=agent)
+
+    tru_state = agent._interrupt_state.to_dict()
+    exp_state = {
+        "activated": False,
+        "context": {},
+        "interrupts": {},
+    }
+    assert tru_state == exp_state
+
+    tru_messages = agent.messages
+    exp_messages = []
+    assert tru_messages == exp_messages
+
+
+def test_agent_tool_caller_interrupt_activated():
     agent = Agent()
     agent._interrupt_state.activated = True
 
     exp_message = r"cannot directly call tool during interrupt"
     with pytest.raises(RuntimeError, match=exp_message):
         agent.tool.test_tool()
+
+
+def test_latest_message_tool_use_skips_model_invoke(tool_decorated):
+    mock_model = MockedModelProvider([{"role": "assistant", "content": [{"text": "I see the tool result"}]}])
+
+    messages: Messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "123", "name": "tool_decorated", "input": {"random_string": "Hello"}}}
+            ],
+        }
+    ]
+    agent = Agent(model=mock_model, tools=[tool_decorated], messages=messages)
+
+    agent()
+
+    assert mock_model.index == 1
+    assert len(agent.messages) == 3
+    assert agent.messages[1]["content"][0]["toolResult"]["content"][0]["text"] == "Hello"
+    assert agent.messages[2]["content"][0]["text"] == "I see the tool result"
+
+
+def test_agent_del_before_tool_registry_set():
+    """Test that Agent.__del__ doesn't fail if called before tool_registry is set."""
+    agent = Agent()
+    del agent.tool_registry
+    agent.__del__()  # Should not raise
+
+
+def test_agent__call__invalid_tool_name():
+    @strands.tool
+    def shell(command: str):
+        pass
+
+    model = MockedModelProvider(
+        [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "tool_use_id",
+                            "name": "invalid tool",
+                            "input": "{}",
+                        }
+                    }
+                ],
+            },
+            {"role": "assistant", "content": [{"text": "I invoked a tool!"}]},
+        ]
+    )
+
+    agent = Agent(tools=[shell], model=model)
+    result = agent("Test")
+
+    # Ensure the stop_reason is
+    assert result.stop_reason == "end_turn"
+
+    # Assert that there exists a message with a toolResponse
+    assert agent.messages[-2] == {
+        "content": [
+            {
+                "toolResult": {
+                    "content": [{"text": "Error: tool_name=<invalid tool> | invalid tool name pattern"}],
+                    "status": "error",
+                    "toolUseId": "tool_use_id",
+                }
+            }
+        ],
+        "role": "user",
+    }
+
+    # And that it continued to the LLM call
+    assert agent.messages[-1] == {"content": [{"text": "I invoked a tool!"}], "role": "assistant"}

@@ -62,7 +62,8 @@ import docstring_parser
 from pydantic import BaseModel, Field, create_model
 from typing_extensions import override
 
-from ..types._events import ToolResultEvent, ToolStreamEvent
+from ..interrupt import InterruptException
+from ..types._events import ToolInterruptEvent, ToolResultEvent, ToolStreamEvent
 from ..types.tools import AgentTool, JSONSchema, ToolContext, ToolGenerator, ToolResult, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
@@ -492,6 +493,10 @@ class DecoratedFunctionTool(AgentTool, Generic[P, R]):
             else:
                 result = await asyncio.to_thread(self._tool_func, **validated_input)  # type: ignore
                 yield self._wrap_tool_result(tool_use_id, result)
+
+        except InterruptException as e:
+            yield ToolInterruptEvent(tool_use, [e.interrupt])
+            return
 
         except ValueError as e:
             # Special handling for validation errors

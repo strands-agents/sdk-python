@@ -19,6 +19,7 @@ from typing_extensions import TypedDict, Unpack, override
 from .._exception_notes import add_exception_note
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
+from ..tools._tool_helpers import noop_tool
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import (
     ContextWindowOverflowException,
@@ -204,6 +205,12 @@ class BedrockModel(Model):
         Returns:
             A Bedrock converse stream request.
         """
+        if not tool_specs:
+            has_tool_content = any(
+                any("toolUse" in block or "toolResult" in block for block in msg.get("content", [])) for msg in messages
+            )
+            if has_tool_content:
+                tool_specs = [noop_tool.tool_spec]
         return {
             "modelId": self.config["model_id"],
             "messages": self._format_bedrock_messages(messages),
@@ -708,7 +715,10 @@ class BedrockModel(Model):
         except ClientError as e:
             error_message = str(e)
 
-            if e.response["Error"]["Code"] == "ThrottlingException":
+            if (
+                e.response["Error"]["Code"] == "ThrottlingException"
+                or e.response["Error"]["Code"] == "throttlingException"
+            ):
                 raise ModelThrottledException(error_message) from e
 
             if any(overflow_message in error_message for overflow_message in BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES):
