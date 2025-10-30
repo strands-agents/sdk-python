@@ -138,6 +138,9 @@ class NovaSonicBidirectionalModel(BidirectionalModel):
             messages: Conversation history to initialize with.
             **kwargs: Additional configuration options.
         """
+        if self._active:
+            raise RuntimeError("Connection already active. Close the existing connection before creating a new one.")
+        
         logger.debug("Nova connection create - starting")
 
         try:

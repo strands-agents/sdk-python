@@ -185,6 +185,19 @@ async def test_connect_error_handling(mock_genai_client, model):
         await model.connect()
 
 
+@pytest.mark.asyncio
+async def test_connect_when_already_active(mock_genai_client, model):
+    """Test that connect() raises exception when already active."""
+    mock_client, _, _ = mock_genai_client
+    
+    # First connection
+    await model.connect()
+    
+    # Second connection attempt should raise
+    with pytest.raises(RuntimeError, match="Connection already active"):
+        await model.connect()
+
+
 # Send Method Tests
 
 

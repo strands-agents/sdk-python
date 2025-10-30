@@ -111,6 +111,20 @@ async def test_connect_sends_initialization_events(nova_model, mock_client, mock
 
 
 @pytest.mark.asyncio
+async def test_connect_when_already_active(nova_model, mock_client, mock_stream):
+    """Test that connect() raises exception when already active."""
+    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
+        nova_model._client = mock_client
+        
+        # First connection
+        await nova_model.connect()
+        
+        # Second connection attempt should raise
+        with pytest.raises(RuntimeError, match="Connection already active"):
+            await nova_model.connect()
+
+
+@pytest.mark.asyncio
 async def test_close_cleanup(nova_model, mock_client, mock_stream):
     """Test that close() properly cleans up resources."""
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):

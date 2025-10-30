@@ -208,6 +208,19 @@ async def test_connect_error_handling(mock_websockets_connect, model):
 
 
 @pytest.mark.asyncio
+async def test_connect_when_already_active(mock_websockets_connect, model):
+    """Test that connect() raises exception when already active."""
+    mock_connect, _ = mock_websockets_connect
+    
+    # First connection
+    await model.connect()
+    
+    # Second connection attempt should raise
+    with pytest.raises(RuntimeError, match="Connection already active"):
+        await model.connect()
+
+
+@pytest.mark.asyncio
 async def test_connect_with_organization_header(mock_websockets_connect, api_key):
     """Test connection includes organization header."""
     mock_connect, _ = mock_websockets_connect

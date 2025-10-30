@@ -1,11 +1,11 @@
 """Gemini Live API bidirectional model provider using official Google GenAI SDK.
 
-Implements the unified BidirectionalModel interface for Google's Gemini Live API using the
+Implements the BidirectionalModel interface for Google's Gemini Live API using the
 official Google GenAI SDK for simplified and robust WebSocket communication.
 
 Key improvements over custom WebSocket implementation:
 - Uses official google-genai SDK with native Live API support
-- Unified model interface (no separate session class)
+- Simplified session management with client.aio.live.connect()
 - Built-in tool integration and event handling
 - Automatic WebSocket connection management and error handling
 - Native support for audio/text streaming and interruption
@@ -45,7 +45,7 @@ GEMINI_CHANNELS = 1
 
 
 class GeminiLiveBidirectionalModel(BidirectionalModel):
-    """Unified Gemini Live API implementation using official Google GenAI SDK.
+    """Gemini Live API implementation using official Google GenAI SDK.
     
     Combines model configuration and connection state in a single class.
     Provides a clean interface to Gemini Live API using the official SDK,
@@ -101,6 +101,9 @@ class GeminiLiveBidirectionalModel(BidirectionalModel):
             messages: Conversation history to initialize with.
             **kwargs: Additional configuration options.
         """
+        if self._active:
+            raise RuntimeError("Connection already active. Close the existing connection before creating a new one.")
+        
         try:
             # Initialize connection state
             self.session_id = str(uuid.uuid4())
@@ -277,7 +280,7 @@ class GeminiLiveBidirectionalModel(BidirectionalModel):
             return None
     
     async def send(self, content: Union[TextInputEvent, ImageInputEvent, AudioInputEvent, ToolResult]) -> None:
-        """Unified send method for all content types.
+        """Unified send method for all content types. Sends the given inputs to Google Live API
         
         Dispatches to appropriate internal handler based on content type.
         
