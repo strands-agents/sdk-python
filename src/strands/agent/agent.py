@@ -213,7 +213,7 @@ class Agent:
 
     def __init__(
         self,
-        model: Model | str | None = None,
+        model: Union[Model, str, None] = None,
         messages: Optional[Messages] = None,
         tools: Optional[list[Union[str, dict[str, str], "ToolProvider", Any]]] = None,
         system_prompt: Optional[str | list[SystemContentBlock]] = None,
@@ -224,7 +224,7 @@ class Agent:
         conversation_manager: Optional[ConversationManager] = None,
         record_direct_tool_call: bool = True,
         load_tools_from_directory: bool = False,
-        trace_attributes: Mapping[str, AttributeValue] | None = None,
+        trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
         *,
         agent_id: Optional[str] = None,
         name: Optional[str] = None,
@@ -970,7 +970,7 @@ class Agent:
         
     def _initialize_system_prompt(
         self, system_prompt: str | list[SystemContentBlock] | None
-    ) -> tuple[str | None, list[SystemContentBlock]]:
+    ) -> tuple[str | None, list[SystemContentBlock] | None]:
         """Initialize system prompt fields from constructor input.
 
         Maintains backwards compatibility by keeping system_prompt as str when string input
@@ -978,19 +978,19 @@ class Agent:
 
         Maps system_prompt input to both string and content block representations:
         - If string: system_prompt=string, _system_prompt_content=[{text: string}]
-        - If list with single text element: system_prompt=text, _system_prompt_content=list
-        - If list (other cases): system_prompt=None, _system_prompt_content=list
-        - If None: system_prompt=None, _system_prompt_content=[]
+        - If list with text elements: system_prompt=concatenated_text, _system_prompt_content=list
+        - If list without text elements: system_prompt=None, _system_prompt_content=list
+        - If None: system_prompt=None, _system_prompt_content=None
         """
         if isinstance(system_prompt, str):
             return system_prompt, [{"text": system_prompt}]
         elif isinstance(system_prompt, list):
-            # If list has single element with text, also set system_prompt for backwards compatibility
-            if len(system_prompt) == 1 and "text" in system_prompt[0]:
-                return system_prompt[0]["text"], system_prompt
-            return None, system_prompt
+            # Concatenate all text elements for backwards compatibility, None if no text found
+            text_parts = [block["text"] for block in system_prompt if "text" in block]
+            system_prompt_str = "\n".join(text_parts) if text_parts else None
+            return system_prompt_str, system_prompt
         else:
-            return None, []
+            return None, None
 
     def _append_message(self, message: Message) -> None:
         """Appends a message to the agent's list of messages and invokes the callbacks for the MessageCreatedEvent."""

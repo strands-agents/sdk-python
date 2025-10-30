@@ -427,12 +427,11 @@ async def stream_messages(
 
     Args:
         model: Model provider.
+        system_prompt: The system prompt string, used for backwards compatibility with models that expect it.
         messages: List of messages to send.
         tool_specs: The list of tool specs.
-        system_prompt: Optional system prompt string for backwards compatibility.
         tool_choice: Optional tool choice constraint for forcing specific tool usage.
-        system_prompt_content: The system prompt content blocks to send.
-
+        system_prompt_content: The authoritative system prompt content blocks that always contains the system prompt data.
     Yields:
         The reason for stopping, the final message, and the usage metrics
     """
@@ -449,5 +448,5 @@ async def stream_messages(
         system_prompt_content=system_prompt_content,
     )
 
-    async for event in process_stream(chunks):
+    async for event in process_stream(chunks, start_time):
         yield event

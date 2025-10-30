@@ -191,9 +191,8 @@ class BedrockModel(Model):
         self,
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
-        tool_choice: ToolChoice | None = None,
         system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        tool_choice: ToolChoice | None = None,
     ) -> dict[str, Any]:
         """Format a Bedrock converse stream request.
 
@@ -632,7 +631,7 @@ class BedrockModel(Model):
         loop = asyncio.get_event_loop()
         queue: asyncio.Queue[Optional[StreamEvent]] = asyncio.Queue()
 
-        thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt, tool_choice, system_prompt_content)
+        thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt_content, tool_choice)
         task = asyncio.create_task(thread)
 
         while True:
@@ -649,9 +648,8 @@ class BedrockModel(Model):
         callback: Callable[..., None],
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
-        tool_choice: ToolChoice | None = None,
         system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        tool_choice: ToolChoice | None = None,
     ) -> None:
         """Stream conversation with the Bedrock model.
 
@@ -662,8 +660,8 @@ class BedrockModel(Model):
             callback: Function to send events to the main thread.
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
-            tool_choice: Selection strategy for tool invocation.
             system_prompt_content: System prompt content blocks to provide context to the model.
+            tool_choice: Selection strategy for tool invocation.
 
         Raises:
             ContextWindowOverflowException: If the input exceeds the model's context window.
@@ -671,7 +669,7 @@ class BedrockModel(Model):
         """
         try:
             logger.debug("formatting request")
-            request = self._format_request(messages, tool_specs, None, tool_choice, system_prompt_content)
+            request = self._format_request(messages, tool_specs, system_prompt_content, tool_choice)
             logger.debug("request=<%s>", request)
 
             logger.debug("invoking model")

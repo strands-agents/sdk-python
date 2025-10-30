@@ -2193,7 +2193,7 @@ def test_agent_multiple_blocks_system_prompt():
     ]
     agent = Agent(system_prompt=system_prompt_content)
     
-    assert agent.system_prompt is None
+    assert agent.system_prompt == "You are a helpful assistant.\nAdditional instructions."
     assert agent._system_prompt_content == system_prompt_content
 
 
@@ -2211,7 +2211,7 @@ def test_agent_none_system_prompt():
     agent = Agent(system_prompt=None)
     
     assert agent.system_prompt is None
-    assert agent._system_prompt_content == []
+    assert agent._system_prompt_content == None
 
 
 def test_agent_empty_list_system_prompt():
@@ -2270,7 +2270,7 @@ def test_agent_initialize_system_prompt_multiple_blocks_input():
     ]
     result = agent._initialize_system_prompt(input_blocks)
     
-    assert result == (None, input_blocks)
+    assert result == ("First block\nSecond block", input_blocks)
 
 
 def test_agent_initialize_system_prompt_single_non_text_block_input():
@@ -2287,7 +2287,7 @@ def test_agent_initialize_system_prompt_none_input():
     agent = Agent()
     result = agent._initialize_system_prompt(None)
     
-    assert result == (None, [])
+    assert result == (None, None)
 
 
 def test_agent_initialize_system_prompt_empty_list_input():
