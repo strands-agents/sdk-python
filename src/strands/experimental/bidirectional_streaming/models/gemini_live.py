@@ -1,11 +1,11 @@
 """Gemini Live API bidirectional model provider using official Google GenAI SDK.
 
-Implements the BidirectionalModel interface for Google's Gemini Live API using the
+Implements the unified BidirectionalModel interface for Google's Gemini Live API using the
 official Google GenAI SDK for simplified and robust WebSocket communication.
 
 Key improvements over custom WebSocket implementation:
 - Uses official google-genai SDK with native Live API support
-- Simplified session management with client.aio.live.connect()
+- Unified model interface (no separate session class)
 - Built-in tool integration and event handling
 - Automatic WebSocket connection management and error handling
 - Native support for audio/text streaming and interruption
@@ -15,14 +15,14 @@ import asyncio
 import base64
 import logging
 import uuid
-from typing import Any, AsyncIterable, Dict, List, Optional
+from typing import Any, AsyncIterable, Dict, List, Optional, Union
 
 from google import genai
 from google.genai import types as genai_types
 from google.genai.types import LiveServerMessage, LiveServerContent
 
 from ....types.content import Messages
-from ....types.tools import ToolSpec, ToolUse
+from ....types.tools import ToolResult, ToolSpec, ToolUse
 from ..types.bidirectional_streaming import (
     AudioInputEvent,
     AudioOutputEvent,
@@ -30,10 +30,11 @@ from ..types.bidirectional_streaming import (
     BidirectionalConnectionStartEvent,
     ImageInputEvent,
     InterruptionDetectedEvent,
+    TextInputEvent,
     TextOutputEvent,
     TranscriptEvent,
 )
-from .bidirectional_model import BidirectionalModel, BidirectionalModelSession
+from .bidirectional_model import BidirectionalModel
 
 logger = logging.getLogger(__name__)
 
@@ -43,45 +44,70 @@ GEMINI_OUTPUT_SAMPLE_RATE = 24000
 GEMINI_CHANNELS = 1
 
 
-class GeminiLiveSession(BidirectionalModelSession):
-    """Gemini Live API session using official Google GenAI SDK.
+class GeminiLiveBidirectionalModel(BidirectionalModel):
+    """Unified Gemini Live API implementation using official Google GenAI SDK.
     
+    Combines model configuration and connection state in a single class.
     Provides a clean interface to Gemini Live API using the official SDK,
     eliminating custom WebSocket handling and providing robust error handling.
     """
     
-    def __init__(self, client: genai.Client, model_id: str, config: Dict[str, Any]):
-        """Initialize Gemini Live API session.
+    def __init__(
+        self,
+        model_id: str = "models/gemini-2.0-flash-live-preview-04-09",
+        api_key: Optional[str] = None,
+        **config
+    ):
+        """Initialize Gemini Live API bidirectional model.
         
         Args:
-            client: Gemini client instance
-            model_id: Model identifier
-            config: Model configuration including live config
+            model_id: Gemini Live model identifier.
+            api_key: Google AI API key for authentication.
+            **config: Additional configuration.
         """
-        self.client = client
+        # Model configuration
         self.model_id = model_id
+        self.api_key = api_key
         self.config = config
-        self.session_id = str(uuid.uuid4())
-        self._active = True
+        
+        # Create Gemini client with proper API version
+        client_kwargs = {}
+        if api_key:
+            client_kwargs["api_key"] = api_key
+        
+        # Use v1alpha for Live API as it has better model support
+        client_kwargs["http_options"] = {"api_version": "v1alpha"}
+        
+        self.client = genai.Client(**client_kwargs)
+        
+        # Connection state (initialized in connect())
         self.live_session = None
         self.live_session_cm = None
-        
-
+        self.session_id = None
+        self._active = False
     
-    async def initialize(
+    async def connect(
         self,
         system_prompt: Optional[str] = None,
         tools: Optional[List[ToolSpec]] = None,
-        messages: Optional[Messages] = None
+        messages: Optional[Messages] = None,
+        **kwargs
     ) -> None:
-        """Initialize Gemini Live API session by creating the connection."""
+        """Establish bidirectional connection with Gemini Live API.
         
+        Args:
+            system_prompt: System instructions for the model.
+            tools: List of tools available to the model.
+            messages: Conversation history to initialize with.
+            **kwargs: Additional configuration options.
+        """
         try:
-            # Build live config
-            live_config = self.config.get("live_config")
+            # Initialize connection state
+            self.session_id = str(uuid.uuid4())
+            self._active = True
             
-            if live_config is None:
-                raise ValueError("live_config is required but not found in session config")
+            # Build live config
+            live_config = self._build_live_config(system_prompt, tools, **kwargs)
             
             # Create the context manager
             self.live_session_cm = self.client.aio.live.connect(
@@ -96,9 +122,8 @@ class GeminiLiveSession(BidirectionalModelSession):
             if messages:
                 await self._send_message_history(messages)
             
-            
         except Exception as e:
-            logger.error("Error initializing Gemini Live session: %s", e)
+            logger.error("Error connecting to Gemini Live: %s", e)
             raise
     
     async def _send_message_history(self, messages: Messages) -> None:
@@ -125,13 +150,13 @@ class GeminiLiveSession(BidirectionalModelSession):
                 content = genai_types.Content(role=role, parts=content_parts)
                 await self.live_session.send_client_content(turns=content)
     
-    async def receive_events(self) -> AsyncIterable[Dict[str, Any]]:
+    async def receive(self) -> AsyncIterable[Dict[str, Any]]:
         """Receive Gemini Live API events and convert to provider-agnostic format."""
         
         # Emit connection start event
         connection_start: BidirectionalConnectionStartEvent = {
             "connectionId": self.session_id,
-            "metadata": {"provider": "gemini_live", "model_id": self.config.get("model_id")}
+            "metadata": {"provider": "gemini_live", "model_id": self.model_id}
         }
         yield {"BidirectionalConnectionStart": connection_start}
         
@@ -251,15 +276,43 @@ class GeminiLiveSession(BidirectionalModelSession):
             logger.error("Message attributes: %s", [attr for attr in dir(message) if not attr.startswith('_')])
             return None
     
-    async def send_audio_content(self, audio_input: AudioInputEvent) -> None:
-        """Send audio content using Gemini Live API.
+    async def send(self, content: Union[TextInputEvent, ImageInputEvent, AudioInputEvent, ToolResult]) -> None:
+        """Unified send method for all content types.
         
-        Gemini Live expects continuous audio streaming via send_realtime_input.
-        This automatically triggers VAD and can interrupt ongoing responses.
+        Dispatches to appropriate internal handler based on content type.
+        
+        Args:
+            content: Typed event (TextInputEvent, ImageInputEvent, AudioInputEvent, or ToolResult).
         """
         if not self._active:
             return
         
+        try:
+            if isinstance(content, dict):
+                # Dispatch based on content structure
+                if "text" in content and "role" in content:
+                    # TextInputEvent
+                    await self._send_text_content(content["text"])
+                elif "audioData" in content:
+                    # AudioInputEvent
+                    await self._send_audio_content(content)
+                elif "imageData" in content or "image_url" in content:
+                    # ImageInputEvent
+                    await self._send_image_content(content)
+                elif "toolUseId" in content and "status" in content:
+                    # ToolResult
+                    await self._send_tool_result(content)
+                else:
+                    logger.warning(f"Unknown content type with keys: {content.keys()}")
+        except Exception as e:
+            logger.error(f"Error sending content: {e}")
+    
+    async def _send_audio_content(self, audio_input: AudioInputEvent) -> None:
+        """Internal: Send audio content using Gemini Live API.
+        
+        Gemini Live expects continuous audio streaming via send_realtime_input.
+        This automatically triggers VAD and can interrupt ongoing responses.
+        """
         try:
             # Create audio blob for the SDK
             audio_blob = genai_types.Blob(
@@ -273,18 +326,15 @@ class GeminiLiveSession(BidirectionalModelSession):
         except Exception as e:
             logger.error("Error sending audio content: %s", e)
     
-    async def send_image_content(self, image_input: ImageInputEvent) -> None:
-        """Send image content using Gemini Live API.
+    async def _send_image_content(self, image_input: ImageInputEvent) -> None:
+        """Internal: Send image content using Gemini Live API.
         
         Sends image frames following the same pattern as the GitHub example.
         Images are sent as base64-encoded data with MIME type.
         """
-        if not self._active:
-            return
-        
         try:
             # Prepare the message based on encoding
-            if image_input["encoding"] == "base64":
+            if image_input.get("encoding") == "base64":
                 # Data is already base64 encoded
                 if isinstance(image_input["imageData"], bytes):
                     data_str = image_input["imageData"].decode()
@@ -306,11 +356,8 @@ class GeminiLiveSession(BidirectionalModelSession):
         except Exception as e:
             logger.error("Error sending image content: %s", e)
     
-    async def send_text_content(self, text: str, **kwargs) -> None:
-        """Send text content using Gemini Live API."""
-        if not self._active:
-            return
-        
+    async def _send_text_content(self, text: str) -> None:
+        """Internal: Send text content using Gemini Live API."""
         try:
             # Create content with text
             content = genai_types.Content(
@@ -324,47 +371,31 @@ class GeminiLiveSession(BidirectionalModelSession):
         except Exception as e:
             logger.error("Error sending text content: %s", e)
     
-    async def send_interrupt(self) -> None:
-        """Send interruption signal to Gemini Live API.
-        
-        Gemini Live uses automatic VAD-based interruption. When new audio input
-        is detected, it automatically interrupts the ongoing generation.
-        We don't need to send explicit interrupt signals like Nova Sonic.
-        """
-        if not self._active:
-            return
-        
+    async def _send_tool_result(self, tool_result: ToolResult) -> None:
+        """Internal: Send tool result using Gemini Live API."""
         try:
-            # Gemini Live handles interruption automatically through VAD
-            # When new audio input is sent via send_realtime_input, it automatically
-            # interrupts any ongoing generation. No explicit interrupt signal needed.
-            logger.debug("Interrupt requested - Gemini Live handles this automatically via VAD")
+            tool_use_id = tool_result.get("toolUseId")
             
-        except Exception as e:
-            logger.error("Error in interrupt handling: %s", e)
-    
-    async def send_tool_result(self, tool_use_id: str, result: Dict[str, Any]) -> None:
-        """Send tool result using Gemini Live API."""
-        if not self._active:
-            return
-        
-        try:
+            # Extract result content
+            result_data = {}
+            if "content" in tool_result:
+                # Extract text from content blocks
+                for block in tool_result["content"]:
+                    if "text" in block:
+                        result_data = {"result": block["text"]}
+                        break
+            
             # Create function response
             func_response = genai_types.FunctionResponse(
                 id=tool_use_id,
                 name=tool_use_id,  # Gemini uses name as identifier
-                response=result
+                response=result_data
             )
             
             # Send tool response
             await self.live_session.send_tool_response(function_responses=[func_response])
         except Exception as e:
             logger.error("Error sending tool result: %s", e)
-    
-    async def send_tool_error(self, tool_use_id: str, error: str) -> None:
-        """Send tool error using Gemini Live API."""
-        error_result = {"error": error}
-        await self.send_tool_result(tool_use_id, error_result)
     
     async def close(self) -> None:
         """Close Gemini Live API connection."""
@@ -378,69 +409,7 @@ class GeminiLiveSession(BidirectionalModelSession):
             if self.live_session_cm:
                 await self.live_session_cm.__aexit__(None, None, None)
         except Exception as e:
-            logger.error("Error closing Gemini Live session: %s", e)
-            raise
-
-
-class GeminiLiveBidirectionalModel(BidirectionalModel):
-    """Gemini Live API model implementation using official Google GenAI SDK.
-    
-    Provides access to Google's Gemini Live API through the bidirectional
-    streaming interface, using the official SDK for robust and simple integration.
-    """
-    
-    def __init__(
-        self,
-        model_id: str = "models/gemini-2.0-flash-live-preview-04-09",
-        api_key: Optional[str] = None,
-        **config
-    ):
-        """Initialize Gemini Live API bidirectional model.
-        
-        Args:
-            model_id: Gemini Live model identifier.
-            api_key: Google AI API key for authentication.
-            **config: Additional configuration.
-        """
-        self.model_id = model_id
-        self.api_key = api_key
-        self.config = config
-        
-        # Create Gemini client with proper API version
-        client_kwargs = {}
-        if api_key:
-            client_kwargs["api_key"] = api_key
-        
-        # Use v1alpha for Live API as it has better model support
-        client_kwargs["http_options"] = {"api_version": "v1alpha"}
-        
-        self.client = genai.Client(**client_kwargs)
-    
-    async def create_bidirectional_connection(
-        self,
-        system_prompt: Optional[str] = None,
-        tools: Optional[List[ToolSpec]] = None,
-        messages: Optional[Messages] = None,
-        **kwargs
-    ) -> BidirectionalModelSession:
-        """Create Gemini Live API bidirectional connection using official SDK."""
-        
-        try:
-            # Build configuration
-            live_config = self._build_live_config(system_prompt, tools, **kwargs)
-            
-            # Create session config
-            session_config = self._get_session_config()
-            session_config["live_config"] = live_config
-            
-            # Create and initialize session wrapper
-            session = GeminiLiveSession(self.client, self.model_id, session_config)
-            await session.initialize(system_prompt, tools, messages)
-            
-            return session
-            
-        except Exception as e:
-            logger.error("Failed to create Gemini Live connection: %s", e)
+            logger.error("Error closing Gemini Live connection: %s", e)
             raise
     
     def _build_live_config(
@@ -489,11 +458,3 @@ class GeminiLiveBidirectionalModel(BidirectionalModel):
                 ],
             ),
         ]
-    
-    def _get_session_config(self) -> Dict[str, Any]:
-        """Get session configuration for Gemini Live API."""
-        return {
-            "model_id": self.model_id,
-            "params": self.config.get("params"),
-            **self.config
-        }
