@@ -216,11 +216,11 @@ class BedrockModel(Model):
         # Use system_prompt_content directly (copy for mutability)
         system_blocks: list[SystemContentBlock] = system_prompt_content.copy() if system_prompt_content else []
         # Add cache point if configured (backwards compatibility)
-        if self.config.get("cache_prompt"):
+        if cache_prompt := self.config.get("cache_prompt"):
             warnings.warn(
                 "cache_prompt is deprecated. Use SystemContentBlock with cachePoint instead.", UserWarning, stacklevel=3
             )
-            system_blocks.append({"cachePoint": {"type": self.config["cache_prompt"]}})
+            system_blocks.append({"cachePoint": {"type": cache_prompt}})
 
         return {
             "modelId": self.config["model_id"],
