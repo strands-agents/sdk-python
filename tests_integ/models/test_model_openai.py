@@ -221,3 +221,16 @@ def test_rate_limit_throttling_integration_no_retries(model):
         # Verify it's a rate limit error
         error_message = str(exc_info.value).lower()
         assert "rate limit" in error_message or "tokens per min" in error_message
+
+
+def test_content_blocks_handling(model):
+    """Test that content blocks are handled properly without failures."""
+    content = [
+        {"text": "What is 2+2?"},
+        {"text": "Please be brief."}
+    ]
+    
+    agent = Agent(model=model, load_tools_from_directory=False)
+    result = agent(content)
+    
+    assert "4" in result.message["content"][0]["text"]
