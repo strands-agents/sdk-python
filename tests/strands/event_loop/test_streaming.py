@@ -861,10 +861,7 @@ async def test_stream_messages_with_system_prompt_content(agenerator, alist):
         ]
     )
 
-    system_prompt_content = [
-        {"text": "You are a helpful assistant."},
-        {"cachePoint": {"type": "default"}}
-    ]
+    system_prompt_content = [{"text": "You are a helpful assistant."}, {"cachePoint": {"type": "default"}}]
 
     stream = strands.event_loop.streaming.stream_messages(
         mock_model,

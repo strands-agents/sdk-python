@@ -218,9 +218,7 @@ class BedrockModel(Model):
         # Add cache point if configured (backwards compatibility)
         if self.config.get("cache_prompt"):
             warnings.warn(
-                "cache_prompt is deprecated. Use SystemContentBlock with cachePoint instead.",
-                UserWarning,
-                stacklevel=3
+                "cache_prompt is deprecated. Use SystemContentBlock with cachePoint instead.", UserWarning, stacklevel=3
             )
             system_blocks.append({"cachePoint": {"type": self.config["cache_prompt"]}})
 
@@ -613,6 +611,7 @@ class BedrockModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
+            system_prompt_content: System prompt content blocks to provide context to the model.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:

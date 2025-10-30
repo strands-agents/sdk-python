@@ -36,9 +36,9 @@ def test_bedrock_multi_prompt_cache_point():
     system_prompt_content = [
         {"text": "You are a helpful assistant." * 500},  # Long text for cache
         {"cachePoint": {"type": "default"}},
-        {"text": "Always respond with enthusiasm!"}
+        {"text": "Always respond with enthusiasm!"},
     ]
-    
+
     cache_point_usage = 0
 
     def cache_point_callback_handler(**kwargs):
@@ -50,9 +50,9 @@ def test_bedrock_multi_prompt_cache_point():
                     cache_point_usage += 1
 
     agent = Agent(
-        system_prompt=system_prompt_content,
+        system_prompt_content=system_prompt_content,
         callback_handler=cache_point_callback_handler,
-        load_tools_from_directory=False
+        load_tools_from_directory=False,
     )
     agent("Hello!")
     assert cache_point_usage > 0

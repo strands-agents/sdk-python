@@ -409,11 +409,8 @@ def test_format_request_system_prompt(model, messages, model_id, system_prompt):
 
 def test_format_request_system_prompt_content(model, messages, model_id):
     """Test _format_request with SystemContentBlock input."""
-    system_prompt_content = [
-        {"text": "You are a helpful assistant."},
-        {"cachePoint": {"type": "default"}}
-    ]
-    
+    system_prompt_content = [{"text": "You are a helpful assistant."}, {"cachePoint": {"type": "default"}}]
+
     tru_request = model._format_request(messages, system_prompt_content=system_prompt_content)
     exp_request = {
         "inferenceConfig": {},
@@ -429,18 +426,15 @@ def test_format_request_system_prompt_content_with_cache_prompt_config(model, me
     """Test _format_request with SystemContentBlock and cache_prompt config (backwards compatibility)."""
     system_prompt_content = [{"text": "You are a helpful assistant."}]
     model.update_config(cache_prompt="default")
-    
+
     with pytest.warns(UserWarning, match="cache_prompt is deprecated"):
         tru_request = model._format_request(messages, system_prompt_content=system_prompt_content)
-    
+
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
         "messages": messages,
-        "system": [
-            {"text": "You are a helpful assistant."},
-            {"cachePoint": {"type": "default"}}
-        ],
+        "system": [{"text": "You are a helpful assistant."}, {"cachePoint": {"type": "default"}}],
     }
 
     assert tru_request == exp_request
@@ -528,10 +522,10 @@ def test_format_request_tool_choice_tool(model, messages, model_id, tool_spec):
 
 def test_format_request_cache(model, messages, model_id, tool_spec, cache_type):
     model.update_config(cache_prompt=cache_type, cache_tools=cache_type)
-    
+
     with pytest.warns(UserWarning, match="cache_prompt is deprecated"):
         tru_request = model._format_request(messages, tool_specs=[tool_spec])
-    
+
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
@@ -668,18 +662,15 @@ async def test_stream(bedrock_client, model, messages, tool_spec, model_id, addi
 async def test_stream_with_system_prompt_content(bedrock_client, model, messages, alist):
     """Test stream method with system_prompt_content parameter."""
     bedrock_client.converse_stream.return_value = {"stream": ["e1", "e2"]}
-    
-    system_prompt_content = [
-        {"text": "You are a helpful assistant."},
-        {"cachePoint": {"type": "default"}}
-    ]
+
+    system_prompt_content = [{"text": "You are a helpful assistant."}, {"cachePoint": {"type": "default"}}]
 
     response = model.stream(messages, system_prompt_content=system_prompt_content)
     tru_chunks = await alist(response)
     exp_chunks = ["e1", "e2"]
 
     assert tru_chunks == exp_chunks
-    
+
     # Verify the request was formatted with system_prompt_content
     expected_request = {
         "inferenceConfig": {},
@@ -694,12 +685,14 @@ async def test_stream_with_system_prompt_content(bedrock_client, model, messages
 async def test_stream_backwards_compatibility_single_text_block(bedrock_client, model, messages, alist):
     """Test that single text block in system_prompt_content works with legacy system_prompt."""
     bedrock_client.converse_stream.return_value = {"stream": ["e1", "e2"]}
-    
+
     system_prompt_content = [{"text": "You are a helpful assistant."}]
 
-    response = model.stream(messages, system_prompt="You are a helpful assistant.", system_prompt_content=system_prompt_content)
+    response = model.stream(
+        messages, system_prompt="You are a helpful assistant.", system_prompt_content=system_prompt_content
+    )
     await alist(response)
-    
+
     # Verify the request was formatted with system_prompt_content
     expected_request = {
         "inferenceConfig": {},

@@ -274,12 +274,9 @@ def test_multi_prompt_system_content():
     system_prompt_content = [
         {"text": "You are a helpful assistant."},
         {"text": "Always be concise."},
-        {"text": "End responses with 'Done.'"}
+        {"text": "End responses with 'Done.'"},
     ]
-    
-    agent = Agent(
-        system_prompt=system_prompt_content,
-        load_tools_from_directory=False
-    )
-    result = agent("Hello!")
+
+    agent = Agent(system_prompt=system_prompt_content, load_tools_from_directory=False)
     # just verifying there is no failure
+    agent("Hello!")

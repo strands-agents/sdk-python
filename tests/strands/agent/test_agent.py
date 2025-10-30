@@ -2164,11 +2164,13 @@ def test_agent__call__invalid_tool_name():
 
     # And that it continued to the LLM call
     assert agent.messages[-1] == {"content": [{"text": "I invoked a tool!"}], "role": "assistant"}
+
+
 def test_agent_string_system_prompt():
     """Test initialization with string system prompt."""
     system_prompt = "You are a helpful assistant."
     agent = Agent(system_prompt=system_prompt)
-    
+
     assert agent.system_prompt == system_prompt
     assert agent._system_prompt_content == [{"text": system_prompt}]
 
@@ -2178,7 +2180,7 @@ def test_agent_single_text_block_system_prompt():
     text = "You are a helpful assistant."
     system_prompt_content = [{"text": text}]
     agent = Agent(system_prompt=system_prompt_content)
-    
+
     assert agent.system_prompt == text
     assert agent._system_prompt_content == system_prompt_content
 
@@ -2188,10 +2190,10 @@ def test_agent_multiple_blocks_system_prompt():
     system_prompt_content = [
         {"text": "You are a helpful assistant."},
         {"cachePoint": {"type": "default"}},
-        {"text": "Additional instructions."}
+        {"text": "Additional instructions."},
     ]
     agent = Agent(system_prompt=system_prompt_content)
-    
+
     assert agent.system_prompt == "You are a helpful assistant.\nAdditional instructions."
     assert agent._system_prompt_content == system_prompt_content
 
@@ -2200,7 +2202,7 @@ def test_agent_single_non_text_block_system_prompt():
     """Test initialization with single non-text SystemContentBlock."""
     system_prompt_content = [{"cachePoint": {"type": "default"}}]
     agent = Agent(system_prompt=system_prompt_content)
-    
+
     assert agent.system_prompt is None
     assert agent._system_prompt_content == system_prompt_content
 
@@ -2208,7 +2210,7 @@ def test_agent_single_non_text_block_system_prompt():
 def test_agent_none_system_prompt():
     """Test initialization with None system prompt."""
     agent = Agent(system_prompt=None)
-    
+
     assert agent.system_prompt is None
     assert agent._system_prompt_content is None
 
@@ -2216,7 +2218,7 @@ def test_agent_none_system_prompt():
 def test_agent_empty_list_system_prompt():
     """Test initialization with empty list system prompt."""
     agent = Agent(system_prompt=[])
-    
+
     assert agent.system_prompt is None
     assert agent._system_prompt_content == []
 
@@ -2225,7 +2227,7 @@ def test_agent_backwards_compatibility_string_access():
     """Test that string system prompts maintain backwards compatibility."""
     system_prompt = "You are a helpful assistant."
     agent = Agent(system_prompt=system_prompt)
-    
+
     # Should be able to access as string for backwards compatibility
     assert agent.system_prompt == system_prompt
 
@@ -2235,9 +2237,6 @@ def test_agent_backwards_compatibility_single_text_block():
     text = "You are a helpful assistant."
     system_prompt_content = [{"text": text}]
     agent = Agent(system_prompt=system_prompt_content)
-    
+
     # Should extract text for backwards compatibility
     assert agent.system_prompt == text
-
-
-

@@ -421,7 +421,7 @@ async def stream_messages(
     *,
     tool_choice: Optional[Any] = None,
     system_prompt_content: Optional[list[SystemContentBlock]] = None,
-    **kwargs: Any
+    **kwargs: Any,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Streams messages to the model and processes the response.
 
@@ -431,7 +431,10 @@ async def stream_messages(
         messages: List of messages to send.
         tool_specs: The list of tool specs.
         tool_choice: Optional tool choice constraint for forcing specific tool usage.
-        system_prompt_content: The authoritative system prompt content blocks that always contains the system prompt data.
+        system_prompt_content: The authoritative system prompt content blocks that always contains the
+            system prompt data.
+        **kwargs: Additional keyword arguments for future extensibility.
+
     Yields:
         The reason for stopping, the final message, and the usage metrics
     """
@@ -439,11 +442,11 @@ async def stream_messages(
 
     messages = _normalize_messages(messages)
     start_time = time.time()
-    
+
     chunks = model.stream(
-        messages, 
-        tool_specs if tool_specs else None, 
-        system_prompt, 
+        messages,
+        tool_specs if tool_specs else None,
+        system_prompt,
         tool_choice=tool_choice,
         system_prompt_content=system_prompt_content,
     )

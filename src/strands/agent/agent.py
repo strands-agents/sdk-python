@@ -967,7 +967,6 @@ class Agent:
         properties = tool_spec["inputSchema"]["json"]["properties"]
         return {k: v for k, v in input_params.items() if k in properties}
 
-        
     def _initialize_system_prompt(
         self, system_prompt: str | list[SystemContentBlock] | None
     ) -> tuple[str | None, list[SystemContentBlock] | None]:

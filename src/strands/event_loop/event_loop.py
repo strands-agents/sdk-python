@@ -335,12 +335,12 @@ async def _handle_model_execution(
                 tool_specs = agent.tool_registry.get_all_tool_specs()
             try:
                 async for event in stream_messages(
-                    agent.model, 
+                    agent.model,
                     agent.system_prompt,
-                    agent.messages, 
+                    agent.messages,
                     tool_specs,
                     system_prompt_content=agent._system_prompt_content,
-                    tool_choice=structured_output_context.tool_choice
+                    tool_choice=structured_output_context.tool_choice,
                 ):
                     yield event
 
