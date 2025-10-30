@@ -8,6 +8,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import uuid
 from typing import AsyncIterable, Union
 
@@ -91,7 +92,6 @@ class OpenAIRealtimeBidirectionalModel(BidirectionalModel):
         self.project = project
         self.session_config = session_config or {}
         
-        import os
         if not self.api_key:
             self.api_key = os.getenv("OPENAI_API_KEY")
             if not self.api_key:
