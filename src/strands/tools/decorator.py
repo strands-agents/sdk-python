@@ -102,12 +102,7 @@ class FunctionToolMetadata:
         """
         self.func = func
         self.signature = inspect.signature(func)
-        # Preserve Annotated extras when possible (Python 3.9+ / 3.10+ support include_extras)
-        try:
-            self.type_hints = get_type_hints(func, include_extras=True)
-        except TypeError:
-            # Older Python versions / typing implementations may not accept include_extras
-            self.type_hints = get_type_hints(func)
+        self.type_hints = get_type_hints(func, include_extras=True)
         self._context_param = context_param
 
         self._validate_signature()
