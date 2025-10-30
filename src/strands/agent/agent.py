@@ -969,3 +969,47 @@ class Agent:
         """Appends a message to the agent's list of messages and invokes the callbacks for the MessageCreatedEvent."""
         self.messages.append(message)
         self.hooks.invoke_callbacks(MessageAddedEvent(agent=self, message=message))
+
+    def with_session_manager(
+        self, session_manager: SessionManager, request_metadata: dict[str, Any] | None = None
+    ) -> "Agent":
+        """Create a new agent instance with session management enabled.
+
+        This method creates a copy of the current agent instance and adds session
+        management capabilities while preserving all other configuration. The original
+        agent must not already have a session manager or any messages.
+
+        Args:
+            session_manager: The session manager to add to the new agent instance.
+            request_metadata: Optional metadata to add to the new agent's state.
+
+        Returns:
+            A new Agent instance with the same configuration plus session management.
+
+        Raises:
+            ValueError: If the current agent already has a session manager or messages.
+        """
+        import copy
+
+        if self._session_manager is not None:
+            raise ValueError("Agent must not have a session manager")
+
+        if self.messages:
+            raise ValueError("Agent must not have messages")
+
+        # Create a deep copy of the current agent
+        new_agent = copy.deepcopy(self)
+
+        # Reset the session manager and messages
+        new_agent._session_manager = session_manager
+
+        # Add request metadata to the new agent's state
+        if request_metadata:
+            new_agent.state.set("request_metadata", request_metadata)
+
+        # Re-register the new session manager hook
+        # Since we can't easily remove the old session manager hook, we'll just add the new one
+        # The new session manager will register its own hooks
+        new_agent.hooks.add_hook(session_manager)
+
+        return new_agent

@@ -11,7 +11,8 @@ streamed requests to the A2AServer.
 import json
 import logging
 import mimetypes
-from typing import Any, Literal
+import uuid
+from typing import Any, Callable, Literal
 
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
@@ -22,6 +23,8 @@ from a2a.utils.errors import ServerError
 
 from ...agent.agent import Agent as SAAgent
 from ...agent.agent import AgentResult as SAAgentResult
+from ...session.file_session_manager import FileSessionManager
+from ...session.session_manager import SessionManager
 from ...types.content import ContentBlock
 from ...types.media import (
     DocumentContent,
@@ -48,13 +51,19 @@ class StrandsA2AExecutor(AgentExecutor):
     # Handle special cases where format differs from extension
     FORMAT_MAPPINGS = {"jpg": "jpeg", "htm": "html", "3gp": "three_gp", "3gpp": "three_gp", "3g2": "three_gp"}
 
-    def __init__(self, agent: SAAgent):
+    def __init__(self, agent: SAAgent, session_manager_factory: Callable[[str], SessionManager] | None = None):
         """Initialize a StrandsA2AExecutor.
 
         Args:
             agent: The Strands Agent instance to adapt to the A2A protocol.
+            session_manager_factory: A callable that takes a session_id (str) and returns a SessionManager.
         """
         self.agent = agent
+        if session_manager_factory is None:
+            logger.warning("No session_manager_factory provided. Using FileSessionManager as default.")
+            self.session_manager_factory = self._default_session_manager_factory
+        else:
+            self.session_manager_factory = session_manager_factory  # type: ignore[assignment]
 
     async def execute(
         self,
@@ -63,15 +72,34 @@ class StrandsA2AExecutor(AgentExecutor):
     ) -> None:
         """Execute a request using the Strands Agent and send the response as A2A events.
 
-        This method executes the user's input using the Strands Agent in streaming mode
-        and converts the agent's response to A2A events.
+        This method processes an A2A request by converting the incoming message parts
+        to Strands ContentBlocks, executing the agent with proper session management,
+        and streaming the response back as A2A events.
+
+        The method handles various content types including:
+        - Text content
+        - Image files (with bytes or URI)
+        - Video files (with bytes or URI)
+        - Document files (with bytes or URI)
+        - Structured data (JSON)
 
         Args:
-            context: The A2A request context, containing the user's input and task metadata.
-            event_queue: The A2A event queue used to send response events back to the client.
+            context: The A2A request context containing:
+                - User input message parts
+                - Task and session metadata
+                - Context ID for session management
+            event_queue: The A2A event queue for sending response events back to the client.
 
         Raises:
-            ServerError: If an error occurs during agent execution
+            ServerError: If an error occurs during:
+                - Message part conversion
+                - Agent execution
+                - Event streaming
+            ValueError: If the context ID is missing or invalid
+
+        Note:
+            This method creates a new agent instance with a session manager for each
+            request to ensure proper session isolation and state management.
         """
         task = context.current_task
         if not task:
@@ -103,8 +131,14 @@ class StrandsA2AExecutor(AgentExecutor):
         else:
             raise ValueError("No content blocks available")
 
+        context_id = context.context_id if context.context_id else str(uuid.uuid4())
+
+        agent = self.agent.with_session_manager(
+            session_manager=self.session_manager_factory(session_id=context_id), request_metadata=context.metadata
+        )
+
         try:
-            async for event in self.agent.stream_async(content_blocks):
+            async for event in agent.stream_async(content_blocks):
                 await self._handle_streaming_event(event, updater)
         except Exception:
             logger.exception("Error in streaming execution")
@@ -155,17 +189,21 @@ class StrandsA2AExecutor(AgentExecutor):
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         """Cancel an ongoing execution.
 
-        This method is called when a request cancellation is requested. Currently,
-        cancellation is not supported by the Strands Agent executor, so this method
-        always raises an UnsupportedOperationError.
+        This method is called when a request cancellation is requested by the client.
+        Currently, cancellation is not supported by the Strands Agent executor, as
+        the underlying agent execution cannot be interrupted once started.
 
         Args:
-            context: The A2A request context.
-            event_queue: The A2A event queue.
+            context: The A2A request context containing the cancellation request.
+            event_queue: The A2A event queue (unused in this implementation).
 
         Raises:
             ServerError: Always raised with an UnsupportedOperationError, as cancellation
-                is not currently supported.
+                is not currently supported by the Strands Agent executor.
+
+        Note:
+            Future versions may support cancellation by implementing proper task
+            interruption mechanisms in the underlying agent execution.
         """
         logger.warning("Cancellation requested but not supported")
         raise ServerError(error=UnsupportedOperationError())
@@ -196,6 +234,17 @@ class StrandsA2AExecutor(AgentExecutor):
             return "document"
         else:
             return "unknown"
+
+    def _default_session_manager_factory(self, session_id: str) -> SessionManager:
+        """Default session manager factory using FileSessionManager.
+
+        Args:
+            session_id(str): The session ID for the session manager.
+
+        Returns:
+            SessionManager: A FileSessionManager instance for the given session ID.
+        """
+        return FileSessionManager(session_id=session_id)
 
     def _get_file_format_from_mime_type(self, mime_type: str | None, file_type: str) -> str:
         """Extract file format from MIME type using Python's mimetypes library.
