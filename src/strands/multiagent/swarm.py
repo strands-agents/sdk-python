@@ -669,7 +669,7 @@ class Swarm(MultiAgentBase):
                     logger.debug("node=<%s> | node execution completed", current_node.node_id)
 
                     # Check if handoff occurred during execution
-                    if self.state.current_node != previous_node:
+                    if self.state.current_node is not None and self.state.current_node != previous_node:
                         # Emit handoff event (single node transition in Swarm)
                         handoff_event = MultiAgentHandoffEvent(
                             from_node_ids=[previous_node.node_id],
