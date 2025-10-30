@@ -50,7 +50,7 @@ def test_bedrock_multi_prompt_cache_point():
                     cache_point_usage += 1
 
     agent = Agent(
-        system_prompt_content=system_prompt_content,
+        system_prompt=system_prompt_content,
         callback_handler=cache_point_callback_handler,
         load_tools_from_directory=False,
     )
