@@ -536,6 +536,40 @@ async def test_stream_throttling_exception_from_general_exception(bedrock_client
 
 
 @pytest.mark.asyncio
+async def test_stream_throttling_exception_lowercase(bedrock_client, model, messages, alist):
+    """Test that lowercase throttlingException is converted to ModelThrottledException."""
+    error_message = "throttlingException: Rate exceeded for ConverseStream"
+    bedrock_client.converse_stream.side_effect = ClientError(
+        {"Error": {"Message": error_message, "Code": "throttlingException"}}, "Any"
+    )
+
+    with pytest.raises(ModelThrottledException) as excinfo:
+        await alist(model.stream(messages))
+
+    assert error_message in str(excinfo.value)
+    bedrock_client.converse_stream.assert_called_once_with(
+        modelId="m1", messages=messages, system=[], inferenceConfig={}
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_throttling_exception_lowercase_non_streaming(bedrock_client, messages, alist):
+    """Test that lowercase throttlingException is converted to ModelThrottledException in non-streaming mode."""
+    error_message = "throttlingException: Rate exceeded for Converse"
+    bedrock_client.converse.side_effect = ClientError(
+        {"Error": {"Message": error_message, "Code": "throttlingException"}}, "Any"
+    )
+
+    model = BedrockModel(model_id="test-model", streaming=False)
+    with pytest.raises(ModelThrottledException) as excinfo:
+        await alist(model.stream(messages))
+
+    assert error_message in str(excinfo.value)
+    bedrock_client.converse.assert_called_once()
+    bedrock_client.converse_stream.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_general_exception_is_raised(bedrock_client, model, messages, alist):
     error_message = "Should be raised up"
     bedrock_client.converse_stream.side_effect = ValueError(error_message)

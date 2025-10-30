@@ -1,5 +1,5 @@
 import json
-from typing import Any, AsyncGenerator, Iterable, Optional, Type, TypedDict, TypeVar, Union
+from typing import Any, AsyncGenerator, Iterable, Optional, Sequence, Type, TypedDict, TypeVar, Union
 
 from pydantic import BaseModel
 
@@ -25,8 +25,8 @@ class MockedModelProvider(Model):
     to stream mock responses as events.
     """
 
-    def __init__(self, agent_responses: list[Union[Message, RedactionMessage]]):
-        self.agent_responses = agent_responses
+    def __init__(self, agent_responses: Sequence[Union[Message, RedactionMessage]]):
+        self.agent_responses = [*agent_responses]
         self.index = 0
 
     def format_chunk(self, event: Any) -> StreamEvent:
@@ -53,7 +53,11 @@ class MockedModelProvider(Model):
         pass
 
     async def stream(
-        self, messages: Messages, tool_specs: Optional[list[ToolSpec]] = None, system_prompt: Optional[str] = None
+        self,
+        messages: Messages,
+        tool_specs: Optional[list[ToolSpec]] = None,
+        system_prompt: Optional[str] = None,
+        tool_choice: Optional[Any] = None,
     ) -> AsyncGenerator[Any, None]:
         events = self.map_agent_message_to_events(self.agent_responses[self.index])
         for event in events:

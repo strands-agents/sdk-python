@@ -3,15 +3,14 @@
 Provides minimal foundation for multi-agent patterns (Swarm, Graph).
 """
 
-import asyncio
 import logging
 import warnings
 from abc import ABC, abstractmethod
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Union
 
+from .._async import run_async
 from ..agent import AgentResult
 from ..types.content import ContentBlock
 from ..types.event_loop import Metrics, Usage
@@ -138,7 +137,7 @@ class MultiAgentResult:
         metrics = _parse_metrics(data.get("accumulated_metrics", {}))
 
         multiagent_result = cls(
-            status=Status(data.get("status", Status.PENDING.value)),
+            status=Status(data["status"]),
             results=results,
             accumulated_usage=usage,
             accumulated_metrics=metrics,
@@ -165,7 +164,12 @@ class MultiAgentBase(ABC):
 
     This class integrates with existing Strands Agent instances and provides
     multi-agent orchestration capabilities.
+
+    Attributes:
+        id: Unique MultiAgent id for session management,etc.
     """
+
+    id: str
 
     @abstractmethod
     async def invoke_async(
@@ -199,12 +203,7 @@ class MultiAgentBase(ABC):
             invocation_state.update(kwargs)
             warnings.warn("`**kwargs` parameter is deprecating, use `invocation_state` instead.", stacklevel=2)
 
-        def execute() -> MultiAgentResult:
-            return asyncio.run(self.invoke_async(task, invocation_state))
-
-        with ThreadPoolExecutor() as executor:
-            future = executor.submit(execute)
-            return future.result()
+        return run_async(lambda: self.invoke_async(task, invocation_state))
 
     def serialize_state(self) -> dict[str, Any]:
         """Return a JSON-serializable snapshot of the orchestrator state."""

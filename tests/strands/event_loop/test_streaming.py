@@ -6,7 +6,7 @@ import pytest
 import strands
 import strands.event_loop
 from strands.types._events import ModelStopReason, TypedEvent
-from strands.types.content import Message
+from strands.types.content import Message, Messages
 from strands.types.streaming import (
     ContentBlockDeltaEvent,
     ContentBlockStartEvent,
@@ -50,6 +50,59 @@ def moto_autouse(moto_env, moto_mock_aws):
 )
 def test_remove_blank_messages_content_text(messages, exp_result):
     tru_result = strands.event_loop.streaming.remove_blank_messages_content_text(messages)
+
+    assert tru_result == exp_result
+
+
+@pytest.mark.parametrize(
+    ("messages", "exp_result"),
+    [
+        pytest.param(
+            [
+                {"role": "assistant", "content": [{"text": "a"}, {"text": " \n"}, {"toolUse": {"name": "a_name"}}]},
+                {"role": "assistant", "content": [{"text": ""}, {"toolUse": {"name": "a_name"}}]},
+                {"role": "assistant", "content": [{"text": "a"}, {"text": " \n"}]},
+                {"role": "assistant", "content": []},
+                {"role": "assistant"},
+                {"role": "user", "content": [{"text": " \n"}]},
+            ],
+            [
+                {"role": "assistant", "content": [{"text": "a"}, {"toolUse": {"name": "a_name"}}]},
+                {"role": "assistant", "content": [{"toolUse": {"name": "a_name"}}]},
+                {"role": "assistant", "content": [{"text": "a"}, {"text": "[blank text]"}]},
+                {"role": "assistant", "content": [{"text": "[blank text]"}]},
+                {"role": "assistant"},
+                {"role": "user", "content": [{"text": " \n"}]},
+            ],
+            id="blank messages",
+        ),
+        pytest.param(
+            [],
+            [],
+            id="empty messages",
+        ),
+        pytest.param(
+            [
+                {"role": "assistant", "content": [{"toolUse": {"name": "invalid tool"}}]},
+            ],
+            [
+                {"role": "assistant", "content": [{"toolUse": {"name": "INVALID_TOOL_NAME"}}]},
+            ],
+            id="invalid tool name",
+        ),
+        pytest.param(
+            [
+                {"role": "assistant", "content": [{"toolUse": {}}]},
+            ],
+            [
+                {"role": "assistant", "content": [{"toolUse": {"name": "INVALID_TOOL_NAME"}}]},
+            ],
+            id="missing tool name",
+        ),
+    ],
+)
+def test_normalize_blank_messages_content_text(messages, exp_result):
+    tru_result = strands.event_loop.streaming._normalize_messages(messages)
 
     assert tru_result == exp_result
 
@@ -791,8 +844,49 @@ async def test_stream_messages(agenerator, alist):
         [{"role": "assistant", "content": [{"text": "a"}, {"text": "[blank text]"}]}],
         None,
         "test prompt",
+        tool_choice=None,
     )
 
     # Ensure that we're getting typed events coming out of process_stream
     non_typed_events = [event for event in tru_events if not isinstance(event, TypedEvent)]
     assert non_typed_events == []
+
+
+@pytest.mark.asyncio
+async def test_stream_messages_normalizes_messages(agenerator, alist):
+    mock_model = unittest.mock.MagicMock()
+    mock_model.stream.return_value = agenerator(
+        [
+            {"contentBlockDelta": {"delta": {"text": "test"}}},
+            {"contentBlockStop": {}},
+        ]
+    )
+
+    messages: Messages = [
+        # blank text
+        {"role": "assistant", "content": [{"text": "a"}, {"text": " \n"}, {"toolUse": {"name": "a_name"}}]},
+        {"role": "assistant", "content": [{"text": ""}, {"toolUse": {"name": "a_name"}}]},
+        {"role": "assistant", "content": [{"text": "a"}, {"text": " \n"}]},
+        # Invalid names
+        {"role": "assistant", "content": [{"toolUse": {"name": "invalid name"}}]},
+        {"role": "assistant", "content": [{"toolUse": {}}]},
+    ]
+
+    await alist(
+        strands.event_loop.streaming.stream_messages(
+            mock_model,
+            system_prompt="test prompt",
+            messages=messages,
+            tool_specs=None,
+        )
+    )
+
+    assert mock_model.stream.call_args[0][0] == [
+        # blank text
+        {"content": [{"text": "a"}, {"toolUse": {"name": "a_name"}}], "role": "assistant"},
+        {"content": [{"toolUse": {"name": "a_name"}}], "role": "assistant"},
+        {"content": [{"text": "a"}, {"text": "[blank text]"}], "role": "assistant"},
+        # Invalid names
+        {"content": [{"toolUse": {"name": "INVALID_TOOL_NAME"}}], "role": "assistant"},
+        {"content": [{"toolUse": {"name": "INVALID_TOOL_NAME"}}], "role": "assistant"},
+    ]

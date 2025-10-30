@@ -18,8 +18,6 @@ from typing import Any
 import jsonschema
 from jsonschema import ValidationError
 
-from ..agent import Agent
-
 # JSON Schema for agent configuration
 AGENT_CONFIG_SCHEMA = {
     "$schema": "http://json-schema.org/draft-07/schema#",
@@ -53,7 +51,7 @@ AGENT_CONFIG_SCHEMA = {
 _VALIDATOR = jsonschema.Draft7Validator(AGENT_CONFIG_SCHEMA)
 
 
-def config_to_agent(config: str | dict[str, Any], **kwargs: dict[str, Any]) -> Agent:
+def config_to_agent(config: str | dict[str, Any], **kwargs: dict[str, Any]) -> Any:
     """Create an Agent from a configuration file or dictionary.
 
     This function supports tools that can be loaded declaratively (file paths, module names,
@@ -133,6 +131,9 @@ def config_to_agent(config: str | dict[str, Any], **kwargs: dict[str, Any]) -> A
 
     # Override with any additional kwargs provided
     agent_kwargs.update(kwargs)
+
+    # Import Agent at runtime to avoid circular imports
+    from ..agent import Agent
 
     # Create and return Agent
     return Agent(**agent_kwargs)

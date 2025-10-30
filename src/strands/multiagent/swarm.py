@@ -17,13 +17,14 @@ import copy
 import json
 import logging
 import time
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Callable, Tuple
+from typing import Any, Callable, Tuple, cast
 
 from opentelemetry import trace as trace_api
 
-from ..agent import Agent, AgentResult
+from .._async import run_async
+from ..agent import Agent
+from ..agent.agent_result import AgentResult
 from ..agent.state import AgentState
 from ..telemetry import get_tracer
 from ..tools.decorator import tool
@@ -126,7 +127,7 @@ class SharedContext:
 class SwarmState:
     """Current state of swarm execution."""
 
-    current_node: SwarmNode  # The agent currently executing
+    current_node: SwarmNode | None  # The agent currently executing
     task: str | list[ContentBlock]  # The original task from the user that is being executed
     completion_status: Status = Status.PENDING  # Current swarm execution status
     shared_context: SharedContext = field(default_factory=SharedContext)  # Context shared between agents
@@ -231,7 +232,7 @@ class Swarm(MultiAgentBase):
         self.shared_context = SharedContext()
         self.nodes: dict[str, SwarmNode] = {}
         self.state = SwarmState(
-            current_node=SwarmNode("", Agent()),  # Placeholder, will be set properly
+            current_node=None,  # Placeholder, will be set properly
             task="",
             completion_status=Status.PENDING,
         )
@@ -254,12 +255,7 @@ class Swarm(MultiAgentBase):
         if invocation_state is None:
             invocation_state = {}
 
-        def execute() -> SwarmResult:
-            return asyncio.run(self.invoke_async(task, invocation_state))
-
-        with ThreadPoolExecutor() as executor:
-            future = executor.submit(execute)
-            return future.result()
+        return run_async(lambda: self.invoke_async(task, invocation_state))
 
     async def invoke_async(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
@@ -295,7 +291,8 @@ class Swarm(MultiAgentBase):
         span = self.tracer.start_multiagent_span(task, "swarm")
         with trace_api.use_span(span, end_on_exit=True):
             try:
-                logger.debug("current_node=<%s> | starting swarm execution with node", self.state.current_node.node_id)
+                current_node = cast(SwarmNode, self.state.current_node)
+                logger.debug("current_node=<%s> | starting swarm execution with node", current_node.node_id)
                 logger.debug(
                     "max_handoffs=<%d>, max_iterations=<%d>, timeout=<%s>s | swarm execution config",
                     self.max_handoffs,
@@ -442,7 +439,7 @@ class Swarm(MultiAgentBase):
             return
 
         # Update swarm state
-        previous_agent = self.state.current_node
+        previous_agent = cast(SwarmNode, self.state.current_node)
         self.state.current_node = target_node
 
         # Store handoff message for the target agent

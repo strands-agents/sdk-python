@@ -48,7 +48,6 @@ def agent(interrupt_hook, time_tool, weather_tool):
     return Agent(hooks=[interrupt_hook], tools=[time_tool, weather_tool])
 
 
-@pytest.mark.asyncio
 def test_interrupt(agent):
     result = agent("What is the time and weather?")
 
@@ -112,7 +111,6 @@ def test_interrupt(agent):
     assert tru_tool_result_message == exp_tool_result_message
 
 
-@pytest.mark.asyncio
 def test_interrupt_reject(agent):
     result = agent("What is the time and weather?")
 
