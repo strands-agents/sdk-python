@@ -2160,3 +2160,49 @@ def test_agent__call__invalid_tool_name():
 
     # And that it continued to the LLM call
     assert agent.messages[-1] == {"content": [{"text": "I invoked a tool!"}], "role": "assistant"}
+
+
+def test_agent_does_not_include_tools_in_trace_by_default(tool_decorated):
+    """Verify that by default, the agent does not add tool specs to the trace."""
+    with unittest.mock.patch("strands.agent.agent.get_tracer") as mock_get_tracer:
+        mock_tracer_instance = unittest.mock.MagicMock()
+        mock_span = unittest.mock.MagicMock()
+        mock_tracer_instance.start_agent_span.return_value = mock_span
+        mock_get_tracer.return_value = mock_tracer_instance
+
+        mock_model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
+
+        agent = Agent(tools=[tool_decorated], model=mock_model)
+        agent("test prompt")
+
+        # Check that set_attribute was not called for our specific key
+        called_attributes = [call.args[0] for call in mock_span.set_attribute.call_args_list]
+        assert "gen_ai.agent.tools" not in called_attributes
+
+
+def test_agent_includes_tools_in_trace_when_enabled(tool_decorated):
+    """Verify that the agent adds tool specs to the trace when the flag is enabled."""
+    with unittest.mock.patch("strands.agent.agent.get_tracer") as mock_get_tracer:
+        mock_tracer_instance = unittest.mock.MagicMock()
+        mock_span = unittest.mock.MagicMock()
+        mock_tracer_instance.start_agent_span.return_value = mock_span
+        mock_get_tracer.return_value = mock_tracer_instance
+
+        mock_model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
+
+        agent = Agent(tools=[tool_decorated], include_tools_in_trace=True, model=mock_model)
+        agent("test prompt")
+
+        # Verify the correct data is serialized and set as an attribute
+        tool_spec = tool_decorated.tool_spec
+        expected_tool_details = [
+            {
+                "name": tool_spec.get("name"),
+                "description": tool_spec.get("description"),
+                "inputSchema": tool_spec.get("inputSchema"),
+                "outputSchema": tool_spec.get("outputSchema"),
+            }
+        ]
+        expected_json = serialize(expected_tool_details)
+
+        mock_span.set_attribute.assert_called_with("gen_ai.agent.tools", expected_json)
