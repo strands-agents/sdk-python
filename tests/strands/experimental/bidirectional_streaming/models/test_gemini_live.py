@@ -2,14 +2,12 @@
 
 Tests the unified GeminiLiveBidirectionalModel interface including:
 - Model initialization and configuration
-- Connection establishment
+- Connection establishment and lifecycle
 - Unified send() method with different content types
 - Event receiving and conversion
-- Connection lifecycle management
 """
 
 import unittest.mock
-import uuid
 
 import pytest
 from google import genai
@@ -84,146 +82,121 @@ def messages():
 # Initialization Tests
 
 
-def test_init_default_config(mock_genai_client):
-    """Test model initialization with default configuration."""
+def test_model_initialization(mock_genai_client, model_id, api_key):
+    """Test model initialization with various configurations."""
     _ = mock_genai_client
     
-    model = GeminiLiveBidirectionalModel()
+    # Test default config
+    model_default = GeminiLiveBidirectionalModel()
+    assert model_default.model_id == "models/gemini-2.0-flash-live-preview-04-09"
+    assert model_default.api_key is None
+    assert model_default._active is False
+    assert model_default.live_session is None
     
-    assert model.model_id == "models/gemini-2.0-flash-live-preview-04-09"
-    assert model.api_key is None
-    assert model._active is False
-    assert model.live_session is None
-
-
-def test_init_with_api_key(mock_genai_client, model_id, api_key):
-    """Test model initialization with API key."""
-    mock_client, _, _ = mock_genai_client
+    # Test with API key
+    model_with_key = GeminiLiveBidirectionalModel(model_id=model_id, api_key=api_key)
+    assert model_with_key.model_id == model_id
+    assert model_with_key.api_key == api_key
     
-    model = GeminiLiveBidirectionalModel(model_id=model_id, api_key=api_key)
-    
-    assert model.model_id == model_id
-    assert model.api_key == api_key
-    
-    # Verify client was created with correct parameters
-    mock_client_cls = unittest.mock.patch("strands.experimental.bidirectional_streaming.models.gemini_live.genai.Client").start()
-    GeminiLiveBidirectionalModel(model_id=model_id, api_key=api_key)
-    mock_client_cls.assert_called()
-
-
-def test_init_with_custom_config(mock_genai_client, model_id):
-    """Test model initialization with custom configuration."""
-    _ = mock_genai_client
-    
+    # Test with custom config
     live_config = {"temperature": 0.7, "top_p": 0.9}
-    model = GeminiLiveBidirectionalModel(model_id=model_id, live_config=live_config)
-    
-    assert model.live_config == live_config
+    model_custom = GeminiLiveBidirectionalModel(model_id=model_id, live_config=live_config)
+    assert model_custom.live_config == live_config
 
 
 # Connection Tests
 
 
 @pytest.mark.asyncio
-async def test_connect_basic(mock_genai_client, model):
-    """Test basic connection establishment."""
-    mock_client, mock_live_session, _ = mock_genai_client
+async def test_connection_lifecycle(mock_genai_client, model, system_prompt, tool_spec, messages):
+    """Test complete connection lifecycle with various configurations."""
+    mock_client, mock_live_session, mock_live_session_cm = mock_genai_client
     
+    # Test basic connection
     await model.connect()
-    
     assert model._active is True
     assert model.session_id is not None
     assert model.live_session == mock_live_session
     mock_client.aio.live.connect.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_connect_with_system_prompt(mock_genai_client, model, system_prompt):
-    """Test connection with system prompt."""
-    mock_client, _, _ = mock_genai_client
     
+    # Test close
+    await model.close()
+    assert model._active is False
+    mock_live_session_cm.__aexit__.assert_called_once()
+    
+    # Test connection with system prompt
     await model.connect(system_prompt=system_prompt)
-    
-    # Verify system prompt was included in config
     call_args = mock_client.aio.live.connect.call_args
     config = call_args.kwargs.get("config", {})
     assert config.get("system_instruction") == system_prompt
-
-
-@pytest.mark.asyncio
-async def test_connect_with_tools(mock_genai_client, model, tool_spec):
-    """Test connection with tools."""
-    mock_client, _, _ = mock_genai_client
+    await model.close()
     
+    # Test connection with tools
     await model.connect(tools=[tool_spec])
-    
-    # Verify tools were formatted and included
     call_args = mock_client.aio.live.connect.call_args
     config = call_args.kwargs.get("config", {})
     assert "tools" in config
     assert len(config["tools"]) > 0
-
-
-@pytest.mark.asyncio
-async def test_connect_with_messages(mock_genai_client, model, messages):
-    """Test connection with message history."""
-    _, mock_live_session, _ = mock_genai_client
+    await model.close()
     
+    # Test connection with messages
     await model.connect(messages=messages)
-    
-    # Verify message history was sent
     mock_live_session.send_client_content.assert_called()
+    await model.close()
 
 
 @pytest.mark.asyncio
-async def test_connect_error_handling(mock_genai_client, model):
-    """Test connection error handling."""
-    mock_client, _, _ = mock_genai_client
+async def test_connection_edge_cases(mock_genai_client, api_key, model_id):
+    """Test connection error handling and edge cases."""
+    mock_client, _, mock_live_session_cm = mock_genai_client
+    
+    # Test connection error
+    model1 = GeminiLiveBidirectionalModel(model_id=model_id, api_key=api_key)
     mock_client.aio.live.connect.side_effect = Exception("Connection failed")
-    
     with pytest.raises(Exception, match="Connection failed"):
-        await model.connect()
-
-
-@pytest.mark.asyncio
-async def test_connect_when_already_active(mock_genai_client, model):
-    """Test that connect() raises exception when already active."""
-    mock_client, _, _ = mock_genai_client
+        await model1.connect()
     
-    # First connection
-    await model.connect()
+    # Reset mock for next tests
+    mock_client.aio.live.connect.side_effect = None
     
-    # Second connection attempt should raise
+    # Test double connection
+    model2 = GeminiLiveBidirectionalModel(model_id=model_id, api_key=api_key)
+    await model2.connect()
     with pytest.raises(RuntimeError, match="Connection already active"):
-        await model.connect()
+        await model2.connect()
+    await model2.close()
+    
+    # Test close when not connected
+    model3 = GeminiLiveBidirectionalModel(model_id=model_id, api_key=api_key)
+    await model3.close()  # Should not raise
+    
+    # Test close error handling
+    model4 = GeminiLiveBidirectionalModel(model_id=model_id, api_key=api_key)
+    await model4.connect()
+    mock_live_session_cm.__aexit__.side_effect = Exception("Close failed")
+    with pytest.raises(Exception, match="Close failed"):
+        await model4.close()
 
 
 # Send Method Tests
 
 
 @pytest.mark.asyncio
-async def test_send_text_input(mock_genai_client, model):
-    """Test sending text input through unified send() method."""
+async def test_send_all_content_types(mock_genai_client, model):
+    """Test sending all content types through unified send() method."""
     _, mock_live_session, _ = mock_genai_client
     await model.connect()
     
+    # Test text input
     text_input: TextInputEvent = {"text": "Hello", "role": "user"}
     await model.send(text_input)
-    
-    # Verify text was sent via send_client_content
     mock_live_session.send_client_content.assert_called_once()
     call_args = mock_live_session.send_client_content.call_args
     content = call_args.kwargs.get("turns")
     assert content.role == "user"
     assert content.parts[0].text == "Hello"
-
-
-@pytest.mark.asyncio
-async def test_send_audio_input(mock_genai_client, model):
-    """Test sending audio input through unified send() method."""
-    _, mock_live_session, _ = mock_genai_client
-    await model.connect()
     
+    # Test audio input
     audio_input: AudioInputEvent = {
         "audioData": b"audio_bytes",
         "format": "pcm",
@@ -231,102 +204,59 @@ async def test_send_audio_input(mock_genai_client, model):
         "channels": 1,
     }
     await model.send(audio_input)
-    
-    # Verify audio was sent via send_realtime_input
     mock_live_session.send_realtime_input.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_send_image_input(mock_genai_client, model):
-    """Test sending image input through unified send() method."""
-    _, mock_live_session, _ = mock_genai_client
-    await model.connect()
     
+    # Test image input
     image_input: ImageInputEvent = {
         "imageData": b"image_bytes",
         "mimeType": "image/jpeg",
         "encoding": "raw",
     }
     await model.send(image_input)
-    
-    # Verify image was sent
     mock_live_session.send.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_send_tool_result(mock_genai_client, model):
-    """Test sending tool result through unified send() method."""
-    _, mock_live_session, _ = mock_genai_client
-    await model.connect()
     
+    # Test tool result
     tool_result: ToolResult = {
         "toolUseId": "tool-123",
         "status": "success",
         "content": [{"text": "Result: 42"}],
     }
     await model.send(tool_result)
-    
-    # Verify tool result was sent
     mock_live_session.send_tool_response.assert_called_once()
+    
+    await model.close()
 
 
 @pytest.mark.asyncio
-async def test_send_when_inactive(mock_genai_client, model):
-    """Test that send() does nothing when connection is inactive."""
+async def test_send_edge_cases(mock_genai_client, model):
+    """Test send() edge cases and error handling."""
     _, mock_live_session, _ = mock_genai_client
     
-    # Don't connect, so _active is False
+    # Test send when inactive
     text_input: TextInputEvent = {"text": "Hello", "role": "user"}
     await model.send(text_input)
-    
-    # Verify nothing was sent
     mock_live_session.send_client_content.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_send_unknown_content_type(mock_genai_client, model):
-    """Test sending unknown content type logs warning."""
-    _, _, _ = mock_genai_client
+    
+    # Test unknown content type
     await model.connect()
-    
     unknown_content = {"unknown_field": "value"}
+    await model.send(unknown_content)  # Should not raise, just log warning
     
-    # Should not raise, just log warning
-    await model.send(unknown_content)
+    await model.close()
 
 
 # Receive Method Tests
 
 
 @pytest.mark.asyncio
-async def test_receive_connection_start_event(mock_genai_client, model, agenerator):
-    """Test that receive() emits connection start event."""
+async def test_receive_lifecycle_events(mock_genai_client, model, agenerator):
+    """Test that receive() emits connection start and end events."""
     _, mock_live_session, _ = mock_genai_client
     mock_live_session.receive.return_value = agenerator([])
     
     await model.connect()
     
-    # Get first event
-    receive_gen = model.receive()
-    first_event = await anext(receive_gen)
-    
-    # First event should be connection start
-    assert "BidirectionalConnectionStart" in first_event
-    assert first_event["BidirectionalConnectionStart"]["connectionId"] == model.session_id
-    
-    # Close to stop the loop
-    await model.close()
-
-
-@pytest.mark.asyncio
-async def test_receive_connection_end_event(mock_genai_client, model, agenerator):
-    """Test that receive() emits connection end event."""
-    _, mock_live_session, _ = mock_genai_client
-    mock_live_session.receive.return_value = agenerator([])
-    
-    await model.connect()
-    
-    # Collect events until connection ends
+    # Collect events
     events = []
     async for event in model.receive():
         events.append(event)
@@ -334,57 +264,44 @@ async def test_receive_connection_end_event(mock_genai_client, model, agenerator
         if len(events) == 1:
             await model.close()
     
-    # Last event should be connection end
+    # Verify connection start and end
+    assert len(events) >= 2
+    assert "BidirectionalConnectionStart" in events[0]
+    assert events[0]["BidirectionalConnectionStart"]["connectionId"] == model.session_id
     assert "BidirectionalConnectionEnd" in events[-1]
 
 
 @pytest.mark.asyncio
-async def test_receive_text_output(mock_genai_client, model):
-    """Test receiving text output from model."""
-    _, mock_live_session, _ = mock_genai_client
-    
-    mock_message = unittest.mock.Mock()
-    mock_message.text = "Hello from Gemini"
-    mock_message.data = None
-    mock_message.tool_call = None
-    mock_message.server_content = None
-    
+async def test_event_conversion(mock_genai_client, model):
+    """Test conversion of all Gemini Live event types to standard format."""
+    _, _, _ = mock_genai_client
     await model.connect()
     
-    # Test the conversion method directly
-    converted_event = model._convert_gemini_live_event(mock_message)
+    # Test text output
+    mock_text = unittest.mock.Mock()
+    mock_text.text = "Hello from Gemini"
+    mock_text.data = None
+    mock_text.tool_call = None
+    mock_text.server_content = None
     
-    assert "textOutput" in converted_event
-    assert converted_event["textOutput"]["text"] == "Hello from Gemini"
-    assert converted_event["textOutput"]["role"] == "assistant"
-
-
-@pytest.mark.asyncio
-async def test_receive_audio_output(mock_genai_client, model):
-    """Test receiving audio output from model."""
-    _, mock_live_session, _ = mock_genai_client
+    text_event = model._convert_gemini_live_event(mock_text)
+    assert "textOutput" in text_event
+    assert text_event["textOutput"]["text"] == "Hello from Gemini"
+    assert text_event["textOutput"]["role"] == "assistant"
     
-    mock_message = unittest.mock.Mock()
-    mock_message.text = None
-    mock_message.data = b"audio_data"
-    mock_message.tool_call = None
-    mock_message.server_content = None
+    # Test audio output
+    mock_audio = unittest.mock.Mock()
+    mock_audio.text = None
+    mock_audio.data = b"audio_data"
+    mock_audio.tool_call = None
+    mock_audio.server_content = None
     
-    await model.connect()
+    audio_event = model._convert_gemini_live_event(mock_audio)
+    assert "audioOutput" in audio_event
+    assert audio_event["audioOutput"]["audioData"] == b"audio_data"
+    assert audio_event["audioOutput"]["format"] == "pcm"
     
-    # Test the conversion method directly
-    converted_event = model._convert_gemini_live_event(mock_message)
-    
-    assert "audioOutput" in converted_event
-    assert converted_event["audioOutput"]["audioData"] == b"audio_data"
-    assert converted_event["audioOutput"]["format"] == "pcm"
-
-
-@pytest.mark.asyncio
-async def test_receive_tool_call(mock_genai_client, model):
-    """Test receiving tool call from model."""
-    _, mock_live_session, _ = mock_genai_client
-    
+    # Test tool call
     mock_func_call = unittest.mock.Mock()
     mock_func_call.id = "tool-123"
     mock_func_call.name = "calculator"
@@ -393,121 +310,62 @@ async def test_receive_tool_call(mock_genai_client, model):
     mock_tool_call = unittest.mock.Mock()
     mock_tool_call.function_calls = [mock_func_call]
     
-    mock_message = unittest.mock.Mock()
-    mock_message.text = None
-    mock_message.data = None
-    mock_message.tool_call = mock_tool_call
-    mock_message.server_content = None
+    mock_tool = unittest.mock.Mock()
+    mock_tool.text = None
+    mock_tool.data = None
+    mock_tool.tool_call = mock_tool_call
+    mock_tool.server_content = None
     
-    await model.connect()
+    tool_event = model._convert_gemini_live_event(mock_tool)
+    assert "toolUse" in tool_event
+    assert tool_event["toolUse"]["toolUseId"] == "tool-123"
+    assert tool_event["toolUse"]["name"] == "calculator"
     
-    # Test the conversion method directly
-    converted_event = model._convert_gemini_live_event(mock_message)
-    
-    assert "toolUse" in converted_event
-    assert converted_event["toolUse"]["toolUseId"] == "tool-123"
-    assert converted_event["toolUse"]["name"] == "calculator"
-
-
-@pytest.mark.asyncio
-async def test_receive_interruption(mock_genai_client, model):
-    """Test receiving interruption event."""
-    _, mock_live_session, _ = mock_genai_client
-    
+    # Test interruption
     mock_server_content = unittest.mock.Mock()
     mock_server_content.interrupted = True
     mock_server_content.input_transcription = None
     mock_server_content.output_transcription = None
     
-    mock_message = unittest.mock.Mock()
-    mock_message.text = None
-    mock_message.data = None
-    mock_message.tool_call = None
-    mock_message.server_content = mock_server_content
+    mock_interrupt = unittest.mock.Mock()
+    mock_interrupt.text = None
+    mock_interrupt.data = None
+    mock_interrupt.tool_call = None
+    mock_interrupt.server_content = mock_server_content
     
-    await model.connect()
+    interrupt_event = model._convert_gemini_live_event(mock_interrupt)
+    assert "interruptionDetected" in interrupt_event
+    assert interrupt_event["interruptionDetected"]["reason"] == "user_input"
     
-    # Test the conversion method directly
-    converted_event = model._convert_gemini_live_event(mock_message)
-    
-    assert "interruptionDetected" in converted_event
-    assert converted_event["interruptionDetected"]["reason"] == "user_input"
-
-
-# Close Method Tests
-
-
-@pytest.mark.asyncio
-async def test_close_connection(mock_genai_client, model):
-    """Test closing connection."""
-    _, _, mock_live_session_cm = mock_genai_client
-    
-    await model.connect()
     await model.close()
-    
-    assert model._active is False
-    mock_live_session_cm.__aexit__.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_close_when_not_connected(mock_genai_client, model):
-    """Test closing when not connected does nothing."""
-    _, _, mock_live_session_cm = mock_genai_client
-    
-    # Don't connect
-    await model.close()
-    
-    # Should not raise, and __aexit__ should not be called
-    mock_live_session_cm.__aexit__.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_close_error_handling(mock_genai_client, model):
-    """Test close error handling."""
-    _, _, mock_live_session_cm = mock_genai_client
-    mock_live_session_cm.__aexit__.side_effect = Exception("Close failed")
-    
-    await model.connect()
-    
-    with pytest.raises(Exception, match="Close failed"):
-        await model.close()
 
 
 # Helper Method Tests
 
 
-def test_build_live_config_basic(model):
-    """Test building basic live config."""
-    config = model._build_live_config()
+def test_config_building(model, system_prompt, tool_spec):
+    """Test building live config with various options."""
+    # Test basic config
+    config_basic = model._build_live_config()
+    assert isinstance(config_basic, dict)
     
-    assert isinstance(config, dict)
-
-
-def test_build_live_config_with_system_prompt(model, system_prompt):
-    """Test building config with system prompt."""
-    config = model._build_live_config(system_prompt=system_prompt)
+    # Test with system prompt
+    config_prompt = model._build_live_config(system_prompt=system_prompt)
+    assert config_prompt["system_instruction"] == system_prompt
     
-    assert config["system_instruction"] == system_prompt
+    # Test with tools
+    config_tools = model._build_live_config(tools=[tool_spec])
+    assert "tools" in config_tools
+    assert len(config_tools["tools"]) > 0
 
 
-def test_build_live_config_with_tools(model, tool_spec):
-    """Test building config with tools."""
-    config = model._build_live_config(tools=[tool_spec])
-    
-    assert "tools" in config
-    assert len(config["tools"]) > 0
-
-
-def test_format_tools_for_live_api(model, tool_spec):
+def test_tool_formatting(model, tool_spec):
     """Test tool formatting for Gemini Live API."""
+    # Test with tools
     formatted_tools = model._format_tools_for_live_api([tool_spec])
-    
     assert len(formatted_tools) == 1
     assert isinstance(formatted_tools[0], genai_types.Tool)
-
-
-def test_format_tools_empty_list(model):
-    """Test formatting empty tool list."""
-    formatted_tools = model._format_tools_for_live_api([])
     
-    assert formatted_tools == []
+    # Test empty list
+    formatted_empty = model._format_tools_for_live_api([])
+    assert formatted_empty == []

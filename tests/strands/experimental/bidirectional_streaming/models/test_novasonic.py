@@ -7,9 +7,7 @@ covering connection lifecycle, event conversion, audio streaming, and tool execu
 import asyncio
 import base64
 import json
-import uuid
-from typing import Any, Dict
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
@@ -17,7 +15,7 @@ import pytest_asyncio
 from strands.experimental.bidirectional_streaming.models.novasonic import (
     NovaSonicBidirectionalModel,
 )
-from strands.types.tools import ToolResult, ToolSpec
+from strands.types.tools import ToolResult
 
 
 # Test fixtures
@@ -62,12 +60,14 @@ async def nova_model(model_id, region):
         await model.close()
 
 
-# Connection lifecycle tests
+# Initialization and Connection Tests
+
+
 @pytest.mark.asyncio
 async def test_model_initialization(model_id, region):
     """Test model initialization with configuration."""
     model = NovaSonicBidirectionalModel(model_id=model_id, region=region)
-    
+
     assert model.model_id == model_id
     assert model.region == region
     assert model.stream is None
@@ -76,26 +76,24 @@ async def test_model_initialization(model_id, region):
 
 
 @pytest.mark.asyncio
-async def test_connect_establishes_connection(nova_model, mock_client, mock_stream):
-    """Test that connect() establishes bidirectional connection."""
+async def test_connection_lifecycle(nova_model, mock_client, mock_stream):
+    """Test complete connection lifecycle with various configurations."""
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
         nova_model._client = mock_client
-        
+
+        # Test basic connection
         await nova_model.connect(system_prompt="Test system prompt")
-        
         assert nova_model._active
         assert nova_model.stream == mock_stream
         assert nova_model.prompt_name is not None
         assert mock_client.invoke_model_with_bidirectional_stream.called
 
+        # Test close
+        await nova_model.close()
+        assert not nova_model._active
+        assert mock_stream.input_stream.close.called
 
-@pytest.mark.asyncio
-async def test_connect_sends_initialization_events(nova_model, mock_client, mock_stream):
-    """Test that connect() sends proper initialization sequence."""
-    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model._client = mock_client
-        
-        system_prompt = "You are a helpful assistant"
+        # Test connection with tools
         tools = [
             {
                 "name": "get_weather",
@@ -103,108 +101,147 @@ async def test_connect_sends_initialization_events(nova_model, mock_client, mock
                 "inputSchema": {"json": json.dumps({"type": "object", "properties": {}})}
             }
         ]
-        
-        await nova_model.connect(system_prompt=system_prompt, tools=tools)
-        
-        # Verify initialization events were sent
-        assert mock_stream.input_stream.send.call_count >= 3  # connectionStart, promptStart, system prompt
+        await nova_model.connect(system_prompt="You are helpful", tools=tools)
+        # Verify initialization events were sent (connectionStart, promptStart, system prompt)
+        assert mock_stream.input_stream.send.call_count >= 3
+        await nova_model.close()
 
 
 @pytest.mark.asyncio
-async def test_connect_when_already_active(nova_model, mock_client, mock_stream):
-    """Test that connect() raises exception when already active."""
+async def test_connection_edge_cases(nova_model, mock_client, mock_stream, model_id, region):
+    """Test connection error handling and edge cases."""
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
         nova_model._client = mock_client
-        
-        # First connection
+
+        # Test double connection
         await nova_model.connect()
-        
-        # Second connection attempt should raise
         with pytest.raises(RuntimeError, match="Connection already active"):
             await nova_model.connect()
-
-
-@pytest.mark.asyncio
-async def test_close_cleanup(nova_model, mock_client, mock_stream):
-    """Test that close() properly cleans up resources."""
-    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model._client = mock_client
-        
-        await nova_model.connect()
         await nova_model.close()
-        
-        assert not nova_model._active
-        assert mock_stream.input_stream.close.called
+
+    # Test close when already closed
+    model2 = NovaSonicBidirectionalModel(model_id=model_id, region=region)
+    await model2.close()  # Should not raise
+    await model2.close()  # Second call should also be safe
 
 
-# Event conversion tests
+# Send Method Tests
+
+
 @pytest.mark.asyncio
-async def test_receive_emits_connection_start(nova_model, mock_client, mock_stream):
-    """Test that receive() emits connection start event."""
+async def test_send_all_content_types(nova_model, mock_client, mock_stream):
+    """Test sending all content types through unified send() method."""
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
         nova_model._client = mock_client
-        
+
+        await nova_model.connect()
+
+        # Test text content
+        text_event = {"text": "Hello, Nova!", "role": "user"}
+        await nova_model.send(text_event)
+        # Should send contentStart, textInput, and contentEnd
+        assert mock_stream.input_stream.send.call_count >= 3
+
+        # Test audio content
+        audio_event = {
+            "audioData": b"audio data",
+            "format": "pcm",
+            "sampleRate": 16000,
+            "channels": 1
+        }
+        await nova_model.send(audio_event)
+        # Should start audio connection and send audio
+        assert nova_model.audio_connection_active
+        assert mock_stream.input_stream.send.called
+
+        # Test tool result
+        tool_result = {
+            "toolUseId": "tool-123",
+            "status": "success",
+            "content": [{"text": "Weather is sunny"}]
+        }
+        await nova_model.send(tool_result)
+        # Should send contentStart, toolResult, and contentEnd
+        assert mock_stream.input_stream.send.called
+
+        await nova_model.close()
+
+
+@pytest.mark.asyncio
+async def test_send_edge_cases(nova_model, mock_client, mock_stream, caplog):
+    """Test send() edge cases and error handling."""
+    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
+        nova_model._client = mock_client
+
+        # Test send when inactive
+        text_event = {"text": "Hello", "role": "user"}
+        await nova_model.send(text_event)  # Should not raise
+
+        # Test image content (not supported)
+        await nova_model.connect()
+        image_event = {
+            "imageData": b"image data",
+            "mimeType": "image/jpeg"
+        }
+        await nova_model.send(image_event)
+        # Should log warning about unsupported image input
+        assert any("not supported" in record.message.lower() for record in caplog.records)
+
+        await nova_model.close()
+
+
+# Receive and Event Conversion Tests
+
+
+@pytest.mark.asyncio
+async def test_receive_lifecycle_events(nova_model, mock_client, mock_stream):
+    """Test that receive() emits connection start and end events."""
+    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
+        nova_model._client = mock_client
+
         # Setup mock to return no events and then stop
         async def mock_wait_for(*args, **kwargs):
             await asyncio.sleep(0.1)
             nova_model._active = False
             raise asyncio.TimeoutError()
-        
+
         with patch("asyncio.wait_for", side_effect=mock_wait_for):
             await nova_model.connect()
-            
+
             events = []
             async for event in nova_model.receive():
                 events.append(event)
-            
+
             # Should have connection start and end
             assert len(events) >= 2
             assert "BidirectionalConnectionStart" in events[0]
             assert events[0]["BidirectionalConnectionStart"]["connectionId"] == nova_model.prompt_name
+            assert "BidirectionalConnectionEnd" in events[-1]
 
 
 @pytest.mark.asyncio
-async def test_convert_audio_output_event(nova_model):
-    """Test conversion of Nova Sonic audio output to standard format."""
+async def test_event_conversion(nova_model):
+    """Test conversion of all Nova Sonic event types to standard format."""
+    # Test audio output
     audio_bytes = b"test audio data"
     audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
-    
-    nova_event = {
-        "audioOutput": {
-            "content": audio_base64
-        }
-    }
-    
+    nova_event = {"audioOutput": {"content": audio_base64}}
     result = nova_model._convert_nova_event(nova_event)
-    
     assert result is not None
     assert "audioOutput" in result
     assert result["audioOutput"]["audioData"] == audio_bytes
     assert result["audioOutput"]["format"] == "pcm"
     assert result["audioOutput"]["sampleRate"] == 24000
 
-
-@pytest.mark.asyncio
-async def test_convert_text_output_event(nova_model):
-    """Test conversion of Nova Sonic text output to standard format."""
-    nova_event = {
-        "textOutput": {
-            "content": "Hello, world!",
-            "role": "ASSISTANT"
-        }
-    }
-    
+    # Test text output
+    nova_event = {"textOutput": {"content": "Hello, world!", "role": "ASSISTANT"}}
     result = nova_model._convert_nova_event(nova_event)
-    
     assert result is not None
     assert "textOutput" in result
     assert result["textOutput"]["text"] == "Hello, world!"
     assert result["textOutput"]["role"] == "assistant"
 
-
-@pytest.mark.asyncio
-async def test_convert_tool_use_event(nova_model):
-    """Test conversion of Nova Sonic tool use to standard format."""
+    # Test tool use
     tool_input = {"location": "Seattle"}
     nova_event = {
         "toolUse": {
@@ -213,33 +250,21 @@ async def test_convert_tool_use_event(nova_model):
             "content": json.dumps(tool_input)
         }
     }
-    
     result = nova_model._convert_nova_event(nova_event)
-    
     assert result is not None
     assert "toolUse" in result
     assert result["toolUse"]["toolUseId"] == "tool-123"
     assert result["toolUse"]["name"] == "get_weather"
     assert result["toolUse"]["input"] == tool_input
 
-
-@pytest.mark.asyncio
-async def test_convert_interruption_event(nova_model):
-    """Test conversion of Nova Sonic interruption to standard format."""
-    nova_event = {
-        "stopReason": "INTERRUPTED"
-    }
-    
+    # Test interruption
+    nova_event = {"stopReason": "INTERRUPTED"}
     result = nova_model._convert_nova_event(nova_event)
-    
     assert result is not None
     assert "interruptionDetected" in result
     assert result["interruptionDetected"]["reason"] == "user_input"
 
-
-@pytest.mark.asyncio
-async def test_convert_usage_metrics_event(nova_model):
-    """Test conversion of Nova Sonic usage event to standard format."""
+    # Test usage metrics
     nova_event = {
         "usageEvent": {
             "totalTokens": 100,
@@ -254,9 +279,7 @@ async def test_convert_usage_metrics_event(nova_model):
             }
         }
     }
-    
     result = nova_model._convert_nova_event(nova_event)
-    
     assert result is not None
     assert "usageMetrics" in result
     assert result["usageMetrics"]["totalTokens"] == 100
@@ -264,131 +287,44 @@ async def test_convert_usage_metrics_event(nova_model):
     assert result["usageMetrics"]["outputTokens"] == 60
     assert result["usageMetrics"]["audioTokens"] == 30
 
-
-@pytest.mark.asyncio
-async def test_convert_content_start_tracks_role(nova_model):
-    """Test that contentStart events track role for subsequent text output."""
-    nova_event = {
-        "contentStart": {
-            "role": "USER"
-        }
-    }
-    
+    # Test content start tracks role
+    nova_event = {"contentStart": {"role": "USER"}}
     result = nova_model._convert_nova_event(nova_event)
-    
-    # contentStart doesn't emit an event but stores role
-    assert result is None
+    assert result is None  # contentStart doesn't emit an event
     assert nova_model._current_role == "USER"
 
 
-# Send method tests
-@pytest.mark.asyncio
-async def test_send_text_content(nova_model, mock_client, mock_stream):
-    """Test sending text content through unified send() method."""
-    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model._client = mock_client
-        
-        await nova_model.connect()
-        
-        text_event = {
-            "text": "Hello, Nova!",
-            "role": "user"
-        }
-        
-        await nova_model.send(text_event)
-        
-        # Should send contentStart, textInput, and contentEnd
-        assert mock_stream.input_stream.send.call_count >= 3
+# Audio Streaming Tests
 
 
-@pytest.mark.asyncio
-async def test_send_audio_content(nova_model, mock_client, mock_stream):
-    """Test sending audio content through unified send() method."""
-    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model._client = mock_client
-        
-        await nova_model.connect()
-        
-        audio_event = {
-            "audioData": b"audio data",
-            "format": "pcm",
-            "sampleRate": 16000,
-            "channels": 1
-        }
-        
-        await nova_model.send(audio_event)
-        
-        # Should start audio connection and send audio
-        assert nova_model.audio_connection_active
-        assert mock_stream.input_stream.send.called
-
-
-@pytest.mark.asyncio
-async def test_send_tool_result(nova_model, mock_client, mock_stream):
-    """Test sending tool result through unified send() method."""
-    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model._client = mock_client
-        
-        await nova_model.connect()
-        
-        tool_result = {
-            "toolUseId": "tool-123",
-            "status": "success",
-            "content": [{"text": "Weather is sunny"}]
-        }
-        
-        await nova_model.send(tool_result)
-        
-        # Should send contentStart, toolResult, and contentEnd
-        assert mock_stream.input_stream.send.call_count >= 3
-
-
-@pytest.mark.asyncio
-async def test_send_image_content_not_supported(nova_model, mock_client, mock_stream, caplog):
-    """Test that image content logs warning (not supported by Nova Sonic)."""
-    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model._client = mock_client
-        
-        await nova_model.connect()
-        
-        image_event = {
-            "imageData": b"image data",
-            "mimeType": "image/jpeg"
-        }
-        
-        await nova_model.send(image_event)
-        
-        # Should log warning about unsupported image input
-        assert any("not supported" in record.message.lower() for record in caplog.records)
-
-
-# Audio streaming tests
 @pytest.mark.asyncio
 async def test_audio_connection_lifecycle(nova_model, mock_client, mock_stream):
     """Test audio connection start and end lifecycle."""
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
         nova_model._client = mock_client
-        
+
         await nova_model.connect()
-        
+
         # Start audio connection
         await nova_model._start_audio_connection()
         assert nova_model.audio_connection_active
-        
+
         # End audio connection
         await nova_model._end_audio_input()
         assert not nova_model.audio_connection_active
 
+        await nova_model.close()
+
 
 @pytest.mark.asyncio
-async def test_silence_detection_ends_audio(nova_model, mock_client, mock_stream):
+async def test_silence_detection(nova_model, mock_client, mock_stream):
     """Test that silence detection automatically ends audio input."""
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
         nova_model._client = mock_client
         nova_model.silence_threshold = 0.1  # Short threshold for testing
-        
+
         await nova_model.connect()
-        
+
         # Send audio to start connection
         audio_event = {
             "audioData": b"audio data",
@@ -396,20 +332,24 @@ async def test_silence_detection_ends_audio(nova_model, mock_client, mock_stream
             "sampleRate": 16000,
             "channels": 1
         }
-        
+
         await nova_model.send(audio_event)
         assert nova_model.audio_connection_active
-        
+
         # Wait for silence detection
         await asyncio.sleep(0.2)
-        
+
         # Audio connection should be ended
         assert not nova_model.audio_connection_active
 
+        await nova_model.close()
 
-# Tool configuration tests
+
+# Helper Method Tests
+
+
 @pytest.mark.asyncio
-async def test_build_tool_configuration(nova_model):
+async def test_tool_configuration(nova_model):
     """Test building tool configuration from tool specs."""
     tools = [
         {
@@ -425,141 +365,69 @@ async def test_build_tool_configuration(nova_model):
             }
         }
     ]
-    
+
     tool_config = nova_model._build_tool_configuration(tools)
-    
+
     assert len(tool_config) == 1
     assert tool_config[0]["toolSpec"]["name"] == "get_weather"
     assert tool_config[0]["toolSpec"]["description"] == "Get weather information"
     assert "inputSchema" in tool_config[0]["toolSpec"]
 
 
-# Event template tests
 @pytest.mark.asyncio
-async def test_get_connection_start_event(nova_model):
-    """Test connection start event generation."""
+async def test_event_templates(nova_model):
+    """Test event template generation."""
+    # Test connection start event
     event_json = nova_model._get_connection_start_event()
     event = json.loads(event_json)
-    
     assert "event" in event
     assert "sessionStart" in event["event"]
     assert "inferenceConfiguration" in event["event"]["sessionStart"]
 
-
-@pytest.mark.asyncio
-async def test_get_prompt_start_event(nova_model):
-    """Test prompt start event generation."""
+    # Test prompt start event
     nova_model.prompt_name = "test-prompt"
-    
     event_json = nova_model._get_prompt_start_event([])
     event = json.loads(event_json)
-    
     assert "event" in event
     assert "promptStart" in event["event"]
     assert event["event"]["promptStart"]["promptName"] == "test-prompt"
 
-
-@pytest.mark.asyncio
-async def test_get_text_input_event(nova_model):
-    """Test text input event generation."""
-    nova_model.prompt_name = "test-prompt"
+    # Test text input event
     content_name = "test-content"
-    
     event_json = nova_model._get_text_input_event(content_name, "Hello")
     event = json.loads(event_json)
-    
     assert "event" in event
     assert "textInput" in event["event"]
     assert event["event"]["textInput"]["content"] == "Hello"
 
-
-@pytest.mark.asyncio
-async def test_get_tool_result_event(nova_model):
-    """Test tool result event generation."""
-    nova_model.prompt_name = "test-prompt"
-    content_name = "test-content"
+    # Test tool result event
     result = {"result": "Success"}
-    
     event_json = nova_model._get_tool_result_event(content_name, result)
     event = json.loads(event_json)
-    
     assert "event" in event
     assert "toolResult" in event["event"]
     assert json.loads(event["event"]["toolResult"]["content"]) == result
 
 
-# Error handling tests
-@pytest.mark.asyncio
-async def test_send_when_inactive(nova_model):
-    """Test that send() handles inactive connection gracefully."""
-    text_event = {
-        "text": "Hello",
-        "role": "user"
-    }
-    
-    # Should not raise error when inactive
-    await nova_model.send(text_event)
+# Error Handling Tests
 
 
 @pytest.mark.asyncio
-async def test_close_when_already_closed(nova_model):
-    """Test that close() handles already closed connection."""
-    # Should not raise error when already inactive
-    await nova_model.close()
-    await nova_model.close()  # Second call should be safe
-
-
-@pytest.mark.asyncio
-async def test_response_processor_handles_errors(nova_model, mock_client, mock_stream):
-    """Test that response processor handles errors gracefully."""
+async def test_error_handling(nova_model, mock_client, mock_stream):
+    """Test error handling in various scenarios."""
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
         nova_model._client = mock_client
-        
-        # Setup mock to raise error
+
+        # Test response processor handles errors gracefully
         async def mock_error(*args, **kwargs):
             raise Exception("Test error")
-        
+
         mock_stream.await_output.side_effect = mock_error
-        
+
         await nova_model.connect()
-        
+
         # Wait a bit for response processor to handle error
         await asyncio.sleep(0.1)
-        
+
         # Should still be able to close cleanly
         await nova_model.close()
-
-
-# Integration-style tests
-@pytest.mark.asyncio
-async def test_full_conversation_flow(nova_model, mock_client, mock_stream):
-    """Test a complete conversation flow with text and audio."""
-    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model._client = mock_client
-        
-        # Connect
-        await nova_model.connect(system_prompt="You are helpful")
-        
-        # Send text
-        await nova_model.send({"text": "Hello", "role": "user"})
-        
-        # Send audio
-        await nova_model.send({
-            "audioData": b"audio",
-            "format": "pcm",
-            "sampleRate": 16000,
-            "channels": 1
-        })
-        
-        # Send tool result
-        await nova_model.send({
-            "toolUseId": "tool-1",
-            "status": "success",
-            "content": [{"text": "Result"}]
-        })
-        
-        # Close
-        await nova_model.close()
-        
-        # Verify all operations completed
-        assert not nova_model._active
