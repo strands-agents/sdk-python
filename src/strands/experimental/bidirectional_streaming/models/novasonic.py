@@ -1,10 +1,8 @@
 """Nova Sonic bidirectional model provider for real-time streaming conversations.
 
-Implements the unified BidirectionalModel interface for Amazon's Nova Sonic, handling the
+Implements the BidirectionalModel interface for Amazon's Nova Sonic, handling the
 complex event sequencing and audio processing required by Nova Sonic's
 InvokeModelWithBidirectionalStream protocol.
-
-Unified model interface - combines configuration and connection state in single class.
 
 Nova Sonic specifics:
 - Hierarchical event sequences: connectionStart → promptStart → content streaming
@@ -81,7 +79,7 @@ RESPONSE_TIMEOUT = 1.0
 
 
 class NovaSonicBidirectionalModel(BidirectionalModel):
-    """Unified Nova Sonic implementation for bidirectional streaming.
+    """Nova Sonic implementation for bidirectional streaming.
 
     Combines model configuration and connection state in a single class.
     Manages Nova Sonic's complex event sequencing, audio format conversion, and
@@ -305,7 +303,7 @@ class NovaSonicBidirectionalModel(BidirectionalModel):
             yield {"BidirectionalConnectionEnd": connection_end}
 
     async def send(self, content: Union[TextInputEvent, ImageInputEvent, AudioInputEvent, ToolResult]) -> None:
-        """Unified send method for all content types.
+        """Unified send method for all content types. Sends the given content to Nova Sonic.
 
         Dispatches to appropriate internal handler based on content type.
 

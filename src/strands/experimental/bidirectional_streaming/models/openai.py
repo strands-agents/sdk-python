@@ -2,8 +2,6 @@
 
 Provides real-time audio and text communication through OpenAI's Realtime API
 with WebSocket connections, voice activity detection, and function calling.
-
-Unified model interface - combines configuration and connection state in single class.
 """
 
 import asyncio
@@ -60,7 +58,7 @@ DEFAULT_SESSION_CONFIG = {
 
 
 class OpenAIRealtimeBidirectionalModel(BidirectionalModel):
-    """Unified OpenAI Realtime API implementation for bidirectional streaming.
+    """OpenAI Realtime API implementation for bidirectional streaming.
     
     Combines model configuration and connection state in a single class.
     Manages WebSocket connection to OpenAI's Realtime API with automatic VAD,
@@ -434,7 +432,7 @@ class OpenAIRealtimeBidirectionalModel(BidirectionalModel):
             return None
 
     async def send(self, content: Union[TextInputEvent, ImageInputEvent, AudioInputEvent, ToolResult]) -> None:
-        """Unified send method for all content types.
+        """Unified send method for all content types. Sends the given content to OpenAI.
         
         Dispatches to appropriate internal handler based on content type.
         
