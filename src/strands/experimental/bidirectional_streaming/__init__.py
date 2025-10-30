@@ -3,8 +3,8 @@
 # Main components - Primary user interface
 from .agent.agent import BidirectionalAgent
 
-# Unified model interface (for custom implementations)
-from .models.bidirectional_model import BidirectionalModel, BidirectionalModelSession
+# Model interface (for custom implementations)
+from .models.bidirectional_model import BidirectionalModel
 
 # Model providers - What users need to create models
 from .models.gemini_live import GeminiLiveBidirectionalModel
@@ -44,7 +44,6 @@ __all__ = [
     "VoiceActivityEvent",
     "UsageMetricsEvent",
     
-    # Unified model interface
+    # Model interface
     "BidirectionalModel",
-    "BidirectionalModelSession",  # Backwards compatibility alias
 ]

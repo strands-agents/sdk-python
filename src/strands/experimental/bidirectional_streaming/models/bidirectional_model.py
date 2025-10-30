@@ -105,7 +105,3 @@ class BidirectionalModel(abc.ABC):
             await model.send(ToolResult(toolUseId="123", status="success", ...))
         """
         raise NotImplementedError
-
-
-# Backwards compatibility alias - will be removed in future version
-BidirectionalModelSession = BidirectionalModel
