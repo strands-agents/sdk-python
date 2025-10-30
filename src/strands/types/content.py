@@ -6,7 +6,7 @@ SDK. These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
-from typing import Dict, List, Literal, Optional, Union
+from typing import Dict, List, Literal, Optional
 
 from typing_extensions import TypedDict
 
@@ -68,7 +68,7 @@ class CachePoint(TypedDict):
         type: The type of cache point, typically "default".
     """
 
-    type: str  # Can we change this to default without breaking
+    type: str
 
 
 class ContentBlock(TypedDict, total=False):
@@ -103,12 +103,10 @@ class SystemContentBlock(TypedDict, total=False):
     """Contains configurations for instructions to provide the model for how to handle input.
 
     Attributes:
-        cachePoint: A cache point configuration to optimize conversation history.
         guardContent: A content block to assess with the guardrail.
         text: A system prompt for the model.
     """
 
-    cachePoint: CachePoint
     guardContent: GuardContent
     text: str
 

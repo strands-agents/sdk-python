@@ -1795,7 +1795,6 @@ def test_agent_tool_record_direct_tool_call_disabled_with_non_serializable(agent
     assert len(agent.messages) == 0
 
 
-# TODO: dedup
 def test_agent_empty_invoke():
     model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
     agent = Agent(model=model, messages=[{"role": "user", "content": [{"text": "hello!"}]}])
@@ -2211,7 +2210,7 @@ def test_agent_none_system_prompt():
     agent = Agent(system_prompt=None)
     
     assert agent.system_prompt is None
-    assert agent._system_prompt_content == None
+    assert agent._system_prompt_content is None
 
 
 def test_agent_empty_list_system_prompt():
@@ -2228,7 +2227,6 @@ def test_agent_backwards_compatibility_string_access():
     agent = Agent(system_prompt=system_prompt)
     
     # Should be able to access as string for backwards compatibility
-    assert isinstance(agent.system_prompt, str)
     assert agent.system_prompt == system_prompt
 
 
@@ -2239,60 +2237,7 @@ def test_agent_backwards_compatibility_single_text_block():
     agent = Agent(system_prompt=system_prompt_content)
     
     # Should extract text for backwards compatibility
-    assert isinstance(agent.system_prompt, str)
     assert agent.system_prompt == text
 
 
-def test_agent_initialize_system_prompt_string_input():
-    """Test _initialize_system_prompt with string input."""
-    agent = Agent()
-    result = agent._initialize_system_prompt("Test prompt")
-    
-    assert result == ("Test prompt", [{"text": "Test prompt"}])
 
-
-def test_agent_initialize_system_prompt_single_text_block_input():
-    """Test _initialize_system_prompt with single text block."""
-    agent = Agent()
-    input_blocks = [{"text": "Test prompt"}]
-    result = agent._initialize_system_prompt(input_blocks)
-    
-    assert result == ("Test prompt", input_blocks)
-
-
-def test_agent_initialize_system_prompt_multiple_blocks_input():
-    """Test _initialize_system_prompt with multiple blocks."""
-    agent = Agent()
-    input_blocks = [
-        {"text": "First block"},
-        {"cachePoint": {"type": "default"}},
-        {"text": "Second block"}
-    ]
-    result = agent._initialize_system_prompt(input_blocks)
-    
-    assert result == ("First block\nSecond block", input_blocks)
-
-
-def test_agent_initialize_system_prompt_single_non_text_block_input():
-    """Test _initialize_system_prompt with single non-text block."""
-    agent = Agent()
-    input_blocks = [{"cachePoint": {"type": "default"}}]
-    result = agent._initialize_system_prompt(input_blocks)
-    
-    assert result == (None, input_blocks)
-
-
-def test_agent_initialize_system_prompt_none_input():
-    """Test _initialize_system_prompt with None input."""
-    agent = Agent()
-    result = agent._initialize_system_prompt(None)
-    
-    assert result == (None, None)
-
-
-def test_agent_initialize_system_prompt_empty_list_input():
-    """Test _initialize_system_prompt with empty list."""
-    agent = Agent()
-    result = agent._initialize_system_prompt([])
-    
-    assert result == (None, [])

@@ -222,7 +222,7 @@ class BedrockModel(Model):
                 UserWarning,
                 stacklevel=3
             )
-            system_blocks.append({"cachePoint": {"type": self.config["cache_prompt"]}})  # only default is valid here
+            system_blocks.append({"cachePoint": {"type": self.config["cache_prompt"]}})
 
         return {
             "modelId": self.config["model_id"],

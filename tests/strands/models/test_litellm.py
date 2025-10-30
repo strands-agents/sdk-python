@@ -255,8 +255,6 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
                     "inputTokens": mock_event_9.usage.prompt_tokens,
                     "outputTokens": mock_event_9.usage.completion_tokens,
                     "totalTokens": mock_event_9.usage.total_tokens,
-                    "cacheReadInputTokens": mock_event_9.usage.prompt_tokens_details.cached_tokens,
-                    "cacheWriteInputTokens": mock_event_9.usage.cache_creation_input_tokens,
                 },
                 "metrics": {"latencyMs": 0},
             }

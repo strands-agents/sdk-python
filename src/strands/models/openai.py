@@ -14,7 +14,7 @@ from openai.types.chat.parsed_chat_completion import ParsedChatCompletion
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
-from ..types.content import ContentBlock, Messages, SystemContentBlock
+from ..types.content import ContentBlock, Messages
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
@@ -198,21 +198,12 @@ class OpenAIModel(Model):
                 return {"tool_choice": "auto"}
 
     @classmethod
-    def format_request_messages(
-        cls,
-        messages: Messages,
-        system_prompt: Optional[str] = None,
-        *,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
-        **kwargs: Any,
-    ) -> list[dict[str, Any]]:
+    def format_request_messages(cls, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
         """Format an OpenAI compatible messages array.
 
         Args:
             messages: List of message objects to be processed by the model.
             system_prompt: System prompt to provide context to the model.
-            system_prompt_content: Structured system prompt content blocks (for advanced use cases).
-            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             An OpenAI compatible messages array.
@@ -253,17 +244,14 @@ class OpenAIModel(Model):
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
         tool_choice: ToolChoice | None = None,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
     ) -> dict[str, Any]:
         """Format an OpenAI compatible chat streaming request.
 
         Args:
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
-            system_prompt: System prompt to provide context to the model. When system_prompt_content
-                is provided, this should contain the flattened text for legacy subclass compatibility.
+            system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
-            system_prompt_content: Structured system prompt content blocks.
 
         Returns:
             An OpenAI compatible chat streaming request.
@@ -272,27 +260,8 @@ class OpenAIModel(Model):
             TypeError: If a message contains a content block type that cannot be converted to an OpenAI-compatible
                 format.
         """
-        # Handle system prompt content with backwards compatibility
-        # LEGACY COMPATIBILITY: The try/except approach is needed because:
-        # 1. Some subclasses may override format_request_messages() with the old signature:
-        #    format_request_messages(cls, messages: Messages, system_prompt: Optional[str] = None)
-        # 2. Calling with system_prompt_content kwarg would fail on legacy overrides
-        # 3. This provides graceful fallback for existing subclass implementations
-        if system_prompt_content:
-            try:
-                # Try new signature with system_prompt_content parameter
-                messages_formatted = self.format_request_messages(
-                    messages, system_prompt, system_prompt_content=system_prompt_content
-                )
-            except TypeError:
-                # Fallback for legacy subclass overrides that don't support system_prompt_content
-                # Use system_prompt which should be populated for legacy compatibility
-                messages_formatted = self.format_request_messages(messages, system_prompt)
-        else:
-            messages_formatted = self.format_request_messages(messages, system_prompt)
-
         return {
-            "messages": messages_formatted,
+            "messages": self.format_request_messages(messages, system_prompt),
             "model": self.config["model_id"],
             "stream": True,
             "stream_options": {"include_usage": True},
@@ -391,7 +360,6 @@ class OpenAIModel(Model):
         system_prompt: Optional[str] = None,
         *,
         tool_choice: ToolChoice | None = None,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the OpenAI model.
@@ -411,18 +379,7 @@ class OpenAIModel(Model):
             ModelThrottledException: If the request is throttled by OpenAI (rate limits).
         """
         logger.debug("formatting request")
-        # TODO This logic si wrong
-        # Use system_prompt_content if provided, otherwise fall back to system_prompt
-        if system_prompt_content:
-            # Extract text from first block if it's a simple text block
-            if len(system_prompt_content) == 1 and "text" in system_prompt_content[0]:
-                system_prompt_str = system_prompt_content[0]["text"]
-            else:
-                system_prompt_str = None  # OpenAI doesn't support complex system content blocks
-        else:
-            system_prompt_str = system_prompt
-
-        request = self.format_request(messages, tool_specs, system_prompt_str)
+        request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
         logger.debug("formatted request=<%s>", request)
 
         logger.debug("invoking model")
@@ -501,13 +458,7 @@ class OpenAIModel(Model):
 
     @override
     async def structured_output(
-        self,
-        output_model: Type[T],
-        prompt: Messages,
-        system_prompt: Optional[str] = None,
-        *,
-        system_prompt_content: Optional[list[SystemContentBlock]] = None,
-        **kwargs: Any,
+        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None, **kwargs: Any
     ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
