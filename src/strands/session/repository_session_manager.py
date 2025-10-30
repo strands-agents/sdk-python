@@ -17,6 +17,7 @@ from .session_repository import SessionRepository
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
+    from ..multiagent.base import MultiAgentBase
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,12 @@ logger = logging.getLogger(__name__)
 class RepositorySessionManager(SessionManager):
     """Session manager for persisting agents in a SessionRepository."""
 
-    def __init__(self, session_id: str, session_repository: SessionRepository, **kwargs: Any):
+    def __init__(
+        self,
+        session_id: str,
+        session_repository: SessionRepository,
+        **kwargs: Any,
+    ):
         """Initialize the RepositorySessionManager.
 
         If no session with the specified session_id exists yet, it will be created
@@ -152,3 +158,26 @@ class RepositorySessionManager(SessionManager):
 
             # Restore the agents messages array including the optional prepend messages
             agent.messages = prepend_messages + [session_message.to_message() for session_message in session_messages]
+
+    def sync_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:
+        """Serialize and update the multi-agent state into the session repository.
+
+        Args:
+            source: Multi-agent source object to sync to the session.
+            **kwargs: Additional keyword arguments for future extensibility.
+        """
+        self.session_repository.update_multi_agent(self.session_id, source)
+
+    def initialize_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:
+        """Initialize multi-agent state from the session repository.
+
+        Args:
+            source: Multi-agent source object to restore state into
+            **kwargs: Additional keyword arguments for future extensibility.
+        """
+        state = self.session_repository.read_multi_agent(self.session_id, source.id, **kwargs)
+        if state is None:
+            self.session_repository.create_multi_agent(self.session_id, source, **kwargs)
+        else:
+            logger.debug("session_id=<%s> | restoring multi-agent state", self.session_id)
+            source.deserialize_state(state)

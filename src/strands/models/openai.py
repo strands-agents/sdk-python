@@ -214,10 +214,16 @@ class OpenAIModel(Model):
         for message in messages:
             contents = message["content"]
 
+            # Check for reasoningContent and warn user
+            if any("reasoningContent" in content for content in contents):
+                logger.warning(
+                    "reasoningContent is not supported in multi-turn conversations with the Chat Completions API."
+                )
+
             formatted_contents = [
                 cls.format_request_message_content(content)
                 for content in contents
-                if not any(block_type in content for block_type in ["toolResult", "toolUse"])
+                if not any(block_type in content for block_type in ["toolResult", "toolUse", "reasoningContent"])
             ]
             formatted_tool_calls = [
                 cls.format_request_message_tool_call(content["toolUse"]) for content in contents if "toolUse" in content
@@ -405,9 +411,10 @@ class OpenAIModel(Model):
 
             logger.debug("got response from model")
             yield self.format_chunk({"chunk_type": "message_start"})
-            yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
-
             tool_calls: dict[int, list[Any]] = {}
+            data_type = None
+            finish_reason = None  # Store finish_reason for later use
+            event = None  # Initialize for scope safety
 
             async for event in response:
                 # Defensive: skip events with empty or missing choices
@@ -415,27 +422,34 @@ class OpenAIModel(Model):
                     continue
                 choice = event.choices[0]
 
-                if choice.delta.content:
-                    yield self.format_chunk(
-                        {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
-                    )
-
                 if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
+                    chunks, data_type = self._stream_switch_content("reasoning_content", data_type)
+                    for chunk in chunks:
+                        yield chunk
                     yield self.format_chunk(
                         {
                             "chunk_type": "content_delta",
-                            "data_type": "reasoning_content",
+                            "data_type": data_type,
                             "data": choice.delta.reasoning_content,
                         }
+                    )
+
+                if choice.delta.content:
+                    chunks, data_type = self._stream_switch_content("text", data_type)
+                    for chunk in chunks:
+                        yield chunk
+                    yield self.format_chunk(
+                        {"chunk_type": "content_delta", "data_type": data_type, "data": choice.delta.content}
                     )
 
                 for tool_call in choice.delta.tool_calls or []:
                     tool_calls.setdefault(tool_call.index, []).append(tool_call)
 
                 if choice.finish_reason:
+                    finish_reason = choice.finish_reason  # Store for use outside loop
+                    if data_type:
+                        yield self.format_chunk({"chunk_type": "content_stop", "data_type": data_type})
                     break
-
-            yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
 
             for tool_deltas in tool_calls.values():
                 yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]})
@@ -445,16 +459,36 @@ class OpenAIModel(Model):
 
                 yield self.format_chunk({"chunk_type": "content_stop", "data_type": "tool"})
 
-            yield self.format_chunk({"chunk_type": "message_stop", "data": choice.finish_reason})
+            yield self.format_chunk({"chunk_type": "message_stop", "data": finish_reason or "end_turn"})
 
             # Skip remaining events as we don't have use for anything except the final usage payload
             async for event in response:
                 _ = event
 
-            if event.usage:
+            if event and hasattr(event, "usage") and event.usage:
                 yield self.format_chunk({"chunk_type": "metadata", "data": event.usage})
 
         logger.debug("finished streaming response from model")
+
+    def _stream_switch_content(self, data_type: str, prev_data_type: str | None) -> tuple[list[StreamEvent], str]:
+        """Handle switching to a new content stream.
+
+        Args:
+            data_type: The next content data type.
+            prev_data_type: The previous content data type.
+
+        Returns:
+            Tuple containing:
+            - Stop block for previous content and the start block for the next content.
+            - Next content data type.
+        """
+        chunks = []
+        if data_type != prev_data_type:
+            if prev_data_type is not None:
+                chunks.append(self.format_chunk({"chunk_type": "content_stop", "data_type": prev_data_type}))
+            chunks.append(self.format_chunk({"chunk_type": "content_start", "data_type": data_type}))
+
+        return chunks, data_type
 
     @override
     async def structured_output(
