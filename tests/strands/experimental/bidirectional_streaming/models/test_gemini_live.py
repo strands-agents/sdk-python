@@ -115,10 +115,10 @@ def test_init_with_custom_config(mock_genai_client, model_id):
     """Test model initialization with custom configuration."""
     _ = mock_genai_client
     
-    custom_config = {"temperature": 0.7, "top_p": 0.9}
-    model = GeminiLiveBidirectionalModel(model_id=model_id, **custom_config)
+    live_config = {"temperature": 0.7, "top_p": 0.9}
+    model = GeminiLiveBidirectionalModel(model_id=model_id, live_config=live_config)
     
-    assert model.config == custom_config
+    assert model.live_config == live_config
 
 
 # Connection Tests

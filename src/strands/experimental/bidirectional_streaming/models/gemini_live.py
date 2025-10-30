@@ -56,19 +56,21 @@ class GeminiLiveBidirectionalModel(BidirectionalModel):
         self,
         model_id: str = "models/gemini-2.0-flash-live-preview-04-09",
         api_key: Optional[str] = None,
-        **config
+        live_config: Optional[Dict[str, Any]] = None,
+        **kwargs
     ):
         """Initialize Gemini Live API bidirectional model.
         
         Args:
             model_id: Gemini Live model identifier.
             api_key: Google AI API key for authentication.
-            **config: Additional configuration.
+            live_config: Gemini Live API configuration parameters (e.g., response_modalities, speech_config).
+            **kwargs: Reserved for future parameters.
         """
         # Model configuration
         self.model_id = model_id
         self.api_key = api_key
-        self.config = config
+        self.live_config = live_config or {}
         
         # Create Gemini client with proper API version
         client_kwargs = {}
@@ -423,15 +425,15 @@ class GeminiLiveBidirectionalModel(BidirectionalModel):
     ) -> Dict[str, Any]:
         """Build LiveConnectConfig for the official SDK.
         
-        Simply passes through all config parameters from params, allowing users
+        Simply passes through all config parameters from live_config, allowing users
         to configure any Gemini Live API parameter directly.
         """
-        # Start with user config from params
+        # Start with user-provided live_config
         config_dict = {}
-        if "params" in self.config:
-            config_dict.update(self.config["params"])
+        if self.live_config:
+            config_dict.update(self.live_config)
         
-        # Override with any kwargs
+        # Override with any kwargs from connect()
         config_dict.update(kwargs)
         
         # Add system instruction if provided

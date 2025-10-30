@@ -88,18 +88,22 @@ class NovaSonicBidirectionalModel(BidirectionalModel):
     tool execution patterns while providing the standard BidirectionalModel interface.
     """
 
-    def __init__(self, model_id: str = "amazon.nova-sonic-v1:0", region: str = "us-east-1", **config: any) -> None:
+    def __init__(
+        self,
+        model_id: str = "amazon.nova-sonic-v1:0",
+        region: str = "us-east-1",
+        **kwargs
+    ) -> None:
         """Initialize Nova Sonic bidirectional model.
 
         Args:
             model_id: Nova Sonic model identifier.
             region: AWS region.
-            **config: Additional configuration.
+            **kwargs: Reserved for future parameters.
         """
         # Model configuration
         self.model_id = model_id
         self.region = region
-        self.config = config
         self._client = None
 
         # Connection state (initialized in connect())

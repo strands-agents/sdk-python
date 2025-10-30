@@ -103,10 +103,15 @@ def test_init_with_api_key(api_key, model_name):
 
 def test_init_with_custom_config(model_name, api_key):
     """Test model initialization with custom configuration."""
-    custom_config = {"organization": "org-123", "project": "proj-456"}
-    model = OpenAIRealtimeBidirectionalModel(model=model_name, api_key=api_key, **custom_config)
+    model = OpenAIRealtimeBidirectionalModel(
+        model=model_name,
+        api_key=api_key,
+        organization="org-123",
+        project="proj-456"
+    )
     
-    assert model.config == custom_config
+    assert model.organization == "org-123"
+    assert model.project == "proj-456"
 
 
 def test_init_without_api_key_raises():

@@ -71,19 +71,27 @@ class OpenAIRealtimeBidirectionalModel(BidirectionalModel):
         self, 
         model: str = DEFAULT_MODEL,
         api_key: str | None = None,
-        **config: any
+        organization: str | None = None,
+        project: str | None = None,
+        session_config: dict[str, any] | None = None,
+        **kwargs
     ) -> None:
         """Initialize OpenAI Realtime bidirectional model.
         
         Args:
             model: OpenAI model identifier (default: gpt-realtime).
             api_key: OpenAI API key for authentication.
-            **config: Additional configuration (organization, project, session params).
+            organization: OpenAI organization ID for API requests.
+            project: OpenAI project ID for API requests.
+            session_config: Session configuration parameters (e.g., voice, turn_detection, modalities).
+            **kwargs: Reserved for future parameters.
         """
         # Model configuration
         self.model = model
         self.api_key = api_key
-        self.config = config
+        self.organization = organization
+        self.project = project
+        self.session_config = session_config or {}
         
         import os
         if not self.api_key:
@@ -133,10 +141,10 @@ class OpenAIRealtimeBidirectionalModel(BidirectionalModel):
             url = f"{OPENAI_REALTIME_URL}?model={self.model}"
             
             headers = [("Authorization", f"Bearer {self.api_key}")]
-            if "organization" in self.config:
-                headers.append(("OpenAI-Organization", self.config["organization"]))
-            if "project" in self.config:
-                headers.append(("OpenAI-Project", self.config["project"]))
+            if self.organization:
+                headers.append(("OpenAI-Organization", self.organization))
+            if self.project:
+                headers.append(("OpenAI-Project", self.project))
             
             self.websocket = await websockets.connect(url, additional_headers=headers)
             logger.info("WebSocket connected successfully")
@@ -181,14 +189,14 @@ class OpenAIRealtimeBidirectionalModel(BidirectionalModel):
         if tools:
             config["tools"] = self._convert_tools_to_openai_format(tools)
         
-        custom_config = self.config.get("session", {})
+        # Apply user-provided session configuration
         supported_params = {
             "type", "output_modalities", "instructions", "voice", "audio", 
             "tools", "tool_choice", "input_audio_format", "output_audio_format",
             "input_audio_transcription", "turn_detection"
         }
         
-        for key, value in custom_config.items():
+        for key, value in self.session_config.items():
             if key in supported_params:
                 config[key] = value
             else:
