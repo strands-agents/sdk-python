@@ -44,7 +44,9 @@ import asyncio
 import functools
 import inspect
 import logging
+from copy import deepcopy
 from typing import (
+    Annotated,
     Any,
     Callable,
     Generic,
@@ -54,12 +56,15 @@ from typing import (
     TypeVar,
     Union,
     cast,
+    get_args,
+    get_origin,
     get_type_hints,
     overload,
 )
 
 import docstring_parser
 from pydantic import BaseModel, Field, create_model
+from pydantic.fields import FieldInfo
 from typing_extensions import override
 
 from ..interrupt import InterruptException
@@ -97,22 +102,67 @@ class FunctionToolMetadata:
         """
         self.func = func
         self.signature = inspect.signature(func)
-        self.type_hints = get_type_hints(func)
+        self.type_hints = get_type_hints(func, include_extras=True)
         self._context_param = context_param
 
         self._validate_signature()
 
-        # Parse the docstring with docstring_parser
+        # Parse the docstring once for all parameters
         doc_str = inspect.getdoc(func) or ""
         self.doc = docstring_parser.parse(doc_str)
-
-        # Get parameter descriptions from parsed docstring
-        self.param_descriptions = {
-            param.arg_name: param.description or f"Parameter {param.arg_name}" for param in self.doc.params
-        }
+        self.param_descriptions = {param.arg_name: param.description for param in self.doc.params if param.description}
 
         # Create a Pydantic model for validation
         self.input_model = self._create_input_model()
+
+    def _extract_annotated_metadata(
+        self, annotation: Any, param_name: str, param_default: Any
+    ) -> tuple[Any, FieldInfo]:
+        """Extract type and create FieldInfo from Annotated type hint.
+
+        Returns:
+            (actual_type, field_info) where field_info is always a FieldInfo instance
+        """
+        actual_type = annotation
+        field_info: FieldInfo | None = None
+        description: str | None = None
+
+        if get_origin(annotation) is Annotated:
+            args = get_args(annotation)
+            actual_type = args[0]
+
+            # Look through metadata for FieldInfo and string descriptions
+            for meta in args[1:]:
+                if isinstance(meta, FieldInfo):
+                    field_info = meta
+                elif isinstance(meta, str):
+                    description = meta
+
+        # Determine Final Description
+        # Priority: 1. Annotated string, 2. FieldInfo description, 3. Docstring, 4. Fallback
+        final_description = description
+
+        if final_description is None:
+            if field_info and field_info.description:
+                final_description = field_info.description
+            else:
+                final_description = self.param_descriptions.get(param_name)
+
+        if final_description is None:
+            final_description = f"Parameter {param_name}"
+
+        # Create Final FieldInfo with proper default handling
+        if field_info:
+            final_field = deepcopy(field_info)
+            final_field.description = final_description
+
+            # Function signature default takes priority
+            if param_default is not ...:
+                final_field.default = param_default
+        else:
+            final_field = Field(default=param_default, description=final_description)
+
+        return actual_type, final_field
 
     def _validate_signature(self) -> None:
         """Verify that ToolContext is used correctly in the function signature."""
@@ -142,26 +192,20 @@ class FunctionToolMetadata:
         field_definitions: dict[str, Any] = {}
 
         for name, param in self.signature.parameters.items():
-            # Skip parameters that will be automatically injected
             if self._is_special_parameter(name):
                 continue
 
-            # Get parameter type and default
             param_type = self.type_hints.get(name, Any)
             default = ... if param.default is inspect.Parameter.empty else param.default
-            description = self.param_descriptions.get(name, f"Parameter {name}")
 
-            # Create Field with description and default
-            field_definitions[name] = (param_type, Field(default=default, description=description))
+            actual_type, field_info = self._extract_annotated_metadata(param_type, name, default)
+            field_definitions[name] = (actual_type, field_info)
 
-        # Create model name based on function name
         model_name = f"{self.func.__name__.capitalize()}Tool"
 
-        # Create and return the model
         if field_definitions:
             return create_model(model_name, **field_definitions)
         else:
-            # Handle case with no parameters
             return create_model(model_name)
 
     def extract_metadata(self) -> ToolSpec:
