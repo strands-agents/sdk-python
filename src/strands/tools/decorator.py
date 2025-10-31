@@ -44,7 +44,7 @@ import asyncio
 import functools
 import inspect
 import logging
-from copy import copy
+from copy import deepcopy
 from typing import (
     Annotated,
     Any,
@@ -153,7 +153,7 @@ class FunctionToolMetadata:
 
         # Create Final FieldInfo with proper default handling
         if field_info:
-            final_field = copy(field_info)
+            final_field = deepcopy(field_info)
             final_field.description = final_description
 
             # Function signature default takes priority
