@@ -102,48 +102,73 @@ class FunctionToolMetadata:
         """
         self.func = func
         self.signature = inspect.signature(func)
+        # include_extras=True is key for reading Annotated metadata
         self.type_hints = get_type_hints(func, include_extras=True)
         self._context_param = context_param
 
         self._validate_signature()
 
-        # Parse the docstring with docstring_parser
+        # Parse the docstring once for all parameters
         doc_str = inspect.getdoc(func) or ""
         self.doc = docstring_parser.parse(doc_str)
-
-        # Get parameter descriptions from parsed docstring
-        self.param_descriptions = {
-            param.arg_name: param.description or f"Parameter {param.arg_name}" for param in self.doc.params
-        }
+        self.param_descriptions = {param.arg_name: param.description for param in self.doc.params if param.description}
 
         # Create a Pydantic model for validation
         self.input_model = self._create_input_model()
 
-    def _extract_annotated_metadata(self, annotation: Any) -> tuple[Any, Optional[Any]]:
-        """Extract type and metadata from Annotated type hint.
+    def _extract_annotated_metadata(
+        self, annotation: Any, param_name: str, param_default: Any
+    ) -> tuple[Any, FieldInfo]:
+        """Extract type and create FieldInfo from Annotated type hint.
 
         Returns:
-            (actual_type, metadata) where metadata is either:
-              - a string description
-              - a pydantic.fields.FieldInfo instance (from Field(...))
-              - None if no Annotated extras were found
+            (actual_type, field_info) where field_info is always a FieldInfo instance
         """
+        actual_type = annotation
+        field_info: FieldInfo | None = None
+        description: str | None = None
+
         if get_origin(annotation) is Annotated:
             args = get_args(annotation)
-            actual_type = args[0]  # Keep the type as-is (including Optional[T])
+            actual_type = args[0]
 
-            # Look through metadata for description
+            # Look through metadata for FieldInfo and string descriptions
             for meta in args[1:]:
-                if isinstance(meta, str):
-                    return actual_type, meta
                 if isinstance(meta, FieldInfo):
-                    return actual_type, meta
+                    field_info = meta
+                elif isinstance(meta, str):
+                    description = meta
 
-            # Annotated but no useful metadata
-            return actual_type, None
+        # Determine Final Description
+        # Priority: 1. Annotated string, 2. FieldInfo description, 3. Docstring
+        final_description = description
 
-        # Not annotated
-        return annotation, None
+        # An empty string is a valid description; only fall back if no description was found in the annotation.
+        if final_description is None:
+            if field_info and field_info.description:
+                final_description = field_info.description
+            else:
+                final_description = self.param_descriptions.get(param_name)
+
+        # Final fallback if no description was found anywhere
+        if final_description is None:
+            final_description = f"Parameter {param_name}"
+
+        # Create Final FieldInfo
+        if field_info:
+            # If a Field was in Annotated, use it as the base
+            final_field = copy(field_info)
+        else:
+            # Otherwise, create a new default Field
+            final_field = Field()
+
+        final_field.description = final_description
+
+        # Override default from function signature if present
+        if param_default is not ...:
+            final_field.default = param_default
+
+        return actual_type, final_field
 
     def _validate_signature(self) -> None:
         """Verify that ToolContext is used correctly in the function signature."""
@@ -173,51 +198,20 @@ class FunctionToolMetadata:
         field_definitions: dict[str, Any] = {}
 
         for name, param in self.signature.parameters.items():
-            # Skip parameters that will be automatically injected
             if self._is_special_parameter(name):
                 continue
 
-            # Get parameter type hint and any Annotated metadata
             param_type = self.type_hints.get(name, Any)
-            actual_type, annotated_meta = self._extract_annotated_metadata(param_type)
-
-            # Determine parameter default value
             default = ... if param.default is inspect.Parameter.empty else param.default
 
-            # Determine description (priority: Annotated > docstring > generic)
-            description: str
-            if isinstance(annotated_meta, str):
-                description = annotated_meta
-            elif isinstance(annotated_meta, FieldInfo) and annotated_meta.description is not None:
-                description = annotated_meta.description
-            elif name in self.param_descriptions:
-                description = self.param_descriptions[name]
-            else:
-                description = f"Parameter {name}"
+            actual_type, field_info = self._extract_annotated_metadata(param_type, name, default)
+            field_definitions[name] = (actual_type, field_info)
 
-            # Create Field definition for create_model
-            if isinstance(annotated_meta, FieldInfo):
-                # Create a defensive copy to avoid mutating a shared FieldInfo instance.
-                field_info_copy = copy(annotated_meta)
-                field_info_copy.description = description
-
-                # Update default if specified in the function signature.
-                if default is not ...:
-                    field_info_copy.default = default
-
-                field_definitions[name] = (actual_type, field_info_copy)
-            else:
-                # For non-FieldInfo metadata, create a new Field.
-                field_definitions[name] = (actual_type, Field(default=default, description=description))
-
-        # Create model name based on function name
         model_name = f"{self.func.__name__.capitalize()}Tool"
 
-        # Create and return the model
         if field_definitions:
             return create_model(model_name, **field_definitions)
         else:
-            # Handle case with no parameters
             return create_model(model_name)
 
     def extract_metadata(self) -> ToolSpec:

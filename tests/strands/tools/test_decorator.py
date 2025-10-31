@@ -1488,7 +1488,7 @@ def test_tool_decorator_annotated_pydantic_field_constraints():
 
     @strands.tool
     def field_annotated_tool(
-        email: Annotated[str, Field(description="User's email address", pattern=r"^[\w\.-]+@[\w\.-]+\.\w+$")],
+        email: Annotated[str, Field(description="User's email address", pattern=r"^[\w\.-]+@[\w\.-]+\\.\w+$")],
         score: Annotated[int, Field(description="Score between 0-100", ge=0, le=100)] = 50,
     ) -> str:
         """Tool with Pydantic Field annotations."""
@@ -1680,3 +1680,19 @@ async def test_tool_decorator_annotated_validation_error(alist):
 
     result = (await alist(stream))[-1]
     assert result["tool_result"]["status"] == "error"
+
+
+def test_tool_decorator_annotated_field_with_inner_default():
+    """Test that a default value in an Annotated Field is respected."""
+
+    @strands.tool
+    def inner_default_tool(name: str, level: Annotated[int, Field(description="A level value", default=10)]) -> str:
+        return f"{name} is at level {level}"
+
+    spec = inner_default_tool.tool_spec
+    schema = spec["inputSchema"]["json"]
+
+    # 'level' should not be required because its Field has a default
+    assert "name" in schema["required"]
+    assert "level" not in schema["required"]
+    assert schema["properties"]["level"]["default"] == 10
