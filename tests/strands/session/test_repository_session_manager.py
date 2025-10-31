@@ -233,3 +233,225 @@ def test_initialize_multi_agent_existing(session_manager, mock_multi_agent):
 
     # Verify deserialize_state was called with existing state
     mock_multi_agent.deserialize_state.assert_called_once_with(existing_state)
+
+
+def test_fix_broken_tool_use_adds_missing_tool_results(session_manager):
+    """Test that _fix_broken_tool_use adds missing toolResult messages."""
+    # Messages with orphaned toolUse
+    broken_messages = [
+        {
+            "role": "assistant",
+            "content": [{
+                "toolUse": {
+                    "toolUseId": "orphaned-123",
+                    "name": "test_tool",
+                    "input": {"input": "test"}
+                }
+            }]
+        },
+        {
+            "role": "user", 
+            "content": [{"text": "Some other message"}]
+        }
+    ]
+    
+    fixed_messages = session_manager._fix_broken_tool_use(broken_messages)
+    
+    # Should insert toolResult message between toolUse and other message
+    assert len(fixed_messages) == 3
+    assert fixed_messages[1]["role"] == "user"
+    assert "toolResult" in fixed_messages[1]["content"][0]
+    assert fixed_messages[1]["content"][0]["toolResult"]["toolUseId"] == "orphaned-123"
+    assert fixed_messages[1]["content"][0]["toolResult"]["status"] == "error"
+    assert fixed_messages[1]["content"][0]["toolResult"]["content"][0]["text"] == "Tool execution interrupted."
+
+
+def test_fix_broken_tool_use_extends_partial_tool_results(session_manager):
+    """Test fixing messages where some toolResults are missing."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "complete-123",
+                        "name": "test_tool",
+                        "input": {"input": "test1"}
+                    }
+                },
+                {
+                    "toolUse": {
+                        "toolUseId": "missing-456", 
+                        "name": "test_tool",
+                        "input": {"input": "test2"}
+                    }
+                }
+            ]
+        },
+        {
+            "role": "user",
+            "content": [{
+                "toolResult": {
+                    "toolUseId": "complete-123",
+                    "status": "success",
+                    "content": [{"text": "result"}]
+                }
+            }]
+        }
+    ]
+    
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+    
+    # Should add missing toolResult to existing message
+    assert len(fixed_messages) == 2
+    assert len(fixed_messages[1]["content"]) == 2
+    
+    tool_use_ids = {tr["toolResult"]["toolUseId"] for tr in fixed_messages[1]["content"]}
+    assert tool_use_ids == {"complete-123", "missing-456"}
+    
+    # Check the added toolResult has correct properties
+    missing_result = next(tr for tr in fixed_messages[1]["content"] 
+                         if tr["toolResult"]["toolUseId"] == "missing-456")
+    assert missing_result["toolResult"]["status"] == "error"
+    assert missing_result["toolResult"]["content"][0]["text"] == "Tool execution interrupted."
+
+
+def test_fix_broken_tool_use_handles_multiple_orphaned_tools(session_manager):
+    """Test fixing multiple orphaned toolUse messages."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "orphaned-123",
+                        "name": "test_tool",
+                        "input": {"input": "test1"}
+                    }
+                },
+                {
+                    "toolUse": {
+                        "toolUseId": "orphaned-456",
+                        "name": "test_tool", 
+                        "input": {"input": "test2"}
+                    }
+                }
+            ]
+        },
+        {
+            "role": "user",
+            "content": [{"text": "Next message"}]
+        }
+    ]
+    
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+    
+    # Should insert message with both toolResults
+    assert len(fixed_messages) == 3
+    assert len(fixed_messages[1]["content"]) == 2
+    
+    tool_use_ids = {tr["toolResult"]["toolUseId"] for tr in fixed_messages[1]["content"]}
+    assert tool_use_ids == {"orphaned-123", "orphaned-456"}
+
+
+def test_fix_broken_tool_use_preserves_valid_messages(session_manager):
+    """Test that valid message sequences are not modified."""
+    valid_messages = [
+        {
+            "role": "assistant",
+            "content": [{
+                "toolUse": {
+                    "toolUseId": "valid-123",
+                    "name": "test_tool", 
+                    "input": {"input": "test"}
+                }
+            }]
+        },
+        {
+            "role": "user",
+            "content": [{
+                "toolResult": {
+                    "toolUseId": "valid-123",
+                    "status": "success",
+                    "content": [{"text": "result"}]
+                }
+            }]
+        }
+    ]
+    
+    fixed_messages = session_manager._fix_broken_tool_use(valid_messages)
+    
+    # Should remain unchanged
+    assert fixed_messages == valid_messages
+
+
+def test_fix_broken_tool_use_ignores_last_message(session_manager):
+    """Test that orphaned toolUse in the last message is not fixed."""
+    messages = [
+        {
+            "role": "user",
+            "content": [{"text": "Hello"}]
+        },
+        {
+            "role": "assistant",
+            "content": [{
+                "toolUse": {
+                    "toolUseId": "last-message-123",
+                    "name": "test_tool",
+                    "input": {"input": "test"}
+                }
+            }]
+        }
+    ]
+    
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+    
+    # Should remain unchanged since toolUse is in last message
+    assert fixed_messages == messages
+
+
+def test_initialize_agent_applies_fix_broken_tool_use(session_manager):
+    """Test that initialize applies the fix_broken_tool_use method."""
+    agent = Agent(agent_id="test-agent")
+    
+    # Create session agent first
+    session_agent = SessionAgent(
+        agent_id="test-agent",
+        state={},
+        conversation_manager_state=SlidingWindowConversationManager().get_state()
+    )
+    session_manager.session_repository.create_agent("test-session", session_agent)
+    
+    # Add broken messages to session
+    broken_message = SessionMessage(
+        message={
+            "role": "assistant",
+            "content": [{
+                "toolUse": {
+                    "toolUseId": "broken-123",
+                    "name": "test_tool",
+                    "input": {"input": "test"}
+                }
+            }]
+        },
+        message_id=0
+    )
+    session_manager.session_repository.create_message("test-session", "test-agent", broken_message)
+    
+    follow_up_message = SessionMessage(
+        message={
+            "role": "user",
+            "content": [{"text": "Some message"}]
+        },
+        message_id=1
+    )
+    session_manager.session_repository.create_message("test-session", "test-agent", follow_up_message)
+    
+    # Initialize agent - should apply fix
+    session_manager.initialize(agent)
+    
+    # Check that fix was applied
+    assert len(agent.messages) == 3
+    assert agent.messages[1]["role"] == "user"
+    assert "toolResult" in agent.messages[1]["content"][0]
+    assert agent.messages[1]["content"][0]["toolResult"]["toolUseId"] == "broken-123"
