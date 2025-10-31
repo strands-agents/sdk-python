@@ -233,6 +233,7 @@ class Agent:
         hooks: Optional[list[HookProvider]] = None,
         session_manager: Optional[SessionManager] = None,
         tool_executor: Optional[ToolExecutor] = None,
+        include_tools_in_trace: bool = False,
     ):
         """Initialize the Agent with the specified configuration.
 
@@ -278,6 +279,8 @@ class Agent:
                 Defaults to an empty AgentState object.
             hooks: hooks to be added to the agent hook registry
                 Defaults to None.
+            include_tools_in_trace: Whether to include the full specification of all available tools in the trace.
+                Defaults to False.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
             tool_executor: Definition of tool execution stragety (e.g., sequential, concurrent, etc.).
@@ -358,6 +361,8 @@ class Agent:
             self.hooks.add_hook(self._session_manager)
 
         self.tool_executor = tool_executor or ConcurrentToolExecutor()
+
+        self._include_tools_in_trace = include_tools_in_trace
 
         if hooks:
             for hook in hooks:
@@ -658,6 +663,27 @@ class Agent:
         messages = self._convert_prompt_to_messages(prompt)
 
         self.trace_span = self._start_agent_trace_span(messages)
+
+        if self._include_tools_in_trace:
+            try:
+                all_tools_config = self.tool_registry.get_all_tools_config() or {}
+
+                tool_details = [
+                    {
+                        "name": name,
+                        "description": spec.get("description"),
+                        "inputSchema": spec.get("inputSchema"),
+                        "outputSchema": spec.get("outputSchema"),
+                    }
+                    for name, spec in all_tools_config.items()
+                ]
+
+                serialized_tools = serialize(tool_details)
+                self.trace_span.set_attribute("gen_ai.agent.tools", serialized_tools)
+
+            except Exception:
+                # A failure in telemetry should not crash the agent.
+                logger.exception("failed to attach tool metadata to agent span")
 
         with trace_api.use_span(self.trace_span):
             try:
