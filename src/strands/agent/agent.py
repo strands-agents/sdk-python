@@ -280,7 +280,7 @@ class Agent:
                 Defaults to None.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
-            tool_executor: Definition of tool execution stragety (e.g., sequential, concurrent, etc.).
+            tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
 
         Raises:
             ValueError: If agent id contains path separators.
@@ -816,6 +816,27 @@ class Agent:
 
         messages: Messages | None = None
         if prompt is not None:
+            # Check if the latest message is toolUse
+            if len(self.messages) > 0 and any("toolUse" in content for content in self.messages[-1]["content"]):
+                # Add toolResult message after to have a valid conversation
+                tool_use_ids = [
+                    content["toolUse"]["toolUseId"] for content in self.messages[-1]["content"] if "toolUse" in content
+                ]
+                self._append_message(
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "toolResult": {
+                                    "toolUseId": tool_use_id,
+                                    "status": "error",
+                                    "content": [{"text": "Tool was interrupted."}],
+                                }
+                            }
+                            for tool_use_id in tool_use_ids
+                        ],
+                    }
+                )
             if isinstance(prompt, str):
                 # String input - convert to user message
                 messages = [{"role": "user", "content": [{"text": prompt}]}]
