@@ -9,6 +9,7 @@ from strands.agent.state import AgentState
 from strands.hooks.registry import HookRegistry
 from strands.multiagent.base import Status
 from strands.multiagent.swarm import SharedContext, Swarm, SwarmNode, SwarmResult, SwarmState
+from strands.session.file_session_manager import FileSessionManager
 from strands.session.session_manager import SessionManager
 from strands.types._events import MultiAgentNodeStartEvent
 from strands.types.content import ContentBlock
@@ -1098,3 +1099,53 @@ async def test_swarm_stream_async_exception_in_execute_swarm(mock_strands_tracer
 
     # Verify the swarm status is FAILED
     assert swarm.state.completion_status == Status.FAILED
+
+
+@pytest.mark.asyncio
+async def test_swarm_persistence(mock_strands_tracer, mock_use_span):
+    """Test swarm persistence functionality."""
+    # Create mock session manager
+    session_manager = Mock(spec=FileSessionManager)
+    session_manager.read_multi_agent.return_value = None
+
+    # Create simple swarm with session manager
+    agent = create_mock_agent("test_agent")
+    swarm = Swarm([agent], session_manager=session_manager)
+
+    # Test get_state_from_orchestrator
+    state = swarm.serialize_state()
+    assert state["type"] == "swarm"
+    assert state["id"] == "default_swarm"
+    assert "status" in state
+    assert "node_history" in state
+    assert "node_results" in state
+    assert "context" in state
+
+    # Test apply_state_from_dict with persisted state
+    persisted_state = {
+        "status": "executing",
+        "node_history": [],
+        "node_results": {},
+        "current_task": "persisted task",
+        "next_nodes_to_execute": ["test_agent"],
+        "context": {"shared_context": {"test_agent": {"key": "value"}}, "handoff_message": "test handoff"},
+    }
+
+    swarm._from_dict(persisted_state)
+    assert swarm.state.task == "persisted task"
+    assert swarm.state.handoff_message == "test handoff"
+    assert swarm.shared_context.context["test_agent"]["key"] == "value"
+
+    # Execute swarm to test persistence integration
+    result = await swarm.invoke_async("Test persistence")
+
+    # Verify execution completed
+    assert result.status == Status.COMPLETED
+    assert len(result.results) == 1
+    assert "test_agent" in result.results
+
+    # Test state serialization after execution
+    final_state = swarm.serialize_state()
+    assert final_state["status"] == "completed"
+    assert len(final_state["node_history"]) == 1
+    assert "test_agent" in final_state["node_results"]
