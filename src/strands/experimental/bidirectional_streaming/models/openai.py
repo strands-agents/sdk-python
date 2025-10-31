@@ -18,16 +18,21 @@ from websockets.exceptions import ConnectionClosed
 
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
+from ....types._events import ToolResultEvent
 from ..types.bidirectional_streaming import (
     AudioInputEvent,
-    AudioOutputEvent,
-    BidirectionalConnectionEndEvent,
-    BidirectionalConnectionStartEvent,
-    BidirectionalStreamEvent,
+    AudioStreamEvent,
+    ErrorEvent,
     ImageInputEvent,
+    InterruptionEvent,
+    MultimodalUsage,
+    OutputEvent,
+    SessionEndEvent,
+    SessionStartEvent,
     TextInputEvent,
-    TextOutputEvent,
-    VoiceActivityEvent,
+    TranscriptStreamEvent,
+    TurnCompleteEvent,
+    TurnStartEvent,
 )
 from .bidirectional_model import BidirectionalModel
 
@@ -266,7 +271,7 @@ class OpenAIRealtimeBidirectionalModel(BidirectionalModel):
             self._active = False
             logger.debug("OpenAI Realtime response processor stopped")
 
-    async def receive(self) -> AsyncIterable[BidirectionalStreamEvent]:
+    async def receive(self) -> AsyncIterable[OutputEvent]:
         """Receive OpenAI events and convert to Strands format."""
         connection_start: BidirectionalConnectionStartEvent = {
             "connectionId": self.session_id,
@@ -431,40 +436,40 @@ class OpenAIRealtimeBidirectionalModel(BidirectionalModel):
             logger.debug("Unhandled OpenAI event type: %s", event_type)
             return None
 
-    async def send(self, content: Union[TextInputEvent, ImageInputEvent, AudioInputEvent, ToolResult]) -> None:
+    async def send(
+        self,
+        content: Union[TextInputEvent, AudioInputEvent, ImageInputEvent, ToolResultEvent],
+    ) -> None:
         """Unified send method for all content types. Sends the given content to OpenAI.
         
         Dispatches to appropriate internal handler based on content type.
         
         Args:
-            content: Typed event (TextInputEvent, ImageInputEvent, AudioInputEvent, or ToolResult).
+            content: Typed event (TextInputEvent, AudioInputEvent, ImageInputEvent, or ToolResultEvent).
         """
         if not self._require_active():
             return
         
         try:
-            if isinstance(content, dict):
-                # Dispatch based on content structure
-                if "text" in content and "role" in content:
-                    # TextInputEvent
-                    await self._send_text_content(content["text"])
-                elif "audioData" in content:
-                    # AudioInputEvent
-                    await self._send_audio_content(content)
-                elif "imageData" in content or "image_url" in content:
-                    # ImageInputEvent - not supported by OpenAI Realtime yet
-                    logger.warning("Image input not supported by OpenAI Realtime API")
-                elif "toolUseId" in content and "status" in content:
-                    # ToolResult
-                    await self._send_tool_result(content)
-                else:
-                    logger.warning(f"Unknown content type with keys: {content.keys()}")
+            if isinstance(content, TextInputEvent):
+                await self._send_text_content(content.text)
+            elif isinstance(content, AudioInputEvent):
+                await self._send_audio_content(content)
+            elif isinstance(content, ImageInputEvent):
+                # ImageInputEvent - not supported by OpenAI Realtime yet
+                logger.warning("Image input not supported by OpenAI Realtime API")
+            elif isinstance(content, ToolResultEvent):
+                tool_result = content.get("tool_result")
+                if tool_result:
+                    await self._send_tool_result(tool_result)
+            else:
+                logger.warning(f"Unknown content type: {type(content)}")
         except Exception as e:
             logger.error(f"Error sending content: {e}")
 
     async def _send_audio_content(self, audio_input: AudioInputEvent) -> None:
         """Internal: Send audio content to OpenAI for processing."""
-        audio_base64 = base64.b64encode(audio_input["audioData"]).decode("utf-8")
+        audio_base64 = base64.b64encode(audio_input.audio).decode("utf-8")
         await self._send_event({"type": "input_audio_buffer.append", "audio": audio_base64})
 
     async def _send_text_content(self, text: str) -> None:

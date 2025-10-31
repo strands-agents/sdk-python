@@ -31,7 +31,7 @@ from ....types.tools import ToolResult, ToolUse
 from ....types.traces import AttributeValue
 from ..event_loop.bidirectional_event_loop import start_bidirectional_connection, stop_bidirectional_connection
 from ..models.bidirectional_model import BidirectionalModel
-from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent, ImageInputEvent
+from ..types.bidirectional_streaming import AudioInputEvent, ImageInputEvent, OutputEvent
 
 logger = logging.getLogger(__name__)
 
@@ -395,19 +395,24 @@ class BidirectionalAgent:
                 "(dict with imageData, mimeType, encoding)"
             )
 
-    async def receive(self) -> AsyncIterable[BidirectionalStreamEvent]:
+    async def receive(self) -> AsyncIterable[dict[str, Any]]:
         """Receive events from the model including audio, text, and tool calls.
 
         Yields model output events processed by background tasks including audio output,
         text responses, tool calls, and session updates.
 
         Yields:
-            BidirectionalStreamEvent: Events from the model session.
+            dict: Event dictionaries from the model session. Each event is a TypedEvent
+                converted to a dictionary for consistency with the standard Agent API.
         """
         while self._session and self._session.active:
             try:
                 event = await asyncio.wait_for(self._output_queue.get(), timeout=0.1)
-                yield event
+                # Convert TypedEvent to dict for consistency with Agent.stream_async
+                if hasattr(event, 'as_dict'):
+                    yield event.as_dict()
+                else:
+                    yield event
             except asyncio.TimeoutError:
                 continue
 

@@ -16,12 +16,13 @@ import abc
 import logging
 from typing import AsyncIterable, Union
 
+from ....types._events import ToolResultEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec
 from ..types.bidirectional_streaming import (
     AudioInputEvent,
-    BidirectionalStreamEvent,
     ImageInputEvent,
+    OutputEvent,
     TextInputEvent,
 )
 
@@ -69,7 +70,7 @@ class BidirectionalModel(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def receive(self) -> AsyncIterable[BidirectionalStreamEvent]:
+    async def receive(self) -> AsyncIterable[OutputEvent]:
         """Receive streaming events from the model.
 
         Continuously yields events from the model as they arrive over the connection.
@@ -79,13 +80,16 @@ class BidirectionalModel(abc.ABC):
         The stream continues until the connection is closed or an error occurs.
 
         Yields:
-            BidirectionalStreamEvent: Standardized event dictionaries containing
-                audio output, text responses, tool calls, or control signals.
+            OutputEvent: Standardized event objects containing audio output,
+                transcripts, tool calls, or control signals.
         """
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def send(self, content: Union[TextInputEvent, ImageInputEvent, AudioInputEvent, ToolResult]) -> None:
+    async def send(
+        self,
+        content: Union[TextInputEvent, AudioInputEvent, ImageInputEvent, ToolResultEvent],
+    ) -> None:
         """Send content to the model over the active connection.
 
         Transmits user input or tool results to the model during an active streaming
@@ -95,13 +99,14 @@ class BidirectionalModel(abc.ABC):
         Args:
             content: The content to send. Must be one of:
                 - TextInputEvent: Text message from the user
-                - ImageInputEvent: Image data for visual understanding
                 - AudioInputEvent: Audio data for speech input
-                - ToolResult: Result from a tool execution
+                - ImageInputEvent: Image data for visual understanding
+                - ToolResultEvent: Result from a tool execution
 
         Example:
             await model.send(TextInputEvent(text="Hello", role="user"))
-            await model.send(AudioInputEvent(audioData=bytes, format="pcm", ...))
-            await model.send(ToolResult(toolUseId="123", status="success", ...))
+            await model.send(AudioInputEvent(audio=bytes, format="pcm", sample_rate=16000, channels=1))
+            await model.send(ImageInputEvent(image=bytes, mime_type="image/jpeg", encoding="raw"))
+            await model.send(ToolResultEvent(tool_result))
         """
         raise NotImplementedError

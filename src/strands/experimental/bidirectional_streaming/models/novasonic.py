@@ -32,16 +32,20 @@ from smithy_aws_core.identity.environment import EnvironmentCredentialsResolver
 
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
+from ....types._events import ToolResultEvent
 from ..types.bidirectional_streaming import (
     AudioInputEvent,
-    AudioOutputEvent,
-    BidirectionalConnectionEndEvent,
-    BidirectionalConnectionStartEvent,
+    AudioStreamEvent,
+    ErrorEvent,
     ImageInputEvent,
-    InterruptionDetectedEvent,
+    InterruptionEvent,
+    MultimodalUsage,
+    SessionEndEvent,
+    SessionStartEvent,
     TextInputEvent,
-    TextOutputEvent,
-    UsageMetricsEvent,
+    TranscriptStreamEvent,
+    TurnCompleteEvent,
+    TurnStartEvent,
 )
 from .bidirectional_model import BidirectionalModel
 
@@ -302,34 +306,34 @@ class NovaSonicBidirectionalModel(BidirectionalModel):
             }
             yield {"BidirectionalConnectionEnd": connection_end}
 
-    async def send(self, content: Union[TextInputEvent, ImageInputEvent, AudioInputEvent, ToolResult]) -> None:
+    async def send(
+        self,
+        content: Union[TextInputEvent, AudioInputEvent, ImageInputEvent, ToolResultEvent],
+    ) -> None:
         """Unified send method for all content types. Sends the given content to Nova Sonic.
 
         Dispatches to appropriate internal handler based on content type.
 
         Args:
-            content: Typed event (TextInputEvent, ImageInputEvent, AudioInputEvent, or ToolResult).
+            content: Typed event (TextInputEvent, AudioInputEvent, ImageInputEvent, or ToolResultEvent).
         """
         if not self._active:
             return
 
         try:
-            if isinstance(content, dict):
-                # Dispatch based on content structure
-                if "text" in content and "role" in content:
-                    # TextInputEvent
-                    await self._send_text_content(content["text"])
-                elif "audioData" in content:
-                    # AudioInputEvent
-                    await self._send_audio_content(content)
-                elif "imageData" in content or "image_url" in content:
-                    # ImageInputEvent - not supported by Nova Sonic
-                    logger.warning("Image input not supported by Nova Sonic")
-                elif "toolUseId" in content and "status" in content:
-                    # ToolResult
-                    await self._send_tool_result(content)
-                else:
-                    logger.warning(f"Unknown content type with keys: {content.keys()}")
+            if isinstance(content, TextInputEvent):
+                await self._send_text_content(content.text)
+            elif isinstance(content, AudioInputEvent):
+                await self._send_audio_content(content)
+            elif isinstance(content, ImageInputEvent):
+                # ImageInputEvent - not supported by Nova Sonic
+                logger.warning("Image input not supported by Nova Sonic")
+            elif isinstance(content, ToolResultEvent):
+                tool_result = content.get("tool_result")
+                if tool_result:
+                    await self._send_tool_result(tool_result)
+            else:
+                logger.warning(f"Unknown content type: {type(content)}")
         except Exception as e:
             logger.error(f"Error sending content: {e}")
 
@@ -370,7 +374,7 @@ class NovaSonicBidirectionalModel(BidirectionalModel):
             self.silence_task.cancel()
 
         # Convert audio to Nova Sonic base64 format
-        nova_audio_data = base64.b64encode(audio_input["audioData"]).decode("utf-8")
+        nova_audio_data = base64.b64encode(audio_input.audio).decode("utf-8")
 
         # Send audio input event
         audio_event = json.dumps(

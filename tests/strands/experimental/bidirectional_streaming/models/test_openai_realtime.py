@@ -222,11 +222,13 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
 @pytest.mark.asyncio
 async def test_send_all_content_types(mock_websockets_connect, model):
     """Test sending all content types through unified send() method."""
+    from strands.types._events import ToolResultEvent
+    
     _, mock_ws = mock_websockets_connect
     await model.connect()
 
     # Test text input
-    text_input: TextInputEvent = {"text": "Hello", "role": "user"}
+    text_input = TextInputEvent(text="Hello", role="user")
     await model.send(text_input)
     calls = mock_ws.send.call_args_list
     messages = [json.loads(call[0][0]) for call in calls]
@@ -236,12 +238,12 @@ async def test_send_all_content_types(mock_websockets_connect, model):
     assert len(response_create) > 0
 
     # Test audio input
-    audio_input: AudioInputEvent = {
-        "audioData": b"audio_bytes",
-        "format": "pcm",
-        "sampleRate": 24000,
-        "channels": 1,
-    }
+    audio_input = AudioInputEvent(
+        audio=b"audio_bytes",
+        format="pcm",
+        sample_rate=24000,
+        channels=1,
+    )
     await model.send(audio_input)
     calls = mock_ws.send.call_args_list
     messages = [json.loads(call[0][0]) for call in calls]
@@ -257,7 +259,7 @@ async def test_send_all_content_types(mock_websockets_connect, model):
         "status": "success",
         "content": [{"text": "Result: 42"}],
     }
-    await model.send(tool_result)
+    await model.send(ToolResultEvent(tool_result))
     calls = mock_ws.send.call_args_list
     messages = [json.loads(call[0][0]) for call in calls]
     item_create = [m for m in messages if m.get("type") == "conversation.item.create"]
@@ -275,17 +277,17 @@ async def test_send_edge_cases(mock_websockets_connect, model):
     _, mock_ws = mock_websockets_connect
 
     # Test send when inactive
-    text_input: TextInputEvent = {"text": "Hello", "role": "user"}
+    text_input = TextInputEvent(text="Hello", role="user")
     await model.send(text_input)
     mock_ws.send.assert_not_called()
 
     # Test image input (not supported)
     await model.connect()
-    image_input: ImageInputEvent = {
-        "imageData": b"image_bytes",
-        "mimeType": "image/jpeg",
-        "encoding": "raw",
-    }
+    image_input = ImageInputEvent(
+        image=b"image_bytes",
+        mime_type="image/jpeg",
+        encoding="raw",
+    )
     with unittest.mock.patch("strands.experimental.bidirectional_streaming.models.openai.logger") as mock_logger:
         await model.send(image_input)
         mock_logger.warning.assert_called_with("Image input not supported by OpenAI Realtime API")

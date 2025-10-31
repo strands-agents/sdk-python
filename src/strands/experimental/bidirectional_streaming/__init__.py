@@ -14,36 +14,46 @@ from .models.openai import OpenAIRealtimeBidirectionalModel
 # Event types - For type hints and event handling
 from .types.bidirectional_streaming import (
     AudioInputEvent,
-    AudioOutputEvent,
-    BidirectionalStreamEvent,
+    AudioStreamEvent,
+    ErrorEvent,
     ImageInputEvent,
-    InterruptionDetectedEvent,
+    InputEvent,
+    InterruptionEvent,
+    ModalityUsage,
+    MultimodalUsage,
+    OutputEvent,
+    SessionEndEvent,
+    SessionStartEvent,
     TextInputEvent,
-    TextOutputEvent,
-    UsageMetricsEvent,
-    VoiceActivityEvent,
+    TranscriptStreamEvent,
+    TurnCompleteEvent,
+    TurnStartEvent,
 )
 
 __all__ = [
     # Main interface
     "BidirectionalAgent",
-    
     # Model providers
     "GeminiLiveBidirectionalModel",
     "NovaSonicBidirectionalModel",
     "OpenAIRealtimeBidirectionalModel",
-    
-    # Event types
-    "AudioInputEvent",
-    "AudioOutputEvent",
-    "ImageInputEvent",
+    # Input Event types
     "TextInputEvent",
-    "TextOutputEvent",
-    "InterruptionDetectedEvent",
-    "BidirectionalStreamEvent",
-    "VoiceActivityEvent",
-    "UsageMetricsEvent",
-    
+    "AudioInputEvent",
+    "ImageInputEvent",
+    "InputEvent",
+    # Output Event types
+    "SessionStartEvent",
+    "TurnStartEvent",
+    "AudioStreamEvent",
+    "TranscriptStreamEvent",
+    "InterruptionEvent",
+    "TurnCompleteEvent",
+    "MultimodalUsage",
+    "ModalityUsage",
+    "SessionEndEvent",
+    "ErrorEvent",
+    "OutputEvent",
     # Model interface
     "BidirectionalModel",
 ]

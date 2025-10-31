@@ -6,9 +6,9 @@ capabilities with real-time audio and persistent connection support.
 Key features:
 - Audio input/output events with standardized formats
 - Interruption detection and handling
-- connection lifecycle management
+- Session lifecycle management
 - Provider-agnostic event types
-- Backwards compatibility with existing StreamEvent types
+- Type-safe discriminated unions with TypedEvent
 
 Audio format normalization:
 - Supports PCM, WAV, Opus, and MP3 formats
@@ -17,12 +17,9 @@ Audio format normalization:
 - Abstracts provider-specific encodings
 """
 
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
-from typing_extensions import TypedDict
-
-from ....types.content import Role
-from ....types.streaming import StreamEvent
+from ....types._events import TypedEvent
 
 # Audio format constants
 SUPPORTED_AUDIO_FORMATS = ["pcm", "wav", "opus", "mp3"]
@@ -30,221 +27,470 @@ SUPPORTED_SAMPLE_RATES = [16000, 24000, 48000]
 SUPPORTED_CHANNELS = [1, 2]  # 1=mono, 2=stereo
 DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_CHANNELS = 1
+DEFAULT_FORMAT = "pcm"
 
 
-class AudioOutputEvent(TypedDict):
-    """Audio output event from the model.
-
-    Provides standardized audio output format across different providers using
-    raw bytes instead of provider-specific encodings.
-
-    Attributes:
-        audioData: Raw audio bytes (not base64 or hex encoded).
-        format: Audio format from SUPPORTED_AUDIO_FORMATS.
-        sampleRate: Sample rate from SUPPORTED_SAMPLE_RATES.
-        channels: Channel count from SUPPORTED_CHANNELS.
-        encoding: Original provider encoding for debugging purposes.
-    """
-
-    audioData: bytes
-    format: Literal["pcm", "wav", "opus", "mp3"]
-    sampleRate: Literal[16000, 24000, 48000]
-    channels: Literal[1, 2]
-    encoding: Optional[str]
+# ============================================================================
+# Input Events (sent via session.send())
+# ============================================================================
 
 
-class AudioInputEvent(TypedDict):
-    """Audio input event for sending audio to the model.
-
-    Used for sending audio data through the send() method.
-
-    Attributes:
-        audioData: Raw audio bytes to send to model.
-        format: Audio format from SUPPORTED_AUDIO_FORMATS.
-        sampleRate: Sample rate from SUPPORTED_SAMPLE_RATES.
-        channels: Channel count from SUPPORTED_CHANNELS.
-    """
-
-    audioData: bytes
-    format: Literal["pcm", "wav", "opus", "mp3"]
-    sampleRate: Literal[16000, 24000, 48000]
-    channels: Literal[1, 2]
-
-
-class ImageInputEvent(TypedDict):
-    """Image input event for sending images/video frames to the model.
-    
-    Used for sending image data through the send() method. Supports both
-    raw image bytes and base64-encoded data.
-    
-    Attributes:
-        imageData: Image bytes (raw or base64-encoded string).
-        mimeType: MIME type (e.g., "image/jpeg", "image/png").
-        encoding: How the imageData is encoded.
-    """
-    
-    imageData: bytes | str
-    mimeType: str
-    encoding: Literal["base64", "raw"]
-
-
-class TextInputEvent(TypedDict):
+class TextInputEvent(TypedEvent):
     """Text input event for sending text to the model.
 
     Used for sending text content through the send() method.
 
-    Attributes:
+    Parameters:
         text: The text content to send to the model.
         role: The role of the message sender (typically "user").
     """
 
-    text: str
-    role: Role
+    def __init__(self, text: str, role: str):
+        super().__init__(
+            {
+                "type": "bidirectional_text_input",
+                "text": text,
+                "role": role,
+            }
+        )
+
+    @property
+    def text(self) -> str:
+        return cast(str, self.get("text"))
+
+    @property
+    def role(self) -> str:
+        return cast(str, self.get("role"))
 
 
-class TextOutputEvent(TypedDict):
-    """Text output event from the model during bidirectional streaming.
+class AudioInputEvent(TypedEvent):
+    """Audio input event for sending audio to the model.
 
-    Attributes:
-        text: The text content from the model.
-        role: The role of the message sender.
+    Used for sending audio data through the send() method.
+
+    Parameters:
+        audio: Raw audio bytes to send to model (not base64 encoded).
+        format: Audio format from SUPPORTED_AUDIO_FORMATS.
+        sample_rate: Sample rate from SUPPORTED_SAMPLE_RATES.
+        channels: Channel count from SUPPORTED_CHANNELS.
     """
 
-    text: str
-    role: Role
+    def __init__(
+        self,
+        audio: bytes,
+        format: Literal["pcm", "wav", "opus", "mp3"],
+        sample_rate: Literal[16000, 24000, 48000],
+        channels: Literal[1, 2],
+    ):
+        super().__init__(
+            {
+                "type": "bidirectional_audio_input",
+                "audio": audio,
+                "format": format,
+                "sample_rate": sample_rate,
+                "channels": channels,
+            }
+        )
+
+    @property
+    def audio(self) -> bytes:
+        return cast(bytes, self.get("audio"))
+
+    @property
+    def format(self) -> str:
+        return cast(str, self.get("format"))
+
+    @property
+    def sample_rate(self) -> int:
+        return cast(int, self.get("sample_rate"))
+
+    @property
+    def channels(self) -> int:
+        return cast(int, self.get("channels"))
 
 
-class TranscriptEvent(TypedDict):
-    """Transcript event for audio transcriptions.
-    
-    Used for both input transcriptions (user speech) and output transcriptions
-    (model audio). These are informational and separate from actual text responses.
-    
-    Attributes:
-        text: The transcribed text.
-        role: The role of the speaker ("user" or "assistant").
-        type: Type of transcription ("input" or "output").
-    """
-    
-    text: str
-    role: Role
-    type: Literal["input", "output"]
+class ImageInputEvent(TypedEvent):
+    """Image input event for sending images/video frames to the model.
 
+    Used for sending image data through the send() method. Supports both
+    raw image bytes and base64-encoded data.
 
-class InterruptionDetectedEvent(TypedDict):
-    """Interruption detection event.
-
-    Signals when user interruption is detected during model generation.
-
-    Attributes:
-        reason: Interruption reason from predefined set.
-    """
-
-    reason: Literal["user_input", "vad_detected", "manual"]
-
-
-class BidirectionalConnectionStartEvent(TypedDict, total=False):
-    """connection start event for bidirectional streaming.
-
-    Attributes:
-        connectionId: Unique connection identifier.
-        metadata: Provider-specific connection metadata.
-    """
-
-    connectionId: Optional[str]
-    metadata: Optional[Dict[str, Any]]
-
-
-class BidirectionalConnectionEndEvent(TypedDict):
-    """connection end event for bidirectional streaming.
-
-    Attributes:
-        reason: Reason for connection end from predefined set.
-        connectionId: Unique connection identifier.
-        metadata: Provider-specific connection metadata.
+    Parameters:
+        image: Image bytes (raw or base64-encoded string).
+        mime_type: MIME type (e.g., "image/jpeg", "image/png").
+        encoding: How the image data is encoded.
     """
 
-    reason: Literal["user_request", "timeout", "error", "connection_complete"]
-    connectionId: Optional[str]
-    metadata: Optional[Dict[str, Any]]
+    def __init__(
+        self,
+        image: Union[bytes, str],
+        mime_type: str,
+        encoding: Literal["base64", "raw"],
+    ):
+        super().__init__(
+            {
+                "type": "bidirectional_image_input",
+                "image": image,
+                "mime_type": mime_type,
+                "encoding": encoding,
+            }
+        )
 
-class UsageMetricsEvent(TypedDict):
-    """Token usage and performance tracking.
+    @property
+    def image(self) -> Union[bytes, str]:
+        return cast(Union[bytes, str], self.get("image"))
 
-    Provides standardized usage metrics across providers for cost monitoring
-    and performance optimization.
+    @property
+    def mime_type(self) -> str:
+        return cast(str, self.get("mime_type"))
 
-    Attributes:
-        totalTokens: Total tokens used in the interaction.
-        inputTokens: Tokens used for input processing.
-        outputTokens: Tokens used for output generation.
-        audioTokens: Tokens used specifically for audio processing.
+    @property
+    def encoding(self) -> str:
+        return cast(str, self.get("encoding"))
+
+
+# ============================================================================
+# Output Events (received via session.receive_events())
+# ============================================================================
+
+
+class SessionStartEvent(TypedEvent):
+    """Session established and ready for interaction.
+
+    Parameters:
+        session_id: Unique identifier for this session.
+        model: Model identifier (e.g., "gpt-realtime", "gemini-2.0-flash-live").
+        capabilities: List of supported features (e.g., ["audio", "tools", "images"]).
     """
 
-    totalTokens: Optional[int]
-    inputTokens: Optional[int]
-    outputTokens: Optional[int]
-    audioTokens: Optional[int]
+    def __init__(self, session_id: str, model: str, capabilities: List[str]):
+        super().__init__(
+            {
+                "type": "bidirectional_session_start",
+                "session_id": session_id,
+                "model": model,
+                "capabilities": capabilities,
+            }
+        )
+
+    @property
+    def session_id(self) -> str:
+        return cast(str, self.get("session_id"))
+
+    @property
+    def model(self) -> str:
+        return cast(str, self.get("model"))
+
+    @property
+    def capabilities(self) -> List[str]:
+        return cast(List[str], self.get("capabilities"))
 
 
-class VoiceActivityEvent(TypedDict):
-    """Voice activity detection event for speech monitoring.
+class TurnStartEvent(TypedEvent):
+    """Model starts generating a response.
 
-    Provides standardized voice activity detection events across providers
-    to enable speech-aware applications and better conversation flow.
-
-    Attributes:
-        activityType: Type of voice activity detected.
+    Parameters:
+        turn_id: Unique identifier for this turn (used in turn.complete).
     """
 
-    activityType: Literal["speech_started", "speech_stopped", "timeout"]
+    def __init__(self, turn_id: str):
+        super().__init__({"type": "bidirectional_turn_start", "turn_id": turn_id})
+
+    @property
+    def turn_id(self) -> str:
+        return cast(str, self.get("turn_id"))
 
 
-class UsageMetricsEvent(TypedDict):
-    """Token usage and performance tracking.
+class AudioStreamEvent(TypedEvent):
+    """Streaming audio output from the model.
 
-    Provides standardized usage metrics across providers for cost monitoring
-    and performance optimization.
-
-    Attributes:
-        totalTokens: Total tokens used in the interaction.
-        inputTokens: Tokens used for input processing.
-        outputTokens: Tokens used for output generation.
-        audioTokens: Tokens used specifically for audio processing.
+    Parameters:
+        audio: Raw audio data as bytes (not base64 encoded).
+        format: Audio encoding format.
+        sample_rate: Number of audio samples per second in Hz.
+        channels: Number of audio channels (1=mono, 2=stereo).
     """
 
-    totalTokens: Optional[int]
-    inputTokens: Optional[int]
-    outputTokens: Optional[int]
-    audioTokens: Optional[int]
+    def __init__(
+        self,
+        audio: bytes,
+        format: Literal["pcm", "wav", "opus", "mp3"],
+        sample_rate: Literal[16000, 24000, 48000],
+        channels: Literal[1, 2],
+    ):
+        super().__init__(
+            {
+                "type": "bidirectional_audio_stream",
+                "audio": audio,
+                "format": format,
+                "sample_rate": sample_rate,
+                "channels": channels,
+            }
+        )
+
+    @property
+    def audio(self) -> bytes:
+        return cast(bytes, self.get("audio"))
+
+    @property
+    def format(self) -> str:
+        return cast(str, self.get("format"))
+
+    @property
+    def sample_rate(self) -> int:
+        return cast(int, self.get("sample_rate"))
+
+    @property
+    def channels(self) -> int:
+        return cast(int, self.get("channels"))
 
 
-class BidirectionalStreamEvent(StreamEvent, total=False):
-    """Bidirectional stream event extending existing StreamEvent.
+class TranscriptStreamEvent(TypedEvent):
+    """Audio transcription of speech (user or assistant).
 
-    Extends the existing StreamEvent type with bidirectional-specific events
-    while maintaining full backward compatibility with existing Strands streaming.
-
-    Attributes:
-        audioOutput: Audio output from the model.
-        audioInput: Audio input sent to the model.
-        imageInput: Image input sent to the model.
-        textOutput: Text output from the model.
-        transcript: Audio transcription (input or output).
-        interruptionDetected: User interruption detection.
-        BidirectionalConnectionStart: connection start event.
-        BidirectionalConnectionEnd: connection end event.
-        voiceActivity: Voice activity detection events.
-        usageMetrics: Token usage and performance metrics.
+    Parameters:
+        text: Transcribed text from audio.
+        source: Who is speaking ("user" or "assistant").
+        is_final: Whether this is the final/complete transcript.
     """
 
-    audioOutput: Optional[AudioOutputEvent]
-    audioInput: Optional[AudioInputEvent]
-    imageInput: Optional[ImageInputEvent]
-    textOutput: Optional[TextOutputEvent]
-    transcript: Optional[TranscriptEvent]
-    interruptionDetected: Optional[InterruptionDetectedEvent]
-    BidirectionalConnectionStart: Optional[BidirectionalConnectionStartEvent]
-    BidirectionalConnectionEnd: Optional[BidirectionalConnectionEndEvent]
-    voiceActivity: Optional[VoiceActivityEvent]
-    usageMetrics: Optional[UsageMetricsEvent]
+    def __init__(
+        self, text: str, source: Literal["user", "assistant"], is_final: bool
+    ):
+        super().__init__(
+            {
+                "type": "bidirectional_transcript_stream",
+                "text": text,
+                "source": source,
+                "is_final": is_final,
+            }
+        )
+
+    @property
+    def text(self) -> str:
+        return cast(str, self.get("text"))
+
+    @property
+    def source(self) -> str:
+        return cast(str, self.get("source"))
+
+    @property
+    def is_final(self) -> bool:
+        return cast(bool, self.get("is_final"))
+
+
+class InterruptionEvent(TypedEvent):
+    """Model generation was interrupted.
+
+    Parameters:
+        reason: Why the interruption occurred.
+        turn_id: ID of the turn that was interrupted (may be None).
+    """
+
+    def __init__(
+        self, reason: Literal["user_speech", "error"], turn_id: Optional[str] = None
+    ):
+        super().__init__(
+            {
+                "type": "bidirectional_interruption",
+                "reason": reason,
+                "turn_id": turn_id,
+            }
+        )
+
+    @property
+    def reason(self) -> str:
+        return cast(str, self.get("reason"))
+
+    @property
+    def turn_id(self) -> Optional[str]:
+        return cast(Optional[str], self.get("turn_id"))
+
+
+class TurnCompleteEvent(TypedEvent):
+    """Model finished generating response.
+
+    Parameters:
+        turn_id: ID of the turn that completed (matches turn.start).
+        stop_reason: Why the turn ended.
+    """
+
+    def __init__(
+        self,
+        turn_id: str,
+        stop_reason: Literal["complete", "interrupted", "tool_use", "error"],
+    ):
+        super().__init__(
+            {
+                "type": "bidirectional_turn_complete",
+                "turn_id": turn_id,
+                "stop_reason": stop_reason,
+            }
+        )
+
+    @property
+    def turn_id(self) -> str:
+        return cast(str, self.get("turn_id"))
+
+    @property
+    def stop_reason(self) -> str:
+        return cast(str, self.get("stop_reason"))
+
+
+class ModalityUsage(dict):
+    """Token usage for a specific modality.
+
+    Attributes:
+        modality: Type of content.
+        input_tokens: Tokens used for this modality's input.
+        output_tokens: Tokens used for this modality's output.
+    """
+
+    modality: Literal["text", "audio", "image", "cached"]
+    input_tokens: int
+    output_tokens: int
+
+
+class MultimodalUsage(TypedEvent):
+    """Token usage event with modality breakdown for multimodal streaming.
+
+    Combines TypedEvent behavior with Usage fields for a unified event type.
+
+    Parameters:
+        input_tokens: Total tokens used for all input modalities.
+        output_tokens: Total tokens used for all output modalities.
+        total_tokens: Sum of input and output tokens.
+        modality_details: Optional list of token usage per modality.
+        cache_read_input_tokens: Optional tokens read from cache.
+        cache_write_input_tokens: Optional tokens written to cache.
+    """
+
+    def __init__(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        total_tokens: int,
+        modality_details: Optional[List[ModalityUsage]] = None,
+        cache_read_input_tokens: Optional[int] = None,
+        cache_write_input_tokens: Optional[int] = None,
+    ):
+        data: Dict[str, Any] = {
+            "type": "multimodal_usage",
+            "inputTokens": input_tokens,
+            "outputTokens": output_tokens,
+            "totalTokens": total_tokens,
+        }
+        if modality_details is not None:
+            data["modality_details"] = modality_details
+        if cache_read_input_tokens is not None:
+            data["cacheReadInputTokens"] = cache_read_input_tokens
+        if cache_write_input_tokens is not None:
+            data["cacheWriteInputTokens"] = cache_write_input_tokens
+        super().__init__(data)
+
+    @property
+    def input_tokens(self) -> int:
+        return cast(int, self.get("inputTokens"))
+
+    @property
+    def output_tokens(self) -> int:
+        return cast(int, self.get("outputTokens"))
+
+    @property
+    def total_tokens(self) -> int:
+        return cast(int, self.get("totalTokens"))
+
+    @property
+    def modality_details(self) -> List[ModalityUsage]:
+        return cast(List[ModalityUsage], self.get("modality_details", []))
+
+    @property
+    def cache_read_input_tokens(self) -> Optional[int]:
+        return cast(Optional[int], self.get("cacheReadInputTokens"))
+
+    @property
+    def cache_write_input_tokens(self) -> Optional[int]:
+        return cast(Optional[int], self.get("cacheWriteInputTokens"))
+
+
+class SessionEndEvent(TypedEvent):
+    """Session terminated.
+
+    Parameters:
+        reason: Why the session ended.
+    """
+
+    def __init__(
+        self, reason: Literal["client_disconnect", "timeout", "error", "complete"]
+    ):
+        super().__init__({"type": "bidirectional_session_end", "reason": reason})
+
+    @property
+    def reason(self) -> str:
+        return cast(str, self.get("reason"))
+
+
+class ErrorEvent(TypedEvent):
+    """Error occurred during the session.
+
+    Similar to strands.types._events.ForceStopEvent, this event wraps exceptions
+    that occur during bidirectional streaming sessions.
+
+    Parameters:
+        error: The exception that occurred.
+        code: Optional error code for programmatic handling (defaults to exception class name).
+        details: Optional additional error information.
+    """
+
+    def __init__(
+        self,
+        error: Exception,
+        code: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(
+            {
+                "bidirectional_error": True,
+                "error": error,
+                "error_message": str(error),
+                "error_code": code or type(error).__name__,
+                "error_details": details,
+            }
+        )
+
+    @property
+    def error(self) -> Exception:
+        return cast(Exception, self.get("error"))
+
+    @property
+    def code(self) -> str:
+        return cast(str, self.get("error_code"))
+
+    @property
+    def message(self) -> str:
+        return cast(str, self.get("error_message"))
+
+    @property
+    def details(self) -> Optional[Dict[str, Any]]:
+        return cast(Optional[Dict[str, Any]], self.get("error_details"))
+
+
+# ============================================================================
+# Type Unions
+# ============================================================================
+
+# Note: ToolResultEvent and ToolUseStreamEvent are reused from strands.types._events
+
+InputEvent = Union[TextInputEvent, AudioInputEvent, ImageInputEvent]
+
+OutputEvent = Union[
+    SessionStartEvent,
+    TurnStartEvent,
+    AudioStreamEvent,
+    TranscriptStreamEvent,
+    InterruptionEvent,
+    TurnCompleteEvent,
+    MultimodalUsage,
+    SessionEndEvent,
+    ErrorEvent,
+]

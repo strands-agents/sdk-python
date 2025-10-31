@@ -131,36 +131,42 @@ async def test_connection_edge_cases(nova_model, mock_client, mock_stream, model
 @pytest.mark.asyncio
 async def test_send_all_content_types(nova_model, mock_client, mock_stream):
     """Test sending all content types through unified send() method."""
+    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import (
+        TextInputEvent,
+        AudioInputEvent,
+    )
+    from strands.types._events import ToolResultEvent
+    
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
         nova_model._client = mock_client
 
         await nova_model.connect()
 
         # Test text content
-        text_event = {"text": "Hello, Nova!", "role": "user"}
+        text_event = TextInputEvent(text="Hello, Nova!", role="user")
         await nova_model.send(text_event)
         # Should send contentStart, textInput, and contentEnd
         assert mock_stream.input_stream.send.call_count >= 3
 
         # Test audio content
-        audio_event = {
-            "audioData": b"audio data",
-            "format": "pcm",
-            "sampleRate": 16000,
-            "channels": 1
-        }
+        audio_event = AudioInputEvent(
+            audio=b"audio data",
+            format="pcm",
+            sample_rate=16000,
+            channels=1
+        )
         await nova_model.send(audio_event)
         # Should start audio connection and send audio
         assert nova_model.audio_connection_active
         assert mock_stream.input_stream.send.called
 
         # Test tool result
-        tool_result = {
+        tool_result: ToolResult = {
             "toolUseId": "tool-123",
             "status": "success",
             "content": [{"text": "Weather is sunny"}]
         }
-        await nova_model.send(tool_result)
+        await nova_model.send(ToolResultEvent(tool_result))
         # Should send contentStart, toolResult, and contentEnd
         assert mock_stream.input_stream.send.called
 
@@ -170,19 +176,25 @@ async def test_send_all_content_types(nova_model, mock_client, mock_stream):
 @pytest.mark.asyncio
 async def test_send_edge_cases(nova_model, mock_client, mock_stream, caplog):
     """Test send() edge cases and error handling."""
+    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import (
+        TextInputEvent,
+        ImageInputEvent,
+    )
+    
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
         nova_model._client = mock_client
 
         # Test send when inactive
-        text_event = {"text": "Hello", "role": "user"}
+        text_event = TextInputEvent(text="Hello", role="user")
         await nova_model.send(text_event)  # Should not raise
 
         # Test image content (not supported)
         await nova_model.connect()
-        image_event = {
-            "imageData": b"image data",
-            "mimeType": "image/jpeg"
-        }
+        image_event = ImageInputEvent(
+            image=b"image data",
+            mime_type="image/jpeg",
+            encoding="raw"
+        )
         await nova_model.send(image_event)
         # Should log warning about unsupported image input
         assert any("not supported" in record.message.lower() for record in caplog.records)
@@ -319,6 +331,8 @@ async def test_audio_connection_lifecycle(nova_model, mock_client, mock_stream):
 @pytest.mark.asyncio
 async def test_silence_detection(nova_model, mock_client, mock_stream):
     """Test that silence detection automatically ends audio input."""
+    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import AudioInputEvent
+    
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
         nova_model._client = mock_client
         nova_model.silence_threshold = 0.1  # Short threshold for testing
@@ -326,12 +340,12 @@ async def test_silence_detection(nova_model, mock_client, mock_stream):
         await nova_model.connect()
 
         # Send audio to start connection
-        audio_event = {
-            "audioData": b"audio data",
-            "format": "pcm",
-            "sampleRate": 16000,
-            "channels": 1
-        }
+        audio_event = AudioInputEvent(
+            audio=b"audio data",
+            format="pcm",
+            sample_rate=16000,
+            channels=1
+        )
 
         await nova_model.send(audio_event)
         assert nova_model.audio_connection_active

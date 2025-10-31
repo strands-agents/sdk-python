@@ -23,16 +23,19 @@ from google.genai.types import LiveServerMessage, LiveServerContent
 
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
+from ....types._events import ToolResultEvent
 from ..types.bidirectional_streaming import (
     AudioInputEvent,
-    AudioOutputEvent,
-    BidirectionalConnectionEndEvent,
-    BidirectionalConnectionStartEvent,
+    AudioStreamEvent,
+    ErrorEvent,
     ImageInputEvent,
-    InterruptionDetectedEvent,
+    InterruptionEvent,
+    SessionEndEvent,
+    SessionStartEvent,
     TextInputEvent,
-    TextOutputEvent,
-    TranscriptEvent,
+    TranscriptStreamEvent,
+    TurnCompleteEvent,
+    TurnStartEvent,
 )
 from .bidirectional_model import BidirectionalModel
 
@@ -158,12 +161,12 @@ class GeminiLiveBidirectionalModel(BidirectionalModel):
     async def receive(self) -> AsyncIterable[Dict[str, Any]]:
         """Receive Gemini Live API events and convert to provider-agnostic format."""
         
-        # Emit connection start event
-        connection_start: BidirectionalConnectionStartEvent = {
-            "connectionId": self.session_id,
-            "metadata": {"provider": "gemini_live", "model_id": self.model_id}
-        }
-        yield {"BidirectionalConnectionStart": connection_start}
+        # Emit session start event
+        yield SessionStartEvent(
+            session_id=self.session_id,
+            model=self.model_id,
+            capabilities=["audio", "tools", "images"]
+        )
         
         try:
             # Wrap in while loop to restart after turn_complete (SDK limitation workaround)
@@ -189,30 +192,23 @@ class GeminiLiveBidirectionalModel(BidirectionalModel):
                     
         except Exception as e:
             logger.error("Fatal error in receive loop: %s", e)
+            yield ErrorEvent(error=e)
         finally:
-            # Emit connection end event when exiting
-            connection_end: BidirectionalConnectionEndEvent = {
-                "connectionId": self.session_id,
-                "reason": "connection_complete",
-                "metadata": {"provider": "gemini_live"}
-            }
-            yield {"BidirectionalConnectionEnd": connection_end}
+            # Emit session end event when exiting
+            yield SessionEndEvent(reason="complete")
     
     def _convert_gemini_live_event(self, message: LiveServerMessage) -> Optional[Dict[str, Any]]:
         """Convert Gemini Live API events to provider-agnostic format.
         
-        Handles different types of text output:
-        - inputTranscription: User's speech transcribed to text (emitted as transcript event)
-        - outputTranscription: Model's audio transcribed to text (emitted as transcript event)
-        - modelTurn text: Actual text response from the model (emitted as textOutput)
+        Handles different types of content:
+        - inputTranscription: User's speech transcribed to text
+        - outputTranscription: Model's audio transcribed to text
+        - modelTurn text: Text response from the model
         """
         try:
             # Handle interruption first (from server_content)
             if message.server_content and message.server_content.interrupted:
-                interruption: InterruptionDetectedEvent = {
-                    "reason": "user_input"
-                }
-                return {"interruptionDetected": interruption}
+                return InterruptionEvent(reason="user_speech", turn_id=None)
             
             # Handle input transcription (user's speech) - emit as transcript event
             if message.server_content and message.server_content.input_transcription:
@@ -221,12 +217,11 @@ class GeminiLiveBidirectionalModel(BidirectionalModel):
                 if hasattr(input_transcript, 'text') and input_transcript.text:
                     transcription_text = input_transcript.text
                     logger.debug(f"Input transcription detected: {transcription_text}")
-                    transcript: TranscriptEvent = {
-                        "text": transcription_text,
-                        "role": "user",
-                        "type": "input"
-                    }
-                    return {"transcript": transcript}
+                    return TranscriptStreamEvent(
+                        text=transcription_text,
+                        source="user",
+                        is_final=True
+                    )
             
             # Handle output transcription (model's audio) - emit as transcript event
             if message.server_content and message.server_content.output_transcription:
@@ -235,32 +230,29 @@ class GeminiLiveBidirectionalModel(BidirectionalModel):
                 if hasattr(output_transcript, 'text') and output_transcript.text:
                     transcription_text = output_transcript.text
                     logger.debug(f"Output transcription detected: {transcription_text}")
-                    transcript: TranscriptEvent = {
-                        "text": transcription_text,
-                        "role": "assistant",
-                        "type": "output"
-                    }
-                    return {"transcript": transcript}
+                    return TranscriptStreamEvent(
+                        text=transcription_text,
+                        source="assistant",
+                        is_final=True
+                    )
             
-            # Handle actual text output from model (not transcription)
-            # The SDK's message.text property accesses modelTurn.parts[].text
+            # Handle text output from model
             if message.text:
-                text_output: TextOutputEvent = {
-                    "text": message.text,
-                    "role": "assistant"
-                }
-                return {"textOutput": text_output}
+                logger.debug(f"Text output as transcript: {message.text}")
+                return TranscriptStreamEvent(
+                    text=message.text,
+                    source="assistant",
+                    is_final=True
+                )
             
             # Handle audio output using SDK's built-in data property
             if message.data:
-                audio_output: AudioOutputEvent = {
-                    "audioData": message.data,
-                    "format": "pcm",
-                    "sampleRate": GEMINI_OUTPUT_SAMPLE_RATE,
-                    "channels": GEMINI_CHANNELS,
-                    "encoding": "raw"
-                }
-                return {"audioOutput": audio_output}
+                return AudioStreamEvent(
+                    audio=message.data,
+                    format="pcm",
+                    sample_rate=GEMINI_OUTPUT_SAMPLE_RATE,
+                    channels=GEMINI_CHANNELS
+                )
             
             # Handle tool calls
             if message.tool_call and message.tool_call.function_calls:
@@ -281,34 +273,33 @@ class GeminiLiveBidirectionalModel(BidirectionalModel):
             logger.error("Message attributes: %s", [attr for attr in dir(message) if not attr.startswith('_')])
             return None
     
-    async def send(self, content: Union[TextInputEvent, ImageInputEvent, AudioInputEvent, ToolResult]) -> None:
+    async def send(
+        self,
+        content: Union[TextInputEvent, AudioInputEvent, ImageInputEvent, ToolResultEvent],
+    ) -> None:
         """Unified send method for all content types. Sends the given inputs to Google Live API
         
         Dispatches to appropriate internal handler based on content type.
         
         Args:
-            content: Typed event (TextInputEvent, ImageInputEvent, AudioInputEvent, or ToolResult).
+            content: Typed event (TextInputEvent, AudioInputEvent, ImageInputEvent, or ToolResultEvent).
         """
         if not self._active:
             return
         
         try:
-            if isinstance(content, dict):
-                # Dispatch based on content structure
-                if "text" in content and "role" in content:
-                    # TextInputEvent
-                    await self._send_text_content(content["text"])
-                elif "audioData" in content:
-                    # AudioInputEvent
-                    await self._send_audio_content(content)
-                elif "imageData" in content or "image_url" in content:
-                    # ImageInputEvent
-                    await self._send_image_content(content)
-                elif "toolUseId" in content and "status" in content:
-                    # ToolResult
-                    await self._send_tool_result(content)
-                else:
-                    logger.warning(f"Unknown content type with keys: {content.keys()}")
+            if isinstance(content, TextInputEvent):
+                await self._send_text_content(content.text)
+            elif isinstance(content, AudioInputEvent):
+                await self._send_audio_content(content)
+            elif isinstance(content, ImageInputEvent):
+                await self._send_image_content(content)
+            elif isinstance(content, ToolResultEvent):
+                tool_result = content.get("tool_result")
+                if tool_result:
+                    await self._send_tool_result(tool_result)
+            else:
+                logger.warning(f"Unknown content type: {type(content)}")
         except Exception as e:
             logger.error(f"Error sending content: {e}")
     
@@ -321,7 +312,7 @@ class GeminiLiveBidirectionalModel(BidirectionalModel):
         try:
             # Create audio blob for the SDK
             audio_blob = genai_types.Blob(
-                data=audio_input["audioData"],
+                data=audio_input.audio,
                 mime_type=f"audio/pcm;rate={GEMINI_INPUT_SAMPLE_RATE}"
             )
             
@@ -339,19 +330,19 @@ class GeminiLiveBidirectionalModel(BidirectionalModel):
         """
         try:
             # Prepare the message based on encoding
-            if image_input.get("encoding") == "base64":
+            if image_input.encoding == "base64":
                 # Data is already base64 encoded
-                if isinstance(image_input["imageData"], bytes):
-                    data_str = image_input["imageData"].decode()
+                if isinstance(image_input.image, bytes):
+                    data_str = image_input.image.decode()
                 else:
-                    data_str = image_input["imageData"]
+                    data_str = image_input.image
             else:
                 # Raw bytes - need to base64 encode
-                data_str = base64.b64encode(image_input["imageData"]).decode()
+                data_str = base64.b64encode(image_input.image).decode()
             
             # Create the message in the format expected by Gemini Live
             msg = {
-                "mime_type": image_input["mimeType"],
+                "mime_type": image_input.mime_type,
                 "data": data_str
             }
             

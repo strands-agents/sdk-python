@@ -19,6 +19,7 @@ from strands.experimental.bidirectional_streaming.types.bidirectional_streaming 
     ImageInputEvent,
     TextInputEvent,
 )
+from strands.types._events import ToolResultEvent
 from strands.types.tools import ToolResult
 
 
@@ -188,7 +189,7 @@ async def test_send_all_content_types(mock_genai_client, model):
     await model.connect()
     
     # Test text input
-    text_input: TextInputEvent = {"text": "Hello", "role": "user"}
+    text_input = TextInputEvent(text="Hello", role="user")
     await model.send(text_input)
     mock_live_session.send_client_content.assert_called_once()
     call_args = mock_live_session.send_client_content.call_args
@@ -197,31 +198,32 @@ async def test_send_all_content_types(mock_genai_client, model):
     assert content.parts[0].text == "Hello"
     
     # Test audio input
-    audio_input: AudioInputEvent = {
-        "audioData": b"audio_bytes",
-        "format": "pcm",
-        "sampleRate": 16000,
-        "channels": 1,
-    }
+    audio_input = AudioInputEvent(
+        audio=b"audio_bytes",
+        format="pcm",
+        sample_rate=16000,
+        channels=1,
+    )
     await model.send(audio_input)
     mock_live_session.send_realtime_input.assert_called_once()
     
     # Test image input
-    image_input: ImageInputEvent = {
-        "imageData": b"image_bytes",
-        "mimeType": "image/jpeg",
-        "encoding": "raw",
-    }
+    image_input = ImageInputEvent(
+        image=b"image_bytes",
+        mime_type="image/jpeg",
+        encoding="raw",
+    )
     await model.send(image_input)
     mock_live_session.send.assert_called_once()
     
     # Test tool result
+    from strands.types._events import ToolResultEvent
     tool_result: ToolResult = {
         "toolUseId": "tool-123",
         "status": "success",
         "content": [{"text": "Result: 42"}],
     }
-    await model.send(tool_result)
+    await model.send(ToolResultEvent(tool_result))
     mock_live_session.send_tool_response.assert_called_once()
     
     await model.close()
@@ -233,7 +235,7 @@ async def test_send_edge_cases(mock_genai_client, model):
     _, mock_live_session, _ = mock_genai_client
     
     # Test send when inactive
-    text_input: TextInputEvent = {"text": "Hello", "role": "user"}
+    text_input = TextInputEvent(text="Hello", role="user")
     await model.send(text_input)
     mock_live_session.send_client_content.assert_not_called()
     
@@ -251,6 +253,11 @@ async def test_send_edge_cases(mock_genai_client, model):
 @pytest.mark.asyncio
 async def test_receive_lifecycle_events(mock_genai_client, model, agenerator):
     """Test that receive() emits connection start and end events."""
+    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import (
+        SessionStartEvent,
+        SessionEndEvent,
+    )
+    
     _, mock_live_session, _ = mock_genai_client
     mock_live_session.receive.return_value = agenerator([])
     
@@ -266,18 +273,24 @@ async def test_receive_lifecycle_events(mock_genai_client, model, agenerator):
     
     # Verify connection start and end
     assert len(events) >= 2
-    assert "BidirectionalConnectionStart" in events[0]
-    assert events[0]["BidirectionalConnectionStart"]["connectionId"] == model.session_id
-    assert "BidirectionalConnectionEnd" in events[-1]
+    assert isinstance(events[0], SessionStartEvent)
+    assert events[0].session_id == model.session_id
+    assert isinstance(events[-1], SessionEndEvent)
 
 
 @pytest.mark.asyncio
 async def test_event_conversion(mock_genai_client, model):
     """Test conversion of all Gemini Live event types to standard format."""
+    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import (
+        TranscriptStreamEvent,
+        AudioStreamEvent,
+        InterruptionEvent,
+    )
+    
     _, _, _ = mock_genai_client
     await model.connect()
     
-    # Test text output
+    # Test text output (now converted to transcript)
     mock_text = unittest.mock.Mock()
     mock_text.text = "Hello from Gemini"
     mock_text.data = None
@@ -285,9 +298,10 @@ async def test_event_conversion(mock_genai_client, model):
     mock_text.server_content = None
     
     text_event = model._convert_gemini_live_event(mock_text)
-    assert "textOutput" in text_event
-    assert text_event["textOutput"]["text"] == "Hello from Gemini"
-    assert text_event["textOutput"]["role"] == "assistant"
+    assert isinstance(text_event, TranscriptStreamEvent)
+    assert text_event.text == "Hello from Gemini"
+    assert text_event.source == "assistant"
+    assert text_event.is_final is True
     
     # Test audio output
     mock_audio = unittest.mock.Mock()
@@ -297,9 +311,9 @@ async def test_event_conversion(mock_genai_client, model):
     mock_audio.server_content = None
     
     audio_event = model._convert_gemini_live_event(mock_audio)
-    assert "audioOutput" in audio_event
-    assert audio_event["audioOutput"]["audioData"] == b"audio_data"
-    assert audio_event["audioOutput"]["format"] == "pcm"
+    assert isinstance(audio_event, AudioStreamEvent)
+    assert audio_event.audio == b"audio_data"
+    assert audio_event.format == "pcm"
     
     # Test tool call
     mock_func_call = unittest.mock.Mock()
@@ -334,8 +348,8 @@ async def test_event_conversion(mock_genai_client, model):
     mock_interrupt.server_content = mock_server_content
     
     interrupt_event = model._convert_gemini_live_event(mock_interrupt)
-    assert "interruptionDetected" in interrupt_event
-    assert interrupt_event["interruptionDetected"]["reason"] == "user_input"
+    assert isinstance(interrupt_event, InterruptionEvent)
+    assert interrupt_event.reason == "user_speech"
     
     await model.close()
 
