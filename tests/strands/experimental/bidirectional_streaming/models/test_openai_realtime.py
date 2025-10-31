@@ -1,6 +1,6 @@
 """Unit tests for OpenAI Realtime bidirectional streaming model.
 
-Tests the unified OpenAIRealtimeBidirectionalModel interface including:
+Tests the unified OpenAIRealtimeModel interface including:
 - Model initialization and configuration
 - Connection establishment with WebSocket
 - Unified send() method with different content types
@@ -15,7 +15,7 @@ import unittest.mock
 
 import pytest
 
-from strands.experimental.bidirectional_streaming.models.openai import OpenAIRealtimeBidirectionalModel
+from strands.experimental.bidirectional_streaming.models.openai import OpenAIRealtimeModel
 from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import (
     AudioInputEvent,
     ImageInputEvent,
@@ -56,8 +56,8 @@ def api_key():
 
 @pytest.fixture
 def model(api_key, model_name):
-    """Create an OpenAIRealtimeBidirectionalModel instance."""
-    return OpenAIRealtimeBidirectionalModel(model=model_name, api_key=api_key)
+    """Create an OpenAIRealtimeModel instance."""
+    return OpenAIRealtimeModel(model=model_name, api_key=api_key)
 
 
 @pytest.fixture
@@ -85,19 +85,19 @@ def messages():
 def test_model_initialization(api_key, model_name):
     """Test model initialization with various configurations."""
     # Test default config
-    model_default = OpenAIRealtimeBidirectionalModel(api_key="test-key")
+    model_default = OpenAIRealtimeModel(api_key="test-key")
     assert model_default.model == "gpt-realtime"
     assert model_default.api_key == "test-key"
     assert model_default._active is False
     assert model_default.websocket is None
 
     # Test with custom model
-    model_custom = OpenAIRealtimeBidirectionalModel(model=model_name, api_key=api_key)
+    model_custom = OpenAIRealtimeModel(model=model_name, api_key=api_key)
     assert model_custom.model == model_name
     assert model_custom.api_key == api_key
 
     # Test with organization and project
-    model_org = OpenAIRealtimeBidirectionalModel(
+    model_org = OpenAIRealtimeModel(
         model=model_name,
         api_key=api_key,
         organization="org-123",
@@ -108,7 +108,7 @@ def test_model_initialization(api_key, model_name):
 
     # Test with env API key
     with unittest.mock.patch.dict("os.environ", {"OPENAI_API_KEY": "env-key"}):
-        model_env = OpenAIRealtimeBidirectionalModel()
+        model_env = OpenAIRealtimeModel()
         assert model_env.api_key == "env-key"
 
 
@@ -116,7 +116,7 @@ def test_init_without_api_key_raises():
     """Test that initialization without API key raises error."""
     with unittest.mock.patch.dict("os.environ", {}, clear=True):
         with pytest.raises(ValueError, match="OpenAI API key is required"):
-            OpenAIRealtimeBidirectionalModel()
+            OpenAIRealtimeModel()
 
 
 # Connection Tests
@@ -171,7 +171,7 @@ async def test_connection_lifecycle(mock_websockets_connect, model, system_promp
     await model.close()
 
     # Test connection with organization header
-    model_org = OpenAIRealtimeBidirectionalModel(api_key="test-key", organization="org-123")
+    model_org = OpenAIRealtimeModel(api_key="test-key", organization="org-123")
     await model_org.connect()
     call_kwargs = mock_connect.call_args.kwargs
     headers = call_kwargs.get("additional_headers", [])
@@ -187,7 +187,7 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
     mock_connect, mock_ws = mock_websockets_connect
 
     # Test connection error
-    model1 = OpenAIRealtimeBidirectionalModel(model=model_name, api_key=api_key)
+    model1 = OpenAIRealtimeModel(model=model_name, api_key=api_key)
     mock_connect.side_effect = Exception("Connection failed")
     with pytest.raises(Exception, match="Connection failed"):
         await model1.connect()
@@ -198,18 +198,18 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
     mock_connect.side_effect = async_connect
 
     # Test double connection
-    model2 = OpenAIRealtimeBidirectionalModel(model=model_name, api_key=api_key)
+    model2 = OpenAIRealtimeModel(model=model_name, api_key=api_key)
     await model2.connect()
     with pytest.raises(RuntimeError, match="Connection already active"):
         await model2.connect()
     await model2.close()
 
     # Test close when not connected
-    model3 = OpenAIRealtimeBidirectionalModel(model=model_name, api_key=api_key)
+    model3 = OpenAIRealtimeModel(model=model_name, api_key=api_key)
     await model3.close()  # Should not raise
 
     # Test close error handling (should not raise, just log)
-    model4 = OpenAIRealtimeBidirectionalModel(model=model_name, api_key=api_key)
+    model4 = OpenAIRealtimeModel(model=model_name, api_key=api_key)
     await model4.connect()
     mock_ws.close.side_effect = Exception("Close failed")
     await model4.close()  # Should not raise
