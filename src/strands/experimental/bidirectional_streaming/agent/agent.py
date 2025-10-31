@@ -360,39 +360,67 @@ class BidirectionalAgent:
         logger.debug("Conversation start - initializing session")
         self._session = await start_bidirectional_connection(self)
     
-    async def send(self, input_data: str | AudioInputEvent | ImageInputEvent) -> None:
-        """Send input to the model (text, audio, or image).
+    async def send(self, input_data: str | AudioInputEvent | ImageInputEvent | dict) -> None:
+        """Send input to the model (text, audio, image, or event dict).
         
         Unified method for sending text, audio, and image input to the model during
-        an active conversation session.
+        an active conversation session. Accepts TypedEvent instances or plain dicts
+        (e.g., from WebSocket clients) which are automatically reconstructed.
         
         Args:
-            input_data: String for text, AudioInputEvent for audio, or ImageInputEvent for images.
+            input_data: Can be:
+                - str: Text message from user
+                - AudioInputEvent: Audio data with format/sample rate
+                - ImageInputEvent: Image data with MIME type
+                - dict: Event dictionary (will be reconstructed to TypedEvent)
             
         Raises:
             ValueError: If no active session or invalid input type.
+            
+        Example:
+            await agent.send("Hello")
+            await agent.send(AudioInputEvent(audio="base64...", format="pcm", ...))
+            await agent.send({"type": "bidirectional_text_input", "text": "Hello", "role": "user"})
         """
         self._validate_active_session()
 
+        # Handle string input
         if isinstance(input_data, str):
             # Add user text message to history
             self.messages.append({"role": "user", "content": input_data})
-
             logger.debug("Text sent: %d characters", len(input_data))
-            # Create TextInputEvent for send()
-            text_event = {"text": input_data, "role": "user"}
+            from ..types.bidirectional_streaming import TextInputEvent
+            text_event = TextInputEvent(text=input_data, role="user")
             await self._session.model.send(text_event)
-        elif isinstance(input_data, dict) and "audioData" in input_data:
-            # Handle audio input - already in AudioInputEvent format
-            await self._session.model.send(input_data)
-        elif isinstance(input_data, dict) and "imageData" in input_data:
-            # Handle image input - already in ImageInputEvent format
+            return
+        
+        # Handle dict - reconstruct TypedEvent for WebSocket integration
+        if isinstance(input_data, dict) and "type" in input_data:
+            from ..types.bidirectional_streaming import TextInputEvent
+            event_type = input_data["type"]
+            if event_type == "bidirectional_text_input":
+                input_data = TextInputEvent(text=input_data["text"], role=input_data["role"])
+            elif event_type == "bidirectional_audio_input":
+                input_data = AudioInputEvent(
+                    audio=input_data["audio"],
+                    format=input_data["format"],
+                    sample_rate=input_data["sample_rate"],
+                    channels=input_data["channels"]
+                )
+            elif event_type == "bidirectional_image_input":
+                input_data = ImageInputEvent(
+                    image=input_data["image"],
+                    mime_type=input_data["mime_type"]
+                )
+            else:
+                raise ValueError(f"Unknown event type: {event_type}")
+        
+        # Handle TypedEvent instances
+        if isinstance(input_data, (AudioInputEvent, ImageInputEvent, TextInputEvent)):
             await self._session.model.send(input_data)
         else:
             raise ValueError(
-                "Input must be either a string (text), AudioInputEvent "
-                "(dict with audioData, format, sampleRate, channels), or ImageInputEvent "
-                "(dict with imageData, mimeType, encoding)"
+                f"Input must be a string, TypedEvent, or event dict, got: {type(input_data)}"
             )
 
     async def receive(self) -> AsyncIterable[dict[str, Any]]:

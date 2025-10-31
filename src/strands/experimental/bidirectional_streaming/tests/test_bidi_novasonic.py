@@ -5,6 +5,7 @@ interruption handling, and concurrent tool execution using Nova Sonic.
 """
 
 import asyncio
+import base64
 import sys
 from pathlib import Path
 
@@ -129,33 +130,36 @@ async def receive(agent, context):
     """Receive and process events from agent."""
     try:
         async for event in agent.receive():
-            # Handle audio output
-            if "audioOutput" in event:
+            # Get event type
+            event_type = event.get("type", "unknown")
+            
+            # Handle audio stream events (bidirectional_audio_stream)
+            if event_type == "bidirectional_audio_stream":
                 if not context.get("interrupted", False):
-                    context["audio_out"].put_nowait(event["audioOutput"]["audioData"])
+                    # Decode base64 audio string to bytes for playback
+                    audio_b64 = event["audio"]
+                    audio_data = base64.b64decode(audio_b64)
+                    context["audio_out"].put_nowait(audio_data)
 
-            # Handle interruption events
-            elif "interruptionDetected" in event:
+            # Handle interruption events (bidirectional_interruption)
+            elif event_type == "bidirectional_interruption":
                 context["interrupted"] = True
-            elif "interrupted" in event:
-                context["interrupted"] = True
 
-            # Handle text output with interruption detection
-            elif "textOutput" in event:
-                text_content = event["textOutput"].get("content", "")
-                role = event["textOutput"].get("role", "unknown")
-
-                # Check for text-based interruption patterns
-                if '{ "interrupted" : true }' in text_content:
-                    context["interrupted"] = True
-                elif "interrupted" in text_content.lower():
-                    context["interrupted"] = True
-
-                # Log text output
-                if role.upper() == "USER":
+            # Handle transcript events (bidirectional_transcript_stream)
+            elif event_type == "bidirectional_transcript_stream":
+                text_content = event.get("text", "")
+                source = event.get("source", "unknown")
+                
+                # Log transcript output
+                if source == "user":
                     print(f"User: {text_content}")
-                elif role.upper() == "ASSISTANT":
+                elif source == "assistant":
                     print(f"Assistant: {text_content}")
+            
+            # Handle turn complete events (bidirectional_turn_complete)
+            elif event_type == "bidirectional_turn_complete":
+                # Reset interrupted state since the turn is complete
+                context["interrupted"] = False
 
     except asyncio.CancelledError:
         pass
@@ -167,7 +171,16 @@ async def send(agent, context):
         while time.time() - context["start_time"] < context["duration"]:
             try:
                 audio_bytes = context["audio_in"].get_nowait()
-                audio_event = {"audioData": audio_bytes, "format": "pcm", "sampleRate": 16000, "channels": 1}
+                # Create audio event using TypedEvent
+                from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import AudioInputEvent
+                
+                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                audio_event = AudioInputEvent(
+                    audio=audio_b64,
+                    format="pcm",
+                    sample_rate=16000,
+                    channels=1
+                )
                 await agent.send(audio_event)
             except asyncio.QueueEmpty:
                 await asyncio.sleep(0.01)  # Restored to working timing

@@ -148,9 +148,10 @@ async def test_send_all_content_types(nova_model, mock_client, mock_stream):
         # Should send contentStart, textInput, and contentEnd
         assert mock_stream.input_stream.send.call_count >= 3
 
-        # Test audio content
+        # Test audio content (base64 encoded)
+        audio_b64 = base64.b64encode(b"audio data").decode('utf-8')
         audio_event = AudioInputEvent(
-            audio=b"audio data",
+            audio=audio_b64,
             format="pcm",
             sample_rate=16000,
             channels=1
@@ -188,12 +189,13 @@ async def test_send_edge_cases(nova_model, mock_client, mock_stream, caplog):
         text_event = TextInputEvent(text="Hello", role="user")
         await nova_model.send(text_event)  # Should not raise
 
-        # Test image content (not supported)
+        # Test image content (not supported, base64 encoded, no encoding parameter)
         await nova_model.connect()
+        import base64
+        image_b64 = base64.b64encode(b"image data").decode('utf-8')
         image_event = ImageInputEvent(
-            image=b"image data",
+            image=image_b64,
             mime_type="image/jpeg",
-            encoding="raw"
         )
         await nova_model.send(image_event)
         # Should log warning about unsupported image input
@@ -224,36 +226,41 @@ async def test_receive_lifecycle_events(nova_model, mock_client, mock_stream):
             async for event in nova_model.receive():
                 events.append(event)
 
-            # Should have connection start and end
+            # Should have session start and end (new TypedEvent format)
             assert len(events) >= 2
-            assert "BidirectionalConnectionStart" in events[0]
-            assert events[0]["BidirectionalConnectionStart"]["connectionId"] == nova_model.prompt_name
-            assert "BidirectionalConnectionEnd" in events[-1]
+            assert events[0].get("type") == "bidirectional_session_start"
+            assert events[0].get("session_id") == nova_model.prompt_name
+            assert events[-1].get("type") == "bidirectional_session_end"
 
 
 @pytest.mark.asyncio
 async def test_event_conversion(nova_model):
     """Test conversion of all Nova Sonic event types to standard format."""
-    # Test audio output
+    # Test audio output (now returns AudioStreamEvent)
+    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import AudioStreamEvent
     audio_bytes = b"test audio data"
     audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
     nova_event = {"audioOutput": {"content": audio_base64}}
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
-    assert "audioOutput" in result
-    assert result["audioOutput"]["audioData"] == audio_bytes
-    assert result["audioOutput"]["format"] == "pcm"
-    assert result["audioOutput"]["sampleRate"] == 24000
+    assert isinstance(result, AudioStreamEvent)
+    assert result.get("type") == "bidirectional_audio_stream"
+    # Audio is kept as base64 string
+    assert result.get("audio") == audio_base64
+    assert result.get("format") == "pcm"
+    assert result.get("sample_rate") == 24000
 
-    # Test text output
+    # Test text output (now returns TranscriptStreamEvent)
+    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import TranscriptStreamEvent
     nova_event = {"textOutput": {"content": "Hello, world!", "role": "ASSISTANT"}}
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
-    assert "textOutput" in result
-    assert result["textOutput"]["text"] == "Hello, world!"
-    assert result["textOutput"]["role"] == "assistant"
+    assert isinstance(result, TranscriptStreamEvent)
+    assert result.get("type") == "bidirectional_transcript_stream"
+    assert result.get("text") == "Hello, world!"
+    assert result.get("source") == "assistant"
 
-    # Test tool use
+    # Test tool use (now returns dict with tool_use)
     tool_input = {"location": "Seattle"}
     nova_event = {
         "toolUse": {
@@ -264,19 +271,23 @@ async def test_event_conversion(nova_model):
     }
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
-    assert "toolUse" in result
-    assert result["toolUse"]["toolUseId"] == "tool-123"
-    assert result["toolUse"]["name"] == "get_weather"
-    assert result["toolUse"]["input"] == tool_input
+    assert result.get("type") == "tool_use"
+    tool_use = result.get("tool_use")
+    assert tool_use["toolUseId"] == "tool-123"
+    assert tool_use["name"] == "get_weather"
+    assert tool_use["input"] == tool_input
 
-    # Test interruption
+    # Test interruption (now returns InterruptionEvent)
+    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import InterruptionEvent
     nova_event = {"stopReason": "INTERRUPTED"}
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
-    assert "interruptionDetected" in result
-    assert result["interruptionDetected"]["reason"] == "user_input"
+    assert isinstance(result, InterruptionEvent)
+    assert result.get("type") == "bidirectional_interruption"
+    assert result.get("reason") == "user_speech"
 
-    # Test usage metrics
+    # Test usage metrics (now returns MultimodalUsage)
+    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import MultimodalUsage
     nova_event = {
         "usageEvent": {
             "totalTokens": 100,
@@ -293,16 +304,19 @@ async def test_event_conversion(nova_model):
     }
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
-    assert "usageMetrics" in result
-    assert result["usageMetrics"]["totalTokens"] == 100
-    assert result["usageMetrics"]["inputTokens"] == 40
-    assert result["usageMetrics"]["outputTokens"] == 60
-    assert result["usageMetrics"]["audioTokens"] == 30
+    assert isinstance(result, MultimodalUsage)
+    assert result.get("type") == "multimodal_usage"
+    assert result.get("totalTokens") == 100
+    assert result.get("inputTokens") == 40
+    assert result.get("outputTokens") == 60
 
-    # Test content start tracks role
+    # Test content start tracks role and emits TurnStartEvent
+    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import TurnStartEvent
     nova_event = {"contentStart": {"role": "USER"}}
     result = nova_model._convert_nova_event(nova_event)
-    assert result is None  # contentStart doesn't emit an event
+    assert result is not None
+    assert isinstance(result, TurnStartEvent)
+    assert result.get("type") == "bidirectional_turn_start"
     assert nova_model._current_role == "USER"
 
 
@@ -339,9 +353,11 @@ async def test_silence_detection(nova_model, mock_client, mock_stream):
 
         await nova_model.connect()
 
-        # Send audio to start connection
+        # Send audio to start connection (base64 encoded)
+        import base64
+        audio_b64 = base64.b64encode(b"audio data").decode('utf-8')
         audio_event = AudioInputEvent(
-            audio=b"audio data",
+            audio=audio_b64,
             format="pcm",
             sample_rate=16000,
             channels=1

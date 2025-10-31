@@ -145,56 +145,58 @@ async def receive(agent, context):
     """Receive and process events from agent."""
     try:
         async for event in agent.receive():
-            # Debug: Log all event types
-            event_types = [k for k in event.keys() if not k.startswith('_')]
-            if event_types:
-                logger.debug(f"Received event types: {event_types}")
+            # Debug: Log event type and keys
+            event_type = event.get("type", "unknown")
+            event_keys = list(event.keys())
+            logger.debug(f"Received event type: {event_type}, keys: {event_keys}")
             
-            # Handle audio output
-            if "audioOutput" in event:
+            # Handle audio stream events (bidirectional_audio_stream)
+            if event_type == "bidirectional_audio_stream":
                 if not context.get("interrupted", False):
-                    context["audio_out"].put_nowait(event["audioOutput"]["audioData"])
+                    # Decode base64 audio string to bytes for playback
+                    audio_b64 = event["audio"]
+                    audio_data = base64.b64decode(audio_b64)
+                    context["audio_out"].put_nowait(audio_data)
+                    logger.info(f"🔊 Audio queued for playback: {len(audio_data)} bytes")
 
-            # Handle interruption events
-            elif "interruptionDetected" in event:
+            # Handle interruption events (bidirectional_interruption)
+            elif event_type == "bidirectional_interruption":
                 context["interrupted"] = True
-            elif "interrupted" in event:
-                context["interrupted"] = True
+                logger.info("Interruption detected")
 
-            # Handle text output
-            elif "textOutput" in event:
-                text_content = event["textOutput"].get("text", "")
-                role = event["textOutput"].get("role", "unknown")
-
-                # Check for text-based interruption patterns
-                if '{ "interrupted" : true }' in text_content:
-                    context["interrupted"] = True
-                elif "interrupted" in text_content.lower():
-                    context["interrupted"] = True
-
-                # Log text output
-                if role.upper() == "USER":
-                    print(f"User: {text_content}")
-                elif role.upper() == "ASSISTANT":
-                    print(f"Assistant: {text_content}")
-            
-            # Handle transcript events (audio transcriptions)
-            elif "transcript" in event:
-                transcript_text = event["transcript"].get("text", "")
-                transcript_role = event["transcript"].get("role", "unknown")
-                transcript_type = event["transcript"].get("type", "unknown")
+            # Handle transcript events (bidirectional_transcript_stream)
+            elif event_type == "bidirectional_transcript_stream":
+                transcript_text = event.get("text", "")
+                transcript_source = event.get("source", "unknown")
+                is_final = event.get("is_final", False)
                 
-                # Print transcripts with special formatting to distinguish from text output
-                if transcript_role.upper() == "USER":
-                    print(f"🎤 User (transcript): {transcript_text}")
-                elif transcript_role.upper() == "ASSISTANT":
-                    print(f"🔊 Assistant (transcript): {transcript_text}")
+                # Print transcripts with special formatting
+                if transcript_source == "user":
+                    print(f"🎤 User: {transcript_text}")
+                elif transcript_source == "assistant":
+                    print(f"🔊 Assistant: {transcript_text}")
             
-            # Handle turn complete events
-            elif "turnComplete" in event:
-                logger.debug("Turn complete event received - model ready for next input")
+            # Handle turn complete events (bidirectional_turn_complete)
+            elif event_type == "bidirectional_turn_complete":
+                logger.debug("Turn complete - model ready for next input")
                 # Reset interrupted state since the turn is complete
                 context["interrupted"] = False
+            
+            # Handle session start events (bidirectional_session_start)
+            elif event_type == "bidirectional_session_start":
+                logger.info(f"Session started: {event.get('model', 'unknown')}")
+            
+            # Handle session end events (bidirectional_session_end)
+            elif event_type == "bidirectional_session_end":
+                logger.info(f"Session ended: {event.get('reason', 'unknown')}")
+            
+            # Handle error events (bidirectional_error)
+            elif event_type == "bidirectional_error":
+                logger.error(f"Error: {event.get('error_message', 'unknown')}")
+            
+            # Handle turn start events (bidirectional_turn_start)
+            elif event_type == "bidirectional_turn_start":
+                logger.debug(f"Turn started: {event.get('turn_id', 'unknown')}")
 
     except asyncio.CancelledError:
         pass
@@ -246,11 +248,12 @@ async def get_frames(context):
 
             # Send frame to agent as image input
             try:
-                image_event = {
-                    "imageData": frame["data"],
-                    "mimeType": frame["mime_type"],
-                    "encoding": "base64"
-                }
+                from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import ImageInputEvent
+                
+                image_event = ImageInputEvent(
+                    image=frame["data"],  # Already base64 encoded
+                    mime_type=frame["mime_type"]
+                )
                 await context["agent"].send(image_event)
                 print("📸 Frame sent to model")
             except Exception as e:
@@ -272,7 +275,16 @@ async def send(agent, context):
         while time.time() - context["start_time"] < context["duration"]:
             try:
                 audio_bytes = context["audio_in"].get_nowait()
-                audio_event = {"audioData": audio_bytes, "format": "pcm", "sampleRate": 16000, "channels": 1}
+                # Create audio event using TypedEvent
+                from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import AudioInputEvent
+                
+                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                audio_event = AudioInputEvent(
+                    audio=audio_b64,
+                    format="pcm",
+                    sample_rate=16000,
+                    channels=1
+                )
                 await agent.send(audio_event)
             except asyncio.QueueEmpty:
                 await asyncio.sleep(0.01)
@@ -304,7 +316,7 @@ async def main(duration=180):
     model = GeminiLiveModel(
         model_id="gemini-2.5-flash-native-audio-preview-09-2025",
         api_key=api_key,
-        params={
+        live_config={
             "response_modalities": ["AUDIO"],
             "output_audio_transcription": {},  # Enable output transcription
             "input_audio_transcription": {}    # Enable input transcription

@@ -248,8 +248,10 @@ class GeminiLiveModel(BidirectionalModel):
             
             # Handle audio output using SDK's built-in data property
             if message.data:
+                # Convert bytes to base64 string for JSON serializability
+                audio_b64 = base64.b64encode(message.data).decode('utf-8')
                 return AudioStreamEvent(
-                    audio=message.data,
+                    audio=audio_b64,
                     format="pcm",
                     sample_rate=GEMINI_OUTPUT_SAMPLE_RATE,
                     channels=GEMINI_CHANNELS
@@ -311,9 +313,12 @@ class GeminiLiveModel(BidirectionalModel):
         This automatically triggers VAD and can interrupt ongoing responses.
         """
         try:
+            # Decode base64 audio to bytes for SDK
+            audio_bytes = base64.b64decode(audio_input.audio)
+            
             # Create audio blob for the SDK
             audio_blob = genai_types.Blob(
-                data=audio_input.audio,
+                data=audio_bytes,
                 mime_type=f"audio/pcm;rate={GEMINI_INPUT_SAMPLE_RATE}"
             )
             
@@ -330,21 +335,10 @@ class GeminiLiveModel(BidirectionalModel):
         Images are sent as base64-encoded data with MIME type.
         """
         try:
-            # Prepare the message based on encoding
-            if image_input.encoding == "base64":
-                # Data is already base64 encoded
-                if isinstance(image_input.image, bytes):
-                    data_str = image_input.image.decode()
-                else:
-                    data_str = image_input.image
-            else:
-                # Raw bytes - need to base64 encode
-                data_str = base64.b64encode(image_input.image).decode()
-            
-            # Create the message in the format expected by Gemini Live
+            # Image is already base64 encoded in the event
             msg = {
                 "mime_type": image_input.mime_type,
-                "data": data_str
+                "data": image_input.image
             }
             
             # Send using the same method as the GitHub example

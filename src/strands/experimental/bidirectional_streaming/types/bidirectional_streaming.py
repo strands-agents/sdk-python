@@ -9,12 +9,14 @@ Key features:
 - Session lifecycle management
 - Provider-agnostic event types
 - Type-safe discriminated unions with TypedEvent
+- JSON-serializable events (audio/images stored as base64 strings)
 
 Audio format normalization:
 - Supports PCM, WAV, Opus, and MP3 formats
 - Standardizes sample rates (16kHz, 24kHz, 48kHz)
 - Normalizes channel configurations (mono/stereo)
 - Abstracts provider-specific encodings
+- Audio data stored as base64-encoded strings for JSON compatibility
 """
 
 from typing import Any, Dict, List, Literal, Optional, Union, cast
@@ -69,7 +71,7 @@ class AudioInputEvent(TypedEvent):
     Used for sending audio data through the send() method.
 
     Parameters:
-        audio: Raw audio bytes to send to model (not base64 encoded).
+        audio: Base64-encoded audio string to send to model.
         format: Audio format from SUPPORTED_AUDIO_FORMATS.
         sample_rate: Sample rate from SUPPORTED_SAMPLE_RATES.
         channels: Channel count from SUPPORTED_CHANNELS.
@@ -77,7 +79,7 @@ class AudioInputEvent(TypedEvent):
 
     def __init__(
         self,
-        audio: bytes,
+        audio: str,
         format: Literal["pcm", "wav", "opus", "mp3"],
         sample_rate: Literal[16000, 24000, 48000],
         channels: Literal[1, 2],
@@ -93,8 +95,8 @@ class AudioInputEvent(TypedEvent):
         )
 
     @property
-    def audio(self) -> bytes:
-        return cast(bytes, self.get("audio"))
+    def audio(self) -> str:
+        return cast(str, self.get("audio"))
 
     @property
     def format(self) -> str:
@@ -112,41 +114,33 @@ class AudioInputEvent(TypedEvent):
 class ImageInputEvent(TypedEvent):
     """Image input event for sending images/video frames to the model.
 
-    Used for sending image data through the send() method. Supports both
-    raw image bytes and base64-encoded data.
+    Used for sending image data through the send() method.
 
     Parameters:
-        image: Image bytes (raw or base64-encoded string).
+        image: Base64-encoded image string.
         mime_type: MIME type (e.g., "image/jpeg", "image/png").
-        encoding: How the image data is encoded.
     """
 
     def __init__(
         self,
-        image: Union[bytes, str],
+        image: str,
         mime_type: str,
-        encoding: Literal["base64", "raw"],
     ):
         super().__init__(
             {
                 "type": "bidirectional_image_input",
                 "image": image,
                 "mime_type": mime_type,
-                "encoding": encoding,
             }
         )
 
     @property
-    def image(self) -> Union[bytes, str]:
-        return cast(Union[bytes, str], self.get("image"))
+    def image(self) -> str:
+        return cast(str, self.get("image"))
 
     @property
     def mime_type(self) -> str:
         return cast(str, self.get("mime_type"))
-
-    @property
-    def encoding(self) -> str:
-        return cast(str, self.get("encoding"))
 
 
 # ============================================================================
@@ -205,7 +199,7 @@ class AudioStreamEvent(TypedEvent):
     """Streaming audio output from the model.
 
     Parameters:
-        audio: Raw audio data as bytes (not base64 encoded).
+        audio: Base64-encoded audio string.
         format: Audio encoding format.
         sample_rate: Number of audio samples per second in Hz.
         channels: Number of audio channels (1=mono, 2=stereo).
@@ -213,7 +207,7 @@ class AudioStreamEvent(TypedEvent):
 
     def __init__(
         self,
-        audio: bytes,
+        audio: str,
         format: Literal["pcm", "wav", "opus", "mp3"],
         sample_rate: Literal[16000, 24000, 48000],
         channels: Literal[1, 2],
@@ -229,8 +223,8 @@ class AudioStreamEvent(TypedEvent):
         )
 
     @property
-    def audio(self) -> bytes:
-        return cast(bytes, self.get("audio"))
+    def audio(self) -> str:
+        return cast(str, self.get("audio"))
 
     @property
     def format(self) -> str:
@@ -436,8 +430,11 @@ class ErrorEvent(TypedEvent):
     Similar to strands.types._events.ForceStopEvent, this event wraps exceptions
     that occur during bidirectional streaming sessions.
 
+    Note: The Exception object is not stored in the event data to maintain JSON
+    serializability. Only the error message, code, and details are stored.
+
     Parameters:
-        error: The exception that occurred.
+        error: The exception that occurred (used to extract message and type).
         code: Optional error code for programmatic handling (defaults to exception class name).
         details: Optional additional error information.
     """
@@ -450,17 +447,12 @@ class ErrorEvent(TypedEvent):
     ):
         super().__init__(
             {
-                "bidirectional_error": True,
-                "error": error,
+                "type": "bidirectional_error",
                 "error_message": str(error),
                 "error_code": code or type(error).__name__,
                 "error_details": details,
             }
         )
-
-    @property
-    def error(self) -> Exception:
-        return cast(Exception, self.get("error"))
 
     @property
     def code(self) -> str:

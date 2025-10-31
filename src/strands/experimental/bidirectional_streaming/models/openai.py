@@ -173,15 +173,21 @@ class OpenAIRealtimeModel(BidirectionalModel):
         """Check if session is active."""
         return self._active
 
-    def _create_text_event(self, text: str, role: str) -> dict[str, any]:
-        """Create standardized text output event."""
-        text_output: TextOutputEvent = {"text": text, "role": role}
-        return {"textOutput": text_output}
+    def _create_text_event(self, text: str, role: str) -> TranscriptStreamEvent:
+        """Create standardized transcript event."""
+        return TranscriptStreamEvent(
+            text=text,
+            source="user" if role == "user" else "assistant",
+            is_final=True
+        )
 
-    def _create_voice_activity_event(self, activity_type: str) -> dict[str, any]:
-        """Create standardized voice activity event."""
-        voice_activity: VoiceActivityEvent = {"activityType": activity_type}
-        return {"voiceActivity": voice_activity}
+    def _create_voice_activity_event(self, activity_type: str) -> InterruptionEvent | None:
+        """Create standardized interruption event for voice activity."""
+        # Only speech_started triggers interruption
+        if activity_type == "speech_started":
+            return InterruptionEvent(reason="user_speech", turn_id=None)
+        # Other voice activity events are logged but don't create events
+        return None
 
     def _build_session_config(self, system_prompt: str | None, tools: list[ToolSpec] | None) -> dict:
         """Build session configuration for OpenAI Realtime API."""
@@ -273,12 +279,13 @@ class OpenAIRealtimeModel(BidirectionalModel):
             logger.debug("OpenAI Realtime response processor stopped")
 
     async def receive(self) -> AsyncIterable[OutputEvent]:
-        """Receive OpenAI events and convert to Strands format."""
-        connection_start: BidirectionalConnectionStartEvent = {
-            "connectionId": self.session_id,
-            "metadata": {"provider": "openai_realtime", "model": self.model},
-        }
-        yield {"BidirectionalConnectionStart": connection_start}
+        """Receive OpenAI events and convert to Strands TypedEvent format."""
+        # Emit session start event
+        yield SessionStartEvent(
+            session_id=self.session_id,
+            model=self.model,
+            capabilities=["audio", "tools"]
+        )
         
         try:
             while self._active:
@@ -292,29 +299,24 @@ class OpenAIRealtimeModel(BidirectionalModel):
                     
         except Exception as e:
             logger.error("Error receiving OpenAI Realtime event: %s", e)
+            yield ErrorEvent(error=e)
         finally:
-            connection_end: BidirectionalConnectionEndEvent = {
-                "connectionId": self.session_id,
-                "reason": "connection_complete",
-                "metadata": {"provider": "openai_realtime"},
-            }
-            yield {"BidirectionalConnectionEnd": connection_end}
+            # Emit session end event
+            yield SessionEndEvent(reason="complete")
 
-    def _convert_openai_event(self, openai_event: dict[str, any]) -> dict[str, any] | None:
-        """Convert OpenAI events to Strands format."""
+    def _convert_openai_event(self, openai_event: dict[str, any]) -> OutputEvent | None:
+        """Convert OpenAI events to Strands TypedEvent format."""
         event_type = openai_event.get("type")
         
         # Audio output
         if event_type == "response.output_audio.delta":
-            audio_data = base64.b64decode(openai_event["delta"])
-            audio_output: AudioOutputEvent = {
-                "audioData": audio_data,
-                "format": "pcm",
-                "sampleRate": 24000,
-                "channels": 1,
-                "encoding": None,
-            }
-            return {"audioOutput": audio_output}
+            # Audio is already base64 string from OpenAI
+            return AudioStreamEvent(
+                audio=openai_event["delta"],
+                format="pcm",
+                sample_rate=24000,
+                channels=1
+            )
         
         # Assistant text output events - combine multiple similar events
         elif event_type in ["response.output_text.delta", "response.output_audio_transcript.delta"]:
@@ -359,7 +361,8 @@ class OpenAIRealtimeModel(BidirectionalModel):
                         "input": json.loads(function_call["arguments"]) if function_call["arguments"] else {},
                     }
                     del self._function_call_buffer[call_id]
-                    return {"toolUse": tool_use}
+                    # Return dict with tool_use for event loop processing
+                    return {"type": "tool_use", "tool_use": tool_use}
                 except (json.JSONDecodeError, KeyError) as e:
                     logger.warning("Error parsing function arguments for %s: %s", call_id, e)
                     del self._function_call_buffer[call_id]
@@ -385,23 +388,14 @@ class OpenAIRealtimeModel(BidirectionalModel):
             
         elif event_type == "conversation.item.done":
             logger.debug("OpenAI conversation item done: %s", openai_event.get("item", {}).get("id"))
-            
+            # This event signals turn completion - emit TurnCompleteEvent
             item = openai_event.get("item", {})
             if item.get("type") == "message" and item.get("role") == "assistant":
-                content_parts = item.get("content", [])
-                if content_parts:
-                    message_content = []
-                    for content_part in content_parts:
-                        if content_part.get("type") == "output_text":
-                            message_content.append({"type": "text", "text": content_part.get("text", "")})
-                        elif content_part.get("type") == "output_audio":
-                            transcript = content_part.get("transcript", "")
-                            if transcript:
-                                message_content.append({"type": "text", "text": transcript})
-                    
-                    if message_content:
-                        message = {"role": "assistant", "content": message_content}
-                        return {"messageStop": {"message": message}}
+                item_id = item.get("id", "unknown")
+                return TurnCompleteEvent(
+                    turn_id=item_id,
+                    stop_reason="complete"
+                )
             return None
         
         # Response output events - combine similar events
@@ -452,6 +446,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
             return
         
         try:
+            # Note: TypedEvent inherits from dict, so isinstance checks for TypedEvent must come first
             if isinstance(content, TextInputEvent):
                 await self._send_text_content(content.text)
             elif isinstance(content, AudioInputEvent):
@@ -464,14 +459,14 @@ class OpenAIRealtimeModel(BidirectionalModel):
                 if tool_result:
                     await self._send_tool_result(tool_result)
             else:
-                logger.warning(f"Unknown content type: {type(content)}")
+                logger.warning(f"Unknown content type: {type(content).__name__}")
         except Exception as e:
             logger.error(f"Error sending content: {e}")
 
     async def _send_audio_content(self, audio_input: AudioInputEvent) -> None:
         """Internal: Send audio content to OpenAI for processing."""
-        audio_base64 = base64.b64encode(audio_input.audio).decode("utf-8")
-        await self._send_event({"type": "input_audio_buffer.append", "audio": audio_base64})
+        # Audio is already base64 encoded in the event
+        await self._send_event({"type": "input_audio_buffer.append", "audio": audio_input.audio})
 
     async def _send_text_content(self, text: str) -> None:
         """Internal: Send text content to OpenAI for processing."""

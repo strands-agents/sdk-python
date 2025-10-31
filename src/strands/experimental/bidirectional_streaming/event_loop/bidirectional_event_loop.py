@@ -223,7 +223,9 @@ async def _handle_interruption(session: BidirectionalConnection) -> None:
         try:
             while True:
                 event = session.agent._output_queue.get_nowait()
-                if event.get("audioOutput"):
+                # Check for audio events
+                event_type = event.get("type", "")
+                if event_type == "bidirectional_audio_stream":
                     audio_cleared += 1
                 else:
                     # Keep non-audio events
@@ -267,8 +269,11 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
             
             strands_event = provider_event
 
-            # Handle interruption detection (provider converts raw patterns to interruptionDetected)
-            if strands_event.get("interruptionDetected"):
+            # Get event type
+            event_type = strands_event.get("type", "")
+            
+            # Handle interruption detection
+            if event_type == "bidirectional_interruption":
                 logger.debug("Interruption forwarded")
                 await _handle_interruption(session)
                 # Forward interruption event to agent for application-level handling
@@ -276,26 +281,23 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
                 continue
 
             # Queue tool requests for concurrent execution
-            if strands_event.get("toolUse"):
-                tool_name = strands_event["toolUse"].get("name")
-                logger.debug("Tool usage detected: %s", tool_name)
-                await session.tool_queue.put(strands_event["toolUse"])
+            if event_type == "tool_use":
+                tool_use = strands_event.get("tool_use")
+                if tool_use:
+                    tool_name = tool_use.get("name")
+                    logger.debug("Tool usage detected: %s", tool_name)
+                    await session.tool_queue.put(tool_use)
                 continue
 
-            # Send output events to Agent for receive() method
-            if strands_event.get("audioOutput") or strands_event.get("textOutput"):
-                await session.agent._output_queue.put(strands_event)
+            # Send all output events to Agent for receive() method
+            await session.agent._output_queue.put(strands_event)
 
-            # Update Agent conversation history using existing patterns
-            if strands_event.get("messageStop"):
-                logger.debug("Message added to history")
-                session.agent.messages.append(strands_event["messageStop"]["message"])
-            
-            # Handle user audio transcripts - add to message history
-            if strands_event.get("textOutput") and strands_event["textOutput"].get("role") == "user":
-                user_transcript = strands_event["textOutput"]["text"]
-                if user_transcript.strip():  # Only add non-empty transcripts
-                    user_message = {"role": "user", "content": user_transcript}
+            # Update Agent conversation history for user transcripts
+            if event_type == "bidirectional_transcript_stream":
+                source = strands_event.get("source")
+                text = strands_event.get("text", "")
+                if source == "user" and text.strip():
+                    user_message = {"role": "user", "content": text}
                     session.agent.messages.append(user_message)
                     logger.debug("User transcript added to history")
 
@@ -434,8 +436,8 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
                 tool_result = tool_event.tool_result
                 tool_use_id = tool_result.get("toolUseId")
                 
-                # Send result through send() method
-                await session.model.send(tool_result)
+                # Send ToolResultEvent through send() method
+                await session.model.send(tool_event)
                 logger.debug("Tool result sent: %s", tool_use_id)
                 
             # Handle streaming events if needed later
@@ -464,14 +466,14 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
     except Exception as e:
         logger.error("Tool execution error: %s - %s", tool_name, str(e))
         
-        # Send error result 
+        # Send error result wrapped in ToolResultEvent
         error_result: ToolResult = {
             "toolUseId": tool_id,
             "status": "error",
             "content": [{"text": f"Error: {str(e)}"}]
         }
         try:
-            await session.model.send(error_result)
+            await session.model.send(ToolResultEvent(error_result))
             logger.debug("Error result sent: %s", tool_id)
         except Exception:
             logger.error("Failed to send error result: %s", tool_id)

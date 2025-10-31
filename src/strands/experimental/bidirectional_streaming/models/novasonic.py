@@ -40,6 +40,7 @@ from ..types.bidirectional_streaming import (
     ImageInputEvent,
     InterruptionEvent,
     MultimodalUsage,
+    OutputEvent,
     SessionEndEvent,
     SessionStartEvent,
     TextInputEvent,
@@ -271,12 +272,12 @@ class NovaSonicModel(BidirectionalModel):
 
         logger.debug("Nova events - starting event stream")
 
-        # Emit connection start event to Strands event system
-        connection_start: BidirectionalConnectionStartEvent = {
-            "connectionId": self.prompt_name,
-            "metadata": {"provider": "nova_sonic", "model_id": self.model_id},
-        }
-        yield {"BidirectionalConnectionStart": connection_start}
+        # Emit session start event
+        yield SessionStartEvent(
+            session_id=self.prompt_name,
+            model=self.model_id,
+            capabilities=["audio", "tools"]
+        )
 
         try:
             while self._active:
@@ -296,14 +297,10 @@ class NovaSonicModel(BidirectionalModel):
         except Exception as e:
             logger.error("Error receiving Nova Sonic event: %s", e)
             logger.error(traceback.format_exc())
+            yield ErrorEvent(error=e)
         finally:
-            # Emit connection end event when exiting
-            connection_end: BidirectionalConnectionEndEvent = {
-                "connectionId": self.prompt_name,
-                "reason": "connection_complete",
-                "metadata": {"provider": "nova_sonic"},
-            }
-            yield {"BidirectionalConnectionEnd": connection_end}
+            # Emit session end event
+            yield SessionEndEvent(reason="complete")
 
     async def send(
         self,
@@ -372,9 +369,7 @@ class NovaSonicModel(BidirectionalModel):
         if self.silence_task and not self.silence_task.done():
             self.silence_task.cancel()
 
-        # Convert audio to Nova Sonic base64 format
-        nova_audio_data = base64.b64encode(audio_input.audio).decode("utf-8")
-
+        # Audio is already base64 encoded in the event
         # Send audio input event
         audio_event = json.dumps(
             {
@@ -382,7 +377,7 @@ class NovaSonicModel(BidirectionalModel):
                     "audioInput": {
                         "promptName": self.prompt_name,
                         "contentName": self.audio_content_name,
-                        "content": nova_audio_data,
+                        "content": audio_input.audio,
                     }
                 }
             }
@@ -513,82 +508,79 @@ class NovaSonicModel(BidirectionalModel):
         finally:
             logger.debug("Nova connection closed")
 
-    def _convert_nova_event(self, nova_event: dict[str, any]) -> dict[str, any] | None:
-        """Convert Nova Sonic events to provider-agnostic format."""
+    def _convert_nova_event(self, nova_event: dict[str, any]) -> OutputEvent | None:
+        """Convert Nova Sonic events to TypedEvent format."""
         # Handle audio output
         if "audioOutput" in nova_event:
+            # Audio is already base64 string from Nova Sonic
             audio_content = nova_event["audioOutput"]["content"]
-            audio_bytes = base64.b64decode(audio_content)
+            return AudioStreamEvent(
+                audio=audio_content,
+                format="pcm",
+                sample_rate=24000,
+                channels=1
+            )
 
-            audio_output: AudioOutputEvent = {
-                "audioData": audio_bytes,
-                "format": "pcm",
-                "sampleRate": 24000,
-                "channels": 1,
-                "encoding": "base64",
-            }
-
-            return {"audioOutput": audio_output}
-
-        # Handle text output
+        # Handle text output (transcripts)
         elif "textOutput" in nova_event:
             text_content = nova_event["textOutput"]["content"]
             # Use stored role from contentStart event, fallback to event role
             role = getattr(self, "_current_role", nova_event["textOutput"].get("role", "assistant"))
 
-            # Check for Nova Sonic interruption pattern (matches working sample)
+            # Check for Nova Sonic interruption pattern
             if '{ "interrupted" : true }' in text_content:
                 logger.debug("Nova interruption detected in text")
-                interruption: InterruptionDetectedEvent = {"reason": "user_input"}
-                return {"interruptionDetected": interruption}
+                return InterruptionEvent(reason="user_speech", turn_id=None)
 
-            # Show transcription for user speech - ALWAYS show these regardless of DEBUG flag
-            if role == "USER":
-                print(f"User: {text_content}")
-            elif role == "ASSISTANT":
-                print(f"Assistant: {text_content}")
-
-            text_output: TextOutputEvent = {"text": text_content, "role": role.lower()}
-
-            return {"textOutput": text_output}
+            return TranscriptStreamEvent(
+                text=text_content,
+                source="user" if role == "USER" else "assistant",
+                is_final=True
+            )
 
         # Handle tool use
         elif "toolUse" in nova_event:
             tool_use = nova_event["toolUse"]
-
             tool_use_event: ToolUse = {
                 "toolUseId": tool_use["toolUseId"],
                 "name": tool_use["toolName"],
                 "input": json.loads(tool_use["content"]),
             }
-
-            return {"toolUse": tool_use_event}
+            # Return dict with tool_use for event loop processing
+            return {"type": "tool_use", "tool_use": tool_use_event}
 
         # Handle interruption
         elif nova_event.get("stopReason") == "INTERRUPTED":
             logger.debug("Nova interruption stop reason")
+            return InterruptionEvent(reason="user_speech", turn_id=None)
 
-            interruption: InterruptionDetectedEvent = {"reason": "user_input"}
-
-            return {"interruptionDetected": interruption}
-
-        # Handle usage events - convert to standardized format
+        # Handle usage events - convert to multimodal usage format
         elif "usageEvent" in nova_event:
             usage_data = nova_event["usageEvent"]
-            usage_metrics: UsageMetricsEvent = {
-                "totalTokens": usage_data.get("totalTokens", 0),
-                "inputTokens": usage_data.get("totalInputTokens", 0),
-                "outputTokens": usage_data.get("totalOutputTokens", 0),
-                "audioTokens": usage_data.get("details", {}).get("total", {}).get("output", {}).get("speechTokens", 0)
-            }
-            return {"usageMetrics": usage_metrics}
+            total_input = usage_data.get("totalInputTokens", 0)
+            total_output = usage_data.get("totalOutputTokens", 0)
+            
+            return MultimodalUsage(
+                input_tokens=total_input,
+                output_tokens=total_output,
+                total_tokens=usage_data.get("totalTokens", total_input + total_output)
+            )
 
         # Handle content start events (track role)
         elif "contentStart" in nova_event:
             role = nova_event["contentStart"].get("role", "unknown")
             # Store role for subsequent text output events
             self._current_role = role
-            return None
+            # Emit turn start event
+            return TurnStartEvent(turn_id=str(uuid.uuid4()))
+
+        # Handle content stop events
+        elif "contentStop" in nova_event:
+            stop_reason = nova_event["contentStop"].get("stopReason", "complete")
+            return TurnCompleteEvent(
+                turn_id=str(uuid.uuid4()),
+                stop_reason="interrupted" if stop_reason == "INTERRUPTED" else "complete"
+            )
 
         # Handle other events
         else:

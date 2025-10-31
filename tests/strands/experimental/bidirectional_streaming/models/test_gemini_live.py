@@ -197,9 +197,11 @@ async def test_send_all_content_types(mock_genai_client, model):
     assert content.role == "user"
     assert content.parts[0].text == "Hello"
     
-    # Test audio input
+    # Test audio input (base64 encoded)
+    import base64
+    audio_b64 = base64.b64encode(b"audio_bytes").decode('utf-8')
     audio_input = AudioInputEvent(
-        audio=b"audio_bytes",
+        audio=audio_b64,
         format="pcm",
         sample_rate=16000,
         channels=1,
@@ -207,11 +209,11 @@ async def test_send_all_content_types(mock_genai_client, model):
     await model.send(audio_input)
     mock_live_session.send_realtime_input.assert_called_once()
     
-    # Test image input
+    # Test image input (base64 encoded, no encoding parameter)
+    image_b64 = base64.b64encode(b"image_bytes").decode('utf-8')
     image_input = ImageInputEvent(
-        image=b"image_bytes",
+        image=image_b64,
         mime_type="image/jpeg",
-        encoding="raw",
     )
     await model.send(image_input)
     mock_live_session.send.assert_called_once()
@@ -303,7 +305,8 @@ async def test_event_conversion(mock_genai_client, model):
     assert text_event.source == "assistant"
     assert text_event.is_final is True
     
-    # Test audio output
+    # Test audio output (now returns base64 encoded string)
+    import base64
     mock_audio = unittest.mock.Mock()
     mock_audio.text = None
     mock_audio.data = b"audio_data"
@@ -312,7 +315,9 @@ async def test_event_conversion(mock_genai_client, model):
     
     audio_event = model._convert_gemini_live_event(mock_audio)
     assert isinstance(audio_event, AudioStreamEvent)
-    assert audio_event.audio == b"audio_data"
+    # Audio is now base64 encoded
+    expected_b64 = base64.b64encode(b"audio_data").decode('utf-8')
+    assert audio_event.audio == expected_b64
     assert audio_event.format == "pcm"
     
     # Test tool call
