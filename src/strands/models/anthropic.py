@@ -42,6 +42,7 @@ class AnthropicModel(Model):
         "input is too long",
         "input length exceeds context window",
         "input and output tokens exceed your context limit",
+        "input length and `max_tokens` exceed context limit,
     }
 
     class AnthropicConfig(TypedDict, total=False):
