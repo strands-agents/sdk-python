@@ -2162,7 +2162,6 @@ def test_agent__call__invalid_tool_name():
     assert agent.messages[-1] == {"content": [{"text": "I invoked a tool!"}], "role": "assistant"}
 
 
-
 @pytest.mark.parametrize(
     "content, expected",
     [
