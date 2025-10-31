@@ -102,7 +102,6 @@ class FunctionToolMetadata:
         """
         self.func = func
         self.signature = inspect.signature(func)
-        # include_extras=True is key for reading Annotated metadata
         self.type_hints = get_type_hints(func, include_extras=True)
         self._context_param = context_param
 
