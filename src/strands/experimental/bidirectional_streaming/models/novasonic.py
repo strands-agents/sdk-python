@@ -78,7 +78,7 @@ EVENT_DELAY = 0.1
 RESPONSE_TIMEOUT = 1.0
 
 
-class NovaSonicBidirectionalModel(BidirectionalModel):
+class NovaSonicModel(BidirectionalModel):
     """Nova Sonic implementation for bidirectional streaming.
 
     Combines model configuration and connection state in a single class.
@@ -111,7 +111,6 @@ class NovaSonicBidirectionalModel(BidirectionalModel):
 
         # Nova Sonic requires unique content names
         self.audio_content_name = None
-        self.text_content_name = None
 
         # Audio connection state
         self.audio_connection_active = False
@@ -154,7 +153,6 @@ class NovaSonicBidirectionalModel(BidirectionalModel):
             self.prompt_name = str(uuid.uuid4())
             self._active = True
             self.audio_content_name = str(uuid.uuid4())
-            self.text_content_name = str(uuid.uuid4())
             self._event_queue = asyncio.Queue()
 
             # Start Nova Sonic bidirectional stream

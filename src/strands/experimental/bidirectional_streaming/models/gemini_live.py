@@ -44,7 +44,7 @@ GEMINI_OUTPUT_SAMPLE_RATE = 24000
 GEMINI_CHANNELS = 1
 
 
-class GeminiLiveBidirectionalModel(BidirectionalModel):
+class GeminiLiveModel(BidirectionalModel):
     """Gemini Live API implementation using official Google GenAI SDK.
     
     Combines model configuration and connection state in a single class.

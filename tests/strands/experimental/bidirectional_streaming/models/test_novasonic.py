@@ -13,7 +13,7 @@ import pytest
 import pytest_asyncio
 
 from strands.experimental.bidirectional_streaming.models.novasonic import (
-    NovaSonicBidirectionalModel,
+    NovaSonicModel,
 )
 from strands.types.tools import ToolResult
 
@@ -53,7 +53,7 @@ def mock_client(mock_stream):
 @pytest_asyncio.fixture
 async def nova_model(model_id, region):
     """Create Nova Sonic model instance."""
-    model = NovaSonicBidirectionalModel(model_id=model_id, region=region)
+    model = NovaSonicModel(model_id=model_id, region=region)
     yield model
     # Cleanup
     if model._active:
@@ -66,7 +66,7 @@ async def nova_model(model_id, region):
 @pytest.mark.asyncio
 async def test_model_initialization(model_id, region):
     """Test model initialization with configuration."""
-    model = NovaSonicBidirectionalModel(model_id=model_id, region=region)
+    model = NovaSonicModel(model_id=model_id, region=region)
 
     assert model.model_id == model_id
     assert model.region == region
@@ -120,7 +120,7 @@ async def test_connection_edge_cases(nova_model, mock_client, mock_stream, model
         await nova_model.close()
 
     # Test close when already closed
-    model2 = NovaSonicBidirectionalModel(model_id=model_id, region=region)
+    model2 = NovaSonicModel(model_id=model_id, region=region)
     await model2.close()  # Should not raise
     await model2.close()  # Second call should also be safe
 

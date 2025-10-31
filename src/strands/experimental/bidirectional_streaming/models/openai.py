@@ -58,7 +58,7 @@ DEFAULT_SESSION_CONFIG = {
 }
 
 
-class OpenAIRealtimeBidirectionalModel(BidirectionalModel):
+class OpenAIRealtimeModel(BidirectionalModel):
     """OpenAI Realtime API implementation for bidirectional streaming.
     
     Combines model configuration and connection state in a single class.

@@ -7,9 +7,9 @@ from .agent.agent import BidirectionalAgent
 from .models.bidirectional_model import BidirectionalModel
 
 # Model providers - What users need to create models
-from .models.gemini_live import GeminiLiveBidirectionalModel
-from .models.novasonic import NovaSonicBidirectionalModel
-from .models.openai import OpenAIRealtimeBidirectionalModel
+from .models.gemini_live import GeminiLiveModel
+from .models.novasonic import NovaSonicModel
+from .models.openai import OpenAIRealtimeModel
 
 # Event types - For type hints and event handling
 from .types.bidirectional_streaming import (
@@ -29,9 +29,9 @@ __all__ = [
     "BidirectionalAgent",
     
     # Model providers
-    "GeminiLiveBidirectionalModel",
-    "NovaSonicBidirectionalModel",
-    "OpenAIRealtimeBidirectionalModel",
+    "GeminiLiveModel",
+    "NovaSonicModel",
+    "OpenAIRealtimeModel",
     
     # Event types
     "AudioInputEvent",
