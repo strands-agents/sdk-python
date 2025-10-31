@@ -431,7 +431,7 @@ class BidirectionalAgent:
             await stop_bidirectional_connection(self._session)
             self._session = None
 
-    async def run(
+    async def __call__(
         self,
         send_callable: Callable[[Any], Any],
         receive_callable: Callable[[], Any],
