@@ -362,7 +362,7 @@ class Agent:
         if hooks:
             for hook in hooks:
                 self.hooks.add_hook(hook)
-        self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
+        self.hooks.invoke_callbacks_sync(AgentInitializedEvent(agent=self))
 
     @property
     def tool(self) -> ToolCaller:
@@ -531,7 +531,7 @@ class Agent:
             category=DeprecationWarning,
             stacklevel=2,
         )
-        self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
+        await self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
         with self.tracer.tracer.start_as_current_span(
             "execute_structured_output", kind=trace_api.SpanKind.CLIENT
         ) as structured_output_span:
@@ -572,7 +572,7 @@ class Agent:
                 return event["output"]
 
             finally:
-                self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
+                await self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
     def cleanup(self) -> None:
         """Clean up resources used by the agent.
@@ -729,7 +729,7 @@ class Agent:
         Yields:
             Events from the event loop cycle.
         """
-        self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
+        await self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
 
         try:
             yield InitEventLoopEvent()
@@ -761,7 +761,7 @@ class Agent:
 
         finally:
             self.conversation_manager.apply_management(self)
-            self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
+            await self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
 
     async def _execute_event_loop_cycle(
         self, invocation_state: dict[str, Any], structured_output_context: StructuredOutputContext | None = None
@@ -968,7 +968,7 @@ class Agent:
     def _append_message(self, message: Message) -> None:
         """Appends a message to the agent's list of messages and invokes the callbacks for the MessageCreatedEvent."""
         self.messages.append(message)
-        self.hooks.invoke_callbacks(MessageAddedEvent(agent=self, message=message))
+        self.hooks.invoke_callbacks_sync(MessageAddedEvent(agent=self, message=message))
 
     def _redact_user_content(self, content: list[ContentBlock], redact_message: str) -> list[ContentBlock]:
         """Redact user content preserving toolResult blocks.

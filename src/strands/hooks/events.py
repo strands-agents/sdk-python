@@ -25,7 +25,13 @@ class AgentInitializedEvent(HookEvent):
     event to perform setup tasks that require a fully initialized agent.
     """
 
-    pass
+    @staticmethod
+    def is_async() -> bool:
+        """False to only support handling under sync callbacks.
+
+        AgentInitializedEvent is emitted in Agent.__init__, which runs synchronously.
+        """
+        return False
 
 
 @dataclass
@@ -85,6 +91,14 @@ class MessageAddedEvent(HookEvent):
     """
 
     message: Message
+
+    @staticmethod
+    def is_async() -> bool:
+        """False to only support handling under sync callbacks.
+
+        MessageAddedEvent may be emitted under direct tool calls, which run synchronously.
+        """
+        return False
 
 
 @dataclass
