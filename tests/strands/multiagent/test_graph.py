@@ -2010,6 +2010,7 @@ async def test_graph_persisted(mock_strands_tracer, mock_use_span):
     persisted_state = {
         "status": "executing",
         "completed_nodes": [],
+        "failed_nodes": [],
         "node_results": {},
         "current_task": "persisted task",
         "execution_order": [],

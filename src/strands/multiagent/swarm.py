@@ -18,7 +18,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Callable, Tuple, cast,Optional
+from typing import Any, AsyncIterator, Callable, Optional, Tuple, cast
 
 from opentelemetry import trace as trace_api
 
@@ -28,6 +28,7 @@ from ..agent.state import AgentState
 from ..experimental.hooks.multiagent import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
+    BeforeNodeCallEvent,
     MultiAgentInitializedEvent,
 )
 from ..hooks import HookProvider, HookRegistry
@@ -210,8 +211,8 @@ class Swarm(MultiAgentBase):
 
     def __init__(
         self,
-        id:_DEFAULT_SWARM_ID,
         nodes: list[Agent],
+        id: str = _DEFAULT_SWARM_ID,
         *,
         entry_point: Agent | None = None,
         max_handoffs: int = 20,
@@ -351,7 +352,6 @@ class Swarm(MultiAgentBase):
             self.state.completion_status = Status.EXECUTING
             self.state.start_time = time.time()
 
-        start_time = time.time()
         span = self.tracer.start_multiagent_span(task, "swarm")
         with trace_api.use_span(span, end_on_exit=True):
             try:
@@ -372,7 +372,7 @@ class Swarm(MultiAgentBase):
                 self.state.completion_status = Status.FAILED
                 raise
             finally:
-                self.state.execution_time = round((time.time() - start_time) * 1000)
+                self.state.execution_time = round((time.time() - self.state.start_time) * 1000)
                 self.hooks.invoke_callbacks(AfterMultiAgentInvocationEvent(self, invocation_state))
                 self._resume_from_session = False
 
@@ -685,6 +685,7 @@ class Swarm(MultiAgentBase):
                 # TODO: Implement cancellation token to stop _execute_node from continuing
                 try:
                     # Execute with timeout wrapper for async generator streaming
+                    self.hooks.invoke_callbacks(BeforeNodeCallEvent(self, current_node.node_id, invocation_state))
                     node_stream = self._stream_with_timeout(
                         self._execute_node(current_node, self.state.task, invocation_state),
                         self.node_timeout,

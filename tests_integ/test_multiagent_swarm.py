@@ -15,9 +15,9 @@ from strands.hooks import (
 )
 from strands.multiagent.base import Status
 from strands.multiagent.swarm import Swarm
+from strands.session.file_session_manager import FileSessionManager
 from strands.types.content import ContentBlock
 from tests.fixtures.mock_hook_provider import MockHookProvider
-from strands.session.file_session_manager import FileSessionManager
 
 
 @tool

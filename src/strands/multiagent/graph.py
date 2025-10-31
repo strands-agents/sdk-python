@@ -29,6 +29,7 @@ from ..agent.state import AgentState
 from ..experimental.hooks.multiagent import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
+    BeforeNodeCallEvent,
     MultiAgentInitializedEvent,
 )
 from ..hooks import HookProvider, HookRegistry
@@ -409,7 +410,6 @@ class Graph(MultiAgentBase):
         reset_on_revisit: bool = False,
         session_manager: Optional[SessionManager] = None,
         hooks: Optional[list[HookProvider]] = None,
-        *,
         id: str = _DEFAULT_GRAPH_ID,
     ) -> None:
         """Initialize Graph with execution limits and reset behavior.
@@ -430,7 +430,6 @@ class Graph(MultiAgentBase):
 
         # Validate nodes for duplicate instances
         self._validate_graph(nodes)
-        self.id = id or _DEFAULT_GRAPH_ID
 
         self.nodes = nodes
         self.edges = edges
@@ -451,6 +450,7 @@ class Graph(MultiAgentBase):
 
         self._resume_next_nodes: list[GraphNode] = []
         self._resume_from_session = False
+        self.id = id
 
         self.hooks.invoke_callbacks(MultiAgentInitializedEvent(self))
 
@@ -773,7 +773,9 @@ class Graph(MultiAgentBase):
 
     async def _execute_node(self, node: GraphNode, invocation_state: dict[str, Any]) -> AsyncIterator[Any]:
         """Execute a single node and yield TypedEvent objects."""
-        # Reset the node's state if reset_on_revisit is enabled and it's being revisited
+        self.hooks.invoke_callbacks(BeforeNodeCallEvent(self, node.node_id, invocation_state))
+
+        # Reset the node's state if reset_on_revisit is enabled, and it's being revisited
         if self.reset_on_revisit and node in self.state.completed_nodes:
             logger.debug("node_id=<%s> | resetting node state for revisit", node.node_id)
             node.reset_executor_state()
@@ -914,6 +916,9 @@ class Graph(MultiAgentBase):
             # Re-raise to stop graph execution (fail-fast behavior)
             raise
 
+        finally:
+            self.hooks.invoke_callbacks(AfterNodeCallEvent(self, node.node_id, invocation_state))
+
     def _accumulate_metrics(self, node_result: NodeResult) -> None:
         """Accumulate metrics from a node result."""
         self.state.accumulated_usage["inputTokens"] += node_result.accumulated_usage.get("inputTokens", 0)
@@ -1001,13 +1006,12 @@ class Graph(MultiAgentBase):
 
     def serialize_state(self) -> dict[str, Any]:
         """Serialize the current graph state to a dictionary."""
-        status_str = self.state.status.value
         compute_nodes = self._compute_ready_nodes_for_resume()
         next_nodes = [n.node_id for n in compute_nodes] if compute_nodes else []
         return {
             "type": "graph",
             "id": self.id,
-            "status": status_str,
+            "status": self.state.status.value,
             "completed_nodes": [n.node_id for n in self.state.completed_nodes],
             "failed_nodes": [n.node_id for n in self.state.failed_nodes],
             "node_results": {k: v.to_dict() for k, v in (self.state.results or {}).items()},
@@ -1020,10 +1024,10 @@ class Graph(MultiAgentBase):
         """Restore graph state from a session dict and prepare for execution.
 
         This method handles two scenarios:
-        1. If the persisted status is COMPLETED, FAILED resets all nodes and graph state
-           to allow re-execution from the beginning.
-        2. Otherwise, restores the persisted state and prepares to resume execution
-           from the next ready nodes.
+        1. If the graph execution ended (no next_nodes_to_execute, eg: Completed, or Failed with dead end nodes),
+        resets all nodes and graph state to allow re-execution from the beginning.
+        2. If the graph execution was interrupted mid-execution (has next_nodes_to_execute),
+           restores the persisted state and prepares to resume execution from the next ready nodes.
 
         Args:
             payload: Dictionary containing persisted state data including status,
@@ -1041,7 +1045,6 @@ class Graph(MultiAgentBase):
             self._from_dict(payload)
             self._resume_from_session = True
 
-    # Helper functions for serialize and deserialize
     def _compute_ready_nodes_for_resume(self) -> list[GraphNode]:
         if self.state.status == Status.PENDING:
             return []
@@ -1073,7 +1076,9 @@ class Graph(MultiAgentBase):
                 raise
         self.state.results = results
 
-        self.state.failed_nodes = set(payload.get("failed_nodes") or [])
+        self.state.failed_nodes = set(
+            self.nodes[node_id] for node_id in (payload.get("failed_nodes") or []) if node_id in self.nodes
+        )
 
         # Restore completed nodes from persisted data
         completed_node_ids = payload.get("completed_nodes") or []
