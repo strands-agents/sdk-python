@@ -12,9 +12,8 @@ Features:
 - Support for audio, text, image, and tool result streaming
 """
 
-import abc
 import logging
-from typing import AsyncIterable, Union
+from typing import AsyncIterable, Protocol, Union
 
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec
@@ -28,15 +27,14 @@ from ..types.bidirectional_streaming import (
 logger = logging.getLogger(__name__)
 
 
-class BidirectionalModel(abc.ABC):
-    """Abstract base class for bidirectional streaming models.
+class BidirectionalModel(Protocol):
+    """Protocol for bidirectional streaming models.
 
     This interface defines the contract for models that support persistent streaming
     connections with real-time audio and text communication. Implementations handle
     provider-specific protocols while exposing a standardized event-based API.
     """
 
-    @abc.abstractmethod
     async def connect(
         self,
         system_prompt: str | None = None,
@@ -56,9 +54,8 @@ class BidirectionalModel(abc.ABC):
             messages: Initial conversation history to provide context.
             **kwargs: Provider-specific configuration options.
         """
-        raise NotImplementedError
+        ...
 
-    @abc.abstractmethod
     async def close(self) -> None:
         """Close the streaming connection and release resources.
 
@@ -66,9 +63,8 @@ class BidirectionalModel(abc.ABC):
         resources such as network connections, buffers, or background tasks. After
         calling close(), the model instance cannot be used until connect() is called again.
         """
-        raise NotImplementedError
+        ...
 
-    @abc.abstractmethod
     async def receive(self) -> AsyncIterable[BidirectionalStreamEvent]:
         """Receive streaming events from the model.
 
@@ -82,9 +78,8 @@ class BidirectionalModel(abc.ABC):
             BidirectionalStreamEvent: Standardized event dictionaries containing
                 audio output, text responses, tool calls, or control signals.
         """
-        raise NotImplementedError
+        ...
 
-    @abc.abstractmethod
     async def send(self, content: Union[TextInputEvent, ImageInputEvent, AudioInputEvent, ToolResult]) -> None:
         """Send content to the model over the active connection.
 
@@ -104,4 +99,4 @@ class BidirectionalModel(abc.ABC):
             await model.send(AudioInputEvent(audioData=bytes, format="pcm", ...))
             await model.send(ToolResult(toolUseId="123", status="success", ...))
         """
-        raise NotImplementedError
+        ...

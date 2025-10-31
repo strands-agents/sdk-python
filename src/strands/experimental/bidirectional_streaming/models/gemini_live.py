@@ -128,6 +128,7 @@ class GeminiLiveBidirectionalModel(BidirectionalModel):
                 await self._send_message_history(messages)
             
         except Exception as e:
+            self._active = False
             logger.error("Error connecting to Gemini Live: %s", e)
             raise
     

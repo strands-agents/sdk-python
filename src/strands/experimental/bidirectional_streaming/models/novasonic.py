@@ -182,6 +182,7 @@ class NovaSonicBidirectionalModel(BidirectionalModel):
             logger.info("Nova Sonic connection established successfully")
 
         except Exception as e:
+            self._active = False
             logger.error("Nova connection create error: %s", str(e))
             raise
 

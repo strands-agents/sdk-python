@@ -160,6 +160,7 @@ class OpenAIRealtimeBidirectionalModel(BidirectionalModel):
             logger.info("OpenAI Realtime connection established")
             
         except Exception as e:
+            self._active = False
             logger.error("OpenAI connection error: %s", e)
             raise
 
