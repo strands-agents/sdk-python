@@ -1,6 +1,7 @@
 """Helpers for tools."""
 
-from strands.tools.decorator import tool
+from ..tools.decorator import tool
+from ..types.content import ContentBlock
 
 
 # https://github.com/strands-agents/sdk-python/issues/998
@@ -13,3 +14,17 @@ def noop_tool() -> None:
     summarization will fail. As a workaround, we register the no-op tool.
     """
     pass
+
+
+def generate_interrupted_tool_result_content(tool_use_ids: list[str]) -> list[ContentBlock]:
+    """Generate ToolResult content blocks for orphaned ToolUse message."""
+    return [
+        {
+            "toolResult": {
+                "toolUseId": tool_use_id,
+                "status": "error",
+                "content": [{"text": "Tool was interrupted."}],
+            }
+        }
+        for tool_use_id in tool_use_ids
+    ]

@@ -2215,3 +2215,125 @@ def test_redact_user_content(content, expected):
     agent = Agent()
     result = agent._redact_user_content(content, "REDACTED")
     assert result == expected
+
+
+def test_agent_fixes_orphaned_tool_use_on_new_prompt(mock_model, agenerator):
+    """Test that agent adds toolResult for orphaned toolUse when called with new prompt."""
+    mock_model.mock_stream.return_value = agenerator(
+        [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockStart": {"start": {"text": ""}}},
+            {"contentBlockDelta": {"delta": {"text": "Fixed!"}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    )
+
+    # Start with orphaned toolUse message
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "orphaned-123", "name": "tool_decorated", "input": {"random_string": "test"}}}
+            ],
+        }
+    ]
+
+    agent = Agent(model=mock_model, messages=messages)
+
+    # Call with new prompt should fix orphaned toolUse
+    agent("Continue conversation")
+
+    # Should have added toolResult message
+    assert len(agent.messages) >= 3
+    assert agent.messages[1]["role"] == "user"
+    assert "toolResult" in agent.messages[1]["content"][0]
+    assert agent.messages[1]["content"][0]["toolResult"]["toolUseId"] == "orphaned-123"
+    assert agent.messages[1]["content"][0]["toolResult"]["status"] == "error"
+    assert agent.messages[1]["content"][0]["toolResult"]["content"][0]["text"] == "Tool was interrupted."
+
+
+def test_agent_fixes_multiple_orphaned_tool_uses(mock_model, agenerator):
+    """Test that agent handles multiple orphaned toolUse messages."""
+    mock_model.mock_stream.return_value = agenerator(
+        [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockStart": {"start": {"text": ""}}},
+            {"contentBlockDelta": {"delta": {"text": "Fixed multiple!"}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    )
+
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "orphaned-123",
+                        "name": "tool_decorated",
+                        "input": {"random_string": "test1"},
+                    }
+                },
+                {
+                    "toolUse": {
+                        "toolUseId": "orphaned-456",
+                        "name": "tool_decorated",
+                        "input": {"random_string": "test2"},
+                    }
+                },
+            ],
+        }
+    ]
+
+    agent = Agent(model=mock_model, messages=messages)
+    agent("Continue")
+
+    # Should have toolResult for both toolUse IDs
+    tool_results = agent.messages[1]["content"]
+    assert len(tool_results) == 2
+    tool_use_ids = {tr["toolResult"]["toolUseId"] for tr in tool_results}
+    assert tool_use_ids == {"orphaned-123", "orphaned-456"}
+
+    for tool_result in tool_results:
+        assert tool_result["toolResult"]["status"] == "error"
+        assert tool_result["toolResult"]["content"][0]["text"] == "Tool was interrupted."
+
+
+def test_agent_skips_fix_for_valid_conversation(mock_model, agenerator):
+    """Test that agent doesn't modify valid toolUse/toolResult pairs."""
+    mock_model.mock_stream.return_value = agenerator(
+        [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockStart": {"start": {"text": ""}}},
+            {"contentBlockDelta": {"delta": {"text": "No fix needed!"}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    )
+
+    # Valid conversation with toolUse followed by toolResult
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "valid-123", "name": "tool_decorated", "input": {"random_string": "test"}}}
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "valid-123", "status": "success", "content": [{"text": "result"}]}}
+            ],
+        },
+    ]
+
+    agent = Agent(model=mock_model, messages=messages)
+    original_length = len(agent.messages)
+
+    agent("Continue")
+
+    # Should not have added any toolResult messages
+    # Only the new user message and assistant response should be added
+    assert len(agent.messages) == original_length + 2
