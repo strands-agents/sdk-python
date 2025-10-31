@@ -139,33 +139,28 @@ class FunctionToolMetadata:
                     description = meta
 
         # Determine Final Description
-        # Priority: 1. Annotated string, 2. FieldInfo description, 3. Docstring
+        # Priority: 1. Annotated string, 2. FieldInfo description, 3. Docstring, 4. Fallback
         final_description = description
 
-        # An empty string is a valid description; only fall back if no description was found in the annotation.
         if final_description is None:
             if field_info and field_info.description:
                 final_description = field_info.description
             else:
                 final_description = self.param_descriptions.get(param_name)
 
-        # Final fallback if no description was found anywhere
         if final_description is None:
             final_description = f"Parameter {param_name}"
 
-        # Create Final FieldInfo
+        # Create Final FieldInfo with proper default handling
         if field_info:
-            # If a Field was in Annotated, use it as the base
             final_field = copy(field_info)
+            final_field.description = final_description
+
+            # Function signature default takes priority
+            if param_default is not ...:
+                final_field.default = param_default
         else:
-            # Otherwise, create a new default Field
-            final_field = Field()
-
-        final_field.description = final_description
-
-        # Override default from function signature if present
-        if param_default is not ...:
-            final_field.default = param_default
+            final_field = Field(default=param_default, description=final_description)
 
         return actual_type, final_field
 
