@@ -379,6 +379,7 @@ async def test_event_loop_cycle_tool_result(
         tool_registry.get_all_tool_specs(),
         "p1",
         tool_choice=None,
+        system_prompt_content=unittest.mock.ANY,
     )
 
 

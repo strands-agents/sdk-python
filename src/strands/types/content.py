@@ -103,11 +103,11 @@ class SystemContentBlock(TypedDict, total=False):
     """Contains configurations for instructions to provide the model for how to handle input.
 
     Attributes:
-        guardContent: A content block to assess with the guardrail.
+        cachePoint: A cache point configuration to optimize conversation history.
         text: A system prompt for the model.
     """
 
-    guardContent: GuardContent
+    cachePoint: CachePoint
     text: str
 
 

@@ -57,7 +57,7 @@ from ..tools.structured_output._structured_output_context import StructuredOutpu
 from ..tools.watcher import ToolWatcher
 from ..types._events import AgentResultEvent, InitEventLoopEvent, ModelStreamChunkEvent, ToolInterruptEvent, TypedEvent
 from ..types.agent import AgentInput
-from ..types.content import ContentBlock, Message, Messages
+from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.interrupt import InterruptResponseContent
 from ..types.tools import ToolResult, ToolUse
@@ -216,7 +216,7 @@ class Agent:
         model: Union[Model, str, None] = None,
         messages: Optional[Messages] = None,
         tools: Optional[list[Union[str, dict[str, str], "ToolProvider", Any]]] = None,
-        system_prompt: Optional[str] = None,
+        system_prompt: Optional[str | list[SystemContentBlock]] = None,
         structured_output_model: Optional[Type[BaseModel]] = None,
         callback_handler: Optional[
             Union[Callable[..., Any], _DefaultCallbackHandlerSentinel]
@@ -253,6 +253,7 @@ class Agent:
 
                 If provided, only these tools will be available. If None, all tools will be available.
             system_prompt: System prompt to guide model behavior.
+                Can be a string or a list of SystemContentBlock objects for advanced features like caching.
                 If None, the model will behave according to its default settings.
             structured_output_model: Pydantic model type(s) for structured output.
                 When specified, all agent calls will attempt to return structured output of this type.
@@ -287,7 +288,8 @@ class Agent:
         """
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
-        self.system_prompt = system_prompt
+        # initializing self.system_prompt for backwards compatibility
+        self.system_prompt, self._system_prompt_content = self._initialize_system_prompt(system_prompt)
         self._default_structured_output_model = structured_output_model
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
         self.name = name or _DEFAULT_AGENT_NAME
@@ -964,6 +966,30 @@ class Agent:
 
         properties = tool_spec["inputSchema"]["json"]["properties"]
         return {k: v for k, v in input_params.items() if k in properties}
+
+    def _initialize_system_prompt(
+        self, system_prompt: str | list[SystemContentBlock] | None
+    ) -> tuple[str | None, list[SystemContentBlock] | None]:
+        """Initialize system prompt fields from constructor input.
+
+        Maintains backwards compatibility by keeping system_prompt as str when string input
+        provided, avoiding breaking existing consumers.
+
+        Maps system_prompt input to both string and content block representations:
+        - If string: system_prompt=string, _system_prompt_content=[{text: string}]
+        - If list with text elements: system_prompt=concatenated_text, _system_prompt_content=list
+        - If list without text elements: system_prompt=None, _system_prompt_content=list
+        - If None: system_prompt=None, _system_prompt_content=None
+        """
+        if isinstance(system_prompt, str):
+            return system_prompt, [{"text": system_prompt}]
+        elif isinstance(system_prompt, list):
+            # Concatenate all text elements for backwards compatibility, None if no text found
+            text_parts = [block["text"] for block in system_prompt if "text" in block]
+            system_prompt_str = "\n".join(text_parts) if text_parts else None
+            return system_prompt_str, system_prompt
+        else:
+            return None, None
 
     def _append_message(self, message: Message) -> None:
         """Appends a message to the agent's list of messages and invokes the callbacks for the MessageCreatedEvent."""
