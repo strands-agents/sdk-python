@@ -197,7 +197,10 @@ def test_agent__call__hooks(agent, hook_provider, agent_tool, mock_model, tool_u
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[3])
 
-    assert next(events) == AfterInvocationEvent(agent=agent)
+    after_invocation_event = next(events)
+    assert isinstance(after_invocation_event, AfterInvocationEvent)
+    assert after_invocation_event.agent == agent
+    assert after_invocation_event.result is not None
 
     assert len(agent.messages) == 4
 
@@ -261,7 +264,10 @@ async def test_agent_stream_async_hooks(agent, hook_provider, agent_tool, mock_m
     )
     assert next(events) == MessageAddedEvent(agent=agent, message=agent.messages[3])
 
-    assert next(events) == AfterInvocationEvent(agent=agent)
+    after_invocation_event = next(events)
+    assert isinstance(after_invocation_event, AfterInvocationEvent)
+    assert after_invocation_event.agent == agent
+    assert after_invocation_event.result is not None
 
     assert len(agent.messages) == 4
 

@@ -621,6 +621,7 @@ class Agent:
         """
         await self.hooks.invoke_callbacks_async(BeforeInvocationEvent(agent=self))
 
+        agent_result: AgentResult | None = None
         try:
             yield InitEventLoopEvent()
 
@@ -648,9 +649,13 @@ class Agent:
                         self._session_manager.redact_latest_message(self.messages[-1], self)
                 yield event
 
+            # Capture the result from the final event if available
+            if hasattr(event, "__getitem__") and "stop" in event:
+                agent_result = AgentResult(*event["stop"])
+
         finally:
             self.conversation_manager.apply_management(self)
-            await self.hooks.invoke_callbacks_async(AfterInvocationEvent(agent=self))
+            await self.hooks.invoke_callbacks_async(AfterInvocationEvent(agent=self, result=agent_result))
 
     async def _execute_event_loop_cycle(
         self, invocation_state: dict[str, Any], structured_output_context: StructuredOutputContext | None = None

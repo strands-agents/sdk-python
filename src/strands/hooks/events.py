@@ -5,9 +5,12 @@ This module defines the events that are emitted as Agents run through the lifecy
 
 import uuid
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from typing_extensions import override
+
+if TYPE_CHECKING:
+    from ..agent.agent_result import AgentResult
 
 from ..types.content import Message
 from ..types.interrupt import _Interruptible
@@ -60,7 +63,14 @@ class AfterInvocationEvent(HookEvent):
       - Agent.__call__
       - Agent.stream_async
       - Agent.structured_output
+
+    Attributes:
+        result: The result of the agent invocation, if available. This will be None
+            when invoked from structured_output methods, as those return typed output
+            directly rather than AgentResult.
     """
+
+    result: Optional["AgentResult"] = None
 
     @property
     def should_reverse_callbacks(self) -> bool:
