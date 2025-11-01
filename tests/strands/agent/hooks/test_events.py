@@ -2,6 +2,7 @@ from unittest.mock import Mock
 
 import pytest
 
+from strands.agent.agent_result import AgentResult
 from strands.hooks import (
     AfterInvocationEvent,
     AfterToolCallEvent,
@@ -10,6 +11,7 @@ from strands.hooks import (
     BeforeToolCallEvent,
     MessageAddedEvent,
 )
+from strands.types.content import Message
 from strands.types.tools import ToolResult, ToolUse
 
 
@@ -138,3 +140,46 @@ def test_after_tool_invocation_event_cannot_write_properties(after_tool_event):
         after_tool_event.invocation_state = {}
     with pytest.raises(AttributeError, match="Property exception is not writable"):
         after_tool_event.exception = Exception("test")
+
+
+def test_after_invocation_event_has_optional_result(agent):
+    """Test that AfterInvocationEvent has optional result field."""
+    # Test with no result (structured_output case)
+    event_without_result = AfterInvocationEvent(agent=agent)
+    assert event_without_result.result is None
+
+    # Test with result (normal invocation case)
+    mock_message: Message = {"role": "assistant", "content": [{"text": "test"}]}
+    mock_result = AgentResult(
+        stop_reason="end_turn",
+        message=mock_message,
+        metrics={},
+        state={},
+    )
+    event_with_result = AfterInvocationEvent(agent=agent, result=mock_result)
+    assert event_with_result.result == mock_result
+    assert event_with_result.result.stop_reason == "end_turn"
+
+
+def test_after_invocation_event_result_not_writable(agent):
+    """Test that result property is not writable after initialization."""
+    mock_message: Message = {"role": "assistant", "content": [{"text": "test"}]}
+    mock_result = AgentResult(
+        stop_reason="end_turn",
+        message=mock_message,
+        metrics={},
+        state={},
+    )
+
+    event = AfterInvocationEvent(agent=agent, result=None)
+
+    with pytest.raises(AttributeError, match="Property result is not writable"):
+        event.result = mock_result
+
+
+def test_after_invocation_event_agent_not_writable(agent):
+    """Test that agent property is not writable."""
+    event = AfterInvocationEvent(agent=agent)
+
+    with pytest.raises(AttributeError, match="Property agent is not writable"):
+        event.agent = Mock()
