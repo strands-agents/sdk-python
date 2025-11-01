@@ -408,7 +408,13 @@ class GeminiModel(Model):
             if not error.message:
                 raise
 
-            message = json.loads(error.message)
+            try:
+                message = json.loads(error.message) if error.message else {}
+            except json.JSONDecodeError as e:
+                logger.warning("error_message=<%s> | Gemini API returned non-JSON error", error.message)
+                # Re-raise the original ClientError (not JSONDecodeError) and make the JSON error the explicit cause
+                raise error from e
+
             match message["error"]["status"]:
                 case "RESOURCE_EXHAUSTED" | "UNAVAILABLE":
                     raise ModelThrottledException(error.message) from error
