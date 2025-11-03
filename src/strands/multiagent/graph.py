@@ -29,6 +29,7 @@ from ..agent.state import AgentState
 from ..experimental.hooks.multiagent import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
+    BeforeMultiAgentInvocationEvent,
     BeforeNodeCallEvent,
     MultiAgentInitializedEvent,
 )
@@ -468,6 +469,7 @@ class Graph(MultiAgentBase):
         if invocation_state is None:
             invocation_state = {}
 
+        self.hooks.invoke_callbacks(BeforeMultiAgentInvocationEvent(self, invocation_state))
         return run_async(lambda: self.invoke_async(task, invocation_state))
 
     async def invoke_async(

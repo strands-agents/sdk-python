@@ -488,13 +488,14 @@ async def test_graph_interrupt_and_resume():
     graph = builder.build()
 
     # Mock agent2 to fail on first execution
-    async def failing_invoke(*args, **kwargs):
+    async def failing_stream_async(*args, **kwargs):
         raise Exception("Simulated failure in agent2")
+        yield  # This line is never reached, but makes it an async generator
 
-    with patch.object(agent2, "invoke_async", side_effect=failing_invoke):
-        # First execution - should fail at agent2
+    with patch.object(agent2, "stream_async", side_effect=failing_stream_async):
         try:
-            await graph.invoke_async("Test task")
+            await graph.invoke_async("This is a test task, just do it shortly")
+            raise AssertionError("Expected exception was not raised")
         except Exception as e:
             assert "Simulated failure in agent2" in str(e)
 
@@ -530,3 +531,57 @@ async def test_graph_interrupt_and_resume():
 
     # Clean up
     session_manager.delete_session(session_id)
+
+
+@pytest.mark.asyncio
+async def test_self_loop_resume_from_persisted_state(tmp_path):
+    """Test resuming self-loop from persisted state where next node is itself."""
+
+    session_id = f"self_loop_resume_{uuid4()}"
+    session_manager = FileSessionManager(session_id=session_id, storage_dir=str(tmp_path))
+
+    counter_agent = Agent(
+        model="us.amazon.nova-pro-v1:0",
+        system_prompt="You are a counter. Just respond with 'Count: 1', 'Count: 2', Stop at 5.",
+    )
+
+    def should_continue_loop(state):
+        loop_executions = len([node for node in state.execution_order if node.node_id == "loop_node"])
+        return loop_executions < 5
+
+    builder = GraphBuilder()
+    builder.add_node(counter_agent, "loop_node")
+    builder.add_edge("loop_node", "loop_node", condition=should_continue_loop)
+    builder.set_entry_point("loop_node")
+    builder.set_session_manager(session_manager)
+    builder.reset_on_revisit(True)
+
+    graph = builder.build()
+
+    call_count = 0
+    original_stream = counter_agent.stream_async
+
+    async def failing_after_two(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 2:
+            async for event in original_stream(*args, **kwargs):
+                yield event
+        else:
+            raise Exception("Simulated failure after two executions")
+
+    with patch.object(counter_agent, "stream_async", side_effect=failing_after_two):
+        try:
+            await graph.invoke_async("Count till 5")
+        except Exception as e:
+            assert "Simulated failure after two executions" in str(e)
+
+    persisted_state = session_manager.read_multi_agent(session_id, graph.id)
+    assert persisted_state["status"] == "failed"
+    assert "loop_node" in persisted_state.get("failed_nodes")
+    assert len(persisted_state.get("execution_order")) == 2
+
+    result = await graph.invoke_async("Continue counting to 5")
+    assert result.status == Status.COMPLETED
+    assert len(result.execution_order) == 5
+    assert all(node.node_id == "loop_node" for node in result.execution_order)

@@ -4,6 +4,7 @@ from strands import Agent
 from strands.experimental.hooks.multiagent.events import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
+    BeforeMultiAgentInvocationEvent,
     BeforeNodeCallEvent,
     MultiAgentInitializedEvent,
 )
@@ -17,6 +18,7 @@ from tests.fixtures.mocked_model_provider import MockedModelProvider
 def hook_provider():
     return MockMultiAgentHookProvider(
         [
+            BeforeMultiAgentInvocationEvent,
             AfterMultiAgentInvocationEvent,
             AfterNodeCallEvent,
             BeforeNodeCallEvent,
@@ -67,7 +69,7 @@ def test_swarm_complete_hook_lifecycle(swarm, hook_provider):
     result = swarm("test task")
 
     length, events = hook_provider.get_events()
-    assert length == 4
+    assert length == 5
     assert result.status.value == "completed"
 
     events_list = list(events)
@@ -76,16 +78,19 @@ def test_swarm_complete_hook_lifecycle(swarm, hook_provider):
     assert isinstance(events_list[0], MultiAgentInitializedEvent)
     assert events_list[0].source == swarm
 
-    assert isinstance(events_list[1], BeforeNodeCallEvent)
+    assert isinstance(events_list[1], BeforeMultiAgentInvocationEvent)
     assert events_list[1].source == swarm
-    assert events_list[1].node_id == "agent1"
 
-    assert isinstance(events_list[2], AfterNodeCallEvent)
+    assert isinstance(events_list[2], BeforeNodeCallEvent)
     assert events_list[2].source == swarm
     assert events_list[2].node_id == "agent1"
 
-    assert isinstance(events_list[3], AfterMultiAgentInvocationEvent)
+    assert isinstance(events_list[3], AfterNodeCallEvent)
     assert events_list[3].source == swarm
+    assert events_list[3].node_id == "agent1"
+
+    assert isinstance(events_list[4], AfterMultiAgentInvocationEvent)
+    assert events_list[4].source == swarm
 
 
 def test_graph_complete_hook_lifecycle(graph, hook_provider):
@@ -93,7 +98,7 @@ def test_graph_complete_hook_lifecycle(graph, hook_provider):
     result = graph("test task")
 
     length, events = hook_provider.get_events()
-    assert length == 6
+    assert length == 7
     assert result.status.value == "completed"
 
     events_list = list(events)
@@ -102,21 +107,24 @@ def test_graph_complete_hook_lifecycle(graph, hook_provider):
     assert isinstance(events_list[0], MultiAgentInitializedEvent)
     assert events_list[0].source == graph
 
-    assert isinstance(events_list[1], BeforeNodeCallEvent)
+    assert isinstance(events_list[1], BeforeMultiAgentInvocationEvent)
     assert events_list[1].source == graph
-    assert events_list[1].node_id == "agent1"
 
-    assert isinstance(events_list[2], AfterNodeCallEvent)
+    assert isinstance(events_list[2], BeforeNodeCallEvent)
     assert events_list[2].source == graph
     assert events_list[2].node_id == "agent1"
 
-    assert isinstance(events_list[3], BeforeNodeCallEvent)
+    assert isinstance(events_list[3], AfterNodeCallEvent)
     assert events_list[3].source == graph
-    assert events_list[3].node_id == "agent2"
+    assert events_list[3].node_id == "agent1"
 
-    assert isinstance(events_list[4], AfterNodeCallEvent)
+    assert isinstance(events_list[4], BeforeNodeCallEvent)
     assert events_list[4].source == graph
     assert events_list[4].node_id == "agent2"
 
-    assert isinstance(events_list[5], AfterMultiAgentInvocationEvent)
+    assert isinstance(events_list[5], AfterNodeCallEvent)
     assert events_list[5].source == graph
+    assert events_list[5].node_id == "agent2"
+
+    assert isinstance(events_list[6], AfterMultiAgentInvocationEvent)
+    assert events_list[6].source == graph
