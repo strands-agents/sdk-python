@@ -26,7 +26,7 @@ class SequentialToolExecutor(ToolExecutor):
         cycle_trace: Trace,
         cycle_span: Any,
         invocation_state: dict[str, Any],
-        structured_output_context: "StructuredOutputContext",
+        structured_output_context: "StructuredOutputContext | None" = None,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute tools sequentially.
 
