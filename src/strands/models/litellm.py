@@ -8,11 +8,14 @@ import logging
 from typing import Any, AsyncGenerator, Optional, Type, TypedDict, TypeVar, Union, cast
 
 import litellm
+from litellm.exceptions import ContextWindowExceededError
 from litellm.utils import supports_response_schema
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
+from ..tools import convert_pydantic_to_tool_spec
 from ..types.content import ContentBlock, Messages
+from ..types.exceptions import ContextWindowOverflowException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
 from ._validation import validate_config_keys
@@ -108,6 +111,26 @@ class LiteLLMModel(OpenAIModel):
 
         return super().format_request_message_content(content)
 
+    def _stream_switch_content(self, data_type: str, prev_data_type: str | None) -> tuple[list[StreamEvent], str]:
+        """Handle switching to a new content stream.
+
+        Args:
+            data_type: The next content data type.
+            prev_data_type: The previous content data type.
+
+        Returns:
+            Tuple containing:
+            - Stop block for previous content and the start block for the next content.
+            - Next content data type.
+        """
+        chunks = []
+        if data_type != prev_data_type:
+            if prev_data_type is not None:
+                chunks.append(self.format_chunk({"chunk_type": "content_stop", "data_type": prev_data_type}))
+            chunks.append(self.format_chunk({"chunk_type": "content_start", "data_type": data_type}))
+
+        return chunks, data_type
+
     @override
     async def stream(
         self,
@@ -135,13 +158,17 @@ class LiteLLMModel(OpenAIModel):
         logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")
-        response = await litellm.acompletion(**self.client_args, **request)
+        try:
+            response = await litellm.acompletion(**self.client_args, **request)
+        except ContextWindowExceededError as e:
+            logger.warning("litellm client raised context window overflow")
+            raise ContextWindowOverflowException(e) from e
 
         logger.debug("got response from model")
         yield self.format_chunk({"chunk_type": "message_start"})
-        yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
         tool_calls: dict[int, list[Any]] = {}
+        data_type: str | None = None
 
         async for event in response:
             # Defensive: skip events with empty or missing choices
@@ -149,27 +176,35 @@ class LiteLLMModel(OpenAIModel):
                 continue
             choice = event.choices[0]
 
-            if choice.delta.content:
-                yield self.format_chunk(
-                    {"chunk_type": "content_delta", "data_type": "text", "data": choice.delta.content}
-                )
-
             if hasattr(choice.delta, "reasoning_content") and choice.delta.reasoning_content:
+                chunks, data_type = self._stream_switch_content("reasoning_content", data_type)
+                for chunk in chunks:
+                    yield chunk
+
                 yield self.format_chunk(
                     {
                         "chunk_type": "content_delta",
-                        "data_type": "reasoning_content",
+                        "data_type": data_type,
                         "data": choice.delta.reasoning_content,
                     }
+                )
+
+            if choice.delta.content:
+                chunks, data_type = self._stream_switch_content("text", data_type)
+                for chunk in chunks:
+                    yield chunk
+
+                yield self.format_chunk(
+                    {"chunk_type": "content_delta", "data_type": data_type, "data": choice.delta.content}
                 )
 
             for tool_call in choice.delta.tool_calls or []:
                 tool_calls.setdefault(tool_call.index, []).append(tool_call)
 
             if choice.finish_reason:
+                if data_type:
+                    yield self.format_chunk({"chunk_type": "content_stop", "data_type": data_type})
                 break
-
-        yield self.format_chunk({"chunk_type": "content_stop", "data_type": "text"})
 
         for tool_deltas in tool_calls.values():
             yield self.format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": tool_deltas[0]})
@@ -196,6 +231,10 @@ class LiteLLMModel(OpenAIModel):
     ) -> AsyncGenerator[dict[str, Union[T, Any]], None]:
         """Get structured output from the model.
 
+        Some models do not support native structured output via response_format.
+        In cases of proxies, we may not have a way to determine support, so we
+        fallback to using tool calling to achieve structured output.
+
         Args:
             output_model: The output model to use for the agent.
             prompt: The prompt messages to use for the agent.
@@ -205,9 +244,19 @@ class LiteLLMModel(OpenAIModel):
         Yields:
             Model events with the last being the structured output.
         """
-        if not supports_response_schema(self.get_config()["model_id"]):
-            raise ValueError("Model does not support response_format")
+        if supports_response_schema(self.get_config()["model_id"]):
+            logger.debug("structuring output using response schema")
+            result = await self._structured_output_using_response_schema(output_model, prompt, system_prompt)
+        else:
+            logger.debug("model does not support response schema, structuring output using tool approach")
+            result = await self._structured_output_using_tool(output_model, prompt, system_prompt)
 
+        yield {"output": result}
+
+    async def _structured_output_using_response_schema(
+        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None
+    ) -> T:
+        """Get structured output using native response_format support."""
         response = await litellm.acompletion(
             **self.client_args,
             model=self.get_config()["model_id"],
@@ -217,21 +266,47 @@ class LiteLLMModel(OpenAIModel):
 
         if len(response.choices) > 1:
             raise ValueError("Multiple choices found in the response.")
+        if not response.choices:
+            raise ValueError("No choices found in response")
 
-        # Find the first choice with tool_calls
-        for choice in response.choices:
-            if choice.finish_reason == "tool_calls":
-                try:
-                    # Parse the tool call content as JSON
-                    tool_call_data = json.loads(choice.message.content)
-                    # Instantiate the output model with the parsed data
-                    yield {"output": output_model(**tool_call_data)}
-                    return
-                except (json.JSONDecodeError, TypeError, ValueError) as e:
-                    raise ValueError(f"Failed to parse or load content into model: {e}") from e
+        choice = response.choices[0]
+        try:
+            # Parse the message content as JSON
+            tool_call_data = json.loads(choice.message.content)
+            # Instantiate the output model with the parsed data
+            return output_model(**tool_call_data)
+        except ContextWindowExceededError as e:
+            logger.warning("litellm client raised context window overflow in structured_output")
+            raise ContextWindowOverflowException(e) from e
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            raise ValueError(f"Failed to parse or load content into model: {e}") from e
 
-        # If no tool_calls found, raise an error
-        raise ValueError("No tool_calls found in response")
+    async def _structured_output_using_tool(
+        self, output_model: Type[T], prompt: Messages, system_prompt: Optional[str] = None
+    ) -> T:
+        """Get structured output using tool calling fallback."""
+        tool_spec = convert_pydantic_to_tool_spec(output_model)
+        request = self.format_request(prompt, [tool_spec], system_prompt, cast(ToolChoice, {"any": {}}))
+        args = {**self.client_args, **request, "stream": False}
+        response = await litellm.acompletion(**args)
+
+        if len(response.choices) > 1:
+            raise ValueError("Multiple choices found in the response.")
+        if not response.choices or response.choices[0].finish_reason != "tool_calls":
+            raise ValueError("No tool_calls found in response")
+
+        choice = response.choices[0]
+        try:
+            # Parse the tool call content as JSON
+            tool_call = choice.message.tool_calls[0]
+            tool_call_data = json.loads(tool_call.function.arguments)
+            # Instantiate the output model with the parsed data
+            return output_model(**tool_call_data)
+        except ContextWindowExceededError as e:
+            logger.warning("litellm client raised context window overflow in structured_output")
+            raise ContextWindowOverflowException(e) from e
+        except (json.JSONDecodeError, TypeError, ValueError) as e:
+            raise ValueError(f"Failed to parse or load content into model: {e}") from e
 
     def _apply_proxy_prefix(self) -> None:
         """Apply litellm_proxy/ prefix to model_id when use_litellm_proxy is True.

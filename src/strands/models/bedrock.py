@@ -8,7 +8,7 @@ import json
 import logging
 import os
 import warnings
-from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, Callable, Iterable, Literal, Optional, Type, TypeVar, Union, ValuesView, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -16,8 +16,10 @@ from botocore.exceptions import ClientError
 from pydantic import BaseModel
 from typing_extensions import TypedDict, Unpack, override
 
+from .._exception_notes import add_exception_note
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
+from ..tools._tool_helpers import noop_tool
 from ..types.content import ContentBlock, Messages
 from ..types.exceptions import (
     ContextWindowOverflowException,
@@ -203,6 +205,12 @@ class BedrockModel(Model):
         Returns:
             A Bedrock converse stream request.
         """
+        if not tool_specs:
+            has_tool_content = any(
+                any("toolUse" in block or "toolResult" in block for block in msg.get("content", [])) for msg in messages
+            )
+            if has_tool_content:
+                tool_specs = [noop_tool.tool_spec]
         return {
             "modelId": self.config["model_id"],
             "messages": self._format_bedrock_messages(messages),
@@ -707,7 +715,10 @@ class BedrockModel(Model):
         except ClientError as e:
             error_message = str(e)
 
-            if e.response["Error"]["Code"] == "ThrottlingException":
+            if (
+                e.response["Error"]["Code"] == "ThrottlingException"
+                or e.response["Error"]["Code"] == "throttlingException"
+            ):
                 raise ModelThrottledException(error_message) from e
 
             if any(overflow_message in error_message for overflow_message in BEDROCK_CONTEXT_WINDOW_OVERFLOW_MESSAGES):
@@ -716,29 +727,29 @@ class BedrockModel(Model):
 
             region = self.client.meta.region_name
 
-            # add_note added in Python 3.11
-            if hasattr(e, "add_note"):
-                # Aid in debugging by adding more information
-                e.add_note(f"└ Bedrock region: {region}")
-                e.add_note(f"└ Model id: {self.config.get('model_id')}")
+            # Aid in debugging by adding more information
+            add_exception_note(e, f"└ Bedrock region: {region}")
+            add_exception_note(e, f"└ Model id: {self.config.get('model_id')}")
 
-                if (
-                    e.response["Error"]["Code"] == "AccessDeniedException"
-                    and "You don't have access to the model" in error_message
-                ):
-                    e.add_note(
-                        "└ For more information see "
-                        "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue"
-                    )
+            if (
+                e.response["Error"]["Code"] == "AccessDeniedException"
+                and "You don't have access to the model" in error_message
+            ):
+                add_exception_note(
+                    e,
+                    "└ For more information see "
+                    "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#model-access-issue",
+                )
 
-                if (
-                    e.response["Error"]["Code"] == "ValidationException"
-                    and "with on-demand throughput isn’t supported" in error_message
-                ):
-                    e.add_note(
-                        "└ For more information see "
-                        "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported"
-                    )
+            if (
+                e.response["Error"]["Code"] == "ValidationException"
+                and "with on-demand throughput isn’t supported" in error_message
+            ):
+                add_exception_note(
+                    e,
+                    "└ For more information see "
+                    "https://strandsagents.com/latest/user-guide/concepts/model-providers/amazon-bedrock/#on-demand-throughput-isnt-supported",
+                )
 
             raise e
 
@@ -867,18 +878,12 @@ class BedrockModel(Model):
             if input.get("action") == "BLOCKED" and input.get("detected") and isinstance(input.get("detected"), bool):
                 return True
 
-            # Recursively check all values in the dictionary
-            for value in input.values():
-                if isinstance(value, dict):
-                    return self._find_detected_and_blocked_policy(value)
-                # Handle case where value is a list of dictionaries
-                elif isinstance(value, list):
-                    for item in value:
-                        return self._find_detected_and_blocked_policy(item)
-        elif isinstance(input, list):
-            # Handle case where input is a list of dictionaries
-            for item in input:
-                return self._find_detected_and_blocked_policy(item)
+            # Otherwise, recursively check all values in the dictionary
+            return self._find_detected_and_blocked_policy(input.values())
+
+        elif isinstance(input, (list, ValuesView)):
+            # Handle case where input is a list or dict_values
+            return any(self._find_detected_and_blocked_policy(item) for item in input)
         # Otherwise return False
         return False
 

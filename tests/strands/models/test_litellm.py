@@ -3,9 +3,11 @@ from unittest.mock import call
 
 import pydantic
 import pytest
+from litellm.exceptions import ContextWindowExceededError
 
 import strands
 from strands.models.litellm import LiteLLMModel
+from strands.types.exceptions import ContextWindowOverflowException
 
 
 @pytest.fixture
@@ -140,39 +142,71 @@ def test_format_request_message_content(content, exp_result):
 
 @pytest.mark.asyncio
 async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator, alist):
-    mock_tool_call_1_part_1 = unittest.mock.Mock(index=0)
-    mock_tool_call_2_part_1 = unittest.mock.Mock(index=1)
     mock_delta_1 = unittest.mock.Mock(
         reasoning_content="",
         content=None,
         tool_calls=None,
     )
+
     mock_delta_2 = unittest.mock.Mock(
         reasoning_content="\nI'm thinking",
         content=None,
         tool_calls=None,
     )
     mock_delta_3 = unittest.mock.Mock(
+        reasoning_content=None,
+        content="One second",
+        tool_calls=None,
+    )
+    mock_delta_4 = unittest.mock.Mock(
+        reasoning_content="\nI'm think",
+        content=None,
+        tool_calls=None,
+    )
+    mock_delta_5 = unittest.mock.Mock(
+        reasoning_content="ing again",
+        content=None,
+        tool_calls=None,
+    )
+
+    mock_tool_call_1_part_1 = unittest.mock.Mock(index=0)
+    mock_tool_call_2_part_1 = unittest.mock.Mock(index=1)
+    mock_delta_6 = unittest.mock.Mock(
         content="I'll calculate", tool_calls=[mock_tool_call_1_part_1, mock_tool_call_2_part_1], reasoning_content=None
     )
 
     mock_tool_call_1_part_2 = unittest.mock.Mock(index=0)
     mock_tool_call_2_part_2 = unittest.mock.Mock(index=1)
-    mock_delta_4 = unittest.mock.Mock(
+    mock_delta_7 = unittest.mock.Mock(
         content="that for you", tool_calls=[mock_tool_call_1_part_2, mock_tool_call_2_part_2], reasoning_content=None
     )
 
-    mock_delta_5 = unittest.mock.Mock(content="", tool_calls=None, reasoning_content=None)
+    mock_delta_8 = unittest.mock.Mock(content="", tool_calls=None, reasoning_content=None)
 
     mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_1)])
     mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_2)])
     mock_event_3 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_3)])
     mock_event_4 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_4)])
-    mock_event_5 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="tool_calls", delta=mock_delta_5)])
-    mock_event_6 = unittest.mock.Mock()
+    mock_event_5 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_5)])
+    mock_event_6 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_6)])
+    mock_event_7 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_7)])
+    mock_event_8 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="tool_calls", delta=mock_delta_8)])
+    mock_event_9 = unittest.mock.Mock()
 
     litellm_acompletion.side_effect = unittest.mock.AsyncMock(
-        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5, mock_event_6])
+        return_value=agenerator(
+            [
+                mock_event_1,
+                mock_event_2,
+                mock_event_3,
+                mock_event_4,
+                mock_event_5,
+                mock_event_6,
+                mock_event_7,
+                mock_event_8,
+                mock_event_9,
+            ]
+        )
     )
 
     messages = [{"role": "user", "content": [{"type": "text", "text": "calculate 2+2"}]}]
@@ -182,6 +216,15 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
         {"messageStart": {"role": "assistant"}},
         {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "\nI'm thinking"}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "One second"}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "\nI'm think"}}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "ing again"}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"text": "I'll calculate"}}},
         {"contentBlockDelta": {"delta": {"text": "that for you"}}},
         {"contentBlockStop": {}},
@@ -209,9 +252,9 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
         {
             "metadata": {
                 "usage": {
-                    "inputTokens": mock_event_6.usage.prompt_tokens,
-                    "outputTokens": mock_event_6.usage.completion_tokens,
-                    "totalTokens": mock_event_6.usage.total_tokens,
+                    "inputTokens": mock_event_9.usage.prompt_tokens,
+                    "outputTokens": mock_event_9.usage.completion_tokens,
+                    "totalTokens": mock_event_9.usage.total_tokens,
                 },
                 "metrics": {"latencyMs": 0},
             }
@@ -251,8 +294,6 @@ async def test_stream_empty(litellm_acompletion, api_key, model_id, model, agene
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
-        {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn"}},
     ]
 
@@ -275,6 +316,13 @@ async def test_structured_output(litellm_acompletion, model, test_output_model_c
     mock_choice = unittest.mock.Mock()
     mock_choice.finish_reason = "tool_calls"
     mock_choice.message.content = '{"name": "John", "age": 30}'
+    # PATCH START: mock tool_calls as list with .function.arguments
+    tool_call_mock = unittest.mock.Mock()
+    tool_call_function_mock = unittest.mock.Mock()
+    tool_call_function_mock.arguments = '{"name": "John", "age": 30}'
+    tool_call_mock.function = tool_call_function_mock
+    mock_choice.message.tool_calls = [tool_call_mock]
+    # PATCH END
     mock_response = unittest.mock.Mock()
     mock_response.choices = [mock_choice]
 
@@ -290,15 +338,27 @@ async def test_structured_output(litellm_acompletion, model, test_output_model_c
 
 
 @pytest.mark.asyncio
-async def test_structured_output_unsupported_model(litellm_acompletion, model, test_output_model_cls):
+async def test_structured_output_unsupported_model(litellm_acompletion, model, test_output_model_cls, alist):
     messages = [{"role": "user", "content": [{"text": "Generate a person"}]}]
 
-    with unittest.mock.patch.object(strands.models.litellm, "supports_response_schema", return_value=False):
-        with pytest.raises(ValueError, match="Model does not support response_format"):
-            stream = model.structured_output(test_output_model_cls, messages)
-            await stream.__anext__()
+    mock_tool_call = unittest.mock.Mock()
+    mock_tool_call.function.arguments = '{"name": "John", "age": 30}'
 
-    litellm_acompletion.assert_not_called()
+    mock_choice = unittest.mock.Mock()
+    mock_choice.finish_reason = "tool_calls"
+    mock_choice.message.tool_calls = [mock_tool_call]
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+
+    litellm_acompletion.return_value = mock_response
+
+    with unittest.mock.patch.object(strands.models.litellm, "supports_response_schema", return_value=False):
+        stream = model.structured_output(test_output_model_cls, messages)
+        events = await alist(stream)
+        tru_result = events[-1]
+
+    exp_result = {"output": test_output_model_cls(name="John", age=30)}
+    assert tru_result == exp_result
 
 
 def test_config_validation_warns_on_unknown_keys(litellm_acompletion, captured_warnings):
@@ -332,3 +392,13 @@ def test_tool_choice_none_no_warning(model, messages, captured_warnings):
     model.format_request(messages, tool_choice=None)
 
     assert len(captured_warnings) == 0
+
+
+@pytest.mark.asyncio
+async def test_context_window_maps_to_typed_exception(litellm_acompletion, model):
+    """Test that a typed ContextWindowExceededError is mapped correctly."""
+    litellm_acompletion.side_effect = ContextWindowExceededError(message="test error", model="x", llm_provider="y")
+
+    with pytest.raises(ContextWindowOverflowException):
+        async for _ in model.stream([{"role": "user", "content": [{"text": "x"}]}]):
+            pass

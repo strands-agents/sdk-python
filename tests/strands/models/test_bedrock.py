@@ -1,5 +1,6 @@
 import os
 import sys
+import traceback
 import unittest.mock
 from unittest.mock import ANY
 
@@ -10,6 +11,7 @@ from botocore.config import Config as BotocoreConfig
 from botocore.exceptions import ClientError, EventStreamError
 
 import strands
+from strands import _exception_notes
 from strands.models import BedrockModel
 from strands.models.bedrock import (
     _DEFAULT_BEDROCK_MODEL_ID,
@@ -534,6 +536,40 @@ async def test_stream_throttling_exception_from_general_exception(bedrock_client
 
 
 @pytest.mark.asyncio
+async def test_stream_throttling_exception_lowercase(bedrock_client, model, messages, alist):
+    """Test that lowercase throttlingException is converted to ModelThrottledException."""
+    error_message = "throttlingException: Rate exceeded for ConverseStream"
+    bedrock_client.converse_stream.side_effect = ClientError(
+        {"Error": {"Message": error_message, "Code": "throttlingException"}}, "Any"
+    )
+
+    with pytest.raises(ModelThrottledException) as excinfo:
+        await alist(model.stream(messages))
+
+    assert error_message in str(excinfo.value)
+    bedrock_client.converse_stream.assert_called_once_with(
+        modelId="m1", messages=messages, system=[], inferenceConfig={}
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_throttling_exception_lowercase_non_streaming(bedrock_client, messages, alist):
+    """Test that lowercase throttlingException is converted to ModelThrottledException in non-streaming mode."""
+    error_message = "throttlingException: Rate exceeded for Converse"
+    bedrock_client.converse.side_effect = ClientError(
+        {"Error": {"Message": error_message, "Code": "throttlingException"}}, "Any"
+    )
+
+    model = BedrockModel(model_id="test-model", streaming=False)
+    with pytest.raises(ModelThrottledException) as excinfo:
+        await alist(model.stream(messages))
+
+    assert error_message in str(excinfo.value)
+    bedrock_client.converse.assert_called_once()
+    bedrock_client.converse_stream.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_general_exception_is_raised(bedrock_client, model, messages, alist):
     error_message = "Should be raised up"
     bedrock_client.converse_stream.side_effect = ValueError(error_message)
@@ -592,6 +628,99 @@ async def test_stream_stream_input_guardrails(
                                         "action": "BLOCKED",
                                         "detected": True,
                                     }
+                                ]
+                            }
+                        }
+                    }
+                }
+            },
+        }
+    }
+    bedrock_client.converse_stream.return_value = {"stream": [metadata_event]}
+
+    request = {
+        "additionalModelRequestFields": additional_request_fields,
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": [],
+        "toolConfig": {
+            "tools": [{"toolSpec": tool_spec}],
+            "toolChoice": {"auto": {}},
+        },
+    }
+
+    model.update_config(additional_request_fields=additional_request_fields)
+    response = model.stream(messages, [tool_spec])
+
+    tru_chunks = await alist(response)
+    exp_chunks = [
+        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
+        metadata_event,
+    ]
+
+    assert tru_chunks == exp_chunks
+    bedrock_client.converse_stream.assert_called_once_with(**request)
+
+
+@pytest.mark.asyncio
+async def test_stream_stream_input_guardrails_full_trace(
+    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
+):
+    """Test guardrails are correctly detected also with guardrail_trace="enabled_full".
+    In that case bedrock returns all filters, including those not detected/blocked."""
+    metadata_event = {
+        "metadata": {
+            "usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+            "metrics": {"latencyMs": 245},
+            "trace": {
+                "guardrail": {
+                    "inputAssessment": {
+                        "jrv9qlue4hag": {
+                            "contentPolicy": {
+                                "filters": [
+                                    {
+                                        "action": "NONE",
+                                        "confidence": "NONE",
+                                        "detected": False,
+                                        "filterStrength": "HIGH",
+                                        "type": "SEXUAL",
+                                    },
+                                    {
+                                        "action": "BLOCKED",
+                                        "confidence": "LOW",
+                                        "detected": True,
+                                        "filterStrength": "HIGH",
+                                        "type": "VIOLENCE",
+                                    },
+                                    {
+                                        "action": "NONE",
+                                        "confidence": "NONE",
+                                        "detected": False,
+                                        "filterStrength": "HIGH",
+                                        "type": "HATE",
+                                    },
+                                    {
+                                        "action": "NONE",
+                                        "confidence": "NONE",
+                                        "detected": False,
+                                        "filterStrength": "HIGH",
+                                        "type": "INSULTS",
+                                    },
+                                    {
+                                        "action": "NONE",
+                                        "confidence": "NONE",
+                                        "detected": False,
+                                        "filterStrength": "HIGH",
+                                        "type": "PROMPT_ATTACK",
+                                    },
+                                    {
+                                        "action": "NONE",
+                                        "confidence": "NONE",
+                                        "detected": False,
+                                        "filterStrength": "HIGH",
+                                        "type": "MISCONDUCT",
+                                    },
                                 ]
                             }
                         }
@@ -1207,6 +1336,23 @@ async def test_add_note_on_client_error(bedrock_client, model, alist, messages):
         await alist(model.stream(messages))
 
     assert err.value.__notes__ == ["└ Bedrock region: us-west-2", "└ Model id: m1"]
+
+
+@pytest.mark.asyncio
+async def test_add_note_on_client_error_without_add_notes(bedrock_client, model, alist, messages):
+    """Test that when add_note is not used, the region & model are still included in the error output."""
+    with unittest.mock.patch.object(_exception_notes, "supports_add_note", False):
+        # Mock the client error response
+        error_response = {"Error": {"Code": "ValidationException", "Message": "Some error message"}}
+        bedrock_client.converse_stream.side_effect = ClientError(error_response, "ConversationStream")
+
+        # Call the stream method which should catch and add notes to the exception
+        with pytest.raises(ClientError) as err:
+            await alist(model.stream(messages))
+
+    error_str = "".join(traceback.format_exception(err.value))
+    assert "└ Bedrock region: us-west-2" in error_str
+    assert "└ Model id: m1" in error_str
 
 
 @pytest.mark.asyncio

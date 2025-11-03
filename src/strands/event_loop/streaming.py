@@ -2,9 +2,13 @@
 
 import json
 import logging
+import time
+import warnings
 from typing import Any, AsyncGenerator, AsyncIterable, Optional
 
 from ..models.model import Model
+from ..tools import InvalidToolUseNameException
+from ..tools.tools import validate_tool_use_name
 from ..types._events import (
     CitationStreamEvent,
     ModelStopReason,
@@ -37,7 +41,7 @@ from ..types.tools import ToolSpec, ToolUse
 logger = logging.getLogger(__name__)
 
 
-def remove_blank_messages_content_text(messages: Messages) -> Messages:
+def _normalize_messages(messages: Messages) -> Messages:
     """Remove or replace blank text in message content.
 
     Args:
@@ -46,6 +50,75 @@ def remove_blank_messages_content_text(messages: Messages) -> Messages:
     Returns:
         Updated messages.
     """
+    removed_blank_message_content_text = False
+    replaced_blank_message_content_text = False
+    replaced_tool_names = False
+
+    for message in messages:
+        # only modify assistant messages
+        if "role" in message and message["role"] != "assistant":
+            continue
+        if "content" in message:
+            content = message["content"]
+            if len(content) == 0:
+                content.append({"text": "[blank text]"})
+                continue
+
+            has_tool_use = False
+
+            # Ensure the tool-uses always have valid names before sending
+            # https://github.com/strands-agents/sdk-python/issues/1069
+            for item in content:
+                if "toolUse" in item:
+                    has_tool_use = True
+                    tool_use: ToolUse = item["toolUse"]
+
+                    try:
+                        validate_tool_use_name(tool_use)
+                    except InvalidToolUseNameException:
+                        tool_use["name"] = "INVALID_TOOL_NAME"
+                        replaced_tool_names = True
+
+            if has_tool_use:
+                # Remove blank 'text' items for assistant messages
+                before_len = len(content)
+                content[:] = [item for item in content if "text" not in item or item["text"].strip()]
+                if not removed_blank_message_content_text and before_len != len(content):
+                    removed_blank_message_content_text = True
+            else:
+                # Replace blank 'text' with '[blank text]' for assistant messages
+                for item in content:
+                    if "text" in item and not item["text"].strip():
+                        replaced_blank_message_content_text = True
+                        item["text"] = "[blank text]"
+
+    if removed_blank_message_content_text:
+        logger.debug("removed blank message context text")
+    if replaced_blank_message_content_text:
+        logger.debug("replaced blank message context text")
+    if replaced_tool_names:
+        logger.debug("replaced invalid tool name")
+
+    return messages
+
+
+def remove_blank_messages_content_text(messages: Messages) -> Messages:
+    """Remove or replace blank text in message content.
+
+    !!deprecated!!
+        This function is deprecated and will be removed in a future version.
+
+    Args:
+        messages: Conversation messages to update.
+
+    Returns:
+        Updated messages.
+    """
+    warnings.warn(
+        "remove_blank_messages_content_text is deprecated and will be removed in a future version.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     removed_blank_message_content_text = False
     replaced_blank_message_content_text = False
 
@@ -267,31 +340,38 @@ def handle_redact_content(event: RedactContentEvent, state: dict[str, Any]) -> N
         state["message"]["content"] = [{"text": event["redactAssistantContentMessage"]}]
 
 
-def extract_usage_metrics(event: MetadataEvent) -> tuple[Usage, Metrics]:
+def extract_usage_metrics(event: MetadataEvent, time_to_first_byte_ms: int | None = None) -> tuple[Usage, Metrics]:
     """Extracts usage metrics from the metadata chunk.
 
     Args:
         event: metadata.
+        time_to_first_byte_ms: time to get the first byte from the model in milliseconds
 
     Returns:
         The extracted usage metrics and latency.
     """
     usage = Usage(**event["usage"])
     metrics = Metrics(**event["metrics"])
+    if time_to_first_byte_ms:
+        metrics["timeToFirstByteMs"] = time_to_first_byte_ms
 
     return usage, metrics
 
 
-async def process_stream(chunks: AsyncIterable[StreamEvent]) -> AsyncGenerator[TypedEvent, None]:
+async def process_stream(
+    chunks: AsyncIterable[StreamEvent], start_time: float | None = None
+) -> AsyncGenerator[TypedEvent, None]:
     """Processes the response stream from the API, constructing the final message and extracting usage metrics.
 
     Args:
         chunks: The chunks of the response stream from the model.
+        start_time: Time when the model request is initiated
 
     Yields:
         The reason for stopping, the constructed message, and the usage metrics.
     """
     stop_reason: StopReason = "end_turn"
+    first_byte_time = None
 
     state: dict[str, Any] = {
         "message": {"role": "assistant", "content": []},
@@ -303,10 +383,14 @@ async def process_stream(chunks: AsyncIterable[StreamEvent]) -> AsyncGenerator[T
     state["content"] = state["message"]["content"]
 
     usage: Usage = Usage(inputTokens=0, outputTokens=0, totalTokens=0)
-    metrics: Metrics = Metrics(latencyMs=0)
+    metrics: Metrics = Metrics(latencyMs=0, timeToFirstByteMs=0)
 
     async for chunk in chunks:
+        # Track first byte time when we get first content
+        if first_byte_time is None and ("contentBlockDelta" in chunk or "contentBlockStart" in chunk):
+            first_byte_time = time.time()
         yield ModelStreamChunkEvent(chunk=chunk)
+
         if "messageStart" in chunk:
             state["message"] = handle_message_start(chunk["messageStart"], state["message"])
         elif "contentBlockStart" in chunk:
@@ -319,7 +403,10 @@ async def process_stream(chunks: AsyncIterable[StreamEvent]) -> AsyncGenerator[T
         elif "messageStop" in chunk:
             stop_reason = handle_message_stop(chunk["messageStop"])
         elif "metadata" in chunk:
-            usage, metrics = extract_usage_metrics(chunk["metadata"])
+            time_to_first_byte_ms = (
+                int(1000 * (first_byte_time - start_time)) if (start_time and first_byte_time) else None
+            )
+            usage, metrics = extract_usage_metrics(chunk["metadata"], time_to_first_byte_ms)
         elif "redactContent" in chunk:
             handle_redact_content(chunk["redactContent"], state)
 
@@ -331,6 +418,7 @@ async def stream_messages(
     system_prompt: Optional[str],
     messages: Messages,
     tool_specs: list[ToolSpec],
+    tool_choice: Optional[Any] = None,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Streams messages to the model and processes the response.
 
@@ -339,14 +427,16 @@ async def stream_messages(
         system_prompt: The system prompt to send.
         messages: List of messages to send.
         tool_specs: The list of tool specs.
+        tool_choice: Optional tool choice constraint for forcing specific tool usage.
 
     Yields:
         The reason for stopping, the final message, and the usage metrics
     """
     logger.debug("model=<%s> | streaming messages", model)
 
-    messages = remove_blank_messages_content_text(messages)
-    chunks = model.stream(messages, tool_specs if tool_specs else None, system_prompt)
+    messages = _normalize_messages(messages)
+    start_time = time.time()
+    chunks = model.stream(messages, tool_specs if tool_specs else None, system_prompt, tool_choice=tool_choice)
 
-    async for event in process_stream(chunks):
+    async for event in process_stream(chunks, start_time):
         yield event

@@ -1,10 +1,13 @@
 """Tests for AgentSessionManager."""
 
+from unittest.mock import Mock
+
 import pytest
 
 from strands.agent.agent import Agent
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.conversation_manager.summarizing_conversation_manager import SummarizingConversationManager
+from strands.agent.interrupt import InterruptState
 from strands.session.repository_session_manager import RepositorySessionManager
 from strands.types.content import ContentBlock
 from strands.types.exceptions import SessionException
@@ -28,6 +31,17 @@ def session_manager(mock_repository):
 def agent():
     """Create a mock agent."""
     return Agent(messages=[{"role": "user", "content": [{"text": "Hello!"}]}])
+
+
+@pytest.fixture
+def mock_multi_agent():
+    """Create mock multi-agent for testing."""
+
+    mock = Mock()
+    mock.id = "test-multi-agent"
+    mock.serialize_state.return_value = {"id": "test-multi-agent", "state": {"key": "value"}}
+    mock.deserialize_state = Mock()
+    return mock
 
 
 def test_init_creates_session_if_not_exists(mock_repository):
@@ -95,6 +109,7 @@ def test_initialize_restores_existing_agent(session_manager, agent):
         agent_id="existing-agent",
         state={"key": "value"},
         conversation_manager_state=SlidingWindowConversationManager().get_state(),
+        _internal_state={"interrupt_state": {"interrupts": {}, "context": {"test": "init"}, "activated": False}},
     )
     session_manager.session_repository.create_agent("test-session", session_agent)
 
@@ -116,6 +131,7 @@ def test_initialize_restores_existing_agent(session_manager, agent):
     assert len(agent.messages) == 1
     assert agent.messages[0]["role"] == "user"
     assert agent.messages[0]["content"][0]["text"] == "Hello"
+    assert agent._interrupt_state == InterruptState(interrupts={}, context={"test": "init"}, activated=False)
 
 
 def test_initialize_restores_existing_agent_with_summarizing_conversation_manager(session_manager):
@@ -174,3 +190,46 @@ def test_append_message(session_manager):
     assert len(messages) == 1
     assert messages[0].message["role"] == "user"
     assert messages[0].message["content"][0]["text"] == "Hello"
+
+
+def test_sync_multi_agent(session_manager, mock_multi_agent):
+    """Test syncing multi-agent state."""
+    # Create multi-agent first
+    session_manager.session_repository.create_multi_agent("test-session", mock_multi_agent)
+
+    # Sync multi-agent
+    session_manager.sync_multi_agent(mock_multi_agent)
+
+    # Verify repository update_multi_agent was called
+    state = session_manager.session_repository.read_multi_agent("test-session", mock_multi_agent.id)
+    assert state["id"] == "test-multi-agent"
+    assert state["state"] == {"key": "value"}
+
+
+def test_initialize_multi_agent_new(session_manager, mock_multi_agent):
+    """Test initializing new multi-agent state."""
+    session_manager.initialize_multi_agent(mock_multi_agent)
+
+    # Verify multi-agent was created
+    state = session_manager.session_repository.read_multi_agent("test-session", mock_multi_agent.id)
+    assert state["id"] == "test-multi-agent"
+    assert state["state"] == {"key": "value"}
+
+
+def test_initialize_multi_agent_existing(session_manager, mock_multi_agent):
+    """Test initializing existing multi-agent state."""
+    # Create existing state first
+    session_manager.session_repository.create_multi_agent("test-session", mock_multi_agent)
+
+    # Create a mock with updated state for the update call
+    updated_mock = Mock()
+    updated_mock.id = "test-multi-agent"
+    existing_state = {"id": "test-multi-agent", "state": {"restored": "data"}}
+    updated_mock.serialize_state.return_value = existing_state
+    session_manager.session_repository.update_multi_agent("test-session", updated_mock)
+
+    # Initialize multi-agent
+    session_manager.initialize_multi_agent(mock_multi_agent)
+
+    # Verify deserialize_state was called with existing state
+    mock_multi_agent.deserialize_state.assert_called_once_with(existing_state)

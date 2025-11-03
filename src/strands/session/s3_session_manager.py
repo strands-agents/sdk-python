@@ -1,9 +1,8 @@
 """S3-based session manager for cloud storage."""
 
-import asyncio
 import json
 import logging
-from typing import Any, Dict, List, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -15,11 +14,15 @@ from ..types.session import Session, SessionAgent, SessionMessage
 from .repository_session_manager import RepositorySessionManager
 from .session_repository import SessionRepository
 
+if TYPE_CHECKING:
+    from ..multiagent.base import MultiAgentBase
+
 logger = logging.getLogger(__name__)
 
 SESSION_PREFIX = "session_"
 AGENT_PREFIX = "agent_"
 MESSAGE_PREFIX = "message_"
+MULTI_AGENT_PREFIX = "multi_agent_"
 
 
 class S3SessionManager(RepositorySessionManager, SessionRepository):
@@ -284,23 +287,42 @@ class S3SessionManager(RepositorySessionManager, SessionRepository):
             else:
                 message_keys = message_keys[offset:]
 
-            # Load message objects concurrently using async
-            return asyncio.run(self._load_messages_concurrently(message_keys))
+            # Load only the required message objects
+            messages: List[SessionMessage] = []
+            for key in message_keys:
+                message_data = self._read_s3_object(key)
+                if message_data:
+                    messages.append(SessionMessage.from_dict(message_data))
+
+            return messages
 
         except ClientError as e:
             raise SessionException(f"S3 error reading messages: {e}") from e
 
-    async def _load_messages_concurrently(self, message_keys: List[str]) -> List[SessionMessage]:
-        """Load multiple message objects concurrently using async."""
-        if not message_keys:
-            return []
+    def _get_multi_agent_path(self, session_id: str, multi_agent_id: str) -> str:
+        """Get multi-agent S3 prefix."""
+        session_path = self._get_session_path(session_id)
+        multi_agent_id = _identifier.validate(multi_agent_id, _identifier.Identifier.AGENT)
+        return f"{session_path}multi_agents/{MULTI_AGENT_PREFIX}{multi_agent_id}/"
 
-        async def load_message(key: str) -> Optional[SessionMessage]:
-            loop = asyncio.get_event_loop()
-            message_data = await loop.run_in_executor(None, self._read_s3_object, key)
-            return SessionMessage.from_dict(message_data) if message_data else None
+    def create_multi_agent(self, session_id: str, multi_agent: "MultiAgentBase", **kwargs: Any) -> None:
+        """Create a new multiagent state in S3."""
+        multi_agent_id = multi_agent.id
+        multi_agent_key = f"{self._get_multi_agent_path(session_id, multi_agent_id)}multi_agent.json"
+        session_data = multi_agent.serialize_state()
+        self._write_s3_object(multi_agent_key, session_data)
 
-        tasks = [load_message(key) for key in message_keys]
-        loaded_messages = await asyncio.gather(*tasks)
+    def read_multi_agent(self, session_id: str, multi_agent_id: str, **kwargs: Any) -> Optional[dict[str, Any]]:
+        """Read multi-agent state from S3."""
+        multi_agent_key = f"{self._get_multi_agent_path(session_id, multi_agent_id)}multi_agent.json"
+        return self._read_s3_object(multi_agent_key)
 
-        return [msg for msg in loaded_messages if msg is not None]
+    def update_multi_agent(self, session_id: str, multi_agent: "MultiAgentBase", **kwargs: Any) -> None:
+        """Update multi-agent state in S3."""
+        multi_agent_state = multi_agent.serialize_state()
+        previous_multi_agent_state = self.read_multi_agent(session_id=session_id, multi_agent_id=multi_agent.id)
+        if previous_multi_agent_state is None:
+            raise SessionException(f"MultiAgent state {multi_agent.id} in session {session_id} does not exist")
+
+        multi_agent_key = f"{self._get_multi_agent_path(session_id, multi_agent.id)}multi_agent.json"
+        self._write_s3_object(multi_agent_key, multi_agent_state)

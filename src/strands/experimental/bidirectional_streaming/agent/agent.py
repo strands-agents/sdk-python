@@ -31,7 +31,7 @@ from ....types.traces import AttributeValue
 from ..event_loop.bidirectional_event_loop import BidirectionalAgentLoop
 from ..models.bidirectional_model import BidirectionalModel
 from ..models.novasonic import NovaSonicBidirectionalModel
-from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent
+from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent, ImageInputEvent
 
 logger = logging.getLogger(__name__)
 
@@ -287,8 +287,8 @@ class BidirectionalAgent:
         conversation history for complete message tracking.
 
         Args:
-            input_data: Either a string for text input or AudioInputEvent for audio input.
-
+            input_data: String for text, AudioInputEvent for audio, or ImageInputEvent for images.
+            
         Raises:
             ValueError: If no active session or invalid input type.
         """
@@ -305,10 +305,14 @@ class BidirectionalAgent:
         elif isinstance(input_data, dict) and "audioData" in input_data:
             # Handle audio input
             await self._session.model_session.send_audio_content(input_data)
+        elif isinstance(input_data, dict) and "imageData" in input_data:
+            # Handle image input (ImageInputEvent)
+            await self._session.model_session.send_image_content(input_data)
         else:
             raise ValueError(
-                "Input must be either a string (text) or AudioInputEvent "
-                "(dict with audioData, format, sampleRate, channels)"
+                "Input must be either a string (text), AudioInputEvent "
+                "(dict with audioData, format, sampleRate, channels), or ImageInputEvent "
+                "(dict with imageData, mimeType, encoding)"
             )
 
     async def receive(self) -> AsyncIterable[BidirectionalStreamEvent]:
@@ -336,6 +340,76 @@ class BidirectionalAgent:
         if self._session:
             await self._session.stop()
             self._session = None
+
+    async def run(
+        self,
+        *,
+        sender: Callable[[Any], Any],
+        receiver: Callable[[], Any],
+    ) -> None:
+        """Run the agent with send/receive loop management.
+
+        Starts the session, pipes events between the agent and transport layer,
+        and handles cleanup on disconnection.
+
+        Args:
+            sender: Async callable that sends events to the client (e.g., websocket.send_json).
+            receiver: Async callable that receives events from the client (e.g., websocket.receive_json).
+
+        Example:
+            ```python
+            # With WebSocket
+            agent = BidirectionalAgent(model=model, tools=[calculator])
+            await agent.run(sender=websocket.send_json, receiver=websocket.receive_json)
+
+            # With custom transport
+            async def custom_send(event):
+                # Custom send logic
+                pass
+
+            async def custom_receive():
+                # Custom receive logic
+                return event
+
+            await agent.run(sender=custom_send, receiver=custom_receive)
+            ```
+
+        Raises:
+            Exception: Any exception from the transport layer (e.g., WebSocketDisconnect).
+        """
+        await self.start()
+
+        async def receive_from_agent():
+            """Receive events from agent and send to client."""
+            try:
+                async for event in self.receive():
+                    await sender(event)
+            except Exception as e:
+                logger.debug(f"Receive from agent stopped: {e}")
+                raise
+
+        async def send_to_agent():
+            """Receive events from client and send to agent."""
+            try:
+                while self._session and self._session.active:
+                    event = await receiver()
+                    await self.send(event)
+            except Exception as e:
+                logger.debug(f"Send to agent stopped: {e}")
+                raise
+
+        try:
+            # Run both loops concurrently
+            await asyncio.gather(
+                receive_from_agent(),
+                send_to_agent(),
+                return_exceptions=True
+            )
+        finally:
+            try:
+                await self.end()
+            except Exception as e:
+                logger.debug(f"Error during cleanup: {e}")
 
     def _validate_active_session(self) -> None:
         """Validate that an active session exists.

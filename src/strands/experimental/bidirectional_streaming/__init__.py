@@ -8,6 +8,7 @@ from .models.bidirectional_model import BidirectionalModel, BidirectionalModelSe
 
 # Model providers - What users need to create models
 from .models.novasonic import NovaSonicBidirectionalModel
+from .models.openai import OpenAIRealtimeBidirectionalModel
 
 # Event types - For type hints and event handling
 from .types.bidirectional_streaming import (
@@ -17,20 +18,26 @@ from .types.bidirectional_streaming import (
     InterruptionDetectedEvent,
     TextOutputEvent,
     UsageMetricsEvent,
+    VoiceActivityEvent,
 )
 
 __all__ = [
     # Main interface
     "BidirectionalAgent",
+    
     # Model providers
     "NovaSonicBidirectionalModel",
+    "OpenAIRealtimeBidirectionalModel",
+    
     # Event types
     "AudioInputEvent",
-    "AudioOutputEvent",
+    "AudioOutputEvent", 
     "TextOutputEvent",
     "InterruptionDetectedEvent",
     "BidirectionalStreamEvent",
+    "VoiceActivityEvent",
     "UsageMetricsEvent",
+    
     # Model interface
     "BidirectionalModel",
     "BidirectionalModelSession",
