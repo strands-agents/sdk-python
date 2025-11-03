@@ -6,6 +6,7 @@ with continuous background threads that mimic real-world usage patterns.
 
 import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -13,6 +14,12 @@ if TYPE_CHECKING:
     from .audio_generator import AudioGenerator
 
 logger = logging.getLogger(__name__)
+
+# Constants for timing and buffering
+QUEUE_POLL_TIMEOUT = 0.05  # 50ms - balance between responsiveness and CPU usage
+SILENCE_INTERVAL = 0.05  # 50ms - send silence every 50ms when queue empty
+AUDIO_CHUNK_DELAY = 0.01  # 10ms - small delay between audio chunks
+WAIT_POLL_INTERVAL = 0.1  # 100ms - how often to check for response completion
 
 
 class BidirectionalTestContext:
@@ -54,8 +61,9 @@ class BidirectionalTestContext:
         # Queue for thread communication
         self.input_queue = asyncio.Queue()  # Handles both audio and text input
 
-        # Event storage
-        self.events = []  # All collected events
+        # Event storage (thread-safe)
+        self._event_queue = asyncio.Queue()  # Events from collection thread
+        self.events = []  # Cached events for test access
         self.last_event_time = None
 
         # Control flags
@@ -84,8 +92,9 @@ class BidirectionalTestContext:
 
     async def start(self):
         """Start all background threads."""
+        import time
         self.active = True
-        self.last_event_time = asyncio.get_event_loop().time()
+        self.last_event_time = time.monotonic()
 
         self.threads = [
             asyncio.create_task(self._input_thread()),
@@ -96,6 +105,11 @@ class BidirectionalTestContext:
 
     async def stop(self):
         """Stop all threads gracefully."""
+        if not self.active:
+            logger.debug("stop() called but already stopped")
+            return
+            
+        logger.debug("stop() called - stopping threads")
         self.active = False
 
         # Cancel all threads
@@ -111,13 +125,29 @@ class BidirectionalTestContext:
     # === User-facing methods ===
 
     async def say(self, text: str):
-        """Queue text to be converted to audio and sent to model.
+        """Convert text to audio and queue audio chunks to be sent to model.
 
         Args:
             text: Text to convert to speech and send as audio.
+            
+        Raises:
+            ValueError: If audio generator is not available.
         """
-        await self.input_queue.put({"type": "audio", "text": text})
-        logger.debug(f"Queued speech: {text[:50]}...")
+        if not self.audio_generator:
+            raise ValueError(
+                "Audio generator not available. Pass audio_generator to BidirectionalTestContext."
+            )
+            
+        # Generate audio via Polly
+        audio_data = await self.audio_generator.generate_audio(text)
+        
+        # Split into chunks and queue each chunk
+        for i in range(0, len(audio_data), self.audio_chunk_size):
+            chunk = audio_data[i : i + self.audio_chunk_size]
+            chunk_event = self.audio_generator.create_audio_input_event(chunk)
+            await self.input_queue.put({"type": "audio_chunk", "data": chunk_event})
+        
+        logger.debug(f"Queued {len(audio_data)} bytes of audio for: {text[:50]}...")
 
     async def send(self, data: str | dict) -> None:
         """Send data directly to model (text, image, etc.).
@@ -146,27 +176,33 @@ class BidirectionalTestContext:
             silence_threshold: Seconds of silence to consider response complete.
             min_events: Minimum events before silence detection activates.
         """
-        start_time = asyncio.get_event_loop().time()
-        initial_event_count = len(self.events)
+        import time
+        start_time = time.monotonic()
+        initial_event_count = len(self.get_events())  # Drain queue
 
-        while asyncio.get_event_loop().time() - start_time < timeout:
+        while time.monotonic() - start_time < timeout:
+            # Drain queue to get latest events
+            current_events = self.get_events()
+            
             # Check if we have minimum events
-            if len(self.events) - initial_event_count >= min_events:
+            if len(current_events) - initial_event_count >= min_events:
                 # Check silence
-                elapsed_since_event = asyncio.get_event_loop().time() - self.last_event_time
+                elapsed_since_event = time.monotonic() - self.last_event_time
                 if elapsed_since_event >= silence_threshold:
                     logger.debug(
-                        f"Response complete: {len(self.events) - initial_event_count} events, "
+                        f"Response complete: {len(current_events) - initial_event_count} events, "
                         f"{elapsed_since_event:.1f}s silence"
                     )
                     return
 
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(WAIT_POLL_INTERVAL)
 
         logger.warning(f"Response timeout after {timeout}s")
 
     def get_events(self, event_type: str | None = None) -> list[dict]:
         """Get collected events, optionally filtered by type.
+        
+        Drains the event queue and caches events for subsequent calls.
 
         Args:
             event_type: Optional event type to filter by (e.g., "textOutput").
@@ -174,20 +210,38 @@ class BidirectionalTestContext:
         Returns:
             List of events, filtered if event_type specified.
         """
+        # Drain queue into cache (non-blocking)
+        while not self._event_queue.empty():
+            try:
+                event = self._event_queue.get_nowait()
+                self.events.append(event)
+                import time
+                self.last_event_time = time.monotonic()
+            except asyncio.QueueEmpty:
+                break
+        
         if event_type:
             return [e for e in self.events if event_type in e]
         return self.events.copy()
 
     def get_text_outputs(self) -> list[str]:
         """Extract text outputs from collected events.
+        
+        Handles both textOutput events (Nova Sonic, OpenAI) and transcript events (Gemini Live).
 
         Returns:
             List of text content strings.
         """
         texts = []
-        for event in self.events:
+        for event in self.get_events():  # Drain queue first
+            # Handle textOutput events (Nova Sonic, OpenAI)
             if "textOutput" in event:
                 text = event["textOutput"].get("text", "")
+                if text:
+                    texts.append(text)
+            # Handle transcript events (Gemini Live)
+            elif "transcript" in event:
+                text = event["transcript"].get("text", "")
                 if text:
                     texts.append(text)
         return texts
@@ -198,8 +252,10 @@ class BidirectionalTestContext:
         Returns:
             List of audio data bytes.
         """
+        # Drain queue first to get latest events
+        events = self.get_events()
         audio_data = []
-        for event in self.events:
+        for event in events:
             if "audioOutput" in event:
                 data = event["audioOutput"].get("audioData")
                 if data:
@@ -212,7 +268,9 @@ class BidirectionalTestContext:
         Returns:
             List of tool use events.
         """
-        return [event["toolUse"] for event in self.events if "toolUse" in event]
+        # Drain queue first to get latest events
+        events = self.get_events()
+        return [event["toolUse"] for event in events if "toolUse" in event]
 
     def has_interruption(self) -> bool:
         """Check if any interruption was detected.
@@ -232,33 +290,21 @@ class BidirectionalTestContext:
     async def _input_thread(self):
         """Continuously handle input to model.
 
-        - Sends silence by default (background noise) if audio generator available
-        - Converts queued text to audio via Polly (for "audio" type)
-        - Sends text directly to model (for "text" type)
+        - Sends queued audio chunks immediately
+        - Sends silence chunks periodically when queue is empty (simulates microphone)
+        - Sends direct data to model
         """
         try:
+            logger.debug(f"Input thread starting, active={self.active}")
             while self.active:
                 try:
-                    # Check for queued input (non-blocking)
-                    input_item = await asyncio.wait_for(self.input_queue.get(), timeout=0.01)
+                    # Check for queued input (non-blocking with short timeout)
+                    input_item = await asyncio.wait_for(self.input_queue.get(), timeout=QUEUE_POLL_TIMEOUT)
 
-                    if input_item["type"] == "audio":
-                        # Generate and send audio
-                        if self.audio_generator:
-                            audio_data = await self.audio_generator.generate_audio(input_item["text"])
-
-                            # Send audio in chunks
-                            for i in range(0, len(audio_data), self.audio_chunk_size):
-                                if not self.active:
-                                    break
-                                chunk = audio_data[i : i + self.audio_chunk_size]
-                                chunk_event = self.audio_generator.create_audio_input_event(chunk)
-                                await self.agent.send(chunk_event)
-                                await asyncio.sleep(0.01)
-
-                            logger.debug(f"Sent audio: {len(audio_data)} bytes")
-                        else:
-                            logger.warning("Audio requested but no generator available")
+                    if input_item["type"] == "audio_chunk":
+                        # Send pre-generated audio chunk
+                        await self.agent.send(input_item["data"])
+                        await asyncio.sleep(AUDIO_CHUNK_DELAY)
 
                     elif input_item["type"] == "direct":
                         # Send data directly to agent
@@ -267,16 +313,18 @@ class BidirectionalTestContext:
                         logger.debug(f"Sent direct: {data_repr}")
 
                 except asyncio.TimeoutError:
-                    # No input queued - send silence if audio generator available
+                    # No input queued - send silence chunk to simulate continuous microphone input
                     if self.audio_generator:
                         silence = self._generate_silence_chunk()
                         await self.agent.send(silence)
-                        await asyncio.sleep(0.01)
+                        await asyncio.sleep(SILENCE_INTERVAL)
 
         except asyncio.CancelledError:
             logger.debug("Input thread cancelled")
         except Exception as e:
-            logger.error(f"Input thread error: {e}")
+            logger.error(f"Input thread error: {e}", exc_info=True)
+        finally:
+            logger.debug(f"Input thread stopped, active={self.active}")
 
     async def _event_collection_thread(self):
         """Continuously collect events from model."""
@@ -285,8 +333,8 @@ class BidirectionalTestContext:
                 if not self.active:
                     break
 
-                self.events.append(event)
-                self.last_event_time = asyncio.get_event_loop().time()
+                # Thread-safe: put in queue instead of direct append
+                await self._event_queue.put(event)
                 logger.debug(f"Event collected: {list(event.keys())}")
 
         except asyncio.CancelledError:
