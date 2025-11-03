@@ -33,7 +33,7 @@ from pydantic import BaseModel
 from .. import _identifier
 from .._async import run_async
 from ..event_loop.event_loop import event_loop_cycle
-from ..tools._tool_helpers import generate_interrupted_tool_result_content
+from ..tools._tool_helpers import generate_missing_tool_result_content
 
 if TYPE_CHECKING:
     from ..experimental.tools import ToolProvider
@@ -829,7 +829,7 @@ class Agent:
                 self._append_message(
                     {
                         "role": "user",
-                        "content": generate_interrupted_tool_result_content(tool_use_ids),
+                        "content": generate_missing_tool_result_content(tool_use_ids),
                     }
                 )
             if isinstance(prompt, str):

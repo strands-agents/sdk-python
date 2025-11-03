@@ -16,7 +16,7 @@ def noop_tool() -> None:
     pass
 
 
-def generate_interrupted_tool_result_content(tool_use_ids: list[str]) -> list[ContentBlock]:
+def generate_missing_tool_result_content(tool_use_ids: list[str]) -> list[ContentBlock]:
     """Generate ToolResult content blocks for orphaned ToolUse message."""
     return [
         {

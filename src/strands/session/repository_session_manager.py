@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Optional
 
 from ..agent.state import AgentState
-from ..tools._tool_helpers import generate_interrupted_tool_result_content
+from ..tools._tool_helpers import generate_missing_tool_result_content
 from ..types.content import Message
 from ..types.exceptions import SessionException
 from ..types.session import (
@@ -194,7 +194,7 @@ class RepositorySessionManager(SessionManager):
                             "Adding toolResult content blocks to create valid conversation."
                         )
                         # Create the missing toolResult content blocks
-                        missing_content_blocks = generate_interrupted_tool_result_content(missing_tool_use_ids)
+                        missing_content_blocks = generate_missing_tool_result_content(missing_tool_use_ids)
 
                         if tool_result_ids:
                             # If there were any toolResult ids, that means only some of the content blocks are missing

@@ -2246,11 +2246,18 @@ def test_agent_fixes_orphaned_tool_use_on_new_prompt(mock_model, agenerator):
 
     # Should have added toolResult message
     assert len(agent.messages) >= 3
-    assert agent.messages[1]["role"] == "user"
-    assert "toolResult" in agent.messages[1]["content"][0]
-    assert agent.messages[1]["content"][0]["toolResult"]["toolUseId"] == "orphaned-123"
-    assert agent.messages[1]["content"][0]["toolResult"]["status"] == "error"
-    assert agent.messages[1]["content"][0]["toolResult"]["content"][0]["text"] == "Tool was interrupted."
+    assert agent.messages[1] == {
+        "role": "user",
+        "content": [
+            {
+                "toolResult": {
+                    "toolUseId": "orphaned-123",
+                    "status": "error",
+                    "content": [{"text": "Tool was interrupted."}],
+                }
+            }
+        ],
+    }
 
 
 def test_agent_fixes_multiple_orphaned_tool_uses(mock_model, agenerator):
@@ -2291,14 +2298,25 @@ def test_agent_fixes_multiple_orphaned_tool_uses(mock_model, agenerator):
     agent("Continue")
 
     # Should have toolResult for both toolUse IDs
-    tool_results = agent.messages[1]["content"]
-    assert len(tool_results) == 2
-    tool_use_ids = {tr["toolResult"]["toolUseId"] for tr in tool_results}
-    assert tool_use_ids == {"orphaned-123", "orphaned-456"}
-
-    for tool_result in tool_results:
-        assert tool_result["toolResult"]["status"] == "error"
-        assert tool_result["toolResult"]["content"][0]["text"] == "Tool was interrupted."
+    assert agent.messages[1] == {
+        "role": "user",
+        "content": [
+            {
+                "toolResult": {
+                    "toolUseId": "orphaned-123",
+                    "status": "error",
+                    "content": [{"text": "Tool was interrupted."}],
+                }
+            },
+            {
+                "toolResult": {
+                    "toolUseId": "orphaned-456",
+                    "status": "error",
+                    "content": [{"text": "Tool was interrupted."}],
+                }
+            },
+        ],
+    }
 
 
 def test_agent_skips_fix_for_valid_conversation(mock_model, agenerator):
