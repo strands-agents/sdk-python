@@ -292,7 +292,7 @@ async def test_event_conversion(mock_genai_client, model):
     _, _, _ = mock_genai_client
     await model.connect()
     
-    # Test text output (now converted to transcript)
+    # Test text output (converted to transcript)
     mock_text = unittest.mock.Mock()
     mock_text.text = "Hello from Gemini"
     mock_text.data = None
@@ -305,7 +305,7 @@ async def test_event_conversion(mock_genai_client, model):
     assert text_event.source == "assistant"
     assert text_event.is_final is True
     
-    # Test audio output (now returns base64 encoded string)
+    # Test audio output (base64 encoded)
     import base64
     mock_audio = unittest.mock.Mock()
     mock_audio.text = None

@@ -30,6 +30,7 @@ from ..types.bidirectional_streaming import (
     ErrorEvent,
     ImageInputEvent,
     InterruptionEvent,
+    MultimodalUsage,
     SessionEndEvent,
     SessionStartEvent,
     TextInputEvent,
@@ -205,6 +206,7 @@ class GeminiLiveModel(BidirectionalModel):
         - inputTranscription: User's speech transcribed to text
         - outputTranscription: Model's audio transcribed to text
         - modelTurn text: Text response from the model
+        - usageMetadata: Token usage information
         """
         try:
             # Handle interruption first (from server_content)
@@ -267,7 +269,48 @@ class GeminiLiveModel(BidirectionalModel):
                     }
                     return {"toolUse": tool_use_event}
             
-            # Silently ignore setup_complete, turn_complete, generation_complete, and usage_metadata messages
+            # Handle usage metadata
+            if hasattr(message, 'usage_metadata') and message.usage_metadata:
+                usage = message.usage_metadata
+                
+                # Build modality details from token details
+                modality_details = []
+                
+                # Process prompt tokens details
+                if usage.prompt_tokens_details:
+                    for detail in usage.prompt_tokens_details:
+                        if detail.modality and detail.token_count:
+                            modality_details.append({
+                                "modality": str(detail.modality).lower(),
+                                "input_tokens": detail.token_count,
+                                "output_tokens": 0
+                            })
+                
+                # Process response tokens details
+                if usage.response_tokens_details:
+                    for detail in usage.response_tokens_details:
+                        if detail.modality and detail.token_count:
+                            # Find or create modality entry
+                            modality_str = str(detail.modality).lower()
+                            existing = next((m for m in modality_details if m["modality"] == modality_str), None)
+                            if existing:
+                                existing["output_tokens"] = detail.token_count
+                            else:
+                                modality_details.append({
+                                    "modality": modality_str,
+                                    "input_tokens": 0,
+                                    "output_tokens": detail.token_count
+                                })
+                
+                return MultimodalUsage(
+                    input_tokens=usage.prompt_token_count or 0,
+                    output_tokens=usage.response_token_count or 0,
+                    total_tokens=usage.total_token_count or 0,
+                    modality_details=modality_details if modality_details else None,
+                    cache_read_input_tokens=usage.cached_content_token_count if usage.cached_content_token_count else None
+                )
+            
+            # Silently ignore setup_complete and generation_complete messages
             return None
             
         except Exception as e:
