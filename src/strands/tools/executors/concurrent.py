@@ -27,7 +27,7 @@ class ConcurrentToolExecutor(ToolExecutor):
         cycle_trace: Trace,
         cycle_span: Any,
         invocation_state: dict[str, Any],
-        structured_output_context: "StructuredOutputContext",
+        structured_output_context: "StructuredOutputContext | None" = None,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute tools concurrently.
 
@@ -88,7 +88,7 @@ class ConcurrentToolExecutor(ToolExecutor):
         task_queue: asyncio.Queue,
         task_event: asyncio.Event,
         stop_event: object,
-        structured_output_context: "StructuredOutputContext",
+        structured_output_context: "StructuredOutputContext | None",
     ) -> None:
         """Execute a single tool and put results in the task queue.
 
