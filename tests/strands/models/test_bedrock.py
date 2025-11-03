@@ -1957,3 +1957,23 @@ def test_format_request_filters_output_schema(model, messages, model_id):
     assert tool_spec["name"] == "test_tool"
     assert tool_spec["description"] == "Test tool with output schema"
     assert tool_spec["inputSchema"] == {"type": "object", "properties": {}}
+
+
+@pytest.mark.asyncio
+async def test_stream_backward_compatibility_system_prompt(bedrock_client, model, messages, alist):
+    """Test that system_prompt is converted to system_prompt_content when system_prompt_content is None."""
+    bedrock_client.converse_stream.return_value = {"stream": ["e1", "e2"]}
+
+    system_prompt = "You are a helpful assistant."
+
+    response = model.stream(messages, system_prompt=system_prompt)
+    await alist(response)
+
+    # Verify the request was formatted with system_prompt converted to system_prompt_content
+    expected_request = {
+        "inferenceConfig": {},
+        "modelId": "m1",
+        "messages": messages,
+        "system": [{"text": system_prompt}],
+    }
+    bedrock_client.converse_stream.assert_called_once_with(**expected_request)

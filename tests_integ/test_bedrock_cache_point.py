@@ -1,4 +1,5 @@
 from strands import Agent
+from strands.models import BedrockModel
 from strands.types.content import Messages
 
 
@@ -31,7 +32,7 @@ def test_bedrock_cache_point():
     assert cache_point_usage > 0
 
 
-def test_bedrock_multi_prompt_cache_point():
+def test_bedrock_multi_prompt_and_duplicate_cache_point():
     """Test multi-prompt system with cache point."""
     system_prompt_content = [
         {"text": "You are a helpful assistant." * 500},  # Long text for cache
@@ -50,6 +51,7 @@ def test_bedrock_multi_prompt_cache_point():
                     cache_point_usage += 1
 
     agent = Agent(
+        model=BedrockModel(model_id="us.anthropic.claude-sonnet-4-20250514-v1:0", cache_prompt="default"),
         system_prompt=system_prompt_content,
         callback_handler=cache_point_callback_handler,
         load_tools_from_directory=False,
