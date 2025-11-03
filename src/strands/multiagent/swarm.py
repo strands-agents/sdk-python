@@ -212,7 +212,6 @@ class Swarm(MultiAgentBase):
     def __init__(
         self,
         nodes: list[Agent],
-        id: str = _DEFAULT_SWARM_ID,
         *,
         entry_point: Agent | None = None,
         max_handoffs: int = 20,
@@ -223,6 +222,7 @@ class Swarm(MultiAgentBase):
         repetitive_handoff_min_unique_agents: int = 0,
         session_manager: Optional[SessionManager] = None,
         hooks: Optional[list[HookProvider]] = None,
+        id: str = _DEFAULT_SWARM_ID,
     ) -> None:
         """Initialize Swarm with agents and configuration.
 

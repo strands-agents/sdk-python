@@ -371,7 +371,6 @@ class GraphBuilder:
         self._validate_graph()
 
         return Graph(
-            id=self._id,
             nodes=self.nodes.copy(),
             edges=self.edges.copy(),
             entry_points=self.entry_points.copy(),
@@ -381,6 +380,7 @@ class GraphBuilder:
             reset_on_revisit=self._reset_on_revisit,
             session_manager=self._session_manager,
             hooks=self._hooks,
+            id=self._id,
         )
 
     def _validate_graph(self) -> None:
