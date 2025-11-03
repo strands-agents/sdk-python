@@ -752,9 +752,9 @@ class Agent:
                     and event.chunk.get("redactContent")
                     and event.chunk["redactContent"].get("redactUserContentMessage")
                 ):
-                    self.messages[-1]["content"] = [
-                        {"text": str(event.chunk["redactContent"]["redactUserContentMessage"])}
-                    ]
+                    self.messages[-1]["content"] = self._redact_user_content(
+                        self.messages[-1]["content"], str(event.chunk["redactContent"]["redactUserContentMessage"])
+                    )
                     if self._session_manager:
                         self._session_manager.redact_latest_message(self.messages[-1], self)
                 yield event
@@ -969,3 +969,29 @@ class Agent:
         """Appends a message to the agent's list of messages and invokes the callbacks for the MessageCreatedEvent."""
         self.messages.append(message)
         self.hooks.invoke_callbacks(MessageAddedEvent(agent=self, message=message))
+
+    def _redact_user_content(self, content: list[ContentBlock], redact_message: str) -> list[ContentBlock]:
+        """Redact user content preserving toolResult blocks.
+
+        Args:
+            content: content blocks to be redacted
+            redact_message: redact message to be replaced
+
+        Returns:
+            Redacted content, as follows:
+            - if the message contains at least a toolResult block,
+                all toolResult blocks(s) are kept, redacting only the result content;
+            - otherwise, the entire content of the message is replaced
+                with a single text block with the redact message.
+        """
+        redacted_content = []
+        for block in content:
+            if "toolResult" in block:
+                block["toolResult"]["content"] = [{"text": redact_message}]
+                redacted_content.append(block)
+
+        if not redacted_content:
+            # Text content is added only if no toolResult blocks were found
+            redacted_content = [{"text": redact_message}]
+
+        return redacted_content

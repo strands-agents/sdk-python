@@ -1,5 +1,7 @@
 """Tests for AgentSessionManager."""
 
+from unittest.mock import Mock
+
 import pytest
 
 from strands.agent.agent import Agent
@@ -29,6 +31,17 @@ def session_manager(mock_repository):
 def agent():
     """Create a mock agent."""
     return Agent(messages=[{"role": "user", "content": [{"text": "Hello!"}]}])
+
+
+@pytest.fixture
+def mock_multi_agent():
+    """Create mock multi-agent for testing."""
+
+    mock = Mock()
+    mock.id = "test-multi-agent"
+    mock.serialize_state.return_value = {"id": "test-multi-agent", "state": {"key": "value"}}
+    mock.deserialize_state = Mock()
+    return mock
 
 
 def test_init_creates_session_if_not_exists(mock_repository):
@@ -177,3 +190,46 @@ def test_append_message(session_manager):
     assert len(messages) == 1
     assert messages[0].message["role"] == "user"
     assert messages[0].message["content"][0]["text"] == "Hello"
+
+
+def test_sync_multi_agent(session_manager, mock_multi_agent):
+    """Test syncing multi-agent state."""
+    # Create multi-agent first
+    session_manager.session_repository.create_multi_agent("test-session", mock_multi_agent)
+
+    # Sync multi-agent
+    session_manager.sync_multi_agent(mock_multi_agent)
+
+    # Verify repository update_multi_agent was called
+    state = session_manager.session_repository.read_multi_agent("test-session", mock_multi_agent.id)
+    assert state["id"] == "test-multi-agent"
+    assert state["state"] == {"key": "value"}
+
+
+def test_initialize_multi_agent_new(session_manager, mock_multi_agent):
+    """Test initializing new multi-agent state."""
+    session_manager.initialize_multi_agent(mock_multi_agent)
+
+    # Verify multi-agent was created
+    state = session_manager.session_repository.read_multi_agent("test-session", mock_multi_agent.id)
+    assert state["id"] == "test-multi-agent"
+    assert state["state"] == {"key": "value"}
+
+
+def test_initialize_multi_agent_existing(session_manager, mock_multi_agent):
+    """Test initializing existing multi-agent state."""
+    # Create existing state first
+    session_manager.session_repository.create_multi_agent("test-session", mock_multi_agent)
+
+    # Create a mock with updated state for the update call
+    updated_mock = Mock()
+    updated_mock.id = "test-multi-agent"
+    existing_state = {"id": "test-multi-agent", "state": {"restored": "data"}}
+    updated_mock.serialize_state.return_value = existing_state
+    session_manager.session_repository.update_multi_agent("test-session", updated_mock)
+
+    # Initialize multi-agent
+    session_manager.initialize_multi_agent(mock_multi_agent)
+
+    # Verify deserialize_state was called with existing state
+    mock_multi_agent.deserialize_state.assert_called_once_with(existing_state)

@@ -664,6 +664,99 @@ async def test_stream_stream_input_guardrails(
 
 
 @pytest.mark.asyncio
+async def test_stream_stream_input_guardrails_full_trace(
+    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
+):
+    """Test guardrails are correctly detected also with guardrail_trace="enabled_full".
+    In that case bedrock returns all filters, including those not detected/blocked."""
+    metadata_event = {
+        "metadata": {
+            "usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+            "metrics": {"latencyMs": 245},
+            "trace": {
+                "guardrail": {
+                    "inputAssessment": {
+                        "jrv9qlue4hag": {
+                            "contentPolicy": {
+                                "filters": [
+                                    {
+                                        "action": "NONE",
+                                        "confidence": "NONE",
+                                        "detected": False,
+                                        "filterStrength": "HIGH",
+                                        "type": "SEXUAL",
+                                    },
+                                    {
+                                        "action": "BLOCKED",
+                                        "confidence": "LOW",
+                                        "detected": True,
+                                        "filterStrength": "HIGH",
+                                        "type": "VIOLENCE",
+                                    },
+                                    {
+                                        "action": "NONE",
+                                        "confidence": "NONE",
+                                        "detected": False,
+                                        "filterStrength": "HIGH",
+                                        "type": "HATE",
+                                    },
+                                    {
+                                        "action": "NONE",
+                                        "confidence": "NONE",
+                                        "detected": False,
+                                        "filterStrength": "HIGH",
+                                        "type": "INSULTS",
+                                    },
+                                    {
+                                        "action": "NONE",
+                                        "confidence": "NONE",
+                                        "detected": False,
+                                        "filterStrength": "HIGH",
+                                        "type": "PROMPT_ATTACK",
+                                    },
+                                    {
+                                        "action": "NONE",
+                                        "confidence": "NONE",
+                                        "detected": False,
+                                        "filterStrength": "HIGH",
+                                        "type": "MISCONDUCT",
+                                    },
+                                ]
+                            }
+                        }
+                    }
+                }
+            },
+        }
+    }
+    bedrock_client.converse_stream.return_value = {"stream": [metadata_event]}
+
+    request = {
+        "additionalModelRequestFields": additional_request_fields,
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": [],
+        "toolConfig": {
+            "tools": [{"toolSpec": tool_spec}],
+            "toolChoice": {"auto": {}},
+        },
+    }
+
+    model.update_config(additional_request_fields=additional_request_fields)
+    response = model.stream(messages, [tool_spec])
+
+    tru_chunks = await alist(response)
+    exp_chunks = [
+        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
+        metadata_event,
+    ]
+
+    assert tru_chunks == exp_chunks
+    bedrock_client.converse_stream.assert_called_once_with(**request)
+
+
+@pytest.mark.asyncio
 async def test_stream_stream_output_guardrails(
     bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
 ):
