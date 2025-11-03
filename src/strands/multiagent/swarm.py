@@ -288,7 +288,6 @@ class Swarm(MultiAgentBase):
         """
         if invocation_state is None:
             invocation_state = {}
-        self.hooks.invoke_callbacks(BeforeMultiAgentInvocationEvent(self, invocation_state))
         return run_async(lambda: self.invoke_async(task, invocation_state))
 
     async def invoke_async(
@@ -336,6 +335,8 @@ class Swarm(MultiAgentBase):
         """
         if invocation_state is None:
             invocation_state = {}
+
+        self.hooks.invoke_callbacks(BeforeMultiAgentInvocationEvent(self, invocation_state))
 
         logger.debug("starting swarm execution")
 
