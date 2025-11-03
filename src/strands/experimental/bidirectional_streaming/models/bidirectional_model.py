@@ -17,7 +17,7 @@ from typing import AsyncIterable
 
 from ....types.content import Messages
 from ....types.tools import ToolSpec
-from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent
+from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent, ImageInputEvent
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +48,15 @@ class BidirectionalModelSession(abc.ABC):
         """
         raise NotImplementedError
 
+    # TODO: remove with interface unification
+    async def send_image_content(self, image_input: ImageInputEvent) -> None:
+        """Send image content to the model during an active connection.
+        
+        Handles image encoding and provider-specific formatting while presenting
+        a simple ImageInputEvent interface.
+        """
+        raise NotImplementedError
+    
     @abc.abstractmethod
     async def send_text_content(self, text: str, **kwargs) -> None:
         """Send text content to the model during ongoing generation.
