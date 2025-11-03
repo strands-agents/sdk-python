@@ -342,29 +342,33 @@ async def test_event_conversion(mock_websockets_connect, model):
     _, _ = mock_websockets_connect
     await model.connect()
 
-    # Test audio output (now returns AudioStreamEvent)
+    # Test audio output (now returns list with AudioStreamEvent)
     from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import AudioStreamEvent
     audio_event = {
         "type": "response.output_audio.delta",
         "delta": base64.b64encode(b"audio_data").decode()
     }
     converted = model._convert_openai_event(audio_event)
-    assert isinstance(converted, AudioStreamEvent)
-    assert converted.get("type") == "bidirectional_audio_stream"
-    assert converted.get("audio") == base64.b64encode(b"audio_data").decode()
-    assert converted.get("format") == "pcm"
+    assert isinstance(converted, list)
+    assert len(converted) == 1
+    assert isinstance(converted[0], AudioStreamEvent)
+    assert converted[0].get("type") == "bidirectional_audio_stream"
+    assert converted[0].get("audio") == base64.b64encode(b"audio_data").decode()
+    assert converted[0].get("format") == "pcm"
 
-    # Test text output (now returns TranscriptStreamEvent)
+    # Test text output (now returns list with TranscriptStreamEvent)
     from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import TranscriptStreamEvent
     text_event = {
         "type": "response.output_text.delta",
         "delta": "Hello from OpenAI"
     }
     converted = model._convert_openai_event(text_event)
-    assert isinstance(converted, TranscriptStreamEvent)
-    assert converted.get("type") == "bidirectional_transcript_stream"
-    assert converted.get("text") == "Hello from OpenAI"
-    assert converted.get("source") == "assistant"
+    assert isinstance(converted, list)
+    assert len(converted) == 1
+    assert isinstance(converted[0], TranscriptStreamEvent)
+    assert converted[0].get("type") == "bidirectional_transcript_stream"
+    assert converted[0].get("text") == "Hello from OpenAI"
+    assert converted[0].get("source") == "assistant"
 
     # Test function call sequence
     item_added = {
@@ -389,23 +393,27 @@ async def test_event_conversion(mock_websockets_connect, model):
         "call_id": "call-123"
     }
     converted = model._convert_openai_event(args_done)
-    # Now returns dict with tool_use
-    assert isinstance(converted, dict)
-    assert converted.get("type") == "tool_use"
-    tool_use = converted.get("tool_use")
+    # Now returns list with dict containing tool_use
+    assert isinstance(converted, list)
+    assert len(converted) == 1
+    assert isinstance(converted[0], dict)
+    assert converted[0].get("type") == "tool_use"
+    tool_use = converted[0].get("tool_use")
     assert tool_use["toolUseId"] == "call-123"
     assert tool_use["name"] == "calculator"
     assert tool_use["input"]["expression"] == "2+2"
 
-    # Test voice activity (now returns InterruptionEvent for speech_started)
+    # Test voice activity (now returns list with InterruptionEvent for speech_started)
     from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import InterruptionEvent
     speech_started = {
         "type": "input_audio_buffer.speech_started"
     }
     converted = model._convert_openai_event(speech_started)
-    assert isinstance(converted, InterruptionEvent)
-    assert converted.get("type") == "bidirectional_interruption"
-    assert converted.get("reason") == "user_speech"
+    assert isinstance(converted, list)
+    assert len(converted) == 1
+    assert isinstance(converted[0], InterruptionEvent)
+    assert converted[0].get("type") == "bidirectional_interruption"
+    assert converted[0].get("reason") == "user_speech"
 
     await model.close()
 

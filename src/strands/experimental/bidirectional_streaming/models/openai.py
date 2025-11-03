@@ -291,9 +291,8 @@ class OpenAIRealtimeModel(BidirectionalModel):
             while self._active:
                 try:
                     openai_event = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)
-                    provider_event = self._convert_openai_event(openai_event)
-                    if provider_event:
-                        yield provider_event
+                    for event in self._convert_openai_event(openai_event) or []: 
+                        yield event
                 except asyncio.TimeoutError:
                     continue
                     
@@ -304,35 +303,41 @@ class OpenAIRealtimeModel(BidirectionalModel):
             # Emit session end event
             yield SessionEndEvent(reason="complete")
 
-    def _convert_openai_event(self, openai_event: dict[str, any]) -> OutputEvent | None:
+    def _convert_openai_event(self, openai_event: dict[str, any]) -> list[OutputEvent] | None:
         """Convert OpenAI events to Strands TypedEvent format."""
         event_type = openai_event.get("type")
         
+        # Turn start - response begins
+        if event_type == "response.created":
+            response = openai_event.get("response", {})
+            response_id = response.get("id", str(uuid.uuid4()))
+            return [TurnStartEvent(turn_id=response_id)]
+        
         # Audio output
-        if event_type == "response.output_audio.delta":
+        elif event_type == "response.output_audio.delta":
             # Audio is already base64 string from OpenAI
-            return AudioStreamEvent(
+            return [AudioStreamEvent(
                 audio=openai_event["delta"],
                 format="pcm",
                 sample_rate=24000,
                 channels=1
-            )
+            )]
         
         # Assistant text output events - combine multiple similar events
         elif event_type in ["response.output_text.delta", "response.output_audio_transcript.delta"]:
-            return self._create_text_event(openai_event["delta"], "assistant")
+            return [self._create_text_event(openai_event["delta"], "assistant")]
         
         # User transcription events - combine multiple similar events
         elif event_type in ["conversation.item.input_audio_transcription.delta", 
                            "conversation.item.input_audio_transcription.completed"]:
             text_key = "delta" if "delta" in event_type else "transcript"
             text = openai_event.get(text_key, "")
-            return self._create_text_event(text, "user") if text.strip() else None
+            return [self._create_text_event(text, "user")] if text.strip() else None
         
         elif event_type == "conversation.item.input_audio_transcription.segment":
             segment_data = openai_event.get("segment", {})
             text = segment_data.get("text", "")
-            return self._create_text_event(text, "user") if text.strip() else None
+            return [self._create_text_event(text, "user")] if text.strip() else None
         
         elif event_type == "conversation.item.input_audio_transcription.failed":
             error_info = openai_event.get("error", {})
@@ -362,7 +367,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
                     }
                     del self._function_call_buffer[call_id]
                     # Return dict with tool_use for event loop processing
-                    return {"type": "tool_use", "tool_use": tool_use}
+                    return [{"type": "tool_use", "tool_use": tool_use}]
                 except (json.JSONDecodeError, KeyError) as e:
                     logger.warning("Error parsing function arguments for %s: %s", call_id, e)
                     del self._function_call_buffer[call_id]
@@ -377,7 +382,84 @@ class OpenAIRealtimeModel(BidirectionalModel):
                 "input_audio_buffer.speech_stopped": "speech_stopped", 
                 "input_audio_buffer.timeout_triggered": "timeout"
             }
-            return self._create_voice_activity_event(activity_map[event_type])
+            event = self._create_voice_activity_event(activity_map[event_type])
+            return [event] if event else None
+        
+        # Turn complete and usage - response finished
+        elif event_type == "response.done":
+            response = openai_event.get("response", {})
+            response_id = response.get("id", "unknown")
+            status = response.get("status", "completed")
+            usage = response.get("usage")
+            
+            # Map OpenAI status to our stop_reason
+            stop_reason_map = {
+                "completed": "complete",
+                "cancelled": "interrupted",
+                "failed": "error",
+                "incomplete": "interrupted"
+            }
+            
+            # Build list of events to return
+            events = []
+            
+            # Always add turn complete event
+            events.append(TurnCompleteEvent(
+                turn_id=response_id,
+                stop_reason=stop_reason_map.get(status, "complete")
+            ))
+            
+            # Add usage event if available
+            if usage:
+                input_details = usage.get("input_token_details", {})
+                output_details = usage.get("output_token_details", {})
+                
+                # Build modality details
+                modality_details = []
+                
+                # Text modality
+                text_input = input_details.get("text_tokens", 0)
+                text_output = output_details.get("text_tokens", 0)
+                if text_input > 0 or text_output > 0:
+                    modality_details.append({
+                        "modality": "text",
+                        "input_tokens": text_input,
+                        "output_tokens": text_output
+                    })
+                
+                # Audio modality
+                audio_input = input_details.get("audio_tokens", 0)
+                audio_output = output_details.get("audio_tokens", 0)
+                if audio_input > 0 or audio_output > 0:
+                    modality_details.append({
+                        "modality": "audio",
+                        "input_tokens": audio_input,
+                        "output_tokens": audio_output
+                    })
+                
+                # Image modality
+                image_input = input_details.get("image_tokens", 0)
+                if image_input > 0:
+                    modality_details.append({
+                        "modality": "image",
+                        "input_tokens": image_input,
+                        "output_tokens": 0
+                    })
+                
+                # Cached tokens
+                cached_tokens = input_details.get("cached_tokens", 0)
+                
+                # Add usage event
+                events.append(MultimodalUsage(
+                    input_tokens=usage.get("input_tokens", 0),
+                    output_tokens=usage.get("output_tokens", 0),
+                    total_tokens=usage.get("total_tokens", 0),
+                    modality_details=modality_details if modality_details else None,
+                    cache_read_input_tokens=cached_tokens if cached_tokens > 0 else None
+                ))
+            
+            # Return list of events
+            return events
         
         # Lifecycle events (log only) - combine multiple similar events
         elif event_type in ["conversation.item.retrieve", "conversation.item.added"]:
@@ -388,14 +470,6 @@ class OpenAIRealtimeModel(BidirectionalModel):
             
         elif event_type == "conversation.item.done":
             logger.debug("OpenAI conversation item done: %s", openai_event.get("item", {}).get("id"))
-            # This event signals turn completion - emit TurnCompleteEvent
-            item = openai_event.get("item", {})
-            if item.get("type") == "message" and item.get("role") == "assistant":
-                item_id = item.get("id", "unknown")
-                return TurnCompleteEvent(
-                    turn_id=item_id,
-                    stop_reason="complete"
-                )
             return None
         
         # Response output events - combine similar events
