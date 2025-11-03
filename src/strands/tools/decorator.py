@@ -44,7 +44,7 @@ import asyncio
 import functools
 import inspect
 import logging
-from copy import deepcopy
+from copy import copy
 from typing import (
     Annotated,
     Any,
@@ -65,6 +65,7 @@ from typing import (
 import docstring_parser
 from pydantic import BaseModel, Field, create_model
 from pydantic.fields import FieldInfo
+from pydantic_core import PydanticUndefined
 from typing_extensions import override
 
 from ..interrupt import InterruptException
@@ -130,34 +131,32 @@ class FunctionToolMetadata:
         if get_origin(annotation) is Annotated:
             args = get_args(annotation)
             actual_type = args[0]
-
-            # Look through metadata for FieldInfo and string descriptions
             for meta in args[1:]:
                 if isinstance(meta, FieldInfo):
                     field_info = meta
                 elif isinstance(meta, str):
                     description = meta
 
-        # Determine Final Description
-        # Priority: 1. Annotated string, 2. FieldInfo description, 3. Docstring, 4. Fallback
-        final_description = description
+        # Final description — always a string, never None
+        final_description = (
+            description
+            if description is not None
+            else (
+                field_info.description
+                if field_info and field_info.description is not None
+                else self.param_descriptions.get(param_name) or f"Parameter {param_name}"
+            )
+        )
 
-        if final_description is None:
-            if field_info and field_info.description:
-                final_description = field_info.description
-            else:
-                final_description = self.param_descriptions.get(param_name)
-
-        if final_description is None:
-            final_description = f"Parameter {param_name}"
-
-        # Create Final FieldInfo with proper default handling
+        # Build final FieldInfo
         if field_info:
-            final_field = deepcopy(field_info)
+            final_field = copy(field_info)
             final_field.description = final_description
 
-            # Function signature default takes priority
-            if param_default is not ...:
+            # ONLY override default if Field has no default AND signature has one.
+            # Pydantic uses `PydanticUndefined` to signify no default was provided,
+            # which is distinct from an explicit default of `None`.
+            if field_info.default is PydanticUndefined and param_default is not ...:
                 final_field.default = param_default
         else:
             final_field = Field(default=param_default, description=final_description)
