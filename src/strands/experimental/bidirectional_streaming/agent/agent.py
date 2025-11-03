@@ -431,10 +431,11 @@ class BidirectionalAgent:
             await stop_bidirectional_connection(self._session)
             self._session = None
 
-    async def __call__(
+    async def run(
         self,
-        send_callable: Callable[[Any], Any],
-        receive_callable: Callable[[], Any],
+        *,
+        sender: Callable[[Any], Any],
+        receiver: Callable[[], Any],
     ) -> None:
         """Run the agent with send/receive loop management.
 
@@ -442,14 +443,14 @@ class BidirectionalAgent:
         and handles cleanup on disconnection.
 
         Args:
-            send_callable: Async callable that sends events to the client (e.g., websocket.send_json).
-            receive_callable: Async callable that receives events from the client (e.g., websocket.receive_json).
+            sender: Async callable that sends events to the client (e.g., websocket.send_json).
+            receiver: Async callable that receives events from the client (e.g., websocket.receive_json).
 
         Example:
             ```python
             # With WebSocket
             agent = BidirectionalAgent(model=model, tools=[calculator])
-            await agent.run(websocket.send_json, websocket.receive_json)
+            await agent.run(sender=websocket.send_json, receiver=websocket.receive_json)
 
             # With custom transport
             async def custom_send(event):
@@ -460,7 +461,7 @@ class BidirectionalAgent:
                 # Custom receive logic
                 return event
 
-            await agent.run(custom_send, custom_receive)
+            await agent.run(sender=custom_send, receiver=custom_receive)
             ```
 
         Raises:
@@ -472,7 +473,7 @@ class BidirectionalAgent:
             """Receive events from agent and send to client."""
             try:
                 async for event in self.receive():
-                    await send_callable(event)
+                    await sender(event)
             except Exception as e:
                 logger.debug(f"Receive from agent stopped: {e}")
                 raise
@@ -481,7 +482,7 @@ class BidirectionalAgent:
             """Receive events from client and send to agent."""
             try:
                 while self._session and self._session.active:
-                    event = await receive_callable()
+                    event = await receiver()
                     await self.send(event)
             except Exception as e:
                 logger.debug(f"Send to agent stopped: {e}")
