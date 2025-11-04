@@ -72,20 +72,20 @@ async def test_model_initialization(model_id, region):
     assert model.region == region
     assert model.stream is None
     assert not model._active
-    assert model.prompt_name is None
+    assert model.session_id is None
 
 
 @pytest.mark.asyncio
 async def test_connection_lifecycle(nova_model, mock_client, mock_stream):
     """Test complete connection lifecycle with various configurations."""
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model._client = mock_client
+        nova_model.client = mock_client
 
         # Test basic connection
         await nova_model.connect(system_prompt="Test system prompt")
         assert nova_model._active
         assert nova_model.stream == mock_stream
-        assert nova_model.prompt_name is not None
+        assert nova_model.session_id is not None
         assert mock_client.invoke_model_with_bidirectional_stream.called
 
         # Test close
@@ -111,7 +111,7 @@ async def test_connection_lifecycle(nova_model, mock_client, mock_stream):
 async def test_connection_edge_cases(nova_model, mock_client, mock_stream, model_id, region):
     """Test connection error handling and edge cases."""
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model._client = mock_client
+        nova_model.client = mock_client
 
         # Test double connection
         await nova_model.connect()
@@ -132,7 +132,7 @@ async def test_connection_edge_cases(nova_model, mock_client, mock_stream, model
 async def test_send_all_content_types(nova_model, mock_client, mock_stream):
     """Test sending all content types through unified send() method."""
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model._client = mock_client
+        nova_model.client = mock_client
 
         await nova_model.connect()
 
@@ -171,7 +171,7 @@ async def test_send_all_content_types(nova_model, mock_client, mock_stream):
 async def test_send_edge_cases(nova_model, mock_client, mock_stream, caplog):
     """Test send() edge cases and error handling."""
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model._client = mock_client
+        nova_model.client = mock_client
 
         # Test send when inactive
         text_event = {"text": "Hello", "role": "user"}
@@ -197,7 +197,7 @@ async def test_send_edge_cases(nova_model, mock_client, mock_stream, caplog):
 async def test_receive_lifecycle_events(nova_model, mock_client, mock_stream):
     """Test that receive() emits connection start and end events."""
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model._client = mock_client
+        nova_model.client = mock_client
 
         # Setup mock to return no events and then stop
         async def mock_wait_for(*args, **kwargs):
@@ -215,7 +215,7 @@ async def test_receive_lifecycle_events(nova_model, mock_client, mock_stream):
             # Should have connection start and end
             assert len(events) >= 2
             assert "BidirectionalConnectionStart" in events[0]
-            assert events[0]["BidirectionalConnectionStart"]["connectionId"] == nova_model.prompt_name
+            assert events[0]["BidirectionalConnectionStart"]["connectionId"] == nova_model.session_id
             assert "BidirectionalConnectionEnd" in events[-1]
 
 
@@ -301,7 +301,7 @@ async def test_event_conversion(nova_model):
 async def test_audio_connection_lifecycle(nova_model, mock_client, mock_stream):
     """Test audio connection start and end lifecycle."""
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model._client = mock_client
+        nova_model.client = mock_client
 
         await nova_model.connect()
 
@@ -320,7 +320,7 @@ async def test_audio_connection_lifecycle(nova_model, mock_client, mock_stream):
 async def test_silence_detection(nova_model, mock_client, mock_stream):
     """Test that silence detection automatically ends audio input."""
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model._client = mock_client
+        nova_model.client = mock_client
         nova_model.silence_threshold = 0.1  # Short threshold for testing
 
         await nova_model.connect()
@@ -385,12 +385,12 @@ async def test_event_templates(nova_model):
     assert "inferenceConfiguration" in event["event"]["sessionStart"]
 
     # Test prompt start event
-    nova_model.prompt_name = "test-prompt"
+    nova_model.session_id = "test-session"
     event_json = nova_model._get_prompt_start_event([])
     event = json.loads(event_json)
     assert "event" in event
     assert "promptStart" in event["event"]
-    assert event["event"]["promptStart"]["promptName"] == "test-prompt"
+    assert event["event"]["promptStart"]["promptName"] == "test-session"
 
     # Test text input event
     content_name = "test-content"
@@ -416,7 +416,7 @@ async def test_event_templates(nova_model):
 async def test_error_handling(nova_model, mock_client, mock_stream):
     """Test error handling in various scenarios."""
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model._client = mock_client
+        nova_model.client = mock_client
 
         # Test response processor handles errors gracefully
         async def mock_error(*args, **kwargs):

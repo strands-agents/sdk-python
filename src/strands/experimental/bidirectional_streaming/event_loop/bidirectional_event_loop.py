@@ -473,8 +473,8 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
         try:
             await session.model.send(error_result)
             logger.debug("Error result sent: %s", tool_id)
-        except Exception:
-            logger.error("Failed to send error result: %s", tool_id)
-            pass  # Connection might be closed
+        except Exception as send_error:
+            logger.error("Failed to send error result: %s - %s", tool_id, str(send_error))
+            raise  # Propagate exception since this is experimental code
 
 

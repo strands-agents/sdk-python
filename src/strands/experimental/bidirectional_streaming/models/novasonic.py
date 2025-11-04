@@ -102,11 +102,11 @@ class NovaSonicModel(BidirectionalModel):
         # Model configuration
         self.model_id = model_id
         self.region = region
-        self._client = None
+        self.client = None
 
         # Connection state (initialized in connect())
         self.stream = None
-        self.prompt_name = None
+        self.session_id = None
         self._active = False
 
         # Nova Sonic requires unique content names
@@ -146,17 +146,17 @@ class NovaSonicModel(BidirectionalModel):
 
         try:
             # Initialize client if needed
-            if not self._client:
+            if not self.client:
                 await self._initialize_client()
 
             # Initialize connection state
-            self.prompt_name = str(uuid.uuid4())
+            self.session_id = str(uuid.uuid4())
             self._active = True
             self.audio_content_name = str(uuid.uuid4())
             self._event_queue = asyncio.Queue()
 
             # Start Nova Sonic bidirectional stream
-            self.stream = await self._client.invoke_model_with_bidirectional_stream(
+            self.stream = await self.client.invoke_model_with_bidirectional_stream(
                 InvokeModelWithBidirectionalStreamOperationInput(model_id=self.model_id)
             )
 
@@ -165,7 +165,7 @@ class NovaSonicModel(BidirectionalModel):
                 logger.error("Stream is None")
                 raise ValueError("Stream cannot be None")
 
-            logger.debug("Nova Sonic connection initialized with prompt: %s", self.prompt_name)
+            logger.debug("Nova Sonic connection initialized with session: %s", self.session_id)
 
             # Send initialization events
             system_prompt = system_prompt or "You are a helpful assistant. Keep responses brief."
@@ -269,7 +269,7 @@ class NovaSonicModel(BidirectionalModel):
 
         # Emit connection start event to Strands event system
         connection_start: BidirectionalConnectionStartEvent = {
-            "connectionId": self.prompt_name,
+            "connectionId": self.session_id,
             "metadata": {"provider": "nova_sonic", "model_id": self.model_id},
         }
         yield {"BidirectionalConnectionStart": connection_start}
@@ -295,7 +295,7 @@ class NovaSonicModel(BidirectionalModel):
         finally:
             # Emit connection end event when exiting
             connection_end: BidirectionalConnectionEndEvent = {
-                "connectionId": self.prompt_name,
+                "connectionId": self.session_id,
                 "reason": "connection_complete",
                 "metadata": {"provider": "nova_sonic"},
             }
@@ -331,6 +331,7 @@ class NovaSonicModel(BidirectionalModel):
                     logger.warning(f"Unknown content type with keys: {content.keys()}")
         except Exception as e:
             logger.error(f"Error sending content: {e}")
+            raise  # Propagate exception for debugging in experimental code
 
     async def _start_audio_connection(self) -> None:
         """Internal: Start audio input connection (call once before sending audio chunks)."""
@@ -343,7 +344,7 @@ class NovaSonicModel(BidirectionalModel):
             {
                 "event": {
                     "contentStart": {
-                        "promptName": self.prompt_name,
+                        "promptName": self.session_id,
                         "contentName": self.audio_content_name,
                         "type": "AUDIO",
                         "interactive": True,
@@ -376,7 +377,7 @@ class NovaSonicModel(BidirectionalModel):
             {
                 "event": {
                     "audioInput": {
-                        "promptName": self.prompt_name,
+                        "promptName": self.session_id,
                         "contentName": self.audio_content_name,
                         "content": nova_audio_data,
                     }
@@ -409,7 +410,7 @@ class NovaSonicModel(BidirectionalModel):
         logger.debug("Nova audio connection end")
 
         audio_content_end = json.dumps(
-            {"event": {"contentEnd": {"promptName": self.prompt_name, "contentName": self.audio_content_name}}}
+            {"event": {"contentEnd": {"promptName": self.session_id, "contentName": self.audio_content_name}}}
         )
 
         await self._send_nova_event(audio_content_end)
@@ -434,7 +435,7 @@ class NovaSonicModel(BidirectionalModel):
             {
                 "event": {
                     "audioInput": {
-                        "promptName": self.prompt_name,
+                        "promptName": self.session_id,
                         "contentName": self.audio_content_name,
                         "stopReason": "INTERRUPTED",
                     }
@@ -600,7 +601,7 @@ class NovaSonicModel(BidirectionalModel):
         prompt_start_event = {
             "event": {
                 "promptStart": {
-                    "promptName": self.prompt_name,
+                    "promptName": self.session_id,
                     "textOutputConfiguration": NOVA_TEXT_CONFIG,
                     "audioOutputConfiguration": NOVA_AUDIO_OUTPUT_CONFIG,
                 }
@@ -644,7 +645,7 @@ class NovaSonicModel(BidirectionalModel):
             {
                 "event": {
                     "contentStart": {
-                        "promptName": self.prompt_name,
+                        "promptName": self.session_id,
                         "contentName": content_name,
                         "type": "TEXT",
                         "role": role,
@@ -661,7 +662,7 @@ class NovaSonicModel(BidirectionalModel):
             {
                 "event": {
                     "contentStart": {
-                        "promptName": self.prompt_name,
+                        "promptName": self.session_id,
                         "contentName": content_name,
                         "interactive": False,
                         "type": "TOOL",
@@ -679,7 +680,7 @@ class NovaSonicModel(BidirectionalModel):
     def _get_text_input_event(self, content_name: str, text: str) -> str:
         """Generate text input event."""
         return json.dumps(
-            {"event": {"textInput": {"promptName": self.prompt_name, "contentName": content_name, "content": text}}}
+            {"event": {"textInput": {"promptName": self.session_id, "contentName": content_name, "content": text}}}
         )
 
     def _get_tool_result_event(self, content_name: str, result: dict[str, any]) -> str:
@@ -688,7 +689,7 @@ class NovaSonicModel(BidirectionalModel):
             {
                 "event": {
                     "toolResult": {
-                        "promptName": self.prompt_name,
+                        "promptName": self.session_id,
                         "contentName": content_name,
                         "content": json.dumps(result),
                     }
@@ -698,11 +699,11 @@ class NovaSonicModel(BidirectionalModel):
 
     def _get_content_end_event(self, content_name: str) -> str:
         """Generate content end event."""
-        return json.dumps({"event": {"contentEnd": {"promptName": self.prompt_name, "contentName": content_name}}})
+        return json.dumps({"event": {"contentEnd": {"promptName": self.session_id, "contentName": content_name}}})
 
     def _get_prompt_end_event(self) -> str:
         """Generate prompt end event."""
-        return json.dumps({"event": {"promptEnd": {"promptName": self.prompt_name}}})
+        return json.dumps({"event": {"promptEnd": {"promptName": self.session_id}}})
 
     def _get_connection_end_event(self) -> str:
         """Generate connection end event."""
@@ -733,7 +734,7 @@ class NovaSonicModel(BidirectionalModel):
                 auth_schemes={"aws.auth#sigv4": SigV4AuthScheme(service="bedrock")},
             )
 
-            self._client = BedrockRuntimeClient(config=config)
+            self.client = BedrockRuntimeClient(config=config)
             logger.debug("Nova Sonic client initialized")
 
         except ImportError as e:
