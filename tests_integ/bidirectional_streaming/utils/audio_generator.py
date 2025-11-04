@@ -120,10 +120,16 @@ class AudioGenerator:
         Returns:
             AudioInputEvent dict ready for agent.send().
         """
+        import base64
+        
+        # Convert bytes to base64 string for JSON compatibility
+        audio_b64 = base64.b64encode(audio_data).decode('utf-8')
+        
         return {
-            "audioData": audio_data,
+            "type": "bidirectional_audio_input",
+            "audio": audio_b64,
             "format": format,
-            "sampleRate": sample_rate,
+            "sample_rate": sample_rate,
             "channels": channels,
         }
 

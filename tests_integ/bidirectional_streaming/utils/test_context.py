@@ -227,19 +227,24 @@ class BidirectionalTestContext:
     def get_text_outputs(self) -> list[str]:
         """Extract text outputs from collected events.
         
-        Handles both textOutput events (Nova Sonic, OpenAI) and transcript events (Gemini Live).
+        Handles both new TypedEvent format and legacy event formats.
 
         Returns:
             List of text content strings.
         """
         texts = []
         for event in self.get_events():  # Drain queue first
-            # Handle textOutput events (Nova Sonic, OpenAI)
-            if "textOutput" in event:
+            # Handle new TypedEvent format (bidirectional_transcript_stream)
+            if event.get("type") == "bidirectional_transcript_stream":
+                text = event.get("text", "")
+                if text:
+                    texts.append(text)
+            # Handle legacy textOutput events (Nova Sonic, OpenAI)
+            elif "textOutput" in event:
                 text = event["textOutput"].get("text", "")
                 if text:
                     texts.append(text)
-            # Handle transcript events (Gemini Live)
+            # Handle legacy transcript events (Gemini Live)
             elif "transcript" in event:
                 text = event["transcript"].get("text", "")
                 if text:
@@ -252,11 +257,20 @@ class BidirectionalTestContext:
         Returns:
             List of audio data bytes.
         """
+        import base64
+        
         # Drain queue first to get latest events
         events = self.get_events()
         audio_data = []
         for event in events:
-            if "audioOutput" in event:
+            # Handle new TypedEvent format (bidirectional_audio_stream)
+            if event.get("type") == "bidirectional_audio_stream":
+                audio_b64 = event.get("audio")
+                if audio_b64:
+                    # Decode base64 to bytes
+                    audio_data.append(base64.b64decode(audio_b64))
+            # Handle legacy audioOutput events
+            elif "audioOutput" in event:
                 data = event["audioOutput"].get("audioData")
                 if data:
                     audio_data.append(data)
