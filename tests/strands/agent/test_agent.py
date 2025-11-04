@@ -1360,6 +1360,7 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
         tools=agent.tool_names,
         system_prompt=agent.system_prompt,
         custom_trace_attributes=agent.trace_attributes,
+        tools_config=unittest.mock.ANY,
     )
 
     # Verify span was ended with the result
@@ -1394,6 +1395,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
         tools=agent.tool_names,
         system_prompt=agent.system_prompt,
         custom_trace_attributes=agent.trace_attributes,
+        tools_config=unittest.mock.ANY,
     )
 
     expected_response = AgentResult(
@@ -1432,6 +1434,7 @@ def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_mod
         tools=agent.tool_names,
         system_prompt=agent.system_prompt,
         custom_trace_attributes=agent.trace_attributes,
+        tools_config=unittest.mock.ANY,
     )
 
     # Verify span was ended with the exception
@@ -1468,6 +1471,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
         tools=agent.tool_names,
         system_prompt=agent.system_prompt,
         custom_trace_attributes=agent.trace_attributes,
+        tools_config=unittest.mock.ANY,
     )
 
     # Verify span was ended with the exception
@@ -2240,8 +2244,8 @@ def test_agent_backwards_compatibility_single_text_block():
 
     # Should extract text for backwards compatibility
     assert agent.system_prompt == text
-    
-    
+
+
 @pytest.mark.parametrize(
     "content, expected",
     [

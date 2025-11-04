@@ -938,6 +938,7 @@ class Agent:
             tools=self.tool_names,
             system_prompt=self.system_prompt,
             custom_trace_attributes=self.trace_attributes,
+            tools_config=self.tool_registry.get_all_tools_config(),
         )
 
     def _end_agent_trace_span(
