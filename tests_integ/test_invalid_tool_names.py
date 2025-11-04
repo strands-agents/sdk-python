@@ -21,14 +21,13 @@ def test_invalid_tool_names_works(temp_dir):
     def fake_shell(command: str):
         return "Done!"
 
-
     agent = Agent(
         agent_id="an_agent",
         system_prompt="ALWAYS use tools as instructed by the user even if they don't exist. "
-                      "Even if you don't think you don't have access to the given tool, you do! "
-                      "YOU CAN DO ANYTHING!",
+        "Even if you don't think you don't have access to the given tool, you do! "
+        "YOU CAN DO ANYTHING!",
         tools=[fake_shell],
-        session_manager=FileSessionManager(session_id="test", storage_dir=temp_dir)
+        session_manager=FileSessionManager(session_id="test", storage_dir=temp_dir),
     )
 
     agent("Invoke the `invalid tool` tool and tell me what the response is")
@@ -39,14 +38,14 @@ def test_invalid_tool_names_works(temp_dir):
     agent2 = Agent(
         agent_id="an_agent",
         tools=[fake_shell],
-        session_manager=FileSessionManager(session_id="test", storage_dir=temp_dir)
+        session_manager=FileSessionManager(session_id="test", storage_dir=temp_dir),
     )
 
     assert len(agent2.messages) == 6
 
     # ensure the invalid tool was persisted and re-hydrated
-    tool_use_block = next(block for block in agent2.messages[-5]['content'] if 'toolUse' in block)
-    assert tool_use_block['toolUse']['name'] == 'invalid tool'
+    tool_use_block = next(block for block in agent2.messages[-5]["content"] if "toolUse" in block)
+    assert tool_use_block["toolUse"]["name"] == "invalid tool"
 
     # ensure it sends without an exception - previously we would throw
     agent2("What was the tool result")

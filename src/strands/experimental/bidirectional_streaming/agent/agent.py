@@ -435,6 +435,76 @@ class BidirectionalAgent:
             await stop_bidirectional_connection(self._session)
             self._session = None
 
+    async def run(
+        self,
+        *,
+        sender: Callable[[Any], Any],
+        receiver: Callable[[], Any],
+    ) -> None:
+        """Run the agent with send/receive loop management.
+
+        Starts the session, pipes events between the agent and transport layer,
+        and handles cleanup on disconnection.
+
+        Args:
+            sender: Async callable that sends events to the client (e.g., websocket.send_json).
+            receiver: Async callable that receives events from the client (e.g., websocket.receive_json).
+
+        Example:
+            ```python
+            # With WebSocket
+            agent = BidirectionalAgent(model=model, tools=[calculator])
+            await agent.run(sender=websocket.send_json, receiver=websocket.receive_json)
+
+            # With custom transport
+            async def custom_send(event):
+                # Custom send logic
+                pass
+
+            async def custom_receive():
+                # Custom receive logic
+                return event
+
+            await agent.run(sender=custom_send, receiver=custom_receive)
+            ```
+
+        Raises:
+            Exception: Any exception from the transport layer (e.g., WebSocketDisconnect).
+        """
+        await self.start()
+
+        async def receive_from_agent():
+            """Receive events from agent and send to client."""
+            try:
+                async for event in self.receive():
+                    await sender(event)
+            except Exception as e:
+                logger.debug(f"Receive from agent stopped: {e}")
+                raise
+
+        async def send_to_agent():
+            """Receive events from client and send to agent."""
+            try:
+                while self._session and self._session.active:
+                    event = await receiver()
+                    await self.send(event)
+            except Exception as e:
+                logger.debug(f"Send to agent stopped: {e}")
+                raise
+
+        try:
+            # Run both loops concurrently
+            await asyncio.gather(
+                receive_from_agent(),
+                send_to_agent(),
+                return_exceptions=True
+            )
+        finally:
+            try:
+                await self.end()
+            except Exception as e:
+                logger.debug(f"Error during cleanup: {e}")
+
     def _validate_active_session(self) -> None:
         """Validate that an active session exists.
 
