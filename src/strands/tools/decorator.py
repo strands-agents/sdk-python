@@ -44,7 +44,6 @@ import asyncio
 import functools
 import inspect
 import logging
-from copy import copy
 from typing import (
     Annotated,
     Any,
@@ -65,7 +64,6 @@ from typing import (
 import docstring_parser
 from pydantic import BaseModel, Field, create_model
 from pydantic.fields import FieldInfo
-from pydantic_core import PydanticUndefined
 from typing_extensions import override
 
 from ..interrupt import InterruptException
@@ -119,47 +117,57 @@ class FunctionToolMetadata:
     def _extract_annotated_metadata(
         self, annotation: Any, param_name: str, param_default: Any
     ) -> tuple[Any, FieldInfo]:
-        """Extract type and create FieldInfo from Annotated type hint.
+        """Extracts type and a simple string description from an Annotated type hint.
 
         Returns:
-            (actual_type, field_info) where field_info is always a FieldInfo instance
+            A tuple of (actual_type, field_info), where field_info is a new, simple
+            Pydantic FieldInfo instance created from the extracted metadata.
         """
         actual_type = annotation
-        field_info: FieldInfo | None = None
         description: str | None = None
 
         if get_origin(annotation) is Annotated:
             args = get_args(annotation)
             actual_type = args[0]
+
+            # Look through metadata for a string description or a FieldInfo object.
             for meta in args[1:]:
-                if isinstance(meta, FieldInfo):
-                    field_info = meta
-                elif isinstance(meta, str):
+                if isinstance(meta, str):
                     description = meta
+                elif isinstance(meta, FieldInfo):
+                    # --- Future Contributor Note ---
+                    # We are explicitly blocking the use of `pydantic.Field` within `Annotated`
+                    # because of the complexities of Pydantic v2's immutable Core Schema.
+                    #
+                    # Once a Pydantic model's schema is built, its `FieldInfo` objects are
+                    # effectively frozen. Attempts to mutate a `FieldInfo` object after
+                    # creation (e.g., by copying it and setting `.description` or `.default`)
+                    # are unreliable because the underlying Core Schema does not see these changes.
+                    #
+                    # The correct way to support this would be to reliably extract all
+                    # constraints (ge, le, pattern, etc.) from the original FieldInfo and
+                    # rebuild a new one from scratch. However, these constraints are not
+                    # stored as public attributes, making them difficult to inspect reliably.
+                    #
+                    # Deferring this complexity until there is clear demand and a robust
+                    # pattern for inspecting FieldInfo constraints is established.
+                    raise NotImplementedError(
+                        "Using pydantic.Field within Annotated is not yet supported for tool decorators. "
+                        "Please use a simple string for the description, or define constraints in the function's "
+                        "docstring."
+                    )
 
-        # Final description — always a string, never None
-        final_description = (
-            description
-            if description is not None
-            else (
-                field_info.description
-                if field_info and field_info.description is not None
-                else self.param_descriptions.get(param_name) or f"Parameter {param_name}"
-            )
-        )
+        # Determine the final description with a clear priority order.
+        # Priority: 1. Annotated string -> 2. Docstring -> 3. Fallback
+        final_description = description
+        if final_description is None:
+            final_description = self.param_descriptions.get(param_name)
+        if final_description is None:
+            final_description = f"Parameter {param_name}"
 
-        # Build final FieldInfo
-        if field_info:
-            final_field = copy(field_info)
-            final_field.description = final_description
-
-            # ONLY override default if Field has no default AND signature has one.
-            # Pydantic uses `PydanticUndefined` to signify no default was provided,
-            # which is distinct from an explicit default of `None`.
-            if field_info.default is PydanticUndefined and param_default is not ...:
-                final_field.default = param_default
-        else:
-            final_field = Field(default=param_default, description=final_description)
+        # Create a new, simple FieldInfo object from scratch.
+        # This avoids all the immutability and mutation issues we encountered previously.
+        final_field = Field(default=param_default, description=final_description)
 
         return actual_type, final_field
 

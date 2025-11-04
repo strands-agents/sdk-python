@@ -1484,30 +1484,16 @@ def test_tool_decorator_annotated_string_description():
 
 
 def test_tool_decorator_annotated_pydantic_field_constraints():
-    """Test tool decorator with Pydantic Field in Annotated."""
+    """Test that using pydantic.Field in Annotated raises a NotImplementedError."""
+    with pytest.raises(NotImplementedError, match="Using pydantic.Field within Annotated is not yet supported"):
 
-    @strands.tool
-    def field_annotated_tool(
-        email: Annotated[str, Field(description="User's email address", pattern=r"^[\w\.-]+@[\w\.-]+\\.\w+$")],
-        score: Annotated[int, Field(description="Score between 0-100", ge=0, le=100)] = 50,
-    ) -> str:
-        """Tool with Pydantic Field annotations."""
-        return f"{email}: {score}"
-
-    spec = field_annotated_tool.tool_spec
-    schema = spec["inputSchema"]["json"]
-
-    # Check descriptions from Field
-    assert schema["properties"]["email"]["description"] == "User's email address"
-    assert schema["properties"]["score"]["description"] == "Score between 0-100"
-
-    # Check that constraints are preserved
-    assert schema["properties"]["score"]["minimum"] == 0
-    assert schema["properties"]["score"]["maximum"] == 100
-
-    # Check required fields
-    assert "email" in schema["required"]
-    assert "score" not in schema["required"]  # Has default
+        @strands.tool
+        def field_annotated_tool(
+            email: Annotated[str, Field(description="User's email address", pattern=r"^[\w\.-]+@[\w\.-]+\\.w+$")],
+            score: Annotated[int, Field(description="Score between 0-100", ge=0, le=100)] = 50,
+        ) -> str:
+            """Tool with Pydantic Field annotations."""
+            return f"{email}: {score}"
 
 
 def test_tool_decorator_annotated_overrides_docstring():
@@ -1574,31 +1560,23 @@ def test_tool_decorator_annotated_complex_types():
 
 
 def test_tool_decorator_annotated_mixed_styles():
-    """Test tool with mixed annotation styles."""
+    """Test that using pydantic.Field in a mixed-style annotation raises NotImplementedError."""
+    with pytest.raises(NotImplementedError, match="Using pydantic.Field within Annotated is not yet supported"):
 
-    @strands.tool
-    def mixed_tool(
-        plain: str,
-        annotated_str: Annotated[str, "String description"],
-        annotated_field: Annotated[int, Field(description="Field description", ge=0)],
-        docstring_only: int,
-    ) -> str:
-        """Tool with mixed parameter styles.
+        @strands.tool
+        def mixed_tool(
+            plain: str,
+            annotated_str: Annotated[str, "String description"],
+            annotated_field: Annotated[int, Field(description="Field description", ge=0)],
+            docstring_only: int,
+        ) -> str:
+            """Tool with mixed parameter styles.
 
-        Args:
-            plain: Plain parameter description
-            docstring_only: Docstring description for this param
-        """
-        return "mixed"
-
-    spec = mixed_tool.tool_spec
-    schema = spec["inputSchema"]["json"]
-
-    # Check each style works correctly
-    assert schema["properties"]["plain"]["description"] == "Plain parameter description"
-    assert schema["properties"]["annotated_str"]["description"] == "String description"
-    assert schema["properties"]["annotated_field"]["description"] == "Field description"
-    assert schema["properties"]["docstring_only"]["description"] == "Docstring description for this param"
+            Args:
+                plain: Plain parameter description
+                docstring_only: Docstring description for this param
+            """
+            return "mixed"
 
 
 @pytest.mark.asyncio
@@ -1624,24 +1602,19 @@ async def test_tool_decorator_annotated_execution(alist):
 
 
 def test_tool_decorator_annotated_no_description_fallback():
-    """Test that Annotated without description falls back to docstring."""
+    """Test that Annotated with a Field raises NotImplementedError."""
+    with pytest.raises(NotImplementedError, match="Using pydantic.Field within Annotated is not yet supported"):
 
-    @strands.tool
-    def no_desc_annotated(
-        param: Annotated[str, Field()],  # Field without description
-    ) -> str:
-        """Tool with Annotated but no description.
+        @strands.tool
+        def no_desc_annotated(
+            param: Annotated[str, Field()],  # Field without description
+        ) -> str:
+            """Tool with Annotated but no description.
 
-        Args:
-            param: Docstring description
-        """
-        return param
-
-    spec = no_desc_annotated.tool_spec
-    schema = spec["inputSchema"]["json"]
-
-    # Should fall back to docstring
-    assert schema["properties"]["param"]["description"] == "Docstring description"
+            Args:
+                param: Docstring description
+            """
+            return param
 
 
 def test_tool_decorator_annotated_empty_string_description():
@@ -1683,16 +1656,9 @@ async def test_tool_decorator_annotated_validation_error(alist):
 
 
 def test_tool_decorator_annotated_field_with_inner_default():
-    """Test that a default value in an Annotated Field is respected."""
+    """Test that a default value in an Annotated Field raises NotImplementedError."""
+    with pytest.raises(NotImplementedError, match="Using pydantic.Field within Annotated is not yet supported"):
 
-    @strands.tool
-    def inner_default_tool(name: str, level: Annotated[int, Field(description="A level value", default=10)]) -> str:
-        return f"{name} is at level {level}"
-
-    spec = inner_default_tool.tool_spec
-    schema = spec["inputSchema"]["json"]
-
-    # 'level' should not be required because its Field has a default
-    assert "name" in schema["required"]
-    assert "level" not in schema["required"]
-    assert schema["properties"]["level"]["default"] == 10
+        @strands.tool
+        def inner_default_tool(name: str, level: Annotated[int, Field(description="A level value", default=10)]) -> str:
+            return f"{name} is at level {level}"
