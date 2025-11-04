@@ -15,7 +15,7 @@ Key capabilities:
 import asyncio
 import json
 import logging
-from typing import Any, AsyncIterable, Mapping, Optional, Union
+from typing import Any, AsyncIterable, Mapping, Optional, Union, Callable
 
 from .... import _identifier
 from ....hooks import HookProvider, HookRegistry
@@ -324,7 +324,7 @@ class BidirectionalAgent:
         Yields:
             BidirectionalStreamEvent: Events from the model session.
         """
-        while self._session and self._session.active:
+        while self.active:
             try:
                 event = await asyncio.wait_for(self._output_queue.get(), timeout=0.1)
                 yield event
@@ -340,6 +340,54 @@ class BidirectionalAgent:
         if self._session:
             await self._session.stop()
             self._session = None
+
+    async def __aenter__(self) -> "BidirectionalAgent":
+        """Async context manager entry point.
+        
+        Automatically starts the bidirectional session when entering the context.
+        
+        Returns:
+            Self for use in the context.
+            
+        Raises:
+            ValueError: If session is already active.
+            ConnectionError: If session creation fails.
+        """
+        logger.debug("Entering async context manager - starting session")
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Async context manager exit point.
+        
+        Automatically ends the session and cleans up resources when exiting 
+        the context, regardless of whether an exception occurred.
+        
+        Args:
+            exc_type: Exception type if an exception occurred, None otherwise.
+            exc_val: Exception value if an exception occurred, None otherwise.
+            exc_tb: Exception traceback if an exception occurred, None otherwise.
+        """
+        try:
+            logger.debug("Exiting async context manager - ending session")
+            await self.end()
+        except Exception as cleanup_error:
+            if exc_type is None:
+                # No original exception, re-raise cleanup error
+                logger.error("Error during context manager cleanup: %s", cleanup_error)
+                raise
+            else:
+                # Original exception exists, log cleanup error but don't suppress original
+                logger.error("Error during context manager cleanup (suppressed due to original exception): %s", cleanup_error)
+
+    @property
+    def active(self) -> bool:
+        """Check if the agent session is currently active.
+        
+        Returns:
+            True if session is active and ready for communication, False otherwise.
+        """
+        return self._session is not None and self._session.active
 
     async def run(
         self,
@@ -377,8 +425,28 @@ class BidirectionalAgent:
         Raises:
             Exception: Any exception from the transport layer (e.g., WebSocketDisconnect).
         """
-        await self.start()
+        # Check if session is already active
+        session_was_active = self.active
+        
+        if session_was_active:
+            # Use existing session
+            await self._run_with_session(sender, receiver)
+        else:
+            # Use async context manager for automatic lifecycle management
+            async with self:
+                await self._run_with_session(sender, receiver)
 
+    async def _run_with_session(
+        self,
+        sender: Callable[[Any], Any],
+        receiver: Callable[[], Any],
+    ) -> None:
+        """Internal method to run send/receive loops with an active session.
+        
+        Args:
+            sender: Async callable that sends events to the client.
+            receiver: Async callable that receives events from the client.
+        """
         async def receive_from_agent():
             """Receive events from agent and send to client."""
             try:
@@ -391,25 +459,19 @@ class BidirectionalAgent:
         async def send_to_agent():
             """Receive events from client and send to agent."""
             try:
-                while self._session and self._session.active:
+                while self.active:
                     event = await receiver()
                     await self.send(event)
             except Exception as e:
                 logger.debug(f"Send to agent stopped: {e}")
                 raise
 
-        try:
-            # Run both loops concurrently
-            await asyncio.gather(
-                receive_from_agent(),
-                send_to_agent(),
-                return_exceptions=True
-            )
-        finally:
-            try:
-                await self.end()
-            except Exception as e:
-                logger.debug(f"Error during cleanup: {e}")
+        # Run both loops concurrently
+        await asyncio.gather(
+            receive_from_agent(),
+            send_to_agent(),
+            return_exceptions=True
+        )
 
     def _validate_active_session(self) -> None:
         """Validate that an active session exists.
@@ -417,5 +479,5 @@ class BidirectionalAgent:
         Raises:
             ValueError: If no active session.
         """
-        if not self._session or not self._session.active:
-            raise ValueError("No active conversation. Call start() first.")
+        if not self.active:
+            raise ValueError("No active conversation. Call start() first or use async context manager.")
