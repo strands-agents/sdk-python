@@ -13,7 +13,6 @@ import uuid
 from typing import AsyncIterable, Union
 
 import websockets
-from websockets.client import WebSocketClientProtocol
 from websockets.exceptions import ConnectionClosed
 
 from ....types.content import Messages
@@ -149,7 +148,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
             if self.project:
                 headers.append(("OpenAI-Project", self.project))
             
-            self.websocket = await websockets.connect(url, extra_headers=headers)
+            self.websocket = await websockets.connect(url, additional_headers=headers)
             logger.info("WebSocket connected successfully")
             
             # Configure session

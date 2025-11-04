@@ -31,7 +31,13 @@ from ....types.tools import ToolResult, ToolUse
 from ....types.traces import AttributeValue
 from ..event_loop.bidirectional_event_loop import start_bidirectional_connection, stop_bidirectional_connection
 from ..models.bidirectional_model import BidirectionalModel
-from ..types.bidirectional_streaming import AudioInputEvent, ImageInputEvent, OutputEvent
+from ..types.bidirectional_streaming import (
+    AudioInputEvent,
+    ImageInputEvent,
+    InputEvent,
+    OutputEvent,
+    TextInputEvent,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -389,14 +395,18 @@ class BidirectionalAgent:
             # Add user text message to history
             self.messages.append({"role": "user", "content": input_data})
             logger.debug("Text sent: %d characters", len(input_data))
-            from ..types.bidirectional_streaming import TextInputEvent
             text_event = TextInputEvent(text=input_data, role="user")
             await self._session.model.send(text_event)
             return
         
-        # Handle dict - reconstruct TypedEvent for WebSocket integration
+        # Handle InputEvent instances (TextInputEvent, AudioInputEvent, ImageInputEvent)
+        # Check this before dict since TypedEvent inherits from dict
+        if isinstance(input_data, (TextInputEvent, AudioInputEvent, ImageInputEvent)):
+            await self._session.model.send(input_data)
+            return
+        
+        # Handle plain dict - reconstruct TypedEvent for WebSocket integration
         if isinstance(input_data, dict) and "type" in input_data:
-            from ..types.bidirectional_streaming import TextInputEvent
             event_type = input_data["type"]
             if event_type == "bidirectional_text_input":
                 input_data = TextInputEvent(text=input_data["text"], role=input_data["role"])
@@ -414,14 +424,15 @@ class BidirectionalAgent:
                 )
             else:
                 raise ValueError(f"Unknown event type: {event_type}")
-        
-        # Handle TypedEvent instances
-        if isinstance(input_data, (AudioInputEvent, ImageInputEvent, TextInputEvent)):
+            
+            # Send the reconstructed TypedEvent
             await self._session.model.send(input_data)
-        else:
-            raise ValueError(
-                f"Input must be a string, TypedEvent, or event dict, got: {type(input_data)}"
-            )
+            return
+        
+        # If we get here, input type is invalid
+        raise ValueError(
+            f"Input must be a string, InputEvent (TextInputEvent/AudioInputEvent/ImageInputEvent), or event dict with 'type' field, got: {type(input_data)}"
+        )
 
     async def receive(self) -> AsyncIterable[dict[str, Any]]:
         """Receive events from the model including audio, text, and tool calls.

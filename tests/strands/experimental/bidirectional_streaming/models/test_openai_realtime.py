@@ -174,7 +174,7 @@ async def test_connection_lifecycle(mock_websockets_connect, model, system_promp
     model_org = OpenAIRealtimeModel(api_key="test-key", organization="org-123")
     await model_org.connect()
     call_kwargs = mock_connect.call_args.kwargs
-    headers = call_kwargs.get("extra_headers", [])
+    headers = call_kwargs.get("additional_headers", [])
     org_header = [h for h in headers if h[0] == "OpenAI-Organization"]
     assert len(org_header) == 1
     assert org_header[0][1] == "org-123"
