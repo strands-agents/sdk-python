@@ -21,7 +21,7 @@ from ....telemetry.metrics import Trace
 from ....types._events import ToolResultEvent, ToolStreamEvent
 from ....types.content import Message
 from ....types.tools import ToolResult, ToolUse
-from ..models.bidirectional_model import BidirectionalModelSession
+from ..models.bidirectional_model import BidirectionalModel
 
 logger = logging.getLogger(__name__)
 
@@ -37,14 +37,14 @@ class BidirectionalConnection:
     handling while providing a simple interface for agent interactions.
     """
 
-    def __init__(self, model_session: BidirectionalModelSession, agent: "BidirectionalAgent") -> None:
-        """Initialize session with model session and agent reference.
+    def __init__(self, model: BidirectionalModel, agent: "BidirectionalAgent") -> None:
+        """Initialize connection with model and agent reference.
 
         Args:
-            model_session: Provider-specific bidirectional model session.
+            model: Bidirectional model instance.
             agent: BidirectionalAgent instance for tool registry access.
         """
-        self.model_session = model_session
+        self.model = model
         self.agent = agent
         self.active = True
 
@@ -76,15 +76,15 @@ async def start_bidirectional_connection(agent: "BidirectionalAgent") -> Bidirec
     Returns:
         BidirectionalConnection: Active session with background tasks running.
     """
-    logger.debug("Starting bidirectional session - initializing model session")
+    logger.debug("Starting bidirectional session - initializing model connection")
 
-    # Create provider-specific session
-    model_session = await agent.model.create_bidirectional_connection(
+    # Connect to model
+    await agent.model.connect(
         system_prompt=agent.system_prompt, tools=agent.tool_registry.get_all_tool_specs(), messages=agent.messages
     )
 
-    # Create session wrapper for background processing
-    session = BidirectionalConnection(model_session=model_session, agent=agent)
+    # Create connection wrapper for background processing
+    session = BidirectionalConnection(model=agent.model, agent=agent)
 
     # Start concurrent background processors IMMEDIATELY after session creation
     # This is critical - Nova Sonic needs response processing during initialization
@@ -135,9 +135,9 @@ async def stop_bidirectional_connection(session: BidirectionalConnection) -> Non
     if all_tasks:
         await asyncio.gather(*all_tasks, return_exceptions=True)
 
-    # Close model session
-    await session.model_session.close()
-    logger.debug("Session closed")
+    # Close model connection
+    await session.model.close()
+    logger.debug("Connection closed")
 
 
 async def bidirectional_event_loop_cycle(session: BidirectionalConnection) -> None:
@@ -253,11 +253,11 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
     events to standardized formats, and manages interruption detection.
 
     Args:
-        session: BidirectionalConnection containing model session.
+        session: BidirectionalConnection containing model.
     """
     logger.debug("Model events processor started")
     try:
-        async for provider_event in session.model_session.receive_events():
+        async for provider_event in session.model.receive():
             if not session.active:
                 break
 
@@ -434,8 +434,8 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
                 tool_result = tool_event.tool_result
                 tool_use_id = tool_result.get("toolUseId")
                 
-                # Send result through provider-specific session
-                await session.model_session.send_tool_result(tool_use_id, tool_result)
+                # Send result through send() method
+                await session.model.send(tool_result)
                 logger.debug("Tool result sent: %s", tool_use_id)
                 
             # Handle streaming events if needed later
@@ -471,10 +471,10 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
             "content": [{"text": f"Error: {str(e)}"}]
         }
         try:
-            await session.model_session.send_tool_result(tool_id, error_result)
+            await session.model.send(error_result)
             logger.debug("Error result sent: %s", tool_id)
-        except Exception:
-            logger.error("Failed to send error result: %s", tool_id)
-            pass  # Session might be closed
+        except Exception as send_error:
+            logger.error("Failed to send error result: %s - %s", tool_id, str(send_error))
+            raise  # Propagate exception since this is experimental code
 
 

@@ -379,13 +379,15 @@ class BidirectionalAgent:
             self.messages.append({"role": "user", "content": input_data})
 
             logger.debug("Text sent: %d characters", len(input_data))
-            await self._session.model_session.send_text_content(input_data)
+            # Create TextInputEvent for send()
+            text_event = {"text": input_data, "role": "user"}
+            await self._session.model.send(text_event)
         elif isinstance(input_data, dict) and "audioData" in input_data:
-            # Handle audio input
-            await self._session.model_session.send_audio_content(input_data)
+            # Handle audio input - already in AudioInputEvent format
+            await self._session.model.send(input_data)
         elif isinstance(input_data, dict) and "imageData" in input_data:
-            # Handle image input (ImageInputEvent)
-            await self._session.model_session.send_image_content(input_data)
+            # Handle image input - already in ImageInputEvent format
+            await self._session.model.send(input_data)
         else:
             raise ValueError(
                 "Input must be either a string (text), AudioInputEvent "
@@ -419,7 +421,9 @@ class BidirectionalAgent:
             ValueError: If no active session.
         """
         self._validate_active_session()
-        await self._session.model_session.send_interrupt()
+        # Interruption is now handled internally by models through audio/event processing
+        # No explicit interrupt method needed in unified interface
+        logger.debug("Interrupt requested - handled by model's audio processing")
 
     async def end(self) -> None:
         """End the conversation session and cleanup all resources.

@@ -3,19 +3,22 @@
 # Main components - Primary user interface
 from .agent.agent import BidirectionalAgent
 
-# Advanced interfaces (for custom implementations)
-from .models.bidirectional_model import BidirectionalModel, BidirectionalModelSession
+# Model interface (for custom implementations)
+from .models.bidirectional_model import BidirectionalModel
 
 # Model providers - What users need to create models
-from .models.novasonic import NovaSonicBidirectionalModel
-from .models.openai import OpenAIRealtimeBidirectionalModel
+from .models.gemini_live import GeminiLiveModel
+from .models.novasonic import NovaSonicModel
+from .models.openai import OpenAIRealtimeModel
 
 # Event types - For type hints and event handling
 from .types.bidirectional_streaming import (
     AudioInputEvent,
     AudioOutputEvent,
     BidirectionalStreamEvent,
+    ImageInputEvent,
     InterruptionDetectedEvent,
+    TextInputEvent,
     TextOutputEvent,
     UsageMetricsEvent,
     VoiceActivityEvent,
@@ -26,12 +29,15 @@ __all__ = [
     "BidirectionalAgent",
     
     # Model providers
-    "NovaSonicBidirectionalModel",
-    "OpenAIRealtimeBidirectionalModel",
+    "GeminiLiveModel",
+    "NovaSonicModel",
+    "OpenAIRealtimeModel",
     
     # Event types
     "AudioInputEvent",
-    "AudioOutputEvent", 
+    "AudioOutputEvent",
+    "ImageInputEvent",
+    "TextInputEvent",
     "TextOutputEvent",
     "InterruptionDetectedEvent",
     "BidirectionalStreamEvent",
@@ -40,5 +46,4 @@ __all__ = [
     
     # Model interface
     "BidirectionalModel",
-    "BidirectionalModelSession",
 ]
