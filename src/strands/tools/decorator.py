@@ -130,7 +130,7 @@ class FunctionToolMetadata:
             args = get_args(annotation)
             actual_type = args[0]
 
-            # Look through metadata for a string description or a FieldInfo object.
+            # Look through metadata for a string description or a FieldInfo object
             for meta in args[1:]:
                 if isinstance(meta, str):
                     description = meta
@@ -157,7 +157,7 @@ class FunctionToolMetadata:
                         "docstring."
                     )
 
-        # Determine the final description with a clear priority order.
+        # Determine the final description with a clear priority order
         # Priority: 1. Annotated string -> 2. Docstring -> 3. Fallback
         final_description = description
         if final_description is None:
@@ -165,8 +165,7 @@ class FunctionToolMetadata:
         if final_description is None:
             final_description = f"Parameter {param_name}"
 
-        # Create a new, simple FieldInfo object from scratch.
-        # This avoids all the immutability and mutation issues we encountered previously.
+        # Create FieldInfo object from scratch
         final_field = Field(default=param_default, description=final_description)
 
         return actual_type, final_field
