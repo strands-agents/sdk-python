@@ -201,7 +201,11 @@ class FunctionToolMetadata:
             if self._is_special_parameter(name):
                 continue
 
-            param_type = self.type_hints.get(name, Any)
+            # Fallback to Any for params without type hints to prevent Pydantic errors
+            param_type = self.type_hints.get(name, param.annotation)
+            if param_type is inspect.Parameter.empty:
+                param_type = Any
+
             default = ... if param.default is inspect.Parameter.empty else param.default
 
             actual_type, field_info = self._extract_annotated_metadata(param_type, name, default)
