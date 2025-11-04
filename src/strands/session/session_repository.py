@@ -1,9 +1,12 @@
 """Session repository interface for agent session management."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from ..types.session import Session, SessionAgent, SessionMessage
+
+if TYPE_CHECKING:
+    from ..multiagent import MultiAgentBase
 
 
 class SessionRepository(ABC):
@@ -49,3 +52,15 @@ class SessionRepository(ABC):
         self, session_id: str, agent_id: str, limit: Optional[int] = None, offset: int = 0, **kwargs: Any
     ) -> list[SessionMessage]:
         """List Messages from an Agent with pagination."""
+
+    def create_multi_agent(self, session_id: str, multi_agent: "MultiAgentBase", **kwargs: Any) -> None:
+        """Create a new MultiAgent state for the Session."""
+        raise NotImplementedError("MultiAgent is not implemented for this repository")
+
+    def read_multi_agent(self, session_id: str, multi_agent_id: str, **kwargs: Any) -> Optional[dict[str, Any]]:
+        """Read the MultiAgent state for the Session."""
+        raise NotImplementedError("MultiAgent is not implemented for this repository")
+
+    def update_multi_agent(self, session_id: str, multi_agent: "MultiAgentBase", **kwargs: Any) -> None:
+        """Update the MultiAgent state for the Session."""
+        raise NotImplementedError("MultiAgent is not implemented for this repository")

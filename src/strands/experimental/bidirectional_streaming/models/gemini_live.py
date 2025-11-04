@@ -88,7 +88,7 @@ class GeminiLiveModel(BidirectionalModel):
         
         # Connection state (initialized in connect())
         self.live_session = None
-        self.live_session_cm = None
+        self.live_session_context_manager = None
         self.session_id = None
         self._active = False
     
@@ -119,13 +119,13 @@ class GeminiLiveModel(BidirectionalModel):
             live_config = self._build_live_config(system_prompt, tools, **kwargs)
             
             # Create the context manager
-            self.live_session_cm = self.client.aio.live.connect(
+            self.live_session_context_manager = self.client.aio.live.connect(
                 model=self.model_id,
                 config=live_config
             )
             
             # Enter the context manager
-            self.live_session = await self.live_session_cm.__aenter__()
+            self.live_session = await self.live_session_context_manager.__aenter__()
             
             # Send initial message history if provided
             if messages:
@@ -348,6 +348,7 @@ class GeminiLiveModel(BidirectionalModel):
                 logger.warning(f"Unknown content type: {type(content)}")
         except Exception as e:
             logger.error(f"Error sending content: {e}")
+            raise  # Propagate exception for debugging in experimental code
     
     async def _send_audio_content(self, audio_input: AudioInputEvent) -> None:
         """Internal: Send audio content using Gemini Live API.
@@ -440,8 +441,8 @@ class GeminiLiveModel(BidirectionalModel):
         
         try:
             # Exit the context manager properly
-            if self.live_session_cm:
-                await self.live_session_cm.__aexit__(None, None, None)
+            if self.live_session_context_manager:
+                await self.live_session_context_manager.__aexit__(None, None, None)
         except Exception as e:
             logger.error("Error closing Gemini Live connection: %s", e)
             raise

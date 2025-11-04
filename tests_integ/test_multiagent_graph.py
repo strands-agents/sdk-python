@@ -1,3 +1,5 @@
+from typing import Any, AsyncIterator
+
 import pytest
 
 from strands import Agent, tool
@@ -9,6 +11,7 @@ from strands.hooks import (
     BeforeModelCallEvent,
     MessageAddedEvent,
 )
+from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 from strands.multiagent.graph import GraphBuilder
 from strands.types.content import ContentBlock
 from tests.fixtures.mock_hook_provider import MockHookProvider
@@ -218,3 +221,240 @@ async def test_graph_execution_with_image(image_analysis_agent, summary_agent, y
 
     assert hook_provider.extract_for(image_analysis_agent).event_types_received == expected_hook_events
     assert hook_provider.extract_for(summary_agent).event_types_received == expected_hook_events
+
+
+class CustomStreamingNode(MultiAgentBase):
+    """Custom node that wraps an agent and adds custom streaming events."""
+
+    def __init__(self, agent: Agent, name: str):
+        self.agent = agent
+        self.name = name
+
+    async def invoke_async(
+        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> MultiAgentResult:
+        result = await self.agent.invoke_async(task, **kwargs)
+        node_result = NodeResult(result=result, status=Status.COMPLETED)
+        return MultiAgentResult(status=Status.COMPLETED, results={self.name: node_result})
+
+    async def stream_async(
+        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> AsyncIterator[dict[str, Any]]:
+        yield {"custom_event": "start", "node": self.name}
+        result = await self.agent.invoke_async(task, **kwargs)
+        yield {"custom_event": "agent_complete", "node": self.name}
+        node_result = NodeResult(result=result, status=Status.COMPLETED)
+        yield {"result": MultiAgentResult(status=Status.COMPLETED, results={self.name: node_result})}
+
+
+@pytest.mark.asyncio
+async def test_graph_streaming_with_agents(alist):
+    """Test that Graph properly streams events from agent nodes."""
+    math_agent = Agent(
+        name="math",
+        model="us.amazon.nova-pro-v1:0",
+        system_prompt="You are a math assistant.",
+        tools=[calculate_sum],
+    )
+    summary_agent = Agent(
+        name="summary",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are a summary assistant.",
+    )
+
+    builder = GraphBuilder()
+    builder.add_node(math_agent, "math")
+    builder.add_node(summary_agent, "summary")
+    builder.add_edge("math", "summary")
+    builder.set_entry_point("math")
+    builder.set_node_timeout(900.0)  # Verify timeout doesn't interfere with streaming
+    graph = builder.build()
+
+    # Collect events
+    events = await alist(graph.stream_async("Calculate 5 + 3 and summarize the result"))
+
+    # Count event categories
+    node_start_events = [e for e in events if e.get("type") == "multiagent_node_start"]
+    node_stream_events = [e for e in events if e.get("type") == "multiagent_node_stream"]
+    node_stop_events = [e for e in events if e.get("type") == "multiagent_node_stop"]
+    handoff_events = [e for e in events if e.get("type") == "multiagent_handoff"]
+    result_events = [e for e in events if "result" in e and e.get("type") != "multiagent_node_stream"]
+
+    # Verify we got multiple events of each type
+    assert len(node_start_events) >= 2, f"Expected at least 2 node_start events, got {len(node_start_events)}"
+    assert len(node_stream_events) > 10, f"Expected many node_stream events, got {len(node_stream_events)}"
+    assert len(node_stop_events) >= 2, f"Expected at least 2 node_stop events, got {len(node_stop_events)}"
+    assert len(handoff_events) >= 1, f"Expected at least 1 handoff event, got {len(handoff_events)}"
+    assert len(result_events) >= 1, f"Expected at least 1 result event, got {len(result_events)}"
+
+    # Verify handoff event structure
+    handoff = handoff_events[0]
+    assert "from_node_ids" in handoff, "Handoff event missing from_node_ids"
+    assert "to_node_ids" in handoff, "Handoff event missing to_node_ids"
+    assert isinstance(handoff["from_node_ids"], list), "from_node_ids should be a list"
+    assert isinstance(handoff["to_node_ids"], list), "to_node_ids should be a list"
+    assert "math" in handoff["from_node_ids"], "Expected math in from_node_ids"
+    assert "summary" in handoff["to_node_ids"], "Expected summary in to_node_ids"
+
+    # Verify we have events for both nodes
+    math_events = [e for e in events if e.get("node_id") == "math"]
+    summary_events = [e for e in events if e.get("node_id") == "summary"]
+    assert len(math_events) > 0, "Expected events from math node"
+    assert len(summary_events) > 0, "Expected events from summary node"
+
+
+@pytest.mark.asyncio
+async def test_graph_streaming_with_custom_node(alist):
+    """Test that Graph properly streams events from custom MultiAgentBase nodes."""
+    math_agent = Agent(
+        name="math",
+        model="us.amazon.nova-pro-v1:0",
+        system_prompt="You are a math assistant.",
+        tools=[calculate_sum],
+    )
+    summary_agent = Agent(
+        name="summary",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are a summary assistant.",
+    )
+
+    # Create a custom node
+    custom_node = CustomStreamingNode(summary_agent, "custom_summary")
+
+    builder = GraphBuilder()
+    builder.add_node(math_agent, "math")
+    builder.add_node(custom_node, "custom_summary")
+    builder.add_edge("math", "custom_summary")
+    builder.set_entry_point("math")
+    graph = builder.build()
+
+    # Collect events
+    events = await alist(graph.stream_async("Calculate 5 + 3 and summarize the result"))
+
+    # Count event categories
+    node_start_events = [e for e in events if e.get("type") == "multiagent_node_start"]
+    node_stream_events = [e for e in events if e.get("type") == "multiagent_node_stream"]
+    result_events = [e for e in events if "result" in e and e.get("type") != "multiagent_node_stream"]
+
+    # Extract custom events from wrapped node_stream events
+    # Structure: {"type": "multiagent_node_stream", "node_id": "...", "event": {...}}
+    custom_events = []
+    for e in node_stream_events:
+        if e.get("type") == "multiagent_node_stream" and "event" in e:
+            inner_event = e["event"]
+            if isinstance(inner_event, dict) and "custom_event" in inner_event:
+                custom_events.append(inner_event)
+
+    # Verify we got multiple events of each type
+    assert len(node_start_events) >= 2, f"Expected at least 2 node_start events, got {len(node_start_events)}"
+    assert len(node_stream_events) > 5, f"Expected many node_stream events, got {len(node_stream_events)}"
+    assert len(custom_events) >= 2, f"Expected at least 2 custom events (start, complete), got {len(custom_events)}"
+    assert len(result_events) >= 1, f"Expected at least 1 result event, got {len(result_events)}"
+
+    # Verify custom events are properly structured
+    custom_start = [e for e in custom_events if e.get("custom_event") == "start"]
+    custom_complete = [e for e in custom_events if e.get("custom_event") == "agent_complete"]
+
+    assert len(custom_start) >= 1, "Expected at least 1 custom start event"
+    assert len(custom_complete) >= 1, "Expected at least 1 custom complete event"
+
+
+@pytest.mark.asyncio
+async def test_nested_graph_streaming(alist):
+    """Test that nested graphs properly propagate streaming events."""
+    math_agent = Agent(
+        name="math",
+        model="us.amazon.nova-pro-v1:0",
+        system_prompt="You are a math assistant.",
+        tools=[calculate_sum],
+    )
+    analysis_agent = Agent(
+        name="analysis",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are an analysis assistant.",
+    )
+
+    # Create nested graph
+    nested_builder = GraphBuilder()
+    nested_builder.add_node(math_agent, "calculator")
+    nested_builder.add_node(analysis_agent, "analyzer")
+    nested_builder.add_edge("calculator", "analyzer")
+    nested_builder.set_entry_point("calculator")
+    nested_graph = nested_builder.build()
+
+    # Create outer graph with nested graph
+    summary_agent = Agent(
+        name="summary",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are a summary assistant.",
+    )
+
+    outer_builder = GraphBuilder()
+    outer_builder.add_node(nested_graph, "computation")
+    outer_builder.add_node(summary_agent, "summary")
+    outer_builder.add_edge("computation", "summary")
+    outer_builder.set_entry_point("computation")
+    outer_graph = outer_builder.build()
+
+    # Collect events
+    events = await alist(outer_graph.stream_async("Calculate 7 + 8 and provide a summary"))
+
+    # Count event categories
+    node_start_events = [e for e in events if e.get("type") == "multiagent_node_start"]
+    node_stream_events = [e for e in events if e.get("type") == "multiagent_node_stream"]
+    result_events = [e for e in events if "result" in e and e.get("type") != "multiagent_node_stream"]
+
+    # Verify we got multiple events
+    assert len(node_start_events) >= 2, f"Expected at least 2 node_start events, got {len(node_start_events)}"
+    assert len(node_stream_events) > 10, f"Expected many node_stream events, got {len(node_stream_events)}"
+    assert len(result_events) >= 1, f"Expected at least 1 result event, got {len(result_events)}"
+
+    # Verify we have events from nested nodes
+    computation_events = [e for e in events if e.get("node_id") == "computation"]
+    summary_events = [e for e in events if e.get("node_id") == "summary"]
+    assert len(computation_events) > 0, "Expected events from computation (nested graph) node"
+    assert len(summary_events) > 0, "Expected events from summary node"
+
+
+@pytest.mark.asyncio
+async def test_graph_metrics_accumulation():
+    """Test that graph properly accumulates metrics from agent nodes."""
+    math_agent = Agent(
+        name="math",
+        model="us.amazon.nova-pro-v1:0",
+        system_prompt="You are a math assistant.",
+        tools=[calculate_sum],
+    )
+    summary_agent = Agent(
+        name="summary",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are a summary assistant.",
+    )
+
+    builder = GraphBuilder()
+    builder.add_node(math_agent, "math")
+    builder.add_node(summary_agent, "summary")
+    builder.add_edge("math", "summary")
+    builder.set_entry_point("math")
+    graph = builder.build()
+
+    result = await graph.invoke_async("Calculate 5 + 3 and summarize the result")
+
+    # Verify result has accumulated metrics
+    assert result.accumulated_usage is not None
+    assert result.accumulated_usage["totalTokens"] > 0, "Expected non-zero total tokens"
+    assert result.accumulated_usage["inputTokens"] > 0, "Expected non-zero input tokens"
+    assert result.accumulated_usage["outputTokens"] > 0, "Expected non-zero output tokens"
+
+    assert result.accumulated_metrics is not None
+    assert result.accumulated_metrics["latencyMs"] > 0, "Expected non-zero latency"
+
+    # Verify individual node results have metrics
+    for node_id, node_result in result.results.items():
+        assert node_result.accumulated_usage is not None, f"Node {node_id} missing usage metrics"
+        assert node_result.accumulated_usage["totalTokens"] > 0, f"Node {node_id} has zero total tokens"
+        assert node_result.accumulated_metrics is not None, f"Node {node_id} missing metrics"
+
+    # Verify accumulated metrics are sum of node metrics
+    total_tokens = sum(node_result.accumulated_usage["totalTokens"] for node_result in result.results.values())
+    assert result.accumulated_usage["totalTokens"] == total_tokens, "Accumulated tokens don't match sum of node tokens"

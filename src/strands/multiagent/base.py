@@ -8,7 +8,7 @@ import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Union
+from typing import Any, AsyncIterator, Union
 
 from .._async import run_async
 from ..agent import AgentResult
@@ -137,7 +137,7 @@ class MultiAgentResult:
         metrics = _parse_metrics(data.get("accumulated_metrics", {}))
 
         multiagent_result = cls(
-            status=Status(data.get("status", Status.PENDING.value)),
+            status=Status(data["status"]),
             results=results,
             accumulated_usage=usage,
             accumulated_metrics=metrics,
@@ -164,7 +164,12 @@ class MultiAgentBase(ABC):
 
     This class integrates with existing Strands Agent instances and provides
     multi-agent orchestration capabilities.
+
+    Attributes:
+        id: Unique MultiAgent id for session management,etc.
     """
+
+    id: str
 
     @abstractmethod
     async def invoke_async(
@@ -179,6 +184,31 @@ class MultiAgentBase(ABC):
             **kwargs: Additional keyword arguments passed to underlying agents.
         """
         raise NotImplementedError("invoke_async not implemented")
+
+    async def stream_async(
+        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Stream events during multi-agent execution.
+
+        Default implementation executes invoke_async and yields the result as a single event.
+        Subclasses can override this method to provide true streaming capabilities.
+
+        Args:
+            task: The task to execute
+            invocation_state: Additional state/context passed to underlying agents.
+                Defaults to None to avoid mutable default argument issues.
+            **kwargs: Additional keyword arguments passed to underlying agents.
+
+        Yields:
+            Dictionary events containing multi-agent execution information including:
+            - Multi-agent coordination events (node start/complete, handoffs)
+            - Forwarded single-agent events with node context
+            - Final result event
+        """
+        # Default implementation for backward compatibility
+        # Execute invoke_async and yield the result as a single event
+        result = await self.invoke_async(task, invocation_state, **kwargs)
+        yield {"result": result}
 
     def __call__(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any

@@ -149,7 +149,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
             if self.project:
                 headers.append(("OpenAI-Project", self.project))
             
-            self.websocket = await websockets.connect(url, additional_headers=headers)
+            self.websocket = await websockets.connect(url, extra_headers=headers)
             logger.info("WebSocket connected successfully")
             
             # Configure session
@@ -536,6 +536,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
                 logger.warning(f"Unknown content type: {type(content).__name__}")
         except Exception as e:
             logger.error(f"Error sending content: {e}")
+            raise  # Propagate exception for debugging in experimental code
 
     async def _send_audio_content(self, audio_input: AudioInputEvent) -> None:
         """Internal: Send audio content to OpenAI for processing."""
