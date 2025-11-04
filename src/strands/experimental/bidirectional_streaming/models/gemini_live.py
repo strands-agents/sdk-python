@@ -23,7 +23,7 @@ from google.genai.types import LiveServerMessage, LiveServerContent
 
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
-from ....types._events import ToolResultEvent
+from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ..types.bidirectional_streaming import (
     AudioInputEvent,
     AudioStreamEvent,
@@ -267,7 +267,11 @@ class GeminiLiveModel(BidirectionalModel):
                         "name": func_call.name,
                         "input": func_call.args or {}
                     }
-                    return {"toolUse": tool_use_event}
+                    # Return ToolUseStreamEvent for consistency with standard agent
+                    return ToolUseStreamEvent(
+                        delta={"toolUse": tool_use_event},
+                        current_tool_use=tool_use_event
+                    )
             
             # Handle usage metadata
             if hasattr(message, 'usage_metadata') and message.usage_metadata:

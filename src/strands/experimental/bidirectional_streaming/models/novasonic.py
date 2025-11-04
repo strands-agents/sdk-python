@@ -32,7 +32,7 @@ from smithy_aws_core.identity.environment import EnvironmentCredentialsResolver
 
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
-from ....types._events import ToolResultEvent
+from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ..types.bidirectional_streaming import (
     AudioInputEvent,
     AudioStreamEvent,
@@ -547,8 +547,11 @@ class NovaSonicModel(BidirectionalModel):
                 "name": tool_use["toolName"],
                 "input": json.loads(tool_use["content"]),
             }
-            # Return dict with tool_use for event loop processing
-            return {"type": "tool_use", "tool_use": tool_use_event}
+            # Return ToolUseStreamEvent for consistency with standard agent
+            return ToolUseStreamEvent(
+                delta={"toolUse": tool_use_event},
+                current_tool_use=tool_use_event
+            )
 
         # Handle interruption
         elif nova_event.get("stopReason") == "INTERRUPTED":

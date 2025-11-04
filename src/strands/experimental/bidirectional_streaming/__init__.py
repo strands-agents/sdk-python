@@ -30,6 +30,13 @@ from .types.bidirectional_streaming import (
     TurnStartEvent,
 )
 
+# Re-export standard agent events for tool handling
+from ...types._events import (
+    ToolResultEvent,
+    ToolStreamEvent,
+    ToolUseStreamEvent,
+)
+
 __all__ = [
     # Main interface
     "BidirectionalAgent",
@@ -57,6 +64,11 @@ __all__ = [
     "SessionEndEvent",
     "ErrorEvent",
     "OutputEvent",
+    
+    # Tool Event types (reused from standard agent)
+    "ToolUseStreamEvent",
+    "ToolResultEvent",
+    "ToolStreamEvent",
     
     # Model interface
     "BidirectionalModel",

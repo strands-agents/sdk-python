@@ -281,12 +281,15 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
                 continue
 
             # Queue tool requests for concurrent execution
-            if event_type == "tool_use":
-                tool_use = strands_event.get("tool_use")
+            # Check for ToolUseStreamEvent (standard agent event)
+            if "current_tool_use" in strands_event:
+                tool_use = strands_event.get("current_tool_use")
                 if tool_use:
                     tool_name = tool_use.get("name")
                     logger.debug("Tool usage detected: %s", tool_name)
                     await session.tool_queue.put(tool_use)
+                # Forward ToolUseStreamEvent to output queue for client visibility
+                await session.agent._output_queue.put(strands_event)
                 continue
 
             # Send all output events to Agent for receive() method
@@ -436,14 +439,19 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
                 tool_result = tool_event.tool_result
                 tool_use_id = tool_result.get("toolUseId")
                 
-                # Send ToolResultEvent through send() method
+                # Send ToolResultEvent through send() method to model
                 await session.model.send(tool_event)
-                logger.debug("Tool result sent: %s", tool_use_id)
+                logger.debug("Tool result sent to model: %s", tool_use_id)
+                
+                # Also forward ToolResultEvent to output queue for client visibility
+                await session.agent._output_queue.put(tool_event.as_dict())
+                logger.debug("Tool result sent to client: %s", tool_use_id)
                 
             # Handle streaming events if needed later
             elif isinstance(tool_event, ToolStreamEvent):
                 logger.debug("Tool stream event: %s", tool_event)
-                pass
+                # Forward tool stream events to output queue
+                await session.agent._output_queue.put(tool_event.as_dict())
         
         # Add tool result message to conversation history
         if tool_results:

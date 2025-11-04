@@ -17,7 +17,7 @@ from websockets.exceptions import ConnectionClosed
 
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
-from ....types._events import ToolResultEvent
+from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ..types.bidirectional_streaming import (
     AudioInputEvent,
     AudioStreamEvent,
@@ -365,8 +365,11 @@ class OpenAIRealtimeModel(BidirectionalModel):
                         "input": json.loads(function_call["arguments"]) if function_call["arguments"] else {},
                     }
                     del self._function_call_buffer[call_id]
-                    # Return dict with tool_use for event loop processing
-                    return [{"type": "tool_use", "tool_use": tool_use}]
+                    # Return ToolUseStreamEvent for consistency with standard agent
+                    return [ToolUseStreamEvent(
+                        delta={"toolUse": tool_use},
+                        current_tool_use=tool_use
+                    )]
                 except (json.JSONDecodeError, KeyError) as e:
                     logger.warning("Error parsing function arguments for %s: %s", call_id, e)
                     del self._function_call_buffer[call_id]
