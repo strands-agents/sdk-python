@@ -9,6 +9,7 @@ via hook provider objects.
 
 import inspect
 import logging
+import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Awaitable, Generator, Generic, Protocol, Type, TypeVar
 
@@ -267,6 +268,10 @@ class HookRegistry:
             registry.invoke_callbacks(event)
             ```
         """
+        warnings.warn(
+            "invoke_callbacks is deprecated and replaced by invoke_callbacks_async", DeprecationWarning, stacklevel=2
+        )
+
         callbacks = self.get_callbacks_for(event)
         interrupts: dict[str, Interrupt] = {}
 

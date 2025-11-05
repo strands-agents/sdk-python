@@ -3,7 +3,7 @@ import unittest.mock
 import pytest
 
 from strands.agent.interrupt import InterruptState
-from strands.hooks import BeforeToolCallEvent, HookRegistry
+from strands.hooks import AgentInitializedEvent, BeforeToolCallEvent, HookRegistry
 from strands.interrupt import Interrupt
 
 
@@ -20,7 +20,7 @@ def agent():
 
 
 @pytest.mark.asyncio
-async def test_hook_registry_invoke_callbacks_interrupt(registry, agent):
+async def test_hook_registry_invoke_callbacks_async_interrupt(registry, agent):
     event = BeforeToolCallEvent(
         agent=agent,
         selected_tool=None,
@@ -57,7 +57,7 @@ async def test_hook_registry_invoke_callbacks_interrupt(registry, agent):
 
 
 @pytest.mark.asyncio
-async def test_hook_registry_invoke_callbacks_interrupt_name_clash(registry, agent):
+async def test_hook_registry_invoke_callbacks_async_interrupt_name_clash(registry, agent):
     event = BeforeToolCallEvent(
         agent=agent,
         selected_tool=None,
@@ -73,3 +73,11 @@ async def test_hook_registry_invoke_callbacks_interrupt_name_clash(registry, age
 
     with pytest.raises(ValueError, match="interrupt_name=<test_name> | interrupt name used more than once"):
         await registry.invoke_callbacks_async(event)
+
+
+def test_hook_registry_invoke_callbacks_coroutine(registry, agent):
+    callback = unittest.mock.AsyncMock()
+    registry.add_callback(AgentInitializedEvent, callback)
+
+    with pytest.raises(RuntimeError, match=r"use invoke_callbacks_async to invoke async callback"):
+        registry.invoke_callbacks(AgentInitializedEvent(agent=agent))

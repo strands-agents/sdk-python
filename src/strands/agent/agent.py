@@ -173,12 +173,13 @@ class Agent:
 
                     tool_result = tool_results[0]
 
-                    should_record_direct_tool_call = (
-                        record_direct_tool_call
-                        if record_direct_tool_call is not None
-                        else self._agent.record_direct_tool_call
-                    )
+                    if record_direct_tool_call is not None:
+                        should_record_direct_tool_call = record_direct_tool_call
+                    else:
+                        should_record_direct_tool_call = self._agent.record_direct_tool_call
+
                     if should_record_direct_tool_call:
+                        # Create a record of this tool execution in the message history
                         await self._agent._record_tool_execution(tool_use, tool_result, user_message_override)
 
                     return tool_result
