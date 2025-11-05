@@ -89,7 +89,7 @@ class OpenAIModel(Model):
         return cast(OpenAIModel.OpenAIConfig, self.config)
 
     @classmethod
-    def format_request_message_content(cls, content: ContentBlock) -> dict[str, Any]:
+    def format_request_message_content(cls, content: ContentBlock, **kwargs: Any) -> dict[str, Any]:
         """Format an OpenAI compatible content block.
 
         Args:
@@ -131,7 +131,7 @@ class OpenAIModel(Model):
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
     @classmethod
-    def format_request_message_tool_call(cls, tool_use: ToolUse) -> dict[str, Any]:
+    def format_request_message_tool_call(cls, tool_use: ToolUse, **kwargs: Any) -> dict[str, Any]:
         """Format an OpenAI compatible tool call.
 
         Args:
@@ -150,7 +150,7 @@ class OpenAIModel(Model):
         }
 
     @classmethod
-    def format_request_tool_message(cls, tool_result: ToolResult) -> dict[str, Any]:
+    def format_request_tool_message(cls, tool_result: ToolResult, **kwargs: Any) -> dict[str, Any]:
         """Format an OpenAI compatible tool message.
 
         Args:
@@ -198,7 +198,14 @@ class OpenAIModel(Model):
                 return {"tool_choice": "auto"}
 
     @classmethod
-    def format_request_messages(cls, messages: Messages, system_prompt: Optional[str] = None) -> list[dict[str, Any]]:
+    def format_request_messages(
+        cls, 
+        messages: Messages, 
+        system_prompt: Optional[str] = None, 
+        *,
+        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        **kwargs
+    ) -> list[dict[str, Any]]:
         """Format an OpenAI compatible messages array.
 
         Args:
@@ -208,8 +215,22 @@ class OpenAIModel(Model):
         Returns:
             An OpenAI compatible messages array.
         """
-        formatted_messages: list[dict[str, Any]]
-        formatted_messages = [{"role": "system", "content": system_prompt}] if system_prompt else []
+        # Handle backward compatibility: if system_prompt is provided but system_prompt_content is None
+        if system_prompt and system_prompt_content is None:
+            system_prompt_content = [{"context": system_prompt}]
+
+        # TODO: Handle caching blocks in openai 
+        # TODO Create tracking ticket
+        formatted_messages: list[dict[str, Any]] = [
+            {
+                "role": "system",
+                "content": [
+                    cls.format_request_message_content(content)
+                    for content in system_prompt_content
+                    if "text" in content
+                ],
+            }
+        ]
 
         for message in messages:
             contents = message["content"]
@@ -247,9 +268,12 @@ class OpenAIModel(Model):
     def format_request(
         self,
         messages: Messages,
-        tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        tool_specs: list[ToolSpec] | None = None,
+        system_prompt: str | None = None,
         tool_choice: ToolChoice | None = None,
+        *,
+        system_prompt_content: list[SystemContentBlock] | None = None,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         """Format an OpenAI compatible chat streaming request.
 
@@ -267,7 +291,7 @@ class OpenAIModel(Model):
                 format.
         """
         return {
-            "messages": self.format_request_messages(messages, system_prompt),
+            "messages": self.format_request_messages(messages, system_prompt, system_prompt_content=system_prompt_content),
             "model": self.config["model_id"],
             "stream": True,
             "stream_options": {"include_usage": True},
@@ -286,7 +310,8 @@ class OpenAIModel(Model):
             **cast(dict[str, Any], self.config.get("params", {})),
         }
 
-    def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
+
+    def format_chunk(self, event: dict[str, Any], **kwargs: Any) -> StreamEvent:
         """Format an OpenAI response event into a standardized message chunk.
 
         Args:

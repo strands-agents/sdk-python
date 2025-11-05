@@ -14,7 +14,7 @@ from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
 from ..tools import convert_pydantic_to_tool_spec
-from ..types.content import ContentBlock, Messages
+from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolSpec
@@ -132,6 +132,120 @@ class LiteLLMModel(OpenAIModel):
         return chunks, data_type
 
     @override
+    @classmethod
+    def format_request_messages(
+        cls,
+        messages: Messages,
+        system_prompt: Optional[str] = None,
+        *,
+        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        """Format a LiteLLM compatible messages array with cache point support.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            system_prompt: System prompt to provide context to the model (for legacy compatibility).
+            system_prompt_content: System prompt content blocks to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Returns:
+            A LiteLLM compatible messages array.
+        """
+        formatted_messages: list[dict[str, Any]] = []
+        # Handle backward compatibility: if system_prompt is provided but system_prompt_content is None
+        if system_prompt and system_prompt_content is None:
+            system_prompt_content = [{"context": system_prompt}]
+
+        # For LiteLLM with Bedrock, we can support cache points
+        system_content = []
+        for block in system_prompt_content:
+            if "text" in block:
+                system_content.append({"type": "text", "text": block["text"]})
+            elif "cachePoint" in block and block["cachePoint"].get("type") == "default":
+                # Apply cache control to the immediately preceding content block
+                # for LiteLLM/Anthropic compatibility
+                if system_content:
+                    system_content[-1]["cache_control"] = {"type": "ephemeral"}
+
+        # Create single system message with content array
+        if system_content:
+            formatted_messages.append({"role": "system", "content": system_content})
+
+        # Process regular messages
+        for message in messages:
+            contents = message["content"]
+
+            formatted_contents = [
+                cls.format_request_message_content(content)
+                for content in contents
+                if not any(block_type in content for block_type in ["toolResult", "toolUse"])
+            ]
+            formatted_tool_calls = [
+                cls.format_request_message_tool_call(content["toolUse"]) for content in contents if "toolUse" in content
+            ]
+            formatted_tool_messages = [
+                cls.format_request_tool_message(content["toolResult"])
+                for content in contents
+                if "toolResult" in content
+            ]
+
+            formatted_message = {
+                "role": message["role"],
+                "content": formatted_contents,
+                **({"tool_calls": formatted_tool_calls} if formatted_tool_calls else {}),
+            }
+            formatted_messages.append(formatted_message)
+            formatted_messages.extend(formatted_tool_messages)
+
+        return [message for message in formatted_messages if message["content"] or "tool_calls" in message]
+
+    @override
+    def format_chunk(self, event: dict[str, Any]) -> StreamEvent:
+        """Format a LiteLLM response event into a standardized message chunk.
+
+        This method overrides OpenAI's format_chunk to handle the metadata case
+        with prompt caching support. All other chunk types use the parent implementation.
+
+        Args:
+            event: A response event from the LiteLLM model.
+
+        Returns:
+            The formatted chunk.
+
+        Raises:
+            RuntimeError: If chunk_type is not recognized.
+        """
+        # Handle metadata case with prompt caching support
+        if event["chunk_type"] == "metadata":
+            usage_data = {
+                "inputTokens": event["data"].prompt_tokens,
+                "outputTokens": event["data"].completion_tokens,
+                "totalTokens": event["data"].total_tokens,
+            }
+
+            # Only LiteLLM over Anthropic supports cache cache write tokens
+            # Waiting until a more general approach is available to set cacheWriteInputTokens
+            
+            tokens_details = getattr(event["data"], "prompt_tokens_details", None)
+            if tokens_details and getattr(tokens_details, "cached_tokens", None):
+                usage_data["cacheReadInputTokens"] = event["data"].prompt_tokens_details.cached_tokens
+            
+
+
+            return {
+                "metadata": {
+                    "usage": usage_data,
+                    "metrics": {
+                        "latencyMs": 0,  # TODO
+                    },
+                },
+            }
+
+        # For all other cases, use the parent implementation
+        return super().format_chunk(event)
+
+    @override
     async def stream(
         self,
         messages: Messages,
@@ -139,6 +253,7 @@ class LiteLLMModel(OpenAIModel):
         system_prompt: Optional[str] = None,
         *,
         tool_choice: ToolChoice | None = None,
+        system_prompt_content: Optional[list[SystemContentBlock]] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the LiteLLM model.
@@ -154,7 +269,7 @@ class LiteLLMModel(OpenAIModel):
             Formatted message chunks from the model.
         """
         logger.debug("formatting request")
-        request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
+        request = self.format_request(messages, tool_specs, system_prompt, tool_choice, system_prompt_content=system_prompt_content)
         logger.debug("request=<%s>", request)
 
         logger.debug("invoking model")
