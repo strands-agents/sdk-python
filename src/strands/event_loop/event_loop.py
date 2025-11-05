@@ -227,7 +227,7 @@ async def event_loop_cycle(
             )
         structured_output_context.set_forced_mode()
         logger.debug("Forcing structured output tool")
-        agent._append_message(
+        await agent._append_message(
             {"role": "user", "content": [{"text": "You must format the previous response as structured output."}]}
         )
 
@@ -322,7 +322,7 @@ async def _handle_model_execution(
             model_id=model_id,
         )
         with trace_api.use_span(model_invoke_span):
-            await agent.hooks.invoke_callbacks(
+            await agent.hooks.invoke_callbacks_async(
                 BeforeModelCallEvent(
                     agent=agent,
                 )
@@ -342,7 +342,7 @@ async def _handle_model_execution(
                 stop_reason, message, usage, metrics = event["stop"]
                 invocation_state.setdefault("request_state", {})
 
-                await agent.hooks.invoke_callbacks(
+                await agent.hooks.invoke_callbacks_async(
                     AfterModelCallEvent(
                         agent=agent,
                         stop_response=AfterModelCallEvent.ModelStopResponse(
@@ -363,7 +363,7 @@ async def _handle_model_execution(
                 if model_invoke_span:
                     tracer.end_span_with_error(model_invoke_span, str(e), e)
 
-                await agent.hooks.invoke_callbacks(
+                await agent.hooks.invoke_callbacks_async(
                     AfterModelCallEvent(
                         agent=agent,
                         exception=e,
@@ -397,7 +397,7 @@ async def _handle_model_execution(
 
         # Add the response message to the conversation
         agent.messages.append(message)
-        agent.hooks.invoke_callbacks_sync(MessageAddedEvent(agent=agent, message=message))
+        await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=message))
 
         # Update metrics
         agent.event_loop_metrics.update_usage(usage)
@@ -502,7 +502,7 @@ async def _handle_tool_execution(
     }
 
     agent.messages.append(tool_result_message)
-    agent.hooks.invoke_callbacks_sync(MessageAddedEvent(agent=agent, message=tool_result_message))
+    await agent.hooks.invoke_callbacks_async(MessageAddedEvent(agent=agent, message=tool_result_message))
 
     yield ToolResultMessageEvent(message=tool_result_message)
 

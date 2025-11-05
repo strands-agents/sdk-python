@@ -34,15 +34,6 @@ class BaseHookEvent:
         """
         return False
 
-    @staticmethod
-    def is_async() -> bool:
-        """Determine if callbacks for this event can be invoked asynchronously.
-
-        Returns:
-            True if an event can be handled under an async callback, False otherwise.
-        """
-        return True
-
     def _can_write(self, name: str) -> bool:
         """Check if the given property can be written to.
 
@@ -128,12 +119,15 @@ class HookCallback(Protocol, Generic[TEvent]):
     argument and perform some action in response. They should not return
     values and any exceptions they raise will propagate to the caller.
 
-    For events with `is_async()` returning `True`, callbacks may be defined async.
-
     Example:
         ```python
         def my_callback(event: StartRequestEvent) -> None:
             print(f"Request started for agent: {event.agent.name}")
+
+        # Or
+
+        async def my_callback(event: StartRequestEvent) -> None:
+            # await an async operation
         ```
     """
 
@@ -168,10 +162,6 @@ class HookRegistry:
             event_type: The class type of events this callback should handle.
             callback: The callback function to invoke when events of this type occur.
 
-        Raises:
-            ValueError:
-                If async callback is added for a sync-only event.
-
         Example:
             ```python
             def my_handler(event: StartRequestEvent):
@@ -180,9 +170,6 @@ class HookRegistry:
             registry.add_callback(StartRequestEvent, my_handler)
             ```
         """
-        if not event_type.is_async() and inspect.iscoroutinefunction(callback):
-            raise ValueError(f"event_type={event_type} | async callback added for sync-only event")
-
         callbacks = self._registered_callbacks.setdefault(event_type, [])
         callbacks.append(callback)
 
@@ -208,7 +195,7 @@ class HookRegistry:
         """
         hook.register_hooks(self)
 
-    async def invoke_callbacks(self, event: TInvokeEvent) -> tuple[TInvokeEvent, list[Interrupt]]:
+    async def invoke_callbacks_async(self, event: TInvokeEvent) -> tuple[TInvokeEvent, list[Interrupt]]:
         """Invoke all registered callbacks for the given event.
 
         This method finds all callbacks registered for the event's type and
@@ -230,7 +217,7 @@ class HookRegistry:
         Example:
             ```python
             event = StartRequestEvent(agent=my_agent)
-            registry.invoke_callbacks(event)
+            await registry.invoke_callbacks_async(event)
             ```
         """
         interrupts: dict[str, Interrupt] = {}
@@ -254,26 +241,52 @@ class HookRegistry:
 
         return event, list(interrupts.values())
 
-    def invoke_callbacks_sync(self, event: TInvokeEvent) -> TInvokeEvent:
-        """Synchronously invoke all registered callbacks for the given event.
+    def invoke_callbacks(self, event: TInvokeEvent) -> tuple[TInvokeEvent, list[Interrupt]]:
+        """Invoke all registered callbacks for the given event.
+
+        This method finds all callbacks registered for the event's type and
+        invokes them in the appropriate order. For events with should_reverse_callbacks=True,
+        callbacks are invoked in reverse registration order. Any exceptions raised by callback
+        functions will propagate to the caller.
+
+        Additionally, this method aggregates interrupts raised by the user to instantiate human-in-the-loop workflows.
 
         Args:
             event: The event to dispatch to registered callbacks.
 
         Returns:
-            The event dispatched to registered callbacks.
+            The event dispatched to registered callbacks and any interrupts raised by the user.
 
         Raises:
             RuntimeError: If at least one callback is async.
+            ValueError: If interrupt name is used more than once.
+
+        Example:
+            ```python
+            event = StartRequestEvent(agent=my_agent)
+            registry.invoke_callbacks(event)
+            ```
         """
         callbacks = self.get_callbacks_for(event)
+        interrupts: dict[str, Interrupt] = {}
+
         if any(inspect.iscoroutinefunction(callback) for callback in callbacks):
-            raise RuntimeError(f"event=<{event}> | cannot invoke async callback on sync-only event")
+            raise RuntimeError(f"event=<{event}> | use invoke_callbacks_async to invoke async callback")
 
         for callback in callbacks:
-            callback(event)
+            try:
+                callback(event)
+            except InterruptException as exception:
+                interrupt = exception.interrupt
+                if interrupt.name in interrupts:
+                    message = f"interrupt_name=<{interrupt.name}> | interrupt name used more than once"
+                    logger.error(message)
+                    raise ValueError(message) from exception
 
-        return event
+                # Each callback is allowed to raise their own interrupt.
+                interrupts[interrupt.name] = interrupt
+
+        return event, list(interrupts.values())
 
     def has_callbacks(self) -> bool:
         """Check if the registry has any registered callbacks.
