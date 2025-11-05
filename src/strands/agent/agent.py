@@ -364,7 +364,6 @@ class Agent:
         if hooks:
             for hook in hooks:
                 self.hooks.add_hook(hook)
-
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
 
     @property
