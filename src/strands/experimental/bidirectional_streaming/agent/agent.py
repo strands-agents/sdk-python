@@ -297,7 +297,7 @@ class BidirectionalAgent:
         Raises:
             ValueError: If no active connection or invalid input type.
         """
-        self._validate_active_agentloop()
+        self._validate_active_connection()
 
         if isinstance(input_data, str):
             # Add user text message to history
@@ -431,19 +431,16 @@ class BidirectionalAgent:
         adapter = self.adapters[0]
         sender = adapter.create_output()
         receiver = adapter.create_input()
-        
-        # Check if connection is already active
-        connection_was_active = self.active
-        
-        if connection_was_active:
-            # Use existing connection
-            await self._run_with_agentloop(sender, receiver)
-        else:
-            # Use async context manager for automatic lifecycle management
-            async with self:
-                await self._run_with_agentloop(sender, receiver)
 
-    async def _run_with_agentloop(
+        if self.active:
+            # Use existing connection
+            await self._run(sender, receiver)
+        else:
+        # Use async context manager for automatic lifecycle management
+            async with self:
+                await self._run(sender, receiver)
+
+    async def _run(
         self,
         sender: Callable[[Any], Any],
         receiver: Callable[[], Any],
@@ -480,7 +477,7 @@ class BidirectionalAgent:
             return_exceptions=True
         )
 
-    def _validate_active_agentloop(self) -> None:
+    def _validate_active_connection(self) -> None:
         """Validate that an active connection exists.
 
         Raises:
