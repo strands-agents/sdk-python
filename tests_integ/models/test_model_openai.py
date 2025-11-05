@@ -241,7 +241,7 @@ def test_system_prompt_content_integration(model):
         {"text": "You are a helpful assistant that always responds with 'SYSTEM_TEST_RESPONSE'."}
     ]
 
-    agent = Agent(model=model, system_prompt_content=system_prompt_content)
+    agent = Agent(model=model, system_prompt=system_prompt_content)
     result = agent("Hello")
 
     # The response should contain our specific system prompt instruction
