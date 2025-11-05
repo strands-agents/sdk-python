@@ -30,7 +30,6 @@ def hook_provider(callback_names):
             registry.add_callback(AfterToolCallEvent, self.after_tool_call)
             registry.add_callback(AfterToolCallEvent, self.after_tool_call_async)
             registry.add_callback(AgentInitializedEvent, self.agent_initialized)
-            registry.add_callback(AgentInitializedEvent, self.agent_initialized_async)
             registry.add_callback(BeforeInvocationEvent, self.before_invocation)
             registry.add_callback(BeforeInvocationEvent, self.before_invocation_async)
             registry.add_callback(BeforeModelCallEvent, self.before_model_call)
@@ -111,7 +110,6 @@ def test_events(agent, callback_names):
     tru_callback_names = callback_names
     exp_callback_names = [
         "agent_initialized",
-        "agent_initialized_async",
         "before_invocation",
         "before_invocation_async",
         "message_added",

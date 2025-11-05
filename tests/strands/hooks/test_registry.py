@@ -3,7 +3,7 @@ import unittest.mock
 import pytest
 
 from strands.agent.interrupt import InterruptState
-from strands.hooks import AgentInitializedEvent, BeforeToolCallEvent, HookRegistry
+from strands.hooks import AgentInitializedEvent, BeforeInvocationEvent, BeforeToolCallEvent, HookRegistry
 from strands.interrupt import Interrupt
 
 
@@ -17,6 +17,13 @@ def agent():
     instance = unittest.mock.Mock()
     instance._interrupt_state = InterruptState()
     return instance
+
+
+def test_hook_registry_add_callback_agent_init_coroutine(registry):
+    callback = unittest.mock.AsyncMock()
+
+    with pytest.raises(ValueError, match=r"AgentInitializedEvent can only be registered with a synchronous callback"):
+        registry.add_callback(AgentInitializedEvent, callback)
 
 
 @pytest.mark.asyncio
@@ -77,7 +84,7 @@ async def test_hook_registry_invoke_callbacks_async_interrupt_name_clash(registr
 
 def test_hook_registry_invoke_callbacks_coroutine(registry, agent):
     callback = unittest.mock.AsyncMock()
-    registry.add_callback(AgentInitializedEvent, callback)
+    registry.add_callback(BeforeInvocationEvent, callback)
 
     with pytest.raises(RuntimeError, match=r"use invoke_callbacks_async to invoke async callback"):
-        registry.invoke_callbacks(AgentInitializedEvent(agent=agent))
+        registry.invoke_callbacks(BeforeInvocationEvent(agent=agent))

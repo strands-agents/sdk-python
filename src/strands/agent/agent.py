@@ -365,7 +365,7 @@ class Agent:
             for hook in hooks:
                 self.hooks.add_hook(hook)
 
-        run_async(lambda: self.hooks.invoke_callbacks_async(AgentInitializedEvent(agent=self)))
+        self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
 
     @property
     def tool(self) -> ToolCaller:
