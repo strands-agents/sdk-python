@@ -20,7 +20,7 @@ from .._exception_notes import add_exception_note
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
 from ..tools._tool_helpers import noop_tool
-from ..types.content import ContentBlock, Messages
+from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import (
     ContextWindowOverflowException,
     ModelThrottledException,
@@ -187,11 +187,11 @@ class BedrockModel(Model):
         """
         return self.config
 
-    def format_request(
+    def _format_request(
         self,
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        system_prompt_content: Optional[list[SystemContentBlock]] = None,
         tool_choice: ToolChoice | None = None,
     ) -> dict[str, Any]:
         """Format a Bedrock converse stream request.
@@ -201,6 +201,7 @@ class BedrockModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
+            system_prompt_content: System prompt content blocks to provide context to the model.
 
         Returns:
             A Bedrock converse stream request.
@@ -211,13 +212,20 @@ class BedrockModel(Model):
             )
             if has_tool_content:
                 tool_specs = [noop_tool.tool_spec]
+
+        # Use system_prompt_content directly (copy for mutability)
+        system_blocks: list[SystemContentBlock] = system_prompt_content.copy() if system_prompt_content else []
+        # Add cache point if configured (backwards compatibility)
+        if cache_prompt := self.config.get("cache_prompt"):
+            warnings.warn(
+                "cache_prompt is deprecated. Use SystemContentBlock with cachePoint instead.", UserWarning, stacklevel=3
+            )
+            system_blocks.append({"cachePoint": {"type": cache_prompt}})
+
         return {
             "modelId": self.config["model_id"],
             "messages": self._format_bedrock_messages(messages),
-            "system": [
-                *([{"text": system_prompt}] if system_prompt else []),
-                *([{"cachePoint": {"type": self.config["cache_prompt"]}}] if self.config.get("cache_prompt") else []),
-            ],
+            "system": system_blocks,
             **(
                 {
                     "toolConfig": {
@@ -590,6 +598,7 @@ class BedrockModel(Model):
         system_prompt: Optional[str] = None,
         *,
         tool_choice: ToolChoice | None = None,
+        system_prompt_content: Optional[list[SystemContentBlock]] = None,
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Bedrock model.
@@ -602,6 +611,7 @@ class BedrockModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
+            system_prompt_content: System prompt content blocks to provide context to the model.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -620,7 +630,11 @@ class BedrockModel(Model):
         loop = asyncio.get_event_loop()
         queue: asyncio.Queue[Optional[StreamEvent]] = asyncio.Queue()
 
-        thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt, tool_choice)
+        # Handle backward compatibility: if system_prompt is provided but system_prompt_content is None
+        if system_prompt and system_prompt_content is None:
+            system_prompt_content = [{"text": system_prompt}]
+
+        thread = asyncio.to_thread(self._stream, callback, messages, tool_specs, system_prompt_content, tool_choice)
         task = asyncio.create_task(thread)
 
         while True:
@@ -637,7 +651,7 @@ class BedrockModel(Model):
         callback: Callable[..., None],
         messages: Messages,
         tool_specs: Optional[list[ToolSpec]] = None,
-        system_prompt: Optional[str] = None,
+        system_prompt_content: Optional[list[SystemContentBlock]] = None,
         tool_choice: ToolChoice | None = None,
     ) -> None:
         """Stream conversation with the Bedrock model.
@@ -649,7 +663,7 @@ class BedrockModel(Model):
             callback: Function to send events to the main thread.
             messages: List of message objects to be processed by the model.
             tool_specs: List of tool specifications to make available to the model.
-            system_prompt: System prompt to provide context to the model.
+            system_prompt_content: System prompt content blocks to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
 
         Raises:
@@ -658,7 +672,7 @@ class BedrockModel(Model):
         """
         try:
             logger.debug("formatting request")
-            request = self.format_request(messages, tool_specs, system_prompt, tool_choice)
+            request = self._format_request(messages, tool_specs, system_prompt_content, tool_choice)
             logger.debug("request=<%s>", request)
 
             logger.debug("invoking model")

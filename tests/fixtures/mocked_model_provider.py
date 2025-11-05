@@ -58,6 +58,9 @@ class MockedModelProvider(Model):
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
         tool_choice: Optional[Any] = None,
+        *,
+        system_prompt_content=None,
+        **kwargs: Any,
     ) -> AsyncGenerator[Any, None]:
         events = self.map_agent_message_to_events(self.agent_responses[self.index])
         for event in events:

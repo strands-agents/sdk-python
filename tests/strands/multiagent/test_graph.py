@@ -10,6 +10,7 @@ from strands.hooks import AgentInitializedEvent
 from strands.hooks.registry import HookProvider, HookRegistry
 from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult
 from strands.multiagent.graph import Graph, GraphBuilder, GraphEdge, GraphNode, GraphResult, GraphState, Status
+from strands.session.file_session_manager import FileSessionManager
 from strands.session.session_manager import SessionManager
 
 
@@ -1979,3 +1980,56 @@ async def test_graph_multiagent_no_result_event(mock_strands_tracer, mock_use_sp
 
     mock_strands_tracer.start_multiagent_span.assert_called()
     mock_use_span.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_graph_persisted(mock_strands_tracer, mock_use_span):
+    """Test graph persistence functionality."""
+    # Create mock session manager
+    session_manager = Mock(spec=FileSessionManager)
+    session_manager.read_multi_agent().return_value = None
+
+    # Create simple graph with session manager
+    builder = GraphBuilder()
+    agent = create_mock_agent("test_agent")
+    builder.add_node(agent, "test_node")
+    builder.set_entry_point("test_node")
+    builder.set_session_manager(session_manager)
+
+    graph = builder.build()
+
+    # Test get_state_from_orchestrator
+    state = graph.serialize_state()
+    assert state["type"] == "graph"
+    assert state["id"] == "default_graph"
+    assert "status" in state
+    assert "completed_nodes" in state
+    assert "node_results" in state
+
+    # Test apply_state_from_dict with persisted state
+    persisted_state = {
+        "status": "executing",
+        "completed_nodes": [],
+        "failed_nodes": [],
+        "node_results": {},
+        "current_task": "persisted task",
+        "execution_order": [],
+        "next_nodes_to_execute": ["test_node"],
+    }
+
+    graph.deserialize_state(persisted_state)
+    assert graph.state.task == "persisted task"
+
+    # Execute graph to test persistence integration
+    result = await graph.invoke_async("Test persistence")
+
+    # Verify execution completed
+    assert result.status == Status.COMPLETED
+    assert len(result.results) == 1
+    assert "test_node" in result.results
+
+    # Test state serialization after execution
+    final_state = graph.serialize_state()
+    assert final_state["status"] == "completed"
+    assert len(final_state["completed_nodes"]) == 1
+    assert "test_node" in final_state["node_results"]
