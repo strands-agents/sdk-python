@@ -14,7 +14,7 @@ from openai.types.chat.parsed_chat_completion import ParsedChatCompletion
 from pydantic import BaseModel
 from typing_extensions import Unpack, override
 
-from ..types.content import ContentBlock, Messages
+from ..types.content import ContentBlock, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException, ModelThrottledException
 from ..types.streaming import StreamEvent
 from ..types.tools import ToolChoice, ToolResult, ToolSpec, ToolUse
@@ -94,6 +94,7 @@ class OpenAIModel(Model):
 
         Args:
             content: Message content.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             OpenAI compatible content block.
@@ -136,6 +137,7 @@ class OpenAIModel(Model):
 
         Args:
             tool_use: Tool use requested by the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             OpenAI compatible tool call.
@@ -155,6 +157,7 @@ class OpenAIModel(Model):
 
         Args:
             tool_result: Tool result collected from a tool execution.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             OpenAI compatible tool message.
@@ -198,39 +201,43 @@ class OpenAIModel(Model):
                 return {"tool_choice": "auto"}
 
     @classmethod
-    def format_request_messages(
-        cls, 
-        messages: Messages, 
-        system_prompt: Optional[str] = None, 
+    def _format_system_messages(
+        cls,
+        system_prompt: Optional[str] = None,
         *,
         system_prompt_content: Optional[list[SystemContentBlock]] = None,
-        **kwargs
     ) -> list[dict[str, Any]]:
-        """Format an OpenAI compatible messages array.
+        """Format system messages for OpenAI-compatible providers.
 
         Args:
-            messages: List of message objects to be processed by the model.
             system_prompt: System prompt to provide context to the model.
+            system_prompt_content: System prompt content blocks to provide context to the model.
 
         Returns:
-            An OpenAI compatible messages array.
+            List of formatted system messages.
         """
         # Handle backward compatibility: if system_prompt is provided but system_prompt_content is None
         if system_prompt and system_prompt_content is None:
-            system_prompt_content = [{"context": system_prompt}]
+            system_prompt_content = [{"text": system_prompt}]
 
-        # TODO: Handle caching blocks in openai 
-        # TODO Create tracking ticket
-        formatted_messages: list[dict[str, Any]] = [
-            {
-                "role": "system",
-                "content": [
-                    cls.format_request_message_content(content)
-                    for content in system_prompt_content
-                    if "text" in content
-                ],
-            }
+        # TODO: Handle caching blocks https://github.com/strands-agents/sdk-python/issues/1140
+        return [
+            {"role": "system", "content": content["text"]}
+            for content in system_prompt_content or []
+            if "text" in content
         ]
+
+    @classmethod
+    def _format_regular_messages(cls, messages: Messages) -> list[dict[str, Any]]:
+        """Format regular messages for OpenAI-compatible providers.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+
+        Returns:
+            List of formatted messages.
+        """
+        formatted_messages = []
 
         for message in messages:
             contents = message["content"]
@@ -263,6 +270,31 @@ class OpenAIModel(Model):
             formatted_messages.append(formatted_message)
             formatted_messages.extend(formatted_tool_messages)
 
+        return formatted_messages
+
+    @classmethod
+    def format_request_messages(
+        cls,
+        messages: Messages,
+        system_prompt: Optional[str] = None,
+        *,
+        system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        **kwargs: Any,
+    ) -> list[dict[str, Any]]:
+        """Format an OpenAI compatible messages array.
+
+        Args:
+            messages: List of message objects to be processed by the model.
+            system_prompt: System prompt to provide context to the model.
+            system_prompt_content: System prompt content blocks to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
+
+        Returns:
+            An OpenAI compatible messages array.
+        """
+        formatted_messages = cls._format_system_messages(system_prompt, system_prompt_content=system_prompt_content)
+        formatted_messages.extend(cls._format_regular_messages(messages))
+
         return [message for message in formatted_messages if message["content"] or "tool_calls" in message]
 
     def format_request(
@@ -282,6 +314,8 @@ class OpenAIModel(Model):
             tool_specs: List of tool specifications to make available to the model.
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation.
+            system_prompt_content: System prompt content blocks to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             An OpenAI compatible chat streaming request.
@@ -291,7 +325,9 @@ class OpenAIModel(Model):
                 format.
         """
         return {
-            "messages": self.format_request_messages(messages, system_prompt, system_prompt_content=system_prompt_content),
+            "messages": self.format_request_messages(
+                messages, system_prompt, system_prompt_content=system_prompt_content
+            ),
             "model": self.config["model_id"],
             "stream": True,
             "stream_options": {"include_usage": True},
@@ -310,12 +346,12 @@ class OpenAIModel(Model):
             **cast(dict[str, Any], self.config.get("params", {})),
         }
 
-
     def format_chunk(self, event: dict[str, Any], **kwargs: Any) -> StreamEvent:
         """Format an OpenAI response event into a standardized message chunk.
 
         Args:
             event: A response event from the OpenAI compatible model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             The formatted chunk.
