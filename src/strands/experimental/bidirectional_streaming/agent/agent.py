@@ -1,12 +1,12 @@
 """Bidirectional Agent for real-time streaming conversations.
 
-Provides real-time audio and text interaction through persistent streaming sessions.
+Provides real-time audio and text interaction through persistent streaming connections.
 Unlike traditional request-response patterns, this agent maintains long-running
 conversations where users can interrupt, provide additional input, and receive
 continuous responses including audio output.
 
 Key capabilities:
-- Persistent conversation sessions with concurrent processing
+- Persistent conversation connections with concurrent processing
 - Real-time audio input/output streaming
 - Automatic interruption detection and tool execution
 - Event-driven communication with model providers
@@ -43,7 +43,7 @@ class BidirectionalAgent:
     """Agent for bidirectional streaming conversations.
 
     Enables real-time audio and text interaction with AI models through persistent
-    sessions. Supports concurrent tool execution and interruption handling.
+    connections. Supports concurrent tool execution and interruption handling.
     """
 
     def __init__(
@@ -60,6 +60,7 @@ class BidirectionalAgent:
         hooks: Optional[list[HookProvider]] = None,
         trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
         description: Optional[str] = None,
+        adapters: Optional[list[Any]] = None,
         **kwargs: Any,
     ):
         """Initialize bidirectional agent with flexible model support and extensible configuration.
@@ -71,12 +72,13 @@ class BidirectionalAgent:
             messages: Optional conversation history to initialize with.
             record_direct_tool_call: Whether to record direct tool calls in message history.
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.
-            agent_id: Optional ID for the agent, useful for session management and multi-agent scenarios.
+            agent_id: Optional ID for the agent, useful for connection management and multi-agent scenarios.
             name: Name of the Agent.
             tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
             hooks: Hooks to be added to the agent hook registry.
             trace_attributes: Custom trace attributes to apply to the agent's trace span.
             description: Description of what the Agent does.
+            adapters: Optional list of adapter instances (e.g., AudioAdapter) for hardware abstraction.
             **kwargs: Additional configuration for future extensibility.
 
         Raises:
@@ -136,12 +138,15 @@ class BidirectionalAgent:
         self.event_loop_metrics = EventLoopMetrics()
         self.tool_caller = ToolCaller(self)
 
-        # Session management
-        self._session: Optional["BidirectionalAgentLoop"] = None
+        # connection management
+        self._agentloop: Optional["BidirectionalAgentLoop"] = None
         self._output_queue = asyncio.Queue()
 
         # Store extensibility kwargs for future use
         self._config_kwargs = kwargs
+
+        # Initialize adapters
+        self.adapters = adapters or []
 
     @property
     def tool(self) -> ToolCaller:
@@ -255,27 +260,27 @@ class BidirectionalAgent:
         return {k: v for k, v in input_params.items() if k in properties}
 
     async def start(self) -> None:
-        """Start a persistent bidirectional conversation session.
+        """Start a persistent bidirectional conversation connection.
 
-        Initializes the streaming session and starts background tasks for processing
-        model events, tool execution, and session management.
+        Initializes the streaming connection and starts background tasks for processing
+        model events, tool execution, and connection management.
 
         Raises:
             ValueError: If conversation already active.
-            ConnectionError: If session creation fails.
+            ConnectionError: If connection creation fails.
         """
-        if self._session and self._session.active:
+        if self._agentloop and self._agentloop.active:
             raise ValueError("Conversation already active. Call end() first.")
 
-        logger.debug("Conversation start - initializing session")
+        logger.debug("Conversation start - initializing connection")
 
         # Create model session and event loop directly
         model_session = await self.model.create_bidirectional_connection(
             system_prompt=self.system_prompt, tools=self.tool_registry.get_all_tool_specs(), messages=self.messages
         )
 
-        self._session = BidirectionalAgentLoop(model_session=model_session, agent=self)
-        await self._session.start()
+        self._agentloop = BidirectionalAgentLoop(model_session=model_session, agent=self)
+        await self._agentloop.start()
 
         logger.debug("Conversation ready")
 
@@ -283,16 +288,16 @@ class BidirectionalAgent:
         """Send input to the model (text or audio).
 
         Unified method for sending both text and audio input to the model during
-        an active conversation session. User input is automatically added to
+        an active conversation connection. User input is automatically added to
         conversation history for complete message tracking.
 
         Args:
             input_data: String for text, AudioInputEvent for audio, or ImageInputEvent for images.
             
         Raises:
-            ValueError: If no active session or invalid input type.
+            ValueError: If no active connection or invalid input type.
         """
-        self._validate_active_session()
+        self._validate_active_agentloop()
 
         if isinstance(input_data, str):
             # Add user text message to history
@@ -301,13 +306,13 @@ class BidirectionalAgent:
             self.messages.append(user_message)
 
             logger.debug("Text sent: %d characters", len(input_data))
-            await self._session.model_session.send_text_content(input_data)
+            await self._agentloop.model_session.send_text_content(input_data)
         elif isinstance(input_data, dict) and "audioData" in input_data:
             # Handle audio input
-            await self._session.model_session.send_audio_content(input_data)
+            await self._agentloop.model_session.send_audio_content(input_data)
         elif isinstance(input_data, dict) and "imageData" in input_data:
             # Handle image input (ImageInputEvent)
-            await self._session.model_session.send_image_content(input_data)
+            await self._agentloop.model_session.send_image_content(input_data)
         else:
             raise ValueError(
                 "Input must be either a string (text), AudioInputEvent "
@@ -319,7 +324,7 @@ class BidirectionalAgent:
         """Receive events from the model including audio, text, and tool calls.
 
         Yields model output events processed by background tasks including audio output,
-        text responses, tool calls, and session updates.
+        text responses, tool calls, and connection updates.
 
         Yields:
             BidirectionalStreamEvent: Events from the model session.
@@ -332,36 +337,36 @@ class BidirectionalAgent:
                 continue
 
     async def end(self) -> None:
-        """End the conversation session and cleanup all resources.
+        """End the conversation connection and cleanup all resources.
 
-        Terminates the streaming session, cancels background tasks, and
+        Terminates the streaming connection, cancels background tasks, and
         closes the connection to the model provider.
         """
-        if self._session:
-            await self._session.stop()
-            self._session = None
+        if self._agentloop:
+            await self._agentloop.stop()
+            self._agentloop = None
 
     async def __aenter__(self) -> "BidirectionalAgent":
         """Async context manager entry point.
         
-        Automatically starts the bidirectional session when entering the context.
+        Automatically starts the bidirectional connection when entering the context.
         
         Returns:
             Self for use in the context.
             
         Raises:
-            ValueError: If session is already active.
-            ConnectionError: If session creation fails.
+            ValueError: If connection is already active.
+            ConnectionError: If connection creation fails.
         """
-        logger.debug("Entering async context manager - starting session")
+        logger.debug("Entering async context manager - starting connection")
         await self.start()
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         """Async context manager exit point.
         
-        Automatically ends the session and cleans up resources when exiting 
-        the context, regardless of whether an exception occurred.
+        Automatically ends the connection and cleans up resources including adapters 
+        when exiting the context, regardless of whether an exception occurred.
         
         Args:
             exc_type: Exception type if an exception occurred, None otherwise.
@@ -369,8 +374,20 @@ class BidirectionalAgent:
             exc_tb: Exception traceback if an exception occurred, None otherwise.
         """
         try:
-            logger.debug("Exiting async context manager - ending session")
+            logger.debug("Exiting async context manager - cleaning up adapters and connection")
+            
+            # Cleanup adapters first
+            for adapter in self.adapters:
+                if hasattr(adapter, '_cleanup_audio'):
+                    try:
+                        adapter._cleanup_audio()
+                        logger.debug(f"Cleaned up adapter: {type(adapter).__name__}")
+                    except Exception as adapter_error:
+                        logger.warning(f"Error cleaning up adapter: {adapter_error}")
+            
+            # Then cleanup agent connection
             await self.end()
+            
         except Exception as cleanup_error:
             if exc_type is None:
                 # No original exception, re-raise cleanup error
@@ -382,66 +399,56 @@ class BidirectionalAgent:
 
     @property
     def active(self) -> bool:
-        """Check if the agent session is currently active.
+        """Check if the agent connection is currently active.
         
         Returns:
-            True if session is active and ready for communication, False otherwise.
+            True if connection is active and ready for communication, False otherwise.
         """
-        return self._session is not None and self._session.active
+        return self._agentloop is not None and self._agentloop.active
 
-    async def run(
-        self,
-        *,
-        sender: Callable[[Any], Any],
-        receiver: Callable[[], Any],
-    ) -> None:
-        """Run the agent with send/receive loop management.
+    async def connect(self) -> None:
+        """Connect the agent using configured adapters for bidirectional communication.
 
-        Starts the session, pipes events between the agent and transport layer,
-        and handles cleanup on disconnection.
-
-        Args:
-            sender: Async callable that sends events to the client (e.g., websocket.send_json).
-            receiver: Async callable that receives events from the client (e.g., websocket.receive_json).
+        Automatically uses configured adapters to establish bidirectional communication
+        with the model. Handles connection lifecycle and transport coordination.
 
         Example:
             ```python
-            # With WebSocket
-            agent = BidirectionalAgent(model=model, tools=[calculator])
-            await agent.run(sender=websocket.send_json, receiver=websocket.receive_json)
-
-            # With custom transport
-            async def custom_send(event):
-                # Custom send logic
-                pass
-
-            async def custom_receive():
-                # Custom receive logic
-                return event
-
-            await agent.run(sender=custom_send, receiver=custom_receive)
+            # With AudioAdapter
+            adapter = AudioAdapter(audio_config={"input_sample_rate": 16000})
+            agent = BidirectionalAgent(model=model, tools=[calculator], adapters=[adapter])
+            await agent.connect()
             ```
 
         Raises:
-            Exception: Any exception from the transport layer (e.g., WebSocketDisconnect).
+            ValueError: If no adapters are configured.
+            Exception: Any exception from the transport layer.
         """
-        # Check if session is already active
-        session_was_active = self.active
+        if not self.adapters:
+            raise ValueError("No adapters configured. Add adapters to the agent constructor.")
         
-        if session_was_active:
-            # Use existing session
-            await self._run_with_session(sender, receiver)
+        # Use first adapter
+        adapter = self.adapters[0]
+        sender = adapter.create_output()
+        receiver = adapter.create_input()
+        
+        # Check if connection is already active
+        connection_was_active = self.active
+        
+        if connection_was_active:
+            # Use existing connection
+            await self._run_with_agentloop(sender, receiver)
         else:
             # Use async context manager for automatic lifecycle management
             async with self:
-                await self._run_with_session(sender, receiver)
+                await self._run_with_agentloop(sender, receiver)
 
-    async def _run_with_session(
+    async def _run_with_agentloop(
         self,
         sender: Callable[[Any], Any],
         receiver: Callable[[], Any],
     ) -> None:
-        """Internal method to run send/receive loops with an active session.
+        """Internal method to run send/receive loops with an active connection.
         
         Args:
             sender: Async callable that sends events to the client.
@@ -473,11 +480,11 @@ class BidirectionalAgent:
             return_exceptions=True
         )
 
-    def _validate_active_session(self) -> None:
-        """Validate that an active session exists.
+    def _validate_active_agentloop(self) -> None:
+        """Validate that an active connection exists.
 
         Raises:
-            ValueError: If no active session.
+            ValueError: If no active connection.
         """
         if not self.active:
             raise ValueError("No active conversation. Call start() first or use async context manager.")
