@@ -1,6 +1,4 @@
-"""ToolCaller base class.
-
-"""
+"""ToolCaller base class."""
 
 import asyncio
 import random
@@ -13,10 +11,10 @@ from ..types.tools import ToolResult, ToolUse
 
 class ToolCaller:
     """Provides common tool calling functionality that can be used by both traditional
-Agent and BidirectionalAgent classes with agent-specific customizations.
+    Agent and BidirectionalAgent classes with agent-specific customizations.
 
-    Automatically detects agent type and applies appropriate behavior:
-    - Traditional agents: Uses conversation_manager.apply_management()
+        Automatically detects agent type and applies appropriate behavior:
+        - Traditional agents: Uses conversation_manager.apply_management()
     """
 
     def __init__(self, agent: Any) -> None:

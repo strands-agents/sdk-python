@@ -19,13 +19,13 @@ logger = logging.getLogger(__name__)
 
 class AudioAdapter:
     """Audio adapter for BidirectionalAgent with direct stream processing."""
-    
+
     def __init__(
         self,
         audio_config: Optional[dict] = None,
     ):
         """Initialize AudioAdapter with clean audio configuration.
-        
+
         Args:
             audio_config: Dictionary containing audio configuration:
                 - input_sample_rate (int): Microphone sample rate (default: 24000)
@@ -38,7 +38,7 @@ class AudioAdapter:
         """
         if pyaudio is None:
             raise ImportError("PyAudio is required for AudioAdapter. Install with: pip install pyaudio")
-        
+
         # Default audio configuration
         default_config = {
             "input_sample_rate": 24000,
@@ -47,13 +47,13 @@ class AudioAdapter:
             "input_device_index": None,
             "output_device_index": None,
             "input_channels": 1,
-            "output_channels": 1
+            "output_channels": 1,
         }
-        
+
         # Merge user config with defaults
         if audio_config:
             default_config.update(audio_config)
-            
+
         # Set audio configuration attributes
         self.input_sample_rate = default_config["input_sample_rate"]
         self.output_sample_rate = default_config["output_sample_rate"]
@@ -62,7 +62,7 @@ class AudioAdapter:
         self.output_device_index = default_config["output_device_index"]
         self.input_channels = default_config["input_channels"]
         self.output_channels = default_config["output_channels"]
-        
+
         # Audio infrastructure
         self.audio = None
         self.input_stream = None
@@ -73,39 +73,39 @@ class AudioAdapter:
         """Setup PyAudio streams for input and output."""
         if self.audio:
             return
-        
+
         self.audio = pyaudio.PyAudio()
-        
+
         try:
             # Input stream
             self.input_stream = self.audio.open(
-                format=pyaudio.paInt16, 
-                channels=self.input_channels, 
+                format=pyaudio.paInt16,
+                channels=self.input_channels,
                 rate=self.input_sample_rate,
-                input=True, 
+                input=True,
                 frames_per_buffer=self.chunk_size,
-                input_device_index=self.input_device_index
+                input_device_index=self.input_device_index,
             )
-            
+
             # Output stream
             self.output_stream = self.audio.open(
-                format=pyaudio.paInt16, 
-                channels=self.output_channels, 
+                format=pyaudio.paInt16,
+                channels=self.output_channels,
                 rate=self.output_sample_rate,
-                output=True, 
+                output=True,
                 frames_per_buffer=self.chunk_size,
-                output_device_index=self.output_device_index
+                output_device_index=self.output_device_index,
             )
-            
+
             # Start streams
             self.input_stream.start_stream()
             self.output_stream.start_stream()
-            
+
         except Exception as e:
             logger.error(f"AudioAdapter: Audio setup failed: {e}")
             self._cleanup_audio()
             raise
-    
+
     def _cleanup_audio(self) -> None:
         """Clean up PyAudio resources."""
         try:
@@ -113,67 +113,73 @@ class AudioAdapter:
                 if self.input_stream.is_active():
                     self.input_stream.stop_stream()
                 self.input_stream.close()
-                
+
             if self.output_stream:
                 if self.output_stream.is_active():
                     self.output_stream.stop_stream()
                 self.output_stream.close()
-            
+
             if self.audio:
                 self.audio.terminate()
-            
+
             self.input_stream = None
             self.output_stream = None
             self.audio = None
-            
+
         except Exception as e:
             logger.warning(f"Audio cleanup error: {e}")
 
     def create_input(self) -> Callable[[], dict]:
         """Create audio input function for agent.run()."""
+
         async def audio_receiver() -> dict:
             """Read audio from microphone."""
             if not self.input_stream:
                 self._setup_audio()
-            
+
             try:
                 audio_bytes = self.input_stream.read(self.chunk_size, exception_on_overflow=False)
                 return {
                     "audioData": audio_bytes,
-                    "format": "pcm", 
+                    "format": "pcm",
                     "sampleRate": self.input_sample_rate,
-                    "channels": self.input_channels
+                    "channels": self.input_channels,
                 }
             except Exception as e:
                 logger.warning(f"Audio input error: {e}")
-                return {"audioData": b"", "format": "pcm", "sampleRate": self.input_sample_rate, "channels": self.input_channels}
-        
+                return {
+                    "audioData": b"",
+                    "format": "pcm",
+                    "sampleRate": self.input_sample_rate,
+                    "channels": self.input_channels,
+                }
+
         return audio_receiver
-    
+
     def create_output(self) -> Callable[[dict], None]:
         """Create audio output function with direct stream writing."""
-        
+
         async def audio_sender(event: dict) -> None:
             """Handle audio events with direct stream writing."""
             if not self.output_stream:
                 self._setup_audio()
-            
+
             # Handle audio output
             if "audioOutput" in event and not self.interrupted:
                 audio_data = event["audioOutput"]["audioData"]
-                
+
                 # Handle both base64 and raw bytes
                 if isinstance(audio_data, str):
                     audio_data = base64.b64decode(audio_data)
-                
+
                 if audio_data:
                     chunk_size = 2048
                     for i in range(0, len(audio_data), chunk_size):
                         # Check for interruption before each chunk
                         if self.interrupted:
                             break
-                            
-                        chunk = audio_data[i:i + chunk_size]
+
+                        chunk = audio_data[i : i + chunk_size]
                         try:
                             self.output_stream.write(chunk, exception_on_underflow=False)
                             await asyncio.sleep(0)
@@ -184,7 +190,7 @@ class AudioAdapter:
             elif "interruptionDetected" in event or "interrupted" in event:
                 self.interrupted = True
                 logger.debug("Interruption detected")
-                
+
                 # Stop and restart stream for immediate interruption
                 if self.output_stream:
                     try:
@@ -192,7 +198,7 @@ class AudioAdapter:
                         self.output_stream.start_stream()
                     except Exception as e:
                         logger.debug(f"Error clearing audio buffer: {e}")
-                
+
                 self.interrupted = False
 
             elif "textOutput" in event:
@@ -203,9 +209,5 @@ class AudioAdapter:
                         print(f"🤖 {text}")
                     elif role.upper() == "USER":
                         print(f"User: {text}")
-        
+
         return audio_sender
-
-
-
-

@@ -272,7 +272,7 @@ class BidirectionalAgent:
 
         Args:
             input_data: String for text, AudioInputEvent for audio, or ImageInputEvent for images.
-            
+
         Raises:
             ValueError: If no active connection or invalid input type.
         """
@@ -327,12 +327,12 @@ class BidirectionalAgent:
 
     async def __aenter__(self) -> "BidirectionalAgent":
         """Async context manager entry point.
-        
+
         Automatically starts the bidirectional connection when entering the context.
-        
+
         Returns:
             Self for use in the context.
-            
+
         Raises:
             ValueError: If connection is already active.
             ConnectionError: If connection creation fails.
@@ -343,10 +343,10 @@ class BidirectionalAgent:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         """Async context manager exit point.
-        
-        Automatically ends the connection and cleans up resources including adapters 
+
+        Automatically ends the connection and cleans up resources including adapters
         when exiting the context, regardless of whether an exception occurred.
-        
+
         Args:
             exc_type: Exception type if an exception occurred, None otherwise.
             exc_val: Exception value if an exception occurred, None otherwise.
@@ -354,19 +354,19 @@ class BidirectionalAgent:
         """
         try:
             logger.debug("Exiting async context manager - cleaning up adapters and connection")
-            
+
             # Cleanup adapters first
             for adapter in self.adapters:
-                if hasattr(adapter, '_cleanup_audio'):
+                if hasattr(adapter, "_cleanup_audio"):
                     try:
                         adapter._cleanup_audio()
                         logger.debug(f"Cleaned up adapter: {type(adapter).__name__}")
                     except Exception as adapter_error:
                         logger.warning(f"Error cleaning up adapter: {adapter_error}")
-            
+
             # Then cleanup agent connection
             await self.end()
-            
+
         except Exception as cleanup_error:
             if exc_type is None:
                 # No original exception, re-raise cleanup error
@@ -374,12 +374,14 @@ class BidirectionalAgent:
                 raise
             else:
                 # Original exception exists, log cleanup error but don't suppress original
-                logger.error("Error during context manager cleanup (suppressed due to original exception): %s", cleanup_error)
+                logger.error(
+                    "Error during context manager cleanup (suppressed due to original exception): %s", cleanup_error
+                )
 
     @property
     def active(self) -> bool:
         """Check if the agent connection is currently active.
-        
+
         Returns:
             True if connection is active and ready for communication, False otherwise.
         """
@@ -405,7 +407,7 @@ class BidirectionalAgent:
         """
         if not self.adapters:
             raise ValueError("No adapters configured. Add adapters to the agent constructor.")
-        
+
         # Use first adapter
         adapter = self.adapters[0]
         sender = adapter.create_output()
@@ -415,7 +417,7 @@ class BidirectionalAgent:
             # Use existing connection
             await self._run(sender, receiver)
         else:
-        # Use async context manager for automatic lifecycle management
+            # Use async context manager for automatic lifecycle management
             async with self:
                 await self._run(sender, receiver)
 
@@ -425,11 +427,12 @@ class BidirectionalAgent:
         receiver: Callable[[], Any],
     ) -> None:
         """Internal method to run send/receive loops with an active connection.
-        
+
         Args:
             sender: Async callable that sends events to the client.
             receiver: Async callable that receives events from the client.
         """
+
         async def receive_from_agent():
             """Receive events from agent and send to client."""
             try:
@@ -450,11 +453,7 @@ class BidirectionalAgent:
                 raise
 
         # Run both loops concurrently
-        await asyncio.gather(
-            receive_from_agent(),
-            send_to_agent(),
-            return_exceptions=True
-        )
+        await asyncio.gather(receive_from_agent(), send_to_agent(), return_exceptions=True)
 
     def _validate_active_connection(self) -> None:
         """Validate that an active connection exists.
