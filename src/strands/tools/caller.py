@@ -1,7 +1,5 @@
-"""Shared ToolCaller base class to eliminate duplication between agent implementations.
+"""ToolCaller base class.
 
-Provides common tool calling functionality that can be used by both traditional
-Agent and BidirectionalAgent classes with agent-specific customizations.
 """
 
 import asyncio
@@ -14,11 +12,11 @@ from ..types.tools import ToolResult, ToolUse
 
 
 class ToolCaller:
-    """Universal tool caller that works with both traditional and bidirectional agents.
+    """Provides common tool calling functionality that can be used by both traditional
+Agent and BidirectionalAgent classes with agent-specific customizations.
 
     Automatically detects agent type and applies appropriate behavior:
     - Traditional agents: Uses conversation_manager.apply_management()
-    - Bidirectional agents: Skips conversation management (not needed for streaming)
     """
 
     def __init__(self, agent: Any) -> None:

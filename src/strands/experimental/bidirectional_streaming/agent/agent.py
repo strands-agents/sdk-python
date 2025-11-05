@@ -18,7 +18,6 @@ import logging
 from typing import Any, AsyncIterable, Mapping, Optional, Union, Callable
 
 from .... import _identifier
-from ....hooks import HookProvider, HookRegistry
 from ....telemetry.metrics import EventLoopMetrics
 from ....tools.caller import ToolCaller
 from ....tools.executors import ConcurrentToolExecutor
@@ -37,6 +36,8 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
+# Type alias for cleaner send() method signature
+BidirectionalInput = str | AudioInputEvent | ImageInputEvent
 
 
 class BidirectionalAgent:
@@ -57,13 +58,11 @@ class BidirectionalAgent:
         agent_id: Optional[str] = None,
         name: Optional[str] = None,
         tool_executor: Optional[ToolExecutor] = None,
-        hooks: Optional[list[HookProvider]] = None,
-        trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
         description: Optional[str] = None,
         adapters: Optional[list[Any]] = None,
         **kwargs: Any,
     ):
-        """Initialize bidirectional agent with flexible model support and extensible configuration.
+        """Initialize bidirectional agent.
 
         Args:
             model: BidirectionalModel instance, string model_id, or None for default detection.
@@ -75,8 +74,6 @@ class BidirectionalAgent:
             agent_id: Optional ID for the agent, useful for connection management and multi-agent scenarios.
             name: Name of the Agent.
             tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
-            hooks: Hooks to be added to the agent hook registry.
-            trace_attributes: Custom trace attributes to apply to the agent's trace span.
             description: Description of what the Agent does.
             adapters: Optional list of adapter instances (e.g., AudioAdapter) for hardware abstraction.
             **kwargs: Additional configuration for future extensibility.
@@ -104,15 +101,6 @@ class BidirectionalAgent:
         self.record_direct_tool_call = record_direct_tool_call
         self.load_tools_from_directory = load_tools_from_directory
 
-        # Process trace attributes to ensure they're of compatible types
-        self.trace_attributes: dict[str, AttributeValue] = {}
-        if trace_attributes:
-            for k, v in trace_attributes.items():
-                if isinstance(v, (str, int, float, bool)) or (
-                    isinstance(v, list) and all(isinstance(x, (str, int, float, bool)) for x in v)
-                ):
-                    self.trace_attributes[k] = v
-
         # Initialize tool registry
         self.tool_registry = ToolRegistry()
 
@@ -128,12 +116,6 @@ class BidirectionalAgent:
         # Initialize tool executor
         self.tool_executor = tool_executor or ConcurrentToolExecutor()
 
-        # Initialize hooks system
-        self.hooks = HookRegistry()
-        if hooks:
-            for hook in hooks:
-                self.hooks.add_hook(hook)
-
         # Initialize other components
         self.event_loop_metrics = EventLoopMetrics()
         self.tool_caller = ToolCaller(self)
@@ -141,9 +123,6 @@ class BidirectionalAgent:
         # connection management
         self._agentloop: Optional["BidirectionalAgentLoop"] = None
         self._output_queue = asyncio.Queue()
-
-        # Store extensibility kwargs for future use
-        self._config_kwargs = kwargs
 
         # Initialize adapters
         self.adapters = adapters or []
@@ -284,7 +263,7 @@ class BidirectionalAgent:
 
         logger.debug("Conversation ready")
 
-    async def send(self, input_data: Union[str, AudioInputEvent]) -> None:
+    async def send(self, input_data: BidirectionalInput) -> None:
         """Send input to the model (text or audio).
 
         Unified method for sending both text and audio input to the model during
@@ -331,7 +310,7 @@ class BidirectionalAgent:
         """
         while self.active:
             try:
-                event = await asyncio.wait_for(self._output_queue.get(), timeout=0.1)
+                event = await self._output_queue.get()
                 yield event
             except asyncio.TimeoutError:
                 continue
