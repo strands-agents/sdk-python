@@ -57,7 +57,6 @@ from typing import (
     cast,
     get_args,
     get_origin,
-    get_type_hints,
     overload,
 )
 
@@ -101,7 +100,6 @@ class FunctionToolMetadata:
         """
         self.func = func
         self.signature = inspect.signature(func)
-        self.type_hints = get_type_hints(func, include_extras=True)
         self._context_param = context_param
 
         self._validate_signature()
@@ -201,8 +199,9 @@ class FunctionToolMetadata:
             if self._is_special_parameter(name):
                 continue
 
-            # Fallback to Any for params without type hints to prevent Pydantic errors
-            param_type = self.type_hints.get(name, param.annotation)
+            # Use param.annotation directly to get the raw type hint. Using get_type_hints()
+            # can cause inconsistent behavior across Python versions for complex Annotated types.
+            param_type = param.annotation
             if param_type is inspect.Parameter.empty:
                 param_type = Any
 
