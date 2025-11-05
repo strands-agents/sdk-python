@@ -2240,8 +2240,8 @@ def test_agent_backwards_compatibility_single_text_block():
 
     # Should extract text for backwards compatibility
     assert agent.system_prompt == text
-
-
+    
+    
 @pytest.mark.parametrize(
     "content, expected",
     [

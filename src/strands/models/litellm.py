@@ -154,7 +154,6 @@ class LiteLLMModel(OpenAIModel):
         if system_prompt and system_prompt_content is None:
             system_prompt_content = [{"text": system_prompt}]
 
-        # For LiteLLM with Bedrock, we can support cache points
         system_content: list[dict[str, Any]] = []
         for block in system_prompt_content or []:
             if "text" in block:
@@ -165,7 +164,7 @@ class LiteLLMModel(OpenAIModel):
                 if system_content:
                     system_content[-1]["cache_control"] = {"type": "ephemeral"}
 
-        # Create single system message with content array
+        # Create single system message with content array rather than mulitple system messages
         return [{"role": "system", "content": system_content}] if system_content else []
 
     @override
