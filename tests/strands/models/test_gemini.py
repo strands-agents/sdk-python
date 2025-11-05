@@ -1,4 +1,5 @@
 import json
+import logging
 import unittest.mock
 
 import pydantic
@@ -621,3 +622,18 @@ async def test_structured_output(gemini_client, model, messages, model_id, weath
         "model": model_id,
     }
     gemini_client.aio.models.generate_content.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_handles_non_json_error(gemini_client, model, messages, caplog, alist):
+    error_message = "Invalid API key"
+    gemini_client.aio.models.generate_content_stream.side_effect = genai.errors.ClientError(
+        error_message, {"message": error_message}
+    )
+
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(genai.errors.ClientError, match=error_message):
+            await alist(model.stream(messages))
+
+    assert "Gemini API returned non-JSON error" in caplog.text
+    assert f"error_message=<{error_message}>" in caplog.text

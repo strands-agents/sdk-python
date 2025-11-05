@@ -283,7 +283,7 @@ class ToolExecutor(abc.ABC):
         cycle_trace: Trace,
         cycle_span: Any,
         invocation_state: dict[str, Any],
-        structured_output_context: "StructuredOutputContext",
+        structured_output_context: "StructuredOutputContext | None" = None,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the given tools according to this executor's strategy.
 
