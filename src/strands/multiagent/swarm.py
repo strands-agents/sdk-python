@@ -273,7 +273,7 @@ class Swarm(MultiAgentBase):
 
         self._setup_swarm(nodes)
         self._inject_swarm_tools()
-        self.hooks.invoke_callbacks(MultiAgentInitializedEvent(self))
+        run_async(lambda: self.hooks.invoke_callbacks_async(MultiAgentInitializedEvent(self)))
 
     def __call__(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
@@ -336,7 +336,7 @@ class Swarm(MultiAgentBase):
         if invocation_state is None:
             invocation_state = {}
 
-        self.hooks.invoke_callbacks(BeforeMultiAgentInvocationEvent(self, invocation_state))
+        await self.hooks.invoke_callbacks_async(BeforeMultiAgentInvocationEvent(self, invocation_state))
 
         logger.debug("starting swarm execution")
 
@@ -375,7 +375,7 @@ class Swarm(MultiAgentBase):
                 raise
             finally:
                 self.state.execution_time = round((time.time() - self.state.start_time) * 1000)
-                self.hooks.invoke_callbacks(AfterMultiAgentInvocationEvent(self, invocation_state))
+                await self.hooks.invoke_callbacks_async(AfterMultiAgentInvocationEvent(self, invocation_state))
                 self._resume_from_session = False
 
             # Yield final result after execution_time is set
@@ -687,7 +687,9 @@ class Swarm(MultiAgentBase):
                 # TODO: Implement cancellation token to stop _execute_node from continuing
                 try:
                     # Execute with timeout wrapper for async generator streaming
-                    self.hooks.invoke_callbacks(BeforeNodeCallEvent(self, current_node.node_id, invocation_state))
+                    await self.hooks.invoke_callbacks_async(
+                        BeforeNodeCallEvent(self, current_node.node_id, invocation_state)
+                    )
                     node_stream = self._stream_with_timeout(
                         self._execute_node(current_node, self.state.task, invocation_state),
                         self.node_timeout,
@@ -699,7 +701,9 @@ class Swarm(MultiAgentBase):
                     self.state.node_history.append(current_node)
 
                     #  After self.state add current node, swarm state finish updating, we persist here
-                    self.hooks.invoke_callbacks(AfterNodeCallEvent(self, current_node.node_id, invocation_state))
+                    await self.hooks.invoke_callbacks_async(
+                        AfterNodeCallEvent(self, current_node.node_id, invocation_state)
+                    )
 
                     logger.debug("node=<%s> | node execution completed", current_node.node_id)
 

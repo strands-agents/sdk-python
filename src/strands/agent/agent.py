@@ -541,7 +541,7 @@ class Agent:
                 if not self.messages and not prompt:
                     raise ValueError("No conversation history or prompt provided")
 
-                temp_messages: Messages = self.messages + self._convert_prompt_to_messages(prompt)
+                temp_messages: Messages = self.messages + await self._convert_prompt_to_messages(prompt)
 
                 structured_output_span.set_attributes(
                     {
@@ -657,7 +657,7 @@ class Agent:
             callback_handler = kwargs.get("callback_handler", self.callback_handler)
 
         # Process input and get message to add (if any)
-        messages = self._convert_prompt_to_messages(prompt)
+        messages = await self._convert_prompt_to_messages(prompt)
 
         self.trace_span = self._start_agent_trace_span(messages)
 
@@ -812,7 +812,7 @@ class Agent:
             if structured_output_context:
                 structured_output_context.cleanup(self.tool_registry)
 
-    def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
+    async def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
         if self._interrupt_state.activated:
             return []
 
@@ -827,7 +827,7 @@ class Agent:
                 tool_use_ids = [
                     content["toolUse"]["toolUseId"] for content in self.messages[-1]["content"] if "toolUse" in content
                 ]
-                self._append_message(
+                await self._append_message(
                     {
                         "role": "user",
                         "content": generate_missing_tool_result_content(tool_use_ids),

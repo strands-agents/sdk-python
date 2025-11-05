@@ -19,7 +19,8 @@ def agent():
     return instance
 
 
-def test_hook_registry_invoke_callbacks_interrupt(registry, agent):
+@pytest.mark.asyncio
+async def test_hook_registry_invoke_callbacks_interrupt(registry, agent):
     event = BeforeToolCallEvent(
         agent=agent,
         selected_tool=None,
@@ -35,7 +36,7 @@ def test_hook_registry_invoke_callbacks_interrupt(registry, agent):
     registry.add_callback(BeforeToolCallEvent, callback2)
     registry.add_callback(BeforeToolCallEvent, callback3)
 
-    _, tru_interrupts = registry.invoke_callbacks(event)
+    _, tru_interrupts = await registry.invoke_callbacks_async(event)
     exp_interrupts = [
         Interrupt(
             id="v1:before_tool_call:test_tool_id:da3551f3-154b-5978-827e-50ac387877ee",
@@ -55,7 +56,8 @@ def test_hook_registry_invoke_callbacks_interrupt(registry, agent):
     callback3.assert_called_once_with(event)
 
 
-def test_hook_registry_invoke_callbacks_interrupt_name_clash(registry, agent):
+@pytest.mark.asyncio
+async def test_hook_registry_invoke_callbacks_interrupt_name_clash(registry, agent):
     event = BeforeToolCallEvent(
         agent=agent,
         selected_tool=None,
@@ -70,4 +72,4 @@ def test_hook_registry_invoke_callbacks_interrupt_name_clash(registry, agent):
     registry.add_callback(BeforeToolCallEvent, callback2)
 
     with pytest.raises(ValueError, match="interrupt_name=<test_name> | interrupt name used more than once"):
-        registry.invoke_callbacks(event)
+        await registry.invoke_callbacks_async(event)
