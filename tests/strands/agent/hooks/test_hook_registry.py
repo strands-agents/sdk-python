@@ -114,8 +114,8 @@ def test_get_callbacks_for_after_event(hook_registry, after_event):
 
 
 @pytest.mark.asyncio
-async def test_invoke_callbacks(hook_registry, normal_event):
-    """Test that invoke_callbacks calls all registered callbacks for an event."""
+async def test_invoke_callbacks_async(hook_registry, normal_event):
+    """Test that invoke_callbacks_async calls all registered callbacks for an event."""
     callback1 = Mock()
     callback2 = Mock()
 
@@ -128,16 +128,17 @@ async def test_invoke_callbacks(hook_registry, normal_event):
     callback2.assert_called_once_with(normal_event)
 
 
-def test_invoke_callbacks_no_registered_callbacks(hook_registry, normal_event):
-    """Test that invoke_callbacks doesn't fail when there are no registered callbacks."""
+@pytest.mark.asyncio
+async def test_invoke_callbacks_async_no_registered_callbacks(hook_registry, normal_event):
+    """Test that invoke_callbacks_async doesn't fail when there are no registered callbacks."""
     # No callbacks registered
-    hook_registry.invoke_callbacks(normal_event)
+    await hook_registry.invoke_callbacks_async(normal_event)
     # Test passes if no exception is raised
 
 
 @pytest.mark.asyncio
-async def test_invoke_callbacks_after_event(hook_registry, after_event):
-    """Test that invoke_callbacks calls callbacks in reverse order for after events."""
+async def test_invoke_callbacks_async_after_event(hook_registry, after_event):
+    """Test that invoke_callbacks_async calls callbacks in reverse order for after events."""
     call_order: List[str] = []
 
     def callback1(_event):
