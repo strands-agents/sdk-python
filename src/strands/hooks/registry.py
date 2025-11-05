@@ -170,6 +170,7 @@ class HookRegistry:
             registry.add_callback(StartRequestEvent, my_handler)
             ```
         """
+        # Related issue: https://github.com/strands-agents/sdk-python/issues/330
         if event_type.__name__ == "AgentInitializedEvent" and inspect.iscoroutinefunction(callback):
             raise ValueError("AgentInitializedEvent can only be registered with a synchronous callback")
 
