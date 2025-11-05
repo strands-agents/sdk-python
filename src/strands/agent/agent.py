@@ -19,6 +19,7 @@ from typing import (
     AsyncGenerator,
     AsyncIterator,
     Callable,
+    Generic,
     Mapping,
     Optional,
     Type,
@@ -89,7 +90,7 @@ _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
 
 
-class Agent:
+class Agent(Generic[T]):
     """Core Agent interface.
 
     An agent orchestrates the following workflow:
@@ -100,6 +101,32 @@ class Agent:
     4. Executes those tools and receives results
     5. Continues reasoning with the new information
     6. Produces a final response
+
+    Type Parameters:
+        T: The Pydantic BaseModel type for structured output. When specified via the
+           structured_output_model parameter, enables type-safe access to structured
+           output fields. Defaults to BaseModel when not specified.
+
+    Type Inference:
+        When an Agent is initialized with structured_output_model, the generic type
+        parameter is inferred, enabling better IDE support and type checking:
+
+        >>> class UserProfile(BaseModel):
+        ...     name: str
+        ...     age: int
+        >>> agent: Agent[UserProfile] = Agent(
+        ...     model=model,
+        ...     structured_output_model=UserProfile
+        ... )
+        >>> result = agent("Extract user info")  # Returns AgentResult[UserProfile]
+        >>> if result.structured_output is not None:
+        ...     name: str = result.structured_output.name  # Type-safe field access
+
+    Backward Compatibility:
+        Existing code without type annotations continues to work unchanged:
+
+        >>> agent = Agent(model=model)  # Agent[BaseModel]
+        >>> result = agent("Hello")  # AgentResult[BaseModel]
     """
 
     class ToolCaller:
@@ -218,7 +245,7 @@ class Agent:
         messages: Optional[Messages] = None,
         tools: Optional[list[Union[str, dict[str, str], "ToolProvider", Any]]] = None,
         system_prompt: Optional[str | list[SystemContentBlock]] = None,
-        structured_output_model: Optional[Type[BaseModel]] = None,
+        structured_output_model: Optional[Type[T]] = None,
         callback_handler: Optional[
             Union[Callable[..., Any], _DefaultCallbackHandlerSentinel]
         ] = _DEFAULT_CALLBACK_HANDLER,
@@ -399,7 +426,7 @@ class Agent:
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: Type[BaseModel] | None = None,
         **kwargs: Any,
-    ) -> AgentResult:
+    ) -> AgentResult[T]:
         """Process a natural language prompt through the agent's event loop.
 
         This method implements the conversational interface with multiple input patterns:
@@ -440,7 +467,7 @@ class Agent:
         invocation_state: dict[str, Any] | None = None,
         structured_output_model: Type[BaseModel] | None = None,
         **kwargs: Any,
-    ) -> AgentResult:
+    ) -> AgentResult[T]:
         """Process a natural language prompt through the agent's event loop.
 
         This method implements the conversational interface with multiple input patterns:

@@ -4,7 +4,7 @@ This module defines the AgentResult class which encapsulates the complete respon
 """
 
 from dataclasses import dataclass
-from typing import Any, Sequence, cast
+from typing import Any, Generic, Sequence, TypeVar, cast
 
 from pydantic import BaseModel
 
@@ -13,10 +13,39 @@ from ..telemetry.metrics import EventLoopMetrics
 from ..types.content import Message
 from ..types.streaming import StopReason
 
+T = TypeVar("T", bound=BaseModel)
+
 
 @dataclass
-class AgentResult:
+class AgentResult(Generic[T]):
     """Represents the last result of invoking an agent with a prompt.
+
+    This class is generic over the structured output model type. When an Agent is initialized
+    with a structured_output_model, the returned AgentResult will be typed accordingly,
+    enabling better type inference and IDE support.
+
+    Type Parameters:
+        T: The Pydantic BaseModel type for structured output. Defaults to BaseModel when
+           no structured_output_model is specified.
+
+    Examples:
+        Basic usage without structured output:
+            >>> agent = Agent(model=model)
+            >>> result = agent("Hello")  # AgentResult[BaseModel]
+            >>> print(result)
+
+        With structured output and type inference:
+            >>> class UserProfile(BaseModel):
+            ...     name: str
+            ...     age: int
+            >>> agent: Agent[UserProfile] = Agent(
+            ...     model=model,
+            ...     structured_output_model=UserProfile
+            ... )
+            >>> result = agent("Extract user info")  # AgentResult[UserProfile]
+            >>> if result.structured_output is not None:
+            ...     name: str = result.structured_output.name  # Type-safe access
+            ...     age: int = result.structured_output.age
 
     Attributes:
         stop_reason: The reason why the agent's processing stopped.
@@ -25,6 +54,7 @@ class AgentResult:
         state: Additional state information from the event loop.
         interrupts: List of interrupts if raised by user.
         structured_output: Parsed structured output when structured_output_model was specified.
+            Type is T | None, where T is the model type specified in the Agent constructor.
     """
 
     stop_reason: StopReason
@@ -32,7 +62,7 @@ class AgentResult:
     metrics: EventLoopMetrics
     state: Any
     interrupts: Sequence[Interrupt] | None = None
-    structured_output: BaseModel | None = None
+    structured_output: T | None = None
 
     def __str__(self) -> str:
         """Get the agent's last message as a string.

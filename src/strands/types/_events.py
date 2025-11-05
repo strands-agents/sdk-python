@@ -5,7 +5,7 @@ providing a structured way to observe to different events of the event loop and
 agent lifecycle.
 """
 
-from typing import TYPE_CHECKING, Any, Sequence, cast
+from typing import TYPE_CHECKING, Any, Generic, Sequence, TypeVar, cast
 
 from pydantic import BaseModel
 from typing_extensions import override
@@ -21,6 +21,9 @@ from .tools import ToolResult, ToolUse
 if TYPE_CHECKING:
     from ..agent import AgentResult
     from ..multiagent.base import MultiAgentResult, NodeResult
+
+# TypeVar for generic AgentResult type parameter
+T = TypeVar("T", bound=BaseModel)
 
 
 class TypedEvent(dict):
@@ -408,8 +411,8 @@ class ForceStopEvent(TypedEvent):
         )
 
 
-class AgentResultEvent(TypedEvent):
-    def __init__(self, result: "AgentResult"):
+class AgentResultEvent(TypedEvent, Generic[T]):
+    def __init__(self, result: "AgentResult[T]"):
         super().__init__({"result": result})
 
 
