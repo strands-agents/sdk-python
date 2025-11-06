@@ -610,14 +610,7 @@ class NovaSonicModel(BidirectionalModel):
                 response_id=self._current_completion_id or str(uuid.uuid4())  # Fallback to UUID if missing
             )
 
-        # Handle content end events
-        elif "contentEnd" in nova_event:
-            # contentEnd doesn't signal response completion in Nova Sonic
-            # Multiple content blocks can exist in a single response
-            # Only completionEnd signals the actual response completion
-            return None
-
-        # Handle other events
+        # Handle other events (contentEnd, etc.)
         else:
             return None
 
