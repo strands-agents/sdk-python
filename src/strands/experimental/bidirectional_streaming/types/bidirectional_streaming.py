@@ -427,44 +427,54 @@ class SessionEndEvent(TypedEvent):
 class ErrorEvent(TypedEvent):
     """Error occurred during the session.
 
-    Similar to strands.types._events.ForceStopEvent, this event wraps exceptions
-    that occur during bidirectional streaming sessions.
-
-    Note: The Exception object is not stored in the event data to maintain JSON
-    serializability. Only the error message, code, and details are stored.
+    Stores the full Exception object as an instance attribute for debugging while
+    keeping the event dict JSON-serializable. The exception can be accessed via
+    the `error` property for re-raising or type-based error handling.
 
     Parameters:
-        error: The exception that occurred (used to extract message and type).
-        code: Optional error code for programmatic handling (defaults to exception class name).
+        error: The exception that occurred.
         details: Optional additional error information.
     """
 
     def __init__(
         self,
         error: Exception,
-        code: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None,
     ):
+        # Store serializable data in dict (for JSON serialization)
         super().__init__(
             {
                 "type": "bidirectional_error",
-                "error_message": str(error),
-                "error_code": code or type(error).__name__,
-                "error_details": details,
+                "message": str(error),
+                "code": type(error).__name__,
+                "details": details,
             }
         )
+        # Store exception as instance attribute (not serialized)
+        self._error = error
+
+    @property
+    def error(self) -> Exception:
+        """The original exception that occurred.
+        
+        Can be used for re-raising or type-based error handling.
+        """
+        return self._error
 
     @property
     def code(self) -> str:
-        return cast(str, self.get("error_code"))
+        """Error code derived from exception class name."""
+        return cast(str, self.get("code"))
 
     @property
     def message(self) -> str:
-        return cast(str, self.get("error_message"))
+        """Human-readable error message from the exception."""
+        return cast(str, self.get("message"))
 
     @property
     def details(self) -> Optional[Dict[str, Any]]:
-        return cast(Optional[Dict[str, Any]], self.get("error_details"))
+        """Additional error context beyond the exception itself."""
+        return cast(Optional[Dict[str, Any]], self.get("details"))
 
 
 # ============================================================================

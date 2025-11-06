@@ -434,24 +434,21 @@ class BidirectionalAgent:
             f"Input must be a string, InputEvent (TextInputEvent/AudioInputEvent/ImageInputEvent), or event dict with 'type' field, got: {type(input_data)}"
         )
 
-    async def receive(self) -> AsyncIterable[dict[str, Any]]:
+    async def receive(self) -> AsyncIterable["OutputEvent"]:
         """Receive events from the model including audio, text, and tool calls.
 
         Yields model output events processed by background tasks including audio output,
         text responses, tool calls, and session updates.
 
         Yields:
-            dict: Event dictionaries from the model session. Each event is a TypedEvent
-                converted to a dictionary for consistency with the standard Agent API.
+            OutputEvent: TypedEvent objects from the model session. Events are
+                JSON-serializable by default (use json.dumps(event) for transport).
         """
         while self._session and self._session.active:
             try:
                 event = await asyncio.wait_for(self._output_queue.get(), timeout=0.1)
-                # Convert TypedEvent to dict for consistency with Agent.stream_async
-                if hasattr(event, 'as_dict'):
-                    yield event.as_dict()
-                else:
-                    yield event
+                # Return TypedEvent objects directly (JSON-serializable by default)
+                yield event
             except asyncio.TimeoutError:
                 continue
 

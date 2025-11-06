@@ -444,14 +444,14 @@ async def _execute_tool_with_strands(session: BidirectionalConnection, tool_use:
                 logger.debug("Tool result sent to model: %s", tool_use_id)
                 
                 # Also forward ToolResultEvent to output queue for client visibility
-                await session.agent._output_queue.put(tool_event.as_dict())
+                await session.agent._output_queue.put(tool_event)
                 logger.debug("Tool result sent to client: %s", tool_use_id)
                 
             # Handle streaming events if needed later
             elif isinstance(tool_event, ToolStreamEvent):
                 logger.debug("Tool stream event: %s", tool_event)
                 # Forward tool stream events to output queue
-                await session.agent._output_queue.put(tool_event.as_dict())
+                await session.agent._output_queue.put(tool_event)
         
         # Add tool result message to conversation history
         if tool_results:
