@@ -51,7 +51,7 @@ class BidirectionalAgent:
     def __init__(
         self,
         model: Union[BidirectionalModel, str, None] = None,
-        tools: Optional[list[Union[str, dict[str, str], Any]]] = None,
+        tools: list[string, AgentTool, ToolProvider] = None,
         system_prompt: Optional[str] = None,
         messages: Optional[Messages] = None,
         record_direct_tool_call: bool = True,
