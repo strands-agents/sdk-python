@@ -172,12 +172,14 @@ class OpenAIRealtimeModel(BidirectionalModel):
         """Check if session is active."""
         return self._active
 
-    def _create_text_event(self, text: str, role: str) -> TranscriptStreamEvent:
+    def _create_text_event(self, text: str, role: str, is_final: bool = True) -> TranscriptStreamEvent:
         """Create standardized transcript event."""
         return TranscriptStreamEvent(
+            delta={"text": text},
             text=text,
             role="user" if role == "user" else "assistant",
-            is_final=True
+            is_final=is_final,
+            current_transcript=text if is_final else None
         )
 
     def _create_voice_activity_event(self, activity_type: str) -> InterruptionEvent | None:
@@ -282,8 +284,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
         # Emit connection start event
         yield ConnectionStartEvent(
             connection_id=self.connection_id,
-            model=self.model,
-            capabilities=["audio", "tools"]
+            model=self.model
         )
         
         try:
@@ -331,7 +332,8 @@ class OpenAIRealtimeModel(BidirectionalModel):
                            "conversation.item.input_audio_transcription.completed"]:
             text_key = "delta" if "delta" in event_type else "transcript"
             text = openai_event.get(text_key, "")
-            return [self._create_text_event(text, "user")] if text.strip() else None
+            is_final = "completed" in event_type
+            return [self._create_text_event(text, "user", is_final=is_final)] if text.strip() else None
         
         elif event_type == "conversation.item.input_audio_transcription.segment":
             segment_data = openai_event.get("segment", {})

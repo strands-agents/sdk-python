@@ -166,8 +166,7 @@ class GeminiLiveModel(BidirectionalModel):
         # Emit connection start event
         yield ConnectionStartEvent(
             connection_id=self.connection_id,
-            model=self.model_id,
-            capabilities=["audio", "tools", "images"]
+            model=self.model_id
         )
         
         try:
@@ -221,9 +220,11 @@ class GeminiLiveModel(BidirectionalModel):
                     transcription_text = input_transcript.text
                     logger.debug(f"Input transcription detected: {transcription_text}")
                     return TranscriptStreamEvent(
+                        delta={"text": transcription_text},
                         text=transcription_text,
                         role="user",
-                        is_final=True
+                        is_final=True,
+                        current_transcript=transcription_text
                     )
             
             # Handle output transcription (model's audio) - emit as transcript event
@@ -234,18 +235,22 @@ class GeminiLiveModel(BidirectionalModel):
                     transcription_text = output_transcript.text
                     logger.debug(f"Output transcription detected: {transcription_text}")
                     return TranscriptStreamEvent(
+                        delta={"text": transcription_text},
                         text=transcription_text,
                         role="assistant",
-                        is_final=True
+                        is_final=True,
+                        current_transcript=transcription_text
                     )
             
             # Handle text output from model
             if message.text:
                 logger.debug(f"Text output as transcript: {message.text}")
                 return TranscriptStreamEvent(
+                    delta={"text": message.text},
                     text=message.text,
                     role="assistant",
-                    is_final=True
+                    is_final=True,
+                    current_transcript=message.text
                 )
             
             # Handle audio output using SDK's built-in data property

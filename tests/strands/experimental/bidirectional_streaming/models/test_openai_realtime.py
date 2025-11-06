@@ -369,6 +369,8 @@ async def test_event_conversion(mock_websockets_connect, model):
     assert converted[0].get("type") == "bidirectional_transcript_stream"
     assert converted[0].get("text") == "Hello from OpenAI"
     assert converted[0].get("role") == "assistant"
+    assert converted[0].delta == {"text": "Hello from OpenAI"}
+    assert converted[0].is_final is True
 
     # Test function call sequence
     item_added = {
@@ -469,6 +471,9 @@ def test_helper_methods(model):
     assert text_event.get("type") == "bidirectional_transcript_stream"
     assert text_event.get("text") == "Hello"
     assert text_event.get("role") == "user"
+    assert text_event.delta == {"text": "Hello"}
+    assert text_event.is_final is True
+    assert text_event.current_transcript == "Hello"
 
     # Test _create_voice_activity_event (now returns InterruptionEvent for speech_started)
     from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import InterruptionEvent

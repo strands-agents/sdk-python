@@ -47,7 +47,7 @@ from strands.experimental.bidirectional_streaming.types.bidirectional_streaming 
         # Output events
         (
             ConnectionStartEvent,
-            {"connection_id": "c1", "model": "m1", "capabilities": ["audio"]},
+            {"connection_id": "c1", "model": "m1"},
             "bidirectional_connection_start",
         ),
         (ResponseStartEvent, {"response_id": "r1"}, "bidirectional_response_start"),
@@ -63,7 +63,13 @@ from strands.experimental.bidirectional_streaming.types.bidirectional_streaming 
         ),
         (
             TranscriptStreamEvent,
-            {"text": "Hello", "role": "assistant", "is_final": True},
+            {
+                "delta": {"text": "Hello"},
+                "text": "Hello",
+                "role": "assistant",
+                "is_final": True,
+                "current_transcript": "Hello",
+            },
             "bidirectional_transcript_stream",
         ),
         (InterruptionEvent, {"reason": "user_speech", "turn_id": None}, "bidirectional_interruption"),
@@ -106,3 +112,52 @@ def test_event_json_serialization(event_class, kwargs, expected_type):
     for key in event.keys():
         if not key.startswith("_"):
             assert key in data
+
+
+
+def test_transcript_stream_event_delta_pattern():
+    """Test that TranscriptStreamEvent follows ModelStreamEvent delta pattern."""
+    # Test partial transcript (delta)
+    partial_event = TranscriptStreamEvent(
+        delta={"text": "Hello"},
+        text="Hello",
+        role="user",
+        is_final=False,
+        current_transcript=None,
+    )
+    
+    assert partial_event.text == "Hello"
+    assert partial_event.role == "user"
+    assert partial_event.is_final is False
+    assert partial_event.current_transcript is None
+    assert partial_event.delta == {"text": "Hello"}
+    
+    # Test final transcript with accumulated text
+    final_event = TranscriptStreamEvent(
+        delta={"text": " world"},
+        text=" world",
+        role="user",
+        is_final=True,
+        current_transcript="Hello world",
+    )
+    
+    assert final_event.text == " world"
+    assert final_event.role == "user"
+    assert final_event.is_final is True
+    assert final_event.current_transcript == "Hello world"
+    assert final_event.delta == {"text": " world"}
+
+
+def test_transcript_stream_event_extends_model_stream_event():
+    """Test that TranscriptStreamEvent is a ModelStreamEvent."""
+    from strands.types._events import ModelStreamEvent
+    
+    event = TranscriptStreamEvent(
+        delta={"text": "test"},
+        text="test",
+        role="assistant",
+        is_final=True,
+        current_transcript="test",
+    )
+    
+    assert isinstance(event, ModelStreamEvent)

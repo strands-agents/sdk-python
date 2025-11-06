@@ -304,6 +304,8 @@ async def test_event_conversion(mock_genai_client, model):
     assert text_event.text == "Hello from Gemini"
     assert text_event.role == "assistant"
     assert text_event.is_final is True
+    assert text_event.delta == {"text": "Hello from Gemini"}
+    assert text_event.current_transcript == "Hello from Gemini"
     
     # Test audio output (base64 encoded)
     import base64

@@ -275,8 +275,7 @@ class NovaSonicModel(BidirectionalModel):
         # Emit connection start event
         yield ConnectionStartEvent(
             connection_id=self.connection_id,
-            model=self.model_id,
-            capabilities=["audio", "tools"]
+            model=self.model_id
         )
 
         try:
@@ -534,9 +533,11 @@ class NovaSonicModel(BidirectionalModel):
                 return InterruptionEvent(reason="user_speech", turn_id=None)
 
             return TranscriptStreamEvent(
+                delta={"text": text_content},
                 text=text_content,
                 role="user" if role == "USER" else "assistant",
-                is_final=True
+                is_final=True,
+                current_transcript=text_content
             )
 
         # Handle tool use

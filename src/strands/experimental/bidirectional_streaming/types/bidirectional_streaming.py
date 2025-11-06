@@ -21,7 +21,8 @@ Audio format normalization:
 
 from typing import Any, Dict, List, Literal, Optional, Union, cast
 
-from ....types._events import TypedEvent
+from ....types._events import ModelStreamEvent, TypedEvent
+from ....types.streaming import ContentBlockDelta
 
 # Audio format constants
 SUPPORTED_AUDIO_FORMATS = ["pcm", "wav", "opus", "mp3"]
@@ -154,16 +155,14 @@ class ConnectionStartEvent(TypedEvent):
     Parameters:
         connection_id: Unique identifier for this streaming connection.
         model: Model identifier (e.g., "gpt-realtime", "gemini-2.0-flash-live").
-        capabilities: List of supported features (e.g., ["audio", "tools", "images"]).
     """
 
-    def __init__(self, connection_id: str, model: str, capabilities: List[str]):
+    def __init__(self, connection_id: str, model: str):
         super().__init__(
             {
                 "type": "bidirectional_connection_start",
                 "connection_id": connection_id,
                 "model": model,
-                "capabilities": capabilities,
             }
         )
 
@@ -174,10 +173,6 @@ class ConnectionStartEvent(TypedEvent):
     @property
     def model(self) -> str:
         return cast(str, self.get("model"))
-
-    @property
-    def capabilities(self) -> List[str]:
-        return cast(List[str], self.get("capabilities"))
 
 
 class ResponseStartEvent(TypedEvent):
@@ -239,26 +234,43 @@ class AudioStreamEvent(TypedEvent):
         return cast(int, self.get("channels"))
 
 
-class TranscriptStreamEvent(TypedEvent):
-    """Audio transcription of speech (user or assistant).
+class TranscriptStreamEvent(ModelStreamEvent):
+    """Audio transcription streaming (user or assistant speech).
+    
+    Follows the same delta + current state pattern as TextStreamEvent and ToolUseStreamEvent
+    from core Strands. Supports incremental transcript updates for providers like OpenAI
+    that send partial transcripts before the final version.
 
     Parameters:
-        text: Transcribed text from audio.
+        delta: The incremental transcript change (ContentBlockDelta).
+        text: The delta text (same as delta content for convenience).
         role: Who is speaking ("user" or "assistant"). Aligns with Message.role convention.
         is_final: Whether this is the final/complete transcript.
+        current_transcript: The accumulated transcript text so far (None for first delta).
     """
 
     def __init__(
-        self, text: str, role: Literal["user", "assistant"], is_final: bool
+        self,
+        delta: ContentBlockDelta,
+        text: str,
+        role: Literal["user", "assistant"],
+        is_final: bool,
+        current_transcript: Optional[str] = None,
     ):
         super().__init__(
             {
                 "type": "bidirectional_transcript_stream",
+                "delta": delta,
                 "text": text,
                 "role": role,
                 "is_final": is_final,
+                "current_transcript": current_transcript,
             }
         )
+
+    @property
+    def delta(self) -> ContentBlockDelta:
+        return cast(ContentBlockDelta, self.get("delta"))
 
     @property
     def text(self) -> str:
@@ -271,6 +283,10 @@ class TranscriptStreamEvent(TypedEvent):
     @property
     def is_final(self) -> bool:
         return cast(bool, self.get("is_final"))
+
+    @property
+    def current_transcript(self) -> Optional[str]:
+        return cast(Optional[str], self.get("current_transcript"))
 
 
 class InterruptionEvent(TypedEvent):

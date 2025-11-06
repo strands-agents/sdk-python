@@ -259,6 +259,8 @@ async def test_event_conversion(nova_model):
     assert result.get("type") == "bidirectional_transcript_stream"
     assert result.get("text") == "Hello, world!"
     assert result.get("role") == "assistant"
+    assert result.delta == {"text": "Hello, world!"}
+    assert result.current_transcript == "Hello, world!"
 
     # Test tool use (now returns ToolUseStreamEvent from core strands)
     tool_input = {"location": "Seattle"}
