@@ -116,7 +116,7 @@ async def test_connection_lifecycle(mock_genai_client, model, system_prompt, too
     # Test basic connection
     await model.connect()
     assert model._active is True
-    assert model.session_id is not None
+    assert model.connection_id is not None
     assert model.live_session == mock_live_session
     mock_client.aio.live.connect.assert_called_once()
     
@@ -256,8 +256,8 @@ async def test_send_edge_cases(mock_genai_client, model):
 async def test_receive_lifecycle_events(mock_genai_client, model, agenerator):
     """Test that receive() emits connection start and end events."""
     from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import (
-        SessionStartEvent,
-        SessionEndEvent,
+        ConnectionStartEvent,
+        ConnectionCloseEvent,
     )
     
     _, mock_live_session, _ = mock_genai_client
@@ -275,9 +275,9 @@ async def test_receive_lifecycle_events(mock_genai_client, model, agenerator):
     
     # Verify connection start and end
     assert len(events) >= 2
-    assert isinstance(events[0], SessionStartEvent)
-    assert events[0].session_id == model.session_id
-    assert isinstance(events[-1], SessionEndEvent)
+    assert isinstance(events[0], ConnectionStartEvent)
+    assert events[0].connection_id == model.connection_id
+    assert isinstance(events[-1], ConnectionCloseEvent)
 
 
 @pytest.mark.asyncio
@@ -336,9 +336,11 @@ async def test_event_conversion(mock_genai_client, model):
     mock_tool.server_content = None
     
     tool_event = model._convert_gemini_live_event(mock_tool)
-    assert "toolUse" in tool_event
-    assert tool_event["toolUse"]["toolUseId"] == "tool-123"
-    assert tool_event["toolUse"]["name"] == "calculator"
+    # ToolUseStreamEvent has delta and current_tool_use, not a "type" field
+    assert "delta" in tool_event
+    assert "toolUse" in tool_event["delta"]
+    assert tool_event["delta"]["toolUse"]["toolUseId"] == "tool-123"
+    assert tool_event["delta"]["toolUse"]["name"] == "calculator"
     
     # Test interruption
     mock_server_content = unittest.mock.Mock()

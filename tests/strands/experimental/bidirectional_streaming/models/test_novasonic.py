@@ -72,7 +72,7 @@ async def test_model_initialization(model_id, region):
     assert model.region == region
     assert model.stream is None
     assert not model._active
-    assert model.session_id is None
+    assert model.connection_id is None
 
 
 @pytest.mark.asyncio
@@ -85,7 +85,7 @@ async def test_connection_lifecycle(nova_model, mock_client, mock_stream):
         await nova_model.connect(system_prompt="Test system prompt")
         assert nova_model._active
         assert nova_model.stream == mock_stream
-        assert nova_model.session_id is not None
+        assert nova_model.connection_id is not None
         assert mock_client.invoke_model_with_bidirectional_stream.called
 
         # Test close
@@ -228,9 +228,9 @@ async def test_receive_lifecycle_events(nova_model, mock_client, mock_stream):
 
             # Should have session start and end (new TypedEvent format)
             assert len(events) >= 2
-            assert events[0].get("type") == "bidirectional_session_start"
-            assert events[0].get("session_id") == nova_model.session_id
-            assert events[-1].get("type") == "bidirectional_session_end"
+            assert events[0].get("type") == "bidirectional_connection_start"
+            assert events[0].get("connection_id") == nova_model.connection_id
+            assert events[-1].get("type") == "bidirectional_connection_close"
 
 
 @pytest.mark.asyncio
@@ -260,7 +260,7 @@ async def test_event_conversion(nova_model):
     assert result.get("text") == "Hello, world!"
     assert result.get("role") == "assistant"
 
-    # Test tool use (now returns dict with tool_use)
+    # Test tool use (now returns ToolUseStreamEvent from core strands)
     tool_input = {"location": "Seattle"}
     nova_event = {
         "toolUse": {
@@ -271,8 +271,10 @@ async def test_event_conversion(nova_model):
     }
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
-    assert result.get("type") == "tool_use"
-    tool_use = result.get("tool_use")
+    # ToolUseStreamEvent has delta and current_tool_use, not a "type" field
+    assert "delta" in result
+    assert "toolUse" in result["delta"]
+    tool_use = result["delta"]["toolUse"]
     assert tool_use["toolUseId"] == "tool-123"
     assert tool_use["name"] == "get_weather"
     assert tool_use["input"] == tool_input
@@ -310,13 +312,13 @@ async def test_event_conversion(nova_model):
     assert result.get("inputTokens") == 40
     assert result.get("outputTokens") == 60
 
-    # Test content start tracks role and emits TurnStartEvent
-    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import TurnStartEvent
+    # Test content start tracks role and emits ResponseStartEvent
+    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import ResponseStartEvent
     nova_event = {"contentStart": {"role": "USER"}}
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
-    assert isinstance(result, TurnStartEvent)
-    assert result.get("type") == "bidirectional_turn_start"
+    assert isinstance(result, ResponseStartEvent)
+    assert result.get("type") == "bidirectional_response_start"
     assert nova_model._current_role == "USER"
 
 

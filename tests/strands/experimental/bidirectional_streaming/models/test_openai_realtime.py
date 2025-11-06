@@ -130,7 +130,7 @@ async def test_connection_lifecycle(mock_websockets_connect, model, system_promp
     # Test basic connection
     await model.connect()
     assert model._active is True
-    assert model.session_id is not None
+    assert model.connection_id is not None
     assert model.websocket == mock_ws
     assert model._event_queue is not None
     assert model._response_task is not None
@@ -316,9 +316,9 @@ async def test_receive_lifecycle_events(mock_websockets_connect, model):
     receive_gen = model.receive()
     first_event = await anext(receive_gen)
 
-    # First event should be session start (new TypedEvent format)
-    assert first_event.get("type") == "bidirectional_session_start"
-    assert first_event.get("session_id") == model.session_id
+    # First event should be connection start (new TypedEvent format)
+    assert first_event.get("type") == "bidirectional_connection_start"
+    assert first_event.get("connection_id") == model.connection_id
     assert first_event.get("model") == model.model
 
     # Close to trigger session end
@@ -332,8 +332,8 @@ async def test_receive_lifecycle_events(mock_websockets_connect, model):
     except StopAsyncIteration:
         pass
 
-    # Last event should be session end (new TypedEvent format)
-    assert events[-1].get("type") == "bidirectional_session_end"
+    # Last event should be connection close (new TypedEvent format)
+    assert events[-1].get("type") == "bidirectional_connection_close"
 
 
 @pytest.mark.asyncio
@@ -393,12 +393,13 @@ async def test_event_conversion(mock_websockets_connect, model):
         "call_id": "call-123"
     }
     converted = model._convert_openai_event(args_done)
-    # Now returns list with dict containing tool_use
+    # Now returns list with ToolUseStreamEvent
     assert isinstance(converted, list)
     assert len(converted) == 1
-    assert isinstance(converted[0], dict)
-    assert converted[0].get("type") == "tool_use"
-    tool_use = converted[0].get("tool_use")
+    # ToolUseStreamEvent has delta and current_tool_use, not a "type" field
+    assert "delta" in converted[0]
+    assert "toolUse" in converted[0]["delta"]
+    tool_use = converted[0]["delta"]["toolUse"]
     assert tool_use["toolUseId"] == "call-123"
     assert tool_use["name"] == "calculator"
     assert tool_use["input"]["expression"] == "2+2"
