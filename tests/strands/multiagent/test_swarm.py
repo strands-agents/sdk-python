@@ -7,6 +7,7 @@ import pytest
 from strands.agent import Agent, AgentResult
 from strands.agent.state import AgentState
 from strands.hooks.registry import HookRegistry
+from strands.interrupt import _InterruptState
 from strands.multiagent.base import Status
 from strands.multiagent.swarm import SharedContext, Swarm, SwarmNode, SwarmResult, SwarmState
 from strands.session.file_session_manager import FileSessionManager
@@ -22,6 +23,7 @@ def create_mock_agent(name, response_text="Default response", metrics=None, agen
     agent.id = agent_id or f"{name}_id"
     agent.messages = []
     agent.state = AgentState()  # Add state attribute
+    agent._interrupt_state = _InterruptState()  # Add interrupt state
     agent.tool_registry = Mock()
     agent.tool_registry.registry = {}
     agent.tool_registry.process_tools = Mock()
@@ -1176,3 +1178,44 @@ async def test_swarm_handle_handoff():
     tru_node_order = [node.node_id for node in result.node_history]
     exp_node_order = ["first", "second"]
     assert tru_node_order == exp_node_order
+
+
+def test_swarm_interrupt_on_before_node_call_event_and_resume():
+    """Test interrupt triggered in BeforeNodeCallEvent hook followed by resume."""
+    from strands.experimental.hooks.multiagent import BeforeNodeCallEvent
+    from strands.hooks import HookProvider
+
+    # Create a hook that interrupts
+    class InterruptHook(HookProvider):
+        def register_hooks(self, registry):
+            registry.add_callback(BeforeNodeCallEvent, self.interrupt)
+
+        def interrupt(self, event):
+            if event.node_id == "test_agent":
+                return event.interrupt("approval_needed", reason="need approval")
+
+    # Create agent and swarm with hook
+    agent = create_mock_agent("test_agent", "Task completed")
+    hook = InterruptHook()
+    swarm = Swarm([agent], hooks=[hook])
+
+    # First call should result in interrupt
+    result = swarm("Test task requiring approval")
+
+    # Verify interrupt occurred
+    assert result.status == Status.INTERRUPTED
+    assert len(result.interrupts) == 1
+    assert result.interrupts[0].name == "approval_needed"
+    assert result.interrupts[0].reason == "need approval"
+
+    # Resume with interrupt response
+    interrupt_id = result.interrupts[0].id
+    responses = [{"interruptResponse": {"interruptId": interrupt_id, "response": "approved"}}]
+
+    # Second call should resume and complete
+    result = swarm(responses)
+
+    # Verify completion
+    assert result.status == Status.COMPLETED
+    assert len(result.node_history) == 1
+    assert result.node_history[0].node_id == "test_agent"
