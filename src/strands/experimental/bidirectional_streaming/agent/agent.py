@@ -27,6 +27,7 @@ from ....tools.watcher import ToolWatcher
 from ....types.content import Message, Messages
 from ....types.tools import ToolResult, ToolUse
 from ....types.traces import AttributeValue
+from ..adapters.audio_adapter import AudioAdapter
 from ..event_loop.bidirectional_event_loop import BidirectionalAgentLoop
 from ..models.bidirectional_model import BidirectionalModel
 from ..models.novasonic import NovaSonicBidirectionalModel
@@ -76,6 +77,7 @@ class BidirectionalAgent:
             tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
             description: Description of what the Agent does.
             adapters: Optional list of adapter instances (e.g., AudioAdapter) for hardware abstraction.
+                     If None, automatically creates default AudioAdapter for basic audio functionality.
             **kwargs: Additional configuration for future extensibility.
 
         Raises:
@@ -124,8 +126,13 @@ class BidirectionalAgent:
         self._agentloop: Optional["BidirectionalAgentLoop"] = None
         self._output_queue = asyncio.Queue()
 
-        # Initialize adapters
-        self.adapters = adapters or []
+        # Initialize adapters - auto-create AudioAdapter as default
+        if adapters is None:
+            # Create default AudioAdapter for basic audio functionality
+            default_audio_adapter = AudioAdapter(audio_config={"input_sample_rate": 16000})
+            self.adapters = [default_audio_adapter]
+        else:
+            self.adapters = adapters
 
     @property
     def tool(self) -> ToolCaller:
@@ -391,24 +398,24 @@ class BidirectionalAgent:
         """Connect the agent using configured adapters for bidirectional communication.
 
         Automatically uses configured adapters to establish bidirectional communication
-        with the model. Handles connection lifecycle and transport coordination.
+        with the model. If no adapters are provided in constructor, uses default AudioAdapter.
 
         Example:
             ```python
-            # With AudioAdapter
-            adapter = AudioAdapter(audio_config={"input_sample_rate": 16000})
+            # Simple - uses default AudioAdapter
+            agent = BidirectionalAgent(model=model, tools=[calculator])
+            await agent.connect()
+
+            # Custom adapter
+            adapter = AudioAdapter(audio_config={"input_sample_rate": 24000})
             agent = BidirectionalAgent(model=model, tools=[calculator], adapters=[adapter])
             await agent.connect()
             ```
 
         Raises:
-            ValueError: If no adapters are configured.
             Exception: Any exception from the transport layer.
         """
-        if not self.adapters:
-            raise ValueError("No adapters configured. Add adapters to the agent constructor.")
-
-        # Use first adapter
+        # Use first adapter (always available due to default initialization)
         adapter = self.adapters[0]
         sender = adapter.create_output()
         receiver = adapter.create_input()
