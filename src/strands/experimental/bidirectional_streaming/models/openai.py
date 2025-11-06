@@ -8,25 +8,28 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import uuid
-from typing import AsyncIterable
+from typing import AsyncIterable, Union
 
 import websockets
 from websockets.client import WebSocketClientProtocol
 from websockets.exceptions import ConnectionClosed
 
 from ....types.content import Messages
-from ....types.tools import ToolSpec, ToolUse
+from ....types.tools import ToolResult, ToolSpec, ToolUse
 from ..types.bidirectional_streaming import (
     AudioInputEvent,
     AudioOutputEvent,
     BidirectionalConnectionEndEvent,
     BidirectionalConnectionStartEvent,
     BidirectionalStreamEvent,
+    ImageInputEvent,
+    TextInputEvent,
     TextOutputEvent,
     VoiceActivityEvent,
 )
-from .bidirectional_model import BidirectionalModel, BidirectionalModelSession
+from .bidirectional_model import BidirectionalModel
 
 logger = logging.getLogger(__name__)
 
@@ -55,25 +58,111 @@ DEFAULT_SESSION_CONFIG = {
 }
 
 
-class OpenAIRealtimeSession(BidirectionalModelSession):
-    """OpenAI Realtime API session for real-time audio/text streaming.
+class OpenAIRealtimeModel(BidirectionalModel):
+    """OpenAI Realtime API implementation for bidirectional streaming.
     
+    Combines model configuration and connection state in a single class.
     Manages WebSocket connection to OpenAI's Realtime API with automatic VAD,
     function calling, and event conversion to Strands format.
     """
 
-    def __init__(self, websocket: WebSocketClientProtocol, config: dict[str, any]) -> None:
-        """Initialize OpenAI Realtime session."""
-        self.websocket = websocket
-        self.config = config
-        self.session_id = str(uuid.uuid4())
-        self._active = True
+    def __init__(
+        self, 
+        model: str = DEFAULT_MODEL,
+        api_key: str | None = None,
+        organization: str | None = None,
+        project: str | None = None,
+        session_config: dict[str, any] | None = None,
+        **kwargs
+    ) -> None:
+        """Initialize OpenAI Realtime bidirectional model.
         
-        self._event_queue = asyncio.Queue()
+        Args:
+            model: OpenAI model identifier (default: gpt-realtime).
+            api_key: OpenAI API key for authentication.
+            organization: OpenAI organization ID for API requests.
+            project: OpenAI project ID for API requests.
+            session_config: Session configuration parameters (e.g., voice, turn_detection, modalities).
+            **kwargs: Reserved for future parameters.
+        """
+        # Model configuration
+        self.model = model
+        self.api_key = api_key
+        self.organization = organization
+        self.project = project
+        self.session_config = session_config or {}
+        
+        if not self.api_key:
+            self.api_key = os.getenv("OPENAI_API_KEY")
+            if not self.api_key:
+                raise ValueError("OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass api_key parameter.")
+        
+        # Connection state (initialized in connect())
+        self.websocket = None
+        self.session_id = None
+        self._active = False
+        
+        self._event_queue = None
         self._response_task = None
         self._function_call_buffer = {}
         
-        logger.debug("OpenAI Realtime session initialized: %s", self.session_id)
+        logger.debug("OpenAI Realtime bidirectional model initialized: %s", model)
+
+    async def connect(
+        self,
+        system_prompt: str | None = None,
+        tools: list[ToolSpec] | None = None,
+        messages: Messages | None = None,
+        **kwargs,
+    ) -> None:
+        """Establish bidirectional connection to OpenAI Realtime API.
+        
+        Args:
+            system_prompt: System instructions for the model.
+            tools: List of tools available to the model.
+            messages: Conversation history to initialize with.
+            **kwargs: Additional configuration options.
+        """
+        if self._active:
+            raise RuntimeError("Connection already active. Close the existing connection before creating a new one.")
+        
+        logger.info("Creating OpenAI Realtime connection...")
+        
+        try:
+            # Initialize connection state
+            self.session_id = str(uuid.uuid4())
+            self._active = True
+            self._event_queue = asyncio.Queue()
+            self._function_call_buffer = {}
+            
+            # Establish WebSocket connection
+            url = f"{OPENAI_REALTIME_URL}?model={self.model}"
+            
+            headers = [("Authorization", f"Bearer {self.api_key}")]
+            if self.organization:
+                headers.append(("OpenAI-Organization", self.organization))
+            if self.project:
+                headers.append(("OpenAI-Project", self.project))
+            
+            self.websocket = await websockets.connect(url, extra_headers=headers)
+            logger.info("WebSocket connected successfully")
+            
+            # Configure session
+            session_config = self._build_session_config(system_prompt, tools)
+            await self._send_event({"type": "session.update", "session": session_config})
+            
+            # Add conversation history if provided
+            if messages:
+                await self._add_conversation_history(messages)
+            
+            # Start background response processor
+            self._response_task = asyncio.create_task(self._process_responses())
+            logger.info("OpenAI Realtime connection established")
+            
+        except Exception as e:
+            self._active = False
+            logger.error("OpenAI connection error: %s", e)
+            raise
 
     def _require_active(self) -> bool:
         """Check if session is active."""
@@ -89,29 +178,6 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
         voice_activity: VoiceActivityEvent = {"activityType": activity_type}
         return {"voiceActivity": voice_activity}
 
-
-
-    async def initialize(
-        self,
-        system_prompt: str | None = None,
-        tools: list[ToolSpec] | None = None,
-        messages: Messages | None = None,
-    ) -> None:
-        """Initialize session with configuration."""
-        try:
-            session_config = self._build_session_config(system_prompt, tools)
-            await self._send_event({"type": "session.update", "session": session_config})
-            
-            if messages:
-                await self._add_conversation_history(messages)
-            
-            self._response_task = asyncio.create_task(self._process_responses())
-            logger.info("OpenAI Realtime session initialized successfully")
-            
-        except Exception as e:
-            logger.error("Error during OpenAI Realtime initialization: %s", e)
-            raise
-
     def _build_session_config(self, system_prompt: str | None, tools: list[ToolSpec] | None) -> dict:
         """Build session configuration for OpenAI Realtime API."""
         config = DEFAULT_SESSION_CONFIG.copy()
@@ -122,14 +188,14 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
         if tools:
             config["tools"] = self._convert_tools_to_openai_format(tools)
         
-        custom_config = self.config.get("session", {})
+        # Apply user-provided session configuration
         supported_params = {
             "type", "output_modalities", "instructions", "voice", "audio", 
             "tools", "tool_choice", "input_audio_format", "output_audio_format",
             "input_audio_transcription", "turn_detection"
         }
         
-        for key, value in custom_config.items():
+        for key, value in self.session_config.items():
             if key in supported_params:
                 config[key] = value
             else:
@@ -201,11 +267,11 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
             self._active = False
             logger.debug("OpenAI Realtime response processor stopped")
 
-    async def receive_events(self) -> AsyncIterable[BidirectionalStreamEvent]:
+    async def receive(self) -> AsyncIterable[BidirectionalStreamEvent]:
         """Receive OpenAI events and convert to Strands format."""
         connection_start: BidirectionalConnectionStartEvent = {
             "connectionId": self.session_id,
-            "metadata": {"provider": "openai_realtime", "model": self.config.get("model", DEFAULT_MODEL)},
+            "metadata": {"provider": "openai_realtime", "model": self.model},
         }
         yield {"BidirectionalConnectionStart": connection_start}
         
@@ -366,19 +432,45 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
             logger.debug("Unhandled OpenAI event type: %s", event_type)
             return None
 
-    async def send_audio_content(self, audio_input: AudioInputEvent) -> None:
-        """Send audio content to OpenAI for processing."""
+    async def send(self, content: Union[TextInputEvent, ImageInputEvent, AudioInputEvent, ToolResult]) -> None:
+        """Unified send method for all content types. Sends the given content to OpenAI.
+        
+        Dispatches to appropriate internal handler based on content type.
+        
+        Args:
+            content: Typed event (TextInputEvent, ImageInputEvent, AudioInputEvent, or ToolResult).
+        """
         if not self._require_active():
             return
         
+        try:
+            if isinstance(content, dict):
+                # Dispatch based on content structure
+                if "text" in content and "role" in content:
+                    # TextInputEvent
+                    await self._send_text_content(content["text"])
+                elif "audioData" in content:
+                    # AudioInputEvent
+                    await self._send_audio_content(content)
+                elif "imageData" in content or "image_url" in content:
+                    # ImageInputEvent - not supported by OpenAI Realtime yet
+                    logger.warning("Image input not supported by OpenAI Realtime API")
+                elif "toolUseId" in content and "status" in content:
+                    # ToolResult
+                    await self._send_tool_result(content)
+                else:
+                    logger.warning(f"Unknown content type with keys: {content.keys()}")
+        except Exception as e:
+            logger.error(f"Error sending content: {e}")
+            raise  # Propagate exception for debugging in experimental code
+
+    async def _send_audio_content(self, audio_input: AudioInputEvent) -> None:
+        """Internal: Send audio content to OpenAI for processing."""
         audio_base64 = base64.b64encode(audio_input["audioData"]).decode("utf-8")
         await self._send_event({"type": "input_audio_buffer.append", "audio": audio_base64})
 
-    async def send_text_content(self, text: str) -> None:
-        """Send text content to OpenAI for processing."""
-        if not self._require_active():
-            return
-        
+    async def _send_text_content(self, text: str) -> None:
+        """Internal: Send text content to OpenAI for processing."""
         item_data = {
             "type": "message",
             "role": "user",
@@ -387,20 +479,26 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
         await self._send_event({"type": "conversation.item.create", "item": item_data})
         await self._send_event({"type": "response.create"})
 
-    async def send_interrupt(self) -> None:
-        """Send interruption signal to OpenAI."""
-        if not self._require_active():
-            return
-        
+    async def _send_interrupt(self) -> None:
+        """Internal: Send interruption signal to OpenAI."""
         await self._send_event({"type": "response.cancel"})
 
-    async def send_tool_result(self, tool_use_id: str, result: dict[str, any]) -> None:
-        """Send tool result back to OpenAI."""
-        if not self._require_active():
-            return
+    async def _send_tool_result(self, tool_result: ToolResult) -> None:
+        """Internal: Send tool result back to OpenAI."""
+        tool_use_id = tool_result.get("toolUseId")
         
         logger.debug("OpenAI tool result send: %s", tool_use_id)
-        result_text = json.dumps(result) if not isinstance(result, str) else result
+        
+        # Extract result content
+        result_data = {}
+        if "content" in tool_result:
+            # Extract text from content blocks
+            for block in tool_result["content"]:
+                if "text" in block:
+                    result_data = block["text"]
+                    break
+        
+        result_text = json.dumps(result_data) if not isinstance(result_data, str) else result_data
         
         item_data = {
             "type": "function_call_output",
@@ -443,60 +541,3 @@ class OpenAIRealtimeSession(BidirectionalModelSession):
             raise
 
 
-class OpenAIRealtimeBidirectionalModel(BidirectionalModel):
-    """OpenAI Realtime API provider for Strands bidirectional streaming.
-    
-    Provides real-time audio/text communication through OpenAI's Realtime API
-    with WebSocket connections, voice activity detection, and function calling.
-    """
-
-    def __init__(
-        self, 
-        model: str = DEFAULT_MODEL,
-        api_key: str | None = None,
-        **config: any
-    ) -> None:
-        """Initialize OpenAI Realtime bidirectional model."""
-        self.model = model
-        self.api_key = api_key
-        self.config = config
-        
-        import os
-        if not self.api_key:
-            self.api_key = os.getenv("OPENAI_API_KEY")
-            if not self.api_key:
-                raise ValueError("OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass api_key parameter.")
-        
-        logger.debug("OpenAI Realtime bidirectional model initialized: %s", model)
-
-    async def create_bidirectional_connection(
-        self,
-        system_prompt: str | None = None,
-        tools: list[ToolSpec] | None = None,
-        messages: Messages | None = None,
-        **kwargs,
-    ) -> BidirectionalModelSession:
-        """Create bidirectional connection to OpenAI Realtime API."""
-        logger.info("Creating OpenAI Realtime connection...")
-        
-        try:
-            url = f"{OPENAI_REALTIME_URL}?model={self.model}"
-            
-            headers = [("Authorization", f"Bearer {self.api_key}")]
-            if "organization" in self.config:
-                headers.append(("OpenAI-Organization", self.config["organization"]))
-            if "project" in self.config:
-                headers.append(("OpenAI-Project", self.config["project"]))
-            
-            websocket = await websockets.connect(url, additional_headers=headers)
-            logger.info("WebSocket connected successfully")
-            
-            session = OpenAIRealtimeSession(websocket, self.config)
-            await session.initialize(system_prompt, tools, messages)
-            
-            logger.info("OpenAI Realtime connection established")
-            return session
-            
-        except Exception as e:
-            logger.error("OpenAI connection error: %s", e)
-            raise

@@ -1,17 +1,13 @@
 """Bidirectional model interfaces and implementations."""
 
-from .bidirectional_model import BidirectionalModel, BidirectionalModelSession
-from .gemini_live import GeminiLiveBidirectionalModel, GeminiLiveSession
-from .novasonic import NovaSonicBidirectionalModel, NovaSonicSession
-from .openai import OpenAIRealtimeBidirectionalModel, OpenAIRealtimeSession
+from .bidirectional_model import BidirectionalModel
+from .gemini_live import GeminiLiveModel
+from .novasonic import NovaSonicModel
+from .openai import OpenAIRealtimeModel
 
 __all__ = [
     "BidirectionalModel",
-    "BidirectionalModelSession",
-    "GeminiLiveBidirectionalModel",
-    "GeminiLiveSession",
-    "NovaSonicBidirectionalModel",
-    "NovaSonicSession",
-    "OpenAIRealtimeBidirectionalModel",
-    "OpenAIRealtimeSession",
+    "GeminiLiveModel",
+    "NovaSonicModel",
+    "OpenAIRealtimeModel",
 ]

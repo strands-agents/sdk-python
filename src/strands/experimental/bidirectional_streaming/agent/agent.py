@@ -292,13 +292,15 @@ class BidirectionalAgent:
             self.messages.append(user_message)
 
             logger.debug("Text sent: %d characters", len(input_data))
-            await self._agentloop.model_session.send_text_content(input_data)
+            # Create TextInputEvent for send()
+            text_event = {"text": input_data, "role": "user"}
+            await self._agentloop.model_session.send(text_event)
         elif isinstance(input_data, dict) and "audioData" in input_data:
             # Handle audio input
-            await self._agentloop.model_session.send_audio_content(input_data)
+            await self._agentloop.model_session.send(input_data)
         elif isinstance(input_data, dict) and "imageData" in input_data:
             # Handle image input (ImageInputEvent)
-            await self._agentloop.model_session.send_image_content(input_data)
+            await self._agentloop.model_session.send(input_data)
         else:
             raise ValueError(
                 "Input must be either a string (text), AudioInputEvent "

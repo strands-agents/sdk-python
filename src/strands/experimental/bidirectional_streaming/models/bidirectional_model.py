@@ -1,113 +1,102 @@
-"""Bidirectional model interface for real-time streaming conversations.
+"""Bidirectional streaming model interface.
 
-Defines the interface for models that support bidirectional streaming capabilities.
-Provides abstractions for different model providers with connection-based communication
-patterns that support real-time audio and text interaction.
+Defines the abstract interface for models that support real-time bidirectional
+communication with persistent connections. Unlike traditional request-response
+models, bidirectional models maintain an open connection for streaming audio,
+text, and tool interactions.
 
 Features:
-- connection-based persistent connections
-- Real-time bidirectional communication
+- Persistent connection management with connect/close lifecycle
+- Real-time bidirectional communication (send and receive simultaneously)
 - Provider-agnostic event normalization
-- Tool execution integration
+- Support for audio, text, image, and tool result streaming
 """
 
-import abc
 import logging
-from typing import AsyncIterable
+from typing import AsyncIterable, Protocol, Union
 
 from ....types.content import Messages
-from ....types.tools import ToolSpec
-from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent, ImageInputEvent
+from ....types.tools import ToolResult, ToolSpec
+from ..types.bidirectional_streaming import (
+    AudioInputEvent,
+    BidirectionalStreamEvent,
+    ImageInputEvent,
+    TextInputEvent,
+)
 
 logger = logging.getLogger(__name__)
 
 
-class BidirectionalModelSession(abc.ABC):
-    """Abstract interface for model-specific bidirectional communication connections.
+class BidirectionalModel(Protocol):
+    """Protocol for bidirectional streaming models.
 
-    Defines the contract for managing persistent streaming connections with individual
-    model providers, handling audio/text input, receiving events, and managing
-    tool execution results.
+    This interface defines the contract for models that support persistent streaming
+    connections with real-time audio and text communication. Implementations handle
+    provider-specific protocols while exposing a standardized event-based API.
     """
 
-    @abc.abstractmethod
-    async def receive_events(self) -> AsyncIterable[BidirectionalStreamEvent]:
-        """Receive events from the model in standardized format.
-
-        Converts provider-specific events to a common format that can be
-        processed uniformly by the event loop.
-        """
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    async def send_audio_content(self, audio_input: AudioInputEvent) -> None:
-        """Send audio content to the model during an active connection.
-
-        Handles audio encoding and provider-specific formatting while presenting
-        a simple AudioInputEvent interface.
-        """
-        raise NotImplementedError
-
-    # TODO: remove with interface unification
-    async def send_image_content(self, image_input: ImageInputEvent) -> None:
-        """Send image content to the model during an active connection.
-        
-        Handles image encoding and provider-specific formatting while presenting
-        a simple ImageInputEvent interface.
-        """
-        raise NotImplementedError
-    
-    @abc.abstractmethod
-    async def send_text_content(self, text: str, **kwargs) -> None:
-        """Send text content to the model during ongoing generation.
-
-        Allows natural interruption and follow-up questions without requiring
-        connection restart.
-        """
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    async def send_interrupt(self) -> None:
-        """Send interruption signal to stop generation immediately.
-
-        Enables responsive conversational experiences where users can
-        naturally interrupt during model responses.
-        """
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    async def send_tool_result(self, tool_use_id: str, result: dict[str, any]) -> None:
-        """Send tool execution result to the model.
-
-        Formats and sends tool results according to the provider's specific protocol.
-        Handles both successful results and error cases through the result dictionary.
-        """
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    async def close(self) -> None:
-        """Close the connection and cleanup resources."""
-        raise NotImplementedError
-
-
-class BidirectionalModel(abc.ABC):
-    """Interface for models that support bidirectional streaming.
-
-    Defines the contract for creating persistent streaming connections that support
-    real-time audio and text communication with AI models.
-    """
-
-    @abc.abstractmethod
-    async def create_bidirectional_connection(
+    async def connect(
         self,
         system_prompt: str | None = None,
         tools: list[ToolSpec] | None = None,
         messages: Messages | None = None,
         **kwargs,
-    ) -> BidirectionalModelSession:
-        """Create a bidirectional connection with the model.
+    ) -> None:
+        """Establish a persistent streaming connection with the model.
 
-        Establishes a persistent connection for real-time communication while
-        abstracting provider-specific initialization requirements.
+        Opens a bidirectional connection that remains active for real-time communication.
+        The connection supports concurrent sending and receiving of events until explicitly
+        closed. Must be called before any send() or receive() operations.
+
+        Args:
+            system_prompt: System instructions to configure model behavior.
+            tools: Tool specifications that the model can invoke during the conversation.
+            messages: Initial conversation history to provide context.
+            **kwargs: Provider-specific configuration options.
         """
-        raise NotImplementedError
+        ...
+
+    async def close(self) -> None:
+        """Close the streaming connection and release resources.
+
+        Terminates the active bidirectional connection and cleans up any associated
+        resources such as network connections, buffers, or background tasks. After
+        calling close(), the model instance cannot be used until connect() is called again.
+        """
+        ...
+
+    async def receive(self) -> AsyncIterable[BidirectionalStreamEvent]:
+        """Receive streaming events from the model.
+
+        Continuously yields events from the model as they arrive over the connection.
+        Events are normalized to a provider-agnostic format for uniform processing.
+        This method should be called in a loop or async task to process model responses.
+
+        The stream continues until the connection is closed or an error occurs.
+
+        Yields:
+            BidirectionalStreamEvent: Standardized event dictionaries containing
+                audio output, text responses, tool calls, or control signals.
+        """
+        ...
+
+    async def send(self, content: Union[TextInputEvent, ImageInputEvent, AudioInputEvent, ToolResult]) -> None:
+        """Send content to the model over the active connection.
+
+        Transmits user input or tool results to the model during an active streaming
+        session. Supports multiple content types including text, audio, images, and
+        tool execution results. Can be called multiple times during a conversation.
+
+        Args:
+            content: The content to send. Must be one of:
+                - TextInputEvent: Text message from the user
+                - ImageInputEvent: Image data for visual understanding
+                - AudioInputEvent: Audio data for speech input
+                - ToolResult: Result from a tool execution
+
+        Example:
+            await model.send(TextInputEvent(text="Hello", role="user"))
+            await model.send(AudioInputEvent(audioData=bytes, format="pcm", ...))
+            await model.send(ToolResult(toolUseId="123", status="success", ...))
+        """
+        ...

@@ -14,7 +14,7 @@ import pyaudio
 from strands_tools import calculator
 
 from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
-from strands.experimental.bidirectional_streaming.models.openai import OpenAIRealtimeBidirectionalModel
+from strands.experimental.bidirectional_streaming.models.openai import OpenAIRealtimeModel
 
 
 async def play(context):
@@ -205,7 +205,7 @@ async def main():
         return False
     
     # Create OpenAI model
-    model = OpenAIRealtimeBidirectionalModel(
+    model = OpenAIRealtimeModel(
         model="gpt-4o-realtime-preview",
         api_key=api_key,
         session={
