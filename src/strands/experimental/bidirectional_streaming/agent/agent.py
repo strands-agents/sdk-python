@@ -25,13 +25,13 @@ from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
 from ....tools.watcher import ToolWatcher
 from ....types.content import Message, Messages
-from ....types.tools import ToolResult, ToolUse
-from ....types.traces import AttributeValue
+from ....types.tools import ToolResult, ToolUse, AgentTool
 from ..adapters.audio_adapter import AudioAdapter
 from ..event_loop.bidirectional_event_loop import BidirectionalAgentLoop
 from ..models.bidirectional_model import BidirectionalModel
-from ..models.novasonic import NovaSonicBidirectionalModel
+from ..models.novasonic import NovaSonicModel
 from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent, ImageInputEvent
+from ....experimental.tools import ToolProvider
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class BidirectionalAgent:
     def __init__(
         self,
         model: Union[BidirectionalModel, str, None] = None,
-        tools: list[string, AgentTool, ToolProvider] = None,
+        tools: list[str, AgentTool, ToolProvider] = None,
         system_prompt: Optional[str] = None,
         messages: Optional[Messages] = None,
         record_direct_tool_call: bool = True,
@@ -85,9 +85,9 @@ class BidirectionalAgent:
             TypeError: If model type is unsupported.
         """
         self.model = (
-            NovaSonicBidirectionalModel()
+            NovaSonicModel()
             if not model
-            else NovaSonicBidirectionalModel(model_id=model)
+            else NovaSonicModel(model_id=model)
             if isinstance(model, str)
             else model
         )
