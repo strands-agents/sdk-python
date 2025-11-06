@@ -302,7 +302,7 @@ async def test_event_conversion(mock_genai_client, model):
     text_event = model._convert_gemini_live_event(mock_text)
     assert isinstance(text_event, TranscriptStreamEvent)
     assert text_event.text == "Hello from Gemini"
-    assert text_event.source == "assistant"
+    assert text_event.role == "assistant"
     assert text_event.is_final is True
     
     # Test audio output (base64 encoded)

@@ -180,19 +180,19 @@ class ConnectionStartEvent(TypedEvent):
         return cast(List[str], self.get("capabilities"))
 
 
-class TurnStartEvent(TypedEvent):
+class ResponseStartEvent(TypedEvent):
     """Model starts generating a response.
 
     Parameters:
-        turn_id: Unique identifier for this turn (used in turn.complete).
+        response_id: Unique identifier for this response (used in response.complete).
     """
 
-    def __init__(self, turn_id: str):
-        super().__init__({"type": "bidirectional_turn_start", "turn_id": turn_id})
+    def __init__(self, response_id: str):
+        super().__init__({"type": "bidirectional_response_start", "response_id": response_id})
 
     @property
-    def turn_id(self) -> str:
-        return cast(str, self.get("turn_id"))
+    def response_id(self) -> str:
+        return cast(str, self.get("response_id"))
 
 
 class AudioStreamEvent(TypedEvent):
@@ -244,18 +244,18 @@ class TranscriptStreamEvent(TypedEvent):
 
     Parameters:
         text: Transcribed text from audio.
-        source: Who is speaking ("user" or "assistant").
+        role: Who is speaking ("user" or "assistant"). Aligns with Message.role convention.
         is_final: Whether this is the final/complete transcript.
     """
 
     def __init__(
-        self, text: str, source: Literal["user", "assistant"], is_final: bool
+        self, text: str, role: Literal["user", "assistant"], is_final: bool
     ):
         super().__init__(
             {
                 "type": "bidirectional_transcript_stream",
                 "text": text,
-                "source": source,
+                "role": role,
                 "is_final": is_final,
             }
         )
@@ -265,8 +265,8 @@ class TranscriptStreamEvent(TypedEvent):
         return cast(str, self.get("text"))
 
     @property
-    def source(self) -> str:
-        return cast(str, self.get("source"))
+    def role(self) -> str:
+        return cast(str, self.get("role"))
 
     @property
     def is_final(self) -> bool:
@@ -301,30 +301,30 @@ class InterruptionEvent(TypedEvent):
         return cast(Optional[str], self.get("turn_id"))
 
 
-class TurnCompleteEvent(TypedEvent):
+class ResponseCompleteEvent(TypedEvent):
     """Model finished generating response.
 
     Parameters:
-        turn_id: ID of the turn that completed (matches turn.start).
-        stop_reason: Why the turn ended.
+        response_id: ID of the response that completed (matches response.start).
+        stop_reason: Why the response ended.
     """
 
     def __init__(
         self,
-        turn_id: str,
+        response_id: str,
         stop_reason: Literal["complete", "interrupted", "tool_use", "error"],
     ):
         super().__init__(
             {
-                "type": "bidirectional_turn_complete",
-                "turn_id": turn_id,
+                "type": "bidirectional_response_complete",
+                "response_id": response_id,
                 "stop_reason": stop_reason,
             }
         )
 
     @property
-    def turn_id(self) -> str:
-        return cast(str, self.get("turn_id"))
+    def response_id(self) -> str:
+        return cast(str, self.get("response_id"))
 
     @property
     def stop_reason(self) -> str:
@@ -501,11 +501,11 @@ InputEvent = Union[TextInputEvent, AudioInputEvent, ImageInputEvent]
 
 OutputEvent = Union[
     ConnectionStartEvent,
-    TurnStartEvent,
+    ResponseStartEvent,
     AudioStreamEvent,
     TranscriptStreamEvent,
     InterruptionEvent,
-    TurnCompleteEvent,
+    ResponseCompleteEvent,
     UsageEvent,
     ConnectionCloseEvent,
     ErrorEvent,

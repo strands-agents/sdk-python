@@ -30,8 +30,8 @@ from ..types.bidirectional_streaming import (
     OutputEvent,
     TextInputEvent,
     TranscriptStreamEvent,
-    TurnCompleteEvent,
-    TurnStartEvent,
+    ResponseCompleteEvent,
+    ResponseStartEvent,
 )
 from .bidirectional_model import BidirectionalModel
 
@@ -176,7 +176,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
         """Create standardized transcript event."""
         return TranscriptStreamEvent(
             text=text,
-            source="user" if role == "user" else "assistant",
+            role="user" if role == "user" else "assistant",
             is_final=True
         )
 
@@ -310,7 +310,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
         if event_type == "response.created":
             response = openai_event.get("response", {})
             response_id = response.get("id", str(uuid.uuid4()))
-            return [TurnStartEvent(turn_id=response_id)]
+            return [ResponseStartEvent(response_id=response_id)]
         
         # Audio output
         elif event_type == "response.output_audio.delta":
@@ -405,9 +405,9 @@ class OpenAIRealtimeModel(BidirectionalModel):
             # Build list of events to return
             events = []
             
-            # Always add turn complete event
-            events.append(TurnCompleteEvent(
-                turn_id=response_id,
+            # Always add response complete event
+            events.append(ResponseCompleteEvent(
+                response_id=response_id,
                 stop_reason=stop_reason_map.get(status, "complete")
             ))
             

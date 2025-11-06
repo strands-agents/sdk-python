@@ -18,10 +18,10 @@ from .bidirectional_streaming import (
     ModalityUsage,
     UsageEvent,
     OutputEvent,
+    ResponseCompleteEvent,
+    ResponseStartEvent,
     TextInputEvent,
     TranscriptStreamEvent,
-    TurnCompleteEvent,
-    TurnStartEvent,
 )
 
 __all__ = [
@@ -33,11 +33,11 @@ __all__ = [
     # Output Events
     "ConnectionStartEvent",
     "ConnectionCloseEvent",
-    "TurnStartEvent",
+    "ResponseStartEvent",
+    "ResponseCompleteEvent",
     "AudioStreamEvent",
     "TranscriptStreamEvent",
     "InterruptionEvent",
-    "TurnCompleteEvent",
     "UsageEvent",
     "ModalityUsage",
     "ErrorEvent",

@@ -258,7 +258,7 @@ async def test_event_conversion(nova_model):
     assert isinstance(result, TranscriptStreamEvent)
     assert result.get("type") == "bidirectional_transcript_stream"
     assert result.get("text") == "Hello, world!"
-    assert result.get("source") == "assistant"
+    assert result.get("role") == "assistant"
 
     # Test tool use (now returns dict with tool_use)
     tool_input = {"location": "Seattle"}

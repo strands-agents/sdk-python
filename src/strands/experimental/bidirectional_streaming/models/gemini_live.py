@@ -35,8 +35,8 @@ from ..types.bidirectional_streaming import (
     UsageEvent,
     TextInputEvent,
     TranscriptStreamEvent,
-    TurnCompleteEvent,
-    TurnStartEvent,
+    ResponseCompleteEvent,
+    ResponseStartEvent,
 )
 from .bidirectional_model import BidirectionalModel
 
@@ -222,7 +222,7 @@ class GeminiLiveModel(BidirectionalModel):
                     logger.debug(f"Input transcription detected: {transcription_text}")
                     return TranscriptStreamEvent(
                         text=transcription_text,
-                        source="user",
+                        role="user",
                         is_final=True
                     )
             
@@ -235,7 +235,7 @@ class GeminiLiveModel(BidirectionalModel):
                     logger.debug(f"Output transcription detected: {transcription_text}")
                     return TranscriptStreamEvent(
                         text=transcription_text,
-                        source="assistant",
+                        role="assistant",
                         is_final=True
                     )
             
@@ -244,7 +244,7 @@ class GeminiLiveModel(BidirectionalModel):
                 logger.debug(f"Text output as transcript: {message.text}")
                 return TranscriptStreamEvent(
                     text=message.text,
-                    source="assistant",
+                    role="assistant",
                     is_final=True
                 )
             

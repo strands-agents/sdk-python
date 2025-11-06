@@ -45,8 +45,8 @@ from ..types.bidirectional_streaming import (
     OutputEvent,
     TextInputEvent,
     TranscriptStreamEvent,
-    TurnCompleteEvent,
-    TurnStartEvent,
+    ResponseCompleteEvent,
+    ResponseStartEvent,
 )
 from .bidirectional_model import BidirectionalModel
 
@@ -535,7 +535,7 @@ class NovaSonicModel(BidirectionalModel):
 
             return TranscriptStreamEvent(
                 text=text_content,
-                source="user" if role == "USER" else "assistant",
+                role="user" if role == "USER" else "assistant",
                 is_final=True
             )
 
@@ -575,14 +575,14 @@ class NovaSonicModel(BidirectionalModel):
             role = nova_event["contentStart"].get("role", "unknown")
             # Store role for subsequent text output events
             self._current_role = role
-            # Emit turn start event
-            return TurnStartEvent(turn_id=str(uuid.uuid4()))
+            # Emit response start event
+            return ResponseStartEvent(response_id=str(uuid.uuid4()))
 
         # Handle content stop events
         elif "contentStop" in nova_event:
             stop_reason = nova_event["contentStop"].get("stopReason", "complete")
-            return TurnCompleteEvent(
-                turn_id=str(uuid.uuid4()),
+            return ResponseCompleteEvent(
+                response_id=str(uuid.uuid4()),
                 stop_reason="interrupted" if stop_reason == "INTERRUPTED" else "complete"
             )
 

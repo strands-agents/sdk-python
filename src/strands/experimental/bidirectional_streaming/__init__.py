@@ -24,10 +24,10 @@ from .types.bidirectional_streaming import (
     ModalityUsage,
     UsageEvent,
     OutputEvent,
+    ResponseCompleteEvent,
+    ResponseStartEvent,
     TextInputEvent,
     TranscriptStreamEvent,
-    TurnCompleteEvent,
-    TurnStartEvent,
 )
 
 # Re-export standard agent events for tool handling
@@ -55,11 +55,11 @@ __all__ = [
     # Output Event types
     "ConnectionStartEvent",
     "ConnectionCloseEvent",
-    "TurnStartEvent",
+    "ResponseStartEvent",
+    "ResponseCompleteEvent",
     "AudioStreamEvent",
     "TranscriptStreamEvent",
     "InterruptionEvent",
-    "TurnCompleteEvent",
     "UsageEvent",
     "ModalityUsage",
     "ErrorEvent",
