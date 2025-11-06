@@ -5,10 +5,14 @@ hooks can persist, monitor, or debug execution. No intermediate state model
 is used—hooks read from the orchestrator directly.
 """
 
+import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from typing_extensions import override
+
 from ....hooks import BaseHookEvent
+from ....types.interrupt import _Interruptible
 
 if TYPE_CHECKING:
     from ....multiagent.base import MultiAgentBase
@@ -28,7 +32,7 @@ class MultiAgentInitializedEvent(BaseHookEvent):
 
 
 @dataclass
-class BeforeNodeCallEvent(BaseHookEvent):
+class BeforeNodeCallEvent(BaseHookEvent, _Interruptible):
     """Event triggered before individual node execution starts.
 
     Attributes:
@@ -47,6 +51,20 @@ class BeforeNodeCallEvent(BaseHookEvent):
 
     def _can_write(self, name: str) -> bool:
         return name in ["cancel_node"]
+
+    @override
+    def _interrupt_id(self, name: str) -> str:
+        """Unique id for the interrupt.
+
+        Args:
+            name: User defined name for the interrupt.
+
+        Returns:
+            Interrupt id.
+        """
+        node_id = uuid.uuid5(uuid.NAMESPACE_OID, self.node_id)
+        call_id = uuid.uuid5(uuid.NAMESPACE_OID, name)
+        return f"v1:before_node_call:{node_id}:{call_id}"
 
 
 @dataclass
