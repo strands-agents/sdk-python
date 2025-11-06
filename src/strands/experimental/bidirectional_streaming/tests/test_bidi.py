@@ -1,4 +1,4 @@
-"""Test BidirectionalAgent with new ultra-simple developer experience."""
+"""Test BidirectionalAgent with simple developer experience."""
 
 import asyncio
 import sys
