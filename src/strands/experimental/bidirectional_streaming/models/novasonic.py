@@ -126,6 +126,10 @@ class NovaSonicModel(BidirectionalModel):
         # Background task and event queue
         self._response_task = None
         self._event_queue = None
+        
+        # Track API-provided identifiers
+        self._current_completion_id = None
+        self._current_role = None
 
         logger.debug("Nova Sonic bidirectional model initialized: %s", model_id)
 
@@ -510,6 +514,28 @@ class NovaSonicModel(BidirectionalModel):
 
     def _convert_nova_event(self, nova_event: dict[str, any]) -> OutputEvent | None:
         """Convert Nova Sonic events to TypedEvent format."""
+        # Handle completion start - track completionId
+        if "completionStart" in nova_event:
+            completion_data = nova_event["completionStart"]
+            self._current_completion_id = completion_data.get("completionId")
+            logger.debug("Nova completion started: %s", self._current_completion_id)
+            return None
+        
+        # Handle completion end
+        if "completionEnd" in nova_event:
+            completion_data = nova_event["completionEnd"]
+            completion_id = completion_data.get("completionId", self._current_completion_id)
+            stop_reason = completion_data.get("stopReason", "END_TURN")
+            
+            event = ResponseCompleteEvent(
+                response_id=completion_id or str(uuid.uuid4()),  # Fallback to UUID if missing
+                stop_reason="interrupted" if stop_reason == "INTERRUPTED" else "complete"
+            )
+            
+            # Clear completion tracking
+            self._current_completion_id = None
+            return event
+        
         # Handle audio output
         if "audioOutput" in nova_event:
             # Audio is already base64 string from Nova Sonic
@@ -557,7 +583,7 @@ class NovaSonicModel(BidirectionalModel):
         # Handle interruption
         elif nova_event.get("stopReason") == "INTERRUPTED":
             logger.debug("Nova interruption stop reason")
-            return InterruptionEvent(reason="user_speech", response_id=None)
+            return InterruptionEvent(reason="user_speech")
 
         # Handle usage events - convert to multimodal usage format
         elif "usageEvent" in nova_event:
@@ -571,21 +597,25 @@ class NovaSonicModel(BidirectionalModel):
                 total_tokens=usage_data.get("totalTokens", total_input + total_output)
             )
 
-        # Handle content start events (track role)
+        # Handle content start events (track role and emit response start)
         elif "contentStart" in nova_event:
-            role = nova_event["contentStart"].get("role", "unknown")
+            content_data = nova_event["contentStart"]
+            role = content_data.get("role", "unknown")
             # Store role for subsequent text output events
             self._current_role = role
-            # Emit response start event
-            return ResponseStartEvent(response_id=str(uuid.uuid4()))
-
-        # Handle content stop events
-        elif "contentStop" in nova_event:
-            stop_reason = nova_event["contentStop"].get("stopReason", "complete")
-            return ResponseCompleteEvent(
-                response_id=str(uuid.uuid4()),
-                stop_reason="interrupted" if stop_reason == "INTERRUPTED" else "complete"
+            
+            # Emit response start event using API-provided completionId
+            # completionId should already be tracked from completionStart event
+            return ResponseStartEvent(
+                response_id=self._current_completion_id or str(uuid.uuid4())  # Fallback to UUID if missing
             )
+
+        # Handle content end events
+        elif "contentEnd" in nova_event:
+            # contentEnd doesn't signal response completion in Nova Sonic
+            # Multiple content blocks can exist in a single response
+            # Only completionEnd signals the actual response completion
+            return None
 
         # Handle other events
         else:
