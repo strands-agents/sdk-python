@@ -148,12 +148,12 @@ async def receive(agent, context):
             # Handle transcript events (bidirectional_transcript_stream)
             elif event_type == "bidirectional_transcript_stream":
                 text_content = event.get("text", "")
-                source = event.get("source", "unknown")
+                role = event.get("role", "unknown")
                 
                 # Log transcript output
-                if source == "user":
+                if role == "user":
                     print(f"User: {text_content}")
-                elif source == "assistant":
+                elif role == "assistant":
                     print(f"Assistant: {text_content}")
             
             # Handle turn complete events (bidirectional_turn_complete)
