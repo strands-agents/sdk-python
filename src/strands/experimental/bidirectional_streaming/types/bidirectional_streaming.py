@@ -294,27 +294,20 @@ class InterruptionEvent(TypedEvent):
 
     Parameters:
         reason: Why the interruption occurred.
-        turn_id: ID of the turn that was interrupted (may be None).
+        response_id: ID of the response that was interrupted (may be None).
     """
 
-    def __init__(
-        self, reason: Literal["user_speech", "error"], turn_id: Optional[str] = None
-    ):
+    def __init__(self, reason: Literal["user_speech", "error"]):
         super().__init__(
             {
                 "type": "bidirectional_interruption",
                 "reason": reason,
-                "turn_id": turn_id,
             }
         )
 
     @property
     def reason(self) -> str:
         return cast(str, self.get("reason"))
-
-    @property
-    def turn_id(self) -> Optional[str]:
-        return cast(Optional[str], self.get("turn_id"))
 
 
 class ResponseCompleteEvent(TypedEvent):

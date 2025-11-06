@@ -186,7 +186,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
         """Create standardized interruption event for voice activity."""
         # Only speech_started triggers interruption
         if activity_type == "speech_started":
-            return InterruptionEvent(reason="user_speech", turn_id=None)
+            return InterruptionEvent(reason="user_speech")
         # Other voice activity events are logged but don't create events
         return None
 

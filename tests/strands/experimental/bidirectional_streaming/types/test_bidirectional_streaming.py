@@ -72,7 +72,7 @@ from strands.experimental.bidirectional_streaming.types.bidirectional_streaming 
             },
             "bidirectional_transcript_stream",
         ),
-        (InterruptionEvent, {"reason": "user_speech", "turn_id": None}, "bidirectional_interruption"),
+        (InterruptionEvent, {"reason": "user_speech"}, "bidirectional_interruption"),
         (
             ResponseCompleteEvent,
             {"response_id": "r1", "stop_reason": "complete"},
@@ -101,7 +101,8 @@ def test_event_json_serialization(event_class, kwargs, expected_type):
 
     # Serialize to JSON
     json_str = json.dumps(event)
-
+    print("event_class:", event_class)
+    print(json_str)
     # Deserialize back
     data = json.loads(json_str)
 

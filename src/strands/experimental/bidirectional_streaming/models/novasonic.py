@@ -530,7 +530,7 @@ class NovaSonicModel(BidirectionalModel):
             # Check for Nova Sonic interruption pattern
             if '{ "interrupted" : true }' in text_content:
                 logger.debug("Nova interruption detected in text")
-                return InterruptionEvent(reason="user_speech", turn_id=None)
+                return InterruptionEvent(reason="user_speech")
 
             return TranscriptStreamEvent(
                 delta={"text": text_content},
@@ -557,7 +557,7 @@ class NovaSonicModel(BidirectionalModel):
         # Handle interruption
         elif nova_event.get("stopReason") == "INTERRUPTED":
             logger.debug("Nova interruption stop reason")
-            return InterruptionEvent(reason="user_speech", turn_id=None)
+            return InterruptionEvent(reason="user_speech", response_id=None)
 
         # Handle usage events - convert to multimodal usage format
         elif "usageEvent" in nova_event:

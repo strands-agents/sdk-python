@@ -210,7 +210,7 @@ class GeminiLiveModel(BidirectionalModel):
         try:
             # Handle interruption first (from server_content)
             if message.server_content and message.server_content.interrupted:
-                return InterruptionEvent(reason="user_speech", turn_id=None)
+                return InterruptionEvent(reason="user_speech")
             
             # Handle input transcription (user's speech) - emit as transcript event
             if message.server_content and message.server_content.input_transcription:

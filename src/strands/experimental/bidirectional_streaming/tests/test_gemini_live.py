@@ -196,7 +196,7 @@ async def receive(agent, context):
             
             # Handle turn start events (bidirectional_turn_start)
             elif event_type == "bidirectional_turn_start":
-                logger.debug(f"Turn started: {event.get('turn_id', 'unknown')}")
+                logger.debug(f"Turn started: {event.get('response_id', 'unknown')}")
 
     except asyncio.CancelledError:
         pass
