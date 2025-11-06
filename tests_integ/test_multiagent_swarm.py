@@ -1,3 +1,6 @@
+from unittest.mock import patch
+from uuid import uuid4
+
 import pytest
 
 from strands import Agent, tool
@@ -10,7 +13,9 @@ from strands.hooks import (
     BeforeToolCallEvent,
     MessageAddedEvent,
 )
+from strands.multiagent.base import Status
 from strands.multiagent.swarm import Swarm
+from strands.session.file_session_manager import FileSessionManager
 from strands.types.content import ContentBlock
 from tests.fixtures.mock_hook_provider import MockHookProvider
 
@@ -319,3 +324,55 @@ async def test_swarm_get_agent_results_flattening():
         assert len(agent_results) == 1
         assert isinstance(agent_results[0], AgentResult)
         assert agent_results[0].message is not None
+
+
+@pytest.mark.asyncio
+async def test_swarm_interrupt_and_resume(researcher_agent, analyst_agent, writer_agent):
+    """Test swarm interruption after analyst_agent and resume functionality."""
+    session_id = str(uuid4())
+
+    # Create session manager
+    session_manager = FileSessionManager(session_id=session_id)
+
+    # Create swarm with session manager
+    swarm = Swarm([researcher_agent, analyst_agent, writer_agent], session_manager=session_manager)
+
+    # Mock analyst_agent's _invoke method to fail
+    async def failing_invoke(*args, **kwargs):
+        raise Exception("Simulated failure in analyst")
+        yield  # This line is never reached, but makes it an async generator
+
+    with patch.object(analyst_agent, "stream_async", side_effect=failing_invoke):
+        # First execution - should fail at analyst
+        result = await swarm.invoke_async("Research AI trends and create a brief report")
+        try:
+            assert result.status == Status.FAILED
+        except Exception as e:
+            assert "Simulated failure in analyst" in str(e)
+
+    # Verify partial execution was persisted
+    persisted_state = session_manager.read_multi_agent(session_id, swarm.id)
+    assert persisted_state is not None
+    assert persisted_state["type"] == "swarm"
+    assert persisted_state["status"] == "failed"
+    assert len(persisted_state["node_history"]) == 1  # At least researcher executed
+
+    # Track execution count before resume
+    initial_execution_count = len(persisted_state["node_history"])
+
+    # Execute swarm again - should automatically resume from saved state
+    result = await swarm.invoke_async("Research AI trends and create a brief report")
+
+    # Verify successful completion
+    assert result.status == Status.COMPLETED
+    assert len(result.results) > 0
+
+    assert len(result.node_history) >= initial_execution_count + 1
+
+    node_names = [node.node_id for node in result.node_history]
+    assert "researcher" in node_names
+    # Either analyst or writer (or both) should have executed to complete the task
+    assert "analyst" in node_names or "writer" in node_names
+
+    # Clean up
+    session_manager.delete_session(session_id)

@@ -50,9 +50,10 @@ async def test_stream_messages_with_tool_choice(agenerator, alist):
 
     stream = strands.event_loop.streaming.stream_messages(
         mock_model,
-        system_prompt="test prompt",
+        system_prompt_content=[{"text": "test prompt"}],
         messages=[{"role": "user", "content": [{"text": "Generate a test model"}]}],
         tool_specs=[tool_spec],
+        system_prompt="test prompt",
         tool_choice=tool_choice,
     )
 
@@ -64,6 +65,7 @@ async def test_stream_messages_with_tool_choice(agenerator, alist):
         [tool_spec],
         "test prompt",
         tool_choice=tool_choice,
+        system_prompt_content=[{"text": "test prompt"}],
     )
 
     # Verify we get the expected events
@@ -113,9 +115,10 @@ async def test_stream_messages_with_forced_structured_output(agenerator, alist):
 
     stream = strands.event_loop.streaming.stream_messages(
         mock_model,
-        system_prompt="Extract user information",
+        system_prompt_content=[{"text": "Extract user information"}],
         messages=[{"role": "user", "content": [{"text": "Alice is 30 years old"}]}],
         tool_specs=[tool_spec],
+        system_prompt="Extract user information",
         tool_choice=tool_choice,
     )
 
@@ -127,6 +130,7 @@ async def test_stream_messages_with_forced_structured_output(agenerator, alist):
         [tool_spec],
         "Extract user information",
         tool_choice=tool_choice,
+        system_prompt_content=[{"text": "Extract user information"}],
     )
 
     assert len(tru_events) > 0

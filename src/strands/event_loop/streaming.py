@@ -22,7 +22,7 @@ from ..types._events import (
     TypedEvent,
 )
 from ..types.citations import CitationsContentBlock
-from ..types.content import ContentBlock, Message, Messages
+from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.streaming import (
     ContentBlockDeltaEvent,
     ContentBlockStart,
@@ -418,16 +418,22 @@ async def stream_messages(
     system_prompt: Optional[str],
     messages: Messages,
     tool_specs: list[ToolSpec],
+    *,
     tool_choice: Optional[Any] = None,
+    system_prompt_content: Optional[list[SystemContentBlock]] = None,
+    **kwargs: Any,
 ) -> AsyncGenerator[TypedEvent, None]:
     """Streams messages to the model and processes the response.
 
     Args:
         model: Model provider.
-        system_prompt: The system prompt to send.
+        system_prompt: The system prompt string, used for backwards compatibility with models that expect it.
         messages: List of messages to send.
         tool_specs: The list of tool specs.
         tool_choice: Optional tool choice constraint for forcing specific tool usage.
+        system_prompt_content: The authoritative system prompt content blocks that always contains the
+            system prompt data.
+        **kwargs: Additional keyword arguments for future extensibility.
 
     Yields:
         The reason for stopping, the final message, and the usage metrics
@@ -436,7 +442,14 @@ async def stream_messages(
 
     messages = _normalize_messages(messages)
     start_time = time.time()
-    chunks = model.stream(messages, tool_specs if tool_specs else None, system_prompt, tool_choice=tool_choice)
+
+    chunks = model.stream(
+        messages,
+        tool_specs if tool_specs else None,
+        system_prompt,
+        tool_choice=tool_choice,
+        system_prompt_content=system_prompt_content,
+    )
 
     async for event in process_stream(chunks, start_time):
         yield event

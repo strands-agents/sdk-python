@@ -330,6 +330,7 @@ def test_agent__call__(
                 [tool.tool_spec],
                 system_prompt,
                 tool_choice=None,
+                system_prompt_content=[{"text": system_prompt}],
             ),
             unittest.mock.call(
                 [
@@ -367,6 +368,7 @@ def test_agent__call__(
                 [tool.tool_spec],
                 system_prompt,
                 tool_choice=None,
+                system_prompt_content=[{"text": system_prompt}],
             ),
         ],
     )
@@ -487,6 +489,7 @@ def test_agent__call__retry_with_reduced_context(mock_model, agent, tool, agener
         unittest.mock.ANY,
         unittest.mock.ANY,
         tool_choice=None,
+        system_prompt_content=unittest.mock.ANY,
     )
 
     conversation_manager_spy.reduce_context.assert_called_once()
@@ -631,6 +634,7 @@ def test_agent__call__retry_with_overwritten_tool(mock_model, agent, tool, agene
         unittest.mock.ANY,
         unittest.mock.ANY,
         tool_choice=None,
+        system_prompt_content=unittest.mock.ANY,
     )
 
     assert conversation_manager_spy.reduce_context.call_count == 2
@@ -2162,6 +2166,82 @@ def test_agent__call__invalid_tool_name():
     assert agent.messages[-1] == {"content": [{"text": "I invoked a tool!"}], "role": "assistant"}
 
 
+def test_agent_string_system_prompt():
+    """Test initialization with string system prompt."""
+    system_prompt = "You are a helpful assistant."
+    agent = Agent(system_prompt=system_prompt)
+
+    assert agent.system_prompt == system_prompt
+    assert agent._system_prompt_content == [{"text": system_prompt}]
+
+
+def test_agent_single_text_block_system_prompt():
+    """Test initialization with single text SystemContentBlock."""
+    text = "You are a helpful assistant."
+    system_prompt_content = [{"text": text}]
+    agent = Agent(system_prompt=system_prompt_content)
+
+    assert agent.system_prompt == text
+    assert agent._system_prompt_content == system_prompt_content
+
+
+def test_agent_multiple_blocks_system_prompt():
+    """Test initialization with multiple SystemContentBlocks."""
+    system_prompt_content = [
+        {"text": "You are a helpful assistant."},
+        {"cachePoint": {"type": "default"}},
+        {"text": "Additional instructions."},
+    ]
+    agent = Agent(system_prompt=system_prompt_content)
+
+    assert agent.system_prompt == "You are a helpful assistant.\nAdditional instructions."
+    assert agent._system_prompt_content == system_prompt_content
+
+
+def test_agent_single_non_text_block_system_prompt():
+    """Test initialization with single non-text SystemContentBlock."""
+    system_prompt_content = [{"cachePoint": {"type": "default"}}]
+    agent = Agent(system_prompt=system_prompt_content)
+
+    assert agent.system_prompt is None
+    assert agent._system_prompt_content == system_prompt_content
+
+
+def test_agent_none_system_prompt():
+    """Test initialization with None system prompt."""
+    agent = Agent(system_prompt=None)
+
+    assert agent.system_prompt is None
+    assert agent._system_prompt_content is None
+
+
+def test_agent_empty_list_system_prompt():
+    """Test initialization with empty list system prompt."""
+    agent = Agent(system_prompt=[])
+
+    assert agent.system_prompt is None
+    assert agent._system_prompt_content == []
+
+
+def test_agent_backwards_compatibility_string_access():
+    """Test that string system prompts maintain backwards compatibility."""
+    system_prompt = "You are a helpful assistant."
+    agent = Agent(system_prompt=system_prompt)
+
+    # Should be able to access as string for backwards compatibility
+    assert agent.system_prompt == system_prompt
+
+
+def test_agent_backwards_compatibility_single_text_block():
+    """Test that single text blocks maintain backwards compatibility."""
+    text = "You are a helpful assistant."
+    system_prompt_content = [{"text": text}]
+    agent = Agent(system_prompt=system_prompt_content)
+
+    # Should extract text for backwards compatibility
+    assert agent.system_prompt == text
+    
+    
 @pytest.mark.parametrize(
     "content, expected",
     [
@@ -2215,3 +2295,143 @@ def test_redact_user_content(content, expected):
     agent = Agent()
     result = agent._redact_user_content(content, "REDACTED")
     assert result == expected
+
+
+def test_agent_fixes_orphaned_tool_use_on_new_prompt(mock_model, agenerator):
+    """Test that agent adds toolResult for orphaned toolUse when called with new prompt."""
+    mock_model.mock_stream.return_value = agenerator(
+        [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockStart": {"start": {"text": ""}}},
+            {"contentBlockDelta": {"delta": {"text": "Fixed!"}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    )
+
+    # Start with orphaned toolUse message
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "orphaned-123", "name": "tool_decorated", "input": {"random_string": "test"}}}
+            ],
+        }
+    ]
+
+    agent = Agent(model=mock_model, messages=messages)
+
+    # Call with new prompt should fix orphaned toolUse
+    agent("Continue conversation")
+
+    # Should have added toolResult message
+    assert len(agent.messages) >= 3
+    assert agent.messages[1] == {
+        "role": "user",
+        "content": [
+            {
+                "toolResult": {
+                    "toolUseId": "orphaned-123",
+                    "status": "error",
+                    "content": [{"text": "Tool was interrupted."}],
+                }
+            }
+        ],
+    }
+
+
+def test_agent_fixes_multiple_orphaned_tool_uses(mock_model, agenerator):
+    """Test that agent handles multiple orphaned toolUse messages."""
+    mock_model.mock_stream.return_value = agenerator(
+        [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockStart": {"start": {"text": ""}}},
+            {"contentBlockDelta": {"delta": {"text": "Fixed multiple!"}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    )
+
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "orphaned-123",
+                        "name": "tool_decorated",
+                        "input": {"random_string": "test1"},
+                    }
+                },
+                {
+                    "toolUse": {
+                        "toolUseId": "orphaned-456",
+                        "name": "tool_decorated",
+                        "input": {"random_string": "test2"},
+                    }
+                },
+            ],
+        }
+    ]
+
+    agent = Agent(model=mock_model, messages=messages)
+    agent("Continue")
+
+    # Should have toolResult for both toolUse IDs
+    assert agent.messages[1] == {
+        "role": "user",
+        "content": [
+            {
+                "toolResult": {
+                    "toolUseId": "orphaned-123",
+                    "status": "error",
+                    "content": [{"text": "Tool was interrupted."}],
+                }
+            },
+            {
+                "toolResult": {
+                    "toolUseId": "orphaned-456",
+                    "status": "error",
+                    "content": [{"text": "Tool was interrupted."}],
+                }
+            },
+        ],
+    }
+
+
+def test_agent_skips_fix_for_valid_conversation(mock_model, agenerator):
+    """Test that agent doesn't modify valid toolUse/toolResult pairs."""
+    mock_model.mock_stream.return_value = agenerator(
+        [
+            {"messageStart": {"role": "assistant"}},
+            {"contentBlockStart": {"start": {"text": ""}}},
+            {"contentBlockDelta": {"delta": {"text": "No fix needed!"}}},
+            {"contentBlockStop": {}},
+            {"messageStop": {"stopReason": "end_turn"}},
+        ]
+    )
+
+    # Valid conversation with toolUse followed by toolResult
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "valid-123", "name": "tool_decorated", "input": {"random_string": "test"}}}
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "valid-123", "status": "success", "content": [{"text": "result"}]}}
+            ],
+        },
+    ]
+
+    agent = Agent(model=mock_model, messages=messages)
+    original_length = len(agent.messages)
+
+    agent("Continue")
+
+    # Should not have added any toolResult messages
+    # Only the new user message and assistant response should be added
+    assert len(agent.messages) == original_length + 2
