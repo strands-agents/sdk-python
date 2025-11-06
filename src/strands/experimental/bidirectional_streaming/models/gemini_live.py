@@ -27,12 +27,12 @@ from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ..types.bidirectional_streaming import (
     AudioInputEvent,
     AudioStreamEvent,
+    ConnectionCloseEvent,
+    ConnectionStartEvent,
     ErrorEvent,
     ImageInputEvent,
     InterruptionEvent,
     UsageEvent,
-    SessionEndEvent,
-    SessionStartEvent,
     TextInputEvent,
     TranscriptStreamEvent,
     TurnCompleteEvent,
@@ -89,7 +89,7 @@ class GeminiLiveModel(BidirectionalModel):
         # Connection state (initialized in connect())
         self.live_session = None
         self.live_session_context_manager = None
-        self.session_id = None
+        self.connection_id = None
         self._active = False
     
     async def connect(
@@ -112,7 +112,7 @@ class GeminiLiveModel(BidirectionalModel):
         
         try:
             # Initialize connection state
-            self.session_id = str(uuid.uuid4())
+            self.connection_id = str(uuid.uuid4())
             self._active = True
             
             # Build live config
@@ -163,9 +163,9 @@ class GeminiLiveModel(BidirectionalModel):
     async def receive(self) -> AsyncIterable[Dict[str, Any]]:
         """Receive Gemini Live API events and convert to provider-agnostic format."""
         
-        # Emit session start event
-        yield SessionStartEvent(
-            session_id=self.session_id,
+        # Emit connection start event
+        yield ConnectionStartEvent(
+            connection_id=self.connection_id,
             model=self.model_id,
             capabilities=["audio", "tools", "images"]
         )
@@ -196,8 +196,8 @@ class GeminiLiveModel(BidirectionalModel):
             logger.error("Fatal error in receive loop: %s", e)
             yield ErrorEvent(error=e)
         finally:
-            # Emit session end event when exiting
-            yield SessionEndEvent(reason="complete")
+            # Emit connection close event when exiting
+            yield ConnectionCloseEvent(connection_id=self.connection_id, reason="complete")
     
     def _convert_gemini_live_event(self, message: LiveServerMessage) -> Optional[Dict[str, Any]]:
         """Convert Gemini Live API events to provider-agnostic format.

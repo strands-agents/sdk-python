@@ -21,13 +21,13 @@ from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ..types.bidirectional_streaming import (
     AudioInputEvent,
     AudioStreamEvent,
+    ConnectionCloseEvent,
+    ConnectionStartEvent,
     ErrorEvent,
     ImageInputEvent,
     InterruptionEvent,
     UsageEvent,
     OutputEvent,
-    SessionEndEvent,
-    SessionStartEvent,
     TextInputEvent,
     TranscriptStreamEvent,
     TurnCompleteEvent,
@@ -103,7 +103,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
         
         # Connection state (initialized in connect())
         self.websocket = None
-        self.session_id = None
+        self.connection_id = None
         self._active = False
         
         self._event_queue = None
@@ -134,7 +134,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
         
         try:
             # Initialize connection state
-            self.session_id = str(uuid.uuid4())
+            self.connection_id = str(uuid.uuid4())
             self._active = True
             self._event_queue = asyncio.Queue()
             self._function_call_buffer = {}
@@ -279,9 +279,9 @@ class OpenAIRealtimeModel(BidirectionalModel):
 
     async def receive(self) -> AsyncIterable[OutputEvent]:
         """Receive OpenAI events and convert to Strands TypedEvent format."""
-        # Emit session start event
-        yield SessionStartEvent(
-            session_id=self.session_id,
+        # Emit connection start event
+        yield ConnectionStartEvent(
+            connection_id=self.connection_id,
             model=self.model,
             capabilities=["audio", "tools"]
         )
@@ -299,8 +299,8 @@ class OpenAIRealtimeModel(BidirectionalModel):
             logger.error("Error receiving OpenAI Realtime event: %s", e)
             yield ErrorEvent(error=e)
         finally:
-            # Emit session end event
-            yield SessionEndEvent(reason="complete")
+            # Emit connection close event
+            yield ConnectionCloseEvent(connection_id=self.connection_id, reason="complete")
 
     def _convert_openai_event(self, openai_event: dict[str, any]) -> list[OutputEvent] | None:
         """Convert OpenAI events to Strands TypedEvent format."""

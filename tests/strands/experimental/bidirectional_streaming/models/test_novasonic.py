@@ -415,12 +415,12 @@ async def test_event_templates(nova_model):
     assert "inferenceConfiguration" in event["event"]["sessionStart"]
 
     # Test prompt start event
-    nova_model.session_id = "test-session"
+    nova_model.connection_id = "test-connection"
     event_json = nova_model._get_prompt_start_event([])
     event = json.loads(event_json)
     assert "event" in event
     assert "promptStart" in event["event"]
-    assert event["event"]["promptStart"]["promptName"] == "test-session"
+    assert event["event"]["promptStart"]["promptName"] == "test-connection"
 
     # Test text input event
     content_name = "test-content"

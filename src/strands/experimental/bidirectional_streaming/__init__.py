@@ -15,6 +15,8 @@ from .models.openai import OpenAIRealtimeModel
 from .types.bidirectional_streaming import (
     AudioInputEvent,
     AudioStreamEvent,
+    ConnectionCloseEvent,
+    ConnectionStartEvent,
     ErrorEvent,
     ImageInputEvent,
     InputEvent,
@@ -22,8 +24,6 @@ from .types.bidirectional_streaming import (
     ModalityUsage,
     UsageEvent,
     OutputEvent,
-    SessionEndEvent,
-    SessionStartEvent,
     TextInputEvent,
     TranscriptStreamEvent,
     TurnCompleteEvent,
@@ -53,7 +53,8 @@ __all__ = [
     "InputEvent",
     
     # Output Event types
-    "SessionStartEvent",
+    "ConnectionStartEvent",
+    "ConnectionCloseEvent",
     "TurnStartEvent",
     "AudioStreamEvent",
     "TranscriptStreamEvent",
@@ -61,7 +62,6 @@ __all__ = [
     "TurnCompleteEvent",
     "UsageEvent",
     "ModalityUsage",
-    "SessionEndEvent",
     "ErrorEvent",
     "OutputEvent",
     

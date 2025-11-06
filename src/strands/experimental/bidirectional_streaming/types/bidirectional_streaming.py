@@ -148,28 +148,28 @@ class ImageInputEvent(TypedEvent):
 # ============================================================================
 
 
-class SessionStartEvent(TypedEvent):
-    """Session established and ready for interaction.
+class ConnectionStartEvent(TypedEvent):
+    """Streaming connection established and ready for interaction.
 
     Parameters:
-        session_id: Unique identifier for this session.
+        connection_id: Unique identifier for this streaming connection.
         model: Model identifier (e.g., "gpt-realtime", "gemini-2.0-flash-live").
         capabilities: List of supported features (e.g., ["audio", "tools", "images"]).
     """
 
-    def __init__(self, session_id: str, model: str, capabilities: List[str]):
+    def __init__(self, connection_id: str, model: str, capabilities: List[str]):
         super().__init__(
             {
-                "type": "bidirectional_session_start",
-                "session_id": session_id,
+                "type": "bidirectional_connection_start",
+                "connection_id": connection_id,
                 "model": model,
                 "capabilities": capabilities,
             }
         )
 
     @property
-    def session_id(self) -> str:
-        return cast(str, self.get("session_id"))
+    def connection_id(self) -> str:
+        return cast(str, self.get("connection_id"))
 
     @property
     def model(self) -> str:
@@ -408,17 +408,30 @@ class UsageEvent(TypedEvent):
         return cast(Optional[int], self.get("cacheWriteInputTokens"))
 
 
-class SessionEndEvent(TypedEvent):
-    """Session terminated.
+class ConnectionCloseEvent(TypedEvent):
+    """Streaming connection closed.
 
     Parameters:
-        reason: Why the session ended.
+        connection_id: Unique identifier for this streaming connection (matches ConnectionStartEvent).
+        reason: Why the connection was closed.
     """
 
     def __init__(
-        self, reason: Literal["client_disconnect", "timeout", "error", "complete"]
+        self,
+        connection_id: str,
+        reason: Literal["client_disconnect", "timeout", "error", "complete"],
     ):
-        super().__init__({"type": "bidirectional_session_end", "reason": reason})
+        super().__init__(
+            {
+                "type": "bidirectional_connection_close",
+                "connection_id": connection_id,
+                "reason": reason,
+            }
+        )
+
+    @property
+    def connection_id(self) -> str:
+        return cast(str, self.get("connection_id"))
 
     @property
     def reason(self) -> str:
@@ -487,13 +500,13 @@ class ErrorEvent(TypedEvent):
 InputEvent = Union[TextInputEvent, AudioInputEvent, ImageInputEvent]
 
 OutputEvent = Union[
-    SessionStartEvent,
+    ConnectionStartEvent,
     TurnStartEvent,
     AudioStreamEvent,
     TranscriptStreamEvent,
     InterruptionEvent,
     TurnCompleteEvent,
     UsageEvent,
-    SessionEndEvent,
+    ConnectionCloseEvent,
     ErrorEvent,
 ]
