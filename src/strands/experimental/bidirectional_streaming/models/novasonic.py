@@ -39,7 +39,7 @@ from ..types.bidirectional_streaming import (
     ErrorEvent,
     ImageInputEvent,
     InterruptionEvent,
-    MultimodalUsage,
+    UsageEvent,
     OutputEvent,
     SessionEndEvent,
     SessionStartEvent,
@@ -564,7 +564,7 @@ class NovaSonicModel(BidirectionalModel):
             total_input = usage_data.get("totalInputTokens", 0)
             total_output = usage_data.get("totalOutputTokens", 0)
             
-            return MultimodalUsage(
+            return UsageEvent(
                 input_tokens=total_input,
                 output_tokens=total_output,
                 total_tokens=usage_data.get("totalTokens", total_input + total_output)

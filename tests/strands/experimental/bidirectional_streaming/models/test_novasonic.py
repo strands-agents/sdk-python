@@ -286,8 +286,8 @@ async def test_event_conversion(nova_model):
     assert result.get("type") == "bidirectional_interruption"
     assert result.get("reason") == "user_speech"
 
-    # Test usage metrics (now returns MultimodalUsage)
-    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import MultimodalUsage
+    # Test usage metrics (now returns UsageEvent)
+    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import UsageEvent
     nova_event = {
         "usageEvent": {
             "totalTokens": 100,
@@ -304,8 +304,8 @@ async def test_event_conversion(nova_model):
     }
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
-    assert isinstance(result, MultimodalUsage)
-    assert result.get("type") == "multimodal_usage"
+    assert isinstance(result, UsageEvent)
+    assert result.get("type") == "bidirectional_usage"
     assert result.get("totalTokens") == 100
     assert result.get("inputTokens") == 40
     assert result.get("outputTokens") == 60

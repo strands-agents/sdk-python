@@ -345,10 +345,11 @@ class ModalityUsage(dict):
     output_tokens: int
 
 
-class MultimodalUsage(TypedEvent):
-    """Token usage event with modality breakdown for multimodal streaming.
+class UsageEvent(TypedEvent):
+    """Token usage event with modality breakdown for bidirectional streaming.
 
-    Combines TypedEvent behavior with Usage fields for a unified event type.
+    Tracks token consumption across different modalities (audio, text, images)
+    during bidirectional streaming sessions.
 
     Parameters:
         input_tokens: Total tokens used for all input modalities.
@@ -369,7 +370,7 @@ class MultimodalUsage(TypedEvent):
         cache_write_input_tokens: Optional[int] = None,
     ):
         data: Dict[str, Any] = {
-            "type": "multimodal_usage",
+            "type": "bidirectional_usage",
             "inputTokens": input_tokens,
             "outputTokens": output_tokens,
             "totalTokens": total_tokens,
@@ -492,7 +493,7 @@ OutputEvent = Union[
     TranscriptStreamEvent,
     InterruptionEvent,
     TurnCompleteEvent,
-    MultimodalUsage,
+    UsageEvent,
     SessionEndEvent,
     ErrorEvent,
 ]

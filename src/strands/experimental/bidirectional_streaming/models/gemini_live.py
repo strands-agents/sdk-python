@@ -30,7 +30,7 @@ from ..types.bidirectional_streaming import (
     ErrorEvent,
     ImageInputEvent,
     InterruptionEvent,
-    MultimodalUsage,
+    UsageEvent,
     SessionEndEvent,
     SessionStartEvent,
     TextInputEvent,
@@ -306,7 +306,7 @@ class GeminiLiveModel(BidirectionalModel):
                                     "output_tokens": detail.token_count
                                 })
                 
-                return MultimodalUsage(
+                return UsageEvent(
                     input_tokens=usage.prompt_token_count or 0,
                     output_tokens=usage.response_token_count or 0,
                     total_tokens=usage.total_token_count or 0,

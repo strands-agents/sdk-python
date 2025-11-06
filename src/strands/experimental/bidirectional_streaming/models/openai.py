@@ -24,7 +24,7 @@ from ..types.bidirectional_streaming import (
     ErrorEvent,
     ImageInputEvent,
     InterruptionEvent,
-    MultimodalUsage,
+    UsageEvent,
     OutputEvent,
     SessionEndEvent,
     SessionStartEvent,
@@ -452,7 +452,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
                 cached_tokens = input_details.get("cached_tokens", 0)
                 
                 # Add usage event
-                events.append(MultimodalUsage(
+                events.append(UsageEvent(
                     input_tokens=usage.get("input_tokens", 0),
                     output_tokens=usage.get("output_tokens", 0),
                     total_tokens=usage.get("total_tokens", 0),
