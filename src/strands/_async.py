@@ -1,6 +1,7 @@
 """Private async execution utilities."""
 
 import asyncio
+import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from typing import Awaitable, Callable, TypeVar
 
@@ -27,5 +28,6 @@ def run_async(async_func: Callable[[], Awaitable[T]]) -> T:
         return asyncio.run(execute_async())
 
     with ThreadPoolExecutor() as executor:
-        future = executor.submit(execute)
+        context = contextvars.copy_context()
+        future = executor.submit(context.run, execute)
         return future.result()
