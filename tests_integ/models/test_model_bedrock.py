@@ -267,3 +267,16 @@ def test_redacted_content_handling():
     assert "reasoningContent" in result.message["content"][0]
     assert "redactedContent" in result.message["content"][0]["reasoningContent"]
     assert isinstance(result.message["content"][0]["reasoningContent"]["redactedContent"], bytes)
+
+
+def test_multi_prompt_system_content():
+    """Test multi-prompt system content blocks."""
+    system_prompt_content = [
+        {"text": "You are a helpful assistant."},
+        {"text": "Always be concise."},
+        {"text": "End responses with 'Done.'"},
+    ]
+
+    agent = Agent(system_prompt=system_prompt_content, load_tools_from_directory=False)
+    # just verifying there is no failure
+    agent("Hello!")

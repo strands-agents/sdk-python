@@ -17,6 +17,7 @@ from ...telemetry.tracer import get_tracer, serialize
 from ...types._events import ToolCancelEvent, ToolInterruptEvent, ToolResultEvent, ToolStreamEvent, TypedEvent
 from ...types.content import Message
 from ...types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolResult, ToolUse
+from ..structured_output._structured_output_context import StructuredOutputContext
 
 if TYPE_CHECKING:  # pragma: no cover
     from ...agent import Agent
@@ -33,6 +34,7 @@ class ToolExecutor(abc.ABC):
         tool_use: ToolUse,
         tool_results: list[ToolResult],
         invocation_state: dict[str, Any],
+        structured_output_context: StructuredOutputContext | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Stream tool events.
@@ -50,6 +52,7 @@ class ToolExecutor(abc.ABC):
             tool_use: Metadata and inputs for the tool to be executed.
             tool_results: List of tool results from each tool execution.
             invocation_state: Context for the tool invocation.
+            structured_output_context: Context for structured output management.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
@@ -57,6 +60,7 @@ class ToolExecutor(abc.ABC):
         """
         logger.debug("tool_use=<%s> | streaming", tool_use)
         tool_name = tool_use["name"]
+        structured_output_context = structured_output_context or StructuredOutputContext()
 
         tool_info = agent.tool_registry.dynamic_tools.get(tool_name)
         tool_func = tool_info if tool_info is not None else agent.tool_registry.registry.get(tool_name)
@@ -155,7 +159,8 @@ class ToolExecutor(abc.ABC):
                 yield ToolResultEvent(after_event.result)
                 tool_results.append(after_event.result)
                 return
-
+            if structured_output_context.is_enabled:
+                kwargs["structured_output_context"] = structured_output_context
             async for event in selected_tool.stream(tool_use, invocation_state, **kwargs):
                 # Internal optimization; for built-in AgentTools, we yield TypedEvents out of .stream()
                 # so that we don't needlessly yield ToolStreamEvents for non-generator callbacks.
@@ -163,11 +168,16 @@ class ToolExecutor(abc.ABC):
                 # we yield it directly; all other cases (non-sdk AgentTools), we wrap events in
                 # ToolStreamEvent and the last event is just the result.
 
+                if isinstance(event, ToolInterruptEvent):
+                    yield event
+                    return
+
                 if isinstance(event, ToolResultEvent):
                     # below the last "event" must point to the tool_result
                     event = event.tool_result
                     break
-                elif isinstance(event, ToolStreamEvent):
+
+                if isinstance(event, ToolStreamEvent):
                     yield event
                 else:
                     yield ToolStreamEvent(tool_use, event)
@@ -215,6 +225,7 @@ class ToolExecutor(abc.ABC):
         cycle_trace: Trace,
         cycle_span: Any,
         invocation_state: dict[str, Any],
+        structured_output_context: StructuredOutputContext | None = None,
         **kwargs: Any,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute tool with tracing and metrics collection.
@@ -226,12 +237,14 @@ class ToolExecutor(abc.ABC):
             cycle_trace: Trace object for the current event loop cycle.
             cycle_span: Span object for tracing the cycle.
             invocation_state: Context for the tool invocation.
+            structured_output_context: Context for structured output management.
             **kwargs: Additional keyword arguments for future extensibility.
 
         Yields:
             Tool events with the last being the tool result.
         """
         tool_name = tool_use["name"]
+        structured_output_context = structured_output_context or StructuredOutputContext()
 
         tracer = get_tracer()
 
@@ -240,7 +253,9 @@ class ToolExecutor(abc.ABC):
         tool_start_time = time.time()
 
         with trace_api.use_span(tool_call_span):
-            async for event in ToolExecutor._stream(agent, tool_use, tool_results, invocation_state, **kwargs):
+            async for event in ToolExecutor._stream(
+                agent, tool_use, tool_results, invocation_state, structured_output_context, **kwargs
+            ):
                 yield event
 
             if isinstance(event, ToolInterruptEvent):
@@ -268,6 +283,7 @@ class ToolExecutor(abc.ABC):
         cycle_trace: Trace,
         cycle_span: Any,
         invocation_state: dict[str, Any],
+        structured_output_context: "StructuredOutputContext | None" = None,
     ) -> AsyncGenerator[TypedEvent, None]:
         """Execute the given tools according to this executor's strategy.
 
@@ -278,6 +294,7 @@ class ToolExecutor(abc.ABC):
             cycle_trace: Trace object for the current event loop cycle.
             cycle_span: Span object for tracing the cycle.
             invocation_state: Context for the tool invocation.
+            structured_output_context: Context for structured output management.
 
         Yields:
             Events from the tool execution stream.

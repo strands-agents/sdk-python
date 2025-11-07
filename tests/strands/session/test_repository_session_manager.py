@@ -1,5 +1,7 @@
 """Tests for AgentSessionManager."""
 
+from unittest.mock import Mock
+
 import pytest
 
 from strands.agent.agent import Agent
@@ -29,6 +31,17 @@ def session_manager(mock_repository):
 def agent():
     """Create a mock agent."""
     return Agent(messages=[{"role": "user", "content": [{"text": "Hello!"}]}])
+
+
+@pytest.fixture
+def mock_multi_agent():
+    """Create mock multi-agent for testing."""
+
+    mock = Mock()
+    mock.id = "test-multi-agent"
+    mock.serialize_state.return_value = {"id": "test-multi-agent", "state": {"key": "value"}}
+    mock.deserialize_state = Mock()
+    return mock
 
 
 def test_init_creates_session_if_not_exists(mock_repository):
@@ -177,3 +190,226 @@ def test_append_message(session_manager):
     assert len(messages) == 1
     assert messages[0].message["role"] == "user"
     assert messages[0].message["content"][0]["text"] == "Hello"
+
+
+def test_sync_multi_agent(session_manager, mock_multi_agent):
+    """Test syncing multi-agent state."""
+    # Create multi-agent first
+    session_manager.session_repository.create_multi_agent("test-session", mock_multi_agent)
+
+    # Sync multi-agent
+    session_manager.sync_multi_agent(mock_multi_agent)
+
+    # Verify repository update_multi_agent was called
+    state = session_manager.session_repository.read_multi_agent("test-session", mock_multi_agent.id)
+    assert state["id"] == "test-multi-agent"
+    assert state["state"] == {"key": "value"}
+
+
+def test_initialize_multi_agent_new(session_manager, mock_multi_agent):
+    """Test initializing new multi-agent state."""
+    session_manager.initialize_multi_agent(mock_multi_agent)
+
+    # Verify multi-agent was created
+    state = session_manager.session_repository.read_multi_agent("test-session", mock_multi_agent.id)
+    assert state["id"] == "test-multi-agent"
+    assert state["state"] == {"key": "value"}
+
+
+def test_initialize_multi_agent_existing(session_manager, mock_multi_agent):
+    """Test initializing existing multi-agent state."""
+    # Create existing state first
+    session_manager.session_repository.create_multi_agent("test-session", mock_multi_agent)
+
+    # Create a mock with updated state for the update call
+    updated_mock = Mock()
+    updated_mock.id = "test-multi-agent"
+    existing_state = {"id": "test-multi-agent", "state": {"restored": "data"}}
+    updated_mock.serialize_state.return_value = existing_state
+    session_manager.session_repository.update_multi_agent("test-session", updated_mock)
+
+    # Initialize multi-agent
+    session_manager.initialize_multi_agent(mock_multi_agent)
+
+    # Verify deserialize_state was called with existing state
+    mock_multi_agent.deserialize_state.assert_called_once_with(existing_state)
+
+
+def test_fix_broken_tool_use_adds_missing_tool_results(session_manager):
+    """Test that _fix_broken_tool_use adds missing toolResult messages."""
+    conversation_manager = SlidingWindowConversationManager()
+
+    # Create agent in repository first
+    session_agent = SessionAgent(
+        agent_id="existing-agent",
+        state={"key": "value"},
+        conversation_manager_state=conversation_manager.get_state(),
+    )
+    session_manager.session_repository.create_agent("test-session", session_agent)
+
+    broken_messages = [
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "orphaned-123", "name": "test_tool", "input": {"input": "test"}}}],
+        },
+        {"role": "user", "content": [{"text": "Some other message"}]},
+    ]
+    # Create some session messages
+    for index, broken_message in enumerate(broken_messages):
+        broken_session_message = SessionMessage(
+            message=broken_message,
+            message_id=index,
+        )
+        session_manager.session_repository.create_message("test-session", "existing-agent", broken_session_message)
+
+    # Initialize agent
+    agent = Agent(agent_id="existing-agent")
+    session_manager.initialize(agent)
+
+    fixed_messages = agent.messages
+
+    # Should insert toolResult message between toolUse and other message
+    assert len(fixed_messages) == 3
+    assert "toolResult" in fixed_messages[1]["content"][0]
+    assert fixed_messages[1]["content"][0]["toolResult"]["toolUseId"] == "orphaned-123"
+    assert fixed_messages[1]["content"][0]["toolResult"]["status"] == "error"
+    assert fixed_messages[1]["content"][0]["toolResult"]["content"][0]["text"] == "Tool was interrupted."
+
+
+def test_fix_broken_tool_use_extends_partial_tool_results(session_manager):
+    """Test fixing messages where some toolResults are missing."""
+    conversation_manager = SlidingWindowConversationManager()
+    # Create agent in repository first
+    session_agent = SessionAgent(
+        agent_id="existing-agent",
+        state={"key": "value"},
+        conversation_manager_state=conversation_manager.get_state(),
+    )
+    session_manager.session_repository.create_agent("test-session", session_agent)
+
+    broken_messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "complete-123", "name": "test_tool", "input": {"input": "test1"}}},
+                {"toolUse": {"toolUseId": "missing-456", "name": "test_tool", "input": {"input": "test2"}}},
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "complete-123", "status": "success", "content": [{"text": "result"}]}}
+            ],
+        },
+    ]
+    # Create some session messages
+    for index, broken_message in enumerate(broken_messages):
+        broken_session_message = SessionMessage(
+            message=broken_message,
+            message_id=index,
+        )
+        session_manager.session_repository.create_message("test-session", "existing-agent", broken_session_message)
+
+    # Initialize agent
+    agent = Agent(agent_id="existing-agent")
+    session_manager.initialize(agent)
+
+    fixed_messages = agent.messages
+
+    # Should add missing toolResult to existing message
+    assert len(fixed_messages) == 2
+    assert len(fixed_messages[1]["content"]) == 2
+
+    tool_use_ids = {tr["toolResult"]["toolUseId"] for tr in fixed_messages[1]["content"]}
+    assert tool_use_ids == {"complete-123", "missing-456"}
+
+    # Check the added toolResult has correct properties
+    missing_result = next(tr for tr in fixed_messages[1]["content"] if tr["toolResult"]["toolUseId"] == "missing-456")
+    assert missing_result["toolResult"]["status"] == "error"
+    assert missing_result["toolResult"]["content"][0]["text"] == "Tool was interrupted."
+
+
+def test_fix_broken_tool_use_handles_multiple_orphaned_tools(session_manager):
+    """Test fixing multiple orphaned toolUse messages."""
+
+    conversation_manager = SlidingWindowConversationManager()
+    # Create agent in repository first
+    session_agent = SessionAgent(
+        agent_id="existing-agent",
+        state={"key": "value"},
+        conversation_manager_state=conversation_manager.get_state(),
+    )
+    session_manager.session_repository.create_agent("test-session", session_agent)
+
+    broken_messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "orphaned-123", "name": "test_tool", "input": {"input": "test1"}}},
+                {"toolUse": {"toolUseId": "orphaned-456", "name": "test_tool", "input": {"input": "test2"}}},
+            ],
+        },
+        {"role": "user", "content": [{"text": "Next message"}]},
+    ]
+    # Create some session messages
+    for index, broken_message in enumerate(broken_messages):
+        broken_session_message = SessionMessage(
+            message=broken_message,
+            message_id=index,
+        )
+        session_manager.session_repository.create_message("test-session", "existing-agent", broken_session_message)
+
+    # Initialize agent
+    agent = Agent(agent_id="existing-agent")
+    session_manager.initialize(agent)
+
+    fixed_messages = agent.messages
+
+    # Should insert message with both toolResults
+    assert len(fixed_messages) == 3
+    assert len(fixed_messages[1]["content"]) == 2
+
+    tool_use_ids = {tr["toolResult"]["toolUseId"] for tr in fixed_messages[1]["content"]}
+    assert tool_use_ids == {"orphaned-123", "orphaned-456"}
+
+
+def test_fix_broken_tool_use_ignores_last_message(session_manager):
+    """Test that orphaned toolUse in the last message is not fixed."""
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "last-message-123", "name": "test_tool", "input": {"input": "test"}}}
+            ],
+        },
+    ]
+
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+
+    # Should remain unchanged since toolUse is in last message
+    assert fixed_messages == messages
+
+
+def test_fix_broken_tool_use_does_not_change_valid_message(session_manager):
+    """Test that orphaned toolUse in the last message is not fixed."""
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"toolUse": {"toolUseId": "last-message-123", "name": "test_tool", "input": {"input": "test"}}}
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "last-message-123", "input": {"input": "test"}, "status": "success"}}
+            ],
+        },
+    ]
+
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+
+    # Should remain unchanged since toolUse is in last message
+    assert fixed_messages == messages

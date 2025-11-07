@@ -7,6 +7,7 @@ agent lifecycle.
 
 from typing import TYPE_CHECKING, Any, Sequence, cast
 
+from pydantic import BaseModel
 from typing_extensions import override
 
 from ..interrupt import Interrupt
@@ -19,6 +20,7 @@ from .tools import ToolResult, ToolUse
 
 if TYPE_CHECKING:
     from ..agent import AgentResult
+    from ..multiagent.base import MultiAgentResult, NodeResult
 
 
 class TypedEvent(dict):
@@ -222,6 +224,7 @@ class EventLoopStopEvent(TypedEvent):
         metrics: "EventLoopMetrics",
         request_state: Any,
         interrupts: Sequence[Interrupt] | None = None,
+        structured_output: BaseModel | None = None,
     ) -> None:
         """Initialize with the final execution results.
 
@@ -231,13 +234,26 @@ class EventLoopStopEvent(TypedEvent):
             metrics: Execution metrics and performance data
             request_state: Final state of the agent execution
             interrupts: Interrupts raised by user during agent execution.
+            structured_output: Optional structured output result
         """
-        super().__init__({"stop": (stop_reason, message, metrics, request_state, interrupts)})
+        super().__init__({"stop": (stop_reason, message, metrics, request_state, interrupts, structured_output)})
 
     @property
     @override
     def is_callback_event(self) -> bool:
         return False
+
+
+class StructuredOutputEvent(TypedEvent):
+    """Event emitted when structured output is detected and processed."""
+
+    def __init__(self, structured_output: BaseModel) -> None:
+        """Initialize with the structured output result.
+
+        Args:
+            structured_output: The parsed structured output instance
+        """
+        super().__init__({"structured_output": structured_output})
 
 
 class EventLoopThrottleEvent(TypedEvent):
@@ -395,3 +411,116 @@ class ForceStopEvent(TypedEvent):
 class AgentResultEvent(TypedEvent):
     def __init__(self, result: "AgentResult"):
         super().__init__({"result": result})
+
+
+class MultiAgentResultEvent(TypedEvent):
+    """Event emitted when multi-agent execution completes with final result."""
+
+    def __init__(self, result: "MultiAgentResult") -> None:
+        """Initialize with multi-agent result.
+
+        Args:
+            result: The final result from multi-agent execution (SwarmResult, GraphResult, etc.)
+        """
+        super().__init__({"type": "multiagent_result", "result": result})
+
+
+class MultiAgentNodeStartEvent(TypedEvent):
+    """Event emitted when a node begins execution in multi-agent context."""
+
+    def __init__(self, node_id: str, node_type: str) -> None:
+        """Initialize with node information.
+
+        Args:
+            node_id: Unique identifier for the node
+            node_type: Type of node ("agent", "swarm", "graph")
+        """
+        super().__init__({"type": "multiagent_node_start", "node_id": node_id, "node_type": node_type})
+
+
+class MultiAgentNodeStopEvent(TypedEvent):
+    """Event emitted when a node stops execution.
+
+    Similar to EventLoopStopEvent but for individual nodes in multi-agent orchestration.
+    Provides the complete NodeResult which contains execution details, metrics, and status.
+    """
+
+    def __init__(
+        self,
+        node_id: str,
+        node_result: "NodeResult",
+    ) -> None:
+        """Initialize with stop information.
+
+        Args:
+            node_id: Unique identifier for the node
+            node_result: Complete result from the node execution containing result,
+                execution_time, status, accumulated_usage, accumulated_metrics, and execution_count
+        """
+        super().__init__(
+            {
+                "type": "multiagent_node_stop",
+                "node_id": node_id,
+                "node_result": node_result,
+            }
+        )
+
+
+class MultiAgentHandoffEvent(TypedEvent):
+    """Event emitted during node transitions in multi-agent systems.
+
+    Supports both single handoffs (Swarm) and batch transitions (Graph).
+    For Swarm: Single node-to-node handoffs with a message.
+    For Graph: Batch transitions where multiple nodes complete and multiple nodes begin.
+    """
+
+    def __init__(
+        self,
+        from_node_ids: list[str],
+        to_node_ids: list[str],
+        message: str | None = None,
+    ) -> None:
+        """Initialize with handoff information.
+
+        Args:
+            from_node_ids: List of node ID(s) completing execution.
+                - Swarm: Single-element list ["agent_a"]
+                - Graph: Multi-element list ["node1", "node2"]
+            to_node_ids: List of node ID(s) beginning execution.
+                - Swarm: Single-element list ["agent_b"]
+                - Graph: Multi-element list ["node3", "node4"]
+            message: Optional message explaining the transition (typically used in Swarm)
+
+        Examples:
+            Swarm handoff: MultiAgentHandoffEvent(["researcher"], ["analyst"], "Need calculations")
+            Graph batch: MultiAgentHandoffEvent(["node1", "node2"], ["node3", "node4"])
+        """
+        event_data = {
+            "type": "multiagent_handoff",
+            "from_node_ids": from_node_ids,
+            "to_node_ids": to_node_ids,
+        }
+
+        if message is not None:
+            event_data["message"] = message
+
+        super().__init__(event_data)
+
+
+class MultiAgentNodeStreamEvent(TypedEvent):
+    """Event emitted during node execution - forwards agent events with node context."""
+
+    def __init__(self, node_id: str, agent_event: dict[str, Any]) -> None:
+        """Initialize with node context and agent event.
+
+        Args:
+            node_id: Unique identifier for the node generating the event
+            agent_event: The original agent event data
+        """
+        super().__init__(
+            {
+                "type": "multiagent_node_stream",
+                "node_id": node_id,
+                "event": agent_event,  # Nest agent event to avoid field conflicts
+            }
+        )

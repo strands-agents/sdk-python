@@ -153,7 +153,7 @@ def test_start_model_invoke_span(mock_tracer):
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "chat"
-        assert mock_tracer.start_span.call_args[1]["kind"] == SpanKind.CLIENT
+        assert mock_tracer.start_span.call_args[1]["kind"] == SpanKind.INTERNAL
         mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
         mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "chat")
         mock_span.set_attribute.assert_any_call("gen_ai.request.model", model_id)
@@ -188,7 +188,7 @@ def test_start_model_invoke_span_latest_conventions(mock_tracer):
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "chat"
-        assert mock_tracer.start_span.call_args[1]["kind"] == SpanKind.CLIENT
+        assert mock_tracer.start_span.call_args[1]["kind"] == SpanKind.INTERNAL
         mock_span.set_attribute.assert_any_call("gen_ai.provider.name", "strands-agents")
         mock_span.set_attribute.assert_any_call("gen_ai.operation.name", "chat")
         mock_span.set_attribute.assert_any_call("gen_ai.request.model", model_id)
@@ -670,6 +670,7 @@ def test_start_agent_span(mock_tracer):
 
         mock_tracer.start_span.assert_called_once()
         assert mock_tracer.start_span.call_args[1]["name"] == "invoke_agent WeatherAgent"
+        assert mock_tracer.start_span.call_args[1]["kind"] == SpanKind.INTERNAL
         mock_span.set_attribute.assert_any_call("gen_ai.system", "strands-agents")
         mock_span.set_attribute.assert_any_call("gen_ai.agent.name", "WeatherAgent")
         mock_span.set_attribute.assert_any_call("gen_ai.request.model", model_id)
@@ -1323,3 +1324,60 @@ def test_start_event_loop_cycle_span_with_tool_result_message(mock_tracer):
             "gen_ai.tool.message", attributes={"content": json.dumps(messages[0]["content"])}
         )
         assert span is not None
+
+
+def test_start_agent_span_does_not_include_tool_definitions_by_default():
+    """Verify that start_agent_span does not include tool definitions by default."""
+    tracer = Tracer()
+    tracer.include_tool_definitions = False
+    tracer._start_span = mock.MagicMock()
+
+    tools_config = {
+        "my_tool": {
+            "name": "my_tool",
+            "description": "A test tool",
+            "inputSchema": {"json": {}},
+            "outputSchema": {"json": {}},
+        }
+    }
+
+    tracer.start_agent_span(messages=[], agent_name="TestAgent", tools_config=tools_config)
+
+    tracer._start_span.assert_called_once()
+    _, call_kwargs = tracer._start_span.call_args
+    attributes = call_kwargs.get("attributes", {})
+    assert "gen_ai.tool.definitions" not in attributes
+
+
+def test_start_agent_span_includes_tool_definitions_when_enabled():
+    """Verify that start_agent_span includes tool definitions when enabled."""
+    tracer = Tracer()
+    tracer.include_tool_definitions = True
+    tracer._start_span = mock.MagicMock()
+
+    tools_config = {
+        "my_tool": {
+            "name": "my_tool",
+            "description": "A test tool",
+            "inputSchema": {"json": {"type": "object", "properties": {}}},
+            "outputSchema": {"json": {"type": "object", "properties": {}}},
+        }
+    }
+
+    tracer.start_agent_span(messages=[], agent_name="TestAgent", tools_config=tools_config)
+
+    tracer._start_span.assert_called_once()
+    _, call_kwargs = tracer._start_span.call_args
+    attributes = call_kwargs.get("attributes", {})
+
+    assert "gen_ai.tool.definitions" in attributes
+    expected_tool_details = [
+        {
+            "name": "my_tool",
+            "description": "A test tool",
+            "inputSchema": {"json": {"type": "object", "properties": {}}},
+            "outputSchema": {"json": {"type": "object", "properties": {}}},
+        }
+    ]
+    expected_json = serialize(expected_tool_details)
+    assert attributes["gen_ai.tool.definitions"] == expected_json

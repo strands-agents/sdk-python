@@ -296,7 +296,7 @@ def test_update_config(model, model_id):
 
 
 def test_format_request_default(model, messages, model_id):
-    tru_request = model.format_request(messages)
+    tru_request = model._format_request(messages)
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
@@ -309,7 +309,7 @@ def test_format_request_default(model, messages, model_id):
 
 def test_format_request_additional_request_fields(model, messages, model_id, additional_request_fields):
     model.update_config(additional_request_fields=additional_request_fields)
-    tru_request = model.format_request(messages)
+    tru_request = model._format_request(messages)
     exp_request = {
         "additionalModelRequestFields": additional_request_fields,
         "inferenceConfig": {},
@@ -323,7 +323,7 @@ def test_format_request_additional_request_fields(model, messages, model_id, add
 
 def test_format_request_additional_response_field_paths(model, messages, model_id, additional_response_field_paths):
     model.update_config(additional_response_field_paths=additional_response_field_paths)
-    tru_request = model.format_request(messages)
+    tru_request = model._format_request(messages)
     exp_request = {
         "additionalModelResponseFieldPaths": additional_response_field_paths,
         "inferenceConfig": {},
@@ -337,7 +337,7 @@ def test_format_request_additional_response_field_paths(model, messages, model_i
 
 def test_format_request_guardrail_config(model, messages, model_id, guardrail_config):
     model.update_config(**guardrail_config)
-    tru_request = model.format_request(messages)
+    tru_request = model._format_request(messages)
     exp_request = {
         "guardrailConfig": {
             "guardrailIdentifier": guardrail_config["guardrail_id"],
@@ -361,7 +361,7 @@ def test_format_request_guardrail_config_without_trace_or_stream_processing_mode
             "guardrail_version": "v1",
         }
     )
-    tru_request = model.format_request(messages)
+    tru_request = model._format_request(messages)
     exp_request = {
         "guardrailConfig": {
             "guardrailIdentifier": "g1",
@@ -379,7 +379,7 @@ def test_format_request_guardrail_config_without_trace_or_stream_processing_mode
 
 def test_format_request_inference_config(model, messages, model_id, inference_config):
     model.update_config(**inference_config)
-    tru_request = model.format_request(messages)
+    tru_request = model._format_request(messages)
     exp_request = {
         "inferenceConfig": {
             "maxTokens": inference_config["max_tokens"],
@@ -396,7 +396,7 @@ def test_format_request_inference_config(model, messages, model_id, inference_co
 
 
 def test_format_request_system_prompt(model, messages, model_id, system_prompt):
-    tru_request = model.format_request(messages, system_prompt=system_prompt)
+    tru_request = model._format_request(messages, system_prompt_content=[{"text": system_prompt}])
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
@@ -407,8 +407,54 @@ def test_format_request_system_prompt(model, messages, model_id, system_prompt):
     assert tru_request == exp_request
 
 
+def test_format_request_system_prompt_content(model, messages, model_id):
+    """Test _format_request with SystemContentBlock input."""
+    system_prompt_content = [{"text": "You are a helpful assistant."}, {"cachePoint": {"type": "default"}}]
+
+    tru_request = model._format_request(messages, system_prompt_content=system_prompt_content)
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": system_prompt_content,
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_system_prompt_content_with_cache_prompt_config(model, messages, model_id):
+    """Test _format_request with SystemContentBlock and cache_prompt config (backwards compatibility)."""
+    system_prompt_content = [{"text": "You are a helpful assistant."}]
+    model.update_config(cache_prompt="default")
+
+    with pytest.warns(UserWarning, match="cache_prompt is deprecated"):
+        tru_request = model._format_request(messages, system_prompt_content=system_prompt_content)
+
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": [{"text": "You are a helpful assistant."}, {"cachePoint": {"type": "default"}}],
+    }
+
+    assert tru_request == exp_request
+
+
+def test_format_request_empty_system_prompt_content(model, messages, model_id):
+    """Test _format_request with empty SystemContentBlock list."""
+    tru_request = model._format_request(messages, system_prompt_content=[])
+    exp_request = {
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": [],
+    }
+
+    assert tru_request == exp_request
+
+
 def test_format_request_tool_specs(model, messages, model_id, tool_spec):
-    tru_request = model.format_request(messages, [tool_spec])
+    tru_request = model._format_request(messages, tool_specs=[tool_spec])
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
@@ -425,7 +471,7 @@ def test_format_request_tool_specs(model, messages, model_id, tool_spec):
 
 def test_format_request_tool_choice_auto(model, messages, model_id, tool_spec):
     tool_choice = {"auto": {}}
-    tru_request = model.format_request(messages, [tool_spec], tool_choice=tool_choice)
+    tru_request = model._format_request(messages, [tool_spec], tool_choice=tool_choice)
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
@@ -442,7 +488,7 @@ def test_format_request_tool_choice_auto(model, messages, model_id, tool_spec):
 
 def test_format_request_tool_choice_any(model, messages, model_id, tool_spec):
     tool_choice = {"any": {}}
-    tru_request = model.format_request(messages, [tool_spec], tool_choice=tool_choice)
+    tru_request = model._format_request(messages, [tool_spec], tool_choice=tool_choice)
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
@@ -459,7 +505,7 @@ def test_format_request_tool_choice_any(model, messages, model_id, tool_spec):
 
 def test_format_request_tool_choice_tool(model, messages, model_id, tool_spec):
     tool_choice = {"tool": {"name": "test_tool"}}
-    tru_request = model.format_request(messages, [tool_spec], tool_choice=tool_choice)
+    tru_request = model._format_request(messages, [tool_spec], tool_choice=tool_choice)
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
@@ -476,7 +522,10 @@ def test_format_request_tool_choice_tool(model, messages, model_id, tool_spec):
 
 def test_format_request_cache(model, messages, model_id, tool_spec, cache_type):
     model.update_config(cache_prompt=cache_type, cache_tools=cache_type)
-    tru_request = model.format_request(messages, [tool_spec])
+
+    with pytest.warns(UserWarning, match="cache_prompt is deprecated"):
+        tru_request = model._format_request(messages, tool_specs=[tool_spec])
+
     exp_request = {
         "inferenceConfig": {},
         "modelId": model_id,
@@ -536,6 +585,40 @@ async def test_stream_throttling_exception_from_general_exception(bedrock_client
 
 
 @pytest.mark.asyncio
+async def test_stream_throttling_exception_lowercase(bedrock_client, model, messages, alist):
+    """Test that lowercase throttlingException is converted to ModelThrottledException."""
+    error_message = "throttlingException: Rate exceeded for ConverseStream"
+    bedrock_client.converse_stream.side_effect = ClientError(
+        {"Error": {"Message": error_message, "Code": "throttlingException"}}, "Any"
+    )
+
+    with pytest.raises(ModelThrottledException) as excinfo:
+        await alist(model.stream(messages))
+
+    assert error_message in str(excinfo.value)
+    bedrock_client.converse_stream.assert_called_once_with(
+        modelId="m1", messages=messages, system=[], inferenceConfig={}
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_throttling_exception_lowercase_non_streaming(bedrock_client, messages, alist):
+    """Test that lowercase throttlingException is converted to ModelThrottledException in non-streaming mode."""
+    error_message = "throttlingException: Rate exceeded for Converse"
+    bedrock_client.converse.side_effect = ClientError(
+        {"Error": {"Message": error_message, "Code": "throttlingException"}}, "Any"
+    )
+
+    model = BedrockModel(model_id="test-model", streaming=False)
+    with pytest.raises(ModelThrottledException) as excinfo:
+        await alist(model.stream(messages))
+
+    assert error_message in str(excinfo.value)
+    bedrock_client.converse.assert_called_once()
+    bedrock_client.converse_stream.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_general_exception_is_raised(bedrock_client, model, messages, alist):
     error_message = "Should be raised up"
     bedrock_client.converse_stream.side_effect = ValueError(error_message)
@@ -576,6 +659,51 @@ async def test_stream(bedrock_client, model, messages, tool_spec, model_id, addi
 
 
 @pytest.mark.asyncio
+async def test_stream_with_system_prompt_content(bedrock_client, model, messages, alist):
+    """Test stream method with system_prompt_content parameter."""
+    bedrock_client.converse_stream.return_value = {"stream": ["e1", "e2"]}
+
+    system_prompt_content = [{"text": "You are a helpful assistant."}, {"cachePoint": {"type": "default"}}]
+
+    response = model.stream(messages, system_prompt_content=system_prompt_content)
+    tru_chunks = await alist(response)
+    exp_chunks = ["e1", "e2"]
+
+    assert tru_chunks == exp_chunks
+
+    # Verify the request was formatted with system_prompt_content
+    expected_request = {
+        "inferenceConfig": {},
+        "modelId": "m1",
+        "messages": messages,
+        "system": system_prompt_content,
+    }
+    bedrock_client.converse_stream.assert_called_once_with(**expected_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_backwards_compatibility_single_text_block(bedrock_client, model, messages, alist):
+    """Test that single text block in system_prompt_content works with legacy system_prompt."""
+    bedrock_client.converse_stream.return_value = {"stream": ["e1", "e2"]}
+
+    system_prompt_content = [{"text": "You are a helpful assistant."}]
+
+    response = model.stream(
+        messages, system_prompt="You are a helpful assistant.", system_prompt_content=system_prompt_content
+    )
+    await alist(response)
+
+    # Verify the request was formatted with system_prompt_content
+    expected_request = {
+        "inferenceConfig": {},
+        "modelId": "m1",
+        "messages": messages,
+        "system": system_prompt_content,
+    }
+    bedrock_client.converse_stream.assert_called_once_with(**expected_request)
+
+
+@pytest.mark.asyncio
 async def test_stream_stream_input_guardrails(
     bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
 ):
@@ -594,6 +722,99 @@ async def test_stream_stream_input_guardrails(
                                         "action": "BLOCKED",
                                         "detected": True,
                                     }
+                                ]
+                            }
+                        }
+                    }
+                }
+            },
+        }
+    }
+    bedrock_client.converse_stream.return_value = {"stream": [metadata_event]}
+
+    request = {
+        "additionalModelRequestFields": additional_request_fields,
+        "inferenceConfig": {},
+        "modelId": model_id,
+        "messages": messages,
+        "system": [],
+        "toolConfig": {
+            "tools": [{"toolSpec": tool_spec}],
+            "toolChoice": {"auto": {}},
+        },
+    }
+
+    model.update_config(additional_request_fields=additional_request_fields)
+    response = model.stream(messages, [tool_spec])
+
+    tru_chunks = await alist(response)
+    exp_chunks = [
+        {"redactContent": {"redactUserContentMessage": "[User input redacted.]"}},
+        metadata_event,
+    ]
+
+    assert tru_chunks == exp_chunks
+    bedrock_client.converse_stream.assert_called_once_with(**request)
+
+
+@pytest.mark.asyncio
+async def test_stream_stream_input_guardrails_full_trace(
+    bedrock_client, model, messages, tool_spec, model_id, additional_request_fields, alist
+):
+    """Test guardrails are correctly detected also with guardrail_trace="enabled_full".
+    In that case bedrock returns all filters, including those not detected/blocked."""
+    metadata_event = {
+        "metadata": {
+            "usage": {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0},
+            "metrics": {"latencyMs": 245},
+            "trace": {
+                "guardrail": {
+                    "inputAssessment": {
+                        "jrv9qlue4hag": {
+                            "contentPolicy": {
+                                "filters": [
+                                    {
+                                        "action": "NONE",
+                                        "confidence": "NONE",
+                                        "detected": False,
+                                        "filterStrength": "HIGH",
+                                        "type": "SEXUAL",
+                                    },
+                                    {
+                                        "action": "BLOCKED",
+                                        "confidence": "LOW",
+                                        "detected": True,
+                                        "filterStrength": "HIGH",
+                                        "type": "VIOLENCE",
+                                    },
+                                    {
+                                        "action": "NONE",
+                                        "confidence": "NONE",
+                                        "detected": False,
+                                        "filterStrength": "HIGH",
+                                        "type": "HATE",
+                                    },
+                                    {
+                                        "action": "NONE",
+                                        "confidence": "NONE",
+                                        "detected": False,
+                                        "filterStrength": "HIGH",
+                                        "type": "INSULTS",
+                                    },
+                                    {
+                                        "action": "NONE",
+                                        "confidence": "NONE",
+                                        "detected": False,
+                                        "filterStrength": "HIGH",
+                                        "type": "PROMPT_ATTACK",
+                                    },
+                                    {
+                                        "action": "NONE",
+                                        "confidence": "NONE",
+                                        "detected": False,
+                                        "filterStrength": "HIGH",
+                                        "type": "MISCONDUCT",
+                                    },
                                 ]
                             }
                         }
@@ -1383,7 +1604,7 @@ def test_format_request_cleans_tool_result_content_blocks(model, model_id):
         }
     ]
 
-    formatted_request = model.format_request(messages)
+    formatted_request = model._format_request(messages)
 
     tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
     expected = {"toolUseId": "tool123", "content": [{"text": "Tool output"}]}
@@ -1411,7 +1632,7 @@ def test_format_request_removes_status_field_when_configured(model, model_id):
         }
     ]
 
-    formatted_request = model.format_request(messages)
+    formatted_request = model._format_request(messages)
 
     tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
     expected = {"toolUseId": "tool123", "content": [{"text": "Tool output"}]}
@@ -1452,7 +1673,7 @@ def test_explicit_boolean_values_preserved(bedrock_client):
         }
     ]
 
-    formatted_request = model.format_request(messages)
+    formatted_request = model._format_request(messages)
 
     # Verify toolResult contains status field by default
     tool_result = formatted_request["messages"][0]["content"][0]["toolResult"]
@@ -1474,7 +1695,7 @@ def test_format_request_filters_sdk_unknown_member_content_blocks(model, model_i
         }
     ]
 
-    formatted_request = model.format_request(messages)
+    formatted_request = model._format_request(messages)
 
     content = formatted_request["messages"][0]["content"]
     assert len(content) == 2
@@ -1556,7 +1777,7 @@ def test_format_request_filters_image_content_blocks(model, model_id):
         }
     ]
 
-    formatted_request = model.format_request(messages)
+    formatted_request = model._format_request(messages)
 
     image_block = formatted_request["messages"][0]["content"][0]["image"]
     expected = {"format": "png", "source": {"bytes": b"image_data"}}
@@ -1584,7 +1805,7 @@ def test_format_request_filters_nested_image_s3_fields(model, model_id):
         }
     ]
 
-    formatted_request = model.format_request(messages)
+    formatted_request = model._format_request(messages)
     image_source = formatted_request["messages"][0]["content"][0]["image"]["source"]
 
     assert image_source == {"bytes": b"image_data"}
@@ -1610,7 +1831,7 @@ def test_format_request_filters_document_content_blocks(model, model_id):
         }
     ]
 
-    formatted_request = model.format_request(messages)
+    formatted_request = model._format_request(messages)
 
     document_block = formatted_request["messages"][0]["content"][0]["document"]
     expected = {"name": "test.pdf", "source": {"bytes": b"pdf_data"}, "format": "pdf"}
@@ -1634,7 +1855,7 @@ def test_format_request_filters_nested_reasoning_content(model, model_id):
         }
     ]
 
-    formatted_request = model.format_request(messages)
+    formatted_request = model._format_request(messages)
     reasoning_text = formatted_request["messages"][0]["content"][0]["reasoningContent"]["reasoningText"]
 
     assert reasoning_text == {"text": "thinking...", "signature": "abc123"}
@@ -1658,7 +1879,7 @@ def test_format_request_filters_video_content_blocks(model, model_id):
         }
     ]
 
-    formatted_request = model.format_request(messages)
+    formatted_request = model._format_request(messages)
 
     video_block = formatted_request["messages"][0]["content"][0]["video"]
     expected = {"format": "mp4", "source": {"bytes": b"video_data"}}
@@ -1683,7 +1904,7 @@ def test_format_request_filters_cache_point_content_blocks(model, model_id):
         }
     ]
 
-    formatted_request = model.format_request(messages)
+    formatted_request = model._format_request(messages)
 
     cache_point_block = formatted_request["messages"][0]["content"][0]["cachePoint"]
     expected = {"type": "default"}
@@ -1712,14 +1933,14 @@ def test_update_config_validation_warns_on_unknown_keys(model, captured_warnings
 def test_tool_choice_supported_no_warning(model, messages, tool_spec, captured_warnings):
     """Test that toolChoice doesn't emit warning for supported providers."""
     tool_choice = {"auto": {}}
-    model.format_request(messages, [tool_spec], tool_choice=tool_choice)
+    model._format_request(messages, [tool_spec], tool_choice=tool_choice)
 
     assert len(captured_warnings) == 0
 
 
 def test_tool_choice_none_no_warning(model, messages, captured_warnings):
     """Test that None toolChoice doesn't emit warning."""
-    model.format_request(messages, tool_choice=None)
+    model._format_request(messages, tool_choice=None)
 
     assert len(captured_warnings) == 0
 
@@ -1818,7 +2039,7 @@ def test_format_request_filters_output_schema(model, messages, model_id):
         "outputSchema": {"type": "object", "properties": {"result": {"type": "string"}}},
     }
 
-    request = model.format_request(messages, [tool_spec_with_output_schema])
+    request = model._format_request(messages, [tool_spec_with_output_schema])
 
     tool_spec = request["toolConfig"]["tools"][0]["toolSpec"]
 
@@ -1829,3 +2050,23 @@ def test_format_request_filters_output_schema(model, messages, model_id):
     assert tool_spec["name"] == "test_tool"
     assert tool_spec["description"] == "Test tool with output schema"
     assert tool_spec["inputSchema"] == {"type": "object", "properties": {}}
+
+
+@pytest.mark.asyncio
+async def test_stream_backward_compatibility_system_prompt(bedrock_client, model, messages, alist):
+    """Test that system_prompt is converted to system_prompt_content when system_prompt_content is None."""
+    bedrock_client.converse_stream.return_value = {"stream": ["e1", "e2"]}
+
+    system_prompt = "You are a helpful assistant."
+
+    response = model.stream(messages, system_prompt=system_prompt)
+    await alist(response)
+
+    # Verify the request was formatted with system_prompt converted to system_prompt_content
+    expected_request = {
+        "inferenceConfig": {},
+        "modelId": "m1",
+        "messages": messages,
+        "system": [{"text": system_prompt}],
+    }
+    bedrock_client.converse_stream.assert_called_once_with(**expected_request)

@@ -4,6 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Optional
 
 from ..agent.state import AgentState
+from ..tools._tool_helpers import generate_missing_tool_result_content
 from ..types.content import Message
 from ..types.exceptions import SessionException
 from ..types.session import (
@@ -17,6 +18,7 @@ from .session_repository import SessionRepository
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
+    from ..multiagent.base import MultiAgentBase
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +26,12 @@ logger = logging.getLogger(__name__)
 class RepositorySessionManager(SessionManager):
     """Session manager for persisting agents in a SessionRepository."""
 
-    def __init__(self, session_id: str, session_repository: SessionRepository, **kwargs: Any):
+    def __init__(
+        self,
+        session_id: str,
+        session_repository: SessionRepository,
+        **kwargs: Any,
+    ):
         """Initialize the RepositorySessionManager.
 
         If no session with the specified session_id exists yet, it will be created
@@ -152,3 +159,70 @@ class RepositorySessionManager(SessionManager):
 
             # Restore the agents messages array including the optional prepend messages
             agent.messages = prepend_messages + [session_message.to_message() for session_message in session_messages]
+
+            # Fix broken session histories: https://github.com/strands-agents/sdk-python/issues/859
+            agent.messages = self._fix_broken_tool_use(agent.messages)
+
+    def _fix_broken_tool_use(self, messages: list[Message]) -> list[Message]:
+        """Add tool_result after orphaned tool_use messages.
+
+        Before 1.15.0, strands had a bug where they persisted sessions with a potentially broken messages array.
+        This method retroactively fixes that issue by adding a tool_result outside of session management. After 1.15.0,
+        this bug is no longer present.
+        """
+        for index, message in enumerate(messages):
+            # Check all but the latest message in the messages array
+            # The latest message being orphaned is handled in the agent class
+            if index + 1 < len(messages):
+                if any("toolUse" in content for content in message["content"]):
+                    tool_use_ids = [
+                        content["toolUse"]["toolUseId"] for content in message["content"] if "toolUse" in content
+                    ]
+
+                    # Check if there are more messages after the current toolUse message
+                    tool_result_ids = [
+                        content["toolResult"]["toolUseId"]
+                        for content in messages[index + 1]["content"]
+                        if "toolResult" in content
+                    ]
+
+                    missing_tool_use_ids = list(set(tool_use_ids) - set(tool_result_ids))
+                    # If there area missing tool use ids, that means the messages history is broken
+                    if missing_tool_use_ids:
+                        logger.warning(
+                            "Session message history has an orphaned toolUse with no toolResult. "
+                            "Adding toolResult content blocks to create valid conversation."
+                        )
+                        # Create the missing toolResult content blocks
+                        missing_content_blocks = generate_missing_tool_result_content(missing_tool_use_ids)
+
+                        if tool_result_ids:
+                            # If there were any toolResult ids, that means only some of the content blocks are missing
+                            messages[index + 1]["content"].extend(missing_content_blocks)
+                        else:
+                            # The message following the toolUse was not a toolResult, so lets insert it
+                            messages.insert(index + 1, {"role": "user", "content": missing_content_blocks})
+        return messages
+
+    def sync_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:
+        """Serialize and update the multi-agent state into the session repository.
+
+        Args:
+            source: Multi-agent source object to sync to the session.
+            **kwargs: Additional keyword arguments for future extensibility.
+        """
+        self.session_repository.update_multi_agent(self.session_id, source)
+
+    def initialize_multi_agent(self, source: "MultiAgentBase", **kwargs: Any) -> None:
+        """Initialize multi-agent state from the session repository.
+
+        Args:
+            source: Multi-agent source object to restore state into
+            **kwargs: Additional keyword arguments for future extensibility.
+        """
+        state = self.session_repository.read_multi_agent(self.session_id, source.id, **kwargs)
+        if state is None:
+            self.session_repository.create_multi_agent(self.session_id, source, **kwargs)
+        else:
+            logger.debug("session_id=<%s> | restoring multi-agent state", self.session_id)
+            source.deserialize_state(state)
