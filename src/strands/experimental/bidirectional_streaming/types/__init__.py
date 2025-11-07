@@ -1,5 +1,7 @@
 """Type definitions for bidirectional streaming."""
 
+from .audio_io import AudioIO
+from .bidirectional_io import BidirectionalIO
 from .bidirectional_streaming import (
     DEFAULT_CHANNELS,
     DEFAULT_SAMPLE_RATE,
@@ -20,6 +22,8 @@ from .bidirectional_streaming import (
 )
 
 __all__ = [
+    "AudioIO",
+    "BidirectionalIO",
     "AudioInputEvent",
     "AudioOutputEvent",
     "BidirectionalConnectionEndEvent",

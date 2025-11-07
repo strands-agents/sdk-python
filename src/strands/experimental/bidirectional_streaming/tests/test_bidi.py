@@ -7,7 +7,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
 from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
-from strands.experimental.bidirectional_streaming.models.novasonic import NovaSonicBidirectionalModel
+from strands.experimental.bidirectional_streaming.models.novasonic import NovaSonicModel
+from strands.experimental.bidirectional_streaming.types.audio_io import AudioIO
 from strands_tools import calculator
 
 
@@ -16,12 +17,13 @@ async def main():
 
     
     # Nova Sonic model
-    model = NovaSonicBidirectionalModel()
+    adapter = AudioIO()
+    model = NovaSonicModel(region="us-east-1")
 
     async with BidirectionalAgent(model=model, tools=[calculator]) as agent:
         print("New BidirectionalAgent Experience")
         print("Try asking: 'What is 25 times 8?' or 'Calculate the square root of 144'")
-        await agent.connect()
+        await agent.run(io_channels=[adapter])
 
 
 if __name__ == "__main__":

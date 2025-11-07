@@ -26,11 +26,12 @@ from ....tools.registry import ToolRegistry
 from ....tools.watcher import ToolWatcher
 from ....types.content import Message, Messages
 from ....types.tools import ToolResult, ToolUse, AgentTool
-from ..adapters.audio_adapter import AudioAdapter
+
 from ..event_loop.bidirectional_event_loop import BidirectionalAgentLoop
 from ..models.bidirectional_model import BidirectionalModel
 from ..models.novasonic import NovaSonicModel
 from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent, ImageInputEvent
+from ..types import BidirectionalIO
 from ....experimental.tools import ToolProvider
 
 logger = logging.getLogger(__name__)
@@ -60,7 +61,6 @@ class BidirectionalAgent:
         name: Optional[str] = None,
         tool_executor: Optional[ToolExecutor] = None,
         description: Optional[str] = None,
-        adapters: Optional[list[Any]] = None,
         **kwargs: Any,
     ):
         """Initialize bidirectional agent.
@@ -76,8 +76,6 @@ class BidirectionalAgent:
             name: Name of the Agent.
             tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
             description: Description of what the Agent does.
-            adapters: Optional list of adapter instances (e.g., AudioAdapter) for hardware abstraction.
-                     If None, automatically creates default AudioAdapter for basic audio functionality.
             **kwargs: Additional configuration for future extensibility.
 
         Raises:
@@ -125,14 +123,7 @@ class BidirectionalAgent:
         # connection management
         self._agentloop: Optional["BidirectionalAgentLoop"] = None
         self._output_queue = asyncio.Queue()
-
-        # Initialize adapters - auto-create AudioAdapter as default
-        if adapters is None:
-            # Create default AudioAdapter for basic audio functionality
-            default_audio_adapter = AudioAdapter(audio_config={"input_sample_rate": 16000})
-            self.adapters = [default_audio_adapter]
-        else:
-            self.adapters = adapters
+        self._current_adapters = []  # Track adapters for cleanup
 
     @property
     def tool(self) -> ToolCaller:
@@ -261,11 +252,11 @@ class BidirectionalAgent:
         logger.debug("Conversation start - initializing connection")
 
         # Create model session and event loop directly
-        model_session = await self.model.create_bidirectional_connection(
+        model_session = await self.model.connect(
             system_prompt=self.system_prompt, tools=self.tool_registry.get_all_tool_specs(), messages=self.messages
         )
 
-        self._agentloop = BidirectionalAgentLoop(model_session=model_session, agent=self)
+        self._agentloop = BidirectionalAgentLoop(model=self.model, agent=self)
         await self._agentloop.start()
 
         logger.debug("Conversation ready")
@@ -294,13 +285,13 @@ class BidirectionalAgent:
             logger.debug("Text sent: %d characters", len(input_data))
             # Create TextInputEvent for send()
             text_event = {"text": input_data, "role": "user"}
-            await self._agentloop.model_session.send(text_event)
+            await self._agentloop.model.send(text_event)
         elif isinstance(input_data, dict) and "audioData" in input_data:
             # Handle audio input
-            await self._agentloop.model_session.send(input_data)
+            await self._agentloop.model.send(input_data)
         elif isinstance(input_data, dict) and "imageData" in input_data:
             # Handle image input (ImageInputEvent)
-            await self._agentloop.model_session.send(input_data)
+            await self._agentloop.model.send(input_data)
         else:
             raise ValueError(
                 "Input must be either a string (text), AudioInputEvent "
@@ -363,17 +354,20 @@ class BidirectionalAgent:
         """
         try:
             logger.debug("Exiting async context manager - cleaning up adapters and connection")
-
-            # Cleanup adapters first
-            for adapter in self.adapters:
-                if hasattr(adapter, "_cleanup_audio"):
+            
+            # Cleanup adapters if any are currently active
+            for adapter in self._current_adapters:
+                if hasattr(adapter, "cleanup"):
                     try:
-                        adapter._cleanup_audio()
+                        adapter.cleanup()
                         logger.debug(f"Cleaned up adapter: {type(adapter).__name__}")
                     except Exception as adapter_error:
                         logger.warning(f"Error cleaning up adapter: {adapter_error}")
-
-            # Then cleanup agent connection
+            
+            # Clear current adapters
+            self._current_adapters = []
+            
+            # Cleanup agent connection
             await self.end()
 
         except Exception as cleanup_error:
@@ -396,72 +390,72 @@ class BidirectionalAgent:
         """
         return self._agentloop is not None and self._agentloop.active
 
-    async def connect(self) -> None:
-        """Connect the agent using configured adapters for bidirectional communication.
+    async def run(self, io_channels: list[BidirectionalIO | tuple[Callable, Callable]]) -> None:
+        """Run the agent using provided IO channels or transport tuples for bidirectional communication.
 
-        Automatically uses configured adapters to establish bidirectional communication
-        with the model. If no adapters are provided in constructor, uses default AudioAdapter.
-
+        Args:
+            io_channels: List containing either BidirectionalIO instances or (sender, receiver) tuples.
+                - BidirectionalIO: IO channel instance with input_channel(), output_channel(), and cleanup() methods
+                - tuple: (sender_callable, receiver_callable) for custom transport
+                
         Example:
             ```python
-            # Simple - uses default AudioAdapter
+            # With IO channel
+            audio_io = AudioIO(audio_config={"input_sample_rate": 16000})
             agent = BidirectionalAgent(model=model, tools=[calculator])
-            await agent.connect()
+            await agent.run(io_channels=[audio_io])
 
-            # Custom adapter
-            adapter = AudioAdapter(audio_config={"input_sample_rate": 24000})
-            agent = BidirectionalAgent(model=model, tools=[calculator], adapters=[adapter])
-            await agent.connect()
+            # With tuple (backward compatibility)
+            await agent.run(io_channels=[(sender_function, receiver_function)])
             ```
 
         Raises:
+            ValueError: If io_channels list is empty or contains invalid items.
             Exception: Any exception from the transport layer.
         """
-        # Use first adapter (always available due to default initialization)
-        adapter = self.adapters[0]
-        sender = adapter.create_output()
-        receiver = adapter.create_input()
-
-        if self.active:
-            # Use existing connection
-            await self._run(sender, receiver)
+        if not io_channels:
+            raise ValueError("io_channels parameter cannot be empty. Provide either an IO channel or (sender, receiver) tuple.")
+        
+        transport = io_channels[0]
+        
+        # Set IO channel tracking for cleanup
+        if hasattr(transport, 'input_channel') and hasattr(transport, 'output_channel'):
+            self._current_adapters = [transport]  # IO channel needs cleanup
+        elif isinstance(transport, tuple) and len(transport) == 2:
+            self._current_adapters = []  # Tuple needs no cleanup
         else:
-            # Use async context manager for automatic lifecycle management
+            raise ValueError("io_channels list must contain either BidirectionalIO instances or (sender, receiver) tuples.")
+
+        # Auto-manage session lifecycle
+        if self.active:
+            await self._run_with_transport(transport)
+        else:
             async with self:
-                await self._run(sender, receiver)
+                await self._run_with_transport(transport)
 
-    async def _run(
+    async def _run_with_transport(
         self,
-        sender: Callable[[Any], Any],
-        receiver: Callable[[], Any],
+        transport: BidirectionalIO | tuple[Callable, Callable],
     ) -> None:
-        """Internal method to run send/receive loops with an active connection.
-
-        Args:
-            sender: Async callable that sends events to the client.
-            receiver: Async callable that receives events from the client.
-        """
+        """Internal method to run send/receive loops with an active connection."""
 
         async def receive_from_agent():
-            """Receive events from agent and send to client."""
-            try:
-                async for event in self.receive():
-                    await sender(event)
-            except Exception as e:
-                logger.debug(f"Receive from agent stopped: {e}")
-                raise
+            """Receive events from agent and send to transport."""
+            async for event in self.receive():
+                if hasattr(transport, 'output_channel'):
+                    await transport.output_channel(event)
+                else:
+                    await transport[0](event)
 
         async def send_to_agent():
-            """Receive events from client and send to agent."""
-            try:
-                while self.active:
-                    event = await receiver()
-                    await self.send(event)
-            except Exception as e:
-                logger.debug(f"Send to agent stopped: {e}")
-                raise
+            """Receive events from transport and send to agent."""
+            while self.active:
+                if hasattr(transport, 'input_channel'):
+                    event = await transport.input_channel()
+                else:
+                    event = await transport[1]()
+                await self.send(event)
 
-        # Run both loops concurrently
         await asyncio.gather(receive_from_agent(), send_to_agent(), return_exceptions=True)
 
     def _validate_active_connection(self) -> None:
