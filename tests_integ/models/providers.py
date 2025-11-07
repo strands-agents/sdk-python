@@ -16,6 +16,7 @@ from strands.models.llamaapi import LlamaAPIModel
 from strands.models.mistral import MistralModel
 from strands.models.ollama import OllamaModel
 from strands.models.openai import OpenAIModel
+from strands.models.ovhcloud import OVHcloudModel
 from strands.models.writer import WriterModel
 
 
@@ -136,6 +137,16 @@ gemini = ProviderInfo(
         params={"temperature": 0.7},
     ),
 )
+ovhcloud = ProviderInfo(
+    id="ovhcloud",
+    environment_variable="OVHCLOUD_API_KEY",
+    factory=lambda: OVHcloudModel(
+        client_args={
+            "api_key": os.getenv("OVHCLOUD_API_KEY") or "",  # Empty string for free tier if not set
+        },
+        model_id="gpt-oss-120b",
+    ),
+)
 
 ollama = OllamaProviderInfo()
 
@@ -149,5 +160,6 @@ all_providers = [
     litellm,
     mistral,
     openai,
+    ovhcloud,
     writer,
 ]

@@ -37,7 +37,7 @@ Strands Agents is a simple yet powerful SDK that takes a model-driven approach t
 ## Feature Overview
 
 - **Lightweight & Flexible**: Simple agent loop that just works and is fully customizable
-- **Model Agnostic**: Support for Amazon Bedrock, Anthropic, Gemini, LiteLLM, Llama, Ollama, OpenAI, Writer, and custom providers
+- **Model Agnostic**: Support for Amazon Bedrock, Anthropic, Gemini, LiteLLM, Llama, Ollama, OpenAI, OVHcloud AI Endpoints, Writer, and custom providers
 - **Advanced Capabilities**: Multi-agent systems, autonomous agents, and streaming support
 - **Built-in MCP**: Native support for Model Context Protocol (MCP) servers, enabling access to thousands of pre-built tools
 
@@ -128,6 +128,7 @@ Support for various model providers:
 from strands import Agent
 from strands.models import BedrockModel
 from strands.models.ollama import OllamaModel
+from strands.models.ovhcloud import OVHcloudModel
 from strands.models.llamaapi import LlamaAPIModel
 from strands.models.gemini import GeminiModel
 from strands.models.llamacpp import LlamaCppModel
@@ -160,6 +161,17 @@ ollama_model = OllamaModel(
 agent = Agent(model=ollama_model)
 agent("Tell me about Agentic AI")
 
+# OVHcloud AI Endpoints
+ovhcloud_model = OVHcloudModel(
+  client_args={
+    "api_key": "your-api-key", # Remove it to use the free tier
+  },
+  model_id="gpt-oss-120b",
+  params={"temperature": 0.7}
+)
+agent = Agent(model=ovhcloud_model)
+agent("Tell me about Agentic AI")
+
 # Llama API
 llama_model = LlamaAPIModel(
     model_id="Llama-4-Maverick-17B-128E-Instruct-FP8",
@@ -179,6 +191,7 @@ Built-in providers:
  - [MistralAI](https://strandsagents.com/latest/user-guide/concepts/model-providers/mistral/)
  - [Ollama](https://strandsagents.com/latest/user-guide/concepts/model-providers/ollama/)
  - [OpenAI](https://strandsagents.com/latest/user-guide/concepts/model-providers/openai/)
+ - [OVHcloud AI Endpoints](https://strandsagents.com/latest/user-guide/concepts/model-providers/ovhcloud/)
  - [SageMaker](https://strandsagents.com/latest/user-guide/concepts/model-providers/sagemaker/)
  - [Writer](https://strandsagents.com/latest/user-guide/concepts/model-providers/writer/)
 
