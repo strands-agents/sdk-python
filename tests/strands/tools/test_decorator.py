@@ -10,8 +10,7 @@ import pytest
 
 import strands
 from strands import Agent
-from strands.agent.interrupt import InterruptState
-from strands.interrupt import Interrupt
+from strands.interrupt import Interrupt, _InterruptState
 from strands.types._events import ToolInterruptEvent, ToolResultEvent, ToolStreamEvent
 from strands.types.tools import AgentTool, ToolContext, ToolUse
 
@@ -151,7 +150,7 @@ async def test_stream_interrupt(alist):
     tool_use = {"toolUseId": "test_tool_id"}
 
     mock_agent = MagicMock()
-    mock_agent._interrupt_state = InterruptState()
+    mock_agent._interrupt_state = _InterruptState()
 
     invocation_state = {"agent": mock_agent}
 
@@ -178,7 +177,7 @@ async def test_stream_interrupt_resume(alist):
     tool_use = {"toolUseId": "test_tool_id"}
 
     mock_agent = MagicMock()
-    mock_agent._interrupt_state = InterruptState(interrupts={interrupt.id: interrupt})
+    mock_agent._interrupt_state = _InterruptState(interrupts={interrupt.id: interrupt})
 
     invocation_state = {"agent": mock_agent}
 

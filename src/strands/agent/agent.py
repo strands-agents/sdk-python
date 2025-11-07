@@ -46,6 +46,7 @@ from ..hooks import (
     HookRegistry,
     MessageAddedEvent,
 )
+from ..interrupt import _InterruptState
 from ..models.bedrock import BedrockModel
 from ..models.model import Model
 from ..session.session_manager import SessionManager
@@ -60,7 +61,6 @@ from ..types._events import AgentResultEvent, InitEventLoopEvent, ModelStreamChu
 from ..types.agent import AgentInput
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException
-from ..types.interrupt import InterruptResponseContent
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
@@ -68,7 +68,6 @@ from .conversation_manager import (
     ConversationManager,
     SlidingWindowConversationManager,
 )
-from .interrupt import InterruptState
 from .state import AgentState
 
 logger = logging.getLogger(__name__)
@@ -353,7 +352,7 @@ class Agent:
 
         self.hooks = HookRegistry()
 
-        self._interrupt_state = InterruptState()
+        self._interrupt_state = _InterruptState()
 
         # Initialize session management functionality
         self._session_manager = session_manager
@@ -641,7 +640,7 @@ class Agent:
                     yield event["data"]
             ```
         """
-        self._resume_interrupt(prompt)
+        self._interrupt_state.resume(prompt)
 
         merged_state = {}
         if kwargs:
@@ -683,38 +682,6 @@ class Agent:
             except Exception as e:
                 self._end_agent_trace_span(error=e)
                 raise
-
-    def _resume_interrupt(self, prompt: AgentInput) -> None:
-        """Configure the interrupt state if resuming from an interrupt event.
-
-        Args:
-            prompt: User responses if resuming from interrupt.
-
-        Raises:
-            TypeError: If in interrupt state but user did not provide responses.
-        """
-        if not self._interrupt_state.activated:
-            return
-
-        if not isinstance(prompt, list):
-            raise TypeError(f"prompt_type={type(prompt)} | must resume from interrupt with list of interruptResponse's")
-
-        invalid_types = [
-            content_type for content in prompt for content_type in content if content_type != "interruptResponse"
-        ]
-        if invalid_types:
-            raise TypeError(
-                f"content_types=<{invalid_types}> | must resume from interrupt with list of interruptResponse's"
-            )
-
-        for content in cast(list[InterruptResponseContent], prompt):
-            interrupt_id = content["interruptResponse"]["interruptId"]
-            interrupt_response = content["interruptResponse"]["response"]
-
-            if interrupt_id not in self._interrupt_state.interrupts:
-                raise KeyError(f"interrupt_id=<{interrupt_id}> | no interrupt found")
-
-            self._interrupt_state.interrupts[interrupt_id].response = interrupt_response
 
     async def _run_loop(
         self,
