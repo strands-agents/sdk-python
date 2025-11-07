@@ -163,11 +163,11 @@ def test_start_model_invoke_span(mock_tracer):
         assert span is not None
 
 
-def test_start_model_invoke_span_latest_conventions(mock_tracer):
+def test_start_model_invoke_span_latest_conventions(mock_tracer, monkeypatch):
     """Test starting a model invoke span with the latest semantic conventions."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
         tracer = Tracer()
-        tracer.use_latest_genai_conventions = True
         tracer.tracer = mock_tracer
 
         mock_span = mock.MagicMock()
@@ -244,11 +244,11 @@ def test_end_model_invoke_span(mock_span):
     mock_span.end.assert_called_once()
 
 
-def test_end_model_invoke_span_latest_conventions(mock_span):
+def test_end_model_invoke_span_latest_conventions(mock_span, monkeypatch):
     """Test ending a model invoke span with the latest semantic conventions."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
         tracer = Tracer()
-        tracer.use_latest_genai_conventions = True
         message = {"role": "assistant", "content": [{"text": "Response"}]}
         usage = Usage(inputTokens=10, outputTokens=20, totalTokens=30)
         metrics = Metrics(latencyMs=20, timeToFirstByteMs=10)
@@ -307,11 +307,11 @@ def test_start_tool_call_span(mock_tracer):
         assert span is not None
 
 
-def test_start_tool_call_span_latest_conventions(mock_tracer):
+def test_start_tool_call_span_latest_conventions(mock_tracer, monkeypatch):
     """Test starting a tool call span with the latest semantic conventions."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
         tracer = Tracer()
-        tracer.use_latest_genai_conventions = True
         tracer.tracer = mock_tracer
 
         mock_span = mock.MagicMock()
@@ -396,11 +396,11 @@ def test_start_swarm_span_with_contentblock_task(mock_tracer):
         assert span is not None
 
 
-def test_start_swarm_span_with_contentblock_task_latest_conventions(mock_tracer):
+def test_start_swarm_span_with_contentblock_task_latest_conventions(mock_tracer, monkeypatch):
     """Test starting a swarm call span with task as list of contentBlock with latest semantic conventions."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
         tracer = Tracer()
-        tracer.use_latest_genai_conventions = True
         tracer.tracer = mock_tracer
 
         mock_span = mock.MagicMock()
@@ -439,10 +439,10 @@ def test_end_swarm_span(mock_span):
     )
 
 
-def test_end_swarm_span_latest_conventions(mock_span):
+def test_end_swarm_span_latest_conventions(mock_span, monkeypatch):
     """Test ending a tool call span with latest semantic conventions."""
+    monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
     tracer = Tracer()
-    tracer.use_latest_genai_conventions = True
     swarm_final_reuslt = "foo bar bar"
 
     tracer.end_swarm_span(mock_span, swarm_final_reuslt)
@@ -503,10 +503,10 @@ def test_end_tool_call_span(mock_span):
     mock_span.end.assert_called_once()
 
 
-def test_end_tool_call_span_latest_conventions(mock_span):
+def test_end_tool_call_span_latest_conventions(mock_span, monkeypatch):
     """Test ending a tool call span with the latest semantic conventions."""
+    monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
     tracer = Tracer()
-    tracer.use_latest_genai_conventions = True
     tool_result = {"status": "success", "content": [{"text": "Tool result"}, {"json": {"foo": "bar"}}]}
 
     tracer.end_tool_call_span(mock_span, tool_result)
@@ -558,11 +558,11 @@ def test_start_event_loop_cycle_span(mock_tracer):
         assert span is not None
 
 
-def test_start_event_loop_cycle_span_latest_conventions(mock_tracer):
+def test_start_event_loop_cycle_span_latest_conventions(mock_tracer, monkeypatch):
     """Test starting an event loop cycle span with the latest semantic conventions."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
         tracer = Tracer()
-        tracer.use_latest_genai_conventions = True
         tracer.tracer = mock_tracer
 
         mock_span = mock.MagicMock()
@@ -609,10 +609,10 @@ def test_end_event_loop_cycle_span(mock_span):
     mock_span.end.assert_called_once()
 
 
-def test_end_event_loop_cycle_span_latest_conventions(mock_span):
+def test_end_event_loop_cycle_span_latest_conventions(mock_span, monkeypatch):
     """Test ending an event loop cycle span with the latest semantic conventions."""
+    monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
     tracer = Tracer()
-    tracer.use_latest_genai_conventions = True
     message = {"role": "assistant", "content": [{"text": "Response"}]}
     tool_result_message = {
         "role": "assistant",
@@ -679,11 +679,11 @@ def test_start_agent_span(mock_tracer):
         assert span is not None
 
 
-def test_start_agent_span_latest_conventions(mock_tracer):
+def test_start_agent_span_latest_conventions(mock_tracer, monkeypatch):
     """Test starting an agent span with the latest semantic conventions."""
     with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
         tracer = Tracer()
-        tracer.use_latest_genai_conventions = True
         tracer.tracer = mock_tracer
 
         mock_span = mock.MagicMock()
@@ -749,10 +749,10 @@ def test_end_agent_span(mock_span):
     mock_span.end.assert_called_once()
 
 
-def test_end_agent_span_latest_conventions(mock_span):
+def test_end_agent_span_latest_conventions(mock_span, monkeypatch):
     """Test ending an agent span with the latest semantic conventions."""
+    monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
     tracer = Tracer()
-    tracer.use_latest_genai_conventions = True
 
     # Mock AgentResult with metrics
     mock_metrics = mock.MagicMock()
@@ -1329,7 +1329,6 @@ def test_start_event_loop_cycle_span_with_tool_result_message(mock_tracer):
 def test_start_agent_span_does_not_include_tool_definitions_by_default():
     """Verify that start_agent_span does not include tool definitions by default."""
     tracer = Tracer()
-    tracer.include_tool_definitions = False
     tracer._start_span = mock.MagicMock()
 
     tools_config = {
@@ -1349,10 +1348,10 @@ def test_start_agent_span_does_not_include_tool_definitions_by_default():
     assert "gen_ai.tool.definitions" not in attributes
 
 
-def test_start_agent_span_includes_tool_definitions_when_enabled():
+def test_start_agent_span_includes_tool_definitions_when_enabled(monkeypatch):
     """Verify that start_agent_span includes tool definitions when enabled."""
+    monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_tool_definitions")
     tracer = Tracer()
-    tracer.include_tool_definitions = True
     tracer._start_span = mock.MagicMock()
 
     tools_config = {
