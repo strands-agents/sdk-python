@@ -82,24 +82,15 @@ PROVIDER_CONFIGS = {
         "env_vars": ["OPENAI_API_KEY"],
         "skip_reason": "OPENAI_API_KEY not available",
     },
-    # NOTE: Gemini Live is temporarily disabled in parameterized tests
-    # Issue: Transcript events are not being properly emitted alongside audio events
-    # The model responds with audio but the test infrastructure expects text/transcripts
-    # TODO: Fix Gemini Live event emission to yield both transcript and audio events
-    # "gemini_live": {
-    #     "model_class": GeminiLiveModel,
-    #     "model_kwargs": {
-    #         "model_id": "gemini-2.5-flash-native-audio-preview-09-2025",
-    #         "params": {
-    #             "response_modalities": ["AUDIO"],
-    #             "output_audio_transcription": {},
-    #             "input_audio_transcription": {},
-    #         },
-    #     },
-    #     "silence_duration": 3.0,
-    #     "env_vars": ["GOOGLE_AI_API_KEY"],
-    #     "skip_reason": "GOOGLE_AI_API_KEY not available",
-    # },
+    "gemini_live": {
+        "model_class": GeminiLiveModel,
+        "model_kwargs": {
+            # Uses default model and config (audio output + transcription enabled)
+        },
+        "silence_duration": 1.5,  # Gemini has good VAD, similar to OpenAI
+        "env_vars": ["GOOGLE_AI_API_KEY"],
+        "skip_reason": "GOOGLE_AI_API_KEY not available",
+    },
 }
 
 

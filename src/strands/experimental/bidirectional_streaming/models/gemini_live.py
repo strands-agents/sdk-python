@@ -58,7 +58,7 @@ class GeminiLiveModel(BidirectionalModel):
     
     def __init__(
         self,
-        model_id: str = "models/gemini-2.0-flash-live-preview-04-09",
+        model_id: str = "gemini-2.5-flash-native-audio-preview-09-2025",
         api_key: Optional[str] = None,
         live_config: Optional[Dict[str, Any]] = None,
         **kwargs
@@ -74,7 +74,19 @@ class GeminiLiveModel(BidirectionalModel):
         # Model configuration
         self.model_id = model_id
         self.api_key = api_key
-        self.live_config = live_config or {}
+        
+        # Set default live_config with transcription enabled
+        default_config = {
+            "response_modalities": ["AUDIO"],
+            "outputAudioTranscription": {},  # Enable output transcription by default
+            "inputAudioTranscription": {}    # Enable input transcription by default
+        }
+        
+        # Merge user config with defaults (user config takes precedence)
+        if live_config:
+            default_config.update(live_config)
+        
+        self.live_config = default_config
         
         # Create Gemini client with proper API version
         client_kwargs = {}
@@ -242,18 +254,8 @@ class GeminiLiveModel(BidirectionalModel):
                         current_transcript=transcription_text
                     )
             
-            # Handle text output from model
-            if message.text:
-                logger.debug(f"Text output as transcript: {message.text}")
-                return TranscriptStreamEvent(
-                    delta={"text": message.text},
-                    text=message.text,
-                    role="assistant",
-                    is_final=True,
-                    current_transcript=message.text
-                )
-            
             # Handle audio output using SDK's built-in data property
+            # Check this BEFORE text to avoid triggering warning on mixed content
             if message.data:
                 # Convert bytes to base64 string for JSON serializability
                 audio_b64 = base64.b64encode(message.data).decode('utf-8')
@@ -263,6 +265,32 @@ class GeminiLiveModel(BidirectionalModel):
                     sample_rate=GEMINI_OUTPUT_SAMPLE_RATE,
                     channels=GEMINI_CHANNELS
                 )
+            
+            # Handle text output from model_turn (avoids warning by checking parts directly)
+            if message.server_content and message.server_content.model_turn:
+                model_turn = message.server_content.model_turn
+                if model_turn.parts:
+                    # Concatenate all text parts (Gemini may send multiple parts)
+                    text_parts = []
+                    for part in model_turn.parts:
+                        # Log all part types for debugging
+                        part_attrs = {attr: getattr(part, attr, None) for attr in dir(part) if not attr.startswith('_')}
+                        logger.debug(f"Model turn part attributes: {part_attrs}")
+                        
+                        # Check if part has text attribute and it's not empty
+                        if hasattr(part, 'text') and part.text:
+                            text_parts.append(part.text)
+                    
+                    if text_parts:
+                        full_text = " ".join(text_parts)
+                        logger.debug(f"Text output as transcript ({len(text_parts)} parts): {full_text}")
+                        return TranscriptStreamEvent(
+                            delta={"text": full_text},
+                            text=full_text,
+                            role="assistant",
+                            is_final=True,
+                            current_transcript=full_text
+                        )
             
             # Handle tool calls
             if message.tool_call and message.tool_call.function_calls:
@@ -326,7 +354,8 @@ class GeminiLiveModel(BidirectionalModel):
             logger.error("Error converting Gemini Live event: %s", e)
             logger.error("Message type: %s", type(message).__name__)
             logger.error("Message attributes: %s", [attr for attr in dir(message) if not attr.startswith('_')])
-            return None
+            # Return ErrorEvent instead of None so caller can handle it
+            return ErrorEvent(error=e)
     
     async def send(
         self,

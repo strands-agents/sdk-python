@@ -89,20 +89,28 @@ def test_model_initialization(mock_genai_client, model_id, api_key):
     
     # Test default config
     model_default = GeminiLiveModel()
-    assert model_default.model_id == "models/gemini-2.0-flash-live-preview-04-09"
+    assert model_default.model_id == "gemini-2.5-flash-native-audio-preview-09-2025"
     assert model_default.api_key is None
     assert model_default._active is False
     assert model_default.live_session is None
+    # Check default config includes transcription
+    assert model_default.live_config["response_modalities"] == ["AUDIO"]
+    assert "outputAudioTranscription" in model_default.live_config
+    assert "inputAudioTranscription" in model_default.live_config
     
     # Test with API key
     model_with_key = GeminiLiveModel(model_id=model_id, api_key=api_key)
     assert model_with_key.model_id == model_id
     assert model_with_key.api_key == api_key
     
-    # Test with custom config
+    # Test with custom config (merges with defaults)
     live_config = {"temperature": 0.7, "top_p": 0.9}
     model_custom = GeminiLiveModel(model_id=model_id, live_config=live_config)
-    assert model_custom.live_config == live_config
+    # Custom config should be merged with defaults
+    assert model_custom.live_config["temperature"] == 0.7
+    assert model_custom.live_config["top_p"] == 0.9
+    # Defaults should still be present
+    assert "response_modalities" in model_custom.live_config
 
 
 # Connection Tests
@@ -292,12 +300,24 @@ async def test_event_conversion(mock_genai_client, model):
     _, _, _ = mock_genai_client
     await model.connect()
     
-    # Test text output (converted to transcript)
+    # Test text output (converted to transcript via model_turn.parts)
     mock_text = unittest.mock.Mock()
-    mock_text.text = "Hello from Gemini"
     mock_text.data = None
     mock_text.tool_call = None
-    mock_text.server_content = None
+    
+    # Create proper server_content structure with model_turn
+    mock_server_content = unittest.mock.Mock()
+    mock_server_content.interrupted = False
+    mock_server_content.input_transcription = None
+    mock_server_content.output_transcription = None
+    
+    mock_model_turn = unittest.mock.Mock()
+    mock_part = unittest.mock.Mock()
+    mock_part.text = "Hello from Gemini"
+    mock_model_turn.parts = [mock_part]
+    mock_server_content.model_turn = mock_model_turn
+    
+    mock_text.server_content = mock_server_content
     
     text_event = model._convert_gemini_live_event(mock_text)
     assert isinstance(text_event, TranscriptStreamEvent)
@@ -306,6 +326,30 @@ async def test_event_conversion(mock_genai_client, model):
     assert text_event.is_final is True
     assert text_event.delta == {"text": "Hello from Gemini"}
     assert text_event.current_transcript == "Hello from Gemini"
+    
+    # Test multiple text parts (should concatenate)
+    mock_multi_text = unittest.mock.Mock()
+    mock_multi_text.data = None
+    mock_multi_text.tool_call = None
+    
+    mock_server_content_multi = unittest.mock.Mock()
+    mock_server_content_multi.interrupted = False
+    mock_server_content_multi.input_transcription = None
+    mock_server_content_multi.output_transcription = None
+    
+    mock_model_turn_multi = unittest.mock.Mock()
+    mock_part1 = unittest.mock.Mock()
+    mock_part1.text = "Hello"
+    mock_part2 = unittest.mock.Mock()
+    mock_part2.text = "from Gemini"
+    mock_model_turn_multi.parts = [mock_part1, mock_part2]
+    mock_server_content_multi.model_turn = mock_model_turn_multi
+    
+    mock_multi_text.server_content = mock_server_content_multi
+    
+    multi_text_event = model._convert_gemini_live_event(mock_multi_text)
+    assert isinstance(multi_text_event, TranscriptStreamEvent)
+    assert multi_text_event.text == "Hello from Gemini"  # Concatenated with space
     
     # Test audio output (base64 encoded)
     import base64

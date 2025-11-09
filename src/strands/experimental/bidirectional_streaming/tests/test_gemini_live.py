@@ -167,13 +167,13 @@ async def receive(agent, context):
             # Handle transcript events (bidirectional_transcript_stream)
             elif event_type == "bidirectional_transcript_stream":
                 transcript_text = event.get("text", "")
-                transcript_source = event.get("source", "unknown")
+                transcript_role = event.get("role", "unknown")
                 is_final = event.get("is_final", False)
                 
                 # Print transcripts with special formatting
-                if transcript_source == "user":
+                if transcript_role == "user":
                     print(f"🎤 User: {transcript_text}")
-                elif transcript_source == "assistant":
+                elif transcript_role == "assistant":
                     print(f"🔊 Assistant: {transcript_text}")
             
             # Handle turn complete events (bidirectional_turn_complete)
@@ -313,17 +313,10 @@ async def main(duration=180):
     # Initialize Gemini Live model with proper configuration
     logger.info("Initializing Gemini Live model with API key")
     
-    model = GeminiLiveModel(
-        model_id="gemini-2.5-flash-native-audio-preview-09-2025",
-        api_key=api_key,
-        live_config={
-            "response_modalities": ["AUDIO"],
-            "output_audio_transcription": {},  # Enable output transcription
-            "input_audio_transcription": {}    # Enable input transcription
-        }
-    )
+    # Use default model and config (includes transcription enabled by default)
+    model = GeminiLiveModel(api_key=api_key)
     logger.info("Gemini Live model initialized successfully")
-    print("Using Gemini Live model")
+    print("Using Gemini Live model with default config (audio output + transcription enabled)")
     
     agent = BidirectionalAgent(
         model=model, 
