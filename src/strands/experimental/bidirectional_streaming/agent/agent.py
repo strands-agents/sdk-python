@@ -350,7 +350,7 @@ class BidirectionalAgent:
             for adapter in self._current_adapters:
                 if hasattr(adapter, "cleanup"):
                     try:
-                        adapter.cleanup()
+                        adapter.end()
                         logger.debug(f"Cleaned up adapter: {type(adapter).__name__}")
                     except Exception as adapter_error:
                         logger.warning(f"Error cleaning up adapter: {adapter_error}")
@@ -386,7 +386,7 @@ class BidirectionalAgent:
 
         Args:
             io_channels: List containing either BidiIO instances or (sender, receiver) tuples.
-                - BidiIO: IO channel instance with input_channel(), output_channel(), and cleanup() methods
+                - BidiIO: IO channel instance with send(), receive(), and end() methods
                 - tuple: (sender_callable, receiver_callable) for custom transport
                 
         Example:
@@ -410,7 +410,7 @@ class BidirectionalAgent:
         transport = io_channels[0]
         
         # Set IO channel tracking for cleanup
-        if hasattr(transport, 'input_channel') and hasattr(transport, 'output_channel'):
+        if hasattr(transport, 'send') and hasattr(transport, 'receive'):
             self._current_adapters = [transport]  # IO channel needs cleanup
         elif isinstance(transport, tuple) and len(transport) == 2:
             self._current_adapters = []  # Tuple needs no cleanup
@@ -433,16 +433,16 @@ class BidirectionalAgent:
         async def receive_from_agent():
             """Receive events from agent and send to transport."""
             async for event in self.receive():
-                if hasattr(transport, 'output_channel'):
-                    await transport.output_channel(event)
+                if hasattr(transport, 'receive'):
+                    await transport.receive(event)
                 else:
                     await transport[0](event)
 
         async def send_to_agent():
             """Receive events from transport and send to agent."""
             while self.active:
-                if hasattr(transport, 'input_channel'):
-                    event = await transport.input_channel()
+                if hasattr(transport, 'send'):
+                    event = await transport.send()
                 else:
                     event = await transport[1]()
                 await self.send(event)

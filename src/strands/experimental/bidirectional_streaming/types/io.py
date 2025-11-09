@@ -16,7 +16,12 @@ class BidiIO(Protocol):
     WebSocket, etc.) while the agent handles model communication and logic.
     """
 
-    async def input_channel(self) -> dict:
+    async def start(self) -> dict:
+
+        """Setup IO channels for input and output."""
+        ...
+
+    async def send(self) -> dict:
         """Read input data from the IO channel source.
         
         Returns:
@@ -24,7 +29,7 @@ class BidiIO(Protocol):
         """
         ...
 
-    async def output_channel(self, event: dict) -> None:
+    async def receive(self, event: dict) -> None:
         """Process output event from the model through the IO channel.
         
         Args:
@@ -32,7 +37,7 @@ class BidiIO(Protocol):
         """
         ...
 
-    def cleanup(self) -> None:
+    def end(self) -> None:
         """Clean up IO channel resources.
         
         Called by the agent during shutdown to ensure proper

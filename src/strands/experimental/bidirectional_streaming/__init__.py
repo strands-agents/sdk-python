@@ -3,6 +3,9 @@
 # Main components - Primary user interface
 from .agent.agent import BidirectionalAgent
 
+# IO channels - Hardware abstraction
+from .io.audio import AudioIO
+
 # Model interface (for custom implementations)
 from .models.bidirectional_model import BidirectionalModel
 
@@ -27,7 +30,8 @@ from .types.bidirectional_streaming import (
 __all__ = [
     # Main interface
     "BidirectionalAgent",
-    
+    # IO channels
+    "AudioIO",
     # Model providers
     "GeminiLiveModel",
     "NovaSonicModel",
@@ -43,7 +47,6 @@ __all__ = [
     "BidirectionalStreamEvent",
     "VoiceActivityEvent",
     "UsageMetricsEvent",
-    
     # Model interface
     "BidirectionalModel",
 ]

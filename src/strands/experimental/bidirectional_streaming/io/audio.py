@@ -66,7 +66,7 @@ class AudioIO(BidiIO):
         self.output_stream = None
         self.interrupted = False
 
-    def _setup_audio(self) -> None:
+    def start(self) -> None:
         """Setup PyAudio streams for input and output."""
         if self.audio:
             return
@@ -103,33 +103,10 @@ class AudioIO(BidiIO):
             self._cleanup_audio()
             raise
 
-    def _cleanup_audio(self) -> None:
-        """Clean up PyAudio resources."""
-        try:
-            if self.input_stream:
-                if self.input_stream.is_active():
-                    self.input_stream.stop_stream()
-                self.input_stream.close()
-
-            if self.output_stream:
-                if self.output_stream.is_active():
-                    self.output_stream.stop_stream()
-                self.output_stream.close()
-
-            if self.audio:
-                self.audio.terminate()
-
-            self.input_stream = None
-            self.output_stream = None
-            self.audio = None
-
-        except Exception as e:
-            logger.warning(f"Audio cleanup error: {e}")
-
-    async def input_channel(self) -> dict:
+    async def send(self) -> dict:
         """Read audio from microphone."""
         if not self.input_stream:
-            self._setup_audio()
+            self.start()
 
         try:
             audio_bytes = self.input_stream.read(self.chunk_size, exception_on_overflow=False)
@@ -148,10 +125,10 @@ class AudioIO(BidiIO):
                 "channels": self.input_channels,
             }
 
-    async def output_channel(self, event: dict) -> None:
+    async def receive(self, event: dict) -> None:
         """Handle audio events with direct stream writing."""
         if not self.output_stream:
-            self._setup_audio()
+            self.start()
 
         # Handle audio output
         if "audioOutput" in event and not self.interrupted:
@@ -199,6 +176,25 @@ class AudioIO(BidiIO):
                 elif role.upper() == "USER":
                     print(f"User: {text}")
 
-    def cleanup(self) -> None:
+    def end(self) -> None:
         """Clean up IO channel resources."""
-        self._cleanup_audio()
+        try:
+            if self.input_stream:
+                if self.input_stream.is_active():
+                    self.input_stream.stop_stream()
+                self.input_stream.close()
+
+            if self.output_stream:
+                if self.output_stream.is_active():
+                    self.output_stream.stop_stream()
+                self.output_stream.close()
+
+            if self.audio:
+                self.audio.terminate()
+
+            self.input_stream = None
+            self.output_stream = None
+            self.audio = None
+
+        except Exception as e:
+            logger.warning(f"Audio cleanup error: {e}")
