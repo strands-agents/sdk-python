@@ -15,11 +15,11 @@ Key capabilities:
 import asyncio
 import json
 import logging
-from typing import Any, AsyncIterable, Mapping, Optional, Union, Callable
+from typing import Any, AsyncIterable, Callable
 
 from .... import _identifier
 from ....telemetry.metrics import EventLoopMetrics
-from ....tools.caller import ToolCaller
+from ....tools.caller import _ToolCaller
 from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
@@ -51,16 +51,16 @@ class BidirectionalAgent:
 
     def __init__(
         self,
-        model: Union[BidirectionalModel, str, None] = None,
-        tools: list[str, AgentTool, ToolProvider] = None,
-        system_prompt: Optional[str] = None,
-        messages: Optional[Messages] = None,
+        model: BidirectionalModel| str | None = None,
+        tools: list[str| AgentTool| ToolProvider]| None = None,
+        system_prompt: str | None = None,
+        messages: Messages | None = None,
         record_direct_tool_call: bool = True,
         load_tools_from_directory: bool = False,
-        agent_id: Optional[str] = None,
-        name: Optional[str] = None,
-        tool_executor: Optional[ToolExecutor] = None,
-        description: Optional[str] = None,
+        agent_id: str | None = None,
+        name: str | None = None,
+        tool_executor: ToolExecutor | None = None,
+        description: str | None = None,
         **kwargs: Any,
     ):
         """Initialize bidirectional agent.
@@ -118,15 +118,15 @@ class BidirectionalAgent:
 
         # Initialize other components
         self.event_loop_metrics = EventLoopMetrics()
-        self.tool_caller = ToolCaller(self)
+        self._tool_caller = _ToolCaller(self)
 
         # connection management
-        self._agentloop: Optional["BidirectionalAgentLoop"] = None
+        self._agent_loop: "BidirectionalAgentLoop" | None = None
         self._output_queue = asyncio.Queue()
         self._current_adapters = []  # Track adapters for cleanup
 
     @property
-    def tool(self) -> ToolCaller:
+    def tool(self) -> _ToolCaller:
         """Call tool as a function.
 
         Returns:
@@ -138,7 +138,7 @@ class BidirectionalAgent:
             agent.tool.calculator(expression="2+2")
             ```
         """
-        return self.tool_caller
+        return self._tool_caller
 
     @property
     def tool_names(self) -> list[str]:
@@ -154,7 +154,7 @@ class BidirectionalAgent:
         self,
         tool: ToolUse,
         tool_result: ToolResult,
-        user_message_override: Optional[str],
+        user_message_override: str | None,
     ) -> None:
         """Record a tool execution in the message history.
 
@@ -246,18 +246,18 @@ class BidirectionalAgent:
             ValueError: If conversation already active.
             ConnectionError: If connection creation fails.
         """
-        if self._agentloop and self._agentloop.active:
+        if self._agent_loop and self._agent_loop.active:
             raise ValueError("Conversation already active. Call end() first.")
 
         logger.debug("Conversation start - initializing connection")
 
         # Create model session and event loop directly
-        model_session = await self.model.connect(
+        await self.model.connect(
             system_prompt=self.system_prompt, tools=self.tool_registry.get_all_tool_specs(), messages=self.messages
         )
 
-        self._agentloop = BidirectionalAgentLoop(model=self.model, agent=self)
-        await self._agentloop.start()
+        self._agent_loop = BidirectionalAgentLoop(model=self.model, agent=self)
+        await self._agent_loop.start()
 
         logger.debug("Conversation ready")
 
@@ -285,19 +285,10 @@ class BidirectionalAgent:
             logger.debug("Text sent: %d characters", len(input_data))
             # Create TextInputEvent for send()
             text_event = {"text": input_data, "role": "user"}
-            await self._agentloop.model.send(text_event)
-        elif isinstance(input_data, dict) and "audioData" in input_data:
-            # Handle audio input
-            await self._agentloop.model.send(input_data)
-        elif isinstance(input_data, dict) and "imageData" in input_data:
-            # Handle image input (ImageInputEvent)
-            await self._agentloop.model.send(input_data)
+            await self._agent_loop.model.send(text_event)
         else:
-            raise ValueError(
-                "Input must be either a string (text), AudioInputEvent "
-                "(dict with audioData, format, sampleRate, channels), or ImageInputEvent "
-                "(dict with imageData, mimeType, encoding)"
-            )
+            # For audio, image, or any other input - let model handle it
+            await self._agent_loop.model.send(input_data)
 
     async def receive(self) -> AsyncIterable[BidirectionalStreamEvent]:
         """Receive events from the model including audio, text, and tool calls.
@@ -321,9 +312,9 @@ class BidirectionalAgent:
         Terminates the streaming connection, cancels background tasks, and
         closes the connection to the model provider.
         """
-        if self._agentloop:
-            await self._agentloop.stop()
-            self._agentloop = None
+        if self._agent_loop:
+            await self._agent_loop.stop()
+            self._agent_loop = None
 
     async def __aenter__(self) -> "BidirectionalAgent":
         """Async context manager entry point.
@@ -388,7 +379,7 @@ class BidirectionalAgent:
         Returns:
             True if connection is active and ready for communication, False otherwise.
         """
-        return self._agentloop is not None and self._agentloop.active
+        return self._agent_loop is not None and self._agent_loop.active
 
     async def run(self, io_channels: list[BidirectionalIO | tuple[Callable, Callable]]) -> None:
         """Run the agent using provided IO channels or transport tuples for bidirectional communication.

@@ -51,7 +51,7 @@ from ..models.model import Model
 from ..session.session_manager import SessionManager
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer, serialize
-from ..tools.caller import ToolCaller
+from ..tools.caller import _ToolCaller
 from ..tools.executors import ConcurrentToolExecutor
 from ..tools.executors._executor import ToolExecutor
 from ..tools.registry import ToolRegistry
@@ -240,7 +240,7 @@ class Agent:
         else:
             self.state = AgentState()
 
-        self.tool_caller = ToolCaller(self)
+        self.tool_caller = _ToolCaller(self)
 
         self.hooks = HookRegistry()
 
@@ -259,7 +259,7 @@ class Agent:
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
 
     @property
-    def tool(self) -> ToolCaller:
+    def tool(self) -> _ToolCaller:
         """Call tool as a function.
 
         Returns:
