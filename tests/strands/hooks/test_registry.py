@@ -2,7 +2,7 @@ import unittest.mock
 
 import pytest
 
-from strands.hooks import BeforeToolCallEvent, HookRegistry
+from strands.hooks import AgentInitializedEvent, BeforeInvocationEvent, BeforeToolCallEvent, HookRegistry
 from strands.interrupt import Interrupt, _InterruptState
 
 
@@ -18,7 +18,15 @@ def agent():
     return instance
 
 
-def test_hook_registry_invoke_callbacks_interrupt(registry, agent):
+def test_hook_registry_add_callback_agent_init_coroutine(registry):
+    callback = unittest.mock.AsyncMock()
+
+    with pytest.raises(ValueError, match=r"AgentInitializedEvent can only be registered with a synchronous callback"):
+        registry.add_callback(AgentInitializedEvent, callback)
+
+
+@pytest.mark.asyncio
+async def test_hook_registry_invoke_callbacks_async_interrupt(registry, agent):
     event = BeforeToolCallEvent(
         agent=agent,
         selected_tool=None,
@@ -34,7 +42,7 @@ def test_hook_registry_invoke_callbacks_interrupt(registry, agent):
     registry.add_callback(BeforeToolCallEvent, callback2)
     registry.add_callback(BeforeToolCallEvent, callback3)
 
-    _, tru_interrupts = registry.invoke_callbacks(event)
+    _, tru_interrupts = await registry.invoke_callbacks_async(event)
     exp_interrupts = [
         Interrupt(
             id="v1:before_tool_call:test_tool_id:da3551f3-154b-5978-827e-50ac387877ee",
@@ -54,7 +62,8 @@ def test_hook_registry_invoke_callbacks_interrupt(registry, agent):
     callback3.assert_called_once_with(event)
 
 
-def test_hook_registry_invoke_callbacks_interrupt_name_clash(registry, agent):
+@pytest.mark.asyncio
+async def test_hook_registry_invoke_callbacks_async_interrupt_name_clash(registry, agent):
     event = BeforeToolCallEvent(
         agent=agent,
         selected_tool=None,
@@ -69,4 +78,12 @@ def test_hook_registry_invoke_callbacks_interrupt_name_clash(registry, agent):
     registry.add_callback(BeforeToolCallEvent, callback2)
 
     with pytest.raises(ValueError, match="interrupt_name=<test_name> | interrupt name used more than once"):
-        registry.invoke_callbacks(event)
+        await registry.invoke_callbacks_async(event)
+
+
+def test_hook_registry_invoke_callbacks_coroutine(registry, agent):
+    callback = unittest.mock.AsyncMock()
+    registry.add_callback(BeforeInvocationEvent, callback)
+
+    with pytest.raises(RuntimeError, match=r"use invoke_callbacks_async to invoke async callback"):
+        registry.invoke_callbacks(BeforeInvocationEvent(agent=agent))

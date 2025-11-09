@@ -170,22 +170,21 @@ class Agent:
                             self._agent._interrupt_state.deactivate()
                             raise RuntimeError("cannot raise interrupt in direct tool call")
 
-                    return tool_results[0]
+                    tool_result = tool_results[0]
+
+                    if record_direct_tool_call is not None:
+                        should_record_direct_tool_call = record_direct_tool_call
+                    else:
+                        should_record_direct_tool_call = self._agent.record_direct_tool_call
+
+                    if should_record_direct_tool_call:
+                        # Create a record of this tool execution in the message history
+                        await self._agent._record_tool_execution(tool_use, tool_result, user_message_override)
+
+                    return tool_result
 
                 tool_result = run_async(acall)
-
-                if record_direct_tool_call is not None:
-                    should_record_direct_tool_call = record_direct_tool_call
-                else:
-                    should_record_direct_tool_call = self._agent.record_direct_tool_call
-
-                if should_record_direct_tool_call:
-                    # Create a record of this tool execution in the message history
-                    self._agent._record_tool_execution(tool_use, tool_result, user_message_override)
-
-                # Apply window management
                 self._agent.conversation_manager.apply_management(self._agent)
-
                 return tool_result
 
             return caller
@@ -533,7 +532,7 @@ class Agent:
             category=DeprecationWarning,
             stacklevel=2,
         )
-        self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
+        await self.hooks.invoke_callbacks_async(BeforeInvocationEvent(agent=self))
         with self.tracer.tracer.start_as_current_span(
             "execute_structured_output", kind=trace_api.SpanKind.CLIENT
         ) as structured_output_span:
@@ -541,7 +540,7 @@ class Agent:
                 if not self.messages and not prompt:
                     raise ValueError("No conversation history or prompt provided")
 
-                temp_messages: Messages = self.messages + self._convert_prompt_to_messages(prompt)
+                temp_messages: Messages = self.messages + await self._convert_prompt_to_messages(prompt)
 
                 structured_output_span.set_attributes(
                     {
@@ -574,7 +573,7 @@ class Agent:
                 return event["output"]
 
             finally:
-                self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
+                await self.hooks.invoke_callbacks_async(AfterInvocationEvent(agent=self))
 
     def cleanup(self) -> None:
         """Clean up resources used by the agent.
@@ -657,7 +656,7 @@ class Agent:
             callback_handler = kwargs.get("callback_handler", self.callback_handler)
 
         # Process input and get message to add (if any)
-        messages = self._convert_prompt_to_messages(prompt)
+        messages = await self._convert_prompt_to_messages(prompt)
 
         self.trace_span = self._start_agent_trace_span(messages)
 
@@ -699,13 +698,13 @@ class Agent:
         Yields:
             Events from the event loop cycle.
         """
-        self.hooks.invoke_callbacks(BeforeInvocationEvent(agent=self))
+        await self.hooks.invoke_callbacks_async(BeforeInvocationEvent(agent=self))
 
         try:
             yield InitEventLoopEvent()
 
             for message in messages:
-                self._append_message(message)
+                await self._append_message(message)
 
             structured_output_context = StructuredOutputContext(
                 structured_output_model or self._default_structured_output_model
@@ -731,7 +730,7 @@ class Agent:
 
         finally:
             self.conversation_manager.apply_management(self)
-            self.hooks.invoke_callbacks(AfterInvocationEvent(agent=self))
+            await self.hooks.invoke_callbacks_async(AfterInvocationEvent(agent=self))
 
     async def _execute_event_loop_cycle(
         self, invocation_state: dict[str, Any], structured_output_context: StructuredOutputContext | None = None
@@ -780,7 +779,7 @@ class Agent:
             if structured_output_context:
                 structured_output_context.cleanup(self.tool_registry)
 
-    def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
+    async def _convert_prompt_to_messages(self, prompt: AgentInput) -> Messages:
         if self._interrupt_state.activated:
             return []
 
@@ -795,7 +794,7 @@ class Agent:
                 tool_use_ids = [
                     content["toolUse"]["toolUseId"] for content in self.messages[-1]["content"] if "toolUse" in content
                 ]
-                self._append_message(
+                await self._append_message(
                     {
                         "role": "user",
                         "content": generate_missing_tool_result_content(tool_use_ids),
@@ -826,7 +825,7 @@ class Agent:
             raise ValueError("Input prompt must be of type: `str | list[Contentblock] | Messages | None`.")
         return messages
 
-    def _record_tool_execution(
+    async def _record_tool_execution(
         self,
         tool: ToolUse,
         tool_result: ToolResult,
@@ -886,10 +885,10 @@ class Agent:
         }
 
         # Add to message history
-        self._append_message(user_msg)
-        self._append_message(tool_use_msg)
-        self._append_message(tool_result_msg)
-        self._append_message(assistant_msg)
+        await self._append_message(user_msg)
+        await self._append_message(tool_use_msg)
+        await self._append_message(tool_result_msg)
+        await self._append_message(assistant_msg)
 
     def _start_agent_trace_span(self, messages: Messages) -> trace_api.Span:
         """Starts a trace span for the agent.
@@ -975,10 +974,10 @@ class Agent:
         else:
             return None, None
 
-    def _append_message(self, message: Message) -> None:
+    async def _append_message(self, message: Message) -> None:
         """Appends a message to the agent's list of messages and invokes the callbacks for the MessageCreatedEvent."""
         self.messages.append(message)
-        self.hooks.invoke_callbacks(MessageAddedEvent(agent=self, message=message))
+        await self.hooks.invoke_callbacks_async(MessageAddedEvent(agent=self, message=message))
 
     def _redact_user_content(self, content: list[ContentBlock], redact_message: str) -> list[ContentBlock]:
         """Redact user content preserving toolResult blocks.
