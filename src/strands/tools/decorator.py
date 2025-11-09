@@ -164,6 +164,56 @@ class FunctionToolMetadata:
             # Handle case with no parameters
             return create_model(model_name)
 
+    def _extract_description_from_docstring(self) -> str:
+        """Extract the docstring excluding only the Args section.
+
+        This method uses the parsed docstring to extract everything except
+        the Args/Arguments/Parameters section, preserving Returns, Raises,
+        Examples, and other sections.
+
+        Returns:
+            The description text, or the function name if no description is available.
+        """
+        func_name = self.func.__name__
+
+        # Fallback: try to extract manually from raw docstring
+        raw_docstring = inspect.getdoc(self.func)
+        if raw_docstring:
+            lines = raw_docstring.strip().split("\n")
+            result_lines = []
+            skip_args_section = False
+
+            for line in lines:
+                stripped_line = line.strip()
+
+                # Check if we're starting the Args section
+                if stripped_line.lower().startswith(("args:", "arguments:", "parameters:", "param:", "params:")):
+                    skip_args_section = True
+                    continue
+
+                # Check if we're starting a new section (not Args)
+                elif (
+                    stripped_line.lower().startswith(("returns:", "return:", "yields:", "yield:"))
+                    or stripped_line.lower().startswith(("raises:", "raise:", "except:", "exceptions:"))
+                    or stripped_line.lower().startswith(("examples:", "example:", "note:", "notes:"))
+                    or stripped_line.lower().startswith(("see also:", "seealso:", "references:", "ref:"))
+                ):
+                    skip_args_section = False
+                    result_lines.append(line)
+                    continue
+
+                # If we're not in the Args section, include the line
+                if not skip_args_section:
+                    result_lines.append(line)
+
+            # Join and clean up the description
+            description = "\n".join(result_lines).strip()
+            if description:
+                return description
+
+        # Final fallback: use function name
+        return func_name
+
     def extract_metadata(self) -> ToolSpec:
         """Extract metadata from the function to create a tool specification.
 
@@ -173,7 +223,7 @@ class FunctionToolMetadata:
         The specification includes:
 
         - name: The function name (or custom override)
-        - description: The function's docstring
+        - description: The function's docstring description (excluding Args)
         - inputSchema: A JSON schema describing the expected parameters
 
         Returns:
@@ -181,12 +231,8 @@ class FunctionToolMetadata:
         """
         func_name = self.func.__name__
 
-        # Extract function description from docstring, preserving paragraph breaks
-        description = inspect.getdoc(self.func)
-        if description:
-            description = description.strip()
-        else:
-            description = func_name
+        # Extract function description from parsed docstring, excluding Args section and beyond
+        description = self._extract_description_from_docstring()
 
         # Get schema directly from the Pydantic model
         input_schema = self.input_model.model_json_schema()
