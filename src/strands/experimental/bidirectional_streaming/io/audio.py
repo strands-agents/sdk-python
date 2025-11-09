@@ -1,30 +1,25 @@
 """AudioIO - Clean separation of audio functionality from core BidirectionalAgent.
 
-Provides audio input/output capabilities for BidirectionalAgent through the BidirectionalIO protocol.
+Provides audio input/output capabilities for BidirectionalAgent through the BidiIO protocol.
 Handles all PyAudio setup, streaming, and cleanup while keeping the core agent data-agnostic.
 """
 
 import asyncio
 import base64
 import logging
-from typing import Any, Callable, Optional
+import pyaudio
 
-from .bidirectional_io import BidirectionalIO
-
-try:
-    import pyaudio
-except ImportError:
-    pyaudio = None
+from ..types.io import BidiIO
 
 logger = logging.getLogger(__name__)
 
 
-class AudioIO(BidirectionalIO):
+class AudioIO(BidiIO):
     """Audio IO channel for BidirectionalAgent with direct stream processing."""
 
     def __init__(
         self,
-        audio_config: Optional[dict] = None,
+        audio_config: dict | None = None,
     ):
         """Initialize AudioIO with clean audio configuration.
 

@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
 from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
 from strands.experimental.bidirectional_streaming.models.novasonic import NovaSonicModel
-from strands.experimental.bidirectional_streaming.types.audio_io import AudioIO
+from strands.experimental.bidirectional_streaming.io.audio import AudioIO
 from strands_tools import calculator
 
 

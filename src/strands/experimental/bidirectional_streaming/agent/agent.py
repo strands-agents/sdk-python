@@ -31,7 +31,7 @@ from ..event_loop.bidirectional_event_loop import BidirectionalAgentLoop
 from ..models.bidirectional_model import BidirectionalModel
 from ..models.novasonic import NovaSonicModel
 from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent, ImageInputEvent
-from ..types import BidirectionalIO
+from ..types import BidiIO
 from ....experimental.tools import ToolProvider
 
 logger = logging.getLogger(__name__)
@@ -381,12 +381,12 @@ class BidirectionalAgent:
         """
         return self._agent_loop is not None and self._agent_loop.active
 
-    async def run(self, io_channels: list[BidirectionalIO | tuple[Callable, Callable]]) -> None:
+    async def run(self, io_channels: list[BidiIO | tuple[Callable, Callable]]) -> None:
         """Run the agent using provided IO channels or transport tuples for bidirectional communication.
 
         Args:
-            io_channels: List containing either BidirectionalIO instances or (sender, receiver) tuples.
-                - BidirectionalIO: IO channel instance with input_channel(), output_channel(), and cleanup() methods
+            io_channels: List containing either BidiIO instances or (sender, receiver) tuples.
+                - BidiIO: IO channel instance with input_channel(), output_channel(), and cleanup() methods
                 - tuple: (sender_callable, receiver_callable) for custom transport
                 
         Example:
@@ -415,7 +415,7 @@ class BidirectionalAgent:
         elif isinstance(transport, tuple) and len(transport) == 2:
             self._current_adapters = []  # Tuple needs no cleanup
         else:
-            raise ValueError("io_channels list must contain either BidirectionalIO instances or (sender, receiver) tuples.")
+            raise ValueError("io_channels list must contain either BidiIO instances or (sender, receiver) tuples.")
 
         # Auto-manage session lifecycle
         if self.active:
@@ -426,7 +426,7 @@ class BidirectionalAgent:
 
     async def _run_with_transport(
         self,
-        transport: BidirectionalIO | tuple[Callable, Callable],
+        transport: BidiIO | tuple[Callable, Callable],
     ) -> None:
         """Internal method to run send/receive loops with an active connection."""
 

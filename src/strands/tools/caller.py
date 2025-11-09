@@ -9,7 +9,7 @@ from ..tools.executors._executor import ToolExecutor
 from ..types.tools import ToolResult, ToolUse
 
 
-class ToolCaller:
+class _ToolCaller:
     """Provides common tool calling functionality that can be used by both traditional
     Agent and BidirectionalAgent classes with agent-specific customizations.
 

@@ -1,4 +1,4 @@
-"""BidirectionalIO protocol for bidirectional streaming IO channels.
+"""BidiIO protocol for bidirectional streaming IO channels.
 
 Defines the standard interface that all bidirectional IO channels must implement
 for integration with BidirectionalAgent. This protocol enables clean
@@ -8,7 +8,7 @@ separation between the agent's core logic and hardware-specific implementations.
 from typing import Protocol
 
 
-class BidirectionalIO(Protocol):
+class BidiIO(Protocol):
     """Base protocol for bidirectional IO channels.
     
     Defines the interface that IO channels must implement to work with
