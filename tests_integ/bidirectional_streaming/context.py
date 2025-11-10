@@ -10,7 +10,7 @@ import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
+    from strands.experimental.bidirectional_streaming.agent.agent import BidiAgent
     from .generators.audio import AudioGenerator
 
 logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ class BidirectionalTestContext:
 
     def __init__(
         self,
-        agent: "BidirectionalAgent",
+        agent: "BidiAgent",
         audio_generator: "AudioGenerator | None" = None,
         silence_chunk_size: int = 1024,
         audio_chunk_size: int = 1024,
@@ -48,7 +48,7 @@ class BidirectionalTestContext:
         """Initialize test context.
 
         Args:
-            agent: BidirectionalAgent instance.
+            agent: BidiAgent instance.
             audio_generator: AudioGenerator for text-to-speech.
             silence_chunk_size: Size of silence chunks in bytes.
             audio_chunk_size: Size of audio chunks for streaming.
@@ -84,8 +84,8 @@ class BidirectionalTestContext:
         await self.stop()
         
         # End agent session
-        if self.agent._session and self.agent._session.active:
-            await self.agent.end()
+        if self.agent._agent_loop and self.agent._agent_loop.active:
+            await self.agent.stop()
             logger.debug("Agent session ended")
         
         return False

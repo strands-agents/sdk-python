@@ -1,6 +1,6 @@
 """Nova Sonic bidirectional model provider for real-time streaming conversations.
 
-Implements the BidirectionalModel interface for Amazon's Nova Sonic, handling the
+Implements the BidiModel interface for Amazon's Nova Sonic, handling the
 complex event sequencing and audio processing required by Nova Sonic's
 InvokeModelWithBidirectionalStream protocol.
 
@@ -49,7 +49,7 @@ from ..types.events import (
     BidiResponseCompleteEvent,
     BidiResponseStartEvent,
 )
-from .bidirectional_model import BidirectionalModel
+from .bidirectional_model import BidiModel
 
 logger = logging.getLogger(__name__)
 
@@ -84,12 +84,12 @@ EVENT_DELAY = 0.1
 RESPONSE_TIMEOUT = 1.0
 
 
-class NovaSonicModel(BidirectionalModel):
+class BidiNovaSonicModel(BidiModel):
     """Nova Sonic implementation for bidirectional streaming.
 
     Combines model configuration and connection state in a single class.
     Manages Nova Sonic's complex event sequencing, audio format conversion, and
-    tool execution patterns while providing the standard BidirectionalModel interface.
+    tool execution patterns while providing the standard BidiModel interface.
     """
 
     def __init__(
@@ -110,7 +110,7 @@ class NovaSonicModel(BidirectionalModel):
         self.region = region
         self.client = None
 
-        # Connection state (initialized in connect())
+        # Connection state (initialized in start())
         self.stream = None
         self.connection_id = None
         self._active = False
@@ -134,7 +134,7 @@ class NovaSonicModel(BidirectionalModel):
 
         logger.debug("Nova Sonic bidirectional model initialized: %s", model_id)
 
-    async def connect(
+    async def start(
         self,
         system_prompt: str | None = None,
         tools: list[ToolSpec] | None = None,
@@ -472,7 +472,7 @@ class NovaSonicModel(BidirectionalModel):
         for event in events:
             await self._send_nova_event(event)
 
-    async def close(self) -> None:
+    async def stop(self) -> None:
         """Close Nova Sonic connection with proper cleanup sequence."""
         if not self._active:
             return

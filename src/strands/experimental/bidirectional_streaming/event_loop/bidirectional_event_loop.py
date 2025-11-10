@@ -21,7 +21,7 @@ from ....telemetry.metrics import Trace
 from ....types._events import ToolResultEvent, ToolStreamEvent
 from ....types.content import Message
 from ....types.tools import ToolResult, ToolUse
-from ..models.bidirectional_model import BidirectionalModel
+from ..models.bidirectional_model import BidiModel
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +37,12 @@ class BidirectionalConnection:
     handling while providing a simple interface for agent interactions.
     """
 
-    def __init__(self, model: BidirectionalModel, agent: "BidirectionalAgent") -> None:
+    def __init__(self, model: BidiModel, agent: "BidiAgent") -> None:
         """Initialize connection with model and agent reference.
 
         Args:
             model: Bidirectional model instance.
-            agent: BidirectionalAgent instance for tool registry access.
+            agent: BidiAgent instance for tool registry access.
         """
         self.model = model
         self.agent = agent
@@ -64,14 +64,14 @@ class BidirectionalConnection:
         self.tool_count = 0
 
 
-async def start_bidirectional_connection(agent: "BidirectionalAgent") -> BidirectionalConnection:
+async def start_bidirectional_connection(agent: "BidiAgent") -> BidirectionalConnection:
     """Initialize bidirectional session with conycurrent background tasks.
 
     Creates a model-specific session and starts background tasks for processing
     model events, executing tools, and managing the session lifecycle.
 
     Args:
-        agent: BidirectionalAgent instance.
+        agent: BidiAgent instance.
 
     Returns:
         BidirectionalConnection: Active session with background tasks running.
@@ -79,7 +79,7 @@ async def start_bidirectional_connection(agent: "BidirectionalAgent") -> Bidirec
     logger.debug("Starting bidirectional session - initializing model connection")
 
     # Connect to model
-    await agent.model.connect(
+    await agent.model.start(
         system_prompt=agent.system_prompt, tools=agent.tool_registry.get_all_tool_specs(), messages=agent.messages
     )
 
@@ -136,7 +136,7 @@ async def stop_bidirectional_connection(session: BidirectionalConnection) -> Non
         await asyncio.gather(*all_tasks, return_exceptions=True)
 
     # Close model connection
-    await session.model.close()
+    await session.model.stop()
     logger.debug("Connection closed")
 
 

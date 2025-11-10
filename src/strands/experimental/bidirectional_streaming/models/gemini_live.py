@@ -1,6 +1,6 @@
 """Gemini Live API bidirectional model provider using official Google GenAI SDK.
 
-Implements the BidirectionalModel interface for Google's Gemini Live API using the
+Implements the BidiModel interface for Google's Gemini Live API using the
 official Google GenAI SDK for simplified and robust WebSocket communication.
 
 Key improvements over custom WebSocket implementation:
@@ -39,7 +39,7 @@ from ..types.events import (
     BidiResponseCompleteEvent,
     BidiResponseStartEvent,
 )
-from .bidirectional_model import BidirectionalModel
+from .bidirectional_model import BidiModel
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ GEMINI_OUTPUT_SAMPLE_RATE = 24000
 GEMINI_CHANNELS = 1
 
 
-class GeminiLiveModel(BidirectionalModel):
+class BidiGeminiLiveModel(BidiModel):
     """Gemini Live API implementation using official Google GenAI SDK.
     
     Combines model configuration and connection state in a single class.
@@ -87,13 +87,13 @@ class GeminiLiveModel(BidirectionalModel):
         
         self.client = genai.Client(**client_kwargs)
         
-        # Connection state (initialized in connect())
+        # Connection state (initialized in start())
         self.live_session = None
         self.live_session_context_manager = None
         self.connection_id = None
         self._active = False
     
-    async def connect(
+    async def start(
         self,
         system_prompt: Optional[str] = None,
         tools: Optional[List[ToolSpec]] = None,
@@ -442,7 +442,7 @@ class GeminiLiveModel(BidirectionalModel):
         except Exception as e:
             logger.error("Error sending tool result: %s", e)
     
-    async def close(self) -> None:
+    async def stop(self) -> None:
         """Close Gemini Live API connection."""
         if not self._active:
             return
@@ -473,7 +473,7 @@ class GeminiLiveModel(BidirectionalModel):
         if self.live_config:
             config_dict.update(self.live_config)
         
-        # Override with any kwargs from connect()
+        # Override with any kwargs from start()
         config_dict.update(kwargs)
         
         # Add system instruction if provided

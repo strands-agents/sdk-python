@@ -1,15 +1,18 @@
 """Bidirectional streaming package."""
 
 # Main components - Primary user interface
-from .agent.agent import BidirectionalAgent
+from .agent.agent import BidiAgent
+
+# IO channels - Hardware abstraction
+from .io.audio import AudioIO
 
 # Model interface (for custom implementations)
-from .models.bidirectional_model import BidirectionalModel
+from .models.bidirectional_model import BidiModel
 
 # Model providers - What users need to create models
-from .models.gemini_live import GeminiLiveModel
-from .models.novasonic import NovaSonicModel
-from .models.openai import OpenAIRealtimeModel
+from .models.gemini_live import BidiGeminiLiveModel
+from .models.novasonic import BidiNovaSonicModel
+from .models.openai import BidiOpenAIRealtimeModel
 
 # Event types - For type hints and event handling
 from .types.events import (
@@ -39,12 +42,13 @@ from ...types._events import (
 
 __all__ = [
     # Main interface
-    "BidirectionalAgent",
-    
+    "BidiAgent",
+    # IO channels
+    "AudioIO",
     # Model providers
-    "GeminiLiveModel",
-    "NovaSonicModel",
-    "OpenAIRealtimeModel",
+    "BidiGeminiLiveModel",
+    "BidiNovaSonicModel",
+    "BidiOpenAIRealtimeModel",
     
     # Input Event types
     "BidiTextInputEvent",
@@ -71,5 +75,5 @@ __all__ = [
     "ToolStreamEvent",
     
     # Model interface
-    "BidirectionalModel",
+    "BidiModel",
 ]
