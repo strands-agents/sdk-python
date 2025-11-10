@@ -48,7 +48,6 @@ from typing import (
     Annotated,
     Any,
     Callable,
-    get_type_hints,
     Generic,
     Optional,
     ParamSpec,
@@ -58,6 +57,7 @@ from typing import (
     cast,
     get_args,
     get_origin,
+    get_type_hints,
     overload,
 )
 
@@ -200,7 +200,7 @@ class FunctionToolMetadata:
             # Skip parameters that will be automatically injected
             if self._is_special_parameter(name):
                 continue
-            
+
             # Use param.annotation directly to get the raw type hint. Using get_type_hints()
             # can cause inconsistent behavior across Python versions for complex Annotated types.
             param_type = param.annotation
