@@ -1,5 +1,5 @@
 """Bidirectional agent for real-time streaming conversations."""
 
-from .agent import BidirectionalAgent
+from .agent import BidiAgent
 
-__all__ = ["BidirectionalAgent"]
+__all__ = ["BidiAgent"]

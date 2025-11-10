@@ -27,9 +27,9 @@ from ....tools.watcher import ToolWatcher
 from ....types.content import Message, Messages
 from ....types.tools import ToolResult, ToolUse, AgentTool
 
-from ..event_loop.bidirectional_event_loop import BidirectionalAgentLoop
-from ..models.bidirectional_model import BidirectionalModel
-from ..models.novasonic import NovaSonicModel
+from ..event_loop.bidirectional_event_loop import BidiAgentLoop
+from ..models.bidirectional_model import BidiModel
+from ..models.novasonic import BidiNovaSonicModel
 from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent, ImageInputEvent
 from ..types import BidiIO
 from ....experimental.tools import ToolProvider
@@ -42,7 +42,7 @@ _DEFAULT_AGENT_ID = "default"
 BidirectionalInput = str | AudioInputEvent | ImageInputEvent
 
 
-class BidirectionalAgent:
+class BidiAgent:
     """Agent for bidirectional streaming conversations.
 
     Enables real-time audio and text interaction with AI models through persistent
@@ -51,7 +51,7 @@ class BidirectionalAgent:
 
     def __init__(
         self,
-        model: BidirectionalModel| str | None = None,
+        model: BidiModel| str | None = None,
         tools: list[str| AgentTool| ToolProvider]| None = None,
         system_prompt: str | None = None,
         messages: Messages | None = None,
@@ -66,7 +66,7 @@ class BidirectionalAgent:
         """Initialize bidirectional agent.
 
         Args:
-            model: BidirectionalModel instance, string model_id, or None for default detection.
+            model: BidiModel instance, string model_id, or None for default detection.
             tools: Optional list of tools with flexible format support.
             system_prompt: Optional system prompt for conversations.
             messages: Optional conversation history to initialize with.
@@ -83,9 +83,9 @@ class BidirectionalAgent:
             TypeError: If model type is unsupported.
         """
         self.model = (
-            NovaSonicModel()
+            BidiNovaSonicModel()
             if not model
-            else NovaSonicModel(model_id=model)
+            else BidiNovaSonicModel(model_id=model)
             if isinstance(model, str)
             else model
         )
@@ -121,7 +121,7 @@ class BidirectionalAgent:
         self._tool_caller = _ToolCaller(self)
 
         # connection management
-        self._agent_loop: "BidirectionalAgentLoop" | None = None
+        self._agent_loop: "BidiAgentLoop" | None = None
         self._output_queue = asyncio.Queue()
         self._current_adapters = []  # Track adapters for cleanup
 
@@ -134,7 +134,7 @@ class BidirectionalAgent:
 
         Example:
             ```
-            agent = BidirectionalAgent(model=model, tools=[calculator])
+            agent = BidiAgent(model=model, tools=[calculator])
             agent.tool.calculator(expression="2+2")
             ```
         """
@@ -252,11 +252,11 @@ class BidirectionalAgent:
         logger.debug("Conversation start - initializing connection")
 
         # Create model session and event loop directly
-        await self.model.connect(
+        await self.model.start(
             system_prompt=self.system_prompt, tools=self.tool_registry.get_all_tool_specs(), messages=self.messages
         )
 
-        self._agent_loop = BidirectionalAgentLoop(model=self.model, agent=self)
+        self._agent_loop = BidiAgentLoop(model=self.model, agent=self)
         await self._agent_loop.start()
 
         logger.debug("Conversation ready")
@@ -306,7 +306,7 @@ class BidirectionalAgent:
             except asyncio.TimeoutError:
                 continue
 
-    async def end(self) -> None:
+    async def stop(self) -> None:
         """End the conversation connection and cleanup all resources.
 
         Terminates the streaming connection, cancels background tasks, and
@@ -316,7 +316,7 @@ class BidirectionalAgent:
             await self._agent_loop.stop()
             self._agent_loop = None
 
-    async def __aenter__(self) -> "BidirectionalAgent":
+    async def __aenter__(self) -> "BidiAgent":
         """Async context manager entry point.
 
         Automatically starts the bidirectional connection when entering the context.
@@ -350,7 +350,7 @@ class BidirectionalAgent:
             for adapter in self._current_adapters:
                 if hasattr(adapter, "cleanup"):
                     try:
-                        adapter.end()
+                        adapter.stop()
                         logger.debug(f"Cleaned up adapter: {type(adapter).__name__}")
                     except Exception as adapter_error:
                         logger.warning(f"Error cleaning up adapter: {adapter_error}")
@@ -359,7 +359,7 @@ class BidirectionalAgent:
             self._current_adapters = []
             
             # Cleanup agent connection
-            await self.end()
+            await self.stop()
 
         except Exception as cleanup_error:
             if exc_type is None:
@@ -393,7 +393,7 @@ class BidirectionalAgent:
             ```python
             # With IO channel
             audio_io = AudioIO(audio_config={"input_sample_rate": 16000})
-            agent = BidirectionalAgent(model=model, tools=[calculator])
+            agent = BidiAgent(model=model, tools=[calculator])
             await agent.run(io_channels=[audio_io])
 
             # With tuple (backward compatibility)

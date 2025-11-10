@@ -14,7 +14,7 @@ import pyaudio
 from strands_tools import calculator
 
 from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
-from strands.experimental.bidirectional_streaming.models.openai import OpenAIRealtimeModel
+from strands.experimental.bidirectional_streaming.models.openai import BidiOpenAIRealtimeModel
 
 
 async def play(context):
@@ -205,7 +205,7 @@ async def main():
         return False
     
     # Create OpenAI model
-    model = OpenAIRealtimeModel(
+    model = BidiOpenAIRealtimeModel(
         model="gpt-4o-realtime-preview",
         api_key=api_key,
         session={
@@ -269,7 +269,7 @@ async def main():
         context["active"] = False
         
         try:
-            await agent.end()
+            await agent.stop()
         except Exception as e:
             print(f"Cleanup error: {e}")
         
