@@ -128,7 +128,7 @@ async def test_connection_lifecycle(mock_websockets_connect, model, system_promp
     mock_connect, mock_ws = mock_websockets_connect
 
     # Test basic connection
-    await model.connect()
+    await model.start()
     assert model._active is True
     assert model.connection_id is not None
     assert model.websocket == mock_ws
@@ -137,12 +137,12 @@ async def test_connection_lifecycle(mock_websockets_connect, model, system_promp
     mock_connect.assert_called_once()
 
     # Test close
-    await model.close()
+    await model.stop()
     assert model._active is False
     mock_ws.close.assert_called_once()
 
     # Test connection with system prompt
-    await model.connect(system_prompt=system_prompt)
+    await model.start(system_prompt=system_prompt)
     calls = mock_ws.send.call_args_list
     session_update = next(
         (json.loads(call[0][0]) for call in calls if json.loads(call[0][0]).get("type") == "session.update"),
@@ -150,10 +150,10 @@ async def test_connection_lifecycle(mock_websockets_connect, model, system_promp
     )
     assert session_update is not None
     assert system_prompt in session_update["session"]["instructions"]
-    await model.close()
+    await model.stop()
 
     # Test connection with tools
-    await model.connect(tools=[tool_spec])
+    await model.start(tools=[tool_spec])
     calls = mock_ws.send.call_args_list
     # Tools are sent in a separate session.update after initial connection
     session_updates = [json.loads(call[0][0]) for call in calls if json.loads(call[0][0]).get("type") == "session.update"]
@@ -161,24 +161,24 @@ async def test_connection_lifecycle(mock_websockets_connect, model, system_promp
     # Check if any session update has tools
     has_tools = any("tools" in update.get("session", {}) for update in session_updates)
     assert has_tools
-    await model.close()
+    await model.stop()
 
     # Test connection with messages
-    await model.connect(messages=messages)
+    await model.start(messages=messages)
     calls = mock_ws.send.call_args_list
     item_creates = [json.loads(call[0][0]) for call in calls if json.loads(call[0][0]).get("type") == "conversation.item.create"]
     assert len(item_creates) > 0
-    await model.close()
+    await model.stop()
 
     # Test connection with organization header
     model_org = BidiOpenAIRealtimeModel(api_key="test-key", organization="org-123")
-    await model_org.connect()
+    await model_org.start()
     call_kwargs = mock_connect.call_args.kwargs
     headers = call_kwargs.get("additional_headers", [])
     org_header = [h for h in headers if h[0] == "OpenAI-Organization"]
     assert len(org_header) == 1
     assert org_header[0][1] == "org-123"
-    await model_org.close()
+    await model_org.stop()
 
 
 @pytest.mark.asyncio
@@ -190,7 +190,7 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
     model1 = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
     mock_connect.side_effect = Exception("Connection failed")
     with pytest.raises(Exception, match="Connection failed"):
-        await model1.connect()
+        await model1.start()
 
     # Reset mock
     async def async_connect(*args, **kwargs):
@@ -199,20 +199,20 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
 
     # Test double connection
     model2 = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
-    await model2.connect()
+    await model2.start()
     with pytest.raises(RuntimeError, match="Connection already active"):
-        await model2.connect()
-    await model2.close()
+        await model2.start()
+    await model2.stop()
 
     # Test close when not connected
     model3 = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
-    await model3.close()  # Should not raise
+    await model3.stop()  # Should not raise
 
     # Test close error handling (should not raise, just log)
     model4 = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
-    await model4.connect()
+    await model4.start()
     mock_ws.close.side_effect = Exception("Close failed")
-    await model4.close()  # Should not raise
+    await model4.stop()  # Should not raise
     assert model4._active is False
 
 
@@ -225,7 +225,7 @@ async def test_send_all_content_types(mock_websockets_connect, model):
     from strands.types._events import ToolResultEvent
     
     _, mock_ws = mock_websockets_connect
-    await model.connect()
+    await model.start()
 
     # Test text input
     text_input = BidiTextInputEvent(text="Hello", role="user")
@@ -269,7 +269,7 @@ async def test_send_all_content_types(mock_websockets_connect, model):
     assert item.get("type") == "function_call_output"
     assert item.get("call_id") == "tool-123"
 
-    await model.close()
+    await model.stop()
 
 
 @pytest.mark.asyncio
@@ -283,7 +283,7 @@ async def test_send_edge_cases(mock_websockets_connect, model):
     mock_ws.send.assert_not_called()
 
     # Test image input (not supported, base64 encoded, no encoding parameter)
-    await model.connect()
+    await model.start()
     image_b64 = base64.b64encode(b"image_bytes").decode('utf-8')
     image_input = BidiImageInputEvent(
         image=image_b64,
@@ -299,7 +299,7 @@ async def test_send_edge_cases(mock_websockets_connect, model):
         await model.send(unknown_content)
         assert mock_logger.warning.called
 
-    await model.close()
+    await model.stop()
 
 
 # Receive Method Tests
@@ -310,7 +310,7 @@ async def test_receive_lifecycle_events(mock_websockets_connect, model):
     """Test that receive() emits connection start and end events."""
     _, _ = mock_websockets_connect
 
-    await model.connect()
+    await model.start()
 
     # Get first event
     receive_gen = model.receive()
@@ -322,7 +322,7 @@ async def test_receive_lifecycle_events(mock_websockets_connect, model):
     assert first_event.get("model") == model.model
 
     # Close to trigger session end
-    await model.close()
+    await model.stop()
 
     # Collect remaining events
     events = [first_event]
@@ -340,7 +340,7 @@ async def test_receive_lifecycle_events(mock_websockets_connect, model):
 async def test_event_conversion(mock_websockets_connect, model):
     """Test conversion of all OpenAI event types to standard format."""
     _, _ = mock_websockets_connect
-    await model.connect()
+    await model.start()
 
     # Test audio output (now returns list with BidiAudioStreamEvent)
     from strands.experimental.bidirectional_streaming.types.events import BidiAudioStreamEvent
@@ -418,7 +418,7 @@ async def test_event_conversion(mock_websockets_connect, model):
     assert converted[0].get("type") == "bidirectional_interruption"
     assert converted[0].get("reason") == "user_speech"
 
-    await model.close()
+    await model.stop()
 
 
 # Helper Method Tests
@@ -490,7 +490,7 @@ def test_helper_methods(model):
 async def test_send_event_helper(mock_websockets_connect, model):
     """Test _send_event helper method."""
     _, mock_ws = mock_websockets_connect
-    await model.connect()
+    await model.start()
 
     test_event = {"type": "test.event", "data": "test"}
     await model._send_event(test_event)
@@ -500,4 +500,4 @@ async def test_send_event_helper(mock_websockets_connect, model):
     sent_message = json.loads(last_call[0][0])
     assert sent_message == test_event
 
-    await model.close()
+    await model.stop()

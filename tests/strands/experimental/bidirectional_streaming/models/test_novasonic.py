@@ -57,7 +57,7 @@ async def nova_model(model_id, region):
     yield model
     # Cleanup
     if model._active:
-        await model.close()
+        await model.stop()
 
 
 # Initialization and Connection Tests
@@ -82,14 +82,14 @@ async def test_connection_lifecycle(nova_model, mock_client, mock_stream):
         nova_model.client = mock_client
 
         # Test basic connection
-        await nova_model.connect(system_prompt="Test system prompt")
+        await nova_model.start(system_prompt="Test system prompt")
         assert nova_model._active
         assert nova_model.stream == mock_stream
         assert nova_model.connection_id is not None
         assert mock_client.invoke_model_with_bidirectional_stream.called
 
         # Test close
-        await nova_model.close()
+        await nova_model.stop()
         assert not nova_model._active
         assert mock_stream.input_stream.close.called
 
@@ -101,10 +101,10 @@ async def test_connection_lifecycle(nova_model, mock_client, mock_stream):
                 "inputSchema": {"json": json.dumps({"type": "object", "properties": {}})}
             }
         ]
-        await nova_model.connect(system_prompt="You are helpful", tools=tools)
+        await nova_model.start(system_prompt="You are helpful", tools=tools)
         # Verify initialization events were sent (connectionStart, promptStart, system prompt)
         assert mock_stream.input_stream.send.call_count >= 3
-        await nova_model.close()
+        await nova_model.stop()
 
 
 @pytest.mark.asyncio
@@ -114,15 +114,15 @@ async def test_connection_edge_cases(nova_model, mock_client, mock_stream, model
         nova_model.client = mock_client
 
         # Test double connection
-        await nova_model.connect()
+        await nova_model.start()
         with pytest.raises(RuntimeError, match="Connection already active"):
-            await nova_model.connect()
-        await nova_model.close()
+            await nova_model.start()
+        await nova_model.stop()
 
     # Test close when already closed
     model2 = BidiNovaSonicModel(model_id=model_id, region=region)
-    await model2.close()  # Should not raise
-    await model2.close()  # Second call should also be safe
+    await model2.stop()  # Should not raise
+    await model2.stop()  # Second call should also be safe
 
 
 # Send Method Tests
@@ -140,7 +140,7 @@ async def test_send_all_content_types(nova_model, mock_client, mock_stream):
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
         nova_model.client = mock_client
 
-        await nova_model.connect()
+        await nova_model.start()
 
         # Test text content
         text_event = BidiTextInputEvent(text="Hello, Nova!", role="user")
@@ -171,7 +171,7 @@ async def test_send_all_content_types(nova_model, mock_client, mock_stream):
         # Should send contentStart, toolResult, and contentEnd
         assert mock_stream.input_stream.send.called
 
-        await nova_model.close()
+        await nova_model.stop()
 
 
 @pytest.mark.asyncio
@@ -190,7 +190,7 @@ async def test_send_edge_cases(nova_model, mock_client, mock_stream, caplog):
         await nova_model.send(text_event)  # Should not raise
 
         # Test image content (not supported, base64 encoded, no encoding parameter)
-        await nova_model.connect()
+        await nova_model.start()
         import base64
         image_b64 = base64.b64encode(b"image data").decode('utf-8')
         image_event = BidiImageInputEvent(
@@ -201,7 +201,7 @@ async def test_send_edge_cases(nova_model, mock_client, mock_stream, caplog):
         # Should log warning about unsupported image input
         assert any("not supported" in record.message.lower() for record in caplog.records)
 
-        await nova_model.close()
+        await nova_model.stop()
 
 
 # Receive and Event Conversion Tests
@@ -220,7 +220,7 @@ async def test_receive_lifecycle_events(nova_model, mock_client, mock_stream):
             raise asyncio.TimeoutError()
 
         with patch("asyncio.wait_for", side_effect=mock_wait_for):
-            await nova_model.connect()
+            await nova_model.start()
 
             events = []
             async for event in nova_model.receive():
@@ -333,7 +333,7 @@ async def test_audio_connection_lifecycle(nova_model, mock_client, mock_stream):
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
         nova_model.client = mock_client
 
-        await nova_model.connect()
+        await nova_model.start()
 
         # Start audio connection
         await nova_model._start_audio_connection()
@@ -343,7 +343,7 @@ async def test_audio_connection_lifecycle(nova_model, mock_client, mock_stream):
         await nova_model._end_audio_input()
         assert not nova_model.audio_connection_active
 
-        await nova_model.close()
+        await nova_model.stop()
 
 
 @pytest.mark.asyncio
@@ -355,7 +355,7 @@ async def test_silence_detection(nova_model, mock_client, mock_stream):
         nova_model.client = mock_client
         nova_model.silence_threshold = 0.1  # Short threshold for testing
 
-        await nova_model.connect()
+        await nova_model.start()
 
         # Send audio to start connection (base64 encoded)
         import base64
@@ -376,7 +376,7 @@ async def test_silence_detection(nova_model, mock_client, mock_stream):
         # Audio connection should be ended
         assert not nova_model.audio_connection_active
 
-        await nova_model.close()
+        await nova_model.stop()
 
 
 # Helper Method Tests
@@ -458,10 +458,10 @@ async def test_error_handling(nova_model, mock_client, mock_stream):
 
         mock_stream.await_output.side_effect = mock_error
 
-        await nova_model.connect()
+        await nova_model.start()
 
         # Wait a bit for response processor to handle error
         await asyncio.sleep(0.1)
 
         # Should still be able to close cleanly
-        await nova_model.close()
+        await nova_model.stop()

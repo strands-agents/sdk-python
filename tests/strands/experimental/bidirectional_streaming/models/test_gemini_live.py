@@ -114,36 +114,36 @@ async def test_connection_lifecycle(mock_genai_client, model, system_prompt, too
     mock_client, mock_live_session, mock_live_session_cm = mock_genai_client
     
     # Test basic connection
-    await model.connect()
+    await model.start()
     assert model._active is True
     assert model.connection_id is not None
     assert model.live_session == mock_live_session
     mock_client.aio.live.connect.assert_called_once()
     
     # Test close
-    await model.close()
+    await model.stop()
     assert model._active is False
     mock_live_session_cm.__aexit__.assert_called_once()
     
     # Test connection with system prompt
-    await model.connect(system_prompt=system_prompt)
+    await model.start(system_prompt=system_prompt)
     call_args = mock_client.aio.live.connect.call_args
     config = call_args.kwargs.get("config", {})
     assert config.get("system_instruction") == system_prompt
-    await model.close()
+    await model.stop()
     
     # Test connection with tools
-    await model.connect(tools=[tool_spec])
+    await model.start(tools=[tool_spec])
     call_args = mock_client.aio.live.connect.call_args
     config = call_args.kwargs.get("config", {})
     assert "tools" in config
     assert len(config["tools"]) > 0
-    await model.close()
+    await model.stop()
     
     # Test connection with messages
-    await model.connect(messages=messages)
+    await model.start(messages=messages)
     mock_live_session.send_client_content.assert_called()
-    await model.close()
+    await model.stop()
 
 
 @pytest.mark.asyncio
@@ -155,28 +155,28 @@ async def test_connection_edge_cases(mock_genai_client, api_key, model_id):
     model1 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
     mock_client.aio.live.connect.side_effect = Exception("Connection failed")
     with pytest.raises(Exception, match="Connection failed"):
-        await model1.connect()
+        await model1.start()
     
     # Reset mock for next tests
     mock_client.aio.live.connect.side_effect = None
     
     # Test double connection
     model2 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
-    await model2.connect()
+    await model2.start()
     with pytest.raises(RuntimeError, match="Connection already active"):
-        await model2.connect()
-    await model2.close()
+        await model2.start()
+    await model2.stop()
     
     # Test close when not connected
     model3 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
-    await model3.close()  # Should not raise
+    await model3.stop()  # Should not raise
     
     # Test close error handling
     model4 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
-    await model4.connect()
+    await model4.start()
     mock_live_session_cm.__aexit__.side_effect = Exception("Close failed")
     with pytest.raises(Exception, match="Close failed"):
-        await model4.close()
+        await model4.stop()
 
 
 # Send Method Tests
@@ -186,7 +186,7 @@ async def test_connection_edge_cases(mock_genai_client, api_key, model_id):
 async def test_send_all_content_types(mock_genai_client, model):
     """Test sending all content types through unified send() method."""
     _, mock_live_session, _ = mock_genai_client
-    await model.connect()
+    await model.start()
     
     # Test text input
     text_input = BidiTextInputEvent(text="Hello", role="user")
@@ -228,7 +228,7 @@ async def test_send_all_content_types(mock_genai_client, model):
     await model.send(ToolResultEvent(tool_result))
     mock_live_session.send_tool_response.assert_called_once()
     
-    await model.close()
+    await model.stop()
 
 
 @pytest.mark.asyncio
@@ -242,11 +242,11 @@ async def test_send_edge_cases(mock_genai_client, model):
     mock_live_session.send_client_content.assert_not_called()
     
     # Test unknown content type
-    await model.connect()
+    await model.start()
     unknown_content = {"unknown_field": "value"}
     await model.send(unknown_content)  # Should not raise, just log warning
     
-    await model.close()
+    await model.stop()
 
 
 # Receive Method Tests
@@ -263,7 +263,7 @@ async def test_receive_lifecycle_events(mock_genai_client, model, agenerator):
     _, mock_live_session, _ = mock_genai_client
     mock_live_session.receive.return_value = agenerator([])
     
-    await model.connect()
+    await model.start()
     
     # Collect events
     events = []
@@ -271,7 +271,7 @@ async def test_receive_lifecycle_events(mock_genai_client, model, agenerator):
         events.append(event)
         # Close after first event to trigger connection end
         if len(events) == 1:
-            await model.close()
+            await model.stop()
     
     # Verify connection start and end
     assert len(events) >= 2
@@ -290,7 +290,7 @@ async def test_event_conversion(mock_genai_client, model):
     )
     
     _, _, _ = mock_genai_client
-    await model.connect()
+    await model.start()
     
     # Test text output (converted to transcript)
     mock_text = unittest.mock.Mock()
@@ -360,7 +360,7 @@ async def test_event_conversion(mock_genai_client, model):
     assert isinstance(interrupt_event, BidiInterruptionEvent)
     assert interrupt_event.reason == "user_speech"
     
-    await model.close()
+    await model.stop()
 
 
 # Helper Method Tests
