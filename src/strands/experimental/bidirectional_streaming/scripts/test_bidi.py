@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
 from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
-from strands.experimental.bidirectional_streaming.models.novasonic import NovaSonicModel
+from strands.experimental.bidirectional_streaming.models.novasonic import BidiNovaSonicModel
 from strands.experimental.bidirectional_streaming.io.audio import AudioIO
 from strands_tools import calculator
 
@@ -18,7 +18,7 @@ async def main():
     
     # Nova Sonic model
     adapter = AudioIO()
-    model = NovaSonicModel(region="us-east-1")
+    model = BidiNovaSonicModel(region="us-east-1")
 
     async with BidirectionalAgent(model=model, tools=[calculator]) as agent:
         print("New BidirectionalAgent Experience")

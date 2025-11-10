@@ -176,7 +176,7 @@ class AudioIO(BidiIO):
                 elif role.upper() == "USER":
                     print(f"User: {text}")
 
-    def end(self) -> None:
+    def stop(self) -> None:
         """Clean up IO channel resources."""
         try:
             if self.input_stream:

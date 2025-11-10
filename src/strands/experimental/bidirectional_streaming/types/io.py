@@ -37,7 +37,7 @@ class BidiIO(Protocol):
         """
         ...
 
-    def end(self) -> None:
+    def stop(self) -> None:
         """Clean up IO channel resources.
         
         Called by the agent during shutdown to ensure proper

@@ -29,7 +29,7 @@ from ..types.bidirectional_streaming import (
     TextOutputEvent,
     VoiceActivityEvent,
 )
-from .bidirectional_model import BidirectionalModel
+from .bidirectional_model import BidiModel
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ DEFAULT_SESSION_CONFIG = {
 }
 
 
-class OpenAIRealtimeModel(BidirectionalModel):
+class BidiOpenAIRealtimeModel(BidiModel):
     """OpenAI Realtime API implementation for bidirectional streaming.
     
     Combines model configuration and connection state in a single class.
@@ -97,7 +97,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
             if not self.api_key:
                 raise ValueError("OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass api_key parameter.")
         
-        # Connection state (initialized in connect())
+        # Connection state (initialized in start())
         self.websocket = None
         self.session_id = None
         self._active = False
@@ -108,7 +108,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
         
         logger.debug("OpenAI Realtime bidirectional model initialized: %s", model)
 
-    async def connect(
+    async def start(
         self,
         system_prompt: str | None = None,
         tools: list[ToolSpec] | None = None,
@@ -508,7 +508,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
         await self._send_event({"type": "conversation.item.create", "item": item_data})
         await self._send_event({"type": "response.create"})
 
-    async def close(self) -> None:
+    async def stop(self) -> None:
         """Close session and cleanup resources."""
         if not self._active:
             return

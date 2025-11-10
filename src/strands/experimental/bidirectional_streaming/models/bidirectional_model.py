@@ -27,7 +27,7 @@ from ..types.bidirectional_streaming import (
 logger = logging.getLogger(__name__)
 
 
-class BidirectionalModel(Protocol):
+class BidiModel(Protocol):
     """Protocol for bidirectional streaming models.
 
     This interface defines the contract for models that support persistent streaming
@@ -35,7 +35,7 @@ class BidirectionalModel(Protocol):
     provider-specific protocols while exposing a standardized event-based API.
     """
 
-    async def connect(
+    async def start(
         self,
         system_prompt: str | None = None,
         tools: list[ToolSpec] | None = None,
@@ -56,12 +56,12 @@ class BidirectionalModel(Protocol):
         """
         ...
 
-    async def close(self) -> None:
+    async def stop(self) -> None:
         """Close the streaming connection and release resources.
 
         Terminates the active bidirectional connection and cleans up any associated
         resources such as network connections, buffers, or background tasks. After
-        calling close(), the model instance cannot be used until connect() is called again.
+        calling close(), the model instance cannot be used until start() is called again.
         """
         ...
 

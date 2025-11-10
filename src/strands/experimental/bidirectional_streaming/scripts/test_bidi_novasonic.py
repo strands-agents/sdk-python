@@ -17,7 +17,7 @@ import pyaudio
 from strands_tools import calculator
 
 from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
-from strands.experimental.bidirectional_streaming.models.novasonic import NovaSonicModel
+from strands.experimental.bidirectional_streaming.models.novasonic import BidiNovaSonicModel
 
 
 def test_direct_tools():
@@ -30,7 +30,7 @@ def test_direct_tools():
         return
 
     try:
-        model = NovaSonicModel()
+        model = BidiNovaSonicModel()
         agent = BidirectionalAgent(model=model, tools=[calculator])
 
         # Test calculator
@@ -185,7 +185,7 @@ async def main(duration=180):
     print("Audio optimizations: 1024-byte buffers, balanced smooth playback + responsive interruption")
 
     # Initialize model and agent
-    model = NovaSonicModel(region="us-east-1")
+    model = BidiNovaSonicModel(region="us-east-1")
     agent = BidirectionalAgent(model=model, tools=[calculator], system_prompt="You are a helpful assistant.")
 
     await agent.start()
@@ -215,7 +215,7 @@ async def main(duration=180):
     finally:
         print("Cleaning up...")
         context["active"] = False
-        await agent.end()
+        await agent.stop()
 
 
 if __name__ == "__main__":

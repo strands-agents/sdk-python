@@ -1,13 +1,13 @@
 """Bidirectional model interfaces and implementations."""
 
-from .bidirectional_model import BidirectionalModel
-from .gemini_live import GeminiLiveModel
-from .novasonic import NovaSonicModel
-from .openai import OpenAIRealtimeModel
+from .bidirectional_model import BidiModel
+from .gemini_live import BidiGeminiLiveModel
+from .novasonic import BidiNovaSonicModel
+from .openai import BidiOpenAIRealtimeModel
 
 __all__ = [
-    "BidirectionalModel",
-    "GeminiLiveModel",
-    "NovaSonicModel",
-    "OpenAIRealtimeModel",
+    "BidiModel",
+    "BidiGeminiLiveModel",
+    "BidiNovaSonicModel",
+    "BidiOpenAIRealtimeModel",
 ]

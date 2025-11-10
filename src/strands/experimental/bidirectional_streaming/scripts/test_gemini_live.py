@@ -38,7 +38,7 @@ import pyaudio
 from strands_tools import calculator
 
 from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
-from strands.experimental.bidirectional_streaming.models.gemini_live import GeminiLiveModel
+from strands.experimental.bidirectional_streaming.models.gemini_live import BidiGeminiLiveModel
 
 # Configure logging - debug only for Gemini Live, info for everything else
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -301,7 +301,7 @@ async def main(duration=180):
     # Initialize Gemini Live model with proper configuration
     logger.info("Initializing Gemini Live model with API key")
     
-    model = GeminiLiveModel(
+    model = BidiGeminiLiveModel(
         model_id="gemini-2.5-flash-native-audio-preview-09-2025",
         api_key=api_key,
         params={
@@ -352,7 +352,7 @@ async def main(duration=180):
     finally:
         print("Cleaning up...")
         context["active"] = False
-        await agent.end()
+        await agent.stop()
 
 
 if __name__ == "__main__":
