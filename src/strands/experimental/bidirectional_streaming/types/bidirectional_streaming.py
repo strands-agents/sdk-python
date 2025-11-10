@@ -6,7 +6,7 @@ capabilities with real-time audio and persistent connection support.
 Key features:
 - Audio input/output events with standardized formats
 - Interruption detection and handling
-- Session lifecycle management
+- Connection lifecycle management
 - Provider-agnostic event types
 - Type-safe discriminated unions with TypedEvent
 - JSON-serializable events (audio/images stored as base64 strings)
@@ -34,7 +34,7 @@ DEFAULT_FORMAT = "pcm"
 
 
 # ============================================================================
-# Input Events (sent via session.send())
+# Input Events (sent via agent.send())
 # ============================================================================
 
 
@@ -145,7 +145,7 @@ class ImageInputEvent(TypedEvent):
 
 
 # ============================================================================
-# Output Events (received via session.receive_events())
+# Output Events (received via agent.receive())
 # ============================================================================
 
 
@@ -237,14 +237,13 @@ class AudioStreamEvent(TypedEvent):
 class TranscriptStreamEvent(ModelStreamEvent):
     """Audio transcription streaming (user or assistant speech).
     
-    Follows the same delta + current state pattern as TextStreamEvent and ToolUseStreamEvent
-    from core Strands. Supports incremental transcript updates for providers like OpenAI
-    that send partial transcripts before the final version.
+    Supports incremental transcript updates for providers that send partial
+    transcripts before the final version.
 
     Parameters:
         delta: The incremental transcript change (ContentBlockDelta).
         text: The delta text (same as delta content for convenience).
-        role: Who is speaking ("user" or "assistant"). Aligns with Message.role convention.
+        role: Who is speaking ("user" or "assistant").
         is_final: Whether this is the final/complete transcript.
         current_transcript: The accumulated transcript text so far (None for first delta).
     """
@@ -504,18 +503,19 @@ class ErrorEvent(TypedEvent):
 # Type Unions
 # ============================================================================
 
-# Note: ToolResultEvent and ToolUseStreamEvent are reused from strands.types._events
+# Note: ToolResultEvent is imported from strands.types._events and used alongside
+# InputEvent in send() methods for sending tool results back to the model.
 
-InputEvent = Union[TextInputEvent, AudioInputEvent, ImageInputEvent]
+InputEvent = TextInputEvent | AudioInputEvent | ImageInputEvent
 
-OutputEvent = Union[
-    ConnectionStartEvent,
-    ResponseStartEvent,
-    AudioStreamEvent,
-    TranscriptStreamEvent,
-    InterruptionEvent,
-    ResponseCompleteEvent,
-    UsageEvent,
-    ConnectionCloseEvent,
-    ErrorEvent,
-]
+OutputEvent = (
+    ConnectionStartEvent
+    | ResponseStartEvent
+    | AudioStreamEvent
+    | TranscriptStreamEvent
+    | InterruptionEvent
+    | ResponseCompleteEvent
+    | UsageEvent
+    | ConnectionCloseEvent
+    | ErrorEvent
+)

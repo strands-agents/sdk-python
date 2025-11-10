@@ -31,6 +31,7 @@ from ..types.bidirectional_streaming import (
     ConnectionStartEvent,
     ErrorEvent,
     ImageInputEvent,
+    InputEvent,
     InterruptionEvent,
     UsageEvent,
     TextInputEvent,
@@ -330,7 +331,7 @@ class GeminiLiveModel(BidirectionalModel):
     
     async def send(
         self,
-        content: Union[TextInputEvent, AudioInputEvent, ImageInputEvent, ToolResultEvent],
+        content: InputEvent | ToolResultEvent,
     ) -> None:
         """Unified send method for all content types. Sends the given inputs to Google Live API
         

@@ -40,6 +40,7 @@ from ..types.bidirectional_streaming import (
     ConnectionStartEvent,
     ErrorEvent,
     ImageInputEvent,
+    InputEvent,
     InterruptionEvent,
     UsageEvent,
     OutputEvent,
@@ -307,7 +308,7 @@ class NovaSonicModel(BidirectionalModel):
 
     async def send(
         self,
-        content: Union[TextInputEvent, AudioInputEvent, ImageInputEvent, ToolResultEvent],
+        content: InputEvent | ToolResultEvent,
     ) -> None:
         """Unified send method for all content types. Sends the given content to Nova Sonic.
 

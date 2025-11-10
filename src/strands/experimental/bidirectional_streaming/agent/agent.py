@@ -366,7 +366,7 @@ class BidirectionalAgent:
         logger.debug("Conversation start - initializing session")
         self._session = await start_bidirectional_connection(self)
     
-    async def send(self, input_data: str | AudioInputEvent | ImageInputEvent | dict) -> None:
+    async def send(self, input_data: str | InputEvent | dict) -> None:
         """Send input to the model (text, audio, image, or event dict).
         
         Unified method for sending text, audio, and image input to the model during
@@ -434,7 +434,7 @@ class BidirectionalAgent:
             f"Input must be a string, InputEvent (TextInputEvent/AudioInputEvent/ImageInputEvent), or event dict with 'type' field, got: {type(input_data)}"
         )
 
-    async def receive(self) -> AsyncIterable["OutputEvent"]:
+    async def receive(self) -> AsyncIterable[OutputEvent]:
         """Receive events from the model including audio, text, and tool calls.
 
         Yields model output events processed by background tasks including audio output,
