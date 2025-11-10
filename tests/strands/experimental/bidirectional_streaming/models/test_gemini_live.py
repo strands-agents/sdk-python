@@ -1,6 +1,6 @@
 """Unit tests for Gemini Live bidirectional streaming model.
 
-Tests the unified GeminiLiveModel interface including:
+Tests the unified BidiGeminiLiveModel interface including:
 - Model initialization and configuration
 - Connection establishment and lifecycle
 - Unified send() method with different content types
@@ -13,7 +13,7 @@ import pytest
 from google import genai
 from google.genai import types as genai_types
 
-from strands.experimental.bidirectional_streaming.models.gemini_live import GeminiLiveModel
+from strands.experimental.bidirectional_streaming.models.gemini_live import BidiGeminiLiveModel
 from strands.experimental.bidirectional_streaming.types.events import (
     BidiAudioInputEvent,
     BidiImageInputEvent,
@@ -56,9 +56,9 @@ def api_key():
 
 @pytest.fixture
 def model(mock_genai_client, model_id, api_key):
-    """Create a GeminiLiveModel instance."""
+    """Create a BidiGeminiLiveModel instance."""
     _ = mock_genai_client
-    return GeminiLiveModel(model_id=model_id, api_key=api_key)
+    return BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
 
 
 @pytest.fixture
@@ -88,20 +88,20 @@ def test_model_initialization(mock_genai_client, model_id, api_key):
     _ = mock_genai_client
     
     # Test default config
-    model_default = GeminiLiveModel()
+    model_default = BidiGeminiLiveModel()
     assert model_default.model_id == "models/gemini-2.0-flash-live-preview-04-09"
     assert model_default.api_key is None
     assert model_default._active is False
     assert model_default.live_session is None
     
     # Test with API key
-    model_with_key = GeminiLiveModel(model_id=model_id, api_key=api_key)
+    model_with_key = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
     assert model_with_key.model_id == model_id
     assert model_with_key.api_key == api_key
     
     # Test with custom config
     live_config = {"temperature": 0.7, "top_p": 0.9}
-    model_custom = GeminiLiveModel(model_id=model_id, live_config=live_config)
+    model_custom = BidiGeminiLiveModel(model_id=model_id, live_config=live_config)
     assert model_custom.live_config == live_config
 
 
@@ -152,7 +152,7 @@ async def test_connection_edge_cases(mock_genai_client, api_key, model_id):
     mock_client, _, mock_live_session_cm = mock_genai_client
     
     # Test connection error
-    model1 = GeminiLiveModel(model_id=model_id, api_key=api_key)
+    model1 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
     mock_client.aio.live.connect.side_effect = Exception("Connection failed")
     with pytest.raises(Exception, match="Connection failed"):
         await model1.connect()
@@ -161,18 +161,18 @@ async def test_connection_edge_cases(mock_genai_client, api_key, model_id):
     mock_client.aio.live.connect.side_effect = None
     
     # Test double connection
-    model2 = GeminiLiveModel(model_id=model_id, api_key=api_key)
+    model2 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
     await model2.connect()
     with pytest.raises(RuntimeError, match="Connection already active"):
         await model2.connect()
     await model2.close()
     
     # Test close when not connected
-    model3 = GeminiLiveModel(model_id=model_id, api_key=api_key)
+    model3 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
     await model3.close()  # Should not raise
     
     # Test close error handling
-    model4 = GeminiLiveModel(model_id=model_id, api_key=api_key)
+    model4 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
     await model4.connect()
     mock_live_session_cm.__aexit__.side_effect = Exception("Close failed")
     with pytest.raises(Exception, match="Close failed"):
