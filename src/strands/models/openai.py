@@ -206,6 +206,7 @@ class OpenAIModel(Model):
         system_prompt: Optional[str] = None,
         *,
         system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        **kwargs: Any
     ) -> list[dict[str, Any]]:
         """Format system messages for OpenAI-compatible providers.
 
@@ -228,7 +229,7 @@ class OpenAIModel(Model):
         ]
 
     @classmethod
-    def _format_regular_messages(cls, messages: Messages) -> list[dict[str, Any]]:
+    def _format_regular_messages(cls, messages: Messages, **kwargs: Any) -> list[dict[str, Any]]:
         """Format regular messages for OpenAI-compatible providers.
 
         Args:

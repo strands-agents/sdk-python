@@ -140,6 +140,7 @@ class LiteLLMModel(OpenAIModel):
         system_prompt: Optional[str] = None,
         *,
         system_prompt_content: Optional[list[SystemContentBlock]] = None,
+        **kwargs: Any
     ) -> list[dict[str, Any]]:
         """Format system messages for LiteLLM with cache point support.
 
