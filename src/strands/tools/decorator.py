@@ -48,6 +48,7 @@ from typing import (
     Annotated,
     Any,
     Callable,
+    get_type_hints,
     Generic,
     Optional,
     ParamSpec,
@@ -100,14 +101,17 @@ class FunctionToolMetadata:
         """
         self.func = func
         self.signature = inspect.signature(func)
+        self.type_hints = get_type_hints(func)
         self._context_param = context_param
 
         self._validate_signature()
 
-        # Parse the docstring once for all parameters
+        # Parse the docstring with docstring_parser
         doc_str = inspect.getdoc(func) or ""
         self.doc = docstring_parser.parse(doc_str)
-        self.param_descriptions = {param.arg_name: param.description for param in self.doc.params if param.description}
+        self.param_descriptions: dict[str, str] = {
+            param.arg_name: param.description or f"Parameter {param.arg_name}" for param in self.doc.params
+        }
 
         # Create a Pydantic model for validation
         self.input_model = self._create_input_model()
@@ -159,10 +163,7 @@ class FunctionToolMetadata:
         # Priority: 1. Annotated string -> 2. Docstring -> 3. Fallback
         final_description = description
         if final_description is None:
-            final_description = self.param_descriptions.get(param_name)
-        if final_description is None:
-            final_description = f"Parameter {param_name}"
-
+            final_description = self.param_descriptions.get(param_name) or f"Parameter {param_name}"
         # Create FieldInfo object from scratch
         final_field = Field(default=param_default, description=final_description)
 
@@ -196,15 +197,15 @@ class FunctionToolMetadata:
         field_definitions: dict[str, Any] = {}
 
         for name, param in self.signature.parameters.items():
+            # Skip parameters that will be automatically injected
             if self._is_special_parameter(name):
                 continue
-
+            
             # Use param.annotation directly to get the raw type hint. Using get_type_hints()
             # can cause inconsistent behavior across Python versions for complex Annotated types.
             param_type = param.annotation
             if param_type is inspect.Parameter.empty:
                 param_type = Any
-
             default = ... if param.default is inspect.Parameter.empty else param.default
 
             actual_type, field_info = self._extract_annotated_metadata(param_type, name, default)
