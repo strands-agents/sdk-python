@@ -292,9 +292,9 @@ class BidiAgent:
             await self._agent_loop.model.send(text_event)
             return
         
-        # Handle InputEvent instances (BidiTextInputEvent, BidiAudioInputEvent, BidiImageInputEvent)
+        # Handle BidiInputEvent instances
         # Check this before dict since TypedEvent inherits from dict
-        if isinstance(input_data, (BidiTextInputEvent, BidiAudioInputEvent, BidiImageInputEvent)):
+        if isinstance(input_data, BidiInputEvent):
             await self._agent_loop.model.send(input_data)
             return
         
