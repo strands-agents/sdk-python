@@ -33,21 +33,21 @@ from smithy_aws_core.identity.environment import EnvironmentCredentialsResolver
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
-from ..types.bidirectional_streaming import (
-    AudioInputEvent,
-    AudioStreamEvent,
-    ConnectionCloseEvent,
-    ConnectionStartEvent,
-    ErrorEvent,
-    ImageInputEvent,
+from ..types.events import (
+    BidiAudioInputEvent,
+    BidiAudioStreamEvent,
+    BidiConnectionCloseEvent,
+    BidiConnectionStartEvent,
+    BidiErrorEvent,
+    BidiImageInputEvent,
     InputEvent,
-    InterruptionEvent,
-    UsageEvent,
+    BidiInterruptionEvent,
+    BidiUsageEvent,
     OutputEvent,
-    TextInputEvent,
-    TranscriptStreamEvent,
-    ResponseCompleteEvent,
-    ResponseStartEvent,
+    BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
+    BidiResponseCompleteEvent,
+    BidiResponseStartEvent,
 )
 from .bidirectional_model import BidirectionalModel
 
@@ -278,7 +278,7 @@ class NovaSonicModel(BidirectionalModel):
         logger.debug("Nova events - starting event stream")
 
         # Emit connection start event
-        yield ConnectionStartEvent(
+        yield BidiConnectionStartEvent(
             connection_id=self.connection_id,
             model=self.model_id
         )
@@ -301,10 +301,10 @@ class NovaSonicModel(BidirectionalModel):
         except Exception as e:
             logger.error("Error receiving Nova Sonic event: %s", e)
             logger.error(traceback.format_exc())
-            yield ErrorEvent(error=e)
+            yield BidiErrorEvent(error=e)
         finally:
             # Emit connection close event
-            yield ConnectionCloseEvent(connection_id=self.connection_id, reason="complete")
+            yield BidiConnectionCloseEvent(connection_id=self.connection_id, reason="complete")
 
     async def send(
         self,
@@ -315,18 +315,18 @@ class NovaSonicModel(BidirectionalModel):
         Dispatches to appropriate internal handler based on content type.
 
         Args:
-            content: Typed event (TextInputEvent, AudioInputEvent, ImageInputEvent, or ToolResultEvent).
+            content: Typed event (BidiTextInputEvent, BidiAudioInputEvent, BidiImageInputEvent, or ToolResultEvent).
         """
         if not self._active:
             return
 
         try:
-            if isinstance(content, TextInputEvent):
+            if isinstance(content, BidiTextInputEvent):
                 await self._send_text_content(content.text)
-            elif isinstance(content, AudioInputEvent):
+            elif isinstance(content, BidiAudioInputEvent):
                 await self._send_audio_content(content)
-            elif isinstance(content, ImageInputEvent):
-                # ImageInputEvent - not supported by Nova Sonic
+            elif isinstance(content, BidiImageInputEvent):
+                # BidiImageInputEvent - not supported by Nova Sonic
                 logger.warning("Image input not supported by Nova Sonic")
             elif isinstance(content, ToolResultEvent):
                 tool_result = content.get("tool_result")
@@ -363,7 +363,7 @@ class NovaSonicModel(BidirectionalModel):
         await self._send_nova_event(audio_content_start)
         self.audio_connection_active = True
 
-    async def _send_audio_content(self, audio_input: AudioInputEvent) -> None:
+    async def _send_audio_content(self, audio_input: BidiAudioInputEvent) -> None:
         """Internal: Send audio using Nova Sonic protocol-specific format."""
         # Start audio connection if not already active
         if not self.audio_connection_active:
@@ -528,7 +528,7 @@ class NovaSonicModel(BidirectionalModel):
             completion_id = completion_data.get("completionId", self._current_completion_id)
             stop_reason = completion_data.get("stopReason", "END_TURN")
             
-            event = ResponseCompleteEvent(
+            event = BidiResponseCompleteEvent(
                 response_id=completion_id or str(uuid.uuid4()),  # Fallback to UUID if missing
                 stop_reason="interrupted" if stop_reason == "INTERRUPTED" else "complete"
             )
@@ -541,7 +541,7 @@ class NovaSonicModel(BidirectionalModel):
         if "audioOutput" in nova_event:
             # Audio is already base64 string from Nova Sonic
             audio_content = nova_event["audioOutput"]["content"]
-            return AudioStreamEvent(
+            return BidiAudioStreamEvent(
                 audio=audio_content,
                 format="pcm",
                 sample_rate=24000,
@@ -557,9 +557,9 @@ class NovaSonicModel(BidirectionalModel):
             # Check for Nova Sonic interruption pattern
             if '{ "interrupted" : true }' in text_content:
                 logger.debug("Nova interruption detected in text")
-                return InterruptionEvent(reason="user_speech")
+                return BidiInterruptionEvent(reason="user_speech")
 
-            return TranscriptStreamEvent(
+            return BidiTranscriptStreamEvent(
                 delta={"text": text_content},
                 text=text_content,
                 role="user" if role == "USER" else "assistant",
@@ -584,7 +584,7 @@ class NovaSonicModel(BidirectionalModel):
         # Handle interruption
         elif nova_event.get("stopReason") == "INTERRUPTED":
             logger.debug("Nova interruption stop reason")
-            return InterruptionEvent(reason="user_speech")
+            return BidiInterruptionEvent(reason="user_speech")
 
         # Handle usage events - convert to multimodal usage format
         elif "usageEvent" in nova_event:
@@ -592,7 +592,7 @@ class NovaSonicModel(BidirectionalModel):
             total_input = usage_data.get("totalInputTokens", 0)
             total_output = usage_data.get("totalOutputTokens", 0)
             
-            return UsageEvent(
+            return BidiUsageEvent(
                 input_tokens=total_input,
                 output_tokens=total_output,
                 total_tokens=usage_data.get("totalTokens", total_input + total_output)
@@ -607,7 +607,7 @@ class NovaSonicModel(BidirectionalModel):
             
             # Emit response start event using API-provided completionId
             # completionId should already be tracked from completionStart event
-            return ResponseStartEvent(
+            return BidiResponseStartEvent(
                 response_id=self._current_completion_id or str(uuid.uuid4())  # Fallback to UUID if missing
             )
 

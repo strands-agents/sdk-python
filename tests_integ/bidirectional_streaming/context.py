@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
-    from .audio_generator import AudioGenerator
+    from .generators.audio import AudioGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +92,6 @@ class BidirectionalTestContext:
 
     async def start(self):
         """Start all background threads."""
-        import time
         self.active = True
         self.last_event_time = time.monotonic()
 
@@ -176,7 +175,6 @@ class BidirectionalTestContext:
             silence_threshold: Seconds of silence to consider response complete.
             min_events: Minimum events before silence detection activates.
         """
-        import time
         start_time = time.monotonic()
         initial_event_count = len(self.get_events())  # Drain queue
 
@@ -215,7 +213,6 @@ class BidirectionalTestContext:
             try:
                 event = self._event_queue.get_nowait()
                 self.events.append(event)
-                import time
                 self.last_event_time = time.monotonic()
             except asyncio.QueueEmpty:
                 break
@@ -360,7 +357,7 @@ class BidirectionalTestContext:
         """Generate silence chunk for background audio.
 
         Returns:
-            AudioInputEvent with silence data.
+            BidiAudioInputEvent with silence data.
         """
         silence = b"\x00" * self.silence_chunk_size
         return self.audio_generator.create_audio_input_event(silence)

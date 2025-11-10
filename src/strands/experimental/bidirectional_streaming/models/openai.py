@@ -18,21 +18,21 @@ from websockets.exceptions import ConnectionClosed
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
-from ..types.bidirectional_streaming import (
-    AudioInputEvent,
-    AudioStreamEvent,
-    ConnectionCloseEvent,
-    ConnectionStartEvent,
-    ErrorEvent,
-    ImageInputEvent,
+from ..types.events import (
+    BidiAudioInputEvent,
+    BidiAudioStreamEvent,
+    BidiConnectionCloseEvent,
+    BidiConnectionStartEvent,
+    BidiErrorEvent,
+    BidiImageInputEvent,
     InputEvent,
-    InterruptionEvent,
-    UsageEvent,
+    BidiInterruptionEvent,
+    BidiUsageEvent,
     OutputEvent,
-    TextInputEvent,
-    TranscriptStreamEvent,
-    ResponseCompleteEvent,
-    ResponseStartEvent,
+    BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
+    BidiResponseCompleteEvent,
+    BidiResponseStartEvent,
 )
 from .bidirectional_model import BidirectionalModel
 
@@ -173,9 +173,9 @@ class OpenAIRealtimeModel(BidirectionalModel):
         """Check if session is active."""
         return self._active
 
-    def _create_text_event(self, text: str, role: str, is_final: bool = True) -> TranscriptStreamEvent:
+    def _create_text_event(self, text: str, role: str, is_final: bool = True) -> BidiTranscriptStreamEvent:
         """Create standardized transcript event."""
-        return TranscriptStreamEvent(
+        return BidiTranscriptStreamEvent(
             delta={"text": text},
             text=text,
             role="user" if role == "user" else "assistant",
@@ -183,11 +183,11 @@ class OpenAIRealtimeModel(BidirectionalModel):
             current_transcript=text if is_final else None
         )
 
-    def _create_voice_activity_event(self, activity_type: str) -> InterruptionEvent | None:
+    def _create_voice_activity_event(self, activity_type: str) -> BidiInterruptionEvent | None:
         """Create standardized interruption event for voice activity."""
         # Only speech_started triggers interruption
         if activity_type == "speech_started":
-            return InterruptionEvent(reason="user_speech")
+            return BidiInterruptionEvent(reason="user_speech")
         # Other voice activity events are logged but don't create events
         return None
 
@@ -283,7 +283,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
     async def receive(self) -> AsyncIterable[OutputEvent]:
         """Receive OpenAI events and convert to Strands TypedEvent format."""
         # Emit connection start event
-        yield ConnectionStartEvent(
+        yield BidiConnectionStartEvent(
             connection_id=self.connection_id,
             model=self.model
         )
@@ -299,10 +299,10 @@ class OpenAIRealtimeModel(BidirectionalModel):
                     
         except Exception as e:
             logger.error("Error receiving OpenAI Realtime event: %s", e)
-            yield ErrorEvent(error=e)
+            yield BidiErrorEvent(error=e)
         finally:
             # Emit connection close event
-            yield ConnectionCloseEvent(connection_id=self.connection_id, reason="complete")
+            yield BidiConnectionCloseEvent(connection_id=self.connection_id, reason="complete")
 
     def _convert_openai_event(self, openai_event: dict[str, any]) -> list[OutputEvent] | None:
         """Convert OpenAI events to Strands TypedEvent format."""
@@ -312,12 +312,12 @@ class OpenAIRealtimeModel(BidirectionalModel):
         if event_type == "response.created":
             response = openai_event.get("response", {})
             response_id = response.get("id", str(uuid.uuid4()))
-            return [ResponseStartEvent(response_id=response_id)]
+            return [BidiResponseStartEvent(response_id=response_id)]
         
         # Audio output
         elif event_type == "response.output_audio.delta":
             # Audio is already base64 string from OpenAI
-            return [AudioStreamEvent(
+            return [BidiAudioStreamEvent(
                 audio=openai_event["delta"],
                 format="pcm",
                 sample_rate=24000,
@@ -409,7 +409,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
             events = []
             
             # Always add response complete event
-            events.append(ResponseCompleteEvent(
+            events.append(BidiResponseCompleteEvent(
                 response_id=response_id,
                 stop_reason=stop_reason_map.get(status, "complete")
             ))
@@ -455,7 +455,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
                 cached_tokens = input_details.get("cached_tokens", 0)
                 
                 # Add usage event
-                events.append(UsageEvent(
+                events.append(BidiUsageEvent(
                     input_tokens=usage.get("input_tokens", 0),
                     output_tokens=usage.get("output_tokens", 0),
                     total_tokens=usage.get("total_tokens", 0),
@@ -519,19 +519,19 @@ class OpenAIRealtimeModel(BidirectionalModel):
         Dispatches to appropriate internal handler based on content type.
         
         Args:
-            content: Typed event (TextInputEvent, AudioInputEvent, ImageInputEvent, or ToolResultEvent).
+            content: Typed event (BidiTextInputEvent, BidiAudioInputEvent, BidiImageInputEvent, or ToolResultEvent).
         """
         if not self._require_active():
             return
         
         try:
             # Note: TypedEvent inherits from dict, so isinstance checks for TypedEvent must come first
-            if isinstance(content, TextInputEvent):
+            if isinstance(content, BidiTextInputEvent):
                 await self._send_text_content(content.text)
-            elif isinstance(content, AudioInputEvent):
+            elif isinstance(content, BidiAudioInputEvent):
                 await self._send_audio_content(content)
-            elif isinstance(content, ImageInputEvent):
-                # ImageInputEvent - not supported by OpenAI Realtime yet
+            elif isinstance(content, BidiImageInputEvent):
+                # BidiImageInputEvent - not supported by OpenAI Realtime yet
                 logger.warning("Image input not supported by OpenAI Realtime API")
             elif isinstance(content, ToolResultEvent):
                 tool_result = content.get("tool_result")
@@ -543,7 +543,7 @@ class OpenAIRealtimeModel(BidirectionalModel):
             logger.error(f"Error sending content: {e}")
             raise  # Propagate exception for debugging in experimental code
 
-    async def _send_audio_content(self, audio_input: AudioInputEvent) -> None:
+    async def _send_audio_content(self, audio_input: BidiAudioInputEvent) -> None:
         """Internal: Send audio content to OpenAI for processing."""
         # Audio is already base64 encoded in the event
         await self._send_event({"type": "input_audio_buffer.append", "audio": audio_input.audio})

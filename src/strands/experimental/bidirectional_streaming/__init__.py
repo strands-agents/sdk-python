@@ -12,22 +12,22 @@ from .models.novasonic import NovaSonicModel
 from .models.openai import OpenAIRealtimeModel
 
 # Event types - For type hints and event handling
-from .types.bidirectional_streaming import (
-    AudioInputEvent,
-    AudioStreamEvent,
-    ConnectionCloseEvent,
-    ConnectionStartEvent,
-    ErrorEvent,
-    ImageInputEvent,
+from .types.events import (
+    BidiAudioInputEvent,
+    BidiAudioStreamEvent,
+    BidiConnectionCloseEvent,
+    BidiConnectionStartEvent,
+    BidiErrorEvent,
+    BidiImageInputEvent,
     InputEvent,
-    InterruptionEvent,
+    BidiInterruptionEvent,
     ModalityUsage,
-    UsageEvent,
+    BidiUsageEvent,
     OutputEvent,
-    ResponseCompleteEvent,
-    ResponseStartEvent,
-    TextInputEvent,
-    TranscriptStreamEvent,
+    BidiResponseCompleteEvent,
+    BidiResponseStartEvent,
+    BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
 )
 
 # Re-export standard agent events for tool handling
@@ -47,22 +47,22 @@ __all__ = [
     "OpenAIRealtimeModel",
     
     # Input Event types
-    "TextInputEvent",
-    "AudioInputEvent",
-    "ImageInputEvent",
+    "BidiTextInputEvent",
+    "BidiAudioInputEvent",
+    "BidiImageInputEvent",
     "InputEvent",
     
     # Output Event types
-    "ConnectionStartEvent",
-    "ConnectionCloseEvent",
-    "ResponseStartEvent",
-    "ResponseCompleteEvent",
-    "AudioStreamEvent",
-    "TranscriptStreamEvent",
-    "InterruptionEvent",
-    "UsageEvent",
+    "BidiConnectionStartEvent",
+    "BidiConnectionCloseEvent",
+    "BidiResponseStartEvent",
+    "BidiResponseCompleteEvent",
+    "BidiAudioStreamEvent",
+    "BidiTranscriptStreamEvent",
+    "BidiInterruptionEvent",
+    "BidiUsageEvent",
     "ModalityUsage",
-    "ErrorEvent",
+    "BidiErrorEvent",
     "OutputEvent",
     
     # Tool Event types (reused from standard agent)

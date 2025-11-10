@@ -18,12 +18,12 @@ from typing import AsyncIterable, Protocol, Union
 from ....types._events import ToolResultEvent
 from ....types.content import Messages
 from ....types.tools import ToolSpec
-from ..types.bidirectional_streaming import (
-    AudioInputEvent,
-    ImageInputEvent,
+from ..types.events import (
+    BidiAudioInputEvent,
+    BidiImageInputEvent,
     InputEvent,
     OutputEvent,
-    TextInputEvent,
+    BidiTextInputEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -94,15 +94,15 @@ class BidirectionalModel(Protocol):
 
         Args:
             content: The content to send. Must be one of:
-                - TextInputEvent: Text message from the user
-                - AudioInputEvent: Audio data for speech input
-                - ImageInputEvent: Image data for visual understanding
+                - BidiTextInputEvent: Text message from the user
+                - BidiAudioInputEvent: Audio data for speech input
+                - BidiImageInputEvent: Image data for visual understanding
                 - ToolResultEvent: Result from a tool execution
 
         Example:
-            await model.send(TextInputEvent(text="Hello", role="user"))
-            await model.send(AudioInputEvent(audio=bytes, format="pcm", sample_rate=16000, channels=1))
-            await model.send(ImageInputEvent(image=bytes, mime_type="image/jpeg", encoding="raw"))
+            await model.send(BidiTextInputEvent(text="Hello", role="user"))
+            await model.send(BidiAudioInputEvent(audio=bytes, format="pcm", sample_rate=16000, channels=1))
+            await model.send(BidiImageInputEvent(image=bytes, mime_type="image/jpeg", encoding="raw"))
             await model.send(ToolResultEvent(tool_result))
         """
         ...

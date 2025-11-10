@@ -24,20 +24,20 @@ from google.genai.types import LiveServerMessage, LiveServerContent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
-from ..types.bidirectional_streaming import (
-    AudioInputEvent,
-    AudioStreamEvent,
-    ConnectionCloseEvent,
-    ConnectionStartEvent,
-    ErrorEvent,
-    ImageInputEvent,
+from ..types.events import (
+    BidiAudioInputEvent,
+    BidiAudioStreamEvent,
+    BidiConnectionCloseEvent,
+    BidiConnectionStartEvent,
+    BidiErrorEvent,
+    BidiImageInputEvent,
     InputEvent,
-    InterruptionEvent,
-    UsageEvent,
-    TextInputEvent,
-    TranscriptStreamEvent,
-    ResponseCompleteEvent,
-    ResponseStartEvent,
+    BidiInterruptionEvent,
+    BidiUsageEvent,
+    BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
+    BidiResponseCompleteEvent,
+    BidiResponseStartEvent,
 )
 from .bidirectional_model import BidirectionalModel
 
@@ -165,7 +165,7 @@ class GeminiLiveModel(BidirectionalModel):
         """Receive Gemini Live API events and convert to provider-agnostic format."""
         
         # Emit connection start event
-        yield ConnectionStartEvent(
+        yield BidiConnectionStartEvent(
             connection_id=self.connection_id,
             model=self.model_id
         )
@@ -194,10 +194,10 @@ class GeminiLiveModel(BidirectionalModel):
                     
         except Exception as e:
             logger.error("Fatal error in receive loop: %s", e)
-            yield ErrorEvent(error=e)
+            yield BidiErrorEvent(error=e)
         finally:
             # Emit connection close event when exiting
-            yield ConnectionCloseEvent(connection_id=self.connection_id, reason="complete")
+            yield BidiConnectionCloseEvent(connection_id=self.connection_id, reason="complete")
     
     def _convert_gemini_live_event(self, message: LiveServerMessage) -> Optional[Dict[str, Any]]:
         """Convert Gemini Live API events to provider-agnostic format.
@@ -211,7 +211,7 @@ class GeminiLiveModel(BidirectionalModel):
         try:
             # Handle interruption first (from server_content)
             if message.server_content and message.server_content.interrupted:
-                return InterruptionEvent(reason="user_speech")
+                return BidiInterruptionEvent(reason="user_speech")
             
             # Handle input transcription (user's speech) - emit as transcript event
             if message.server_content and message.server_content.input_transcription:
@@ -220,7 +220,7 @@ class GeminiLiveModel(BidirectionalModel):
                 if hasattr(input_transcript, 'text') and input_transcript.text:
                     transcription_text = input_transcript.text
                     logger.debug(f"Input transcription detected: {transcription_text}")
-                    return TranscriptStreamEvent(
+                    return BidiTranscriptStreamEvent(
                         delta={"text": transcription_text},
                         text=transcription_text,
                         role="user",
@@ -235,7 +235,7 @@ class GeminiLiveModel(BidirectionalModel):
                 if hasattr(output_transcript, 'text') and output_transcript.text:
                     transcription_text = output_transcript.text
                     logger.debug(f"Output transcription detected: {transcription_text}")
-                    return TranscriptStreamEvent(
+                    return BidiTranscriptStreamEvent(
                         delta={"text": transcription_text},
                         text=transcription_text,
                         role="assistant",
@@ -246,7 +246,7 @@ class GeminiLiveModel(BidirectionalModel):
             # Handle text output from model
             if message.text:
                 logger.debug(f"Text output as transcript: {message.text}")
-                return TranscriptStreamEvent(
+                return BidiTranscriptStreamEvent(
                     delta={"text": message.text},
                     text=message.text,
                     role="assistant",
@@ -258,7 +258,7 @@ class GeminiLiveModel(BidirectionalModel):
             if message.data:
                 # Convert bytes to base64 string for JSON serializability
                 audio_b64 = base64.b64encode(message.data).decode('utf-8')
-                return AudioStreamEvent(
+                return BidiAudioStreamEvent(
                     audio=audio_b64,
                     format="pcm",
                     sample_rate=GEMINI_OUTPUT_SAMPLE_RATE,
@@ -312,7 +312,7 @@ class GeminiLiveModel(BidirectionalModel):
                                     "output_tokens": detail.token_count
                                 })
                 
-                return UsageEvent(
+                return BidiUsageEvent(
                     input_tokens=usage.prompt_token_count or 0,
                     output_tokens=usage.response_token_count or 0,
                     total_tokens=usage.total_token_count or 0,
@@ -338,17 +338,17 @@ class GeminiLiveModel(BidirectionalModel):
         Dispatches to appropriate internal handler based on content type.
         
         Args:
-            content: Typed event (TextInputEvent, AudioInputEvent, ImageInputEvent, or ToolResultEvent).
+            content: Typed event (BidiTextInputEvent, BidiAudioInputEvent, BidiImageInputEvent, or ToolResultEvent).
         """
         if not self._active:
             return
         
         try:
-            if isinstance(content, TextInputEvent):
+            if isinstance(content, BidiTextInputEvent):
                 await self._send_text_content(content.text)
-            elif isinstance(content, AudioInputEvent):
+            elif isinstance(content, BidiAudioInputEvent):
                 await self._send_audio_content(content)
-            elif isinstance(content, ImageInputEvent):
+            elif isinstance(content, BidiImageInputEvent):
                 await self._send_image_content(content)
             elif isinstance(content, ToolResultEvent):
                 tool_result = content.get("tool_result")
@@ -360,7 +360,7 @@ class GeminiLiveModel(BidirectionalModel):
             logger.error(f"Error sending content: {e}")
             raise  # Propagate exception for debugging in experimental code
     
-    async def _send_audio_content(self, audio_input: AudioInputEvent) -> None:
+    async def _send_audio_content(self, audio_input: BidiAudioInputEvent) -> None:
         """Internal: Send audio content using Gemini Live API.
         
         Gemini Live expects continuous audio streaming via send_realtime_input.
@@ -382,7 +382,7 @@ class GeminiLiveModel(BidirectionalModel):
         except Exception as e:
             logger.error("Error sending audio content: %s", e)
     
-    async def _send_image_content(self, image_input: ImageInputEvent) -> None:
+    async def _send_image_content(self, image_input: BidiImageInputEvent) -> None:
         """Internal: Send image content using Gemini Live API.
         
         Sends image frames following the same pattern as the GitHub example.

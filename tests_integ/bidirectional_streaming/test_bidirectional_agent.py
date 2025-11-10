@@ -18,7 +18,7 @@ from strands.experimental.bidirectional_streaming.models.novasonic import NovaSo
 from strands.experimental.bidirectional_streaming.models.openai import OpenAIRealtimeModel
 from strands.experimental.bidirectional_streaming.models.gemini_live import GeminiLiveModel
 
-from .utils.test_context import BidirectionalTestContext
+from .context import BidirectionalTestContext
 
 logger = logging.getLogger(__name__)
 

@@ -16,10 +16,10 @@ import unittest.mock
 import pytest
 
 from strands.experimental.bidirectional_streaming.models.openai import OpenAIRealtimeModel
-from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import (
-    AudioInputEvent,
-    ImageInputEvent,
-    TextInputEvent,
+from strands.experimental.bidirectional_streaming.types.events import (
+    BidiAudioInputEvent,
+    BidiImageInputEvent,
+    BidiTextInputEvent,
 )
 from strands.types.tools import ToolResult
 
@@ -228,7 +228,7 @@ async def test_send_all_content_types(mock_websockets_connect, model):
     await model.connect()
 
     # Test text input
-    text_input = TextInputEvent(text="Hello", role="user")
+    text_input = BidiTextInputEvent(text="Hello", role="user")
     await model.send(text_input)
     calls = mock_ws.send.call_args_list
     messages = [json.loads(call[0][0]) for call in calls]
@@ -239,7 +239,7 @@ async def test_send_all_content_types(mock_websockets_connect, model):
 
     # Test audio input (base64 encoded)
     audio_b64 = base64.b64encode(b"audio_bytes").decode('utf-8')
-    audio_input = AudioInputEvent(
+    audio_input = BidiAudioInputEvent(
         audio=audio_b64,
         format="pcm",
         sample_rate=24000,
@@ -278,14 +278,14 @@ async def test_send_edge_cases(mock_websockets_connect, model):
     _, mock_ws = mock_websockets_connect
 
     # Test send when inactive
-    text_input = TextInputEvent(text="Hello", role="user")
+    text_input = BidiTextInputEvent(text="Hello", role="user")
     await model.send(text_input)
     mock_ws.send.assert_not_called()
 
     # Test image input (not supported, base64 encoded, no encoding parameter)
     await model.connect()
     image_b64 = base64.b64encode(b"image_bytes").decode('utf-8')
-    image_input = ImageInputEvent(
+    image_input = BidiImageInputEvent(
         image=image_b64,
         mime_type="image/jpeg",
     )
@@ -342,8 +342,8 @@ async def test_event_conversion(mock_websockets_connect, model):
     _, _ = mock_websockets_connect
     await model.connect()
 
-    # Test audio output (now returns list with AudioStreamEvent)
-    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import AudioStreamEvent
+    # Test audio output (now returns list with BidiAudioStreamEvent)
+    from strands.experimental.bidirectional_streaming.types.events import BidiAudioStreamEvent
     audio_event = {
         "type": "response.output_audio.delta",
         "delta": base64.b64encode(b"audio_data").decode()
@@ -351,13 +351,13 @@ async def test_event_conversion(mock_websockets_connect, model):
     converted = model._convert_openai_event(audio_event)
     assert isinstance(converted, list)
     assert len(converted) == 1
-    assert isinstance(converted[0], AudioStreamEvent)
+    assert isinstance(converted[0], BidiAudioStreamEvent)
     assert converted[0].get("type") == "bidirectional_audio_stream"
     assert converted[0].get("audio") == base64.b64encode(b"audio_data").decode()
     assert converted[0].get("format") == "pcm"
 
-    # Test text output (now returns list with TranscriptStreamEvent)
-    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import TranscriptStreamEvent
+    # Test text output (now returns list with BidiTranscriptStreamEvent)
+    from strands.experimental.bidirectional_streaming.types.events import BidiTranscriptStreamEvent
     text_event = {
         "type": "response.output_text.delta",
         "delta": "Hello from OpenAI"
@@ -365,7 +365,7 @@ async def test_event_conversion(mock_websockets_connect, model):
     converted = model._convert_openai_event(text_event)
     assert isinstance(converted, list)
     assert len(converted) == 1
-    assert isinstance(converted[0], TranscriptStreamEvent)
+    assert isinstance(converted[0], BidiTranscriptStreamEvent)
     assert converted[0].get("type") == "bidirectional_transcript_stream"
     assert converted[0].get("text") == "Hello from OpenAI"
     assert converted[0].get("role") == "assistant"
@@ -406,15 +406,15 @@ async def test_event_conversion(mock_websockets_connect, model):
     assert tool_use["name"] == "calculator"
     assert tool_use["input"]["expression"] == "2+2"
 
-    # Test voice activity (now returns list with InterruptionEvent for speech_started)
-    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import InterruptionEvent
+    # Test voice activity (now returns list with BidiInterruptionEvent for speech_started)
+    from strands.experimental.bidirectional_streaming.types.events import BidiInterruptionEvent
     speech_started = {
         "type": "input_audio_buffer.speech_started"
     }
     converted = model._convert_openai_event(speech_started)
     assert isinstance(converted, list)
     assert len(converted) == 1
-    assert isinstance(converted[0], InterruptionEvent)
+    assert isinstance(converted[0], BidiInterruptionEvent)
     assert converted[0].get("type") == "bidirectional_interruption"
     assert converted[0].get("reason") == "user_speech"
 
@@ -464,10 +464,10 @@ def test_helper_methods(model):
     assert model._require_active() is True
     model._active = False
 
-    # Test _create_text_event (now returns TranscriptStreamEvent)
-    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import TranscriptStreamEvent
+    # Test _create_text_event (now returns BidiTranscriptStreamEvent)
+    from strands.experimental.bidirectional_streaming.types.events import BidiTranscriptStreamEvent
     text_event = model._create_text_event("Hello", "user")
-    assert isinstance(text_event, TranscriptStreamEvent)
+    assert isinstance(text_event, BidiTranscriptStreamEvent)
     assert text_event.get("type") == "bidirectional_transcript_stream"
     assert text_event.get("text") == "Hello"
     assert text_event.get("role") == "user"
@@ -475,10 +475,10 @@ def test_helper_methods(model):
     assert text_event.is_final is True
     assert text_event.current_transcript == "Hello"
 
-    # Test _create_voice_activity_event (now returns InterruptionEvent for speech_started)
-    from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import InterruptionEvent
+    # Test _create_voice_activity_event (now returns BidiInterruptionEvent for speech_started)
+    from strands.experimental.bidirectional_streaming.types.events import BidiInterruptionEvent
     voice_event = model._create_voice_activity_event("speech_started")
-    assert isinstance(voice_event, InterruptionEvent)
+    assert isinstance(voice_event, BidiInterruptionEvent)
     assert voice_event.get("type") == "bidirectional_interruption"
     assert voice_event.get("reason") == "user_speech"
     

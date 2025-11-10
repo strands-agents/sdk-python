@@ -179,10 +179,10 @@ async def send(agent, context):
                 
                 # Create audio event using TypedEvent
                 # Encode audio bytes to base64 string for JSON serializability
-                from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import AudioInputEvent
+                from strands.experimental.bidirectional_streaming.types.events import BidiAudioInputEvent
                 
                 audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
-                audio_event = AudioInputEvent(
+                audio_event = BidiAudioInputEvent(
                     audio=audio_b64,
                     format="pcm",
                     sample_rate=24000,

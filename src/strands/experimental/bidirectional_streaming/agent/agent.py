@@ -31,12 +31,12 @@ from ....types.tools import ToolResult, ToolUse
 from ....types.traces import AttributeValue
 from ..event_loop.bidirectional_event_loop import start_bidirectional_connection, stop_bidirectional_connection
 from ..models.bidirectional_model import BidirectionalModel
-from ..types.bidirectional_streaming import (
-    AudioInputEvent,
-    ImageInputEvent,
+from ..types.events import (
+    BidiAudioInputEvent,
+    BidiImageInputEvent,
     InputEvent,
     OutputEvent,
-    TextInputEvent,
+    BidiTextInputEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -376,8 +376,8 @@ class BidirectionalAgent:
         Args:
             input_data: Can be:
                 - str: Text message from user
-                - AudioInputEvent: Audio data with format/sample rate
-                - ImageInputEvent: Image data with MIME type
+                - BidiAudioInputEvent: Audio data with format/sample rate
+                - BidiImageInputEvent: Image data with MIME type
                 - dict: Event dictionary (will be reconstructed to TypedEvent)
             
         Raises:
@@ -385,7 +385,7 @@ class BidirectionalAgent:
             
         Example:
             await agent.send("Hello")
-            await agent.send(AudioInputEvent(audio="base64...", format="pcm", ...))
+            await agent.send(BidiAudioInputEvent(audio="base64...", format="pcm", ...))
             await agent.send({"type": "bidirectional_text_input", "text": "Hello", "role": "user"})
         """
         self._validate_active_session()
@@ -395,13 +395,13 @@ class BidirectionalAgent:
             # Add user text message to history
             self.messages.append({"role": "user", "content": input_data})
             logger.debug("Text sent: %d characters", len(input_data))
-            text_event = TextInputEvent(text=input_data, role="user")
+            text_event = BidiTextInputEvent(text=input_data, role="user")
             await self._session.model.send(text_event)
             return
         
-        # Handle InputEvent instances (TextInputEvent, AudioInputEvent, ImageInputEvent)
+        # Handle InputEvent instances (BidiTextInputEvent, BidiAudioInputEvent, BidiImageInputEvent)
         # Check this before dict since TypedEvent inherits from dict
-        if isinstance(input_data, (TextInputEvent, AudioInputEvent, ImageInputEvent)):
+        if isinstance(input_data, (BidiTextInputEvent, BidiAudioInputEvent, BidiImageInputEvent)):
             await self._session.model.send(input_data)
             return
         
@@ -409,16 +409,16 @@ class BidirectionalAgent:
         if isinstance(input_data, dict) and "type" in input_data:
             event_type = input_data["type"]
             if event_type == "bidirectional_text_input":
-                input_data = TextInputEvent(text=input_data["text"], role=input_data["role"])
+                input_data = BidiTextInputEvent(text=input_data["text"], role=input_data["role"])
             elif event_type == "bidirectional_audio_input":
-                input_data = AudioInputEvent(
+                input_data = BidiAudioInputEvent(
                     audio=input_data["audio"],
                     format=input_data["format"],
                     sample_rate=input_data["sample_rate"],
                     channels=input_data["channels"]
                 )
             elif event_type == "bidirectional_image_input":
-                input_data = ImageInputEvent(
+                input_data = BidiImageInputEvent(
                     image=input_data["image"],
                     mime_type=input_data["mime_type"]
                 )
@@ -431,7 +431,7 @@ class BidirectionalAgent:
         
         # If we get here, input type is invalid
         raise ValueError(
-            f"Input must be a string, InputEvent (TextInputEvent/AudioInputEvent/ImageInputEvent), or event dict with 'type' field, got: {type(input_data)}"
+            f"Input must be a string, InputEvent (BidiTextInputEvent/BidiAudioInputEvent/BidiImageInputEvent), or event dict with 'type' field, got: {type(input_data)}"
         )
 
     async def receive(self) -> AsyncIterable[OutputEvent]:
