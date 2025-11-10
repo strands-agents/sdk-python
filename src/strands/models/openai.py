@@ -206,13 +206,14 @@ class OpenAIModel(Model):
         system_prompt: Optional[str] = None,
         *,
         system_prompt_content: Optional[list[SystemContentBlock]] = None,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> list[dict[str, Any]]:
         """Format system messages for OpenAI-compatible providers.
 
         Args:
             system_prompt: System prompt to provide context to the model.
             system_prompt_content: System prompt content blocks to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             List of formatted system messages.
@@ -234,6 +235,7 @@ class OpenAIModel(Model):
 
         Args:
             messages: List of message objects to be processed by the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             List of formatted messages.

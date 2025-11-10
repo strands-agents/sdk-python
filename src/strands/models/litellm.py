@@ -140,13 +140,14 @@ class LiteLLMModel(OpenAIModel):
         system_prompt: Optional[str] = None,
         *,
         system_prompt_content: Optional[list[SystemContentBlock]] = None,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> list[dict[str, Any]]:
         """Format system messages for LiteLLM with cache point support.
 
         Args:
             system_prompt: System prompt to provide context to the model.
             system_prompt_content: System prompt content blocks to provide context to the model.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             List of formatted system messages.
