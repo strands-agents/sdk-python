@@ -381,10 +381,6 @@ def test_swarm_resume_from_executing_state(tmpdir, exit_hook, verify_hook):
     assert persisted_state["node_history"][0] == "researcher"
     assert persisted_state["next_nodes_to_execute"] == ["analyst"]
 
-    persisted_state = session_manager.read_multi_agent(session_id, swarm.id)
-    print(f"Saved session state: {persisted_state}")
-
-    # Create fresh agent instances for the second swarm to avoid tool conflicts
     exit_hook.should_exit = False
     researcher2 = Agent(name="researcher", system_prompt="you are a researcher.")
     analyst2 = Agent(name="analyst", system_prompt="you are an analyst.")
