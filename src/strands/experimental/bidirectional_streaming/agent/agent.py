@@ -1,244 +1,136 @@
 """Bidirectional Agent for real-time streaming conversations.
 
-Provides real-time audio and text interaction through persistent streaming sessions.
+Provides real-time audio and text interaction through persistent streaming connections.
 Unlike traditional request-response patterns, this agent maintains long-running
 conversations where users can interrupt, provide additional input, and receive
 continuous responses including audio output.
 
 Key capabilities:
-- Persistent conversation sessions with concurrent processing
+- Persistent conversation connections with concurrent processing
 - Real-time audio input/output streaming
-- Mid-conversation interruption and tool execution
+- Automatic interruption detection and tool execution
 - Event-driven communication with model providers
 """
 
 import asyncio
 import json
 import logging
-import random
-from concurrent.futures import ThreadPoolExecutor
-from typing import Any, AsyncIterable, Callable, Mapping, Optional
+from typing import Any, AsyncIterable, Callable
 
 from .... import _identifier
-from ....hooks import HookProvider, HookRegistry
 from ....telemetry.metrics import EventLoopMetrics
+from ....tools.caller import _ToolCaller
 from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
 from ....tools.watcher import ToolWatcher
 from ....types.content import Message, Messages
-from ....types.tools import ToolResult, ToolUse
-from ....types.traces import AttributeValue
-from ..event_loop.bidirectional_event_loop import start_bidirectional_connection, stop_bidirectional_connection
+from ....types.tools import ToolResult, ToolUse, AgentTool
+
+from ..event_loop.bidirectional_event_loop import BidirectionalAgentLoop
 from ..models.bidirectional_model import BidirectionalModel
+from ..models.novasonic import NovaSonicModel
 from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent, ImageInputEvent
+from ..types import BidiIO
+from ....experimental.tools import ToolProvider
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
+# Type alias for cleaner send() method signature
+BidirectionalInput = str | AudioInputEvent | ImageInputEvent
 
 
 class BidirectionalAgent:
     """Agent for bidirectional streaming conversations.
 
     Enables real-time audio and text interaction with AI models through persistent
-    sessions. Supports concurrent tool execution and interruption handling.
+    connections. Supports concurrent tool execution and interruption handling.
     """
-
-    class ToolCaller:
-        """Call tool as a function for bidirectional agent."""
-
-        def __init__(self, agent: "BidirectionalAgent") -> None:
-            """Initialize tool caller with agent reference."""
-            # WARNING: Do not add any other member variables or methods as this could result in a name conflict with
-            #          agent tools and thus break their execution.
-            self._agent = agent
-
-        def __getattr__(self, name: str) -> Callable[..., Any]:
-            """Call tool as a function.
-
-            This method enables the method-style interface (e.g., `agent.tool.tool_name(param="value")`).
-            It matches underscore-separated names to hyphenated tool names (e.g., 'some_thing' matches 'some-thing').
-
-            Args:
-                name: The name of the attribute (tool) being accessed.
-
-            Returns:
-                A function that when called will execute the named tool.
-
-            Raises:
-                AttributeError: If no tool with the given name exists or if multiple tools match the given name.
-            """
-
-            def caller(
-                user_message_override: Optional[str] = None,
-                record_direct_tool_call: Optional[bool] = None,
-                **kwargs: Any,
-            ) -> Any:
-                """Call a tool directly by name.
-
-                Args:
-                    user_message_override: Optional custom message to record instead of default
-                    record_direct_tool_call: Whether to record direct tool calls in message history. 
-                        For bidirectional agents, this is always True to maintain conversation history.
-                    **kwargs: Keyword arguments to pass to the tool.
-
-                Returns:
-                    The result returned by the tool.
-
-                Raises:
-                    AttributeError: If the tool doesn't exist.
-                """
-                normalized_name = self._find_normalized_tool_name(name)
-
-                # Create unique tool ID and set up the tool request
-                tool_id = f"tooluse_{name}_{random.randint(100000000, 999999999)}"
-                tool_use: ToolUse = {
-                    "toolUseId": tool_id,
-                    "name": normalized_name,
-                    "input": kwargs.copy(),
-                }
-                tool_results: list[ToolResult] = []
-                invocation_state = kwargs
-
-                async def acall() -> ToolResult:
-                    async for event in ToolExecutor._stream(self._agent, tool_use, tool_results, invocation_state):
-                        _ = event
-
-                    return tool_results[0]
-
-                def tcall() -> ToolResult:
-                    return asyncio.run(acall())
-
-                with ThreadPoolExecutor() as executor:
-                    future = executor.submit(tcall)
-                    tool_result = future.result()
-
-                # Always record direct tool calls for bidirectional agents to maintain conversation history
-                # Use agent's record_direct_tool_call setting if not overridden
-                if record_direct_tool_call is not None:
-                    should_record_direct_tool_call = record_direct_tool_call
-                else:
-                    should_record_direct_tool_call = self._agent.record_direct_tool_call
-
-                if should_record_direct_tool_call:
-                    # Create a record of this tool execution in the message history
-                    self._agent._record_tool_execution(tool_use, tool_result, user_message_override)
-
-                return tool_result
-
-            return caller
-
-        def _find_normalized_tool_name(self, name: str) -> str:
-            """Lookup the tool represented by name, replacing characters with underscores as necessary."""
-            tool_registry = self._agent.tool_registry.registry
-
-            if tool_registry.get(name, None):
-                return name
-
-            # If the desired name contains underscores, it might be a placeholder for characters that can't be
-            # represented as python identifiers but are valid as tool names, such as dashes. In that case, find
-            # all tools that can be represented with the normalized name
-            if "_" in name:
-                filtered_tools = [
-                    tool_name for (tool_name, tool) in tool_registry.items() if tool_name.replace("-", "_") == name
-                ]
-
-                # The registry itself defends against similar names, so we can just take the first match
-                if filtered_tools:
-                    return filtered_tools[0]
-
-            raise AttributeError(f"Tool '{name}' not found")
 
     def __init__(
         self,
-        model: BidirectionalModel,
-        tools: list | None = None,
+        model: BidirectionalModel| str | None = None,
+        tools: list[str| AgentTool| ToolProvider]| None = None,
         system_prompt: str | None = None,
         messages: Messages | None = None,
         record_direct_tool_call: bool = True,
         load_tools_from_directory: bool = False,
-        agent_id: Optional[str] = None,
-        name: Optional[str] = None,
-        tool_executor: Optional[ToolExecutor] = None,
-        hooks: Optional[list[HookProvider]] = None,
-        trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
-        description: Optional[str] = None,
+        agent_id: str | None = None,
+        name: str | None = None,
+        tool_executor: ToolExecutor | None = None,
+        description: str | None = None,
+        **kwargs: Any,
     ):
-        """Initialize bidirectional agent with required model and optional configuration.
+        """Initialize bidirectional agent.
 
         Args:
-            model: BidirectionalModel instance supporting streaming sessions.
-            tools: Optional list of tools available to the model.
+            model: BidirectionalModel instance, string model_id, or None for default detection.
+            tools: Optional list of tools with flexible format support.
             system_prompt: Optional system prompt for conversations.
             messages: Optional conversation history to initialize with.
             record_direct_tool_call: Whether to record direct tool calls in message history.
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.
-            agent_id: Optional ID for the agent, useful for session management and multi-agent scenarios.
+            agent_id: Optional ID for the agent, useful for connection management and multi-agent scenarios.
             name: Name of the Agent.
             tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
-            hooks: Hooks to be added to the agent hook registry.
-            trace_attributes: Custom trace attributes to apply to the agent's trace span.
             description: Description of what the Agent does.
+            **kwargs: Additional configuration for future extensibility.
+
+        Raises:
+            ValueError: If model configuration is invalid.
+            TypeError: If model type is unsupported.
         """
-        self.model = model
+        self.model = (
+            NovaSonicModel()
+            if not model
+            else NovaSonicModel(model_id=model)
+            if isinstance(model, str)
+            else model
+        )
         self.system_prompt = system_prompt
         self.messages = messages or []
-        
+
         # Agent identification
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
-        
+
         # Tool execution configuration
         self.record_direct_tool_call = record_direct_tool_call
         self.load_tools_from_directory = load_tools_from_directory
 
-        # Process trace attributes to ensure they're of compatible types
-        self.trace_attributes: dict[str, AttributeValue] = {}
-        if trace_attributes:
-            for k, v in trace_attributes.items():
-                if isinstance(v, (str, int, float, bool)) or (
-                    isinstance(v, list) and all(isinstance(x, (str, int, float, bool)) for x in v)
-                ):
-                    self.trace_attributes[k] = v
-
         # Initialize tool registry
         self.tool_registry = ToolRegistry()
-        
+
         if tools is not None:
             self.tool_registry.process_tools(tools)
-            
+
         self.tool_registry.initialize_tools(self.load_tools_from_directory)
-        
+
         # Initialize tool watcher if directory loading is enabled
         if self.load_tools_from_directory:
             self.tool_watcher = ToolWatcher(tool_registry=self.tool_registry)
 
         # Initialize tool executor
         self.tool_executor = tool_executor or ConcurrentToolExecutor()
-        
-        # Initialize hooks system
-        self.hooks = HookRegistry()
-        if hooks:
-            for hook in hooks:
-                self.hooks.add_hook(hook)
-                
+
         # Initialize other components
         self.event_loop_metrics = EventLoopMetrics()
-        self.tool_caller = BidirectionalAgent.ToolCaller(self)
+        self._tool_caller = _ToolCaller(self)
 
-        # Session management
-        self._session = None
+        # connection management
+        self._agent_loop: "BidirectionalAgentLoop" | None = None
         self._output_queue = asyncio.Queue()
+        self._current_adapters = []  # Track adapters for cleanup
 
     @property
-    def tool(self) -> ToolCaller:
+    def tool(self) -> _ToolCaller:
         """Call tool as a function.
 
         Returns:
-            Tool caller through which user can invoke tool as a function.
+            ToolCaller for method-style tool execution.
 
         Example:
             ```
@@ -246,7 +138,7 @@ class BidirectionalAgent:
             agent.tool.calculator(expression="2+2")
             ```
         """
-        return self.tool_caller
+        return self._tool_caller
 
     @property
     def tool_names(self) -> list[str]:
@@ -262,7 +154,7 @@ class BidirectionalAgent:
         self,
         tool: ToolUse,
         tool_result: ToolResult,
-        user_message_override: Optional[str],
+        user_message_override: str | None,
     ) -> None:
         """Record a tool execution in the message history.
 
@@ -345,171 +237,223 @@ class BidirectionalAgent:
         return {k: v for k, v in input_params.items() if k in properties}
 
     async def start(self) -> None:
-        """Start a persistent bidirectional conversation session.
+        """Start a persistent bidirectional conversation connection.
 
-        Initializes the streaming session and starts background tasks for processing
-        model events, tool execution, and session management.
+        Initializes the streaming connection and starts background tasks for processing
+        model events, tool execution, and connection management.
 
         Raises:
             ValueError: If conversation already active.
-            ConnectionError: If session creation fails.
+            ConnectionError: If connection creation fails.
         """
-        if self._session and self._session.active:
+        if self._agent_loop and self._agent_loop.active:
             raise ValueError("Conversation already active. Call end() first.")
 
-        logger.debug("Conversation start - initializing session")
-        self._session = await start_bidirectional_connection(self)
-    
-    async def send(self, input_data: str | AudioInputEvent | ImageInputEvent) -> None:
-        """Send input to the model (text, audio, or image).
-        
-        Unified method for sending text, audio, and image input to the model during
-        an active conversation session.
-        
+        logger.debug("Conversation start - initializing connection")
+
+        # Create model session and event loop directly
+        await self.model.connect(
+            system_prompt=self.system_prompt, tools=self.tool_registry.get_all_tool_specs(), messages=self.messages
+        )
+
+        self._agent_loop = BidirectionalAgentLoop(model=self.model, agent=self)
+        await self._agent_loop.start()
+
+        logger.debug("Conversation ready")
+
+    async def send(self, input_data: BidirectionalInput) -> None:
+        """Send input to the model (text or audio).
+
+        Unified method for sending both text and audio input to the model during
+        an active conversation connection. User input is automatically added to
+        conversation history for complete message tracking.
+
         Args:
             input_data: String for text, AudioInputEvent for audio, or ImageInputEvent for images.
-            
+
         Raises:
-            ValueError: If no active session or invalid input type.
+            ValueError: If no active connection or invalid input type.
         """
-        self._validate_active_session()
+        self._validate_active_connection()
 
         if isinstance(input_data, str):
             # Add user text message to history
-            self.messages.append({"role": "user", "content": input_data})
+            user_message: Message = {"role": "user", "content": [{"text": input_data}]}
+
+            self.messages.append(user_message)
 
             logger.debug("Text sent: %d characters", len(input_data))
             # Create TextInputEvent for send()
             text_event = {"text": input_data, "role": "user"}
-            await self._session.model.send(text_event)
-        elif isinstance(input_data, dict) and "audioData" in input_data:
-            # Handle audio input - already in AudioInputEvent format
-            await self._session.model.send(input_data)
-        elif isinstance(input_data, dict) and "imageData" in input_data:
-            # Handle image input - already in ImageInputEvent format
-            await self._session.model.send(input_data)
+            await self._agent_loop.model.send(text_event)
         else:
-            raise ValueError(
-                "Input must be either a string (text), AudioInputEvent "
-                "(dict with audioData, format, sampleRate, channels), or ImageInputEvent "
-                "(dict with imageData, mimeType, encoding)"
-            )
+            # For audio, image, or any other input - let model handle it
+            await self._agent_loop.model.send(input_data)
 
     async def receive(self) -> AsyncIterable[BidirectionalStreamEvent]:
         """Receive events from the model including audio, text, and tool calls.
 
         Yields model output events processed by background tasks including audio output,
-        text responses, tool calls, and session updates.
+        text responses, tool calls, and connection updates.
 
         Yields:
             BidirectionalStreamEvent: Events from the model session.
         """
-        while self._session and self._session.active:
+        while self.active:
             try:
-                event = await asyncio.wait_for(self._output_queue.get(), timeout=0.1)
+                event = await self._output_queue.get()
                 yield event
             except asyncio.TimeoutError:
                 continue
 
-    async def interrupt(self) -> None:
-        """Interrupt the current model generation and clear audio buffers.
-
-        Sends interruption signal to stop generation immediately and clears
-        pending audio output for responsive conversation flow.
-
-        Raises:
-            ValueError: If no active session.
-        """
-        self._validate_active_session()
-        # Interruption is now handled internally by models through audio/event processing
-        # No explicit interrupt method needed in unified interface
-        logger.debug("Interrupt requested - handled by model's audio processing")
-
     async def end(self) -> None:
-        """End the conversation session and cleanup all resources.
+        """End the conversation connection and cleanup all resources.
 
-        Terminates the streaming session, cancels background tasks, and
+        Terminates the streaming connection, cancels background tasks, and
         closes the connection to the model provider.
         """
-        if self._session:
-            await stop_bidirectional_connection(self._session)
-            self._session = None
+        if self._agent_loop:
+            await self._agent_loop.stop()
+            self._agent_loop = None
 
-    async def run(
-        self,
-        *,
-        sender: Callable[[Any], Any],
-        receiver: Callable[[], Any],
-    ) -> None:
-        """Run the agent with send/receive loop management.
+    async def __aenter__(self) -> "BidirectionalAgent":
+        """Async context manager entry point.
 
-        Starts the session, pipes events between the agent and transport layer,
-        and handles cleanup on disconnection.
+        Automatically starts the bidirectional connection when entering the context.
+
+        Returns:
+            Self for use in the context.
+
+        Raises:
+            ValueError: If connection is already active.
+            ConnectionError: If connection creation fails.
+        """
+        logger.debug("Entering async context manager - starting connection")
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Async context manager exit point.
+
+        Automatically ends the connection and cleans up resources including adapters
+        when exiting the context, regardless of whether an exception occurred.
 
         Args:
-            sender: Async callable that sends events to the client (e.g., websocket.send_json).
-            receiver: Async callable that receives events from the client (e.g., websocket.receive_json).
+            exc_type: Exception type if an exception occurred, None otherwise.
+            exc_val: Exception value if an exception occurred, None otherwise.
+            exc_tb: Exception traceback if an exception occurred, None otherwise.
+        """
+        try:
+            logger.debug("Exiting async context manager - cleaning up adapters and connection")
+            
+            # Cleanup adapters if any are currently active
+            for adapter in self._current_adapters:
+                if hasattr(adapter, "cleanup"):
+                    try:
+                        adapter.end()
+                        logger.debug(f"Cleaned up adapter: {type(adapter).__name__}")
+                    except Exception as adapter_error:
+                        logger.warning(f"Error cleaning up adapter: {adapter_error}")
+            
+            # Clear current adapters
+            self._current_adapters = []
+            
+            # Cleanup agent connection
+            await self.end()
 
+        except Exception as cleanup_error:
+            if exc_type is None:
+                # No original exception, re-raise cleanup error
+                logger.error("Error during context manager cleanup: %s", cleanup_error)
+                raise
+            else:
+                # Original exception exists, log cleanup error but don't suppress original
+                logger.error(
+                    "Error during context manager cleanup (suppressed due to original exception): %s", cleanup_error
+                )
+
+    @property
+    def active(self) -> bool:
+        """Check if the agent connection is currently active.
+
+        Returns:
+            True if connection is active and ready for communication, False otherwise.
+        """
+        return self._agent_loop is not None and self._agent_loop.active
+
+    async def run(self, io_channels: list[BidiIO | tuple[Callable, Callable]]) -> None:
+        """Run the agent using provided IO channels or transport tuples for bidirectional communication.
+
+        Args:
+            io_channels: List containing either BidiIO instances or (sender, receiver) tuples.
+                - BidiIO: IO channel instance with send(), receive(), and end() methods
+                - tuple: (sender_callable, receiver_callable) for custom transport
+                
         Example:
             ```python
-            # With WebSocket
+            # With IO channel
+            audio_io = AudioIO(audio_config={"input_sample_rate": 16000})
             agent = BidirectionalAgent(model=model, tools=[calculator])
-            await agent.run(sender=websocket.send_json, receiver=websocket.receive_json)
+            await agent.run(io_channels=[audio_io])
 
-            # With custom transport
-            async def custom_send(event):
-                # Custom send logic
-                pass
-
-            async def custom_receive():
-                # Custom receive logic
-                return event
-
-            await agent.run(sender=custom_send, receiver=custom_receive)
+            # With tuple (backward compatibility)
+            await agent.run(io_channels=[(sender_function, receiver_function)])
             ```
 
         Raises:
-            Exception: Any exception from the transport layer (e.g., WebSocketDisconnect).
+            ValueError: If io_channels list is empty or contains invalid items.
+            Exception: Any exception from the transport layer.
         """
-        await self.start()
+        if not io_channels:
+            raise ValueError("io_channels parameter cannot be empty. Provide either an IO channel or (sender, receiver) tuple.")
+        
+        transport = io_channels[0]
+        
+        # Set IO channel tracking for cleanup
+        if hasattr(transport, 'send') and hasattr(transport, 'receive'):
+            self._current_adapters = [transport]  # IO channel needs cleanup
+        elif isinstance(transport, tuple) and len(transport) == 2:
+            self._current_adapters = []  # Tuple needs no cleanup
+        else:
+            raise ValueError("io_channels list must contain either BidiIO instances or (sender, receiver) tuples.")
+
+        # Auto-manage session lifecycle
+        if self.active:
+            await self._run_with_transport(transport)
+        else:
+            async with self:
+                await self._run_with_transport(transport)
+
+    async def _run_with_transport(
+        self,
+        transport: BidiIO | tuple[Callable, Callable],
+    ) -> None:
+        """Internal method to run send/receive loops with an active connection."""
 
         async def receive_from_agent():
-            """Receive events from agent and send to client."""
-            try:
-                async for event in self.receive():
-                    await sender(event)
-            except Exception as e:
-                logger.debug(f"Receive from agent stopped: {e}")
-                raise
+            """Receive events from agent and send to transport."""
+            async for event in self.receive():
+                if hasattr(transport, 'receive'):
+                    await transport.receive(event)
+                else:
+                    await transport[0](event)
 
         async def send_to_agent():
-            """Receive events from client and send to agent."""
-            try:
-                while self._session and self._session.active:
-                    event = await receiver()
-                    await self.send(event)
-            except Exception as e:
-                logger.debug(f"Send to agent stopped: {e}")
-                raise
+            """Receive events from transport and send to agent."""
+            while self.active:
+                if hasattr(transport, 'send'):
+                    event = await transport.send()
+                else:
+                    event = await transport[1]()
+                await self.send(event)
 
-        try:
-            # Run both loops concurrently
-            await asyncio.gather(
-                receive_from_agent(),
-                send_to_agent(),
-                return_exceptions=True
-            )
-        finally:
-            try:
-                await self.end()
-            except Exception as e:
-                logger.debug(f"Error during cleanup: {e}")
+        await asyncio.gather(receive_from_agent(), send_to_agent(), return_exceptions=True)
 
-    def _validate_active_session(self) -> None:
-        """Validate that an active session exists.
+    def _validate_active_connection(self) -> None:
+        """Validate that an active connection exists.
 
         Raises:
-            ValueError: If no active session.
+            ValueError: If no active connection.
         """
-        if not self._session or not self._session.active:
-            raise ValueError("No active conversation. Call start() first.")
+        if not self.active:
+            raise ValueError("No active conversation. Call start() first or use async context manager.")
