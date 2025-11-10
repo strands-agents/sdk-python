@@ -21,6 +21,7 @@ from ....types.tools import ToolSpec
 from ..types.bidirectional_streaming import (
     AudioInputEvent,
     ImageInputEvent,
+    InputEvent,
     OutputEvent,
     TextInputEvent,
 )
@@ -83,7 +84,7 @@ class BidirectionalModel(Protocol):
 
     async def send(
         self,
-        content: Union[TextInputEvent, AudioInputEvent, ImageInputEvent, ToolResultEvent],
+        content: InputEvent | ToolResultEvent,
     ) -> None:
         """Send content to the model over the active connection.
 
