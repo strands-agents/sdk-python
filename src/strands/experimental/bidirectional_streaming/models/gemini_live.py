@@ -31,7 +31,7 @@ from ..types.events import (
     BidiConnectionStartEvent,
     BidiErrorEvent,
     BidiImageInputEvent,
-    InputEvent,
+    BidiInputEvent,
     BidiInterruptionEvent,
     BidiUsageEvent,
     BidiTextInputEvent,
@@ -334,7 +334,7 @@ class BidiGeminiLiveModel(BidiModel):
     
     async def send(
         self,
-        content: InputEvent | ToolResultEvent,
+        content: BidiInputEvent | ToolResultEvent,
     ) -> None:
         """Unified send method for all content types. Sends the given inputs to Google Live API
         

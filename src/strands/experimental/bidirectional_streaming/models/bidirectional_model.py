@@ -21,8 +21,8 @@ from ....types.tools import ToolSpec
 from ..types.events import (
     BidiAudioInputEvent,
     BidiImageInputEvent,
-    InputEvent,
-    OutputEvent,
+    BidiInputEvent,
+    BidiOutputEvent,
     BidiTextInputEvent,
 )
 
@@ -67,7 +67,7 @@ class BidiModel(Protocol):
         """
         ...
 
-    async def receive(self) -> AsyncIterable[OutputEvent]:
+    async def receive(self) -> AsyncIterable[BidiOutputEvent]:
         """Receive streaming events from the model.
 
         Continuously yields events from the model as they arrive over the connection.
@@ -77,14 +77,14 @@ class BidiModel(Protocol):
         The stream continues until the connection is closed or an error occurs.
 
         Yields:
-            OutputEvent: Standardized event objects containing audio output,
+            BidiOutputEvent: Standardized event objects containing audio output,
                 transcripts, tool calls, or control signals.
         """
         ...
 
     async def send(
         self,
-        content: InputEvent | ToolResultEvent,
+        content: BidiInputEvent | ToolResultEvent,
     ) -> None:
         """Send content to the model over the active connection.
 

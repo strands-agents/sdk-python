@@ -34,7 +34,7 @@ from ..event_loop.bidirectional_event_loop import (
 )
 from ..models.bidirectional_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
-from ..types.events import BidiAudioInputEvent, BidiImageInputEvent, BidiTextInputEvent, InputEvent, OutputEvent
+from ..types.events import BidiAudioInputEvent, BidiImageInputEvent, BidiTextInputEvent, BidiInputEvent, BidiOutputEvent
 from ..types import BidiIO
 from ....experimental.tools import ToolProvider
 
@@ -325,10 +325,10 @@ class BidiAgent:
         
         # If we get here, input type is invalid
         raise ValueError(
-            f"Input must be a string, InputEvent (BidiTextInputEvent/BidiAudioInputEvent/BidiImageInputEvent), or event dict with 'type' field, got: {type(input_data)}"
+            f"Input must be a string, BidiInputEvent (BidiTextInputEvent/BidiAudioInputEvent/BidiImageInputEvent), or event dict with 'type' field, got: {type(input_data)}"
         )
 
-    async def receive(self) -> AsyncIterable[OutputEvent]:
+    async def receive(self) -> AsyncIterable[BidiOutputEvent]:
         """Receive events from the model including audio, text, and tool calls.
 
         Yields model output events processed by background tasks including audio output,

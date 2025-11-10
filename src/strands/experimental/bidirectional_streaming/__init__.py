@@ -22,11 +22,11 @@ from .types.events import (
     BidiConnectionStartEvent,
     BidiErrorEvent,
     BidiImageInputEvent,
-    InputEvent,
+    BidiInputEvent,
     BidiInterruptionEvent,
     ModalityUsage,
     BidiUsageEvent,
-    OutputEvent,
+    BidiOutputEvent,
     BidiResponseCompleteEvent,
     BidiResponseStartEvent,
     BidiTextInputEvent,
@@ -54,7 +54,7 @@ __all__ = [
     "BidiTextInputEvent",
     "BidiAudioInputEvent",
     "BidiImageInputEvent",
-    "InputEvent",
+    "BidiInputEvent",
     
     # Output Event types
     "BidiConnectionStartEvent",
@@ -67,7 +67,7 @@ __all__ = [
     "BidiUsageEvent",
     "ModalityUsage",
     "BidiErrorEvent",
-    "OutputEvent",
+    "BidiOutputEvent",
     
     # Tool Event types (reused from standard agent)
     "ToolUseStreamEvent",

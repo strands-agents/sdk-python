@@ -504,11 +504,11 @@ class BidiErrorEvent(TypedEvent):
 # ============================================================================
 
 # Note: ToolResultEvent is imported from strands.types._events and used alongside
-# InputEvent in send() methods for sending tool results back to the model.
+# BidiInputEvent in send() methods for sending tool results back to the model.
 
-InputEvent = BidiTextInputEvent | BidiAudioInputEvent | BidiImageInputEvent
+BidiInputEvent = BidiTextInputEvent | BidiAudioInputEvent | BidiImageInputEvent
 
-OutputEvent = (
+BidiOutputEvent = (
     BidiConnectionStartEvent
     | BidiResponseStartEvent
     | BidiAudioStreamEvent

@@ -25,10 +25,10 @@ from ..types.events import (
     BidiConnectionStartEvent,
     BidiErrorEvent,
     BidiImageInputEvent,
-    InputEvent,
+    BidiInputEvent,
     BidiInterruptionEvent,
     BidiUsageEvent,
-    OutputEvent,
+    BidiOutputEvent,
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
     BidiResponseCompleteEvent,
@@ -291,7 +291,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
             self._active = False
             logger.debug("OpenAI Realtime response processor stopped")
 
-    async def receive(self) -> AsyncIterable[OutputEvent]:
+    async def receive(self) -> AsyncIterable[BidiOutputEvent]:
         """Receive OpenAI events and convert to Strands TypedEvent format."""
         # Emit connection start event
         yield BidiConnectionStartEvent(
@@ -315,7 +315,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
             # Emit connection close event
             yield BidiConnectionCloseEvent(connection_id=self.connection_id, reason="complete")
 
-    def _convert_openai_event(self, openai_event: dict[str, any]) -> list[OutputEvent] | None:
+    def _convert_openai_event(self, openai_event: dict[str, any]) -> list[BidiOutputEvent] | None:
         """Convert OpenAI events to Strands TypedEvent format."""
         event_type = openai_event.get("type")
         
@@ -526,7 +526,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
     async def send(
         self,
-        content: InputEvent | ToolResultEvent,
+        content: BidiInputEvent | ToolResultEvent,
     ) -> None:
         """Unified send method for all content types. Sends the given content to OpenAI.
         

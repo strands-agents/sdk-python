@@ -40,10 +40,10 @@ from ..types.events import (
     BidiConnectionStartEvent,
     BidiErrorEvent,
     BidiImageInputEvent,
-    InputEvent,
+    BidiInputEvent,
     BidiInterruptionEvent,
     BidiUsageEvent,
-    OutputEvent,
+    BidiOutputEvent,
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
     BidiResponseCompleteEvent,
@@ -308,7 +308,7 @@ class BidiNovaSonicModel(BidiModel):
 
     async def send(
         self,
-        content: InputEvent | ToolResultEvent,
+        content: BidiInputEvent | ToolResultEvent,
     ) -> None:
         """Unified send method for all content types. Sends the given content to Nova Sonic.
 
@@ -513,7 +513,7 @@ class BidiNovaSonicModel(BidiModel):
         finally:
             logger.debug("Nova connection closed")
 
-    def _convert_nova_event(self, nova_event: dict[str, any]) -> OutputEvent | None:
+    def _convert_nova_event(self, nova_event: dict[str, any]) -> BidiOutputEvent | None:
         """Convert Nova Sonic events to TypedEvent format."""
         # Handle completion start - track completionId
         if "completionStart" in nova_event:
