@@ -27,7 +27,7 @@ from ....tools.watcher import ToolWatcher
 from ....types.content import Message, Messages
 from ....types.tools import ToolResult, ToolUse, AgentTool
 
-from ..event_loop.bidirectional_event_loop import BidiAgentLoop
+from ..event_loop.bidirectional_event_loop import BidirectionalConnection
 from ..models.bidirectional_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
 from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent, ImageInputEvent
@@ -121,7 +121,7 @@ class BidiAgent:
         self._tool_caller = _ToolCaller(self)
 
         # connection management
-        self._agent_loop: "BidiAgentLoop" | None = None
+        self._agent_loop: "BidirectionalConnection" | None = None
         self._output_queue = asyncio.Queue()
         self._current_adapters = []  # Track adapters for cleanup
 
@@ -256,7 +256,7 @@ class BidiAgent:
             system_prompt=self.system_prompt, tools=self.tool_registry.get_all_tool_specs(), messages=self.messages
         )
 
-        self._agent_loop = BidiAgentLoop(model=self.model, agent=self)
+        self._agent_loop = BidirectionalConnection(model=self.model, agent=self)
         await self._agent_loop.start()
 
         logger.debug("Conversation ready")
