@@ -219,11 +219,12 @@ class BidiGeminiLiveModel(BidiModel):
                 # Check if the transcription object has text content
                 if hasattr(input_transcript, 'text') and input_transcript.text:
                     transcription_text = input_transcript.text
+                    role = getattr(input_transcript, 'role', 'user')
                     logger.debug(f"Input transcription detected: {transcription_text}")
                     return BidiTranscriptStreamEvent(
                         delta={"text": transcription_text},
                         text=transcription_text,
-                        role="user",
+                        role=role.lower() if isinstance(role, str) else "user",
                         is_final=True,
                         current_transcript=transcription_text
                     )
@@ -234,22 +235,24 @@ class BidiGeminiLiveModel(BidiModel):
                 # Check if the transcription object has text content
                 if hasattr(output_transcript, 'text') and output_transcript.text:
                     transcription_text = output_transcript.text
+                    role = getattr(output_transcript, 'role', 'assistant')
                     logger.debug(f"Output transcription detected: {transcription_text}")
                     return BidiTranscriptStreamEvent(
                         delta={"text": transcription_text},
                         text=transcription_text,
-                        role="assistant",
+                        role=role.lower() if isinstance(role, str) else "assistant",
                         is_final=True,
                         current_transcript=transcription_text
                     )
             
             # Handle text output from model
             if message.text:
+                role = getattr(message, 'role', 'assistant')
                 logger.debug(f"Text output as transcript: {message.text}")
                 return BidiTranscriptStreamEvent(
                     delta={"text": message.text},
                     text=message.text,
-                    role="assistant",
+                    role=role.lower() if isinstance(role, str) else "assistant",
                     is_final=True,
                     current_transcript=message.text
                 )

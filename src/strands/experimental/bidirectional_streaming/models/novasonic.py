@@ -552,7 +552,7 @@ class BidiNovaSonicModel(BidiModel):
         elif "textOutput" in nova_event:
             text_content = nova_event["textOutput"]["content"]
             # Use stored role from contentStart event, fallback to event role
-            role = getattr(self, "_current_role", nova_event["textOutput"].get("role", "assistant"))
+            role = getattr(self, "_current_role", None) or nova_event["textOutput"].get("role", "assistant")
 
             # Check for Nova Sonic interruption pattern
             if '{ "interrupted" : true }' in text_content:
@@ -562,7 +562,7 @@ class BidiNovaSonicModel(BidiModel):
             return BidiTranscriptStreamEvent(
                 delta={"text": text_content},
                 text=text_content,
-                role="user" if role == "USER" else "assistant",
+                role=role.lower() if isinstance(role, str) else "assistant",
                 is_final=True,
                 current_transcript=text_content
             )

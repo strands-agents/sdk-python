@@ -282,7 +282,7 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
 
             # Queue tool requests for concurrent execution
             # Check for ToolUseStreamEvent (standard agent event)
-            if "current_tool_use" in strands_event:
+            if event_type == "tool_use_stream":
                 tool_use = strands_event.get("current_tool_use")
                 if tool_use:
                     tool_name = tool_use.get("name")
@@ -297,9 +297,9 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
 
             # Update Agent conversation history for user transcripts
             if event_type == "bidirectional_transcript_stream":
-                source = strands_event.get("source")
+                role = strands_event.get("role")
                 text = strands_event.get("text", "")
-                if source == "user" and text.strip():
+                if role == "user" and text.strip():
                     user_message = {"role": "user", "content": text}
                     session.agent.messages.append(user_message)
                     logger.debug("User transcript added to history")

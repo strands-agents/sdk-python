@@ -174,11 +174,22 @@ class BidiOpenAIRealtimeModel(BidiModel):
         return self._active
 
     def _create_text_event(self, text: str, role: str, is_final: bool = True) -> BidiTranscriptStreamEvent:
-        """Create standardized transcript event."""
+        """Create standardized transcript event.
+        
+        Args:
+            text: The transcript text
+            role: The role (will be normalized to lowercase)
+            is_final: Whether this is the final transcript
+        """
+        # Normalize role to lowercase and ensure it's either "user" or "assistant"
+        normalized_role = role.lower() if isinstance(role, str) else "assistant"
+        if normalized_role not in ["user", "assistant"]:
+            normalized_role = "assistant"
+            
         return BidiTranscriptStreamEvent(
             delta={"text": text},
             text=text,
-            role="user" if role == "user" else "assistant",
+            role=normalized_role,
             is_final=is_final,
             current_transcript=text if is_final else None
         )
@@ -326,20 +337,23 @@ class BidiOpenAIRealtimeModel(BidiModel):
         
         # Assistant text output events - combine multiple similar events
         elif event_type in ["response.output_text.delta", "response.output_audio_transcript.delta"]:
-            return [self._create_text_event(openai_event["delta"], "assistant")]
+            role = openai_event.get("role", "assistant")
+            return [self._create_text_event(openai_event["delta"], role.lower() if isinstance(role, str) else "assistant")]
         
         # User transcription events - combine multiple similar events
         elif event_type in ["conversation.item.input_audio_transcription.delta", 
                            "conversation.item.input_audio_transcription.completed"]:
             text_key = "delta" if "delta" in event_type else "transcript"
             text = openai_event.get(text_key, "")
+            role = openai_event.get("role", "user")
             is_final = "completed" in event_type
-            return [self._create_text_event(text, "user", is_final=is_final)] if text.strip() else None
+            return [self._create_text_event(text, role.lower() if isinstance(role, str) else "user", is_final=is_final)] if text.strip() else None
         
         elif event_type == "conversation.item.input_audio_transcription.segment":
             segment_data = openai_event.get("segment", {})
             text = segment_data.get("text", "")
-            return [self._create_text_event(text, "user")] if text.strip() else None
+            role = segment_data.get("role", "user")
+            return [self._create_text_event(text, role.lower() if isinstance(role, str) else "user")] if text.strip() else None
         
         elif event_type == "conversation.item.input_audio_transcription.failed":
             error_info = openai_event.get("error", {})
