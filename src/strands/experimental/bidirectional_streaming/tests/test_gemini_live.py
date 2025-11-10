@@ -41,9 +41,9 @@ from strands.experimental.bidirectional_streaming.agent.agent import Bidirection
 from strands.experimental.bidirectional_streaming.models.gemini_live import GeminiLiveModel
 
 # Configure logging - debug only for Gemini Live, info for everything else
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.WARN, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 gemini_logger = logging.getLogger('strands.experimental.bidirectional_streaming.models.gemini_live')
-gemini_logger.setLevel(logging.DEBUG)
+gemini_logger.setLevel(logging.WARN)
 logger = logging.getLogger(__name__)
 
 
@@ -162,7 +162,7 @@ async def receive(agent, context):
             # Handle interruption events (bidirectional_interruption)
             elif event_type == "bidirectional_interruption":
                 context["interrupted"] = True
-                logger.info("Interruption detected")
+                print("⚠️  Interruption detected")
 
             # Handle transcript events (bidirectional_transcript_stream)
             elif event_type == "bidirectional_transcript_stream":
