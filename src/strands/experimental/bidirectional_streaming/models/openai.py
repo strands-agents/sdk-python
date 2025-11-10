@@ -378,17 +378,20 @@ class OpenAIRealtimeModel(BidirectionalModel):
                     del self._function_call_buffer[call_id]
             return None
         
-        # Voice activity detection events - combine similar events using mapping
-        elif event_type in ["input_audio_buffer.speech_started", "input_audio_buffer.speech_stopped", 
-                           "input_audio_buffer.timeout_triggered"]:
-            # Map event types to activity types
-            activity_map = {
-                "input_audio_buffer.speech_started": "speech_started",
-                "input_audio_buffer.speech_stopped": "speech_stopped", 
-                "input_audio_buffer.timeout_triggered": "timeout"
-            }
-            event = self._create_voice_activity_event(activity_map[event_type])
-            return [event] if event else None
+        # Voice activity detection - speech_started triggers interruption
+        elif event_type == "input_audio_buffer.speech_started":
+            # This is the primary interruption signal - handle it first
+            return [InterruptionEvent(reason="user_speech")]
+        
+        # Response cancelled - handle interruption
+        elif event_type == "response.cancelled":
+            response = openai_event.get("response", {})
+            response_id = response.get("id", "unknown")
+            logger.debug("OpenAI response cancelled: %s", response_id)
+            return [ResponseCompleteEvent(
+                response_id=response_id,
+                stop_reason="interrupted"
+            )]
         
         # Turn complete and usage - response finished
         elif event_type == "response.done":
@@ -503,7 +506,18 @@ class OpenAIRealtimeModel(BidirectionalModel):
             return None
         
         elif event_type == "error":
-            logger.error("OpenAI Realtime error: %s", openai_event.get("error", {}))
+            error_data = openai_event.get("error", {})
+            error_code = error_data.get("code", "")
+            
+            # Suppress expected errors that don't affect session state
+            if error_code == "response_cancel_not_active":
+                # This happens when trying to cancel a response that's not active
+                # It's safe to ignore as the session remains functional
+                logger.debug("OpenAI response cancel attempted when no response active (safe to ignore)")
+                return None
+            
+            # Log other errors
+            logger.error("OpenAI Realtime error: %s", error_data)
             return None
         
         else:
