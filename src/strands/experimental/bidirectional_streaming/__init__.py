@@ -15,16 +15,29 @@ from .models.novasonic import BidiNovaSonicModel
 from .models.openai import BidiOpenAIRealtimeModel
 
 # Event types - For type hints and event handling
-from .types.bidirectional_streaming import (
-    AudioInputEvent,
-    AudioOutputEvent,
-    BidirectionalStreamEvent,
-    ImageInputEvent,
-    InterruptionDetectedEvent,
-    TextInputEvent,
-    TextOutputEvent,
-    UsageMetricsEvent,
-    VoiceActivityEvent,
+from .types.events import (
+    BidiAudioInputEvent,
+    BidiAudioStreamEvent,
+    BidiConnectionCloseEvent,
+    BidiConnectionStartEvent,
+    BidiErrorEvent,
+    BidiImageInputEvent,
+    BidiInputEvent,
+    BidiInterruptionEvent,
+    ModalityUsage,
+    BidiUsageEvent,
+    BidiOutputEvent,
+    BidiResponseCompleteEvent,
+    BidiResponseStartEvent,
+    BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
+)
+
+# Re-export standard agent events for tool handling
+from ...types._events import (
+    ToolResultEvent,
+    ToolStreamEvent,
+    ToolUseStreamEvent,
 )
 
 __all__ = [
@@ -37,16 +50,30 @@ __all__ = [
     "BidiNovaSonicModel",
     "BidiOpenAIRealtimeModel",
     
-    # Event types
-    "AudioInputEvent",
-    "AudioOutputEvent",
-    "ImageInputEvent",
-    "TextInputEvent",
-    "TextOutputEvent",
-    "InterruptionDetectedEvent",
-    "BidirectionalStreamEvent",
-    "VoiceActivityEvent",
-    "UsageMetricsEvent",
+    # Input Event types
+    "BidiTextInputEvent",
+    "BidiAudioInputEvent",
+    "BidiImageInputEvent",
+    "BidiInputEvent",
+    
+    # Output Event types
+    "BidiConnectionStartEvent",
+    "BidiConnectionCloseEvent",
+    "BidiResponseStartEvent",
+    "BidiResponseCompleteEvent",
+    "BidiAudioStreamEvent",
+    "BidiTranscriptStreamEvent",
+    "BidiInterruptionEvent",
+    "BidiUsageEvent",
+    "ModalityUsage",
+    "BidiErrorEvent",
+    "BidiOutputEvent",
+    
+    # Tool Event types (reused from standard agent)
+    "ToolUseStreamEvent",
+    "ToolResultEvent",
+    "ToolStreamEvent",
+    
     # Model interface
     "BidiModel",
 ]

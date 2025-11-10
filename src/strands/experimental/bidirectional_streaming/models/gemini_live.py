@@ -23,16 +23,21 @@ from google.genai.types import LiveServerMessage, LiveServerContent
 
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
-from ..types.bidirectional_streaming import (
-    AudioInputEvent,
-    AudioOutputEvent,
-    BidirectionalConnectionEndEvent,
-    BidirectionalConnectionStartEvent,
-    ImageInputEvent,
-    InterruptionDetectedEvent,
-    TextInputEvent,
-    TextOutputEvent,
-    TranscriptEvent,
+from ....types._events import ToolResultEvent, ToolUseStreamEvent
+from ..types.events import (
+    BidiAudioInputEvent,
+    BidiAudioStreamEvent,
+    BidiConnectionCloseEvent,
+    BidiConnectionStartEvent,
+    BidiErrorEvent,
+    BidiImageInputEvent,
+    BidiInputEvent,
+    BidiInterruptionEvent,
+    BidiUsageEvent,
+    BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
+    BidiResponseCompleteEvent,
+    BidiResponseStartEvent,
 )
 from .bidirectional_model import BidiModel
 
@@ -85,7 +90,7 @@ class BidiGeminiLiveModel(BidiModel):
         # Connection state (initialized in start())
         self.live_session = None
         self.live_session_context_manager = None
-        self.session_id = None
+        self.connection_id = None
         self._active = False
     
     async def start(
@@ -108,7 +113,7 @@ class BidiGeminiLiveModel(BidiModel):
         
         try:
             # Initialize connection state
-            self.session_id = str(uuid.uuid4())
+            self.connection_id = str(uuid.uuid4())
             self._active = True
             
             # Build live config
@@ -160,11 +165,10 @@ class BidiGeminiLiveModel(BidiModel):
         """Receive Gemini Live API events and convert to provider-agnostic format."""
         
         # Emit connection start event
-        connection_start: BidirectionalConnectionStartEvent = {
-            "connectionId": self.session_id,
-            "metadata": {"provider": "gemini_live", "model_id": self.model_id}
-        }
-        yield {"BidirectionalConnectionStart": connection_start}
+        yield BidiConnectionStartEvent(
+            connection_id=self.connection_id,
+            model=self.model_id
+        )
         
         try:
             # Wrap in while loop to restart after turn_complete (SDK limitation workaround)
@@ -190,30 +194,24 @@ class BidiGeminiLiveModel(BidiModel):
                     
         except Exception as e:
             logger.error("Fatal error in receive loop: %s", e)
+            yield BidiErrorEvent(error=e)
         finally:
-            # Emit connection end event when exiting
-            connection_end: BidirectionalConnectionEndEvent = {
-                "connectionId": self.session_id,
-                "reason": "connection_complete",
-                "metadata": {"provider": "gemini_live"}
-            }
-            yield {"BidirectionalConnectionEnd": connection_end}
+            # Emit connection close event when exiting
+            yield BidiConnectionCloseEvent(connection_id=self.connection_id, reason="complete")
     
     def _convert_gemini_live_event(self, message: LiveServerMessage) -> Optional[Dict[str, Any]]:
         """Convert Gemini Live API events to provider-agnostic format.
         
-        Handles different types of text output:
-        - inputTranscription: User's speech transcribed to text (emitted as transcript event)
-        - outputTranscription: Model's audio transcribed to text (emitted as transcript event)
-        - modelTurn text: Actual text response from the model (emitted as textOutput)
+        Handles different types of content:
+        - inputTranscription: User's speech transcribed to text
+        - outputTranscription: Model's audio transcribed to text
+        - modelTurn text: Text response from the model
+        - usageMetadata: Token usage information
         """
         try:
             # Handle interruption first (from server_content)
             if message.server_content and message.server_content.interrupted:
-                interruption: InterruptionDetectedEvent = {
-                    "reason": "user_input"
-                }
-                return {"interruptionDetected": interruption}
+                return BidiInterruptionEvent(reason="user_speech")
             
             # Handle input transcription (user's speech) - emit as transcript event
             if message.server_content and message.server_content.input_transcription:
@@ -221,13 +219,15 @@ class BidiGeminiLiveModel(BidiModel):
                 # Check if the transcription object has text content
                 if hasattr(input_transcript, 'text') and input_transcript.text:
                     transcription_text = input_transcript.text
+                    role = getattr(input_transcript, 'role', 'user')
                     logger.debug(f"Input transcription detected: {transcription_text}")
-                    transcript: TranscriptEvent = {
-                        "text": transcription_text,
-                        "role": "user",
-                        "type": "input"
-                    }
-                    return {"transcript": transcript}
+                    return BidiTranscriptStreamEvent(
+                        delta={"text": transcription_text},
+                        text=transcription_text,
+                        role=role.lower() if isinstance(role, str) else "user",
+                        is_final=True,
+                        current_transcript=transcription_text
+                    )
             
             # Handle output transcription (model's audio) - emit as transcript event
             if message.server_content and message.server_content.output_transcription:
@@ -235,33 +235,38 @@ class BidiGeminiLiveModel(BidiModel):
                 # Check if the transcription object has text content
                 if hasattr(output_transcript, 'text') and output_transcript.text:
                     transcription_text = output_transcript.text
+                    role = getattr(output_transcript, 'role', 'assistant')
                     logger.debug(f"Output transcription detected: {transcription_text}")
-                    transcript: TranscriptEvent = {
-                        "text": transcription_text,
-                        "role": "assistant",
-                        "type": "output"
-                    }
-                    return {"transcript": transcript}
+                    return BidiTranscriptStreamEvent(
+                        delta={"text": transcription_text},
+                        text=transcription_text,
+                        role=role.lower() if isinstance(role, str) else "assistant",
+                        is_final=True,
+                        current_transcript=transcription_text
+                    )
             
-            # Handle actual text output from model (not transcription)
-            # The SDK's message.text property accesses modelTurn.parts[].text
+            # Handle text output from model
             if message.text:
-                text_output: TextOutputEvent = {
-                    "text": message.text,
-                    "role": "assistant"
-                }
-                return {"textOutput": text_output}
+                role = getattr(message, 'role', 'assistant')
+                logger.debug(f"Text output as transcript: {message.text}")
+                return BidiTranscriptStreamEvent(
+                    delta={"text": message.text},
+                    text=message.text,
+                    role=role.lower() if isinstance(role, str) else "assistant",
+                    is_final=True,
+                    current_transcript=message.text
+                )
             
             # Handle audio output using SDK's built-in data property
             if message.data:
-                audio_output: AudioOutputEvent = {
-                    "audioData": message.data,
-                    "format": "pcm",
-                    "sampleRate": GEMINI_OUTPUT_SAMPLE_RATE,
-                    "channels": GEMINI_CHANNELS,
-                    "encoding": "raw"
-                }
-                return {"audioOutput": audio_output}
+                # Convert bytes to base64 string for JSON serializability
+                audio_b64 = base64.b64encode(message.data).decode('utf-8')
+                return BidiAudioStreamEvent(
+                    audio=audio_b64,
+                    format="pcm",
+                    sample_rate=GEMINI_OUTPUT_SAMPLE_RATE,
+                    channels=GEMINI_CHANNELS
+                )
             
             # Handle tool calls
             if message.tool_call and message.tool_call.function_calls:
@@ -271,9 +276,54 @@ class BidiGeminiLiveModel(BidiModel):
                         "name": func_call.name,
                         "input": func_call.args or {}
                     }
-                    return {"toolUse": tool_use_event}
+                    # Return ToolUseStreamEvent for consistency with standard agent
+                    return ToolUseStreamEvent(
+                        delta={"toolUse": tool_use_event},
+                        current_tool_use=tool_use_event
+                    )
             
-            # Silently ignore setup_complete, turn_complete, generation_complete, and usage_metadata messages
+            # Handle usage metadata
+            if hasattr(message, 'usage_metadata') and message.usage_metadata:
+                usage = message.usage_metadata
+                
+                # Build modality details from token details
+                modality_details = []
+                
+                # Process prompt tokens details
+                if usage.prompt_tokens_details:
+                    for detail in usage.prompt_tokens_details:
+                        if detail.modality and detail.token_count:
+                            modality_details.append({
+                                "modality": str(detail.modality).lower(),
+                                "input_tokens": detail.token_count,
+                                "output_tokens": 0
+                            })
+                
+                # Process response tokens details
+                if usage.response_tokens_details:
+                    for detail in usage.response_tokens_details:
+                        if detail.modality and detail.token_count:
+                            # Find or create modality entry
+                            modality_str = str(detail.modality).lower()
+                            existing = next((m for m in modality_details if m["modality"] == modality_str), None)
+                            if existing:
+                                existing["output_tokens"] = detail.token_count
+                            else:
+                                modality_details.append({
+                                    "modality": modality_str,
+                                    "input_tokens": 0,
+                                    "output_tokens": detail.token_count
+                                })
+                
+                return BidiUsageEvent(
+                    input_tokens=usage.prompt_token_count or 0,
+                    output_tokens=usage.response_token_count or 0,
+                    total_tokens=usage.total_token_count or 0,
+                    modality_details=modality_details if modality_details else None,
+                    cache_read_input_tokens=usage.cached_content_token_count if usage.cached_content_token_count else None
+                )
+            
+            # Silently ignore setup_complete and generation_complete messages
             return None
             
         except Exception as e:
@@ -282,48 +332,50 @@ class BidiGeminiLiveModel(BidiModel):
             logger.error("Message attributes: %s", [attr for attr in dir(message) if not attr.startswith('_')])
             return None
     
-    async def send(self, content: Union[TextInputEvent, ImageInputEvent, AudioInputEvent, ToolResult]) -> None:
+    async def send(
+        self,
+        content: BidiInputEvent | ToolResultEvent,
+    ) -> None:
         """Unified send method for all content types. Sends the given inputs to Google Live API
         
         Dispatches to appropriate internal handler based on content type.
         
         Args:
-            content: Typed event (TextInputEvent, ImageInputEvent, AudioInputEvent, or ToolResult).
+            content: Typed event (BidiTextInputEvent, BidiAudioInputEvent, BidiImageInputEvent, or ToolResultEvent).
         """
         if not self._active:
             return
         
         try:
-            if isinstance(content, dict):
-                # Dispatch based on content structure
-                if "text" in content and "role" in content:
-                    # TextInputEvent
-                    await self._send_text_content(content["text"])
-                elif "audioData" in content:
-                    # AudioInputEvent
-                    await self._send_audio_content(content)
-                elif "imageData" in content or "image_url" in content:
-                    # ImageInputEvent
-                    await self._send_image_content(content)
-                elif "toolUseId" in content and "status" in content:
-                    # ToolResult
-                    await self._send_tool_result(content)
-                else:
-                    logger.warning(f"Unknown content type with keys: {content.keys()}")
+            if isinstance(content, BidiTextInputEvent):
+                await self._send_text_content(content.text)
+            elif isinstance(content, BidiAudioInputEvent):
+                await self._send_audio_content(content)
+            elif isinstance(content, BidiImageInputEvent):
+                await self._send_image_content(content)
+            elif isinstance(content, ToolResultEvent):
+                tool_result = content.get("tool_result")
+                if tool_result:
+                    await self._send_tool_result(tool_result)
+            else:
+                logger.warning(f"Unknown content type: {type(content)}")
         except Exception as e:
             logger.error(f"Error sending content: {e}")
             raise  # Propagate exception for debugging in experimental code
     
-    async def _send_audio_content(self, audio_input: AudioInputEvent) -> None:
+    async def _send_audio_content(self, audio_input: BidiAudioInputEvent) -> None:
         """Internal: Send audio content using Gemini Live API.
         
         Gemini Live expects continuous audio streaming via send_realtime_input.
         This automatically triggers VAD and can interrupt ongoing responses.
         """
         try:
+            # Decode base64 audio to bytes for SDK
+            audio_bytes = base64.b64decode(audio_input.audio)
+            
             # Create audio blob for the SDK
             audio_blob = genai_types.Blob(
-                data=audio_input["audioData"],
+                data=audio_bytes,
                 mime_type=f"audio/pcm;rate={GEMINI_INPUT_SAMPLE_RATE}"
             )
             
@@ -333,28 +385,17 @@ class BidiGeminiLiveModel(BidiModel):
         except Exception as e:
             logger.error("Error sending audio content: %s", e)
     
-    async def _send_image_content(self, image_input: ImageInputEvent) -> None:
+    async def _send_image_content(self, image_input: BidiImageInputEvent) -> None:
         """Internal: Send image content using Gemini Live API.
         
         Sends image frames following the same pattern as the GitHub example.
         Images are sent as base64-encoded data with MIME type.
         """
         try:
-            # Prepare the message based on encoding
-            if image_input.get("encoding") == "base64":
-                # Data is already base64 encoded
-                if isinstance(image_input["imageData"], bytes):
-                    data_str = image_input["imageData"].decode()
-                else:
-                    data_str = image_input["imageData"]
-            else:
-                # Raw bytes - need to base64 encode
-                data_str = base64.b64encode(image_input["imageData"]).decode()
-            
-            # Create the message in the format expected by Gemini Live
+            # Image is already base64 encoded in the event
             msg = {
-                "mime_type": image_input["mimeType"],
-                "data": data_str
+                "mime_type": image_input.mime_type,
+                "data": image_input.image
             }
             
             # Send using the same method as the GitHub example

@@ -27,10 +27,15 @@ from ....tools.watcher import ToolWatcher
 from ....types.content import Message, Messages
 from ....types.tools import ToolResult, ToolUse, AgentTool
 
-from ..event_loop.bidirectional_event_loop import BidirectionalConnection
+from ..event_loop.bidirectional_event_loop import (
+    BidirectionalConnection,
+    start_bidirectional_connection,
+    stop_bidirectional_connection,
+)
 from ..models.bidirectional_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
-from ..types.bidirectional_streaming import AudioInputEvent, BidirectionalStreamEvent, ImageInputEvent
+from ..types.agent import BidiAgentInput
+from ..types.events import BidiAudioInputEvent, BidiImageInputEvent, BidiTextInputEvent, BidiInputEvent, BidiOutputEvent
 from ..types import BidiIO
 from ....experimental.tools import ToolProvider
 
@@ -38,8 +43,6 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
-# Type alias for cleaner send() method signature
-BidirectionalInput = str | AudioInputEvent | ImageInputEvent
 
 
 class BidiAgent:
@@ -250,32 +253,33 @@ class BidiAgent:
             raise ValueError("Conversation already active. Call end() first.")
 
         logger.debug("Conversation start - initializing connection")
+        self._agent_loop = await start_bidirectional_connection(self)
 
-        # Create model session and event loop directly
-        await self.model.start(
-            system_prompt=self.system_prompt, tools=self.tool_registry.get_all_tool_specs(), messages=self.messages
-        )
-
-        self._agent_loop = BidirectionalConnection(model=self.model, agent=self)
-        await self._agent_loop.start()
-
-        logger.debug("Conversation ready")
-
-    async def send(self, input_data: BidirectionalInput) -> None:
-        """Send input to the model (text or audio).
-
-        Unified method for sending both text and audio input to the model during
-        an active conversation connection. User input is automatically added to
-        conversation history for complete message tracking.
-
+    async def send(self, input_data: BidiAgentInput) -> None:
+        """Send input to the model (text, audio, image, or event dict).
+        
+        Unified method for sending text, audio, and image input to the model during
+        an active conversation session. Accepts TypedEvent instances or plain dicts
+        (e.g., from WebSocket clients) which are automatically reconstructed.
+        
         Args:
-            input_data: String for text, AudioInputEvent for audio, or ImageInputEvent for images.
-
+            input_data: Can be:
+                - str: Text message from user
+                - BidiAudioInputEvent: Audio data with format/sample rate
+                - BidiImageInputEvent: Image data with MIME type
+                - dict: Event dictionary (will be reconstructed to TypedEvent)
+            
         Raises:
-            ValueError: If no active connection or invalid input type.
+            ValueError: If no active session or invalid input type.
+            
+        Example:
+            await agent.send("Hello")
+            await agent.send(BidiAudioInputEvent(audio="base64...", format="pcm", ...))
+            await agent.send({"type": "bidirectional_text_input", "text": "Hello", "role": "user"})
         """
         self._validate_active_connection()
 
+        # Handle string input
         if isinstance(input_data, str):
             # Add user text message to history
             user_message: Message = {"role": "user", "content": [{"text": input_data}]}
@@ -283,14 +287,47 @@ class BidiAgent:
             self.messages.append(user_message)
 
             logger.debug("Text sent: %d characters", len(input_data))
-            # Create TextInputEvent for send()
-            text_event = {"text": input_data, "role": "user"}
+            # Create BidiTextInputEvent for send()
+            text_event = BidiTextInputEvent(text=input_data, role="user")
             await self._agent_loop.model.send(text_event)
-        else:
-            # For audio, image, or any other input - let model handle it
+            return
+        
+        # Handle BidiInputEvent instances
+        # Check this before dict since TypedEvent inherits from dict
+        if isinstance(input_data, BidiInputEvent):
             await self._agent_loop.model.send(input_data)
+            return
+        
+        # Handle plain dict - reconstruct TypedEvent for WebSocket integration
+        if isinstance(input_data, dict) and "type" in input_data:
+            event_type = input_data["type"]
+            if event_type == "bidi_text_input":
+                input_event = BidiTextInputEvent(text=input_data["text"], role=input_data["role"])
+            elif event_type == "bidi_audio_input":
+                input_event = BidiAudioInputEvent(
+                    audio=input_data["audio"],
+                    format=input_data["format"],
+                    sample_rate=input_data["sample_rate"],
+                    channels=input_data["channels"]
+                )
+            elif event_type == "bidi_image_input":
+                input_event = BidiImageInputEvent(
+                    image=input_data["image"],
+                    mime_type=input_data["mime_type"]
+                )
+            else:
+                raise ValueError(f"Unknown event type: {event_type}")
+            
+            # Send the reconstructed TypedEvent
+            await self._agent_loop.model.send(input_event)
+            return
+        
+        # If we get here, input type is invalid
+        raise ValueError(
+            f"Input must be a string, BidiInputEvent (BidiTextInputEvent/BidiAudioInputEvent/BidiImageInputEvent), or event dict with 'type' field, got: {type(input_data)}"
+        )
 
-    async def receive(self) -> AsyncIterable[BidirectionalStreamEvent]:
+    async def receive(self) -> AsyncIterable[BidiOutputEvent]:
         """Receive events from the model including audio, text, and tool calls.
 
         Yields model output events processed by background tasks including audio output,
@@ -301,9 +338,11 @@ class BidiAgent:
         """
         while self.active:
             try:
-                event = await self._output_queue.get()
+                # Use a timeout to periodically check if we should stop
+                event = await asyncio.wait_for(self._output_queue.get(), timeout=0.5)
                 yield event
             except asyncio.TimeoutError:
+                # Timeout allows us to check self.active periodically
                 continue
 
     async def stop(self) -> None:
@@ -313,7 +352,7 @@ class BidiAgent:
         closes the connection to the model provider.
         """
         if self._agent_loop:
-            await self._agent_loop.stop()
+            await stop_bidirectional_connection(self._agent_loop)
             self._agent_loop = None
 
     async def __aenter__(self) -> "BidiAgent":

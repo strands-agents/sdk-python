@@ -5,13 +5,14 @@ with continuous background threads that mimic real-world usage patterns.
 """
 
 import asyncio
+import base64
 import logging
 import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
-    from .audio_generator import AudioGenerator
+    from strands.experimental.bidirectional_streaming.agent.agent import BidiAgent
+    from .generators.audio import AudioGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,7 @@ class BidirectionalTestContext:
 
     def __init__(
         self,
-        agent: "BidirectionalAgent",
+        agent: "BidiAgent",
         audio_generator: "AudioGenerator | None" = None,
         silence_chunk_size: int = 1024,
         audio_chunk_size: int = 1024,
@@ -48,7 +49,7 @@ class BidirectionalTestContext:
         """Initialize test context.
 
         Args:
-            agent: BidirectionalAgent instance.
+            agent: BidiAgent instance.
             audio_generator: AudioGenerator for text-to-speech.
             silence_chunk_size: Size of silence chunks in bytes.
             audio_chunk_size: Size of audio chunks for streaming.
@@ -81,18 +82,18 @@ class BidirectionalTestContext:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Stop context manager, cleanup threads, and end agent session."""
-        await self.stop()
+        # End agent session FIRST - this will cause receive() to exit cleanly
+        if self.agent._agent_loop and self.agent._agent_loop.active:
+            await self.agent.stop()
+            logger.debug("Agent session stopped")
         
-        # End agent session
-        if self.agent._session and self.agent._session.active:
-            await self.agent.end()
-            logger.debug("Agent session ended")
+        # Then stop the context threads
+        await self.stop()
         
         return False
 
     async def start(self):
         """Start all background threads."""
-        import time
         self.active = True
         self.last_event_time = time.monotonic()
 
@@ -176,7 +177,6 @@ class BidirectionalTestContext:
             silence_threshold: Seconds of silence to consider response complete.
             min_events: Minimum events before silence detection activates.
         """
-        import time
         start_time = time.monotonic()
         initial_event_count = len(self.get_events())  # Drain queue
 
@@ -215,7 +215,6 @@ class BidirectionalTestContext:
             try:
                 event = self._event_queue.get_nowait()
                 self.events.append(event)
-                import time
                 self.last_event_time = time.monotonic()
             except asyncio.QueueEmpty:
                 break
@@ -227,19 +226,24 @@ class BidirectionalTestContext:
     def get_text_outputs(self) -> list[str]:
         """Extract text outputs from collected events.
         
-        Handles both textOutput events (Nova Sonic, OpenAI) and transcript events (Gemini Live).
+        Handles both new TypedEvent format and legacy event formats.
 
         Returns:
             List of text content strings.
         """
         texts = []
         for event in self.get_events():  # Drain queue first
-            # Handle textOutput events (Nova Sonic, OpenAI)
-            if "textOutput" in event:
+            # Handle new TypedEvent format (bidi_transcript_stream)
+            if event.get("type") == "bidi_transcript_stream":
+                text = event.get("text", "")
+                if text:
+                    texts.append(text)
+            # Handle legacy textOutput events (Nova Sonic, OpenAI)
+            elif "textOutput" in event:
                 text = event["textOutput"].get("text", "")
                 if text:
                     texts.append(text)
-            # Handle transcript events (Gemini Live)
+            # Handle legacy transcript events (Gemini Live)
             elif "transcript" in event:
                 text = event["transcript"].get("text", "")
                 if text:
@@ -256,7 +260,14 @@ class BidirectionalTestContext:
         events = self.get_events()
         audio_data = []
         for event in events:
-            if "audioOutput" in event:
+            # Handle new TypedEvent format (bidi_audio_stream)
+            if event.get("type") == "bidi_audio_stream":
+                audio_b64 = event.get("audio")
+                if audio_b64:
+                    # Decode base64 to bytes
+                    audio_data.append(base64.b64decode(audio_b64))
+            # Handle legacy audioOutput events
+            elif "audioOutput" in event:
                 data = event["audioOutput"].get("audioData")
                 if data:
                     audio_data.append(data)
@@ -321,6 +332,7 @@ class BidirectionalTestContext:
 
         except asyncio.CancelledError:
             logger.debug("Input thread cancelled")
+            raise  # Re-raise to properly propagate cancellation
         except Exception as e:
             logger.error(f"Input thread error: {e}", exc_info=True)
         finally:
@@ -339,6 +351,7 @@ class BidirectionalTestContext:
 
         except asyncio.CancelledError:
             logger.debug("Event collection thread cancelled")
+            raise  # Re-raise to properly propagate cancellation
         except Exception as e:
             logger.error(f"Event collection thread error: {e}")
 
@@ -346,7 +359,7 @@ class BidirectionalTestContext:
         """Generate silence chunk for background audio.
 
         Returns:
-            AudioInputEvent with silence data.
+            BidiAudioInputEvent with silence data.
         """
         silence = b"\x00" * self.silence_chunk_size
         return self.audio_generator.create_audio_input_event(silence)

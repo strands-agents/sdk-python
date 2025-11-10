@@ -63,7 +63,7 @@ bidirectional-streaming-nova = [
 ]
 bidirectional-streaming-openai = [
     "pyaudio>=0.2.13",
-    "websockets>=12.0,<14.0",
+    "websockets>=14.0,<16.0",
 ]
 bidirectional-streaming = [
     "pyaudio>=0.2.13",
@@ -71,7 +71,7 @@ bidirectional-streaming = [
     "smithy-aws-core>=0.0.1",
     "pytz",
     "aws_sdk_bedrock_runtime",
-    "websockets>=12.0,<14.0",
+    "websockets>=14.0,<16.0",
 ]
 otel = ["opentelemetry-exporter-otlp-proto-http>=1.30.0,<2.0.0"]
 docs = [

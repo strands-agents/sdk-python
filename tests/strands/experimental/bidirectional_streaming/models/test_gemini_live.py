@@ -1,24 +1,32 @@
 """Unit tests for Gemini Live bidirectional streaming model.
 
-Tests the unified GeminiLiveModel interface including:
+Tests the unified BidiGeminiLiveModel interface including:
 - Model initialization and configuration
 - Connection establishment and lifecycle
 - Unified send() method with different content types
 - Event receiving and conversion
 """
 
+import base64
+import json
 import unittest.mock
 
 import pytest
 from google import genai
 from google.genai import types as genai_types
 
-from strands.experimental.bidirectional_streaming.models.gemini_live import GeminiLiveModel
-from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import (
-    AudioInputEvent,
-    ImageInputEvent,
-    TextInputEvent,
+from strands.experimental.bidirectional_streaming.models.gemini_live import BidiGeminiLiveModel
+from strands.experimental.bidirectional_streaming.types.events import (
+    BidiAudioInputEvent,
+    BidiAudioStreamEvent,
+    BidiConnectionCloseEvent,
+    BidiConnectionStartEvent,
+    BidiImageInputEvent,
+    BidiInterruptionEvent,
+    BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
 )
+from strands.types._events import ToolResultEvent
 from strands.types.tools import ToolResult
 
 
@@ -55,9 +63,9 @@ def api_key():
 
 @pytest.fixture
 def model(mock_genai_client, model_id, api_key):
-    """Create a GeminiLiveModel instance."""
+    """Create a BidiGeminiLiveModel instance."""
     _ = mock_genai_client
-    return GeminiLiveModel(model_id=model_id, api_key=api_key)
+    return BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
 
 
 @pytest.fixture
@@ -87,20 +95,20 @@ def test_model_initialization(mock_genai_client, model_id, api_key):
     _ = mock_genai_client
     
     # Test default config
-    model_default = GeminiLiveModel()
+    model_default = BidiGeminiLiveModel()
     assert model_default.model_id == "models/gemini-2.0-flash-live-preview-04-09"
     assert model_default.api_key is None
     assert model_default._active is False
     assert model_default.live_session is None
     
     # Test with API key
-    model_with_key = GeminiLiveModel(model_id=model_id, api_key=api_key)
+    model_with_key = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
     assert model_with_key.model_id == model_id
     assert model_with_key.api_key == api_key
     
     # Test with custom config
     live_config = {"temperature": 0.7, "top_p": 0.9}
-    model_custom = GeminiLiveModel(model_id=model_id, live_config=live_config)
+    model_custom = BidiGeminiLiveModel(model_id=model_id, live_config=live_config)
     assert model_custom.live_config == live_config
 
 
@@ -113,36 +121,36 @@ async def test_connection_lifecycle(mock_genai_client, model, system_prompt, too
     mock_client, mock_live_session, mock_live_session_cm = mock_genai_client
     
     # Test basic connection
-    await model.connect()
+    await model.start()
     assert model._active is True
-    assert model.session_id is not None
+    assert model.connection_id is not None
     assert model.live_session == mock_live_session
     mock_client.aio.live.connect.assert_called_once()
     
     # Test close
-    await model.close()
+    await model.stop()
     assert model._active is False
     mock_live_session_cm.__aexit__.assert_called_once()
     
     # Test connection with system prompt
-    await model.connect(system_prompt=system_prompt)
+    await model.start(system_prompt=system_prompt)
     call_args = mock_client.aio.live.connect.call_args
     config = call_args.kwargs.get("config", {})
     assert config.get("system_instruction") == system_prompt
-    await model.close()
+    await model.stop()
     
     # Test connection with tools
-    await model.connect(tools=[tool_spec])
+    await model.start(tools=[tool_spec])
     call_args = mock_client.aio.live.connect.call_args
     config = call_args.kwargs.get("config", {})
     assert "tools" in config
     assert len(config["tools"]) > 0
-    await model.close()
+    await model.stop()
     
     # Test connection with messages
-    await model.connect(messages=messages)
+    await model.start(messages=messages)
     mock_live_session.send_client_content.assert_called()
-    await model.close()
+    await model.stop()
 
 
 @pytest.mark.asyncio
@@ -151,31 +159,31 @@ async def test_connection_edge_cases(mock_genai_client, api_key, model_id):
     mock_client, _, mock_live_session_cm = mock_genai_client
     
     # Test connection error
-    model1 = GeminiLiveModel(model_id=model_id, api_key=api_key)
+    model1 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
     mock_client.aio.live.connect.side_effect = Exception("Connection failed")
     with pytest.raises(Exception, match="Connection failed"):
-        await model1.connect()
+        await model1.start()
     
     # Reset mock for next tests
     mock_client.aio.live.connect.side_effect = None
     
     # Test double connection
-    model2 = GeminiLiveModel(model_id=model_id, api_key=api_key)
-    await model2.connect()
+    model2 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+    await model2.start()
     with pytest.raises(RuntimeError, match="Connection already active"):
-        await model2.connect()
-    await model2.close()
+        await model2.start()
+    await model2.stop()
     
     # Test close when not connected
-    model3 = GeminiLiveModel(model_id=model_id, api_key=api_key)
-    await model3.close()  # Should not raise
+    model3 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+    await model3.stop()  # Should not raise
     
     # Test close error handling
-    model4 = GeminiLiveModel(model_id=model_id, api_key=api_key)
-    await model4.connect()
+    model4 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+    await model4.start()
     mock_live_session_cm.__aexit__.side_effect = Exception("Close failed")
     with pytest.raises(Exception, match="Close failed"):
-        await model4.close()
+        await model4.stop()
 
 
 # Send Method Tests
@@ -185,10 +193,10 @@ async def test_connection_edge_cases(mock_genai_client, api_key, model_id):
 async def test_send_all_content_types(mock_genai_client, model):
     """Test sending all content types through unified send() method."""
     _, mock_live_session, _ = mock_genai_client
-    await model.connect()
+    await model.start()
     
     # Test text input
-    text_input: TextInputEvent = {"text": "Hello", "role": "user"}
+    text_input = BidiTextInputEvent(text="Hello", role="user")
     await model.send(text_input)
     mock_live_session.send_client_content.assert_called_once()
     call_args = mock_live_session.send_client_content.call_args
@@ -196,22 +204,23 @@ async def test_send_all_content_types(mock_genai_client, model):
     assert content.role == "user"
     assert content.parts[0].text == "Hello"
     
-    # Test audio input
-    audio_input: AudioInputEvent = {
-        "audioData": b"audio_bytes",
-        "format": "pcm",
-        "sampleRate": 16000,
-        "channels": 1,
-    }
+    # Test audio input (base64 encoded)
+    audio_b64 = base64.b64encode(b"audio_bytes").decode('utf-8')
+    audio_input = BidiAudioInputEvent(
+        audio=audio_b64,
+        format="pcm",
+        sample_rate=16000,
+        channels=1,
+    )
     await model.send(audio_input)
     mock_live_session.send_realtime_input.assert_called_once()
     
-    # Test image input
-    image_input: ImageInputEvent = {
-        "imageData": b"image_bytes",
-        "mimeType": "image/jpeg",
-        "encoding": "raw",
-    }
+    # Test image input (base64 encoded, no encoding parameter)
+    image_b64 = base64.b64encode(b"image_bytes").decode('utf-8')
+    image_input = BidiImageInputEvent(
+        image=image_b64,
+        mime_type="image/jpeg",
+    )
     await model.send(image_input)
     mock_live_session.send.assert_called_once()
     
@@ -221,10 +230,10 @@ async def test_send_all_content_types(mock_genai_client, model):
         "status": "success",
         "content": [{"text": "Result: 42"}],
     }
-    await model.send(tool_result)
+    await model.send(ToolResultEvent(tool_result))
     mock_live_session.send_tool_response.assert_called_once()
     
-    await model.close()
+    await model.stop()
 
 
 @pytest.mark.asyncio
@@ -233,16 +242,16 @@ async def test_send_edge_cases(mock_genai_client, model):
     _, mock_live_session, _ = mock_genai_client
     
     # Test send when inactive
-    text_input: TextInputEvent = {"text": "Hello", "role": "user"}
+    text_input = BidiTextInputEvent(text="Hello", role="user")
     await model.send(text_input)
     mock_live_session.send_client_content.assert_not_called()
     
     # Test unknown content type
-    await model.connect()
+    await model.start()
     unknown_content = {"unknown_field": "value"}
     await model.send(unknown_content)  # Should not raise, just log warning
     
-    await model.close()
+    await model.stop()
 
 
 # Receive Method Tests
@@ -254,7 +263,7 @@ async def test_receive_lifecycle_events(mock_genai_client, model, agenerator):
     _, mock_live_session, _ = mock_genai_client
     mock_live_session.receive.return_value = agenerator([])
     
-    await model.connect()
+    await model.start()
     
     # Collect events
     events = []
@@ -262,22 +271,24 @@ async def test_receive_lifecycle_events(mock_genai_client, model, agenerator):
         events.append(event)
         # Close after first event to trigger connection end
         if len(events) == 1:
-            await model.close()
+            await model.stop()
     
     # Verify connection start and end
     assert len(events) >= 2
-    assert "BidirectionalConnectionStart" in events[0]
-    assert events[0]["BidirectionalConnectionStart"]["connectionId"] == model.session_id
-    assert "BidirectionalConnectionEnd" in events[-1]
+    assert isinstance(events[0], BidiConnectionStartEvent)
+    assert events[0].get("type") == "bidi_connection_start"
+    assert events[0].connection_id == model.connection_id
+    assert isinstance(events[-1], BidiConnectionCloseEvent)
+    assert events[-1].get("type") == "bidi_connection_close"
 
 
 @pytest.mark.asyncio
 async def test_event_conversion(mock_genai_client, model):
     """Test conversion of all Gemini Live event types to standard format."""
     _, _, _ = mock_genai_client
-    await model.connect()
+    await model.start()
     
-    # Test text output
+    # Test text output (converted to transcript)
     mock_text = unittest.mock.Mock()
     mock_text.text = "Hello from Gemini"
     mock_text.data = None
@@ -285,11 +296,15 @@ async def test_event_conversion(mock_genai_client, model):
     mock_text.server_content = None
     
     text_event = model._convert_gemini_live_event(mock_text)
-    assert "textOutput" in text_event
-    assert text_event["textOutput"]["text"] == "Hello from Gemini"
-    assert text_event["textOutput"]["role"] == "assistant"
+    assert isinstance(text_event, BidiTranscriptStreamEvent)
+    assert text_event.get("type") == "bidi_transcript_stream"
+    assert text_event.text == "Hello from Gemini"
+    assert text_event.role == "assistant"
+    assert text_event.is_final is True
+    assert text_event.delta == {"text": "Hello from Gemini"}
+    assert text_event.current_transcript == "Hello from Gemini"
     
-    # Test audio output
+    # Test audio output (base64 encoded)
     mock_audio = unittest.mock.Mock()
     mock_audio.text = None
     mock_audio.data = b"audio_data"
@@ -297,9 +312,12 @@ async def test_event_conversion(mock_genai_client, model):
     mock_audio.server_content = None
     
     audio_event = model._convert_gemini_live_event(mock_audio)
-    assert "audioOutput" in audio_event
-    assert audio_event["audioOutput"]["audioData"] == b"audio_data"
-    assert audio_event["audioOutput"]["format"] == "pcm"
+    assert isinstance(audio_event, BidiAudioStreamEvent)
+    assert audio_event.get("type") == "bidi_audio_stream"
+    # Audio is now base64 encoded
+    expected_b64 = base64.b64encode(b"audio_data").decode('utf-8')
+    assert audio_event.audio == expected_b64
+    assert audio_event.format == "pcm"
     
     # Test tool call
     mock_func_call = unittest.mock.Mock()
@@ -317,9 +335,11 @@ async def test_event_conversion(mock_genai_client, model):
     mock_tool.server_content = None
     
     tool_event = model._convert_gemini_live_event(mock_tool)
-    assert "toolUse" in tool_event
-    assert tool_event["toolUse"]["toolUseId"] == "tool-123"
-    assert tool_event["toolUse"]["name"] == "calculator"
+    # ToolUseStreamEvent has delta and current_tool_use, not a "type" field
+    assert "delta" in tool_event
+    assert "toolUse" in tool_event["delta"]
+    assert tool_event["delta"]["toolUse"]["toolUseId"] == "tool-123"
+    assert tool_event["delta"]["toolUse"]["name"] == "calculator"
     
     # Test interruption
     mock_server_content = unittest.mock.Mock()
@@ -334,10 +354,11 @@ async def test_event_conversion(mock_genai_client, model):
     mock_interrupt.server_content = mock_server_content
     
     interrupt_event = model._convert_gemini_live_event(mock_interrupt)
-    assert "interruptionDetected" in interrupt_event
-    assert interrupt_event["interruptionDetected"]["reason"] == "user_input"
+    assert isinstance(interrupt_event, BidiInterruptionEvent)
+    assert interrupt_event.get("type") == "bidi_interruption"
+    assert interrupt_event.reason == "user_speech"
     
-    await model.close()
+    await model.stop()
 
 
 # Helper Method Tests

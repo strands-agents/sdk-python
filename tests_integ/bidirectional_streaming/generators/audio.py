@@ -4,6 +4,7 @@ Provides text-to-speech conversion for generating realistic audio test data
 without requiring physical audio devices or pre-recorded files.
 """
 
+import base64
 import hashlib
 import logging
 from pathlib import Path
@@ -109,7 +110,7 @@ class AudioGenerator:
         sample_rate: int = NOVA_SONIC_SAMPLE_RATE,
         channels: int = NOVA_SONIC_CHANNELS,
     ) -> dict:
-        """Create AudioInputEvent from raw audio data.
+        """Create BidiAudioInputEvent from raw audio data.
 
         Args:
             audio_data: Raw audio bytes.
@@ -118,12 +119,16 @@ class AudioGenerator:
             channels: Number of audio channels.
 
         Returns:
-            AudioInputEvent dict ready for agent.send().
+            BidiAudioInputEvent dict ready for agent.send().
         """
+        # Convert bytes to base64 string for JSON compatibility
+        audio_b64 = base64.b64encode(audio_data).decode('utf-8')
+        
         return {
-            "audioData": audio_data,
+            "type": "bidi_audio_input",
+            "audio": audio_b64,
             "format": format,
-            "sampleRate": sample_rate,
+            "sample_rate": sample_rate,
             "channels": channels,
         }
 
@@ -140,14 +145,14 @@ async def generate_test_audio(text: str, use_cache: bool = True) -> dict:
     """Generate test audio input event from text.
 
     Convenience function that creates an AudioGenerator and returns
-    a ready-to-use AudioInputEvent.
+    a ready-to-use BidiAudioInputEvent.
 
     Args:
         text: Text to convert to speech.
         use_cache: Whether to use cached audio.
 
     Returns:
-        AudioInputEvent dict ready for agent.send().
+        BidiAudioInputEvent dict ready for agent.send().
     """
     generator = AudioGenerator()
     audio_data = await generator.generate_audio(text, use_cache=use_cache)

@@ -15,13 +15,15 @@ Features:
 import logging
 from typing import AsyncIterable, Protocol, Union
 
+from ....types._events import ToolResultEvent
 from ....types.content import Messages
-from ....types.tools import ToolResult, ToolSpec
-from ..types.bidirectional_streaming import (
-    AudioInputEvent,
-    BidirectionalStreamEvent,
-    ImageInputEvent,
-    TextInputEvent,
+from ....types.tools import ToolSpec
+from ..types.events import (
+    BidiAudioInputEvent,
+    BidiImageInputEvent,
+    BidiInputEvent,
+    BidiOutputEvent,
+    BidiTextInputEvent,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,7 +67,7 @@ class BidiModel(Protocol):
         """
         ...
 
-    async def receive(self) -> AsyncIterable[BidirectionalStreamEvent]:
+    async def receive(self) -> AsyncIterable[BidiOutputEvent]:
         """Receive streaming events from the model.
 
         Continuously yields events from the model as they arrive over the connection.
@@ -75,12 +77,15 @@ class BidiModel(Protocol):
         The stream continues until the connection is closed or an error occurs.
 
         Yields:
-            BidirectionalStreamEvent: Standardized event dictionaries containing
-                audio output, text responses, tool calls, or control signals.
+            BidiOutputEvent: Standardized event objects containing audio output,
+                transcripts, tool calls, or control signals.
         """
         ...
 
-    async def send(self, content: Union[TextInputEvent, ImageInputEvent, AudioInputEvent, ToolResult]) -> None:
+    async def send(
+        self,
+        content: BidiInputEvent | ToolResultEvent,
+    ) -> None:
         """Send content to the model over the active connection.
 
         Transmits user input or tool results to the model during an active streaming
@@ -89,14 +94,15 @@ class BidiModel(Protocol):
 
         Args:
             content: The content to send. Must be one of:
-                - TextInputEvent: Text message from the user
-                - ImageInputEvent: Image data for visual understanding
-                - AudioInputEvent: Audio data for speech input
-                - ToolResult: Result from a tool execution
+                - BidiTextInputEvent: Text message from the user
+                - BidiAudioInputEvent: Audio data for speech input
+                - BidiImageInputEvent: Image data for visual understanding
+                - ToolResultEvent: Result from a tool execution
 
         Example:
-            await model.send(TextInputEvent(text="Hello", role="user"))
-            await model.send(AudioInputEvent(audioData=bytes, format="pcm", ...))
-            await model.send(ToolResult(toolUseId="123", status="success", ...))
+            await model.send(BidiTextInputEvent(text="Hello", role="user"))
+            await model.send(BidiAudioInputEvent(audio=bytes, format="pcm", sample_rate=16000, channels=1))
+            await model.send(BidiImageInputEvent(image=bytes, mime_type="image/jpeg", encoding="raw"))
+            await model.send(ToolResultEvent(tool_result))
         """
         ...

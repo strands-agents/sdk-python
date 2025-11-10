@@ -13,21 +13,26 @@ import uuid
 from typing import AsyncIterable, Union
 
 import websockets
-from websockets.client import WebSocketClientProtocol
 from websockets.exceptions import ConnectionClosed
 
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
-from ..types.bidirectional_streaming import (
-    AudioInputEvent,
-    AudioOutputEvent,
-    BidirectionalConnectionEndEvent,
-    BidirectionalConnectionStartEvent,
-    BidirectionalStreamEvent,
-    ImageInputEvent,
-    TextInputEvent,
-    TextOutputEvent,
-    VoiceActivityEvent,
+from ....types._events import ToolResultEvent, ToolUseStreamEvent
+from ..types.events import (
+    BidiAudioInputEvent,
+    BidiAudioStreamEvent,
+    BidiConnectionCloseEvent,
+    BidiConnectionStartEvent,
+    BidiErrorEvent,
+    BidiImageInputEvent,
+    BidiInputEvent,
+    BidiInterruptionEvent,
+    BidiUsageEvent,
+    BidiOutputEvent,
+    BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
+    BidiResponseCompleteEvent,
+    BidiResponseStartEvent,
 )
 from .bidirectional_model import BidiModel
 
@@ -99,7 +104,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         
         # Connection state (initialized in start())
         self.websocket = None
-        self.session_id = None
+        self.connection_id = None
         self._active = False
         
         self._event_queue = None
@@ -130,7 +135,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         
         try:
             # Initialize connection state
-            self.session_id = str(uuid.uuid4())
+            self.connection_id = str(uuid.uuid4())
             self._active = True
             self._event_queue = asyncio.Queue()
             self._function_call_buffer = {}
@@ -144,7 +149,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
             if self.project:
                 headers.append(("OpenAI-Project", self.project))
             
-            self.websocket = await websockets.connect(url, extra_headers=headers)
+            self.websocket = await websockets.connect(url, additional_headers=headers)
             logger.info("WebSocket connected successfully")
             
             # Configure session
@@ -168,15 +173,34 @@ class BidiOpenAIRealtimeModel(BidiModel):
         """Check if session is active."""
         return self._active
 
-    def _create_text_event(self, text: str, role: str) -> dict[str, any]:
-        """Create standardized text output event."""
-        text_output: TextOutputEvent = {"text": text, "role": role}
-        return {"textOutput": text_output}
+    def _create_text_event(self, text: str, role: str, is_final: bool = True) -> BidiTranscriptStreamEvent:
+        """Create standardized transcript event.
+        
+        Args:
+            text: The transcript text
+            role: The role (will be normalized to lowercase)
+            is_final: Whether this is the final transcript
+        """
+        # Normalize role to lowercase and ensure it's either "user" or "assistant"
+        normalized_role = role.lower() if isinstance(role, str) else "assistant"
+        if normalized_role not in ["user", "assistant"]:
+            normalized_role = "assistant"
+            
+        return BidiTranscriptStreamEvent(
+            delta={"text": text},
+            text=text,
+            role=normalized_role,
+            is_final=is_final,
+            current_transcript=text if is_final else None
+        )
 
-    def _create_voice_activity_event(self, activity_type: str) -> dict[str, any]:
-        """Create standardized voice activity event."""
-        voice_activity: VoiceActivityEvent = {"activityType": activity_type}
-        return {"voiceActivity": voice_activity}
+    def _create_voice_activity_event(self, activity_type: str) -> BidiInterruptionEvent | None:
+        """Create standardized interruption event for voice activity."""
+        # Only speech_started triggers interruption
+        if activity_type == "speech_started":
+            return BidiInterruptionEvent(reason="user_speech")
+        # Other voice activity events are logged but don't create events
+        return None
 
     def _build_session_config(self, system_prompt: str | None, tools: list[ToolSpec] | None) -> dict:
         """Build session configuration for OpenAI Realtime API."""
@@ -267,65 +291,69 @@ class BidiOpenAIRealtimeModel(BidiModel):
             self._active = False
             logger.debug("OpenAI Realtime response processor stopped")
 
-    async def receive(self) -> AsyncIterable[BidirectionalStreamEvent]:
-        """Receive OpenAI events and convert to Strands format."""
-        connection_start: BidirectionalConnectionStartEvent = {
-            "connectionId": self.session_id,
-            "metadata": {"provider": "openai_realtime", "model": self.model},
-        }
-        yield {"BidirectionalConnectionStart": connection_start}
+    async def receive(self) -> AsyncIterable[BidiOutputEvent]:
+        """Receive OpenAI events and convert to Strands TypedEvent format."""
+        # Emit connection start event
+        yield BidiConnectionStartEvent(
+            connection_id=self.connection_id,
+            model=self.model
+        )
         
         try:
             while self._active:
                 try:
                     openai_event = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)
-                    provider_event = self._convert_openai_event(openai_event)
-                    if provider_event:
-                        yield provider_event
+                    for event in self._convert_openai_event(openai_event) or []: 
+                        yield event
                 except asyncio.TimeoutError:
                     continue
                     
         except Exception as e:
             logger.error("Error receiving OpenAI Realtime event: %s", e)
+            yield BidiErrorEvent(error=e)
         finally:
-            connection_end: BidirectionalConnectionEndEvent = {
-                "connectionId": self.session_id,
-                "reason": "connection_complete",
-                "metadata": {"provider": "openai_realtime"},
-            }
-            yield {"BidirectionalConnectionEnd": connection_end}
+            # Emit connection close event
+            yield BidiConnectionCloseEvent(connection_id=self.connection_id, reason="complete")
 
-    def _convert_openai_event(self, openai_event: dict[str, any]) -> dict[str, any] | None:
-        """Convert OpenAI events to Strands format."""
+    def _convert_openai_event(self, openai_event: dict[str, any]) -> list[BidiOutputEvent] | None:
+        """Convert OpenAI events to Strands TypedEvent format."""
         event_type = openai_event.get("type")
         
+        # Turn start - response begins
+        if event_type == "response.created":
+            response = openai_event.get("response", {})
+            response_id = response.get("id", str(uuid.uuid4()))
+            return [BidiResponseStartEvent(response_id=response_id)]
+        
         # Audio output
-        if event_type == "response.output_audio.delta":
-            audio_data = base64.b64decode(openai_event["delta"])
-            audio_output: AudioOutputEvent = {
-                "audioData": audio_data,
-                "format": "pcm",
-                "sampleRate": 24000,
-                "channels": 1,
-                "encoding": None,
-            }
-            return {"audioOutput": audio_output}
+        elif event_type == "response.output_audio.delta":
+            # Audio is already base64 string from OpenAI
+            return [BidiAudioStreamEvent(
+                audio=openai_event["delta"],
+                format="pcm",
+                sample_rate=24000,
+                channels=1
+            )]
         
         # Assistant text output events - combine multiple similar events
         elif event_type in ["response.output_text.delta", "response.output_audio_transcript.delta"]:
-            return self._create_text_event(openai_event["delta"], "assistant")
+            role = openai_event.get("role", "assistant")
+            return [self._create_text_event(openai_event["delta"], role.lower() if isinstance(role, str) else "assistant")]
         
         # User transcription events - combine multiple similar events
         elif event_type in ["conversation.item.input_audio_transcription.delta", 
                            "conversation.item.input_audio_transcription.completed"]:
             text_key = "delta" if "delta" in event_type else "transcript"
             text = openai_event.get(text_key, "")
-            return self._create_text_event(text, "user") if text.strip() else None
+            role = openai_event.get("role", "user")
+            is_final = "completed" in event_type
+            return [self._create_text_event(text, role.lower() if isinstance(role, str) else "user", is_final=is_final)] if text.strip() else None
         
         elif event_type == "conversation.item.input_audio_transcription.segment":
             segment_data = openai_event.get("segment", {})
             text = segment_data.get("text", "")
-            return self._create_text_event(text, "user") if text.strip() else None
+            role = segment_data.get("role", "user")
+            return [self._create_text_event(text, role.lower() if isinstance(role, str) else "user")] if text.strip() else None
         
         elif event_type == "conversation.item.input_audio_transcription.failed":
             error_info = openai_event.get("error", {})
@@ -354,7 +382,11 @@ class BidiOpenAIRealtimeModel(BidiModel):
                         "input": json.loads(function_call["arguments"]) if function_call["arguments"] else {},
                     }
                     del self._function_call_buffer[call_id]
-                    return {"toolUse": tool_use}
+                    # Return ToolUseStreamEvent for consistency with standard agent
+                    return [ToolUseStreamEvent(
+                        delta={"toolUse": tool_use},
+                        current_tool_use=tool_use
+                    )]
                 except (json.JSONDecodeError, KeyError) as e:
                     logger.warning("Error parsing function arguments for %s: %s", call_id, e)
                     del self._function_call_buffer[call_id]
@@ -369,7 +401,84 @@ class BidiOpenAIRealtimeModel(BidiModel):
                 "input_audio_buffer.speech_stopped": "speech_stopped", 
                 "input_audio_buffer.timeout_triggered": "timeout"
             }
-            return self._create_voice_activity_event(activity_map[event_type])
+            event = self._create_voice_activity_event(activity_map[event_type])
+            return [event] if event else None
+        
+        # Turn complete and usage - response finished
+        elif event_type == "response.done":
+            response = openai_event.get("response", {})
+            response_id = response.get("id", "unknown")
+            status = response.get("status", "completed")
+            usage = response.get("usage")
+            
+            # Map OpenAI status to our stop_reason
+            stop_reason_map = {
+                "completed": "complete",
+                "cancelled": "interrupted",
+                "failed": "error",
+                "incomplete": "interrupted"
+            }
+            
+            # Build list of events to return
+            events = []
+            
+            # Always add response complete event
+            events.append(BidiResponseCompleteEvent(
+                response_id=response_id,
+                stop_reason=stop_reason_map.get(status, "complete")
+            ))
+            
+            # Add usage event if available
+            if usage:
+                input_details = usage.get("input_token_details", {})
+                output_details = usage.get("output_token_details", {})
+                
+                # Build modality details
+                modality_details = []
+                
+                # Text modality
+                text_input = input_details.get("text_tokens", 0)
+                text_output = output_details.get("text_tokens", 0)
+                if text_input > 0 or text_output > 0:
+                    modality_details.append({
+                        "modality": "text",
+                        "input_tokens": text_input,
+                        "output_tokens": text_output
+                    })
+                
+                # Audio modality
+                audio_input = input_details.get("audio_tokens", 0)
+                audio_output = output_details.get("audio_tokens", 0)
+                if audio_input > 0 or audio_output > 0:
+                    modality_details.append({
+                        "modality": "audio",
+                        "input_tokens": audio_input,
+                        "output_tokens": audio_output
+                    })
+                
+                # Image modality
+                image_input = input_details.get("image_tokens", 0)
+                if image_input > 0:
+                    modality_details.append({
+                        "modality": "image",
+                        "input_tokens": image_input,
+                        "output_tokens": 0
+                    })
+                
+                # Cached tokens
+                cached_tokens = input_details.get("cached_tokens", 0)
+                
+                # Add usage event
+                events.append(BidiUsageEvent(
+                    input_tokens=usage.get("input_tokens", 0),
+                    output_tokens=usage.get("output_tokens", 0),
+                    total_tokens=usage.get("total_tokens", 0),
+                    modality_details=modality_details if modality_details else None,
+                    cache_read_input_tokens=cached_tokens if cached_tokens > 0 else None
+                ))
+            
+            # Return list of events
+            return events
         
         # Lifecycle events (log only) - combine multiple similar events
         elif event_type in ["conversation.item.retrieve", "conversation.item.added"]:
@@ -380,23 +489,6 @@ class BidiOpenAIRealtimeModel(BidiModel):
             
         elif event_type == "conversation.item.done":
             logger.debug("OpenAI conversation item done: %s", openai_event.get("item", {}).get("id"))
-            
-            item = openai_event.get("item", {})
-            if item.get("type") == "message" and item.get("role") == "assistant":
-                content_parts = item.get("content", [])
-                if content_parts:
-                    message_content = []
-                    for content_part in content_parts:
-                        if content_part.get("type") == "output_text":
-                            message_content.append({"type": "text", "text": content_part.get("text", "")})
-                        elif content_part.get("type") == "output_audio":
-                            transcript = content_part.get("transcript", "")
-                            if transcript:
-                                message_content.append({"type": "text", "text": transcript})
-                    
-                    if message_content:
-                        message = {"role": "assistant", "content": message_content}
-                        return {"messageStop": {"message": message}}
             return None
         
         # Response output events - combine similar events
@@ -432,42 +524,43 @@ class BidiOpenAIRealtimeModel(BidiModel):
             logger.debug("Unhandled OpenAI event type: %s", event_type)
             return None
 
-    async def send(self, content: Union[TextInputEvent, ImageInputEvent, AudioInputEvent, ToolResult]) -> None:
+    async def send(
+        self,
+        content: BidiInputEvent | ToolResultEvent,
+    ) -> None:
         """Unified send method for all content types. Sends the given content to OpenAI.
         
         Dispatches to appropriate internal handler based on content type.
         
         Args:
-            content: Typed event (TextInputEvent, ImageInputEvent, AudioInputEvent, or ToolResult).
+            content: Typed event (BidiTextInputEvent, BidiAudioInputEvent, BidiImageInputEvent, or ToolResultEvent).
         """
         if not self._require_active():
             return
         
         try:
-            if isinstance(content, dict):
-                # Dispatch based on content structure
-                if "text" in content and "role" in content:
-                    # TextInputEvent
-                    await self._send_text_content(content["text"])
-                elif "audioData" in content:
-                    # AudioInputEvent
-                    await self._send_audio_content(content)
-                elif "imageData" in content or "image_url" in content:
-                    # ImageInputEvent - not supported by OpenAI Realtime yet
-                    logger.warning("Image input not supported by OpenAI Realtime API")
-                elif "toolUseId" in content and "status" in content:
-                    # ToolResult
-                    await self._send_tool_result(content)
-                else:
-                    logger.warning(f"Unknown content type with keys: {content.keys()}")
+            # Note: TypedEvent inherits from dict, so isinstance checks for TypedEvent must come first
+            if isinstance(content, BidiTextInputEvent):
+                await self._send_text_content(content.text)
+            elif isinstance(content, BidiAudioInputEvent):
+                await self._send_audio_content(content)
+            elif isinstance(content, BidiImageInputEvent):
+                # BidiImageInputEvent - not supported by OpenAI Realtime yet
+                logger.warning("Image input not supported by OpenAI Realtime API")
+            elif isinstance(content, ToolResultEvent):
+                tool_result = content.get("tool_result")
+                if tool_result:
+                    await self._send_tool_result(tool_result)
+            else:
+                logger.warning(f"Unknown content type: {type(content).__name__}")
         except Exception as e:
             logger.error(f"Error sending content: {e}")
             raise  # Propagate exception for debugging in experimental code
 
-    async def _send_audio_content(self, audio_input: AudioInputEvent) -> None:
+    async def _send_audio_content(self, audio_input: BidiAudioInputEvent) -> None:
         """Internal: Send audio content to OpenAI for processing."""
-        audio_base64 = base64.b64encode(audio_input["audioData"]).decode("utf-8")
-        await self._send_event({"type": "input_audio_buffer.append", "audio": audio_base64})
+        # Audio is already base64 encoded in the event
+        await self._send_event({"type": "input_audio_buffer.append", "audio": audio_input.audio})
 
     async def _send_text_content(self, text: str) -> None:
         """Internal: Send text content to OpenAI for processing."""

@@ -32,16 +32,22 @@ from smithy_aws_core.identity.environment import EnvironmentCredentialsResolver
 
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
-from ..types.bidirectional_streaming import (
-    AudioInputEvent,
-    AudioOutputEvent,
-    BidirectionalConnectionEndEvent,
-    BidirectionalConnectionStartEvent,
-    ImageInputEvent,
-    InterruptionDetectedEvent,
-    TextInputEvent,
-    TextOutputEvent,
-    UsageMetricsEvent,
+from ....types._events import ToolResultEvent, ToolUseStreamEvent
+from ..types.events import (
+    BidiAudioInputEvent,
+    BidiAudioStreamEvent,
+    BidiConnectionCloseEvent,
+    BidiConnectionStartEvent,
+    BidiErrorEvent,
+    BidiImageInputEvent,
+    BidiInputEvent,
+    BidiInterruptionEvent,
+    BidiUsageEvent,
+    BidiOutputEvent,
+    BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
+    BidiResponseCompleteEvent,
+    BidiResponseStartEvent,
 )
 from .bidirectional_model import BidiModel
 
@@ -106,7 +112,7 @@ class BidiNovaSonicModel(BidiModel):
 
         # Connection state (initialized in start())
         self.stream = None
-        self.session_id = None
+        self.connection_id = None
         self._active = False
 
         # Nova Sonic requires unique content names
@@ -121,6 +127,10 @@ class BidiNovaSonicModel(BidiModel):
         # Background task and event queue
         self._response_task = None
         self._event_queue = None
+        
+        # Track API-provided identifiers
+        self._current_completion_id = None
+        self._current_role = None
 
         logger.debug("Nova Sonic bidirectional model initialized: %s", model_id)
 
@@ -150,7 +160,7 @@ class BidiNovaSonicModel(BidiModel):
                 await self._initialize_client()
 
             # Initialize connection state
-            self.session_id = str(uuid.uuid4())
+            self.connection_id = str(uuid.uuid4())
             self._active = True
             self.audio_content_name = str(uuid.uuid4())
             self._event_queue = asyncio.Queue()
@@ -165,7 +175,7 @@ class BidiNovaSonicModel(BidiModel):
                 logger.error("Stream is None")
                 raise ValueError("Stream cannot be None")
 
-            logger.debug("Nova Sonic connection initialized with session: %s", self.session_id)
+            logger.debug("Nova Sonic connection initialized with connection_id: %s", self.connection_id)
 
             # Send initialization events
             system_prompt = system_prompt or "You are a helpful assistant. Keep responses brief."
@@ -267,12 +277,11 @@ class BidiNovaSonicModel(BidiModel):
 
         logger.debug("Nova events - starting event stream")
 
-        # Emit connection start event to Strands event system
-        connection_start: BidirectionalConnectionStartEvent = {
-            "connectionId": self.session_id,
-            "metadata": {"provider": "nova_sonic", "model_id": self.model_id},
-        }
-        yield {"BidirectionalConnectionStart": connection_start}
+        # Emit connection start event
+        yield BidiConnectionStartEvent(
+            connection_id=self.connection_id,
+            model=self.model_id
+        )
 
         try:
             while self._active:
@@ -292,43 +301,39 @@ class BidiNovaSonicModel(BidiModel):
         except Exception as e:
             logger.error("Error receiving Nova Sonic event: %s", e)
             logger.error(traceback.format_exc())
+            yield BidiErrorEvent(error=e)
         finally:
-            # Emit connection end event when exiting
-            connection_end: BidirectionalConnectionEndEvent = {
-                "connectionId": self.session_id,
-                "reason": "connection_complete",
-                "metadata": {"provider": "nova_sonic"},
-            }
-            yield {"BidirectionalConnectionEnd": connection_end}
+            # Emit connection close event
+            yield BidiConnectionCloseEvent(connection_id=self.connection_id, reason="complete")
 
-    async def send(self, content: Union[TextInputEvent, ImageInputEvent, AudioInputEvent, ToolResult]) -> None:
+    async def send(
+        self,
+        content: BidiInputEvent | ToolResultEvent,
+    ) -> None:
         """Unified send method for all content types. Sends the given content to Nova Sonic.
 
         Dispatches to appropriate internal handler based on content type.
 
         Args:
-            content: Typed event (TextInputEvent, ImageInputEvent, AudioInputEvent, or ToolResult).
+            content: Typed event (BidiTextInputEvent, BidiAudioInputEvent, BidiImageInputEvent, or ToolResultEvent).
         """
         if not self._active:
             return
 
         try:
-            if isinstance(content, dict):
-                # Dispatch based on content structure
-                if "text" in content and "role" in content:
-                    # TextInputEvent
-                    await self._send_text_content(content["text"])
-                elif "audioData" in content:
-                    # AudioInputEvent
-                    await self._send_audio_content(content)
-                elif "imageData" in content or "image_url" in content:
-                    # ImageInputEvent - not supported by Nova Sonic
-                    logger.warning("Image input not supported by Nova Sonic")
-                elif "toolUseId" in content and "status" in content:
-                    # ToolResult
-                    await self._send_tool_result(content)
-                else:
-                    logger.warning(f"Unknown content type with keys: {content.keys()}")
+            if isinstance(content, BidiTextInputEvent):
+                await self._send_text_content(content.text)
+            elif isinstance(content, BidiAudioInputEvent):
+                await self._send_audio_content(content)
+            elif isinstance(content, BidiImageInputEvent):
+                # BidiImageInputEvent - not supported by Nova Sonic
+                logger.warning("Image input not supported by Nova Sonic")
+            elif isinstance(content, ToolResultEvent):
+                tool_result = content.get("tool_result")
+                if tool_result:
+                    await self._send_tool_result(tool_result)
+            else:
+                logger.warning(f"Unknown content type: {type(content)}")
         except Exception as e:
             logger.error(f"Error sending content: {e}")
             raise  # Propagate exception for debugging in experimental code
@@ -344,7 +349,7 @@ class BidiNovaSonicModel(BidiModel):
             {
                 "event": {
                     "contentStart": {
-                        "promptName": self.session_id,
+                        "promptName": self.connection_id,
                         "contentName": self.audio_content_name,
                         "type": "AUDIO",
                         "interactive": True,
@@ -358,7 +363,7 @@ class BidiNovaSonicModel(BidiModel):
         await self._send_nova_event(audio_content_start)
         self.audio_connection_active = True
 
-    async def _send_audio_content(self, audio_input: AudioInputEvent) -> None:
+    async def _send_audio_content(self, audio_input: BidiAudioInputEvent) -> None:
         """Internal: Send audio using Nova Sonic protocol-specific format."""
         # Start audio connection if not already active
         if not self.audio_connection_active:
@@ -369,17 +374,15 @@ class BidiNovaSonicModel(BidiModel):
         if self.silence_task and not self.silence_task.done():
             self.silence_task.cancel()
 
-        # Convert audio to Nova Sonic base64 format
-        nova_audio_data = base64.b64encode(audio_input["audioData"]).decode("utf-8")
-
+        # Audio is already base64 encoded in the event
         # Send audio input event
         audio_event = json.dumps(
             {
                 "event": {
                     "audioInput": {
-                        "promptName": self.session_id,
+                        "promptName": self.connection_id,
                         "contentName": self.audio_content_name,
-                        "content": nova_audio_data,
+                        "content": audio_input.audio,
                     }
                 }
             }
@@ -410,7 +413,7 @@ class BidiNovaSonicModel(BidiModel):
         logger.debug("Nova audio connection end")
 
         audio_content_end = json.dumps(
-            {"event": {"contentEnd": {"promptName": self.session_id, "contentName": self.audio_content_name}}}
+            {"event": {"contentEnd": {"promptName": self.connection_id, "contentName": self.audio_content_name}}}
         )
 
         await self._send_nova_event(audio_content_end)
@@ -435,7 +438,7 @@ class BidiNovaSonicModel(BidiModel):
             {
                 "event": {
                     "audioInput": {
-                        "promptName": self.session_id,
+                        "promptName": self.connection_id,
                         "contentName": self.audio_content_name,
                         "stopReason": "INTERRUPTED",
                     }
@@ -510,84 +513,105 @@ class BidiNovaSonicModel(BidiModel):
         finally:
             logger.debug("Nova connection closed")
 
-    def _convert_nova_event(self, nova_event: dict[str, any]) -> dict[str, any] | None:
-        """Convert Nova Sonic events to provider-agnostic format."""
+    def _convert_nova_event(self, nova_event: dict[str, any]) -> BidiOutputEvent | None:
+        """Convert Nova Sonic events to TypedEvent format."""
+        # Handle completion start - track completionId
+        if "completionStart" in nova_event:
+            completion_data = nova_event["completionStart"]
+            self._current_completion_id = completion_data.get("completionId")
+            logger.debug("Nova completion started: %s", self._current_completion_id)
+            return None
+        
+        # Handle completion end
+        if "completionEnd" in nova_event:
+            completion_data = nova_event["completionEnd"]
+            completion_id = completion_data.get("completionId", self._current_completion_id)
+            stop_reason = completion_data.get("stopReason", "END_TURN")
+            
+            event = BidiResponseCompleteEvent(
+                response_id=completion_id or str(uuid.uuid4()),  # Fallback to UUID if missing
+                stop_reason="interrupted" if stop_reason == "INTERRUPTED" else "complete"
+            )
+            
+            # Clear completion tracking
+            self._current_completion_id = None
+            return event
+        
         # Handle audio output
         if "audioOutput" in nova_event:
+            # Audio is already base64 string from Nova Sonic
             audio_content = nova_event["audioOutput"]["content"]
-            audio_bytes = base64.b64decode(audio_content)
+            return BidiAudioStreamEvent(
+                audio=audio_content,
+                format="pcm",
+                sample_rate=24000,
+                channels=1
+            )
 
-            audio_output: AudioOutputEvent = {
-                "audioData": audio_bytes,
-                "format": "pcm",
-                "sampleRate": 24000,
-                "channels": 1,
-                "encoding": "base64",
-            }
-
-            return {"audioOutput": audio_output}
-
-        # Handle text output
+        # Handle text output (transcripts)
         elif "textOutput" in nova_event:
             text_content = nova_event["textOutput"]["content"]
             # Use stored role from contentStart event, fallback to event role
-            role = getattr(self, "_current_role", nova_event["textOutput"].get("role", "assistant"))
+            role = getattr(self, "_current_role", None) or nova_event["textOutput"].get("role", "assistant")
 
-            # Check for Nova Sonic interruption pattern (matches working sample)
+            # Check for Nova Sonic interruption pattern
             if '{ "interrupted" : true }' in text_content:
                 logger.debug("Nova interruption detected in text")
-                interruption: InterruptionDetectedEvent = {"reason": "user_input"}
-                return {"interruptionDetected": interruption}
+                return BidiInterruptionEvent(reason="user_speech")
 
-            # Show transcription for user speech - ALWAYS show these regardless of DEBUG flag
-            if role == "USER":
-                print(f"User: {text_content}")
-            elif role == "ASSISTANT":
-                print(f"Assistant: {text_content}")
-
-            text_output: TextOutputEvent = {"text": text_content, "role": role.lower()}
-
-            return {"textOutput": text_output}
+            return BidiTranscriptStreamEvent(
+                delta={"text": text_content},
+                text=text_content,
+                role=role.lower() if isinstance(role, str) else "assistant",
+                is_final=True,
+                current_transcript=text_content
+            )
 
         # Handle tool use
         elif "toolUse" in nova_event:
             tool_use = nova_event["toolUse"]
-
             tool_use_event: ToolUse = {
                 "toolUseId": tool_use["toolUseId"],
                 "name": tool_use["toolName"],
                 "input": json.loads(tool_use["content"]),
             }
-
-            return {"toolUse": tool_use_event}
+            # Return ToolUseStreamEvent for consistency with standard agent
+            return ToolUseStreamEvent(
+                delta={"toolUse": tool_use_event},
+                current_tool_use=tool_use_event
+            )
 
         # Handle interruption
         elif nova_event.get("stopReason") == "INTERRUPTED":
             logger.debug("Nova interruption stop reason")
+            return BidiInterruptionEvent(reason="user_speech")
 
-            interruption: InterruptionDetectedEvent = {"reason": "user_input"}
-
-            return {"interruptionDetected": interruption}
-
-        # Handle usage events - convert to standardized format
+        # Handle usage events - convert to multimodal usage format
         elif "usageEvent" in nova_event:
             usage_data = nova_event["usageEvent"]
-            usage_metrics: UsageMetricsEvent = {
-                "totalTokens": usage_data.get("totalTokens", 0),
-                "inputTokens": usage_data.get("totalInputTokens", 0),
-                "outputTokens": usage_data.get("totalOutputTokens", 0),
-                "audioTokens": usage_data.get("details", {}).get("total", {}).get("output", {}).get("speechTokens", 0)
-            }
-            return {"usageMetrics": usage_metrics}
+            total_input = usage_data.get("totalInputTokens", 0)
+            total_output = usage_data.get("totalOutputTokens", 0)
+            
+            return BidiUsageEvent(
+                input_tokens=total_input,
+                output_tokens=total_output,
+                total_tokens=usage_data.get("totalTokens", total_input + total_output)
+            )
 
-        # Handle content start events (track role)
+        # Handle content start events (track role and emit response start)
         elif "contentStart" in nova_event:
-            role = nova_event["contentStart"].get("role", "unknown")
+            content_data = nova_event["contentStart"]
+            role = content_data.get("role", "unknown")
             # Store role for subsequent text output events
             self._current_role = role
-            return None
+            
+            # Emit response start event using API-provided completionId
+            # completionId should already be tracked from completionStart event
+            return BidiResponseStartEvent(
+                response_id=self._current_completion_id or str(uuid.uuid4())  # Fallback to UUID if missing
+            )
 
-        # Handle other events
+        # Handle other events (contentEnd, etc.)
         else:
             return None
 
@@ -601,7 +625,7 @@ class BidiNovaSonicModel(BidiModel):
         prompt_start_event = {
             "event": {
                 "promptStart": {
-                    "promptName": self.session_id,
+                    "promptName": self.connection_id,
                     "textOutputConfiguration": NOVA_TEXT_CONFIG,
                     "audioOutputConfiguration": NOVA_AUDIO_OUTPUT_CONFIG,
                 }
@@ -645,7 +669,7 @@ class BidiNovaSonicModel(BidiModel):
             {
                 "event": {
                     "contentStart": {
-                        "promptName": self.session_id,
+                        "promptName": self.connection_id,
                         "contentName": content_name,
                         "type": "TEXT",
                         "role": role,
@@ -662,7 +686,7 @@ class BidiNovaSonicModel(BidiModel):
             {
                 "event": {
                     "contentStart": {
-                        "promptName": self.session_id,
+                        "promptName": self.connection_id,
                         "contentName": content_name,
                         "interactive": False,
                         "type": "TOOL",
@@ -680,7 +704,7 @@ class BidiNovaSonicModel(BidiModel):
     def _get_text_input_event(self, content_name: str, text: str) -> str:
         """Generate text input event."""
         return json.dumps(
-            {"event": {"textInput": {"promptName": self.session_id, "contentName": content_name, "content": text}}}
+            {"event": {"textInput": {"promptName": self.connection_id, "contentName": content_name, "content": text}}}
         )
 
     def _get_tool_result_event(self, content_name: str, result: dict[str, any]) -> str:
@@ -689,7 +713,7 @@ class BidiNovaSonicModel(BidiModel):
             {
                 "event": {
                     "toolResult": {
-                        "promptName": self.session_id,
+                        "promptName": self.connection_id,
                         "contentName": content_name,
                         "content": json.dumps(result),
                     }
@@ -699,11 +723,11 @@ class BidiNovaSonicModel(BidiModel):
 
     def _get_content_end_event(self, content_name: str) -> str:
         """Generate content end event."""
-        return json.dumps({"event": {"contentEnd": {"promptName": self.session_id, "contentName": content_name}}})
+        return json.dumps({"event": {"contentEnd": {"promptName": self.connection_id, "contentName": content_name}}})
 
     def _get_prompt_end_event(self) -> str:
         """Generate prompt end event."""
-        return json.dumps({"event": {"promptEnd": {"promptName": self.session_id}}})
+        return json.dumps({"event": {"promptEnd": {"promptName": self.connection_id}}})
 
     def _get_connection_end_event(self) -> str:
         """Generate connection end event."""

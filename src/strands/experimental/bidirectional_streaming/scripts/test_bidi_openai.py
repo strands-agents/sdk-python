@@ -2,6 +2,7 @@
 """Test OpenAI Realtime API speech-to-speech interaction."""
 
 import asyncio
+import base64
 import os
 import sys
 import time
@@ -118,35 +119,48 @@ async def receive(agent, context):
             if not context["active"]:
                 break
             
-            # Handle audio output
-            if "audioOutput" in event:
-                audio_data = event["audioOutput"]["audioData"]
+            # Get event type
+            event_type = event.get("type", "unknown")
+            
+            # Handle audio stream events (bidirectional_audio_stream)
+            if event_type == "bidirectional_audio_stream":
+                # Decode base64 audio string to bytes for playback
+                audio_b64 = event["audio"]
+                audio_data = base64.b64decode(audio_b64)
                 
                 if not context.get("interrupted", False):
                     await context["audio_out"].put(audio_data)
             
-            # Handle text output (transcripts)
-            elif "textOutput" in event:
-                text_output = event["textOutput"]
-                role = text_output.get("role", "assistant")
-                text = text_output.get("text", "").strip()
+            # Handle transcript events (bidirectional_transcript_stream)
+            elif event_type == "bidirectional_transcript_stream":
+                source = event.get("source", "assistant")
+                text = event.get("text", "").strip()
                 
                 if text:
-                    if role == "user":
-                        print(f"User: {text}")
-                    elif role == "assistant":
-                        print(f"Assistant: {text}")
+                    if source == "user":
+                        print(f"🎤 User: {text}")
+                    elif source == "assistant":
+                        print(f"🔊 Assistant: {text}")
             
-            # Handle interruption detection
-            elif "interruptionDetected" in event:
+            # Handle interruption events (bidirectional_interruption)
+            elif event_type == "bidirectional_interruption":
                 context["interrupted"] = True
+                print("⚠️  Interruption detected")
             
-            # Handle connection events
-            elif "BidirectionalConnectionStart" in event:
-                pass  # Silent connection start
-            elif "BidirectionalConnectionEnd" in event:
+            # Handle session start events (bidirectional_session_start)
+            elif event_type == "bidirectional_session_start":
+                print(f"✓ Session started: {event.get('model', 'unknown')}")
+            
+            # Handle session end events (bidirectional_session_end)
+            elif event_type == "bidirectional_session_end":
+                print(f"✓ Session ended: {event.get('reason', 'unknown')}")
                 context["active"] = False
                 break
+            
+            # Handle turn complete events (bidirectional_turn_complete)
+            elif event_type == "bidirectional_turn_complete":
+                # Reset interrupted state since the turn is complete
+                context["interrupted"] = False
     
     except asyncio.CancelledError:
         pass
@@ -163,13 +177,17 @@ async def send(agent, context):
             try:
                 audio_bytes = await asyncio.wait_for(context["audio_in"].get(), timeout=0.1)
                 
-                # Create audio event in expected format
-                audio_event = {
-                    "audioData": audio_bytes,
-                    "format": "pcm",
-                    "sampleRate": 24000,
-                    "channels": 1
-                }
+                # Create audio event using TypedEvent
+                # Encode audio bytes to base64 string for JSON serializability
+                from strands.experimental.bidirectional_streaming.types.events import BidiAudioInputEvent
+                
+                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
+                audio_event = BidiAudioInputEvent(
+                    audio=audio_b64,
+                    format="pcm",
+                    sample_rate=24000,
+                    channels=1
+                )
                 
                 await agent.send(audio_event)
                 
