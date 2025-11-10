@@ -79,7 +79,6 @@ NOVA_TEXT_CONFIG = {"mediaType": "text/plain"}
 NOVA_TOOL_CONFIG = {"mediaType": "application/json"}
 
 # Timing constants
-SILENCE_THRESHOLD = 2.0
 EVENT_DELAY = 0.1
 RESPONSE_TIMEOUT = 1.0
 
@@ -120,9 +119,6 @@ class BidiNovaSonicModel(BidiModel):
 
         # Audio connection state
         self.audio_connection_active = False
-        self.last_audio_time = None
-        self.silence_threshold = SILENCE_THRESHOLD
-        self.silence_task = None
 
         # Background task and event queue
         self._response_task = None
@@ -131,6 +127,7 @@ class BidiNovaSonicModel(BidiModel):
         # Track API-provided identifiers
         self._current_completion_id = None
         self._current_role = None
+        self._generation_stage = None
 
         logger.debug("Nova Sonic bidirectional model initialized: %s", model_id)
 
@@ -151,7 +148,7 @@ class BidiNovaSonicModel(BidiModel):
         """
         if self._active:
             raise RuntimeError("Connection already active. Close the existing connection before creating a new one.")
-        
+
         logger.debug("Nova connection create - starting")
 
         try:
@@ -369,11 +366,6 @@ class BidiNovaSonicModel(BidiModel):
         if not self.audio_connection_active:
             await self._start_audio_connection()
 
-        # Update last audio time and cancel any pending silence task
-        self.last_audio_time = time.time()
-        if self.silence_task and not self.silence_task.done():
-            self.silence_task.cancel()
-
         # Audio is already base64 encoded in the event
         # Send audio input event
         audio_event = json.dumps(
@@ -389,21 +381,6 @@ class BidiNovaSonicModel(BidiModel):
         )
 
         await self._send_nova_event(audio_event)
-
-        # Start silence detection task
-        self.silence_task = asyncio.create_task(self._check_silence())
-
-    async def _check_silence(self) -> None:
-        """Internal: Check for silence and automatically end audio connection."""
-        try:
-            await asyncio.sleep(self.silence_threshold)
-            if self.audio_connection_active and self.last_audio_time:
-                elapsed = time.time() - self.last_audio_time
-                if elapsed >= self.silence_threshold:
-                    logger.debug("Nova silence detected: %.2f seconds", elapsed)
-                    await self._end_audio_input()
-        except asyncio.CancelledError:
-            pass
 
     async def _end_audio_input(self) -> None:
         """Internal: End current audio input connection to trigger Nova Sonic processing."""
@@ -551,9 +528,6 @@ class BidiNovaSonicModel(BidiModel):
         # Handle text output (transcripts)
         elif "textOutput" in nova_event:
             text_content = nova_event["textOutput"]["content"]
-            # Use stored role from contentStart event, fallback to event role
-            role = getattr(self, "_current_role", None) or nova_event["textOutput"].get("role", "assistant")
-
             # Check for Nova Sonic interruption pattern
             if '{ "interrupted" : true }' in text_content:
                 logger.debug("Nova interruption detected in text")
@@ -562,13 +536,13 @@ class BidiNovaSonicModel(BidiModel):
             return BidiTranscriptStreamEvent(
                 delta={"text": text_content},
                 text=text_content,
-                role=role.lower() if isinstance(role, str) else "assistant",
-                is_final=True,
+                role=self._current_role.lower() if self._current_role else "assistant",
+                is_final=self._generation_stage == "FINAL",
                 current_transcript=text_content
             )
 
         # Handle tool use
-        elif "toolUse" in nova_event:
+        if "toolUse" in nova_event:
             tool_use = nova_event["toolUse"]
             tool_use_event: ToolUse = {
                 "toolUseId": tool_use["toolUseId"],
@@ -582,12 +556,12 @@ class BidiNovaSonicModel(BidiModel):
             )
 
         # Handle interruption
-        elif nova_event.get("stopReason") == "INTERRUPTED":
+        if nova_event.get("stopReason") == "INTERRUPTED":
             logger.debug("Nova interruption stop reason")
             return BidiInterruptionEvent(reason="user_speech")
 
         # Handle usage events - convert to multimodal usage format
-        elif "usageEvent" in nova_event:
+        if "usageEvent" in nova_event:
             usage_data = nova_event["usageEvent"]
             total_input = usage_data.get("totalInputTokens", 0)
             total_output = usage_data.get("totalOutputTokens", 0)
@@ -599,11 +573,14 @@ class BidiNovaSonicModel(BidiModel):
             )
 
         # Handle content start events (track role and emit response start)
-        elif "contentStart" in nova_event:
+        if "contentStart" in nova_event:
             content_data = nova_event["contentStart"]
             role = content_data.get("role", "unknown")
             # Store role for subsequent text output events
             self._current_role = role
+            
+            if content_data["type"] == "TEXT":
+                self._generation_stage = json.loads(content_data["additionalModelFields"])["generationStage"]
             
             # Emit response start event using API-provided completionId
             # completionId should already be tracked from completionStart event
@@ -611,9 +588,8 @@ class BidiNovaSonicModel(BidiModel):
                 response_id=self._current_completion_id or str(uuid.uuid4())  # Fallback to UUID if missing
             )
 
-        # Handle other events (contentEnd, etc.)
-        else:
-            return None
+        # Ignore other events (contentEnd, etc.)
+        return
 
     # Nova Sonic event template methods
     def _get_connection_start_event(self) -> str:

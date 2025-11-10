@@ -18,8 +18,6 @@ import logging
 from typing import Any, AsyncIterable, Callable
 
 from .... import _identifier
-from ....hooks.registry import HookRegistry
-from ....telemetry.metrics import EventLoopMetrics
 from ....tools.caller import _ToolCaller
 from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
@@ -28,17 +26,13 @@ from ....tools.watcher import ToolWatcher
 from ....types.content import Message, Messages
 from ....types.tools import ToolResult, ToolUse, AgentTool
 
-from ..event_loop.bidirectional_event_loop import (
-    BidirectionalConnection,
-    start_bidirectional_connection,
-    stop_bidirectional_connection,
-)
+from .loop import BidiAgentLoop
 from ..models.bidirectional_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
 from ..types.events import BidiAudioInputEvent, BidiImageInputEvent, BidiTextInputEvent, BidiInputEvent, BidiOutputEvent
 from ..types import BidiIO
-from ....experimental.tools import ToolProvider
+from ...tools import ToolProvider
 
 logger = logging.getLogger(__name__)
 
@@ -121,14 +115,11 @@ class BidiAgent:
         self.tool_executor = tool_executor or ConcurrentToolExecutor()
 
         # Initialize other components
-        self.event_loop_metrics = EventLoopMetrics()
         self._tool_caller = _ToolCaller(self)
-        self.hooks = HookRegistry()
 
-        # connection management
-        self._agent_loop: "BidirectionalConnection" | None = None
-        self._output_queue = asyncio.Queue()
         self._current_adapters = []  # Track adapters for cleanup
+
+        self._loop = BidiAgentLoop(self)
 
     @property
     def tool(self) -> _ToolCaller:
@@ -246,16 +237,10 @@ class BidiAgent:
 
         Initializes the streaming connection and starts background tasks for processing
         model events, tool execution, and connection management.
-
-        Raises:
-            ValueError: If conversation already active.
-            ConnectionError: If connection creation fails.
         """
-        if self._agent_loop and self._agent_loop.active:
-            raise ValueError("Conversation already active. Call end() first.")
+        logger.debug("starting agent")
 
-        logger.debug("Conversation start - initializing connection")
-        self._agent_loop = await start_bidirectional_connection(self)
+        await self._loop.start()
 
     async def send(self, input_data: BidiAgentInput) -> None:
         """Send input to the model (text, audio, image, or event dict).
@@ -291,13 +276,13 @@ class BidiAgent:
             logger.debug("Text sent: %d characters", len(input_data))
             # Create BidiTextInputEvent for send()
             text_event = BidiTextInputEvent(text=input_data, role="user")
-            await self._agent_loop.model.send(text_event)
+            await self.model.send(text_event)
             return
         
         # Handle BidiInputEvent instances
         # Check this before dict since TypedEvent inherits from dict
         if isinstance(input_data, BidiInputEvent):
-            await self._agent_loop.model.send(input_data)
+            await self.model.send(input_data)
             return
         
         # Handle plain dict - reconstruct TypedEvent for WebSocket integration
@@ -321,7 +306,7 @@ class BidiAgent:
                 raise ValueError(f"Unknown event type: {event_type}")
             
             # Send the reconstructed TypedEvent
-            await self._agent_loop.model.send(input_event)
+            await self.model.send(input_event)
             return
         
         # If we get here, input type is invalid
@@ -336,16 +321,10 @@ class BidiAgent:
         text responses, tool calls, and connection updates.
 
         Yields:
-            BidirectionalStreamEvent: Events from the model session.
+            Model and tool call events.
         """
-        while self.active:
-            try:
-                # Use a timeout to periodically check if we should stop
-                event = await asyncio.wait_for(self._output_queue.get(), timeout=0.5)
-                yield event
-            except asyncio.TimeoutError:
-                # Timeout allows us to check self.active periodically
-                continue
+        async for event in self._loop.receive():
+            yield event
 
     async def stop(self) -> None:
         """End the conversation connection and cleanup all resources.
@@ -353,9 +332,7 @@ class BidiAgent:
         Terminates the streaming connection, cancels background tasks, and
         closes the connection to the model provider.
         """
-        if self._agent_loop:
-            await stop_bidirectional_connection(self._agent_loop)
-            self._agent_loop = None
+        await self._loop.stop()
 
     async def __aenter__(self) -> "BidiAgent":
         """Async context manager entry point.
@@ -364,10 +341,6 @@ class BidiAgent:
 
         Returns:
             Self for use in the context.
-
-        Raises:
-            ValueError: If connection is already active.
-            ConnectionError: If connection creation fails.
         """
         logger.debug("Entering async context manager - starting connection")
         await self.start()
@@ -415,12 +388,8 @@ class BidiAgent:
 
     @property
     def active(self) -> bool:
-        """Check if the agent connection is currently active.
-
-        Returns:
-            True if connection is active and ready for communication, False otherwise.
-        """
-        return self._agent_loop is not None and self._agent_loop.active
+        """True if agent loop started, False otherwise."""
+        return self._loop.active
 
     async def run(self, io_channels: list[BidiIO | tuple[Callable, Callable]]) -> None:
         """Run the agent using provided IO channels or transport tuples for bidirectional communication.
