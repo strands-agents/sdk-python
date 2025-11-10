@@ -126,7 +126,7 @@ class AudioGenerator:
         audio_b64 = base64.b64encode(audio_data).decode('utf-8')
         
         return {
-            "type": "bidirectional_audio_input",
+            "type": "bidi_audio_input",
             "audio": audio_b64,
             "format": format,
             "sample_rate": sample_rate,

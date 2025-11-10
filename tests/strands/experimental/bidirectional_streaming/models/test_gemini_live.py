@@ -276,8 +276,10 @@ async def test_receive_lifecycle_events(mock_genai_client, model, agenerator):
     # Verify connection start and end
     assert len(events) >= 2
     assert isinstance(events[0], BidiConnectionStartEvent)
+    assert events[0].get("type") == "bidi_connection_start"
     assert events[0].connection_id == model.connection_id
     assert isinstance(events[-1], BidiConnectionCloseEvent)
+    assert events[-1].get("type") == "bidi_connection_close"
 
 
 @pytest.mark.asyncio
@@ -301,6 +303,7 @@ async def test_event_conversion(mock_genai_client, model):
     
     text_event = model._convert_gemini_live_event(mock_text)
     assert isinstance(text_event, BidiTranscriptStreamEvent)
+    assert text_event.get("type") == "bidi_transcript_stream"
     assert text_event.text == "Hello from Gemini"
     assert text_event.role == "assistant"
     assert text_event.is_final is True
@@ -317,6 +320,7 @@ async def test_event_conversion(mock_genai_client, model):
     
     audio_event = model._convert_gemini_live_event(mock_audio)
     assert isinstance(audio_event, BidiAudioStreamEvent)
+    assert audio_event.get("type") == "bidi_audio_stream"
     # Audio is now base64 encoded
     expected_b64 = base64.b64encode(b"audio_data").decode('utf-8')
     assert audio_event.audio == expected_b64
@@ -358,6 +362,7 @@ async def test_event_conversion(mock_genai_client, model):
     
     interrupt_event = model._convert_gemini_live_event(mock_interrupt)
     assert isinstance(interrupt_event, BidiInterruptionEvent)
+    assert interrupt_event.get("type") == "bidi_interruption"
     assert interrupt_event.reason == "user_speech"
     
     await model.stop()

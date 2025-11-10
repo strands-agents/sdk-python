@@ -317,7 +317,7 @@ async def test_receive_lifecycle_events(mock_websockets_connect, model):
     first_event = await anext(receive_gen)
 
     # First event should be connection start (new TypedEvent format)
-    assert first_event.get("type") == "bidirectional_connection_start"
+    assert first_event.get("type") == "bidi_connection_start"
     assert first_event.get("connection_id") == model.connection_id
     assert first_event.get("model") == model.model
 
@@ -333,7 +333,7 @@ async def test_receive_lifecycle_events(mock_websockets_connect, model):
         pass
 
     # Last event should be connection close (new TypedEvent format)
-    assert events[-1].get("type") == "bidirectional_connection_close"
+    assert events[-1].get("type") == "bidi_connection_close"
 
 
 @pytest.mark.asyncio
@@ -352,7 +352,7 @@ async def test_event_conversion(mock_websockets_connect, model):
     assert isinstance(converted, list)
     assert len(converted) == 1
     assert isinstance(converted[0], BidiAudioStreamEvent)
-    assert converted[0].get("type") == "bidirectional_audio_stream"
+    assert converted[0].get("type") == "bidi_audio_stream"
     assert converted[0].get("audio") == base64.b64encode(b"audio_data").decode()
     assert converted[0].get("format") == "pcm"
 
@@ -366,7 +366,7 @@ async def test_event_conversion(mock_websockets_connect, model):
     assert isinstance(converted, list)
     assert len(converted) == 1
     assert isinstance(converted[0], BidiTranscriptStreamEvent)
-    assert converted[0].get("type") == "bidirectional_transcript_stream"
+    assert converted[0].get("type") == "bidi_transcript_stream"
     assert converted[0].get("text") == "Hello from OpenAI"
     assert converted[0].get("role") == "assistant"
     assert converted[0].delta == {"text": "Hello from OpenAI"}
@@ -415,7 +415,7 @@ async def test_event_conversion(mock_websockets_connect, model):
     assert isinstance(converted, list)
     assert len(converted) == 1
     assert isinstance(converted[0], BidiInterruptionEvent)
-    assert converted[0].get("type") == "bidirectional_interruption"
+    assert converted[0].get("type") == "bidi_interruption"
     assert converted[0].get("reason") == "user_speech"
 
     await model.stop()
@@ -468,7 +468,7 @@ def test_helper_methods(model):
     from strands.experimental.bidirectional_streaming.types.events import BidiTranscriptStreamEvent
     text_event = model._create_text_event("Hello", "user")
     assert isinstance(text_event, BidiTranscriptStreamEvent)
-    assert text_event.get("type") == "bidirectional_transcript_stream"
+    assert text_event.get("type") == "bidi_transcript_stream"
     assert text_event.get("text") == "Hello"
     assert text_event.get("role") == "user"
     assert text_event.delta == {"text": "Hello"}
@@ -479,7 +479,7 @@ def test_helper_methods(model):
     from strands.experimental.bidirectional_streaming.types.events import BidiInterruptionEvent
     voice_event = model._create_voice_activity_event("speech_started")
     assert isinstance(voice_event, BidiInterruptionEvent)
-    assert voice_event.get("type") == "bidirectional_interruption"
+    assert voice_event.get("type") == "bidi_interruption"
     assert voice_event.get("reason") == "user_speech"
     
     # Other voice activities return None

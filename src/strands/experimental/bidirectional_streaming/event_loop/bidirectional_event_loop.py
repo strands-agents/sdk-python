@@ -225,7 +225,7 @@ async def _handle_interruption(session: BidirectionalConnection) -> None:
                 event = session.agent._output_queue.get_nowait()
                 # Check for audio events
                 event_type = event.get("type", "")
-                if event_type == "bidirectional_audio_stream":
+                if event_type == "bidi_audio_stream":
                     audio_cleared += 1
                 else:
                     # Keep non-audio events
@@ -273,7 +273,7 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
             event_type = strands_event.get("type", "")
             
             # Handle interruption detection
-            if event_type == "bidirectional_interruption":
+            if event_type == "bidi_interruption":
                 logger.debug("Interruption forwarded")
                 await _handle_interruption(session)
                 # Forward interruption event to agent for application-level handling
@@ -296,7 +296,7 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
             await session.agent._output_queue.put(strands_event)
 
             # Update Agent conversation history for user transcripts
-            if event_type == "bidirectional_transcript_stream":
+            if event_type == "bidi_transcript_stream":
                 role = strands_event.get("role")
                 text = strands_event.get("text", "")
                 if role == "user" and text.strip():

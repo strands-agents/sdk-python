@@ -231,8 +231,8 @@ class BidirectionalTestContext:
         """
         texts = []
         for event in self.get_events():  # Drain queue first
-            # Handle new TypedEvent format (bidirectional_transcript_stream)
-            if event.get("type") == "bidirectional_transcript_stream":
+            # Handle new TypedEvent format (bidi_transcript_stream)
+            if event.get("type") == "bidi_transcript_stream":
                 text = event.get("text", "")
                 if text:
                     texts.append(text)
@@ -260,8 +260,8 @@ class BidirectionalTestContext:
         events = self.get_events()
         audio_data = []
         for event in events:
-            # Handle new TypedEvent format (bidirectional_audio_stream)
-            if event.get("type") == "bidirectional_audio_stream":
+            # Handle new TypedEvent format (bidi_audio_stream)
+            if event.get("type") == "bidi_audio_stream":
                 audio_b64 = event.get("audio")
                 if audio_b64:
                     # Decode base64 to bytes

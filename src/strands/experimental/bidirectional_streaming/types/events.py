@@ -51,7 +51,7 @@ class BidiTextInputEvent(TypedEvent):
     def __init__(self, text: str, role: str):
         super().__init__(
             {
-                "type": "bidirectional_text_input",
+                "type": "bidi_text_input",
                 "text": text,
                 "role": role,
             }
@@ -87,7 +87,7 @@ class BidiAudioInputEvent(TypedEvent):
     ):
         super().__init__(
             {
-                "type": "bidirectional_audio_input",
+                "type": "bidi_audio_input",
                 "audio": audio,
                 "format": format,
                 "sample_rate": sample_rate,
@@ -129,7 +129,7 @@ class BidiImageInputEvent(TypedEvent):
     ):
         super().__init__(
             {
-                "type": "bidirectional_image_input",
+                "type": "bidi_image_input",
                 "image": image,
                 "mime_type": mime_type,
             }
@@ -160,7 +160,7 @@ class BidiConnectionStartEvent(TypedEvent):
     def __init__(self, connection_id: str, model: str):
         super().__init__(
             {
-                "type": "bidirectional_connection_start",
+                "type": "bidi_connection_start",
                 "connection_id": connection_id,
                 "model": model,
             }
@@ -183,7 +183,7 @@ class BidiResponseStartEvent(TypedEvent):
     """
 
     def __init__(self, response_id: str):
-        super().__init__({"type": "bidirectional_response_start", "response_id": response_id})
+        super().__init__({"type": "bidi_response_start", "response_id": response_id})
 
     @property
     def response_id(self) -> str:
@@ -209,7 +209,7 @@ class BidiAudioStreamEvent(TypedEvent):
     ):
         super().__init__(
             {
-                "type": "bidirectional_audio_stream",
+                "type": "bidi_audio_stream",
                 "audio": audio,
                 "format": format,
                 "sample_rate": sample_rate,
@@ -258,7 +258,7 @@ class BidiTranscriptStreamEvent(ModelStreamEvent):
     ):
         super().__init__(
             {
-                "type": "bidirectional_transcript_stream",
+                "type": "bidi_transcript_stream",
                 "delta": delta,
                 "text": text,
                 "role": role,
@@ -299,7 +299,7 @@ class BidiInterruptionEvent(TypedEvent):
     def __init__(self, reason: Literal["user_speech", "error"]):
         super().__init__(
             {
-                "type": "bidirectional_interruption",
+                "type": "bidi_interruption",
                 "reason": reason,
             }
         )
@@ -324,7 +324,7 @@ class BidiResponseCompleteEvent(TypedEvent):
     ):
         super().__init__(
             {
-                "type": "bidirectional_response_complete",
+                "type": "bidi_response_complete",
                 "response_id": response_id,
                 "stop_reason": stop_reason,
             }
@@ -378,7 +378,7 @@ class BidiUsageEvent(TypedEvent):
         cache_write_input_tokens: Optional[int] = None,
     ):
         data: Dict[str, Any] = {
-            "type": "bidirectional_usage",
+            "type": "bidi_usage",
             "inputTokens": input_tokens,
             "outputTokens": output_tokens,
             "totalTokens": total_tokens,
@@ -431,7 +431,7 @@ class BidiConnectionCloseEvent(TypedEvent):
     ):
         super().__init__(
             {
-                "type": "bidirectional_connection_close",
+                "type": "bidi_connection_close",
                 "connection_id": connection_id,
                 "reason": reason,
             }
@@ -466,7 +466,7 @@ class BidiErrorEvent(TypedEvent):
         # Store serializable data in dict (for JSON serialization)
         super().__init__(
             {
-                "type": "bidirectional_error",
+                "type": "bidi_error",
                 "message": str(error),
                 "code": type(error).__name__,
                 "details": details,

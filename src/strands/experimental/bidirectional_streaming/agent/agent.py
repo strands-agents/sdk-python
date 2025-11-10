@@ -302,16 +302,16 @@ class BidiAgent:
         # Handle plain dict - reconstruct TypedEvent for WebSocket integration
         if isinstance(input_data, dict) and "type" in input_data:
             event_type = input_data["type"]
-            if event_type == "bidirectional_text_input":
+            if event_type == "bidi_text_input":
                 input_data = BidiTextInputEvent(text=input_data["text"], role=input_data["role"])
-            elif event_type == "bidirectional_audio_input":
+            elif event_type == "bidi_audio_input":
                 input_data = BidiAudioInputEvent(
                     audio=input_data["audio"],
                     format=input_data["format"],
                     sample_rate=input_data["sample_rate"],
                     channels=input_data["channels"]
                 )
-            elif event_type == "bidirectional_image_input":
+            elif event_type == "bidi_image_input":
                 input_data = BidiImageInputEvent(
                     image=input_data["image"],
                     mime_type=input_data["mime_type"]

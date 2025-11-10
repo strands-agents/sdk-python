@@ -228,9 +228,9 @@ async def test_receive_lifecycle_events(nova_model, mock_client, mock_stream):
 
             # Should have session start and end (new TypedEvent format)
             assert len(events) >= 2
-            assert events[0].get("type") == "bidirectional_connection_start"
+            assert events[0].get("type") == "bidi_connection_start"
             assert events[0].get("connection_id") == nova_model.connection_id
-            assert events[-1].get("type") == "bidirectional_connection_close"
+            assert events[-1].get("type") == "bidi_connection_close"
 
 
 @pytest.mark.asyncio
@@ -244,7 +244,7 @@ async def test_event_conversion(nova_model):
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
     assert isinstance(result, BidiAudioStreamEvent)
-    assert result.get("type") == "bidirectional_audio_stream"
+    assert result.get("type") == "bidi_audio_stream"
     # Audio is kept as base64 string
     assert result.get("audio") == audio_base64
     assert result.get("format") == "pcm"
@@ -256,7 +256,7 @@ async def test_event_conversion(nova_model):
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
     assert isinstance(result, BidiTranscriptStreamEvent)
-    assert result.get("type") == "bidirectional_transcript_stream"
+    assert result.get("type") == "bidi_transcript_stream"
     assert result.get("text") == "Hello, world!"
     assert result.get("role") == "assistant"
     assert result.delta == {"text": "Hello, world!"}
@@ -287,7 +287,7 @@ async def test_event_conversion(nova_model):
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
     assert isinstance(result, BidiInterruptionEvent)
-    assert result.get("type") == "bidirectional_interruption"
+    assert result.get("type") == "bidi_interruption"
     assert result.get("reason") == "user_speech"
 
     # Test usage metrics (now returns BidiUsageEvent)
@@ -309,7 +309,7 @@ async def test_event_conversion(nova_model):
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
     assert isinstance(result, BidiUsageEvent)
-    assert result.get("type") == "bidirectional_usage"
+    assert result.get("type") == "bidi_usage"
     assert result.get("totalTokens") == 100
     assert result.get("inputTokens") == 40
     assert result.get("outputTokens") == 60
@@ -320,7 +320,7 @@ async def test_event_conversion(nova_model):
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
     assert isinstance(result, BidiResponseStartEvent)
-    assert result.get("type") == "bidirectional_response_start"
+    assert result.get("type") == "bidi_response_start"
     assert nova_model._current_role == "USER"
 
 

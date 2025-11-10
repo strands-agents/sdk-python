@@ -28,7 +28,7 @@ from strands.experimental.bidirectional_streaming.types.events import (
     "event_class,kwargs,expected_type",
     [
         # Input events
-        (BidiTextInputEvent, {"text": "Hello", "role": "user"}, "bidirectional_text_input"),
+        (BidiTextInputEvent, {"text": "Hello", "role": "user"}, "bidi_text_input"),
         (
             BidiAudioInputEvent,
             {
@@ -37,20 +37,20 @@ from strands.experimental.bidirectional_streaming.types.events import (
                 "sample_rate": 16000,
                 "channels": 1,
             },
-            "bidirectional_audio_input",
+            "bidi_audio_input",
         ),
         (
             BidiImageInputEvent,
             {"image": base64.b64encode(b"image").decode("utf-8"), "mime_type": "image/jpeg"},
-            "bidirectional_image_input",
+            "bidi_image_input",
         ),
         # Output events
         (
             BidiConnectionStartEvent,
             {"connection_id": "c1", "model": "m1"},
-            "bidirectional_connection_start",
+            "bidi_connection_start",
         ),
-        (BidiResponseStartEvent, {"response_id": "r1"}, "bidirectional_response_start"),
+        (BidiResponseStartEvent, {"response_id": "r1"}, "bidi_response_start"),
         (
             BidiAudioStreamEvent,
             {
@@ -59,7 +59,7 @@ from strands.experimental.bidirectional_streaming.types.events import (
                 "sample_rate": 24000,
                 "channels": 1,
             },
-            "bidirectional_audio_stream",
+            "bidi_audio_stream",
         ),
         (
             BidiTranscriptStreamEvent,
@@ -70,25 +70,25 @@ from strands.experimental.bidirectional_streaming.types.events import (
                 "is_final": True,
                 "current_transcript": "Hello",
             },
-            "bidirectional_transcript_stream",
+            "bidi_transcript_stream",
         ),
-        (BidiInterruptionEvent, {"reason": "user_speech"}, "bidirectional_interruption"),
+        (BidiInterruptionEvent, {"reason": "user_speech"}, "bidi_interruption"),
         (
             BidiResponseCompleteEvent,
             {"response_id": "r1", "stop_reason": "complete"},
-            "bidirectional_response_complete",
+            "bidi_response_complete",
         ),
         (
             BidiUsageEvent,
             {"input_tokens": 10, "output_tokens": 20, "total_tokens": 30},
-            "bidirectional_usage",
+            "bidi_usage",
         ),
         (
             BidiConnectionCloseEvent,
             {"connection_id": "c1", "reason": "complete"},
-            "bidirectional_connection_close",
+            "bidi_connection_close",
         ),
-        (BidiErrorEvent, {"error": ValueError("test"), "details": None}, "bidirectional_error"),
+        (BidiErrorEvent, {"error": ValueError("test"), "details": None}, "bidi_error"),
     ],
 )
 def test_event_json_serialization(event_class, kwargs, expected_type):
