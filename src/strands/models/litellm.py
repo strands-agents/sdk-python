@@ -218,7 +218,7 @@ class LiteLLMModel(OpenAIModel):
                 "totalTokens": event["data"].total_tokens,
             }
 
-            # Only LiteLLM over Anthropic supports cache cache write tokens
+            # Only LiteLLM over Anthropic supports cache write tokens
             # Waiting until a more general approach is available to set cacheWriteInputTokens
 
             if tokens_details := getattr(event["data"], "prompt_tokens_details", None):
