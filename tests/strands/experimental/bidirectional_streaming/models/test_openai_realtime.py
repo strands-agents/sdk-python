@@ -18,9 +18,13 @@ import pytest
 from strands.experimental.bidirectional_streaming.models.openai import BidiOpenAIRealtimeModel
 from strands.experimental.bidirectional_streaming.types.events import (
     BidiAudioInputEvent,
+    BidiAudioStreamEvent,
     BidiImageInputEvent,
+    BidiInterruptionEvent,
     BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
 )
+from strands.types._events import ToolResultEvent
 from strands.types.tools import ToolResult
 
 
@@ -222,8 +226,6 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
 @pytest.mark.asyncio
 async def test_send_all_content_types(mock_websockets_connect, model):
     """Test sending all content types through unified send() method."""
-    from strands.types._events import ToolResultEvent
-    
     _, mock_ws = mock_websockets_connect
     await model.start()
 
@@ -343,7 +345,6 @@ async def test_event_conversion(mock_websockets_connect, model):
     await model.start()
 
     # Test audio output (now returns list with BidiAudioStreamEvent)
-    from strands.experimental.bidirectional_streaming.types.events import BidiAudioStreamEvent
     audio_event = {
         "type": "response.output_audio.delta",
         "delta": base64.b64encode(b"audio_data").decode()
@@ -357,7 +358,6 @@ async def test_event_conversion(mock_websockets_connect, model):
     assert converted[0].get("format") == "pcm"
 
     # Test text output (now returns list with BidiTranscriptStreamEvent)
-    from strands.experimental.bidirectional_streaming.types.events import BidiTranscriptStreamEvent
     text_event = {
         "type": "response.output_text.delta",
         "delta": "Hello from OpenAI"
@@ -407,7 +407,6 @@ async def test_event_conversion(mock_websockets_connect, model):
     assert tool_use["input"]["expression"] == "2+2"
 
     # Test voice activity (now returns list with BidiInterruptionEvent for speech_started)
-    from strands.experimental.bidirectional_streaming.types.events import BidiInterruptionEvent
     speech_started = {
         "type": "input_audio_buffer.speech_started"
     }
@@ -465,7 +464,6 @@ def test_helper_methods(model):
     model._active = False
 
     # Test _create_text_event (now returns BidiTranscriptStreamEvent)
-    from strands.experimental.bidirectional_streaming.types.events import BidiTranscriptStreamEvent
     text_event = model._create_text_event("Hello", "user")
     assert isinstance(text_event, BidiTranscriptStreamEvent)
     assert text_event.get("type") == "bidi_transcript_stream"
@@ -476,7 +474,6 @@ def test_helper_methods(model):
     assert text_event.current_transcript == "Hello"
 
     # Test _create_voice_activity_event (now returns BidiInterruptionEvent for speech_started)
-    from strands.experimental.bidirectional_streaming.types.events import BidiInterruptionEvent
     voice_event = model._create_voice_activity_event("speech_started")
     assert isinstance(voice_event, BidiInterruptionEvent)
     assert voice_event.get("type") == "bidi_interruption"

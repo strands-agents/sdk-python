@@ -7,6 +7,8 @@ Tests the unified BidiGeminiLiveModel interface including:
 - Event receiving and conversion
 """
 
+import base64
+import json
 import unittest.mock
 
 import pytest
@@ -16,8 +18,13 @@ from google.genai import types as genai_types
 from strands.experimental.bidirectional_streaming.models.gemini_live import BidiGeminiLiveModel
 from strands.experimental.bidirectional_streaming.types.events import (
     BidiAudioInputEvent,
+    BidiAudioStreamEvent,
+    BidiConnectionCloseEvent,
+    BidiConnectionStartEvent,
     BidiImageInputEvent,
+    BidiInterruptionEvent,
     BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
 )
 from strands.types._events import ToolResultEvent
 from strands.types.tools import ToolResult
@@ -198,7 +205,6 @@ async def test_send_all_content_types(mock_genai_client, model):
     assert content.parts[0].text == "Hello"
     
     # Test audio input (base64 encoded)
-    import base64
     audio_b64 = base64.b64encode(b"audio_bytes").decode('utf-8')
     audio_input = BidiAudioInputEvent(
         audio=audio_b64,
@@ -219,7 +225,6 @@ async def test_send_all_content_types(mock_genai_client, model):
     mock_live_session.send.assert_called_once()
     
     # Test tool result
-    from strands.types._events import ToolResultEvent
     tool_result: ToolResult = {
         "toolUseId": "tool-123",
         "status": "success",
@@ -255,11 +260,6 @@ async def test_send_edge_cases(mock_genai_client, model):
 @pytest.mark.asyncio
 async def test_receive_lifecycle_events(mock_genai_client, model, agenerator):
     """Test that receive() emits connection start and end events."""
-    from strands.experimental.bidirectional_streaming.types.events import (
-        BidiConnectionStartEvent,
-        BidiConnectionCloseEvent,
-    )
-    
     _, mock_live_session, _ = mock_genai_client
     mock_live_session.receive.return_value = agenerator([])
     
@@ -285,12 +285,6 @@ async def test_receive_lifecycle_events(mock_genai_client, model, agenerator):
 @pytest.mark.asyncio
 async def test_event_conversion(mock_genai_client, model):
     """Test conversion of all Gemini Live event types to standard format."""
-    from strands.experimental.bidirectional_streaming.types.events import (
-        BidiTranscriptStreamEvent,
-        BidiAudioStreamEvent,
-        BidiInterruptionEvent,
-    )
-    
     _, _, _ = mock_genai_client
     await model.start()
     
@@ -311,7 +305,6 @@ async def test_event_conversion(mock_genai_client, model):
     assert text_event.current_transcript == "Hello from Gemini"
     
     # Test audio output (base64 encoded)
-    import base64
     mock_audio = unittest.mock.Mock()
     mock_audio.text = None
     mock_audio.data = b"audio_data"

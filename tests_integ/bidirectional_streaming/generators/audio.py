@@ -4,6 +4,7 @@ Provides text-to-speech conversion for generating realistic audio test data
 without requiring physical audio devices or pre-recorded files.
 """
 
+import base64
 import hashlib
 import logging
 from pathlib import Path
@@ -120,8 +121,6 @@ class AudioGenerator:
         Returns:
             BidiAudioInputEvent dict ready for agent.send().
         """
-        import base64
-        
         # Convert bytes to base64 string for JSON compatibility
         audio_b64 = base64.b64encode(audio_data).decode('utf-8')
         

@@ -15,6 +15,17 @@ import pytest_asyncio
 from strands.experimental.bidirectional_streaming.models.novasonic import (
     BidiNovaSonicModel,
 )
+from strands.experimental.bidirectional_streaming.types.events import (
+    BidiAudioInputEvent,
+    BidiAudioStreamEvent,
+    BidiImageInputEvent,
+    BidiInterruptionEvent,
+    BidiResponseStartEvent,
+    BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
+    BidiUsageEvent,
+)
+from strands.types._events import ToolResultEvent
 from strands.types.tools import ToolResult
 
 
@@ -131,12 +142,6 @@ async def test_connection_edge_cases(nova_model, mock_client, mock_stream, model
 @pytest.mark.asyncio
 async def test_send_all_content_types(nova_model, mock_client, mock_stream):
     """Test sending all content types through unified send() method."""
-    from strands.experimental.bidirectional_streaming.types.events import (
-        BidiTextInputEvent,
-        BidiAudioInputEvent,
-    )
-    from strands.types._events import ToolResultEvent
-    
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
         nova_model.client = mock_client
 
@@ -177,11 +182,6 @@ async def test_send_all_content_types(nova_model, mock_client, mock_stream):
 @pytest.mark.asyncio
 async def test_send_edge_cases(nova_model, mock_client, mock_stream, caplog):
     """Test send() edge cases and error handling."""
-    from strands.experimental.bidirectional_streaming.types.events import (
-        BidiTextInputEvent,
-        BidiImageInputEvent,
-    )
-    
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
         nova_model.client = mock_client
 
@@ -191,7 +191,6 @@ async def test_send_edge_cases(nova_model, mock_client, mock_stream, caplog):
 
         # Test image content (not supported, base64 encoded, no encoding parameter)
         await nova_model.start()
-        import base64
         image_b64 = base64.b64encode(b"image data").decode('utf-8')
         image_event = BidiImageInputEvent(
             image=image_b64,
@@ -237,7 +236,6 @@ async def test_receive_lifecycle_events(nova_model, mock_client, mock_stream):
 async def test_event_conversion(nova_model):
     """Test conversion of all Nova Sonic event types to standard format."""
     # Test audio output (now returns BidiAudioStreamEvent)
-    from strands.experimental.bidirectional_streaming.types.events import BidiAudioStreamEvent
     audio_bytes = b"test audio data"
     audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
     nova_event = {"audioOutput": {"content": audio_base64}}
@@ -251,7 +249,6 @@ async def test_event_conversion(nova_model):
     assert result.get("sample_rate") == 24000
 
     # Test text output (now returns BidiTranscriptStreamEvent)
-    from strands.experimental.bidirectional_streaming.types.events import BidiTranscriptStreamEvent
     nova_event = {"textOutput": {"content": "Hello, world!", "role": "ASSISTANT"}}
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
@@ -282,7 +279,6 @@ async def test_event_conversion(nova_model):
     assert tool_use["input"] == tool_input
 
     # Test interruption (now returns BidiInterruptionEvent)
-    from strands.experimental.bidirectional_streaming.types.events import BidiInterruptionEvent
     nova_event = {"stopReason": "INTERRUPTED"}
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
@@ -291,7 +287,6 @@ async def test_event_conversion(nova_model):
     assert result.get("reason") == "user_speech"
 
     # Test usage metrics (now returns BidiUsageEvent)
-    from strands.experimental.bidirectional_streaming.types.events import BidiUsageEvent
     nova_event = {
         "usageEvent": {
             "totalTokens": 100,
@@ -315,7 +310,6 @@ async def test_event_conversion(nova_model):
     assert result.get("outputTokens") == 60
 
     # Test content start tracks role and emits BidiResponseStartEvent
-    from strands.experimental.bidirectional_streaming.types.events import BidiResponseStartEvent
     nova_event = {"contentStart": {"role": "USER"}}
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
@@ -349,8 +343,6 @@ async def test_audio_connection_lifecycle(nova_model, mock_client, mock_stream):
 @pytest.mark.asyncio
 async def test_silence_detection(nova_model, mock_client, mock_stream):
     """Test that silence detection automatically ends audio input."""
-    from strands.experimental.bidirectional_streaming.types.events import BidiAudioInputEvent
-    
     with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
         nova_model.client = mock_client
         nova_model.silence_threshold = 0.1  # Short threshold for testing
@@ -358,7 +350,6 @@ async def test_silence_detection(nova_model, mock_client, mock_stream):
         await nova_model.start()
 
         # Send audio to start connection (base64 encoded)
-        import base64
         audio_b64 = base64.b64encode(b"audio data").decode('utf-8')
         audio_event = BidiAudioInputEvent(
             audio=audio_b64,

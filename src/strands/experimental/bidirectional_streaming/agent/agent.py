@@ -339,9 +339,11 @@ class BidiAgent:
         """
         while self.active:
             try:
-                event = await self._output_queue.get()
+                # Use a timeout to periodically check if we should stop
+                event = await asyncio.wait_for(self._output_queue.get(), timeout=0.5)
                 yield event
             except asyncio.TimeoutError:
+                # Timeout allows us to check self.active periodically
                 continue
 
     async def stop(self) -> None:

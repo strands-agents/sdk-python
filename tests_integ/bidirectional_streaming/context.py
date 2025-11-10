@@ -5,6 +5,7 @@ with continuous background threads that mimic real-world usage patterns.
 """
 
 import asyncio
+import base64
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -81,12 +82,13 @@ class BidirectionalTestContext:
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Stop context manager, cleanup threads, and end agent session."""
-        await self.stop()
-        
-        # End agent session
+        # End agent session FIRST - this will cause receive() to exit cleanly
         if self.agent._agent_loop and self.agent._agent_loop.active:
             await self.agent.stop()
-            logger.debug("Agent session ended")
+            logger.debug("Agent session stopped")
+        
+        # Then stop the context threads
+        await self.stop()
         
         return False
 
@@ -254,8 +256,6 @@ class BidirectionalTestContext:
         Returns:
             List of audio data bytes.
         """
-        import base64
-        
         # Drain queue first to get latest events
         events = self.get_events()
         audio_data = []
@@ -332,6 +332,7 @@ class BidirectionalTestContext:
 
         except asyncio.CancelledError:
             logger.debug("Input thread cancelled")
+            raise  # Re-raise to properly propagate cancellation
         except Exception as e:
             logger.error(f"Input thread error: {e}", exc_info=True)
         finally:
@@ -350,6 +351,7 @@ class BidirectionalTestContext:
 
         except asyncio.CancelledError:
             logger.debug("Event collection thread cancelled")
+            raise  # Re-raise to properly propagate cancellation
         except Exception as e:
             logger.error(f"Event collection thread error: {e}")
 
