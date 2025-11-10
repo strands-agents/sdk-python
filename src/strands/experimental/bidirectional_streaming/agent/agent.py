@@ -257,20 +257,30 @@ class BidiAgent:
         self._agent_loop = await start_bidirectional_connection(self)
 
     async def send(self, input_data: BidirectionalInput) -> None:
-        """Send input to the model (text or audio).
-
-        Unified method for sending both text and audio input to the model during
-        an active conversation connection. User input is automatically added to
-        conversation history for complete message tracking.
-
+        """Send input to the model (text, audio, image, or event dict).
+        
+        Unified method for sending text, audio, and image input to the model during
+        an active conversation session. Accepts TypedEvent instances or plain dicts
+        (e.g., from WebSocket clients) which are automatically reconstructed.
+        
         Args:
-            input_data: String for text, BidiAudioInputEvent for audio, or BidiImageInputEvent for images.
-
+            input_data: Can be:
+                - str: Text message from user
+                - BidiAudioInputEvent: Audio data with format/sample rate
+                - BidiImageInputEvent: Image data with MIME type
+                - dict: Event dictionary (will be reconstructed to TypedEvent)
+            
         Raises:
-            ValueError: If no active connection or invalid input type.
+            ValueError: If no active session or invalid input type.
+            
+        Example:
+            await agent.send("Hello")
+            await agent.send(BidiAudioInputEvent(audio="base64...", format="pcm", ...))
+            await agent.send({"type": "bidirectional_text_input", "text": "Hello", "role": "user"})
         """
         self._validate_active_connection()
 
+        # Handle string input
         if isinstance(input_data, str):
             # Add user text message to history
             user_message: Message = {"role": "user", "content": [{"text": input_data}]}
@@ -281,9 +291,42 @@ class BidiAgent:
             # Create BidiTextInputEvent for send()
             text_event = BidiTextInputEvent(text=input_data, role="user")
             await self._agent_loop.model.send(text_event)
-        else:
-            # For audio, image, or any other input - let model handle it
+            return
+        
+        # Handle InputEvent instances (BidiTextInputEvent, BidiAudioInputEvent, BidiImageInputEvent)
+        # Check this before dict since TypedEvent inherits from dict
+        if isinstance(input_data, (BidiTextInputEvent, BidiAudioInputEvent, BidiImageInputEvent)):
             await self._agent_loop.model.send(input_data)
+            return
+        
+        # Handle plain dict - reconstruct TypedEvent for WebSocket integration
+        if isinstance(input_data, dict) and "type" in input_data:
+            event_type = input_data["type"]
+            if event_type == "bidirectional_text_input":
+                input_data = BidiTextInputEvent(text=input_data["text"], role=input_data["role"])
+            elif event_type == "bidirectional_audio_input":
+                input_data = BidiAudioInputEvent(
+                    audio=input_data["audio"],
+                    format=input_data["format"],
+                    sample_rate=input_data["sample_rate"],
+                    channels=input_data["channels"]
+                )
+            elif event_type == "bidirectional_image_input":
+                input_data = BidiImageInputEvent(
+                    image=input_data["image"],
+                    mime_type=input_data["mime_type"]
+                )
+            else:
+                raise ValueError(f"Unknown event type: {event_type}")
+            
+            # Send the reconstructed TypedEvent
+            await self._agent_loop.model.send(input_data)
+            return
+        
+        # If we get here, input type is invalid
+        raise ValueError(
+            f"Input must be a string, InputEvent (BidiTextInputEvent/BidiAudioInputEvent/BidiImageInputEvent), or event dict with 'type' field, got: {type(input_data)}"
+        )
 
     async def receive(self) -> AsyncIterable[OutputEvent]:
         """Receive events from the model including audio, text, and tool calls.
