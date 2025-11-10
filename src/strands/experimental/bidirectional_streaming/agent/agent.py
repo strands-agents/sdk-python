@@ -34,6 +34,7 @@ from ..event_loop.bidirectional_event_loop import (
 )
 from ..models.bidirectional_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
+from ..types.agent import BidiAgentInput
 from ..types.events import BidiAudioInputEvent, BidiImageInputEvent, BidiTextInputEvent, BidiInputEvent, BidiOutputEvent
 from ..types import BidiIO
 from ....experimental.tools import ToolProvider
@@ -42,8 +43,6 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_AGENT_NAME = "Strands Agents"
 _DEFAULT_AGENT_ID = "default"
-# Type alias for cleaner send() method signature
-BidirectionalInput = str | BidiAudioInputEvent | BidiImageInputEvent
 
 
 class BidiAgent:
@@ -256,7 +255,7 @@ class BidiAgent:
         logger.debug("Conversation start - initializing connection")
         self._agent_loop = await start_bidirectional_connection(self)
 
-    async def send(self, input_data: BidirectionalInput) -> None:
+    async def send(self, input_data: BidiAgentInput) -> None:
         """Send input to the model (text, audio, image, or event dict).
         
         Unified method for sending text, audio, and image input to the model during
@@ -303,16 +302,16 @@ class BidiAgent:
         if isinstance(input_data, dict) and "type" in input_data:
             event_type = input_data["type"]
             if event_type == "bidi_text_input":
-                input_data = BidiTextInputEvent(text=input_data["text"], role=input_data["role"])
+                input_event = BidiTextInputEvent(text=input_data["text"], role=input_data["role"])
             elif event_type == "bidi_audio_input":
-                input_data = BidiAudioInputEvent(
+                input_event = BidiAudioInputEvent(
                     audio=input_data["audio"],
                     format=input_data["format"],
                     sample_rate=input_data["sample_rate"],
                     channels=input_data["channels"]
                 )
             elif event_type == "bidi_image_input":
-                input_data = BidiImageInputEvent(
+                input_event = BidiImageInputEvent(
                     image=input_data["image"],
                     mime_type=input_data["mime_type"]
                 )
@@ -320,7 +319,7 @@ class BidiAgent:
                 raise ValueError(f"Unknown event type: {event_type}")
             
             # Send the reconstructed TypedEvent
-            await self._agent_loop.model.send(input_data)
+            await self._agent_loop.model.send(input_event)
             return
         
         # If we get here, input type is invalid
