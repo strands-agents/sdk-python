@@ -37,7 +37,7 @@ except ImportError as e:
 import pyaudio
 from strands_tools import calculator
 
-from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
+from strands.experimental.bidirectional_streaming.agent.agent import BidiAgent
 from strands.experimental.bidirectional_streaming.models.gemini_live import BidiGeminiLiveModel
 
 # Configure logging - debug only for Gemini Live, info for everything else
@@ -145,27 +145,23 @@ async def receive(agent, context):
     """Receive and process events from agent."""
     try:
         async for event in agent.receive():
-            # Debug: Log event type and keys
             event_type = event.get("type", "unknown")
-            event_keys = list(event.keys())
-            logger.debug(f"Received event type: {event_type}, keys: {event_keys}")
             
-            # Handle audio stream events (bidirectional_audio_stream)
-            if event_type == "bidirectional_audio_stream":
+            # Handle audio stream events (bidi_audio_stream)
+            if event_type == "bidi_audio_stream":
                 if not context.get("interrupted", False):
                     # Decode base64 audio string to bytes for playback
                     audio_b64 = event["audio"]
                     audio_data = base64.b64decode(audio_b64)
                     context["audio_out"].put_nowait(audio_data)
-                    logger.info(f"🔊 Audio queued for playback: {len(audio_data)} bytes")
 
-            # Handle interruption events (bidirectional_interruption)
-            elif event_type == "bidirectional_interruption":
+            # Handle interruption events (bidi_interruption)
+            elif event_type == "bidi_interruption":
                 context["interrupted"] = True
                 print("⚠️  Interruption detected")
 
-            # Handle transcript events (bidirectional_transcript_stream)
-            elif event_type == "bidirectional_transcript_stream":
+            # Handle transcript events (bidi_transcript_stream)
+            elif event_type == "bidi_transcript_stream":
                 transcript_text = event.get("text", "")
                 transcript_role = event.get("role", "unknown")
                 is_final = event.get("is_final", False)
@@ -176,27 +172,30 @@ async def receive(agent, context):
                 elif transcript_role == "assistant":
                     print(f"🔊 Assistant: {transcript_text}")
             
-            # Handle turn complete events (bidirectional_turn_complete)
-            elif event_type == "bidirectional_turn_complete":
-                logger.debug("Turn complete - model ready for next input")
-                # Reset interrupted state since the turn is complete
+            # Handle response complete events (bidi_response_complete)
+            elif event_type == "bidi_response_complete":
+                # Reset interrupted state since the response is complete
                 context["interrupted"] = False
             
-            # Handle session start events (bidirectional_session_start)
-            elif event_type == "bidirectional_session_start":
-                logger.info(f"Session started: {event.get('model', 'unknown')}")
+            # Handle tool use events (tool_use_stream)
+            elif event_type == "tool_use_stream":
+                tool_use = event.get("current_tool_use", {})
+                tool_name = tool_use.get("name", "unknown")
+                tool_input = tool_use.get("input", {})
+                print(f"🔧 Tool called: {tool_name} with input: {tool_input}")
             
-            # Handle session end events (bidirectional_session_end)
-            elif event_type == "bidirectional_session_end":
-                logger.info(f"Session ended: {event.get('reason', 'unknown')}")
-            
-            # Handle error events (bidirectional_error)
-            elif event_type == "bidirectional_error":
-                logger.error(f"Error: {event.get('error_message', 'unknown')}")
-            
-            # Handle turn start events (bidirectional_turn_start)
-            elif event_type == "bidirectional_turn_start":
-                logger.debug(f"Turn started: {event.get('response_id', 'unknown')}")
+            # Handle tool result events (tool_result)
+            elif event_type == "tool_result":
+                tool_result = event.get("tool_result", {})
+                tool_name = tool_result.get("name", "unknown")
+                result_content = tool_result.get("content", [])
+                # Extract text from content blocks
+                result_text = ""
+                for block in result_content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        result_text = block.get("text", "")
+                        break
+                print(f"✅ Tool result from {tool_name}: {result_text}")
 
     except asyncio.CancelledError:
         pass
@@ -318,7 +317,7 @@ async def main(duration=180):
     logger.info("Gemini Live model initialized successfully")
     print("Using Gemini Live model with default config (audio output + transcription enabled)")
     
-    agent = BidirectionalAgent(
+    agent = BidiAgent(
         model=model, 
         tools=[calculator], 
         system_prompt="You are a helpful assistant."
@@ -331,7 +330,7 @@ async def main(duration=180):
         "active": True,
         "audio_in": asyncio.Queue(),
         "audio_out": asyncio.Queue(),
-        "connection": agent._session,
+        "connection": agent._agent_loop,
         "duration": duration,
         "start_time": time.time(),
         "interrupted": False,

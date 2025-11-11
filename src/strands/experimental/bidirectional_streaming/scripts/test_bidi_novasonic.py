@@ -17,7 +17,7 @@ import time
 import pyaudio
 from strands_tools import calculator
 
-from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
+from strands.experimental.bidirectional_streaming.agent.agent import BidiAgent
 from strands.experimental.bidirectional_streaming.models.novasonic import BidiNovaSonicModel
 
 
@@ -130,23 +130,22 @@ async def receive(agent, context):
     """Receive and process events from agent."""
     try:
         async for event in agent.receive():
-            # Get event type
             event_type = event.get("type", "unknown")
             
-            # Handle audio stream events (bidirectional_audio_stream)
-            if event_type == "bidirectional_audio_stream":
+            # Handle audio stream events (bidi_audio_stream)
+            if event_type == "bidi_audio_stream":
                 if not context.get("interrupted", False):
                     # Decode base64 audio string to bytes for playback
                     audio_b64 = event["audio"]
                     audio_data = base64.b64decode(audio_b64)
                     context["audio_out"].put_nowait(audio_data)
 
-            # Handle interruption events (bidirectional_interruption)
-            elif event_type == "bidirectional_interruption":
+            # Handle interruption events (bidi_interruption)
+            elif event_type == "bidi_interruption":
                 context["interrupted"] = True
 
-            # Handle transcript events (bidirectional_transcript_stream)
-            elif event_type == "bidirectional_transcript_stream":
+            # Handle transcript events (bidi_transcript_stream)
+            elif event_type == "bidi_transcript_stream":
                 text_content = event.get("text", "")
                 role = event.get("role", "unknown")
                 
@@ -156,10 +155,29 @@ async def receive(agent, context):
                 elif role == "assistant":
                     print(f"Assistant: {text_content}")
             
-            # Handle turn complete events (bidirectional_turn_complete)
-            elif event_type == "bidirectional_turn_complete":
+            # Handle response complete events (bidi_response_complete)
+            elif event_type == "bidi_response_complete":
                 # Reset interrupted state since the turn is complete
                 context["interrupted"] = False
+            
+            # Handle tool use events (tool_use_stream)
+            elif event_type == "tool_use_stream":
+                tool_use = event.get("current_tool_use", {})
+                tool_name = tool_use.get("name", "unknown")
+                tool_input = tool_use.get("input", {})
+                print(f"🔧 Tool called: {tool_name} with input: {tool_input}")
+            
+            # Handle tool result events (tool_result)
+            elif event_type == "tool_result":
+                tool_result = event.get("tool_result", {})
+                tool_name = tool_result.get("name", "unknown")
+                result_content = tool_result.get("content", [])
+                result_text = ""
+                for block in result_content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        result_text = block.get("text", "")
+                        break
+                print(f"✅ Tool result from {tool_name}: {result_text}")
 
     except asyncio.CancelledError:
         pass
@@ -199,7 +217,7 @@ async def main(duration=180):
 
     # Initialize model and agent
     model = BidiNovaSonicModel(region="us-east-1")
-    agent = BidirectionalAgent(model=model, tools=[calculator], system_prompt="You are a helpful assistant.")
+    agent = BidiAgent(model=model, tools=[calculator], system_prompt="You are a helpful assistant.")
 
     await agent.start()
 
@@ -208,7 +226,7 @@ async def main(duration=180):
         "active": True,
         "audio_in": asyncio.Queue(),
         "audio_out": asyncio.Queue(),
-        "connection": agent._session,
+        "connection": agent._agent_loop,
         "duration": duration,
         "start_time": time.time(),
         "interrupted": False,

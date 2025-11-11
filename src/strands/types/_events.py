@@ -145,7 +145,7 @@ class ToolUseStreamEvent(ModelStreamEvent):
 
     def __init__(self, delta: ContentBlockDelta, current_tool_use: dict[str, Any]) -> None:
         """Initialize with delta and current tool use state."""
-        super().__init__({"delta": delta, "current_tool_use": current_tool_use})
+        super().__init__({"type": "tool_use_stream", "delta": delta, "current_tool_use": current_tool_use})
 
 
 class TextStreamEvent(ModelStreamEvent):
@@ -281,7 +281,7 @@ class ToolResultEvent(TypedEvent):
         Args:
             tool_result: Final result from the tool execution
         """
-        super().__init__({"tool_result": tool_result})
+        super().__init__({"type": "tool_result", "tool_result": tool_result})
 
     @property
     def tool_use_id(self) -> str:
@@ -309,7 +309,7 @@ class ToolStreamEvent(TypedEvent):
             tool_use: The tool invocation producing the stream
             tool_stream_data: The yielded event from the tool execution
         """
-        super().__init__({"tool_stream_event": {"tool_use": tool_use, "data": tool_stream_data}})
+        super().__init__({"type": "tool_stream", "tool_stream_event": {"tool_use": tool_use, "data": tool_stream_data}})
 
     @property
     def tool_use_id(self) -> str:

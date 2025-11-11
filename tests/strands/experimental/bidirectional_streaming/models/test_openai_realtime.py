@@ -21,6 +21,7 @@ from strands.experimental.bidirectional_streaming.types.events import (
     BidiAudioStreamEvent,
     BidiImageInputEvent,
     BidiInterruptionEvent,
+    BidiResponseCompleteEvent,
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
 )
@@ -416,6 +417,43 @@ async def test_event_conversion(mock_websockets_connect, model):
     assert isinstance(converted[0], BidiInterruptionEvent)
     assert converted[0].get("type") == "bidi_interruption"
     assert converted[0].get("reason") == "user_speech"
+
+    # Test response.cancelled event (should return ResponseCompleteEvent with interrupted reason)
+    response_cancelled = {
+        "type": "response.cancelled",
+        "response": {
+            "id": "resp_123"
+        }
+    }
+    converted = model._convert_openai_event(response_cancelled)
+    assert isinstance(converted, list)
+    assert len(converted) == 1
+    assert isinstance(converted[0], BidiResponseCompleteEvent)
+    assert converted[0].get("type") == "bidi_response_complete"
+    assert converted[0].get("response_id") == "resp_123"
+    assert converted[0].get("stop_reason") == "interrupted"
+
+    # Test error handling - response_cancel_not_active should be suppressed
+    error_cancel_not_active = {
+        "type": "error",
+        "error": {
+            "code": "response_cancel_not_active",
+            "message": "No active response to cancel"
+        }
+    }
+    converted = model._convert_openai_event(error_cancel_not_active)
+    assert converted is None  # Should be suppressed
+
+    # Test error handling - other errors should be logged but return None
+    error_other = {
+        "type": "error",
+        "error": {
+            "code": "some_other_error",
+            "message": "Something went wrong"
+        }
+    }
+    converted = model._convert_openai_event(error_other)
+    assert converted is None
 
     await model.stop()
 
