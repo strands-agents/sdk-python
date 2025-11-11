@@ -21,7 +21,7 @@ from ....telemetry.metrics import Trace
 from ....types._events import ToolResultEvent, ToolStreamEvent
 from ....types.content import Message
 from ....types.tools import ToolResult, ToolUse
-from ..models.bidirectional_model import BidirectionalModel
+from ..models.bidirectional_model import BidiModel
 
 logger = logging.getLogger(__name__)
 
@@ -37,12 +37,12 @@ class BidirectionalConnection:
     handling while providing a simple interface for agent interactions.
     """
 
-    def __init__(self, model: BidirectionalModel, agent: "BidirectionalAgent") -> None:
+    def __init__(self, model: BidiModel, agent: "BidiAgent") -> None:
         """Initialize connection with model and agent reference.
 
         Args:
             model: Bidirectional model instance.
-            agent: BidirectionalAgent instance for tool registry access.
+            agent: BidiAgent instance for tool registry access.
         """
         self.model = model
         self.agent = agent
@@ -64,14 +64,14 @@ class BidirectionalConnection:
         self.tool_count = 0
 
 
-async def start_bidirectional_connection(agent: "BidirectionalAgent") -> BidirectionalConnection:
+async def start_bidirectional_connection(agent: "BidiAgent") -> BidirectionalConnection:
     """Initialize bidirectional session with conycurrent background tasks.
 
     Creates a model-specific session and starts background tasks for processing
     model events, executing tools, and managing the session lifecycle.
 
     Args:
-        agent: BidirectionalAgent instance.
+        agent: BidiAgent instance.
 
     Returns:
         BidirectionalConnection: Active session with background tasks running.
@@ -79,7 +79,7 @@ async def start_bidirectional_connection(agent: "BidirectionalAgent") -> Bidirec
     logger.debug("Starting bidirectional session - initializing model connection")
 
     # Connect to model
-    await agent.model.connect(
+    await agent.model.start(
         system_prompt=agent.system_prompt, tools=agent.tool_registry.get_all_tool_specs(), messages=agent.messages
     )
 
@@ -136,7 +136,7 @@ async def stop_bidirectional_connection(session: BidirectionalConnection) -> Non
         await asyncio.gather(*all_tasks, return_exceptions=True)
 
     # Close model connection
-    await session.model.close()
+    await session.model.stop()
     logger.debug("Connection closed")
 
 
@@ -225,7 +225,7 @@ async def _handle_interruption(session: BidirectionalConnection) -> None:
                 event = session.agent._output_queue.get_nowait()
                 # Check for audio events
                 event_type = event.get("type", "")
-                if event_type == "bidirectional_audio_stream":
+                if event_type == "bidi_audio_stream":
                     audio_cleared += 1
                 else:
                     # Keep non-audio events
@@ -273,7 +273,7 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
             event_type = strands_event.get("type", "")
             
             # Handle interruption detection
-            if event_type == "bidirectional_interruption":
+            if event_type == "bidi_interruption":
                 logger.debug("Interruption forwarded")
                 await _handle_interruption(session)
                 # Forward interruption event to agent for application-level handling
@@ -282,7 +282,7 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
 
             # Queue tool requests for concurrent execution
             # Check for ToolUseStreamEvent (standard agent event)
-            if "current_tool_use" in strands_event:
+            if event_type == "tool_use_stream":
                 tool_use = strands_event.get("current_tool_use")
                 if tool_use:
                     tool_name = tool_use.get("name")
@@ -296,10 +296,10 @@ async def _process_model_events(session: BidirectionalConnection) -> None:
             await session.agent._output_queue.put(strands_event)
 
             # Update Agent conversation history for user transcripts
-            if event_type == "bidirectional_transcript_stream":
-                source = strands_event.get("source")
+            if event_type == "bidi_transcript_stream":
+                role = strands_event.get("role")
                 text = strands_event.get("text", "")
-                if source == "user" and text.strip():
+                if role == "user" and text.strip():
                     user_message = {"role": "user", "content": text}
                     session.agent.messages.append(user_message)
                     logger.debug("User transcript added to history")

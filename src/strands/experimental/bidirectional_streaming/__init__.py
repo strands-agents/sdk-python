@@ -1,33 +1,36 @@
 """Bidirectional streaming package."""
 
 # Main components - Primary user interface
-from .agent.agent import BidirectionalAgent
+from .agent.agent import BidiAgent
+
+# IO channels - Hardware abstraction
+from .io.audio import AudioIO
 
 # Model interface (for custom implementations)
-from .models.bidirectional_model import BidirectionalModel
+from .models.bidirectional_model import BidiModel
 
 # Model providers - What users need to create models
-from .models.gemini_live import GeminiLiveModel
-from .models.novasonic import NovaSonicModel
-from .models.openai import OpenAIRealtimeModel
+from .models.gemini_live import BidiGeminiLiveModel
+from .models.novasonic import BidiNovaSonicModel
+from .models.openai import BidiOpenAIRealtimeModel
 
 # Event types - For type hints and event handling
-from .types.bidirectional_streaming import (
-    AudioInputEvent,
-    AudioStreamEvent,
-    ConnectionCloseEvent,
-    ConnectionStartEvent,
-    ErrorEvent,
-    ImageInputEvent,
-    InputEvent,
-    InterruptionEvent,
+from .types.events import (
+    BidiAudioInputEvent,
+    BidiAudioStreamEvent,
+    BidiConnectionCloseEvent,
+    BidiConnectionStartEvent,
+    BidiErrorEvent,
+    BidiImageInputEvent,
+    BidiInputEvent,
+    BidiInterruptionEvent,
     ModalityUsage,
-    UsageEvent,
-    OutputEvent,
-    ResponseCompleteEvent,
-    ResponseStartEvent,
-    TextInputEvent,
-    TranscriptStreamEvent,
+    BidiUsageEvent,
+    BidiOutputEvent,
+    BidiResponseCompleteEvent,
+    BidiResponseStartEvent,
+    BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
 )
 
 # Re-export standard agent events for tool handling
@@ -39,31 +42,32 @@ from ...types._events import (
 
 __all__ = [
     # Main interface
-    "BidirectionalAgent",
-    
+    "BidiAgent",
+    # IO channels
+    "AudioIO",
     # Model providers
-    "GeminiLiveModel",
-    "NovaSonicModel",
-    "OpenAIRealtimeModel",
+    "BidiGeminiLiveModel",
+    "BidiNovaSonicModel",
+    "BidiOpenAIRealtimeModel",
     
     # Input Event types
-    "TextInputEvent",
-    "AudioInputEvent",
-    "ImageInputEvent",
-    "InputEvent",
+    "BidiTextInputEvent",
+    "BidiAudioInputEvent",
+    "BidiImageInputEvent",
+    "BidiInputEvent",
     
     # Output Event types
-    "ConnectionStartEvent",
-    "ConnectionCloseEvent",
-    "ResponseStartEvent",
-    "ResponseCompleteEvent",
-    "AudioStreamEvent",
-    "TranscriptStreamEvent",
-    "InterruptionEvent",
-    "UsageEvent",
+    "BidiConnectionStartEvent",
+    "BidiConnectionCloseEvent",
+    "BidiResponseStartEvent",
+    "BidiResponseCompleteEvent",
+    "BidiAudioStreamEvent",
+    "BidiTranscriptStreamEvent",
+    "BidiInterruptionEvent",
+    "BidiUsageEvent",
     "ModalityUsage",
-    "ErrorEvent",
-    "OutputEvent",
+    "BidiErrorEvent",
+    "BidiOutputEvent",
     
     # Tool Event types (reused from standard agent)
     "ToolUseStreamEvent",
@@ -71,5 +75,5 @@ __all__ = [
     "ToolStreamEvent",
     
     # Model interface
-    "BidirectionalModel",
+    "BidiModel",
 ]

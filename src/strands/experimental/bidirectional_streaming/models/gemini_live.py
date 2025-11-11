@@ -1,6 +1,6 @@
 """Gemini Live API bidirectional model provider using official Google GenAI SDK.
 
-Implements the BidirectionalModel interface for Google's Gemini Live API using the
+Implements the BidiModel interface for Google's Gemini Live API using the
 official Google GenAI SDK for simplified and robust WebSocket communication.
 
 Key improvements over custom WebSocket implementation:
@@ -24,22 +24,22 @@ from google.genai.types import LiveServerMessage, LiveServerContent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
-from ..types.bidirectional_streaming import (
-    AudioInputEvent,
-    AudioStreamEvent,
-    ConnectionCloseEvent,
-    ConnectionStartEvent,
-    ErrorEvent,
-    ImageInputEvent,
-    InputEvent,
-    InterruptionEvent,
-    UsageEvent,
-    TextInputEvent,
-    TranscriptStreamEvent,
-    ResponseCompleteEvent,
-    ResponseStartEvent,
+from ..types.events import (
+    BidiAudioInputEvent,
+    BidiAudioStreamEvent,
+    BidiConnectionCloseEvent,
+    BidiConnectionStartEvent,
+    BidiErrorEvent,
+    BidiImageInputEvent,
+    BidiInputEvent,
+    BidiInterruptionEvent,
+    BidiUsageEvent,
+    BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
+    BidiResponseCompleteEvent,
+    BidiResponseStartEvent,
 )
-from .bidirectional_model import BidirectionalModel
+from .bidirectional_model import BidiModel
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ GEMINI_OUTPUT_SAMPLE_RATE = 24000
 GEMINI_CHANNELS = 1
 
 
-class GeminiLiveModel(BidirectionalModel):
+class BidiGeminiLiveModel(BidiModel):
     """Gemini Live API implementation using official Google GenAI SDK.
     
     Combines model configuration and connection state in a single class.
@@ -87,13 +87,13 @@ class GeminiLiveModel(BidirectionalModel):
         
         self.client = genai.Client(**client_kwargs)
         
-        # Connection state (initialized in connect())
+        # Connection state (initialized in start())
         self.live_session = None
         self.live_session_context_manager = None
         self.connection_id = None
         self._active = False
     
-    async def connect(
+    async def start(
         self,
         system_prompt: Optional[str] = None,
         tools: Optional[List[ToolSpec]] = None,
@@ -165,7 +165,7 @@ class GeminiLiveModel(BidirectionalModel):
         """Receive Gemini Live API events and convert to provider-agnostic format."""
         
         # Emit connection start event
-        yield ConnectionStartEvent(
+        yield BidiConnectionStartEvent(
             connection_id=self.connection_id,
             model=self.model_id
         )
@@ -194,10 +194,10 @@ class GeminiLiveModel(BidirectionalModel):
                     
         except Exception as e:
             logger.error("Fatal error in receive loop: %s", e)
-            yield ErrorEvent(error=e)
+            yield BidiErrorEvent(error=e)
         finally:
             # Emit connection close event when exiting
-            yield ConnectionCloseEvent(connection_id=self.connection_id, reason="complete")
+            yield BidiConnectionCloseEvent(connection_id=self.connection_id, reason="complete")
     
     def _convert_gemini_live_event(self, message: LiveServerMessage) -> Optional[Dict[str, Any]]:
         """Convert Gemini Live API events to provider-agnostic format.
@@ -211,7 +211,7 @@ class GeminiLiveModel(BidirectionalModel):
         try:
             # Handle interruption first (from server_content)
             if message.server_content and message.server_content.interrupted:
-                return InterruptionEvent(reason="user_speech")
+                return BidiInterruptionEvent(reason="user_speech")
             
             # Handle input transcription (user's speech) - emit as transcript event
             if message.server_content and message.server_content.input_transcription:
@@ -219,11 +219,12 @@ class GeminiLiveModel(BidirectionalModel):
                 # Check if the transcription object has text content
                 if hasattr(input_transcript, 'text') and input_transcript.text:
                     transcription_text = input_transcript.text
+                    role = getattr(input_transcript, 'role', 'user')
                     logger.debug(f"Input transcription detected: {transcription_text}")
-                    return TranscriptStreamEvent(
+                    return BidiTranscriptStreamEvent(
                         delta={"text": transcription_text},
                         text=transcription_text,
-                        role="user",
+                        role=role.lower() if isinstance(role, str) else "user",
                         is_final=True,
                         current_transcript=transcription_text
                     )
@@ -234,22 +235,24 @@ class GeminiLiveModel(BidirectionalModel):
                 # Check if the transcription object has text content
                 if hasattr(output_transcript, 'text') and output_transcript.text:
                     transcription_text = output_transcript.text
+                    role = getattr(output_transcript, 'role', 'assistant')
                     logger.debug(f"Output transcription detected: {transcription_text}")
-                    return TranscriptStreamEvent(
+                    return BidiTranscriptStreamEvent(
                         delta={"text": transcription_text},
                         text=transcription_text,
-                        role="assistant",
+                        role=role.lower() if isinstance(role, str) else "assistant",
                         is_final=True,
                         current_transcript=transcription_text
                     )
             
             # Handle text output from model
             if message.text:
+                role = getattr(message, 'role', 'assistant')
                 logger.debug(f"Text output as transcript: {message.text}")
-                return TranscriptStreamEvent(
+                return BidiTranscriptStreamEvent(
                     delta={"text": message.text},
                     text=message.text,
-                    role="assistant",
+                    role=role.lower() if isinstance(role, str) else "assistant",
                     is_final=True,
                     current_transcript=message.text
                 )
@@ -258,7 +261,7 @@ class GeminiLiveModel(BidirectionalModel):
             if message.data:
                 # Convert bytes to base64 string for JSON serializability
                 audio_b64 = base64.b64encode(message.data).decode('utf-8')
-                return AudioStreamEvent(
+                return BidiAudioStreamEvent(
                     audio=audio_b64,
                     format="pcm",
                     sample_rate=GEMINI_OUTPUT_SAMPLE_RATE,
@@ -312,7 +315,7 @@ class GeminiLiveModel(BidirectionalModel):
                                     "output_tokens": detail.token_count
                                 })
                 
-                return UsageEvent(
+                return BidiUsageEvent(
                     input_tokens=usage.prompt_token_count or 0,
                     output_tokens=usage.response_token_count or 0,
                     total_tokens=usage.total_token_count or 0,
@@ -331,24 +334,24 @@ class GeminiLiveModel(BidirectionalModel):
     
     async def send(
         self,
-        content: InputEvent | ToolResultEvent,
+        content: BidiInputEvent | ToolResultEvent,
     ) -> None:
         """Unified send method for all content types. Sends the given inputs to Google Live API
         
         Dispatches to appropriate internal handler based on content type.
         
         Args:
-            content: Typed event (TextInputEvent, AudioInputEvent, ImageInputEvent, or ToolResultEvent).
+            content: Typed event (BidiTextInputEvent, BidiAudioInputEvent, BidiImageInputEvent, or ToolResultEvent).
         """
         if not self._active:
             return
         
         try:
-            if isinstance(content, TextInputEvent):
+            if isinstance(content, BidiTextInputEvent):
                 await self._send_text_content(content.text)
-            elif isinstance(content, AudioInputEvent):
+            elif isinstance(content, BidiAudioInputEvent):
                 await self._send_audio_content(content)
-            elif isinstance(content, ImageInputEvent):
+            elif isinstance(content, BidiImageInputEvent):
                 await self._send_image_content(content)
             elif isinstance(content, ToolResultEvent):
                 tool_result = content.get("tool_result")
@@ -360,7 +363,7 @@ class GeminiLiveModel(BidirectionalModel):
             logger.error(f"Error sending content: {e}")
             raise  # Propagate exception for debugging in experimental code
     
-    async def _send_audio_content(self, audio_input: AudioInputEvent) -> None:
+    async def _send_audio_content(self, audio_input: BidiAudioInputEvent) -> None:
         """Internal: Send audio content using Gemini Live API.
         
         Gemini Live expects continuous audio streaming via send_realtime_input.
@@ -382,7 +385,7 @@ class GeminiLiveModel(BidirectionalModel):
         except Exception as e:
             logger.error("Error sending audio content: %s", e)
     
-    async def _send_image_content(self, image_input: ImageInputEvent) -> None:
+    async def _send_image_content(self, image_input: BidiImageInputEvent) -> None:
         """Internal: Send image content using Gemini Live API.
         
         Sends image frames following the same pattern as the GitHub example.
@@ -442,7 +445,7 @@ class GeminiLiveModel(BidirectionalModel):
         except Exception as e:
             logger.error("Error sending tool result: %s", e)
     
-    async def close(self) -> None:
+    async def stop(self) -> None:
         """Close Gemini Live API connection."""
         if not self._active:
             return
@@ -473,7 +476,7 @@ class GeminiLiveModel(BidirectionalModel):
         if self.live_config:
             config_dict.update(self.live_config)
         
-        # Override with any kwargs from connect()
+        # Override with any kwargs from start()
         config_dict.update(kwargs)
         
         # Add system instruction if provided
