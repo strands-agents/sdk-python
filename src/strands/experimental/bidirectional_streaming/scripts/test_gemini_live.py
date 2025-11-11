@@ -40,8 +40,10 @@ from strands_tools import calculator
 from strands.experimental.bidirectional_streaming.agent.agent import BidiAgent
 from strands.experimental.bidirectional_streaming.models.gemini_live import BidiGeminiLiveModel
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Configure logging - debug only for Gemini Live, info for everything else
+logging.basicConfig(level=logging.WARN, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+gemini_logger = logging.getLogger('strands.experimental.bidirectional_streaming.models.gemini_live')
+gemini_logger.setLevel(logging.WARN)
 logger = logging.getLogger(__name__)
 
 
@@ -310,17 +312,10 @@ async def main(duration=180):
     # Initialize Gemini Live model with proper configuration
     logger.info("Initializing Gemini Live model with API key")
     
-    model = BidiGeminiLiveModel(
-        model_id="gemini-2.5-flash-native-audio-preview-09-2025",
-        api_key=api_key,
-        live_config={
-            "response_modalities": ["AUDIO"],
-            "output_audio_transcription": {},  # Enable output transcription
-            "input_audio_transcription": {}    # Enable input transcription
-        }
-    )
+    # Use default model and config (includes transcription enabled by default)
+    model = BidiGeminiLiveModel(api_key=api_key)
     logger.info("Gemini Live model initialized successfully")
-    print("Using Gemini Live model")
+    print("Using Gemini Live model with default config (audio output + transcription enabled)")
     
     agent = BidiAgent(
         model=model, 

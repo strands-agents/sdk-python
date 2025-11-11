@@ -96,20 +96,28 @@ def test_model_initialization(mock_genai_client, model_id, api_key):
     
     # Test default config
     model_default = BidiGeminiLiveModel()
-    assert model_default.model_id == "models/gemini-2.0-flash-live-preview-04-09"
+    assert model_default.model_id == "gemini-2.5-flash-native-audio-preview-09-2025"
     assert model_default.api_key is None
     assert model_default._active is False
     assert model_default.live_session is None
+    # Check default config includes transcription
+    assert model_default.live_config["response_modalities"] == ["AUDIO"]
+    assert "outputAudioTranscription" in model_default.live_config
+    assert "inputAudioTranscription" in model_default.live_config
     
     # Test with API key
     model_with_key = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
     assert model_with_key.model_id == model_id
     assert model_with_key.api_key == api_key
     
-    # Test with custom config
+    # Test with custom config (merges with defaults)
     live_config = {"temperature": 0.7, "top_p": 0.9}
     model_custom = BidiGeminiLiveModel(model_id=model_id, live_config=live_config)
-    assert model_custom.live_config == live_config
+    # Custom config should be merged with defaults
+    assert model_custom.live_config["temperature"] == 0.7
+    assert model_custom.live_config["top_p"] == 0.9
+    # Defaults should still be present
+    assert "response_modalities" in model_custom.live_config
 
 
 # Connection Tests
@@ -288,14 +296,29 @@ async def test_event_conversion(mock_genai_client, model):
     _, _, _ = mock_genai_client
     await model.start()
     
-    # Test text output (converted to transcript)
+    # Test text output (converted to transcript via model_turn.parts)
     mock_text = unittest.mock.Mock()
-    mock_text.text = "Hello from Gemini"
     mock_text.data = None
     mock_text.tool_call = None
-    mock_text.server_content = None
     
-    text_event = model._convert_gemini_live_event(mock_text)
+    # Create proper server_content structure with model_turn
+    mock_server_content = unittest.mock.Mock()
+    mock_server_content.interrupted = False
+    mock_server_content.input_transcription = None
+    mock_server_content.output_transcription = None
+    
+    mock_model_turn = unittest.mock.Mock()
+    mock_part = unittest.mock.Mock()
+    mock_part.text = "Hello from Gemini"
+    mock_model_turn.parts = [mock_part]
+    mock_server_content.model_turn = mock_model_turn
+    
+    mock_text.server_content = mock_server_content
+    
+    text_events = model._convert_gemini_live_event(mock_text)
+    assert isinstance(text_events, list)
+    assert len(text_events) == 1
+    text_event = text_events[0]
     assert isinstance(text_event, BidiTranscriptStreamEvent)
     assert text_event.get("type") == "bidi_transcript_stream"
     assert text_event.text == "Hello from Gemini"
@@ -304,6 +327,33 @@ async def test_event_conversion(mock_genai_client, model):
     assert text_event.delta == {"text": "Hello from Gemini"}
     assert text_event.current_transcript == "Hello from Gemini"
     
+    # Test multiple text parts (should concatenate)
+    mock_multi_text = unittest.mock.Mock()
+    mock_multi_text.data = None
+    mock_multi_text.tool_call = None
+    
+    mock_server_content_multi = unittest.mock.Mock()
+    mock_server_content_multi.interrupted = False
+    mock_server_content_multi.input_transcription = None
+    mock_server_content_multi.output_transcription = None
+    
+    mock_model_turn_multi = unittest.mock.Mock()
+    mock_part1 = unittest.mock.Mock()
+    mock_part1.text = "Hello"
+    mock_part2 = unittest.mock.Mock()
+    mock_part2.text = "from Gemini"
+    mock_model_turn_multi.parts = [mock_part1, mock_part2]
+    mock_server_content_multi.model_turn = mock_model_turn_multi
+    
+    mock_multi_text.server_content = mock_server_content_multi
+    
+    multi_text_events = model._convert_gemini_live_event(mock_multi_text)
+    assert isinstance(multi_text_events, list)
+    assert len(multi_text_events) == 1
+    multi_text_event = multi_text_events[0]
+    assert isinstance(multi_text_event, BidiTranscriptStreamEvent)
+    assert multi_text_event.text == "Hello from Gemini"  # Concatenated with space
+    
     # Test audio output (base64 encoded)
     mock_audio = unittest.mock.Mock()
     mock_audio.text = None
@@ -311,7 +361,10 @@ async def test_event_conversion(mock_genai_client, model):
     mock_audio.tool_call = None
     mock_audio.server_content = None
     
-    audio_event = model._convert_gemini_live_event(mock_audio)
+    audio_events = model._convert_gemini_live_event(mock_audio)
+    assert isinstance(audio_events, list)
+    assert len(audio_events) == 1
+    audio_event = audio_events[0]
     assert isinstance(audio_event, BidiAudioStreamEvent)
     assert audio_event.get("type") == "bidi_audio_stream"
     # Audio is now base64 encoded
@@ -319,7 +372,7 @@ async def test_event_conversion(mock_genai_client, model):
     assert audio_event.audio == expected_b64
     assert audio_event.format == "pcm"
     
-    # Test tool call
+    # Test single tool call (returns list with one event)
     mock_func_call = unittest.mock.Mock()
     mock_func_call.id = "tool-123"
     mock_func_call.name = "calculator"
@@ -334,12 +387,51 @@ async def test_event_conversion(mock_genai_client, model):
     mock_tool.tool_call = mock_tool_call
     mock_tool.server_content = None
     
-    tool_event = model._convert_gemini_live_event(mock_tool)
+    tool_events = model._convert_gemini_live_event(mock_tool)
+    # Should return a list of ToolUseStreamEvent
+    assert isinstance(tool_events, list)
+    assert len(tool_events) == 1
+    tool_event = tool_events[0]
     # ToolUseStreamEvent has delta and current_tool_use, not a "type" field
     assert "delta" in tool_event
     assert "toolUse" in tool_event["delta"]
     assert tool_event["delta"]["toolUse"]["toolUseId"] == "tool-123"
     assert tool_event["delta"]["toolUse"]["name"] == "calculator"
+    
+    # Test multiple tool calls (returns list with multiple events)
+    mock_func_call_1 = unittest.mock.Mock()
+    mock_func_call_1.id = "tool-123"
+    mock_func_call_1.name = "calculator"
+    mock_func_call_1.args = {"expression": "2+2"}
+    
+    mock_func_call_2 = unittest.mock.Mock()
+    mock_func_call_2.id = "tool-456"
+    mock_func_call_2.name = "weather"
+    mock_func_call_2.args = {"location": "Seattle"}
+    
+    mock_tool_call_multi = unittest.mock.Mock()
+    mock_tool_call_multi.function_calls = [mock_func_call_1, mock_func_call_2]
+    
+    mock_tool_multi = unittest.mock.Mock()
+    mock_tool_multi.text = None
+    mock_tool_multi.data = None
+    mock_tool_multi.tool_call = mock_tool_call_multi
+    mock_tool_multi.server_content = None
+    
+    tool_events_multi = model._convert_gemini_live_event(mock_tool_multi)
+    # Should return a list with two ToolUseStreamEvent
+    assert isinstance(tool_events_multi, list)
+    assert len(tool_events_multi) == 2
+    
+    # Verify first tool call
+    assert tool_events_multi[0]["delta"]["toolUse"]["toolUseId"] == "tool-123"
+    assert tool_events_multi[0]["delta"]["toolUse"]["name"] == "calculator"
+    assert tool_events_multi[0]["delta"]["toolUse"]["input"] == {"expression": "2+2"}
+    
+    # Verify second tool call
+    assert tool_events_multi[1]["delta"]["toolUse"]["toolUseId"] == "tool-456"
+    assert tool_events_multi[1]["delta"]["toolUse"]["name"] == "weather"
+    assert tool_events_multi[1]["delta"]["toolUse"]["input"] == {"location": "Seattle"}
     
     # Test interruption
     mock_server_content = unittest.mock.Mock()
@@ -353,7 +445,10 @@ async def test_event_conversion(mock_genai_client, model):
     mock_interrupt.tool_call = None
     mock_interrupt.server_content = mock_server_content
     
-    interrupt_event = model._convert_gemini_live_event(mock_interrupt)
+    interrupt_events = model._convert_gemini_live_event(mock_interrupt)
+    assert isinstance(interrupt_events, list)
+    assert len(interrupt_events) == 1
+    interrupt_event = interrupt_events[0]
     assert isinstance(interrupt_event, BidiInterruptionEvent)
     assert interrupt_event.get("type") == "bidi_interruption"
     assert interrupt_event.reason == "user_speech"
