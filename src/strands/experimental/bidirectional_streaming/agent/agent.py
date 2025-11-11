@@ -18,6 +18,7 @@ import logging
 from typing import Any, AsyncIterable, Callable
 
 from .... import _identifier
+from ....hooks.registry import HookRegistry
 from ....telemetry.metrics import EventLoopMetrics
 from ....tools.caller import _ToolCaller
 from ....tools.executors import ConcurrentToolExecutor
@@ -122,6 +123,7 @@ class BidiAgent:
         # Initialize other components
         self.event_loop_metrics = EventLoopMetrics()
         self._tool_caller = _ToolCaller(self)
+        self.hooks = HookRegistry()
 
         # connection management
         self._agent_loop: "BidirectionalConnection" | None = None
