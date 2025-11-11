@@ -501,17 +501,19 @@ class BedrockModel(Model):
                     filtered_citation: dict[str, Any] = {}
                     if "location" in citation:
                         location = citation["location"]
-                        filtered_location = {}
+                        filtered_location: dict[str, Any] = {}
                         # Filter location fields to only include Bedrock-supported ones
                         # Handle web-based citations
                         if "web" in location:
-                            filtered_location["web"] = {
-                                k: v for k, v in location["web"].items() if k in ["url", "domain"]
-                            }
+                            web_data = location["web"]
+                            filtered_location["web"] = {k: v for k, v in web_data.items() if k in ["url", "domain"]}
                         # Handle document-based citations
-                        for field in ["documentIndex", "start", "end"]:
-                            if field in location:
-                                filtered_location[field] = location[field]
+                        if "documentIndex" in location:
+                            filtered_location["documentIndex"] = location["documentIndex"]
+                        if "start" in location:
+                            filtered_location["start"] = location["start"]
+                        if "end" in location:
+                            filtered_location["end"] = location["end"]
                         if filtered_location:
                             filtered_citation["location"] = filtered_location
                     if "sourceContent" in citation:
@@ -842,12 +844,14 @@ class BedrockModel(Model):
 
                 for citation in content["citationsContent"]["citations"]:
                     # Then emit citation metadata (for structure)
-                    citation_metadata: CitationsDelta = {
-                        k: citation[k]
-                        for k in ["title", "location", "sourceContent"]
-                        if k in citation
-                    }
-                    yield {"contentBlockDelta": {"delta": {"citation": citation_metadata}}}
+                    citation_metadata: dict[str, Any] = {}
+                    if "title" in citation:
+                        citation_metadata["title"] = citation["title"]
+                    if "location" in citation:
+                        citation_metadata["location"] = citation["location"]
+                    if "sourceContent" in citation:
+                        citation_metadata["sourceContent"] = citation["sourceContent"]
+                    yield {"contentBlockDelta": {"delta": {"citation": cast(CitationsDelta, citation_metadata)}}}
 
             # Yield contentBlockStop event
             yield {"contentBlockStop": {}}
