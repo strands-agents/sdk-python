@@ -51,6 +51,9 @@ DEFAULT_SESSION_CONFIG = {
     "audio": {
         "input": {
             "format": AUDIO_FORMAT,
+            "transcription": {
+                "model": "gpt-4o-transcribe"
+            },
             "turn_detection": {
                 "type": "server_vad",
                 "threshold": 0.5,
