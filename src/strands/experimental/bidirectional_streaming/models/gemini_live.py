@@ -278,7 +278,6 @@ class BidiGeminiLiveModel(BidiModel):
                     for part in model_turn.parts:
                         # Log all part types for debugging
                         part_attrs = {attr: getattr(part, attr, None) for attr in dir(part) if not attr.startswith('_')}
-                        logger.debug(f"Model turn part attributes: {part_attrs}")
                         
                         # Check if part has text attribute and it's not empty
                         if hasattr(part, 'text') and part.text:
@@ -286,7 +285,6 @@ class BidiGeminiLiveModel(BidiModel):
                     
                     if text_parts:
                         full_text = " ".join(text_parts)
-                        logger.debug(f"Text output as transcript ({len(text_parts)} parts): {full_text}")
                         return BidiTranscriptStreamEvent(
                             delta={"text": full_text},
                             text=full_text,
