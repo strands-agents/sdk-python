@@ -75,7 +75,7 @@ class BidiAgentLoop:
         while self.active:
             try:
                 yield self._event_queue.get_nowait()
-            except asyncio.TimeoutError:
+            except asyncio.QueueEmpty:
                 pass
 
             # unblock the event loop
