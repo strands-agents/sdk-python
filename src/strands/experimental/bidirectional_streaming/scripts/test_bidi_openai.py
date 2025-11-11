@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 import pyaudio
 from strands_tools import calculator
 
-from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
+from strands.experimental.bidirectional_streaming.agent.agent import BidiAgent
 from strands.experimental.bidirectional_streaming.models.openai import BidiOpenAIRealtimeModel
 
 
@@ -122,8 +122,8 @@ async def receive(agent, context):
             # Get event type
             event_type = event.get("type", "unknown")
             
-            # Handle audio stream events (bidirectional_audio_stream)
-            if event_type == "bidirectional_audio_stream":
+            # Handle audio stream events (bidi_audio_stream)
+            if event_type == "bidi_audio_stream":
                 # Decode base64 audio string to bytes for playback
                 audio_b64 = event["audio"]
                 audio_data = base64.b64decode(audio_b64)
@@ -131,9 +131,9 @@ async def receive(agent, context):
                 if not context.get("interrupted", False):
                     await context["audio_out"].put(audio_data)
             
-            # Handle transcript events (bidirectional_transcript_stream)
-            elif event_type == "bidirectional_transcript_stream":
-                source = event.get("source", "assistant")
+            # Handle transcript events (bidi_transcript_stream)
+            elif event_type == "bidi_transcript_stream":
+                source = event.get("role", "assistant")
                 text = event.get("text", "").strip()
                 
                 if text:
@@ -142,25 +142,44 @@ async def receive(agent, context):
                     elif source == "assistant":
                         print(f"🔊 Assistant: {text}")
             
-            # Handle interruption events (bidirectional_interruption)
-            elif event_type == "bidirectional_interruption":
+            # Handle interruption events (bidi_interruption)
+            elif event_type == "bidi_interruption":
                 context["interrupted"] = True
                 print("⚠️  Interruption detected")
             
-            # Handle session start events (bidirectional_session_start)
-            elif event_type == "bidirectional_session_start":
+            # Handle connection start events (bidi_connection_start)
+            elif event_type == "bidi_connection_start":
                 print(f"✓ Session started: {event.get('model', 'unknown')}")
             
-            # Handle session end events (bidirectional_session_end)
-            elif event_type == "bidirectional_session_end":
+            # Handle connection close events (bidi_connection_close)
+            elif event_type == "bidi_connection_close":
                 print(f"✓ Session ended: {event.get('reason', 'unknown')}")
                 context["active"] = False
                 break
             
-            # Handle turn complete events (bidirectional_turn_complete)
-            elif event_type == "bidirectional_turn_complete":
+            # Handle response complete events (bidi_response_complete)
+            elif event_type == "bidi_response_complete":
                 # Reset interrupted state since the turn is complete
                 context["interrupted"] = False
+            
+            # Handle tool use events (tool_use_stream)
+            elif event_type == "tool_use_stream":
+                tool_use = event.get("current_tool_use", {})
+                tool_name = tool_use.get("name", "unknown")
+                tool_input = tool_use.get("input", {})
+                print(f"🔧 Tool called: {tool_name} with input: {tool_input}")
+            
+            # Handle tool result events (tool_result)
+            elif event_type == "tool_result":
+                tool_result = event.get("tool_result", {})
+                tool_name = tool_result.get("name", "unknown")
+                result_content = tool_result.get("content", [])
+                result_text = ""
+                for block in result_content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        result_text = block.get("text", "")
+                        break
+                print(f"✅ Tool result from {tool_name}: {result_text}")
     
     except asyncio.CancelledError:
         pass
@@ -246,7 +265,7 @@ async def main():
     )
     
     # Create agent
-    agent = BidirectionalAgent(
+    agent = BidiAgent(
         model=model,
         tools=[calculator],
         system_prompt="You are a helpful voice assistant. Keep your responses brief and natural. Say hello when you first connect."
