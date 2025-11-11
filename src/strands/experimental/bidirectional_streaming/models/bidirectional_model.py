@@ -18,18 +18,18 @@ from typing import AsyncIterable, Protocol, Union
 from ....types._events import ToolResultEvent
 from ....types.content import Messages
 from ....types.tools import ToolSpec
-from ..types.bidirectional_streaming import (
-    AudioInputEvent,
-    ImageInputEvent,
-    InputEvent,
-    OutputEvent,
-    TextInputEvent,
+from ..types.events import (
+    BidiAudioInputEvent,
+    BidiImageInputEvent,
+    BidiInputEvent,
+    BidiOutputEvent,
+    BidiTextInputEvent,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class BidirectionalModel(Protocol):
+class BidiModel(Protocol):
     """Protocol for bidirectional streaming models.
 
     This interface defines the contract for models that support persistent streaming
@@ -37,7 +37,7 @@ class BidirectionalModel(Protocol):
     provider-specific protocols while exposing a standardized event-based API.
     """
 
-    async def connect(
+    async def start(
         self,
         system_prompt: str | None = None,
         tools: list[ToolSpec] | None = None,
@@ -58,16 +58,16 @@ class BidirectionalModel(Protocol):
         """
         ...
 
-    async def close(self) -> None:
+    async def stop(self) -> None:
         """Close the streaming connection and release resources.
 
         Terminates the active bidirectional connection and cleans up any associated
         resources such as network connections, buffers, or background tasks. After
-        calling close(), the model instance cannot be used until connect() is called again.
+        calling close(), the model instance cannot be used until start() is called again.
         """
         ...
 
-    async def receive(self) -> AsyncIterable[OutputEvent]:
+    async def receive(self) -> AsyncIterable[BidiOutputEvent]:
         """Receive streaming events from the model.
 
         Continuously yields events from the model as they arrive over the connection.
@@ -77,14 +77,14 @@ class BidirectionalModel(Protocol):
         The stream continues until the connection is closed or an error occurs.
 
         Yields:
-            OutputEvent: Standardized event objects containing audio output,
+            BidiOutputEvent: Standardized event objects containing audio output,
                 transcripts, tool calls, or control signals.
         """
         ...
 
     async def send(
         self,
-        content: InputEvent | ToolResultEvent,
+        content: BidiInputEvent | ToolResultEvent,
     ) -> None:
         """Send content to the model over the active connection.
 
@@ -94,15 +94,15 @@ class BidirectionalModel(Protocol):
 
         Args:
             content: The content to send. Must be one of:
-                - TextInputEvent: Text message from the user
-                - AudioInputEvent: Audio data for speech input
-                - ImageInputEvent: Image data for visual understanding
+                - BidiTextInputEvent: Text message from the user
+                - BidiAudioInputEvent: Audio data for speech input
+                - BidiImageInputEvent: Image data for visual understanding
                 - ToolResultEvent: Result from a tool execution
 
         Example:
-            await model.send(TextInputEvent(text="Hello", role="user"))
-            await model.send(AudioInputEvent(audio=bytes, format="pcm", sample_rate=16000, channels=1))
-            await model.send(ImageInputEvent(image=bytes, mime_type="image/jpeg", encoding="raw"))
+            await model.send(BidiTextInputEvent(text="Hello", role="user"))
+            await model.send(BidiAudioInputEvent(audio=bytes, format="pcm", sample_rate=16000, channels=1))
+            await model.send(BidiImageInputEvent(image=bytes, mime_type="image/jpeg", encoding="raw"))
             await model.send(ToolResultEvent(tool_result))
         """
         ...

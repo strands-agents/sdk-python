@@ -4,7 +4,7 @@ import logging
 
 import pytest
 
-from .utils.audio_generator import AudioGenerator
+from .generators.audio import AudioGenerator
 
 logger = logging.getLogger(__name__)
 

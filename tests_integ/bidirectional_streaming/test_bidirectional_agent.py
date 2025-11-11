@@ -13,12 +13,12 @@ import os
 import pytest
 
 from strands import tool
-from strands.experimental.bidirectional_streaming.agent.agent import BidirectionalAgent
-from strands.experimental.bidirectional_streaming.models.novasonic import NovaSonicModel
-from strands.experimental.bidirectional_streaming.models.openai import OpenAIRealtimeModel
-from strands.experimental.bidirectional_streaming.models.gemini_live import GeminiLiveModel
+from strands.experimental.bidirectional_streaming.agent.agent import BidiAgent
+from strands.experimental.bidirectional_streaming.models.novasonic import BidiNovaSonicModel
+from strands.experimental.bidirectional_streaming.models.openai import BidiOpenAIRealtimeModel
+from strands.experimental.bidirectional_streaming.models.gemini_live import BidiGeminiLiveModel
 
-from .utils.test_context import BidirectionalTestContext
+from .context import BidirectionalTestContext
 
 logger = logging.getLogger(__name__)
 
@@ -53,14 +53,14 @@ def calculator(operation: str, x: float, y: float) -> float:
 # Provider configurations
 PROVIDER_CONFIGS = {
     "nova_sonic": {
-        "model_class": NovaSonicModel,
+        "model_class": BidiNovaSonicModel,
         "model_kwargs": {"region": "us-east-1"},
         "silence_duration": 2.5,  # Nova Sonic needs 2+ seconds of silence
         "env_vars": ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
         "skip_reason": "AWS credentials not available",
     },
     "openai": {
-        "model_class": OpenAIRealtimeModel,
+        "model_class": BidiOpenAIRealtimeModel,
         "model_kwargs": {
             "model": "gpt-4o-realtime-preview-2024-12-17",
             "session": {
@@ -83,7 +83,7 @@ PROVIDER_CONFIGS = {
         "skip_reason": "OPENAI_API_KEY not available",
     },
     "gemini_live": {
-        "model_class": GeminiLiveModel,
+        "model_class": BidiGeminiLiveModel,
         "model_kwargs": {
             # Uses default model and config (audio output + transcription enabled)
         },
@@ -144,7 +144,7 @@ def agent_with_calculator(provider_config):
     model_kwargs = provider_config["model_kwargs"]
     
     model = model_class(**model_kwargs)
-    return BidirectionalAgent(
+    return BidiAgent(
         model=model,
         tools=[calculator],
         system_prompt="You are a helpful assistant with access to a calculator tool. Keep responses brief.",

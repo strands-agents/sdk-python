@@ -38,7 +38,7 @@ DEFAULT_FORMAT = "pcm"
 # ============================================================================
 
 
-class TextInputEvent(TypedEvent):
+class BidiTextInputEvent(TypedEvent):
     """Text input event for sending text to the model.
 
     Used for sending text content through the send() method.
@@ -51,7 +51,7 @@ class TextInputEvent(TypedEvent):
     def __init__(self, text: str, role: str):
         super().__init__(
             {
-                "type": "bidirectional_text_input",
+                "type": "bidi_text_input",
                 "text": text,
                 "role": role,
             }
@@ -66,7 +66,7 @@ class TextInputEvent(TypedEvent):
         return cast(str, self.get("role"))
 
 
-class AudioInputEvent(TypedEvent):
+class BidiAudioInputEvent(TypedEvent):
     """Audio input event for sending audio to the model.
 
     Used for sending audio data through the send() method.
@@ -87,7 +87,7 @@ class AudioInputEvent(TypedEvent):
     ):
         super().__init__(
             {
-                "type": "bidirectional_audio_input",
+                "type": "bidi_audio_input",
                 "audio": audio,
                 "format": format,
                 "sample_rate": sample_rate,
@@ -112,7 +112,7 @@ class AudioInputEvent(TypedEvent):
         return cast(int, self.get("channels"))
 
 
-class ImageInputEvent(TypedEvent):
+class BidiImageInputEvent(TypedEvent):
     """Image input event for sending images/video frames to the model.
 
     Used for sending image data through the send() method.
@@ -129,7 +129,7 @@ class ImageInputEvent(TypedEvent):
     ):
         super().__init__(
             {
-                "type": "bidirectional_image_input",
+                "type": "bidi_image_input",
                 "image": image,
                 "mime_type": mime_type,
             }
@@ -149,7 +149,7 @@ class ImageInputEvent(TypedEvent):
 # ============================================================================
 
 
-class ConnectionStartEvent(TypedEvent):
+class BidiConnectionStartEvent(TypedEvent):
     """Streaming connection established and ready for interaction.
 
     Parameters:
@@ -160,7 +160,7 @@ class ConnectionStartEvent(TypedEvent):
     def __init__(self, connection_id: str, model: str):
         super().__init__(
             {
-                "type": "bidirectional_connection_start",
+                "type": "bidi_connection_start",
                 "connection_id": connection_id,
                 "model": model,
             }
@@ -175,7 +175,7 @@ class ConnectionStartEvent(TypedEvent):
         return cast(str, self.get("model"))
 
 
-class ResponseStartEvent(TypedEvent):
+class BidiResponseStartEvent(TypedEvent):
     """Model starts generating a response.
 
     Parameters:
@@ -183,14 +183,14 @@ class ResponseStartEvent(TypedEvent):
     """
 
     def __init__(self, response_id: str):
-        super().__init__({"type": "bidirectional_response_start", "response_id": response_id})
+        super().__init__({"type": "bidi_response_start", "response_id": response_id})
 
     @property
     def response_id(self) -> str:
         return cast(str, self.get("response_id"))
 
 
-class AudioStreamEvent(TypedEvent):
+class BidiAudioStreamEvent(TypedEvent):
     """Streaming audio output from the model.
 
     Parameters:
@@ -209,7 +209,7 @@ class AudioStreamEvent(TypedEvent):
     ):
         super().__init__(
             {
-                "type": "bidirectional_audio_stream",
+                "type": "bidi_audio_stream",
                 "audio": audio,
                 "format": format,
                 "sample_rate": sample_rate,
@@ -234,7 +234,7 @@ class AudioStreamEvent(TypedEvent):
         return cast(int, self.get("channels"))
 
 
-class TranscriptStreamEvent(ModelStreamEvent):
+class BidiTranscriptStreamEvent(ModelStreamEvent):
     """Audio transcription streaming (user or assistant speech).
     
     Supports incremental transcript updates for providers that send partial
@@ -258,7 +258,7 @@ class TranscriptStreamEvent(ModelStreamEvent):
     ):
         super().__init__(
             {
-                "type": "bidirectional_transcript_stream",
+                "type": "bidi_transcript_stream",
                 "delta": delta,
                 "text": text,
                 "role": role,
@@ -288,7 +288,7 @@ class TranscriptStreamEvent(ModelStreamEvent):
         return cast(Optional[str], self.get("current_transcript"))
 
 
-class InterruptionEvent(TypedEvent):
+class BidiInterruptionEvent(TypedEvent):
     """Model generation was interrupted.
 
     Parameters:
@@ -299,7 +299,7 @@ class InterruptionEvent(TypedEvent):
     def __init__(self, reason: Literal["user_speech", "error"]):
         super().__init__(
             {
-                "type": "bidirectional_interruption",
+                "type": "bidi_interruption",
                 "reason": reason,
             }
         )
@@ -309,7 +309,7 @@ class InterruptionEvent(TypedEvent):
         return cast(str, self.get("reason"))
 
 
-class ResponseCompleteEvent(TypedEvent):
+class BidiResponseCompleteEvent(TypedEvent):
     """Model finished generating response.
 
     Parameters:
@@ -324,7 +324,7 @@ class ResponseCompleteEvent(TypedEvent):
     ):
         super().__init__(
             {
-                "type": "bidirectional_response_complete",
+                "type": "bidi_response_complete",
                 "response_id": response_id,
                 "stop_reason": stop_reason,
             }
@@ -353,7 +353,7 @@ class ModalityUsage(dict):
     output_tokens: int
 
 
-class UsageEvent(TypedEvent):
+class BidiUsageEvent(TypedEvent):
     """Token usage event with modality breakdown for bidirectional streaming.
 
     Tracks token consumption across different modalities (audio, text, images)
@@ -378,7 +378,7 @@ class UsageEvent(TypedEvent):
         cache_write_input_tokens: Optional[int] = None,
     ):
         data: Dict[str, Any] = {
-            "type": "bidirectional_usage",
+            "type": "bidi_usage",
             "inputTokens": input_tokens,
             "outputTokens": output_tokens,
             "totalTokens": total_tokens,
@@ -416,11 +416,11 @@ class UsageEvent(TypedEvent):
         return cast(Optional[int], self.get("cacheWriteInputTokens"))
 
 
-class ConnectionCloseEvent(TypedEvent):
+class BidiConnectionCloseEvent(TypedEvent):
     """Streaming connection closed.
 
     Parameters:
-        connection_id: Unique identifier for this streaming connection (matches ConnectionStartEvent).
+        connection_id: Unique identifier for this streaming connection (matches BidiConnectionStartEvent).
         reason: Why the connection was closed.
     """
 
@@ -431,7 +431,7 @@ class ConnectionCloseEvent(TypedEvent):
     ):
         super().__init__(
             {
-                "type": "bidirectional_connection_close",
+                "type": "bidi_connection_close",
                 "connection_id": connection_id,
                 "reason": reason,
             }
@@ -446,7 +446,7 @@ class ConnectionCloseEvent(TypedEvent):
         return cast(str, self.get("reason"))
 
 
-class ErrorEvent(TypedEvent):
+class BidiErrorEvent(TypedEvent):
     """Error occurred during the session.
 
     Stores the full Exception object as an instance attribute for debugging while
@@ -466,7 +466,7 @@ class ErrorEvent(TypedEvent):
         # Store serializable data in dict (for JSON serialization)
         super().__init__(
             {
-                "type": "bidirectional_error",
+                "type": "bidi_error",
                 "message": str(error),
                 "code": type(error).__name__,
                 "details": details,
@@ -504,18 +504,18 @@ class ErrorEvent(TypedEvent):
 # ============================================================================
 
 # Note: ToolResultEvent is imported from strands.types._events and used alongside
-# InputEvent in send() methods for sending tool results back to the model.
+# BidiInputEvent in send() methods for sending tool results back to the model.
 
-InputEvent = TextInputEvent | AudioInputEvent | ImageInputEvent
+BidiInputEvent = BidiTextInputEvent | BidiAudioInputEvent | BidiImageInputEvent
 
-OutputEvent = (
-    ConnectionStartEvent
-    | ResponseStartEvent
-    | AudioStreamEvent
-    | TranscriptStreamEvent
-    | InterruptionEvent
-    | ResponseCompleteEvent
-    | UsageEvent
-    | ConnectionCloseEvent
-    | ErrorEvent
+BidiOutputEvent = (
+    BidiConnectionStartEvent
+    | BidiResponseStartEvent
+    | BidiAudioStreamEvent
+    | BidiTranscriptStreamEvent
+    | BidiInterruptionEvent
+    | BidiResponseCompleteEvent
+    | BidiUsageEvent
+    | BidiConnectionCloseEvent
+    | BidiErrorEvent
 )

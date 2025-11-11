@@ -8,19 +8,19 @@ import json
 
 import pytest
 
-from strands.experimental.bidirectional_streaming.types.bidirectional_streaming import (
-    AudioInputEvent,
-    AudioStreamEvent,
-    ConnectionCloseEvent,
-    ConnectionStartEvent,
-    ErrorEvent,
-    ImageInputEvent,
-    InterruptionEvent,
-    ResponseCompleteEvent,
-    ResponseStartEvent,
-    TextInputEvent,
-    TranscriptStreamEvent,
-    UsageEvent,
+from strands.experimental.bidirectional_streaming.types.events import (
+    BidiAudioInputEvent,
+    BidiAudioStreamEvent,
+    BidiConnectionCloseEvent,
+    BidiConnectionStartEvent,
+    BidiErrorEvent,
+    BidiImageInputEvent,
+    BidiInterruptionEvent,
+    BidiResponseCompleteEvent,
+    BidiResponseStartEvent,
+    BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
+    BidiUsageEvent,
 )
 
 
@@ -28,41 +28,41 @@ from strands.experimental.bidirectional_streaming.types.bidirectional_streaming 
     "event_class,kwargs,expected_type",
     [
         # Input events
-        (TextInputEvent, {"text": "Hello", "role": "user"}, "bidirectional_text_input"),
+        (BidiTextInputEvent, {"text": "Hello", "role": "user"}, "bidi_text_input"),
         (
-            AudioInputEvent,
+            BidiAudioInputEvent,
             {
                 "audio": base64.b64encode(b"audio").decode("utf-8"),
                 "format": "pcm",
                 "sample_rate": 16000,
                 "channels": 1,
             },
-            "bidirectional_audio_input",
+            "bidi_audio_input",
         ),
         (
-            ImageInputEvent,
+            BidiImageInputEvent,
             {"image": base64.b64encode(b"image").decode("utf-8"), "mime_type": "image/jpeg"},
-            "bidirectional_image_input",
+            "bidi_image_input",
         ),
         # Output events
         (
-            ConnectionStartEvent,
+            BidiConnectionStartEvent,
             {"connection_id": "c1", "model": "m1"},
-            "bidirectional_connection_start",
+            "bidi_connection_start",
         ),
-        (ResponseStartEvent, {"response_id": "r1"}, "bidirectional_response_start"),
+        (BidiResponseStartEvent, {"response_id": "r1"}, "bidi_response_start"),
         (
-            AudioStreamEvent,
+            BidiAudioStreamEvent,
             {
                 "audio": base64.b64encode(b"audio").decode("utf-8"),
                 "format": "pcm",
                 "sample_rate": 24000,
                 "channels": 1,
             },
-            "bidirectional_audio_stream",
+            "bidi_audio_stream",
         ),
         (
-            TranscriptStreamEvent,
+            BidiTranscriptStreamEvent,
             {
                 "delta": {"text": "Hello"},
                 "text": "Hello",
@@ -70,25 +70,25 @@ from strands.experimental.bidirectional_streaming.types.bidirectional_streaming 
                 "is_final": True,
                 "current_transcript": "Hello",
             },
-            "bidirectional_transcript_stream",
+            "bidi_transcript_stream",
         ),
-        (InterruptionEvent, {"reason": "user_speech"}, "bidirectional_interruption"),
+        (BidiInterruptionEvent, {"reason": "user_speech"}, "bidi_interruption"),
         (
-            ResponseCompleteEvent,
+            BidiResponseCompleteEvent,
             {"response_id": "r1", "stop_reason": "complete"},
-            "bidirectional_response_complete",
+            "bidi_response_complete",
         ),
         (
-            UsageEvent,
+            BidiUsageEvent,
             {"input_tokens": 10, "output_tokens": 20, "total_tokens": 30},
-            "bidirectional_usage",
+            "bidi_usage",
         ),
         (
-            ConnectionCloseEvent,
+            BidiConnectionCloseEvent,
             {"connection_id": "c1", "reason": "complete"},
-            "bidirectional_connection_close",
+            "bidi_connection_close",
         ),
-        (ErrorEvent, {"error": ValueError("test"), "details": None}, "bidirectional_error"),
+        (BidiErrorEvent, {"error": ValueError("test"), "details": None}, "bidi_error"),
     ],
 )
 def test_event_json_serialization(event_class, kwargs, expected_type):
@@ -117,9 +117,9 @@ def test_event_json_serialization(event_class, kwargs, expected_type):
 
 
 def test_transcript_stream_event_delta_pattern():
-    """Test that TranscriptStreamEvent follows ModelStreamEvent delta pattern."""
+    """Test that BidiTranscriptStreamEvent follows ModelStreamEvent delta pattern."""
     # Test partial transcript (delta)
-    partial_event = TranscriptStreamEvent(
+    partial_event = BidiTranscriptStreamEvent(
         delta={"text": "Hello"},
         text="Hello",
         role="user",
@@ -134,7 +134,7 @@ def test_transcript_stream_event_delta_pattern():
     assert partial_event.delta == {"text": "Hello"}
     
     # Test final transcript with accumulated text
-    final_event = TranscriptStreamEvent(
+    final_event = BidiTranscriptStreamEvent(
         delta={"text": " world"},
         text=" world",
         role="user",
@@ -150,10 +150,10 @@ def test_transcript_stream_event_delta_pattern():
 
 
 def test_transcript_stream_event_extends_model_stream_event():
-    """Test that TranscriptStreamEvent is a ModelStreamEvent."""
+    """Test that BidiTranscriptStreamEvent is a ModelStreamEvent."""
     from strands.types._events import ModelStreamEvent
     
-    event = TranscriptStreamEvent(
+    event = BidiTranscriptStreamEvent(
         delta={"text": "test"},
         text="test",
         role="assistant",
