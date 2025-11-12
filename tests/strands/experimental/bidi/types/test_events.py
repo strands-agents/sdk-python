@@ -8,7 +8,7 @@ import json
 
 import pytest
 
-from strands.experimental.bidirectional_streaming.types.events import (
+from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
     BidiConnectionCloseEvent,

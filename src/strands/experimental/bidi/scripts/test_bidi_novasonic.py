@@ -17,8 +17,8 @@ import time
 import pyaudio
 from strands_tools import calculator
 
-from strands.experimental.bidirectional_streaming.agent.agent import BidiAgent
-from strands.experimental.bidirectional_streaming.models.novasonic import BidiNovaSonicModel
+from strands.experimental.bidi.agent.agent import BidiAgent
+from strands.experimental.bidi.models.novasonic import BidiNovaSonicModel
 
 
 def test_direct_tools():
@@ -190,7 +190,7 @@ async def send(agent, context):
             try:
                 audio_bytes = context["audio_in"].get_nowait()
                 # Create audio event using TypedEvent
-                from strands.experimental.bidirectional_streaming.types.events import BidiAudioInputEvent
+                from strands.experimental.bidi.types.events import BidiAudioInputEvent
                 
                 audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
                 audio_event = BidiAudioInputEvent(

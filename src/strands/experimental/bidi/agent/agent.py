@@ -27,7 +27,7 @@ from ....types.content import Message, Messages
 from ....types.tools import ToolResult, ToolUse, AgentTool
 
 from .loop import _BidiAgentLoop
-from ..models.bidirectional_model import BidiModel
+from ..models.bidi_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
 from ..types.events import BidiAudioInputEvent, BidiImageInputEvent, BidiTextInputEvent, BidiInputEvent, BidiOutputEvent

@@ -14,8 +14,8 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 import pyaudio
 from strands_tools import calculator
 
-from strands.experimental.bidirectional_streaming.agent.agent import BidiAgent
-from strands.experimental.bidirectional_streaming.models.openai import BidiOpenAIRealtimeModel
+from strands.experimental.bidi.agent.agent import BidiAgent
+from strands.experimental.bidi.models.openai import BidiOpenAIRealtimeModel
 
 
 async def play(context):
@@ -198,7 +198,7 @@ async def send(agent, context):
                 
                 # Create audio event using TypedEvent
                 # Encode audio bytes to base64 string for JSON serializability
-                from strands.experimental.bidirectional_streaming.types.events import BidiAudioInputEvent
+                from strands.experimental.bidi.types.events import BidiAudioInputEvent
                 
                 audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
                 audio_event = BidiAudioInputEvent(

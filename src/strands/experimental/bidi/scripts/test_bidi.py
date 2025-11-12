@@ -6,9 +6,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
-from strands.experimental.bidirectional_streaming.agent.agent import BidiAgent
-from strands.experimental.bidirectional_streaming.models.novasonic import BidiNovaSonicModel
-from strands.experimental.bidirectional_streaming.io import BidiAudioIO, BidiTextIO
+from strands.experimental.bidi.agent.agent import BidiAgent
+from strands.experimental.bidi.models.novasonic import BidiNovaSonicModel
+from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
 from strands_tools import calculator
 
 

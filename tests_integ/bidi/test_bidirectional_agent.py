@@ -13,10 +13,10 @@ import os
 import pytest
 
 from strands import tool
-from strands.experimental.bidirectional_streaming.agent.agent import BidiAgent
-from strands.experimental.bidirectional_streaming.models.novasonic import BidiNovaSonicModel
-from strands.experimental.bidirectional_streaming.models.openai import BidiOpenAIRealtimeModel
-from strands.experimental.bidirectional_streaming.models.gemini_live import BidiGeminiLiveModel
+from strands.experimental.bidi.agent.agent import BidiAgent
+from strands.experimental.bidi.models.novasonic import BidiNovaSonicModel
+from strands.experimental.bidi.models.openai import BidiOpenAIRealtimeModel
+from strands.experimental.bidi.models.gemini_live import BidiGeminiLiveModel
 
 from .context import BidirectionalTestContext
 

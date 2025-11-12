@@ -37,8 +37,8 @@ except ImportError as e:
 import pyaudio
 from strands_tools import calculator
 
-from strands.experimental.bidirectional_streaming.agent.agent import BidiAgent
-from strands.experimental.bidirectional_streaming.models.gemini_live import BidiGeminiLiveModel
+from strands.experimental.bidi.agent.agent import BidiAgent
+from strands.experimental.bidi.models.gemini_live import BidiGeminiLiveModel
 
 # Configure logging - debug only for Gemini Live, info for everything else
 logging.basicConfig(level=logging.WARN, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -247,7 +247,7 @@ async def get_frames(context):
 
             # Send frame to agent as image input
             try:
-                from strands.experimental.bidirectional_streaming.types.events import BidiImageInputEvent
+                from strands.experimental.bidi.types.events import BidiImageInputEvent
                 
                 image_event = BidiImageInputEvent(
                     image=frame["data"],  # Already base64 encoded
@@ -275,7 +275,7 @@ async def send(agent, context):
             try:
                 audio_bytes = context["audio_in"].get_nowait()
                 # Create audio event using TypedEvent
-                from strands.experimental.bidirectional_streaming.types.events import BidiAudioInputEvent
+                from strands.experimental.bidi.types.events import BidiAudioInputEvent
                 
                 audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
                 audio_event = BidiAudioInputEvent(

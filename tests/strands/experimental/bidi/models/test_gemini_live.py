@@ -15,8 +15,8 @@ import pytest
 from google import genai
 from google.genai import types as genai_types
 
-from strands.experimental.bidirectional_streaming.models.gemini_live import BidiGeminiLiveModel
-from strands.experimental.bidirectional_streaming.types.events import (
+from strands.experimental.bidi.models.gemini_live import BidiGeminiLiveModel
+from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
     BidiConnectionCloseEvent,

@@ -15,8 +15,8 @@ import unittest.mock
 
 import pytest
 
-from strands.experimental.bidirectional_streaming.models.openai import BidiOpenAIRealtimeModel
-from strands.experimental.bidirectional_streaming.types.events import (
+from strands.experimental.bidi.models.openai import BidiOpenAIRealtimeModel
+from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
     BidiImageInputEvent,

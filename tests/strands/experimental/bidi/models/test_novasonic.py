@@ -12,10 +12,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import pytest_asyncio
 
-from strands.experimental.bidirectional_streaming.models.novasonic import (
+from strands.experimental.bidi.models.novasonic import (
     BidiNovaSonicModel,
 )
-from strands.experimental.bidirectional_streaming.types.events import (
+from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
     BidiImageInputEvent,

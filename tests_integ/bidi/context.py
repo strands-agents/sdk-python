@@ -11,7 +11,7 @@ import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from strands.experimental.bidirectional_streaming.agent.agent import BidiAgent
+    from strands.experimental.bidi.agent.agent import BidiAgent
     from .generators.audio import AudioGenerator
 
 logger = logging.getLogger(__name__)
