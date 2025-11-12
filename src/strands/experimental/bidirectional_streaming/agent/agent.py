@@ -391,73 +391,36 @@ class BidiAgent:
         """True if agent loop started, False otherwise."""
         return self._loop.active
 
-    async def run(self, io_channels: list[BidiIO | tuple[Callable, Callable]]) -> None:
-        """Run the agent using provided IO channels or transport tuples for bidirectional communication.
+    async def run(self, io_channel: BidiIO) -> None:
+        """Run the agent using provided IO channels for bidirectional communication.
 
         Args:
-            io_channels: List containing either BidiIO instances or (sender, receiver) tuples.
+            io_channels: List containing either BidiIO instances.
                 - BidiIO: IO channel instance with send(), receive(), and end() methods
-                - tuple: (sender_callable, receiver_callable) for custom transport
                 
         Example:
             ```python
-            # With IO channel
             audio_io = AudioIO(audio_config={"input_sample_rate": 16000})
             agent = BidiAgent(model=model, tools=[calculator])
             await agent.run(io_channels=[audio_io])
-
-            # With tuple (backward compatibility)
-            await agent.run(io_channels=[(sender_function, receiver_function)])
             ```
-
-        Raises:
-            ValueError: If io_channels list is empty or contains invalid items.
-            Exception: Any exception from the transport layer.
         """
-        if not io_channels:
-            raise ValueError("io_channels parameter cannot be empty. Provide either an IO channel or (sender, receiver) tuple.")
-        
-        transport = io_channels[0]
-        
-        # Set IO channel tracking for cleanup
-        if hasattr(transport, 'send') and hasattr(transport, 'receive'):
-            self._current_adapters = [transport]  # IO channel needs cleanup
-        elif isinstance(transport, tuple) and len(transport) == 2:
-            self._current_adapters = []  # Tuple needs no cleanup
-        else:
-            raise ValueError("io_channels list must contain either BidiIO instances or (sender, receiver) tuples.")
-
-        # Auto-manage session lifecycle
-        if self.active:
-            await self._run_with_transport(transport)
-        else:
-            async with self:
-                await self._run_with_transport(transport)
-
-    async def _run_with_transport(
-        self,
-        transport: BidiIO | tuple[Callable, Callable],
-    ) -> None:
-        """Internal method to run send/receive loops with an active connection."""
-
-        async def receive_from_agent():
-            """Receive events from agent and send to transport."""
-            async for event in self.receive():
-                if hasattr(transport, 'receive'):
-                    await transport.receive(event)
-                else:
-                    await transport[0](event)
-
-        async def send_to_agent():
-            """Receive events from transport and send to agent."""
+        async def send():
             while self.active:
-                if hasattr(transport, 'send'):
-                    event = await transport.send()
-                else:
-                    event = await transport[1]()
+                event = await io_channel.receive()
                 await self.send(event)
 
-        await asyncio.gather(receive_from_agent(), send_to_agent(), return_exceptions=True)
+        async def receive():
+            async for event in self.receive():
+                await io_channel.send(event)
+
+        await io_channel.start()
+
+        try:
+            await asyncio.gather(send(), receive(), return_exceptions=True)
+
+        finally:
+            io_channel.stop()
 
     def _validate_active_connection(self) -> None:
         """Validate that an active connection exists.

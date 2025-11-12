@@ -104,7 +104,7 @@ class BidiAgentLoop:
         logger.debug("running model")
 
         async for event in self._agent.model.receive():
-            if not self.active:
+            if not self.active: # TODO: maybe remove
                 break
 
             self._event_queue.put_nowait(event)
