@@ -3,8 +3,8 @@ import unittest.mock
 from uuid import uuid4
 
 from strands.agent.conversation_manager.null_conversation_manager import NullConversationManager
-from strands.agent.interrupt import InterruptState
 from strands.agent.state import AgentState
+from strands.interrupt import _InterruptState
 from strands.types.session import (
     Session,
     SessionAgent,
@@ -101,7 +101,7 @@ def test_session_agent_from_agent():
     agent.agent_id = "a1"
     agent.conversation_manager = unittest.mock.Mock(get_state=lambda: {"test": "conversation"})
     agent.state = AgentState({"test": "state"})
-    agent._interrupt_state = InterruptState(interrupts={}, context={}, activated=False)
+    agent._interrupt_state = _InterruptState(interrupts={}, context={}, activated=False)
 
     tru_session_agent = SessionAgent.from_agent(agent)
     exp_session_agent = SessionAgent(
@@ -127,5 +127,5 @@ def test_session_agent_initialize_internal_state():
     session_agent.initialize_internal_state(agent)
 
     tru_interrupt_state = agent._interrupt_state
-    exp_interrupt_state = InterruptState(interrupts={}, context={"test": "init"}, activated=False)
+    exp_interrupt_state = _InterruptState(interrupts={}, context={"test": "init"}, activated=False)
     assert tru_interrupt_state == exp_interrupt_state

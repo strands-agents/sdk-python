@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Optional
 
-from ..agent.interrupt import InterruptState
+from ..interrupt import _InterruptState
 from .content import Message
 
 if TYPE_CHECKING:
@@ -148,7 +148,7 @@ class SessionAgent:
     def initialize_internal_state(self, agent: "Agent") -> None:
         """Initialize internal state of agent."""
         if "interrupt_state" in self._internal_state:
-            agent._interrupt_state = InterruptState.from_dict(self._internal_state["interrupt_state"])
+            agent._interrupt_state = _InterruptState.from_dict(self._internal_state["interrupt_state"])
 
 
 @dataclass

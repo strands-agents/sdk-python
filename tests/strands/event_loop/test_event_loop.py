@@ -6,7 +6,6 @@ import pytest
 
 import strands
 import strands.telemetry
-from strands.agent.interrupt import InterruptState
 from strands.hooks import (
     AfterModelCallEvent,
     BeforeModelCallEvent,
@@ -14,7 +13,7 @@ from strands.hooks import (
     HookRegistry,
     MessageAddedEvent,
 )
-from strands.interrupt import Interrupt
+from strands.interrupt import Interrupt, _InterruptState
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.tools.executors import SequentialToolExecutor
 from strands.tools.registry import ToolRegistry
@@ -143,7 +142,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.event_loop_metrics = EventLoopMetrics()
     mock.hooks = hook_registry
     mock.tool_executor = tool_executor
-    mock._interrupt_state = InterruptState()
+    mock._interrupt_state = _InterruptState()
 
     return mock
 

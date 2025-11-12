@@ -231,3 +231,29 @@ def test_content_blocks_handling(model):
     result = agent(content)
 
     assert "4" in result.message["content"][0]["text"]
+
+
+def test_system_prompt_content_integration(model):
+    """Integration test for system_prompt_content parameter."""
+    from strands.types.content import SystemContentBlock
+
+    system_prompt_content: list[SystemContentBlock] = [
+        {"text": "You are a helpful assistant that always responds with 'SYSTEM_TEST_RESPONSE'."}
+    ]
+
+    agent = Agent(model=model, system_prompt=system_prompt_content)
+    result = agent("Hello")
+
+    # The response should contain our specific system prompt instruction
+    assert "SYSTEM_TEST_RESPONSE" in result.message["content"][0]["text"]
+
+
+def test_system_prompt_backward_compatibility_integration(model):
+    """Integration test for backward compatibility with system_prompt parameter."""
+    system_prompt = "You are a helpful assistant that always responds with 'BACKWARD_COMPAT_TEST'."
+
+    agent = Agent(model=model, system_prompt=system_prompt)
+    result = agent("Hello")
+
+    # The response should contain our specific system prompt instruction
+    assert "BACKWARD_COMPAT_TEST" in result.message["content"][0]["text"]
