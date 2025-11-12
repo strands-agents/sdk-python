@@ -287,8 +287,8 @@ class Agent:
         """
         self.model = BedrockModel() if not model else BedrockModel(model_id=model) if isinstance(model, str) else model
         self.messages = messages if messages is not None else []
-        # initializing self.system_prompt for backwards compatibility
-        self.system_prompt, self._system_prompt_content = self._initialize_system_prompt(system_prompt)
+        # initializing self._system_prompt for backwards compatibility
+        self._system_prompt, self._system_prompt_content = self._initialize_system_prompt(system_prompt)
         self._default_structured_output_model = structured_output_model
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
         self.name = name or _DEFAULT_AGENT_NAME
@@ -364,6 +364,16 @@ class Agent:
             for hook in hooks:
                 self.hooks.add_hook(hook)
         self.hooks.invoke_callbacks(AgentInitializedEvent(agent=self))
+
+    @property
+    def system_prompt(self) -> str | None:
+        """Get the system prompt."""
+        return self._system_prompt
+
+    @system_prompt.setter
+    def system_prompt(self, value: str | list[SystemContentBlock] | None) -> None:
+        """Set the system prompt and update internal content representation."""
+        self._system_prompt, self._system_prompt_content = self._initialize_system_prompt(value)
 
     @property
     def tool(self) -> ToolCaller:
