@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
 from strands.experimental.bidi.agent.agent import BidiAgent
-from strands.experimental.bidi.models.openai import BidiOpenAIRealtimeModel
+from strands.experimental.bidi.models.novasonic import BidiNovaSonicModel
 from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
 from strands_tools import calculator
 
@@ -19,7 +19,7 @@ async def main():
     # Nova Sonic model
     audio_io = BidiAudioIO(audio_config={})
     text_io = BidiTextIO()
-    model = BidiOpenAIRealtimeModel(region="us-east-1")
+    model = BidiNovaSonicModel(region="us-east-1")
 
     async with BidiAgent(model=model, tools=[calculator]) as agent:
         print("New BidiAgent Experience")
