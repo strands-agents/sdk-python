@@ -2070,3 +2070,171 @@ async def test_stream_backward_compatibility_system_prompt(bedrock_client, model
         "system": [{"text": system_prompt}],
     }
     bedrock_client.converse_stream.assert_called_once_with(**expected_request)
+
+
+def test_format_request_message_content_web_citation(model):
+    """Test that web citations are correctly filtered to include only url and domain."""
+    content = {
+        "citationsContent": {
+            "citations": [
+                {
+                    "title": "Web Citation Example",
+                    "location": {
+                        "web": {
+                            "url": "https://example.com/article",
+                            "domain": "example.com",
+                            "extraField": "should be filtered out",
+                        }
+                    },
+                    "sourceContent": [{"text": "Example content"}],
+                }
+            ],
+            "content": [{"text": "Generated text with citation"}],
+        }
+    }
+
+    result = model._format_request_message_content(content)
+
+    assert "citationsContent" in result
+    assert "citations" in result["citationsContent"]
+    assert len(result["citationsContent"]["citations"]) == 1
+
+    citation = result["citationsContent"]["citations"][0]
+    assert citation["title"] == "Web Citation Example"
+    assert "location" in citation
+    assert "web" in citation["location"]
+    # Verify only url and domain are included
+    assert citation["location"]["web"] == {
+        "url": "https://example.com/article",
+        "domain": "example.com",
+    }
+    assert "extraField" not in citation["location"]["web"]
+
+
+def test_format_request_message_content_document_citation(model):
+    """Test that document citations preserve documentIndex, start, and end fields."""
+    content = {
+        "citationsContent": {
+            "citations": [
+                {
+                    "title": "Document Citation Example",
+                    "location": {
+                        "documentIndex": 0,
+                        "start": 100,
+                        "end": 200,
+                        "extraField": "should be filtered out",
+                    },
+                    "sourceContent": [{"text": "Document excerpt"}],
+                }
+            ],
+            "content": [{"text": "Generated text with document citation"}],
+        }
+    }
+
+    result = model._format_request_message_content(content)
+
+    citation = result["citationsContent"]["citations"][0]
+    assert citation["title"] == "Document Citation Example"
+    assert citation["location"] == {
+        "documentIndex": 0,
+        "start": 100,
+        "end": 200,
+    }
+
+
+def test_format_request_message_content_mixed_citations(model):
+    """Test handling of both web and document citations in the same response."""
+    content = {
+        "citationsContent": {
+            "citations": [
+                {
+                    "title": "Web Source",
+                    "location": {
+                        "web": {
+                            "url": "https://example.com",
+                            "domain": "example.com",
+                        }
+                    },
+                    "sourceContent": [{"text": "Web content"}],
+                },
+                {
+                    "title": "Document Source",
+                    "location": {
+                        "documentIndex": 1,
+                        "start": 50,
+                        "end": 150,
+                    },
+                    "sourceContent": [{"text": "Document content"}],
+                },
+            ],
+            "content": [{"text": "Generated text with multiple citations"}],
+        }
+    }
+
+    result = model._format_request_message_content(content)
+
+    citations = result["citationsContent"]["citations"]
+    assert len(citations) == 2
+
+    # Verify web citation
+    assert citations[0]["title"] == "Web Source"
+    assert "web" in citations[0]["location"]
+    assert citations[0]["location"]["web"]["url"] == "https://example.com"
+
+    # Verify document citation
+    assert citations[1]["title"] == "Document Source"
+    assert citations[1]["location"]["documentIndex"] == 1
+    assert citations[1]["location"]["start"] == 50
+
+
+def test_format_request_message_content_citation_partial_fields(model):
+    """Test that citations with only some fields present are handled correctly."""
+    content = {
+        "citationsContent": {
+            "citations": [
+                {
+                    "title": "Minimal Citation",
+                    "location": {
+                        "web": {
+                            "url": "https://example.com",
+                            # domain is optional
+                        }
+                    },
+                    # sourceContent is optional
+                }
+            ],
+            "content": [{"text": "Generated text"}],
+        }
+    }
+
+    result = model._format_request_message_content(content)
+
+    citation = result["citationsContent"]["citations"][0]
+    assert citation["title"] == "Minimal Citation"
+    assert citation["location"]["web"]["url"] == "https://example.com"
+    assert "domain" not in citation["location"]["web"]
+    assert "sourceContent" not in citation
+
+
+def test_format_request_message_content_citation_empty_location(model):
+    """Test that citations with empty or invalid locations are filtered out."""
+    content = {
+        "citationsContent": {
+            "citations": [
+                {
+                    "title": "Citation without valid location",
+                    "location": {"unknownField": "value"},
+                    "sourceContent": [{"text": "Some content"}],
+                }
+            ],
+            "content": [{"text": "Generated text"}],
+        }
+    }
+
+    result = model._format_request_message_content(content)
+
+    citation = result["citationsContent"]["citations"][0]
+    # Location should not be included if it has no valid fields
+    assert "location" not in citation
+    assert citation["title"] == "Citation without valid location"
+    assert "sourceContent" in citation
