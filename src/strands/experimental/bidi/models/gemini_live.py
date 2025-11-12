@@ -40,7 +40,7 @@ from ..types.events import (
     BidiResponseCompleteEvent,
     BidiResponseStartEvent,
 )
-from .bidirectional_model import BidiModel
+from .bidi_model import BidiModel
 
 logger = logging.getLogger(__name__)
 
