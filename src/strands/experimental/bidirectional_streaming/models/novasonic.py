@@ -16,17 +16,15 @@ import asyncio
 import base64
 import json
 import logging
-import time
 import traceback
 import uuid
-from typing import AsyncIterable, Union
+from typing import AsyncIterable
 
 from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
 from aws_sdk_bedrock_runtime.config import Config, HTTPAuthSchemeResolver, SigV4AuthScheme
 from aws_sdk_bedrock_runtime.models import (
     BidirectionalInputPayloadPart,
     InvokeModelWithBidirectionalStreamInputChunk,
-    InvokeModelWithBidirectionalStreamOperationOutput,
 )
 from smithy_aws_core.identity.environment import EnvironmentCredentialsResolver
 
@@ -67,7 +65,7 @@ NOVA_AUDIO_INPUT_CONFIG = {
 
 NOVA_AUDIO_OUTPUT_CONFIG = {
     "mediaType": "audio/lpcm",
-    "sampleRateHertz": 24000,
+    "sampleRateHertz": 16000,
     "sampleSizeBits": 16,
     "channelCount": 1,
     "voiceId": "matthew",

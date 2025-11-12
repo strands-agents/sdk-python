@@ -10,7 +10,7 @@ import logging
 import pyaudio
 
 from ..types.io import BidiIO
-from ..types.events import BidiAudioInputEvent, BidiAudioStreamEvent, BidiOutputEvent, BidiTranscriptStreamEvent
+from ..types.events import BidiAudioInputEvent, BidiAudioStreamEvent, BidiInterruptionEvent, BidiOutputEvent, BidiTranscriptStreamEvent
 
 logger = logging.getLogger(__name__)
 
@@ -35,9 +35,9 @@ class BidiAudioIO(BidiIO):
                 - output_channels (int): Output channels (default: 1)
         """
         default_config = {
-            "input_sample_rate": 24000,
-            "output_sample_rate": 24000,
-            "chunk_size": 1024,
+            "input_sample_rate": 16000,
+            "output_sample_rate": 16000,
+            "chunk_size": 512,
             "input_device_index": None,
             "output_device_index": None,
             "input_channels": 1,
@@ -106,6 +106,9 @@ class BidiAudioIO(BidiIO):
 
         if isinstance(event, BidiAudioStreamEvent):
             self.output_stream.write(base64.b64decode(event["audio"]))
+
+        if isinstance(event, BidiInterruptionEvent):
+            print("interrupted")
 
         elif isinstance(event, BidiTranscriptStreamEvent):
             print(event["current_transcript"])

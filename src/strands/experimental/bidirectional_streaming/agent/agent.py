@@ -15,7 +15,7 @@ Key capabilities:
 import asyncio
 import json
 import logging
-from typing import Any, AsyncIterable, Callable
+from typing import Any, AsyncIterable
 
 from .... import _identifier
 from ....tools.caller import _ToolCaller
@@ -409,11 +409,13 @@ class BidiAgent:
             while self.active:
                 event = await io_channel.receive()
                 await self.send(event)
-                await asyncio.sleep(0.01)
+
+                await asyncio.sleep(0.001)
 
         async def receive():
             async for event in self.receive():
                 await io_channel.send(event)
+                await asyncio.sleep(0.01)
 
         await io_channel.start()
 

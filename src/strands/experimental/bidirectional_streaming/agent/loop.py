@@ -7,7 +7,7 @@ import asyncio
 import logging
 from typing import AsyncIterable, Awaitable, TYPE_CHECKING
 
-from ..types.events import BidiOutputEvent, BidiTranscriptStreamEvent
+from ..types.events import BidiAudioStreamEvent, BidiInterruptionEvent, BidiOutputEvent, BidiTranscriptStreamEvent
 from ....types._events import ToolResultEvent, ToolResultMessageEvent, ToolStreamEvent, ToolUseStreamEvent
 from ....types.content import Message
 from ....types.tools import ToolResult, ToolUse
@@ -104,7 +104,7 @@ class BidiAgentLoop:
         logger.debug("running model")
 
         async for event in self._agent.model.receive():
-            if not self.active: # TODO: maybe remove
+            if not self.active:
                 break
 
             self._event_queue.put_nowait(event)
@@ -114,8 +114,14 @@ class BidiAgentLoop:
                     message: Message = {"role": event["role"], "content": [{"text": event["text"]}]}
                     self._agent.messages.append(message)
 
-            if isinstance(event, ToolUseStreamEvent):
+            elif isinstance(event, ToolUseStreamEvent):
                 self._create_task(self._run_tool(event["current_tool_use"]))
+
+            elif isinstance(event, BidiInterruptionEvent):
+                for _ in range(self._event_queue.qsize()):
+                    event = self._event_queue.get_nowait()
+                    if not isinstance(event, BidiAudioStreamEvent):
+                        self._event_queue.put_nowait(event)
 
     async def _run_tool(self, tool_use: ToolUse) -> None:
         """Task for running tool requested by the model."""
