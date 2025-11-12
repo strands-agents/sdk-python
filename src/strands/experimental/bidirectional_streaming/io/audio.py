@@ -111,7 +111,11 @@ class BidiAudioIO(BidiIO):
             print("interrupted")
 
         elif isinstance(event, BidiTranscriptStreamEvent):
-            print(event["current_transcript"])
+            text = event["text"]
+            if not event["is_final"]:
+                text = f"Preview: {text}"
+
+            print(text)
 
     async def receive(self) -> BidiAudioInputEvent:
         """Read audio from microphone."""
