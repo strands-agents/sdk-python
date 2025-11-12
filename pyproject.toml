@@ -54,24 +54,24 @@ sagemaker = [
     "boto3-stubs[sagemaker-runtime]>=1.26.0,<2.0.0",
     "openai>=1.68.0,<2.0.0",  # SageMaker uses OpenAI-compatible interface
 ]
-bidirectional-streaming-nova = [
+bidi-novasonic = [
     "pyaudio>=0.2.13",
     "rx>=3.2.0",
     "smithy-aws-core>=0.0.1; python_version>='3.12'",
     "pytz",
     "aws_sdk_bedrock_runtime; python_version>='3.12'",
 ]
-bidirectional-streaming-openai = [
+bidi-openai = [
     "pyaudio>=0.2.13",
     "websockets>=14.0,<16.0",
 ]
-bidirectional-streaming-gemini = [
+bidi-gemini = [
     "pyaudio>=0.2.13",
     "google-genai>=1.32.0,<2.0.0",
     "opencv-python>=4.8.0",
     "pillow>=10.0.0",
 ]
-bidirectional-streaming = [
+bidi = [
     "pyaudio>=0.2.13",
     "rx>=3.2.0",
     "smithy-aws-core>=0.0.1; python_version>='3.12'",
@@ -97,7 +97,7 @@ a2a = [
     "fastapi>=0.115.12,<1.0.0",
     "starlette>=0.46.2,<1.0.0",
 ]
-bidirectional = ["bidirectional-streaming-openai", "bidirectional-streaming-gemini", "bidirectional-streaming-nova", "bidirectional-streaming"]
+bidirectional = ["bidi-openai", "bidi-gemini", "bidi-novasonic", "bidi"]
 all = ["strands-agents[a2a,anthropic,docs,gemini,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel]"]
 
 dev = [
