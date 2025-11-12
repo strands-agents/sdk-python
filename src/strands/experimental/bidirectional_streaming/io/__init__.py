@@ -1,5 +1,5 @@
 """IO channel implementations for bidirectional streaming."""
 
-from .audio import AudioIO
+from .audio import BidiAudioIO
 
-__all__ = ["AudioIO"]
+__all__ = ["BidiAudioIO"]

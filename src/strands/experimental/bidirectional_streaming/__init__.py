@@ -4,7 +4,7 @@
 from .agent.agent import BidiAgent
 
 # IO channels - Hardware abstraction
-from .io.audio import AudioIO
+from .io.audio import BidiAudioIO
 
 # Model interface (for custom implementations)
 from .models.bidirectional_model import BidiModel
@@ -44,7 +44,7 @@ __all__ = [
     # Main interface
     "BidiAgent",
     # IO channels
-    "AudioIO",
+    "BidiAudioIO",
     # Model providers
     "BidiGeminiLiveModel",
     "BidiNovaSonicModel",

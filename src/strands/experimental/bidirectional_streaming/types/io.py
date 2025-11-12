@@ -7,6 +7,8 @@ separation between the agent's core logic and hardware-specific implementations.
 
 from typing import Protocol
 
+from ..types.events import BidiInputEvent, BidiOutputEvent
+
 
 class BidiIO(Protocol):
     """Base protocol for bidirectional IO channels.
@@ -21,15 +23,7 @@ class BidiIO(Protocol):
         """Setup IO channels for input and output."""
         ...
 
-    async def send(self) -> dict:
-        """Read input data from the IO channel source.
-        
-        Returns:
-            dict: Input event data to send to the model.
-        """
-        ...
-
-    async def receive(self, event: dict) -> None:
+    async def send(self, event: BidiOutputEvent) -> None:
         """Process output event from the model through the IO channel.
         
         Args:
@@ -37,7 +31,15 @@ class BidiIO(Protocol):
         """
         ...
 
-    def stop(self) -> None:
+    async def receive(self) -> BidiInputEvent:
+        """Read input data from the IO channel source.
+        
+        Returns:
+            dict: Input event data to send to the model.
+        """
+        ...
+
+    async def stop(self) -> None:
         """Clean up IO channel resources.
         
         Called by the agent during shutdown to ensure proper

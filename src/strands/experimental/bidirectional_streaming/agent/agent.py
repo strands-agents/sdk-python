@@ -15,11 +15,9 @@ Key capabilities:
 import asyncio
 import json
 import logging
-from typing import Any, AsyncIterable, Callable
+from typing import Any, AsyncIterable
 
 from .... import _identifier
-from ....hooks.registry import HookRegistry
-from ....telemetry.metrics import EventLoopMetrics
 from ....tools.caller import _ToolCaller
 from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
@@ -28,17 +26,13 @@ from ....tools.watcher import ToolWatcher
 from ....types.content import Message, Messages
 from ....types.tools import ToolResult, ToolUse, AgentTool
 
-from ..event_loop.bidirectional_event_loop import (
-    BidirectionalConnection,
-    start_bidirectional_connection,
-    stop_bidirectional_connection,
-)
+from .loop import BidiAgentLoop
 from ..models.bidirectional_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
 from ..types.events import BidiAudioInputEvent, BidiImageInputEvent, BidiTextInputEvent, BidiInputEvent, BidiOutputEvent
 from ..types import BidiIO
-from ....experimental.tools import ToolProvider
+from ...tools import ToolProvider
 
 logger = logging.getLogger(__name__)
 
@@ -121,14 +115,11 @@ class BidiAgent:
         self.tool_executor = tool_executor or ConcurrentToolExecutor()
 
         # Initialize other components
-        self.event_loop_metrics = EventLoopMetrics()
         self._tool_caller = _ToolCaller(self)
-        self.hooks = HookRegistry()
 
-        # connection management
-        self._agent_loop: "BidirectionalConnection" | None = None
-        self._output_queue = asyncio.Queue()
         self._current_adapters = []  # Track adapters for cleanup
+
+        self._loop = BidiAgentLoop(self)
 
     @property
     def tool(self) -> _ToolCaller:
@@ -246,16 +237,10 @@ class BidiAgent:
 
         Initializes the streaming connection and starts background tasks for processing
         model events, tool execution, and connection management.
-
-        Raises:
-            ValueError: If conversation already active.
-            ConnectionError: If connection creation fails.
         """
-        if self._agent_loop and self._agent_loop.active:
-            raise ValueError("Conversation already active. Call end() first.")
+        logger.debug("starting agent")
 
-        logger.debug("Conversation start - initializing connection")
-        self._agent_loop = await start_bidirectional_connection(self)
+        await self._loop.start()
 
     async def send(self, input_data: BidiAgentInput) -> None:
         """Send input to the model (text, audio, image, or event dict).
@@ -291,13 +276,13 @@ class BidiAgent:
             logger.debug("Text sent: %d characters", len(input_data))
             # Create BidiTextInputEvent for send()
             text_event = BidiTextInputEvent(text=input_data, role="user")
-            await self._agent_loop.model.send(text_event)
+            await self.model.send(text_event)
             return
         
         # Handle BidiInputEvent instances
         # Check this before dict since TypedEvent inherits from dict
         if isinstance(input_data, BidiInputEvent):
-            await self._agent_loop.model.send(input_data)
+            await self.model.send(input_data)
             return
         
         # Handle plain dict - reconstruct TypedEvent for WebSocket integration
@@ -321,7 +306,7 @@ class BidiAgent:
                 raise ValueError(f"Unknown event type: {event_type}")
             
             # Send the reconstructed TypedEvent
-            await self._agent_loop.model.send(input_event)
+            await self.model.send(input_event)
             return
         
         # If we get here, input type is invalid
@@ -336,16 +321,10 @@ class BidiAgent:
         text responses, tool calls, and connection updates.
 
         Yields:
-            BidirectionalStreamEvent: Events from the model session.
+            Model and tool call events.
         """
-        while self.active:
-            try:
-                # Use a timeout to periodically check if we should stop
-                event = await asyncio.wait_for(self._output_queue.get(), timeout=0.5)
-                yield event
-            except asyncio.TimeoutError:
-                # Timeout allows us to check self.active periodically
-                continue
+        async for event in self._loop.receive():
+            yield event
 
     async def stop(self) -> None:
         """End the conversation connection and cleanup all resources.
@@ -353,9 +332,7 @@ class BidiAgent:
         Terminates the streaming connection, cancels background tasks, and
         closes the connection to the model provider.
         """
-        if self._agent_loop:
-            await stop_bidirectional_connection(self._agent_loop)
-            self._agent_loop = None
+        await self._loop.stop()
 
     async def __aenter__(self) -> "BidiAgent":
         """Async context manager entry point.
@@ -364,10 +341,6 @@ class BidiAgent:
 
         Returns:
             Self for use in the context.
-
-        Raises:
-            ValueError: If connection is already active.
-            ConnectionError: If connection creation fails.
         """
         logger.debug("Entering async context manager - starting connection")
         await self.start()
@@ -415,80 +388,43 @@ class BidiAgent:
 
     @property
     def active(self) -> bool:
-        """Check if the agent connection is currently active.
+        """True if agent loop started, False otherwise."""
+        return self._loop.active
 
-        Returns:
-            True if connection is active and ready for communication, False otherwise.
-        """
-        return self._agent_loop is not None and self._agent_loop.active
-
-    async def run(self, io_channels: list[BidiIO | tuple[Callable, Callable]]) -> None:
-        """Run the agent using provided IO channels or transport tuples for bidirectional communication.
+    async def run(self, io_channel: BidiIO) -> None:
+        """Run the agent using provided IO channels for bidirectional communication.
 
         Args:
-            io_channels: List containing either BidiIO instances or (sender, receiver) tuples.
+            io_channels: List containing either BidiIO instances.
                 - BidiIO: IO channel instance with send(), receive(), and end() methods
-                - tuple: (sender_callable, receiver_callable) for custom transport
                 
         Example:
             ```python
-            # With IO channel
             audio_io = AudioIO(audio_config={"input_sample_rate": 16000})
             agent = BidiAgent(model=model, tools=[calculator])
             await agent.run(io_channels=[audio_io])
-
-            # With tuple (backward compatibility)
-            await agent.run(io_channels=[(sender_function, receiver_function)])
             ```
-
-        Raises:
-            ValueError: If io_channels list is empty or contains invalid items.
-            Exception: Any exception from the transport layer.
         """
-        if not io_channels:
-            raise ValueError("io_channels parameter cannot be empty. Provide either an IO channel or (sender, receiver) tuple.")
-        
-        transport = io_channels[0]
-        
-        # Set IO channel tracking for cleanup
-        if hasattr(transport, 'send') and hasattr(transport, 'receive'):
-            self._current_adapters = [transport]  # IO channel needs cleanup
-        elif isinstance(transport, tuple) and len(transport) == 2:
-            self._current_adapters = []  # Tuple needs no cleanup
-        else:
-            raise ValueError("io_channels list must contain either BidiIO instances or (sender, receiver) tuples.")
-
-        # Auto-manage session lifecycle
-        if self.active:
-            await self._run_with_transport(transport)
-        else:
-            async with self:
-                await self._run_with_transport(transport)
-
-    async def _run_with_transport(
-        self,
-        transport: BidiIO | tuple[Callable, Callable],
-    ) -> None:
-        """Internal method to run send/receive loops with an active connection."""
-
-        async def receive_from_agent():
-            """Receive events from agent and send to transport."""
-            async for event in self.receive():
-                if hasattr(transport, 'receive'):
-                    await transport.receive(event)
-                else:
-                    await transport[0](event)
-
-        async def send_to_agent():
-            """Receive events from transport and send to agent."""
+        async def send():
             while self.active:
-                if hasattr(transport, 'send'):
-                    event = await transport.send()
-                else:
-                    event = await transport[1]()
+                event = await io_channel.receive()
                 await self.send(event)
 
-        await asyncio.gather(receive_from_agent(), send_to_agent(), return_exceptions=True)
+                # TODO: Need to make tool result send in Nova provider atomic. Audio input events end up interleaving
+                # and leading to failures. Adding a sleep here as a temporary solution.
+                await asyncio.sleep(0.001)
+
+        async def receive():
+            async for event in self.receive():
+                await io_channel.send(event)
+
+        await io_channel.start()
+
+        try:
+            await asyncio.gather(send(), receive(), return_exceptions=True)
+
+        finally:
+            await io_channel.stop()
 
     def _validate_active_connection(self) -> None:
         """Validate that an active connection exists.
