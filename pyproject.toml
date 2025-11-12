@@ -129,7 +129,7 @@ source = "vcs"  # Use git tags for versioning
 
 [tool.hatch.envs.hatch-static-analysis]
 installer = "uv"
-features = ["all", "bidirectional-streaming"]
+features = ["all", "bidi"]
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
   "ruff>=0.13.0,<0.14.0",
@@ -156,7 +156,7 @@ lint-fix = [
 
 [tool.hatch.envs.hatch-test]
 installer = "uv"
-features = ["all", "bidirectional-streaming"]
+features = ["all", "bidi"]
 extra-args = ["-n", "auto", "-vv"]
 dependencies = [
     "pytest>=8.0.0,<9.0.0",
@@ -179,7 +179,7 @@ cov-report = []
 [tool.hatch.envs.default]
 installer = "uv"
 dev-mode = true
-features = ["all", "bidirectional-streaming"]
+features = ["all", "bidi"]
 dependencies = [
     "commitizen>=4.4.0,<5.0.0",
     "hatch>=1.0.0,<2.0.0",
