@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
 from strands.experimental.bidirectional_streaming.agent.agent import BidiAgent
 from strands.experimental.bidirectional_streaming.models.novasonic import BidiNovaSonicModel
-from strands.experimental.bidirectional_streaming.io.audio import AudioIO
+from strands.experimental.bidirectional_streaming.io import BidiAudioIO, BidiTextIO
 from strands_tools import calculator
 
 
@@ -17,13 +17,14 @@ async def main():
 
     
     # Nova Sonic model
-    adapter = AudioIO()
+    audio_io = BidiAudioIO(audio_config={})
+    text_io = BidiTextIO()
     model = BidiNovaSonicModel(region="us-east-1")
 
     async with BidiAgent(model=model, tools=[calculator]) as agent:
         print("New BidiAgent Experience")
         print("Try asking: 'What is 25 times 8?' or 'Calculate the square root of 144'")
-        await agent.run(io_channels=[adapter])
+        await agent.run(inputs=[audio_io.input()], outputs=[audio_io.output(), text_io.output()])
 
 
 if __name__ == "__main__":
