@@ -1,48 +1,57 @@
-"""BidiIO protocol for bidirectional streaming IO channels.
+"""Protocol for bidirectional streaming IO channels.
 
-Defines the standard interface that all bidirectional IO channels must implement
-for integration with BidirectionalAgent. This protocol enables clean
-separation between the agent's core logic and hardware-specific implementations.
+Defines callable protocols for input and output channels that can be used
+with BidiAgent. This approach provides better typing and flexibility
+by separating input and output concerns into independent callables.
 """
 
-from typing import Protocol
+from typing import Awaitable, Protocol
 
 from ..types.events import BidiInputEvent, BidiOutputEvent
 
 
-class BidiIO(Protocol):
-    """Base protocol for bidirectional IO channels.
-    
-    Defines the interface that IO channels must implement to work with
-    BidirectionalAgent. IO channels handle hardware abstraction (audio, video,
-    WebSocket, etc.) while the agent handles model communication and logic.
+class BidiInput(Protocol):
+    """Protocol for bidirectional input callables.
+
+    Input callables read data from a source (microphone, camera, websocket, etc.)
+    and return events to be sent to the agent.
     """
 
-    async def start(self) -> dict:
-
-        """Setup IO channels for input and output."""
-        ...
-
-    async def send(self, event: BidiOutputEvent) -> None:
-        """Process output event from the model through the IO channel.
-        
-        Args:
-            event: Output event from the model to handle.
-        """
-        ...
-
-    async def receive(self) -> BidiInputEvent:
-        """Read input data from the IO channel source.
-        
-        Returns:
-            dict: Input event data to send to the model.
-        """
+    async def start(self) -> None:
+        """Start input."""
         ...
 
     async def stop(self) -> None:
-        """Clean up IO channel resources.
+        """Stop input."""
+        ...
+
+    def __call__(self) -> Awaitable[BidiInputEvent]:
+        """Read input data from the source.
         
-        Called by the agent during shutdown to ensure proper
-        resource cleanup (streams, connections, etc.).
+        Returns:
+            Awaitable that resolves to an input event (audio, text, image, etc.)
+        """
+        ...
+
+class BidiOutput(Protocol):
+    """Protocol for bidirectional output callables.
+
+    Output callables receive events from the agent and handle them appropriately
+    (play audio, display text, send over websocket, etc.).
+    """
+
+    async def start(self) -> None:
+        """Start output."""
+        ...
+
+    async def stop(self) -> None:
+        """Stop output."""
+        ...
+
+    def __call__(self, event: BidiOutputEvent) -> Awaitable[None]:
+        """Process output events from the agent.
+        
+        Args:
+            event: Output event from the agent (audio, text, tool calls, etc.)
         """
         ...

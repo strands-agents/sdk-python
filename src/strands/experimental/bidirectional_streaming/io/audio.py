@@ -1,6 +1,6 @@
-"""AudioIO - Clean separation of audio functionality from core BidirectionalAgent.
+"""AudioIO - Clean separation of audio functionality from core BidiAgent.
 
-Provides audio input/output capabilities for BidirectionalAgent through the BidiIO protocol.
+Provides audio input/output capabilities for BidiAgent through the BidiIO protocol.
 Handles all PyAudio setup, streaming, and cleanup while keeping the core agent data-agnostic.
 """
 
@@ -10,14 +10,64 @@ import logging
 
 import pyaudio
 
-from ..types.io import BidiIO
-from ..types.events import BidiAudioInputEvent, BidiAudioStreamEvent, BidiInterruptionEvent, BidiOutputEvent, BidiTranscriptStreamEvent
+from ..types.io import BidiInput, BidiOutput
+from ..types.events import BidiAudioInputEvent, BidiAudioStreamEvent, BidiOutputEvent
 
 logger = logging.getLogger(__name__)
 
 
-class BidiAudioIO(BidiIO):
-    """Audio IO channel for BidirectionalAgent with direct stream processing."""
+class _BidiAudioInput(BidiInput):
+    "Handle audio input from bidi agent."
+    def __init__(self, audio: "BidiAudioIO") -> None:
+        """Store reference to pyaudio instance."""
+        self.audio = audio
+
+    async def start(self) -> None:
+        """Start audio input."""
+        self.audio._start()
+
+    async def stop(self) -> None:
+        """Stop audio input."""
+        self.audio._stop()
+
+    async def __call__(self) -> BidiAudioInputEvent:
+        """Read audio from microphone."""
+        audio_bytes = self.audio.input_stream.read(self.audio.chunk_size, exception_on_overflow=False)
+
+        return BidiAudioInputEvent(
+            audio=base64.b64encode(audio_bytes).decode("utf-8"),
+            format="pcm",
+            sample_rate=self.audio.input_sample_rate,
+            channels=self.audio.input_channels,
+        )
+
+
+class _BidiAudioOutput(BidiOutput):
+    "Handle audio output from bidi agent."
+    def __init__(self, audio: "BidiAudioIO") -> None:
+        """Store reference to pyaudio instance."""
+        self.audio = audio
+
+    async def start(self) -> None:
+        """Start audio output."""
+        self.audio._start()
+
+    async def stop(self) -> None:
+        """Stop audio output."""
+        self.audio._stop()
+
+    async def __call__(self, event: BidiOutputEvent) -> None:
+        """Handle audio events with direct stream writing."""
+        if isinstance(event, BidiAudioStreamEvent):
+            self.audio.output_stream.write(base64.b64decode(event["audio"]))
+
+        # TODO: Outputing audio to speakers is a sync operation. Adding sleep to prevent event loop hogging. Will
+        # follow up on identifying a cleaner approach.
+        await asyncio.sleep(0.01)
+
+
+class BidiAudioIO:
+    """Audio IO channel for BidiAgent with direct stream processing."""
 
     def __init__(
         self,
@@ -64,7 +114,15 @@ class BidiAudioIO(BidiIO):
         self.output_stream = None
         self.interrupted = False
 
-    async def start(self) -> None:
+    def input(self) -> _BidiAudioInput:
+        "Return audio processing BidiInput"
+        return _BidiAudioInput(self)
+
+    def output(self) -> _BidiAudioOutput:
+        "Return audio processing BidiOutput"
+        return _BidiAudioOutput(self)
+
+    def _start(self) -> None:
         """Setup PyAudio streams for input and output."""
         if self.audio:
             return
@@ -89,7 +147,7 @@ class BidiAudioIO(BidiIO):
             output_device_index=self.output_device_index,
         )
 
-    async def stop(self) -> None:
+    def _stop(self) -> None:
         """Clean up IO channel resources."""
         if not self.audio:
             return
@@ -101,34 +159,3 @@ class BidiAudioIO(BidiIO):
         self.input_stream = None
         self.output_stream = None
         self.audio = None
-
-    async def send(self, event: BidiOutputEvent) -> None:
-        """Handle audio events with direct stream writing."""
-
-        if isinstance(event, BidiAudioStreamEvent):
-            self.output_stream.write(base64.b64decode(event["audio"]))
-
-            # TODO: Outputing audio to speakers is a sync operation. Adding sleep to prevent event loop hogging. Will
-            # follow up on identifying a cleaner approach.
-            await asyncio.sleep(0.01)
-
-        if isinstance(event, BidiInterruptionEvent):
-            print("interrupted")
-
-        elif isinstance(event, BidiTranscriptStreamEvent):
-            text = event["text"]
-            if not event["is_final"]:
-                text = f"Preview: {text}"
-
-            print(text)
-
-    async def receive(self) -> BidiAudioInputEvent:
-        """Read audio from microphone."""
-        audio_bytes = self.input_stream.read(self.chunk_size, exception_on_overflow=False)
-
-        return BidiAudioInputEvent(
-            audio=base64.b64encode(audio_bytes).decode("utf-8"),
-            format="pcm",
-            sample_rate=self.input_sample_rate,
-            channels=self.input_channels,
-        )

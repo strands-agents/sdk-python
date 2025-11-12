@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class BidiAgentLoop:
+class _BidiAgentLoop:
     """Agent loop."""
 
     def __init__(self, agent: "BidiAgent") -> None:
