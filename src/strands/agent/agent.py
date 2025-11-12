@@ -367,12 +367,31 @@ class Agent:
 
     @property
     def system_prompt(self) -> str | None:
-        """Get the system prompt."""
+        """Get the system prompt as a string for backwards compatibility.
+
+        Returns the system prompt as a concatenated string when it contains text content,
+        or None if no text content is present. This maintains backwards compatibility
+        with existing code that expects system_prompt to be a string.
+
+        Returns:
+            The system prompt as a string, or None if no text content exists.
+        """
         return self._system_prompt
 
     @system_prompt.setter
     def system_prompt(self, value: str | list[SystemContentBlock] | None) -> None:
-        """Set the system prompt and update internal content representation."""
+        """Set the system prompt and update internal content representation.
+
+        Accepts either a string or list of SystemContentBlock objects.
+        When set, both the backwards-compatible string representation and the internal
+        content block representation are updated to maintain consistency.
+
+        Args:
+            value: System prompt as string, list of SystemContentBlock objects, or None.
+                  - str: Simple text prompt (most common use case)
+                  - list[SystemContentBlock]: Content blocks with features like caching
+                  - None: Clear the system prompt
+        """
         self._system_prompt, self._system_prompt_content = self._initialize_system_prompt(value)
 
     @property
