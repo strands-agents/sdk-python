@@ -118,6 +118,7 @@ class BidiAgentLoop:
                 self._create_task(self._run_tool(event["current_tool_use"]))
 
             elif isinstance(event, BidiInterruptionEvent):
+                # clear the audio
                 for _ in range(self._event_queue.qsize()):
                     event = self._event_queue.get_nowait()
                     if not isinstance(event, BidiAudioStreamEvent):
