@@ -26,12 +26,12 @@ from ....tools.watcher import ToolWatcher
 from ....types.content import Message, Messages
 from ....types.tools import ToolResult, ToolUse, AgentTool
 
-from .loop import BidiAgentLoop
+from .loop import _BidiAgentLoop
 from ..models.bidirectional_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
 from ..types.events import BidiAudioInputEvent, BidiImageInputEvent, BidiTextInputEvent, BidiInputEvent, BidiOutputEvent
-from ..types import BidiIO
+from ..types.io import BidiInput, BidiOutput
 from ...tools import ToolProvider
 
 logger = logging.getLogger(__name__)
@@ -119,7 +119,7 @@ class BidiAgent:
 
         self._current_adapters = []  # Track adapters for cleanup
 
-        self._loop = BidiAgentLoop(self)
+        self._loop = _BidiAgentLoop(self)
 
     @property
     def tool(self) -> _ToolCaller:
@@ -391,40 +391,51 @@ class BidiAgent:
         """True if agent loop started, False otherwise."""
         return self._loop.active
 
-    async def run(self, io_channel: BidiIO) -> None:
+    async def run(self, inputs: list[BidiInput], outputs: list[BidiOutput]) -> None:
         """Run the agent using provided IO channels for bidirectional communication.
 
         Args:
-            io_channels: List containing either BidiIO instances.
-                - BidiIO: IO channel instance with send(), receive(), and end() methods
+            inputs: Input callables to read data from a source
+            outputs: Output callables to receive events from the agent
                 
         Example:
             ```python
-            audio_io = AudioIO(audio_config={"input_sample_rate": 16000})
+            audio_io = BidiAudioIO(audio_config={"input_sample_rate": 16000})
+            text_io = BidiTextIO()
             agent = BidiAgent(model=model, tools=[calculator])
-            await agent.run(io_channels=[audio_io])
+            await agent.run(inputs=[audio_io.input()], outputs=[audio_io.output(), text_io.output()])
             ```
         """
-        async def send():
+        async def run_inputs():
             while self.active:
-                event = await io_channel.receive()
-                await self.send(event)
+                for input_ in inputs:
+                    event = await input_()
+                    await self.send(event)
 
-                # TODO: Need to make tool result send in Nova provider atomic. Audio input events end up interleaving
-                # and leading to failures. Adding a sleep here as a temporary solution.
-                await asyncio.sleep(0.001)
+                    # TODO: Need to make tool result send in Nova provider atomic. Audio input events end up interleaving
+                    # and leading to failures. Adding a sleep here as a temporary solution.
+                    await asyncio.sleep(0.001)
 
-        async def receive():
+        async def run_outputs():
             async for event in self.receive():
-                await io_channel.send(event)
+                for output in outputs:
+                    await output(event)
 
-        await io_channel.start()
+        for input_ in inputs:
+            await input_.start()
+
+        for output in outputs:
+            await output.start()
 
         try:
-            await asyncio.gather(send(), receive(), return_exceptions=True)
+            await asyncio.gather(run_inputs(), run_outputs(), return_exceptions=True)
 
         finally:
-            await io_channel.stop()
+            for input_ in inputs:
+                await input_.stop()
+
+            for output in outputs:
+                await output.stop()
 
     def _validate_active_connection(self) -> None:
         """Validate that an active connection exists.
