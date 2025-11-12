@@ -97,7 +97,7 @@ a2a = [
     "fastapi>=0.115.12,<1.0.0",
     "starlette>=0.46.2,<1.0.0",
 ]
-bidirectional = ["bidi-openai", "bidi-gemini", "bidi-novasonic", "bidi"]
+bidi-all = ["bidi-openai", "bidi-gemini", "bidi-novasonic", "bidi"]
 all = ["strands-agents[a2a,anthropic,docs,gemini,litellm,llamaapi,mistral,ollama,openai,writer,sagemaker,otel]"]
 
 dev = [
@@ -129,7 +129,7 @@ source = "vcs"  # Use git tags for versioning
 
 [tool.hatch.envs.hatch-static-analysis]
 installer = "uv"
-features = ["all", "bidi"]
+features = ["all", "bidi-all"]
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
   "ruff>=0.13.0,<0.14.0",
@@ -156,7 +156,7 @@ lint-fix = [
 
 [tool.hatch.envs.hatch-test]
 installer = "uv"
-features = ["all", "bidi"]
+features = ["all", "bidi-all"]
 extra-args = ["-n", "auto", "-vv"]
 dependencies = [
     "pytest>=8.0.0,<9.0.0",
@@ -179,7 +179,7 @@ cov-report = []
 [tool.hatch.envs.default]
 installer = "uv"
 dev-mode = true
-features = ["all", "bidi"]
+features = ["all", "bidi-all"]
 dependencies = [
     "commitizen>=4.4.0,<5.0.0",
     "hatch>=1.0.0,<2.0.0",
