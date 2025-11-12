@@ -410,12 +410,13 @@ class BidiAgent:
                 event = await io_channel.receive()
                 await self.send(event)
 
+                # TODO: Need to make tool result send in Nova provider atomic. Audio input events end up interleaving
+                # and leading to failures. Adding a sleep here as a temporary solution.
                 await asyncio.sleep(0.001)
 
         async def receive():
             async for event in self.receive():
                 await io_channel.send(event)
-                await asyncio.sleep(0.01)
 
         await io_channel.start()
 

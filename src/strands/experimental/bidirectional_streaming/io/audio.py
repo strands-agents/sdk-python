@@ -4,6 +4,7 @@ Provides audio input/output capabilities for BidirectionalAgent through the Bidi
 Handles all PyAudio setup, streaming, and cleanup while keeping the core agent data-agnostic.
 """
 
+import asyncio
 import base64
 import logging
 
@@ -106,6 +107,10 @@ class BidiAudioIO(BidiIO):
 
         if isinstance(event, BidiAudioStreamEvent):
             self.output_stream.write(base64.b64decode(event["audio"]))
+
+            # TODO: Outputing audio to speakers is a sync operation. Adding sleep to prevent event loop hogging. Will
+            # follow up on identifying a cleaner approach.
+            await asyncio.sleep(0.01)
 
         if isinstance(event, BidiInterruptionEvent):
             print("interrupted")
