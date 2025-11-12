@@ -7,7 +7,7 @@ from .agent.agent import BidiAgent
 from .io.audio import BidiAudioIO
 
 # Model interface (for custom implementations)
-from .models.bidirectional_model import BidiModel
+from .models.bidi_model import BidiModel
 
 # Model providers - What users need to create models
 from .models.gemini_live import BidiGeminiLiveModel
