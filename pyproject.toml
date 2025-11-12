@@ -135,7 +135,6 @@ dependencies = [
   "ruff>=0.13.0,<0.14.0",
   # Include required package dependencies for mypy
   "strands-agents @ {root:uri}",
-  "strands-agents-tools",
 ]
 
 # Define static-analysis scripts so we can include mypy as part of the linting check
