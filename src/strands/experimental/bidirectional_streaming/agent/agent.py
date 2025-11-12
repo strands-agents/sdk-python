@@ -409,6 +409,7 @@ class BidiAgent:
             while self.active:
                 event = await io_channel.receive()
                 await self.send(event)
+                await asyncio.sleep(0)
 
         async def receive():
             async for event in self.receive():
@@ -420,7 +421,7 @@ class BidiAgent:
             await asyncio.gather(send(), receive(), return_exceptions=True)
 
         finally:
-            io_channel.stop()
+            await io_channel.stop()
 
     def _validate_active_connection(self) -> None:
         """Validate that an active connection exists.
