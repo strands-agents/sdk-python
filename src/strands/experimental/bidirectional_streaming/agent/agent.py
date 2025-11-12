@@ -409,7 +409,7 @@ class BidiAgent:
             while self.active:
                 event = await io_channel.receive()
                 await self.send(event)
-                await asyncio.sleep(0)
+                await asyncio.sleep(0.01)
 
         async def receive():
             async for event in self.receive():
