@@ -1,0 +1,521 @@
+"""Bidirectional streaming types for real-time audio/text conversations.
+
+Type definitions for bidirectional streaming that extends Strands' existing streaming
+capabilities with real-time audio and persistent connection support.
+
+Key features:
+- Audio input/output events with standardized formats
+- Interruption detection and handling
+- Connection lifecycle management
+- Provider-agnostic event types
+- Type-safe discriminated unions with TypedEvent
+- JSON-serializable events (audio/images stored as base64 strings)
+
+Audio format normalization:
+- Supports PCM, WAV, Opus, and MP3 formats
+- Standardizes sample rates (16kHz, 24kHz, 48kHz)
+- Normalizes channel configurations (mono/stereo)
+- Abstracts provider-specific encodings
+- Audio data stored as base64-encoded strings for JSON compatibility
+"""
+
+from typing import Any, Dict, List, Literal, Optional, Union, cast
+
+from ....types._events import ModelStreamEvent, TypedEvent
+from ....types.streaming import ContentBlockDelta
+
+# Audio format constants
+SUPPORTED_AUDIO_FORMATS = ["pcm", "wav", "opus", "mp3"]
+SUPPORTED_SAMPLE_RATES = [16000, 24000, 48000]
+SUPPORTED_CHANNELS = [1, 2]  # 1=mono, 2=stereo
+DEFAULT_SAMPLE_RATE = 16000
+DEFAULT_CHANNELS = 1
+DEFAULT_FORMAT = "pcm"
+
+
+# ============================================================================
+# Input Events (sent via agent.send())
+# ============================================================================
+
+
+class BidiTextInputEvent(TypedEvent):
+    """Text input event for sending text to the model.
+
+    Used for sending text content through the send() method.
+
+    Parameters:
+        text: The text content to send to the model.
+        role: The role of the message sender (typically "user").
+    """
+
+    def __init__(self, text: str, role: str):
+        super().__init__(
+            {
+                "type": "bidi_text_input",
+                "text": text,
+                "role": role,
+            }
+        )
+
+    @property
+    def text(self) -> str:
+        return cast(str, self.get("text"))
+
+    @property
+    def role(self) -> str:
+        return cast(str, self.get("role"))
+
+
+class BidiAudioInputEvent(TypedEvent):
+    """Audio input event for sending audio to the model.
+
+    Used for sending audio data through the send() method.
+
+    Parameters:
+        audio: Base64-encoded audio string to send to model.
+        format: Audio format from SUPPORTED_AUDIO_FORMATS.
+        sample_rate: Sample rate from SUPPORTED_SAMPLE_RATES.
+        channels: Channel count from SUPPORTED_CHANNELS.
+    """
+
+    def __init__(
+        self,
+        audio: str,
+        format: Literal["pcm", "wav", "opus", "mp3"],
+        sample_rate: Literal[16000, 24000, 48000],
+        channels: Literal[1, 2],
+    ):
+        super().__init__(
+            {
+                "type": "bidi_audio_input",
+                "audio": audio,
+                "format": format,
+                "sample_rate": sample_rate,
+                "channels": channels,
+            }
+        )
+
+    @property
+    def audio(self) -> str:
+        return cast(str, self.get("audio"))
+
+    @property
+    def format(self) -> str:
+        return cast(str, self.get("format"))
+
+    @property
+    def sample_rate(self) -> int:
+        return cast(int, self.get("sample_rate"))
+
+    @property
+    def channels(self) -> int:
+        return cast(int, self.get("channels"))
+
+
+class BidiImageInputEvent(TypedEvent):
+    """Image input event for sending images/video frames to the model.
+
+    Used for sending image data through the send() method.
+
+    Parameters:
+        image: Base64-encoded image string.
+        mime_type: MIME type (e.g., "image/jpeg", "image/png").
+    """
+
+    def __init__(
+        self,
+        image: str,
+        mime_type: str,
+    ):
+        super().__init__(
+            {
+                "type": "bidi_image_input",
+                "image": image,
+                "mime_type": mime_type,
+            }
+        )
+
+    @property
+    def image(self) -> str:
+        return cast(str, self.get("image"))
+
+    @property
+    def mime_type(self) -> str:
+        return cast(str, self.get("mime_type"))
+
+
+# ============================================================================
+# Output Events (received via agent.receive())
+# ============================================================================
+
+
+class BidiConnectionStartEvent(TypedEvent):
+    """Streaming connection established and ready for interaction.
+
+    Parameters:
+        connection_id: Unique identifier for this streaming connection.
+        model: Model identifier (e.g., "gpt-realtime", "gemini-2.0-flash-live").
+    """
+
+    def __init__(self, connection_id: str, model: str):
+        super().__init__(
+            {
+                "type": "bidi_connection_start",
+                "connection_id": connection_id,
+                "model": model,
+            }
+        )
+
+    @property
+    def connection_id(self) -> str:
+        return cast(str, self.get("connection_id"))
+
+    @property
+    def model(self) -> str:
+        return cast(str, self.get("model"))
+
+
+class BidiResponseStartEvent(TypedEvent):
+    """Model starts generating a response.
+
+    Parameters:
+        response_id: Unique identifier for this response (used in response.complete).
+    """
+
+    def __init__(self, response_id: str):
+        super().__init__({"type": "bidi_response_start", "response_id": response_id})
+
+    @property
+    def response_id(self) -> str:
+        return cast(str, self.get("response_id"))
+
+
+class BidiAudioStreamEvent(TypedEvent):
+    """Streaming audio output from the model.
+
+    Parameters:
+        audio: Base64-encoded audio string.
+        format: Audio encoding format.
+        sample_rate: Number of audio samples per second in Hz.
+        channels: Number of audio channels (1=mono, 2=stereo).
+    """
+
+    def __init__(
+        self,
+        audio: str,
+        format: Literal["pcm", "wav", "opus", "mp3"],
+        sample_rate: Literal[16000, 24000, 48000],
+        channels: Literal[1, 2],
+    ):
+        super().__init__(
+            {
+                "type": "bidi_audio_stream",
+                "audio": audio,
+                "format": format,
+                "sample_rate": sample_rate,
+                "channels": channels,
+            }
+        )
+
+    @property
+    def audio(self) -> str:
+        return cast(str, self.get("audio"))
+
+    @property
+    def format(self) -> str:
+        return cast(str, self.get("format"))
+
+    @property
+    def sample_rate(self) -> int:
+        return cast(int, self.get("sample_rate"))
+
+    @property
+    def channels(self) -> int:
+        return cast(int, self.get("channels"))
+
+
+class BidiTranscriptStreamEvent(ModelStreamEvent):
+    """Audio transcription streaming (user or assistant speech).
+    
+    Supports incremental transcript updates for providers that send partial
+    transcripts before the final version.
+
+    Parameters:
+        delta: The incremental transcript change (ContentBlockDelta).
+        text: The delta text (same as delta content for convenience).
+        role: Who is speaking ("user" or "assistant").
+        is_final: Whether this is the final/complete transcript.
+        current_transcript: The accumulated transcript text so far (None for first delta).
+    """
+
+    def __init__(
+        self,
+        delta: ContentBlockDelta,
+        text: str,
+        role: Literal["user", "assistant"],
+        is_final: bool,
+        current_transcript: Optional[str] = None,
+    ):
+        super().__init__(
+            {
+                "type": "bidi_transcript_stream",
+                "delta": delta,
+                "text": text,
+                "role": role,
+                "is_final": is_final,
+                "current_transcript": current_transcript,
+            }
+        )
+
+    @property
+    def delta(self) -> ContentBlockDelta:
+        return cast(ContentBlockDelta, self.get("delta"))
+
+    @property
+    def text(self) -> str:
+        return cast(str, self.get("text"))
+
+    @property
+    def role(self) -> str:
+        return cast(str, self.get("role"))
+
+    @property
+    def is_final(self) -> bool:
+        return cast(bool, self.get("is_final"))
+
+    @property
+    def current_transcript(self) -> Optional[str]:
+        return cast(Optional[str], self.get("current_transcript"))
+
+
+class BidiInterruptionEvent(TypedEvent):
+    """Model generation was interrupted.
+
+    Parameters:
+        reason: Why the interruption occurred.
+        response_id: ID of the response that was interrupted (may be None).
+    """
+
+    def __init__(self, reason: Literal["user_speech", "error"]):
+        super().__init__(
+            {
+                "type": "bidi_interruption",
+                "reason": reason,
+            }
+        )
+
+    @property
+    def reason(self) -> str:
+        return cast(str, self.get("reason"))
+
+
+class BidiResponseCompleteEvent(TypedEvent):
+    """Model finished generating response.
+
+    Parameters:
+        response_id: ID of the response that completed (matches response.start).
+        stop_reason: Why the response ended.
+    """
+
+    def __init__(
+        self,
+        response_id: str,
+        stop_reason: Literal["complete", "interrupted", "tool_use", "error"],
+    ):
+        super().__init__(
+            {
+                "type": "bidi_response_complete",
+                "response_id": response_id,
+                "stop_reason": stop_reason,
+            }
+        )
+
+    @property
+    def response_id(self) -> str:
+        return cast(str, self.get("response_id"))
+
+    @property
+    def stop_reason(self) -> str:
+        return cast(str, self.get("stop_reason"))
+
+
+class ModalityUsage(dict):
+    """Token usage for a specific modality.
+
+    Attributes:
+        modality: Type of content.
+        input_tokens: Tokens used for this modality's input.
+        output_tokens: Tokens used for this modality's output.
+    """
+
+    modality: Literal["text", "audio", "image", "cached"]
+    input_tokens: int
+    output_tokens: int
+
+
+class BidiUsageEvent(TypedEvent):
+    """Token usage event with modality breakdown for bidirectional streaming.
+
+    Tracks token consumption across different modalities (audio, text, images)
+    during bidirectional streaming sessions.
+
+    Parameters:
+        input_tokens: Total tokens used for all input modalities.
+        output_tokens: Total tokens used for all output modalities.
+        total_tokens: Sum of input and output tokens.
+        modality_details: Optional list of token usage per modality.
+        cache_read_input_tokens: Optional tokens read from cache.
+        cache_write_input_tokens: Optional tokens written to cache.
+    """
+
+    def __init__(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+        total_tokens: int,
+        modality_details: Optional[List[ModalityUsage]] = None,
+        cache_read_input_tokens: Optional[int] = None,
+        cache_write_input_tokens: Optional[int] = None,
+    ):
+        data: Dict[str, Any] = {
+            "type": "bidi_usage",
+            "inputTokens": input_tokens,
+            "outputTokens": output_tokens,
+            "totalTokens": total_tokens,
+        }
+        if modality_details is not None:
+            data["modality_details"] = modality_details
+        if cache_read_input_tokens is not None:
+            data["cacheReadInputTokens"] = cache_read_input_tokens
+        if cache_write_input_tokens is not None:
+            data["cacheWriteInputTokens"] = cache_write_input_tokens
+        super().__init__(data)
+
+    @property
+    def input_tokens(self) -> int:
+        return cast(int, self.get("inputTokens"))
+
+    @property
+    def output_tokens(self) -> int:
+        return cast(int, self.get("outputTokens"))
+
+    @property
+    def total_tokens(self) -> int:
+        return cast(int, self.get("totalTokens"))
+
+    @property
+    def modality_details(self) -> List[ModalityUsage]:
+        return cast(List[ModalityUsage], self.get("modality_details", []))
+
+    @property
+    def cache_read_input_tokens(self) -> Optional[int]:
+        return cast(Optional[int], self.get("cacheReadInputTokens"))
+
+    @property
+    def cache_write_input_tokens(self) -> Optional[int]:
+        return cast(Optional[int], self.get("cacheWriteInputTokens"))
+
+
+class BidiConnectionCloseEvent(TypedEvent):
+    """Streaming connection closed.
+
+    Parameters:
+        connection_id: Unique identifier for this streaming connection (matches BidiConnectionStartEvent).
+        reason: Why the connection was closed.
+    """
+
+    def __init__(
+        self,
+        connection_id: str,
+        reason: Literal["client_disconnect", "timeout", "error", "complete"],
+    ):
+        super().__init__(
+            {
+                "type": "bidi_connection_close",
+                "connection_id": connection_id,
+                "reason": reason,
+            }
+        )
+
+    @property
+    def connection_id(self) -> str:
+        return cast(str, self.get("connection_id"))
+
+    @property
+    def reason(self) -> str:
+        return cast(str, self.get("reason"))
+
+
+class BidiErrorEvent(TypedEvent):
+    """Error occurred during the session.
+
+    Stores the full Exception object as an instance attribute for debugging while
+    keeping the event dict JSON-serializable. The exception can be accessed via
+    the `error` property for re-raising or type-based error handling.
+
+    Parameters:
+        error: The exception that occurred.
+        details: Optional additional error information.
+    """
+
+    def __init__(
+        self,
+        error: Exception,
+        details: Optional[Dict[str, Any]] = None,
+    ):
+        # Store serializable data in dict (for JSON serialization)
+        super().__init__(
+            {
+                "type": "bidi_error",
+                "message": str(error),
+                "code": type(error).__name__,
+                "details": details,
+            }
+        )
+        # Store exception as instance attribute (not serialized)
+        self._error = error
+
+    @property
+    def error(self) -> Exception:
+        """The original exception that occurred.
+        
+        Can be used for re-raising or type-based error handling.
+        """
+        return self._error
+
+    @property
+    def code(self) -> str:
+        """Error code derived from exception class name."""
+        return cast(str, self.get("code"))
+
+    @property
+    def message(self) -> str:
+        """Human-readable error message from the exception."""
+        return cast(str, self.get("message"))
+
+    @property
+    def details(self) -> Optional[Dict[str, Any]]:
+        """Additional error context beyond the exception itself."""
+        return cast(Optional[Dict[str, Any]], self.get("details"))
+
+
+# ============================================================================
+# Type Unions
+# ============================================================================
+
+# Note: ToolResultEvent is imported from strands.types._events and used alongside
+# BidiInputEvent in send() methods for sending tool results back to the model.
+
+BidiInputEvent = BidiTextInputEvent | BidiAudioInputEvent | BidiImageInputEvent
+
+BidiOutputEvent = (
+    BidiConnectionStartEvent
+    | BidiResponseStartEvent
+    | BidiAudioStreamEvent
+    | BidiTranscriptStreamEvent
+    | BidiInterruptionEvent
+    | BidiResponseCompleteEvent
+    | BidiUsageEvent
+    | BidiConnectionCloseEvent
+    | BidiErrorEvent
+)
