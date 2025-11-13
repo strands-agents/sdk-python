@@ -422,20 +422,24 @@ class BidiAgent:
                     await output(event)
 
         for input_ in inputs:
-            await input_.start()
+            if hasattr(input_, "start"):
+                await input_.start()
 
         for output in outputs:
-            await output.start()
+            if hasattr(output, "start"):
+                await output.start()
 
         try:
             await asyncio.gather(run_inputs(), run_outputs(), return_exceptions=True)
 
         finally:
             for input_ in inputs:
-                await input_.stop()
+                if hasattr(input_, "stop"):
+                    await input_.stop()
 
             for output in outputs:
-                await output.stop()
+                if hasattr(output, "stop"):
+                    await output.stop()
 
     def _validate_active_connection(self) -> None:
         """Validate that an active connection exists.

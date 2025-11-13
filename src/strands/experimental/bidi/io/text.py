@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class _BidiTextOutput(BidiOutput):
-    "Handle text output from bidi agent."
+    """Handle text output from bidi agent."""
     async def __call__(self, event: BidiOutputEvent) -> None:
         """Print text events to stdout."""
 
@@ -25,7 +25,7 @@ class _BidiTextOutput(BidiOutput):
 
 
 class BidiTextIO:
-    "Handle text input and output from bidi agent."
+    """Handle text input and output from bidi agent."""
     def output(self) -> _BidiTextOutput:
         "Return text processing BidiOutput"
         return _BidiTextOutput()

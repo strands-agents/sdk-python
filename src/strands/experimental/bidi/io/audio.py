@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class _BidiAudioInput(BidiInput):
-    "Handle audio input from bidi agent."
+    """Handle audio input from bidi agent."""
     def __init__(self, audio: "BidiAudioIO") -> None:
         """Store reference to pyaudio instance."""
         self.audio = audio
@@ -43,7 +43,7 @@ class _BidiAudioInput(BidiInput):
 
 
 class _BidiAudioOutput(BidiOutput):
-    "Handle audio output from bidi agent."
+    """Handle audio output from bidi agent."""
     def __init__(self, audio: "BidiAudioIO") -> None:
         """Store reference to pyaudio instance."""
         self.audio = audio
@@ -115,11 +115,11 @@ class BidiAudioIO:
         self.interrupted = False
 
     def input(self) -> _BidiAudioInput:
-        "Return audio processing BidiInput"
+        """Return audio processing BidiInput"""
         return _BidiAudioInput(self)
 
     def output(self) -> _BidiAudioOutput:
-        "Return audio processing BidiOutput"
+        """Return audio processing BidiOutput"""
         return _BidiAudioOutput(self)
 
     def _start(self) -> None:
