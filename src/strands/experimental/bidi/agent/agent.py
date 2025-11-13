@@ -428,11 +428,15 @@ class BidiAgent:
         for output in outputs:
             if hasattr(output, "start"):
                 await output.start()
-
+        
+        # Start agent after all IO is ready
+        await self.start()
         try:
             await asyncio.gather(run_inputs(), run_outputs(), return_exceptions=True)
 
         finally:
+            await self.stop()
+            
             for input_ in inputs:
                 if hasattr(input_, "stop"):
                     await input_.stop()
