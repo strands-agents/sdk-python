@@ -412,7 +412,7 @@ async def test_context_window_maps_to_typed_exception(litellm_acompletion, model
 async def test_stream_raises_error_when_stream_is_false(model):
     """Test that stream raises ValueError when stream parameter is explicitly False."""
     messages = [{"role": "user", "content": [{"text": "test"}]}]
-    
+
     with pytest.raises(ValueError, match="stream parameter cannot be explicitly set to False"):
         async for _ in model.stream(messages, stream=False):
             pass
