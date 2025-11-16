@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..experimental.hooks.multiagent.events import (
     AfterMultiAgentInvocationEvent,
-    BeforeNodeCallEvent,
+    AfterNodeCallEvent,
     MultiAgentInitializedEvent,
 )
 from ..hooks.events import AfterInvocationEvent, AgentInitializedEvent, MessageAddedEvent
@@ -44,7 +44,7 @@ class SessionManager(HookProvider, ABC):
         registry.add_callback(AfterInvocationEvent, lambda event: self.sync_agent(event.agent))
 
         registry.add_callback(MultiAgentInitializedEvent, lambda event: self.initialize_multi_agent(event.source))
-        registry.add_callback(BeforeNodeCallEvent, lambda event: self.sync_multi_agent(event.source))
+        registry.add_callback(AfterNodeCallEvent, lambda event: self.sync_multi_agent(event.source))
         registry.add_callback(AfterMultiAgentInvocationEvent, lambda event: self.sync_multi_agent(event.source))
 
     @abstractmethod

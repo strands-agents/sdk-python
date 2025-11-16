@@ -862,11 +862,12 @@ class Swarm(MultiAgentBase):
     def serialize_state(self) -> dict[str, Any]:
         """Serialize the current swarm state to a dictionary."""
         status_str = self.state.completion_status.value
-        next_nodes = (
-            [self.state.current_node.node_id]
-            if self.state.completion_status == Status.EXECUTING and self.state.current_node
-            else []
-        )
+        if self.state.handoff_node:
+            next_nodes = [self.state.handoff_node.node_id]
+        elif self.state.completion_status == Status.EXECUTING and self.state.current_node:
+            next_nodes = [self.state.current_node.node_id]
+        else:
+            next_nodes = []
 
         return {
             "type": "swarm",
