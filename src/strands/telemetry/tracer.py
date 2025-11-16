@@ -80,10 +80,6 @@ class Tracer:
     When the OTEL_EXPORTER_OTLP_ENDPOINT environment variable is set, traces
     are sent to the OTLP endpoint.
 
-    Attributes:
-        use_latest_genai_conventions: If True, uses the latest experimental GenAI semantic conventions.
-        include_tool_definitions: If True, includes detailed tool definitions in the agent trace span.
-
     Both attributes are controlled by including "gen_ai_latest_experimental" or "gen_ai_tool_definitions",
     respectively, in the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
     """
@@ -98,8 +94,9 @@ class Tracer:
 
         # Read OTEL_SEMCONV_STABILITY_OPT_IN environment variable
         opt_in_values = self._parse_semconv_opt_in()
+        ## To-do: should not set below attributes directly, use env var instead
         self.use_latest_genai_conventions = "gen_ai_latest_experimental" in opt_in_values
-        self.include_tool_definitions = "gen_ai_tool_definitions" in opt_in_values
+        self._include_tool_definitions = "gen_ai_tool_definitions" in opt_in_values
 
     def _parse_semconv_opt_in(self) -> set[str]:
         """Parse the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
@@ -587,7 +584,7 @@ class Tracer:
         if tools:
             attributes["gen_ai.agent.tools"] = serialize(tools)
 
-        if self.include_tool_definitions and tools_config:
+        if self._include_tool_definitions and tools_config:
             try:
                 tool_definitions = self._construct_tool_definitions(tools_config)
                 attributes["gen_ai.tool.definitions"] = serialize(tool_definitions)

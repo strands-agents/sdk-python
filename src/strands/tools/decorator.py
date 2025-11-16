@@ -45,6 +45,7 @@ import functools
 import inspect
 import logging
 from typing import (
+    Annotated,
     Any,
     Callable,
     Generic,
@@ -54,12 +55,15 @@ from typing import (
     TypeVar,
     Union,
     cast,
+    get_args,
+    get_origin,
     get_type_hints,
     overload,
 )
 
 import docstring_parser
 from pydantic import BaseModel, Field, create_model
+from pydantic.fields import FieldInfo
 from typing_extensions import override
 
 from ..interrupt import InterruptException
@@ -105,14 +109,65 @@ class FunctionToolMetadata:
         # Parse the docstring with docstring_parser
         doc_str = inspect.getdoc(func) or ""
         self.doc = docstring_parser.parse(doc_str)
-
-        # Get parameter descriptions from parsed docstring
-        self.param_descriptions = {
+        self.param_descriptions: dict[str, str] = {
             param.arg_name: param.description or f"Parameter {param.arg_name}" for param in self.doc.params
         }
 
         # Create a Pydantic model for validation
         self.input_model = self._create_input_model()
+
+    def _extract_annotated_metadata(
+        self, annotation: Any, param_name: str, param_default: Any
+    ) -> tuple[Any, FieldInfo]:
+        """Extracts type and a simple string description from an Annotated type hint.
+
+        Returns:
+            A tuple of (actual_type, field_info), where field_info is a new, simple
+            Pydantic FieldInfo instance created from the extracted metadata.
+        """
+        actual_type = annotation
+        description: str | None = None
+
+        if get_origin(annotation) is Annotated:
+            args = get_args(annotation)
+            actual_type = args[0]
+
+            # Look through metadata for a string description or a FieldInfo object
+            for meta in args[1:]:
+                if isinstance(meta, str):
+                    description = meta
+                elif isinstance(meta, FieldInfo):
+                    # --- Future Contributor Note ---
+                    # We are explicitly blocking the use of `pydantic.Field` within `Annotated`
+                    # because of the complexities of Pydantic v2's immutable Core Schema.
+                    #
+                    # Once a Pydantic model's schema is built, its `FieldInfo` objects are
+                    # effectively frozen. Attempts to mutate a `FieldInfo` object after
+                    # creation (e.g., by copying it and setting `.description` or `.default`)
+                    # are unreliable because the underlying Core Schema does not see these changes.
+                    #
+                    # The correct way to support this would be to reliably extract all
+                    # constraints (ge, le, pattern, etc.) from the original FieldInfo and
+                    # rebuild a new one from scratch. However, these constraints are not
+                    # stored as public attributes, making them difficult to inspect reliably.
+                    #
+                    # Deferring this complexity until there is clear demand and a robust
+                    # pattern for inspecting FieldInfo constraints is established.
+                    raise NotImplementedError(
+                        "Using pydantic.Field within Annotated is not yet supported for tool decorators. "
+                        "Please use a simple string for the description, or define constraints in the function's "
+                        "docstring."
+                    )
+
+        # Determine the final description with a clear priority order
+        # Priority: 1. Annotated string -> 2. Docstring -> 3. Fallback
+        final_description = description
+        if final_description is None:
+            final_description = self.param_descriptions.get(param_name) or f"Parameter {param_name}"
+        # Create FieldInfo object from scratch
+        final_field = Field(default=param_default, description=final_description)
+
+        return actual_type, final_field
 
     def _validate_signature(self) -> None:
         """Verify that ToolContext is used correctly in the function signature."""
@@ -146,22 +201,21 @@ class FunctionToolMetadata:
             if self._is_special_parameter(name):
                 continue
 
-            # Get parameter type and default
-            param_type = self.type_hints.get(name, Any)
+            # Use param.annotation directly to get the raw type hint. Using get_type_hints()
+            # can cause inconsistent behavior across Python versions for complex Annotated types.
+            param_type = param.annotation
+            if param_type is inspect.Parameter.empty:
+                param_type = Any
             default = ... if param.default is inspect.Parameter.empty else param.default
-            description = self.param_descriptions.get(name, f"Parameter {name}")
 
-            # Create Field with description and default
-            field_definitions[name] = (param_type, Field(default=default, description=description))
+            actual_type, field_info = self._extract_annotated_metadata(param_type, name, default)
+            field_definitions[name] = (actual_type, field_info)
 
-        # Create model name based on function name
         model_name = f"{self.func.__name__.capitalize()}Tool"
 
-        # Create and return the model
         if field_definitions:
             return create_model(model_name, **field_definitions)
         else:
-            # Handle case with no parameters
             return create_model(model_name)
 
     def _extract_description_from_docstring(self) -> str:

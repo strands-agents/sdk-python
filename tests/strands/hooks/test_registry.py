@@ -2,9 +2,8 @@ import unittest.mock
 
 import pytest
 
-from strands.agent.interrupt import InterruptState
 from strands.hooks import AgentInitializedEvent, BeforeInvocationEvent, BeforeToolCallEvent, HookRegistry
-from strands.interrupt import Interrupt
+from strands.interrupt import Interrupt, _InterruptState
 
 
 @pytest.fixture
@@ -15,7 +14,7 @@ def registry():
 @pytest.fixture
 def agent():
     instance = unittest.mock.Mock()
-    instance._interrupt_state = InterruptState()
+    instance._interrupt_state = _InterruptState()
     return instance
 
 

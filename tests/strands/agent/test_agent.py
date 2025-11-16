@@ -1221,6 +1221,37 @@ async def test_stream_async_multi_modal_input(mock_model, agent, agenerator, ali
     assert tru_message == exp_message
 
 
+def test_system_prompt_setter_string():
+    """Test that setting system_prompt with string updates both internal fields."""
+    agent = Agent(system_prompt="initial prompt")
+
+    agent.system_prompt = "updated prompt"
+
+    assert agent.system_prompt == "updated prompt"
+    assert agent._system_prompt_content == [{"text": "updated prompt"}]
+
+
+def test_system_prompt_setter_list():
+    """Test that setting system_prompt with list updates both internal fields."""
+    agent = Agent()
+
+    content_blocks = [{"text": "You are helpful"}, {"cache_control": {"type": "ephemeral"}}]
+    agent.system_prompt = content_blocks
+
+    assert agent.system_prompt == "You are helpful"
+    assert agent._system_prompt_content == content_blocks
+
+
+def test_system_prompt_setter_none():
+    """Test that setting system_prompt to None clears both internal fields."""
+    agent = Agent(system_prompt="initial prompt")
+
+    agent.system_prompt = None
+
+    assert agent.system_prompt is None
+    assert agent._system_prompt_content is None
+
+
 @pytest.mark.asyncio
 async def test_stream_async_passes_invocation_state(agent, mock_model, mock_event_loop_cycle, agenerator, alist):
     mock_model.mock_stream.side_effect = [

@@ -2,8 +2,7 @@ import unittest.mock
 
 import pytest
 
-from strands.agent.interrupt import InterruptState
-from strands.interrupt import Interrupt, InterruptException
+from strands.interrupt import Interrupt, InterruptException, _InterruptState
 from strands.types.interrupt import _Interruptible
 
 
@@ -20,7 +19,7 @@ def interrupt():
 @pytest.fixture
 def agent():
     instance = unittest.mock.Mock()
-    instance._interrupt_state = InterruptState()
+    instance._interrupt_state = _InterruptState()
     return instance
 
 

@@ -3,15 +3,15 @@ Tests for the function-based tool decorator pattern.
 """
 
 from asyncio import Queue
-from typing import Any, AsyncGenerator, Dict, Optional, Union
+from typing import Annotated, Any, AsyncGenerator, Dict, List, Optional, Union
 from unittest.mock import MagicMock
 
 import pytest
+from pydantic import Field
 
 import strands
 from strands import Agent
-from strands.agent.interrupt import InterruptState
-from strands.interrupt import Interrupt
+from strands.interrupt import Interrupt, _InterruptState
 from strands.types._events import ToolInterruptEvent, ToolResultEvent, ToolStreamEvent
 from strands.types.tools import AgentTool, ToolContext, ToolUse
 
@@ -151,7 +151,7 @@ async def test_stream_interrupt(alist):
     tool_use = {"toolUseId": "test_tool_id"}
 
     mock_agent = MagicMock()
-    mock_agent._interrupt_state = InterruptState()
+    mock_agent._interrupt_state = _InterruptState()
 
     invocation_state = {"agent": mock_agent}
 
@@ -178,7 +178,7 @@ async def test_stream_interrupt_resume(alist):
     tool_use = {"toolUseId": "test_tool_id"}
 
     mock_agent = MagicMock()
-    mock_agent._interrupt_state = InterruptState(interrupts={interrupt.id: interrupt})
+    mock_agent._interrupt_state = _InterruptState(interrupts={interrupt.id: interrupt})
 
     invocation_state = {"agent": mock_agent}
 
@@ -1611,3 +1611,214 @@ def test_function_tool_metadata_validate_signature_missing_context_config():
         @strands.tool
         def my_tool(tool_context: ToolContext):
             pass
+
+
+def test_tool_decorator_annotated_string_description():
+    """Test tool decorator with Annotated type hints for descriptions."""
+
+    @strands.tool
+    def annotated_tool(
+        name: Annotated[str, "The user's full name"],
+        age: Annotated[int, "The user's age in years"],
+        city: str,  # No annotation - should use docstring or generic
+    ) -> str:
+        """Tool with annotated parameters.
+
+        Args:
+            city: The user's city (from docstring)
+        """
+        return f"{name}, {age}, {city}"
+
+    spec = annotated_tool.tool_spec
+    schema = spec["inputSchema"]["json"]
+
+    # Check that annotated descriptions are used
+    assert schema["properties"]["name"]["description"] == "The user's full name"
+    assert schema["properties"]["age"]["description"] == "The user's age in years"
+
+    # Check that docstring is still used for non-annotated params
+    assert schema["properties"]["city"]["description"] == "The user's city (from docstring)"
+
+    # Verify all are required
+    assert set(schema["required"]) == {"name", "age", "city"}
+
+
+def test_tool_decorator_annotated_pydantic_field_constraints():
+    """Test that using pydantic.Field in Annotated raises a NotImplementedError."""
+    with pytest.raises(NotImplementedError, match="Using pydantic.Field within Annotated is not yet supported"):
+
+        @strands.tool
+        def field_annotated_tool(
+            email: Annotated[str, Field(description="User's email address", pattern=r"^[\w\.-]+@[\w\.-]+\\.w+$")],
+            score: Annotated[int, Field(description="Score between 0-100", ge=0, le=100)] = 50,
+        ) -> str:
+            """Tool with Pydantic Field annotations."""
+            return f"{email}: {score}"
+
+
+def test_tool_decorator_annotated_overrides_docstring():
+    """Test that Annotated descriptions override docstring descriptions."""
+
+    @strands.tool
+    def override_tool(param: Annotated[str, "Description from annotation"]) -> str:
+        """Tool with both annotation and docstring.
+
+        Args:
+            param: Description from docstring (should be overridden)
+        """
+        return param
+
+    spec = override_tool.tool_spec
+    schema = spec["inputSchema"]["json"]
+
+    # Annotated description should win
+    assert schema["properties"]["param"]["description"] == "Description from annotation"
+
+
+def test_tool_decorator_annotated_optional_type():
+    """Test tool with Optional types in Annotated."""
+
+    @strands.tool
+    def optional_annotated_tool(
+        required: Annotated[str, "Required parameter"], optional: Annotated[Optional[str], "Optional parameter"] = None
+    ) -> str:
+        """Tool with optional annotated parameter."""
+        return f"{required}, {optional}"
+
+    spec = optional_annotated_tool.tool_spec
+    schema = spec["inputSchema"]["json"]
+
+    # Check descriptions
+    assert schema["properties"]["required"]["description"] == "Required parameter"
+    assert schema["properties"]["optional"]["description"] == "Optional parameter"
+
+    # Check required list
+    assert "required" in schema["required"]
+    assert "optional" not in schema["required"]
+
+
+def test_tool_decorator_annotated_complex_types():
+    """Test tool with complex types in Annotated."""
+
+    @strands.tool
+    def complex_annotated_tool(
+        tags: Annotated[List[str], "List of tag strings"], config: Annotated[Dict[str, Any], "Configuration dictionary"]
+    ) -> str:
+        """Tool with complex annotated types."""
+        return f"Tags: {len(tags)}, Config: {len(config)}"
+
+    spec = complex_annotated_tool.tool_spec
+    schema = spec["inputSchema"]["json"]
+
+    # Check descriptions
+    assert schema["properties"]["tags"]["description"] == "List of tag strings"
+    assert schema["properties"]["config"]["description"] == "Configuration dictionary"
+
+    # Check types are preserved
+    assert schema["properties"]["tags"]["type"] == "array"
+    assert schema["properties"]["config"]["type"] == "object"
+
+
+def test_tool_decorator_annotated_mixed_styles():
+    """Test that using pydantic.Field in a mixed-style annotation raises NotImplementedError."""
+    with pytest.raises(NotImplementedError, match="Using pydantic.Field within Annotated is not yet supported"):
+
+        @strands.tool
+        def mixed_tool(
+            plain: str,
+            annotated_str: Annotated[str, "String description"],
+            annotated_field: Annotated[int, Field(description="Field description", ge=0)],
+            docstring_only: int,
+        ) -> str:
+            """Tool with mixed parameter styles.
+
+            Args:
+                plain: Plain parameter description
+                docstring_only: Docstring description for this param
+            """
+            return "mixed"
+
+
+@pytest.mark.asyncio
+async def test_tool_decorator_annotated_execution(alist):
+    """Test that annotated tools execute correctly."""
+
+    @strands.tool
+    def execution_test(name: Annotated[str, "User name"], count: Annotated[int, "Number of times"] = 1) -> str:
+        """Test execution with annotations."""
+        return f"Hello {name} " * count
+
+    # Test tool use
+    tool_use = {"toolUseId": "test-id", "input": {"name": "Alice", "count": 2}}
+    stream = execution_test.stream(tool_use, {})
+
+    result = (await alist(stream))[-1]
+    assert result["tool_result"]["status"] == "success"
+    assert "Hello Alice Hello Alice" in result["tool_result"]["content"][0]["text"]
+
+    # Test direct call
+    direct_result = execution_test("Bob", 3)
+    assert direct_result == "Hello Bob Hello Bob Hello Bob "
+
+
+def test_tool_decorator_annotated_no_description_fallback():
+    """Test that Annotated with a Field raises NotImplementedError."""
+    with pytest.raises(NotImplementedError, match="Using pydantic.Field within Annotated is not yet supported"):
+
+        @strands.tool
+        def no_desc_annotated(
+            param: Annotated[str, Field()],  # Field without description
+        ) -> str:
+            """Tool with Annotated but no description.
+
+            Args:
+                param: Docstring description
+            """
+            return param
+
+
+def test_tool_decorator_annotated_empty_string_description():
+    """Test handling of empty string descriptions in Annotated."""
+
+    @strands.tool
+    def empty_desc_tool(
+        param: Annotated[str, ""],  # Empty string description
+    ) -> str:
+        """Tool with empty annotation description.
+
+        Args:
+            param: Docstring description
+        """
+        return param
+
+    spec = empty_desc_tool.tool_spec
+    schema = spec["inputSchema"]["json"]
+
+    # Empty string is still a valid description, should not fall back
+    assert schema["properties"]["param"]["description"] == ""
+
+
+@pytest.mark.asyncio
+async def test_tool_decorator_annotated_validation_error(alist):
+    """Test that validation works correctly with annotated parameters."""
+
+    @strands.tool
+    def validation_tool(age: Annotated[int, "User age"]) -> str:
+        """Tool for validation testing."""
+        return f"Age: {age}"
+
+    # Test with wrong type
+    tool_use = {"toolUseId": "test-id", "input": {"age": "not an int"}}
+    stream = validation_tool.stream(tool_use, {})
+
+    result = (await alist(stream))[-1]
+    assert result["tool_result"]["status"] == "error"
+
+
+def test_tool_decorator_annotated_field_with_inner_default():
+    """Test that a default value in an Annotated Field raises NotImplementedError."""
+    with pytest.raises(NotImplementedError, match="Using pydantic.Field within Annotated is not yet supported"):
+
+        @strands.tool
+        def inner_default_tool(name: str, level: Annotated[int, Field(description="A level value", default=10)]) -> str:
+            return f"{name} is at level {level}"
