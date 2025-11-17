@@ -74,7 +74,7 @@ async def play(context):
     finally:
         try:
             speaker.close()
-        except:
+        except Exception:
             pass
         audio.terminate()
 
@@ -107,7 +107,7 @@ async def record(context):
     finally:
         try:
             microphone.close()
-        except:
+        except Exception:
             pass
         audio.terminate()
 
@@ -298,7 +298,7 @@ async def main():
         except Exception as e:
             print(f"Cleanup error: {e}")
 
-        return True
+    return True
 
 
 if __name__ == "__main__":
