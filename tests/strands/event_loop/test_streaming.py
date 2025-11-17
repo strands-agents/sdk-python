@@ -421,6 +421,43 @@ def test_extract_usage_metrics_with_cache_tokens():
     assert tru_usage == exp_usage and tru_metrics == exp_metrics
 
 
+def test_extract_usage_metrics_without_metrics():
+    """Test extract_usage_metrics when metrics field is missing."""
+    event = {
+        "usage": {"inputTokens": 5, "outputTokens": 2, "totalTokens": 7},
+    }
+
+    tru_usage, tru_metrics = strands.event_loop.streaming.extract_usage_metrics(event)
+    exp_usage = {"inputTokens": 5, "outputTokens": 2, "totalTokens": 7}
+    exp_metrics = {"latencyMs": 0}
+
+    assert tru_usage == exp_usage and tru_metrics == exp_metrics
+
+
+def test_extract_usage_metrics_without_usage():
+    """Test extract_usage_metrics when usage field is missing."""
+    event = {
+        "metrics": {"latencyMs": 100},
+    }
+
+    tru_usage, tru_metrics = strands.event_loop.streaming.extract_usage_metrics(event)
+    exp_usage = {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
+    exp_metrics = {"latencyMs": 100}
+
+    assert tru_usage == exp_usage and tru_metrics == exp_metrics
+
+
+def test_extract_usage_metrics_empty_metadata():
+    """Test extract_usage_metrics when both fields are missing."""
+    event = {}
+
+    tru_usage, tru_metrics = strands.event_loop.streaming.extract_usage_metrics(event)
+    exp_usage = {"inputTokens": 0, "outputTokens": 0, "totalTokens": 0}
+    exp_metrics = {"latencyMs": 0}
+
+    assert tru_usage == exp_usage and tru_metrics == exp_metrics
+
+
 @pytest.mark.parametrize(
     ("response", "exp_events"),
     [
