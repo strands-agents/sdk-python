@@ -19,7 +19,19 @@ logger = logging.getLogger(__name__)
 
 
 class _BidiAgentLoop:
-    """Agent loop."""
+    """Agent loop.
+
+    Attributes:
+        _agent: BidiAgent instance to loop.
+        _event_queue: Queue model and tool call events for receiver.
+        _stop_event: Sentinel to mark end of loop.
+        _tasks: Track active async tasks created in loop.
+        _active: Flag if agent loop is started.
+    """
+
+    _event_queue: asyncio.Queue
+    _stop_event: object
+    _tasks: set
 
     def __init__(self, agent: "BidiAgent") -> None:
         """Initialize members of the agent loop.
@@ -30,9 +42,7 @@ class _BidiAgentLoop:
             agent: Bidirectional agent to loop over.
         """
         self._agent = agent
-        self._event_queue = asyncio.Queue()  # queue model and tool call events
-        self._tasks = set()  # track active async tasks created in loop
-        self._active = False  # flag if agent loop is started
+        self._active = False
 
     async def start(self) -> None:
         """Start the agent loop.
@@ -43,6 +53,10 @@ class _BidiAgentLoop:
             return
 
         logger.debug("starting agent loop")
+
+        self._event_queue = asyncio.Queue(maxsize=1)
+        self._stop_event = object()
+        self._tasks = set()
 
         await self._agent.model.start(
             system_prompt=self._agent.system_prompt,
@@ -68,18 +82,23 @@ class _BidiAgentLoop:
 
         await self._agent.model.stop()
 
+        if not self._event_queue.empty():
+            self._event_queue.get_nowait()
+        self._event_queue.put_nowait(self._stop_event)
+
         self._active = False
+        self._tasks = None
+        self._stop_event = None
+        self._event_queue = None
 
     async def receive(self) -> AsyncIterable[BidiOutputEvent]:
         """Receive model and tool call events."""
-        while self.active:
-            try:
-                yield self._event_queue.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
+        while True:
+            event = await self._event_queue.get()
+            if event is self._stop_event:
+                break
 
-            # unblock the event loop
-            await asyncio.sleep(0)
+            yield event
 
     @property
     def active(self) -> bool:
@@ -104,10 +123,7 @@ class _BidiAgentLoop:
         logger.debug("running model")
 
         async for event in self._agent.model.receive():
-            if not self.active:
-                break
-
-            self._event_queue.put_nowait(event)
+            await self._event_queue.put(event)
 
             if isinstance(event, BidiTranscriptStreamEvent):
                 if event["is_final"]:
@@ -115,7 +131,11 @@ class _BidiAgentLoop:
                     self._agent.messages.append(message)
 
             elif isinstance(event, ToolUseStreamEvent):
-                self._create_task(self._run_tool(event["current_tool_use"]))
+                tool_use = event["current_tool_use"]
+                self._create_task(self._run_tool(tool_use))
+
+                message: Message = {"role": "assistant", "content": [{"toolUse": tool_use}]}
+                self._agent.messages.append(message)
 
     async def _run_tool(self, tool_use: ToolUse) -> None:
         """Task for running tool requested by the model."""
@@ -129,14 +149,14 @@ class _BidiAgentLoop:
 
             async for event in tool.stream(tool_use, invocation_state):
                 if isinstance(event, ToolResultEvent):
-                    self._event_queue.put_nowait(event)
+                    await self._event_queue.put(event)
                     result = event.tool_result
                     break
 
                 if isinstance(event, ToolStreamEvent):
-                    self._event_queue.put_nowait(event)
+                    await self._event_queue.put(event)
                 else:
-                    self._event_queue.put_nowait(ToolStreamEvent(tool_use, event))
+                    await self._event_queue.put(ToolStreamEvent(tool_use, event))
 
         except Exception as e:
             result = {
@@ -152,4 +172,4 @@ class _BidiAgentLoop:
             "content": [{"toolResult": result}],
         }
         self._agent.messages.append(message)
-        self._event_queue.put_nowait(ToolResultMessageEvent(message))
+        await self._event_queue.put(ToolResultMessageEvent(message))
