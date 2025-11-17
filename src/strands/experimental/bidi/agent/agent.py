@@ -18,6 +18,7 @@ import logging
 from typing import Any, AsyncIterable
 
 from .... import _identifier
+from ....hooks import HookProvider, HookRegistry
 from ....tools.caller import _ToolCaller
 from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
@@ -27,6 +28,7 @@ from ....types.content import Message, Messages
 from ....types.tools import ToolResult, ToolUse, AgentTool
 
 from .loop import _BidiAgentLoop
+from ..hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from ..models.bidi_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
@@ -59,6 +61,7 @@ class BidiAgent:
         name: str | None = None,
         tool_executor: ToolExecutor | None = None,
         description: str | None = None,
+        hooks: list[HookProvider] | None = None,
         **kwargs: Any,
     ):
         """Initialize bidirectional agent.
@@ -74,6 +77,7 @@ class BidiAgent:
             name: Name of the Agent.
             tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
             description: Description of what the Agent does.
+            hooks: Optional list of hook providers to register for lifecycle events.
             **kwargs: Additional configuration for future extensibility.
 
         Raises:
@@ -119,7 +123,16 @@ class BidiAgent:
 
         self._current_adapters = []  # Track adapters for cleanup
 
+        # Initialize hooks registry
+        self.hooks = HookRegistry()
+        if hooks:
+            for hook in hooks:
+                self.hooks.add_hook(hook)
+
         self._loop = _BidiAgentLoop(self)
+
+        # Emit initialization event
+        self.hooks.invoke_callbacks(BidiAgentInitializedEvent(agent=self))
 
     @property
     def tool(self) -> _ToolCaller:
@@ -272,6 +285,7 @@ class BidiAgent:
             user_message: Message = {"role": "user", "content": [{"text": input_data}]}
 
             self.messages.append(user_message)
+            self.hooks.invoke_callbacks(BidiMessageAddedEvent(agent=self, message=user_message))
 
             logger.debug("Text sent: %d characters", len(input_data))
             # Create BidiTextInputEvent for send()
