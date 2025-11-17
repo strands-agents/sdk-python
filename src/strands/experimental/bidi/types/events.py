@@ -49,6 +49,7 @@ class BidiTextInputEvent(TypedEvent):
     """
 
     def __init__(self, text: str, role: str):
+        """Initialize text input event."""
         super().__init__(
             {
                 "type": "bidi_text_input",
@@ -87,6 +88,7 @@ class BidiAudioInputEvent(TypedEvent):
         sample_rate: Literal[16000, 24000, 48000],
         channels: Literal[1, 2],
     ):
+        """Initialize audio input event."""
         super().__init__(
             {
                 "type": "bidi_audio_input",
@@ -133,6 +135,7 @@ class BidiImageInputEvent(TypedEvent):
         image: str,
         mime_type: str,
     ):
+        """Initialize image input event."""
         super().__init__(
             {
                 "type": "bidi_image_input",
@@ -166,6 +169,7 @@ class BidiConnectionStartEvent(TypedEvent):
     """
 
     def __init__(self, connection_id: str, model: str):
+        """Initialize connection start event."""
         super().__init__(
             {
                 "type": "bidi_connection_start",
@@ -193,6 +197,7 @@ class BidiResponseStartEvent(TypedEvent):
     """
 
     def __init__(self, response_id: str):
+        """Initialize response start event."""
         super().__init__({"type": "bidi_response_start", "response_id": response_id})
 
     @property
@@ -218,6 +223,7 @@ class BidiAudioStreamEvent(TypedEvent):
         sample_rate: Literal[16000, 24000, 48000],
         channels: Literal[1, 2],
     ):
+        """Initialize audio stream event."""
         super().__init__(
             {
                 "type": "bidi_audio_stream",
@@ -271,6 +277,7 @@ class BidiTranscriptStreamEvent(ModelStreamEvent):
         is_final: bool,
         current_transcript: Optional[str] = None,
     ):
+        """Initialize transcript stream event."""
         super().__init__(
             {
                 "type": "bidi_transcript_stream",
@@ -317,6 +324,7 @@ class BidiInterruptionEvent(TypedEvent):
     """
 
     def __init__(self, reason: Literal["user_speech", "error"]):
+        """Initialize interruption event."""
         super().__init__(
             {
                 "type": "bidi_interruption",
@@ -343,6 +351,7 @@ class BidiResponseCompleteEvent(TypedEvent):
         response_id: str,
         stop_reason: Literal["complete", "interrupted", "tool_use", "error"],
     ):
+        """Initialize response complete event."""
         super().__init__(
             {
                 "type": "bidi_response_complete",
@@ -400,6 +409,7 @@ class BidiUsageEvent(TypedEvent):
         cache_read_input_tokens: Optional[int] = None,
         cache_write_input_tokens: Optional[int] = None,
     ):
+        """Initialize usage event."""
         data: Dict[str, Any] = {
             "type": "bidi_usage",
             "inputTokens": input_tokens,
@@ -458,6 +468,7 @@ class BidiConnectionCloseEvent(TypedEvent):
         connection_id: str,
         reason: Literal["client_disconnect", "timeout", "error", "complete"],
     ):
+        """Initialize connection close event."""
         super().__init__(
             {
                 "type": "bidi_connection_close",
@@ -494,6 +505,7 @@ class BidiErrorEvent(TypedEvent):
         error: Exception,
         details: Optional[Dict[str, Any]] = None,
     ):
+        """Initialize error event."""
         # Store serializable data in dict (for JSON serialization)
         super().__init__(
             {
