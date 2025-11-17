@@ -6,11 +6,6 @@ interruption handling, and concurrent tool execution using Nova Sonic.
 
 import asyncio
 import base64
-import sys
-from pathlib import Path
-
-# Add the src directory to Python path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 import os
 import time
 
