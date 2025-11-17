@@ -10,10 +10,12 @@ from ..types.tools import ToolResult, ToolUse
 
 
 class _ToolCaller:
-    """Provides common tool calling functionality that can be used by both traditional
-    Agent and BidirectionalAgent classes with agent-specific customizations.
+    """Provides common tool calling functionality for Agent classes.
 
-        Automatically detects agent type and applies appropriate behavior:
+    Can be used by both traditional Agent and BidirectionalAgent classes with
+    agent-specific customizations.
+
+    Automatically detects agent type and applies appropriate behavior:
         - Traditional agents: Uses conversation_manager.apply_management()
     """
 

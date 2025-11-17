@@ -32,7 +32,7 @@ def test_direct_tools():
 
     try:
         model = BidiNovaSonicModel()
-        agent = BidirectionalAgent(model=model, tools=[calculator])
+        agent = BidiAgent(model=model, tools=[calculator])
 
         # Test calculator
         result = agent.tool.calculator(expression="2 * 3")

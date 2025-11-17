@@ -118,7 +118,7 @@ class BidiNovaSonicModel(BidiModel):
         self._current_role = None
         self._generation_stage = None
 
-        logger.debug("Nova Sonic bidirectional model initialized: %s", model_id)
+        logger.debug("model_id=<%s> | nova sonic model initialized", model_id)
 
     async def start(
         self,
@@ -138,7 +138,7 @@ class BidiNovaSonicModel(BidiModel):
         if self._active:
             raise RuntimeError("Connection already active. Close the existing connection before creating a new one.")
 
-        logger.debug("Nova connection create - starting")
+        logger.debug("nova connection starting")
 
         try:
             # Initialize client if needed
@@ -160,20 +160,20 @@ class BidiNovaSonicModel(BidiModel):
                 logger.error("Stream is None")
                 raise ValueError("Stream cannot be None")
 
-            logger.debug("Nova Sonic connection initialized with connection_id: %s", self.connection_id)
+            logger.debug("connection_id=<%s> | nova sonic connection initialized", self.connection_id)
 
             # Send initialization events
             system_prompt = system_prompt or "You are a helpful assistant. Keep responses brief."
             init_events = self._build_initialization_events(system_prompt, tools or [], messages)
 
-            logger.debug("Nova Sonic initialization - sending %d events", len(init_events))
+            logger.debug("event_count=<%d> | sending nova sonic initialization events", len(init_events))
             await self._send_initialization_events(init_events)
 
-            logger.info("Nova Sonic connection established successfully")
+            logger.info("connection_id=<%s> | nova sonic connection established", self.connection_id)
 
         except Exception as e:
             self._active = False
-            logger.error("Nova connection create error: %s", str(e))
+            logger.error("error=<%s> | nova connection create failed", str(e))
             raise
 
     def _build_initialization_events(
@@ -198,16 +198,20 @@ class BidiNovaSonicModel(BidiModel):
     def _log_event_type(self, nova_event: dict[str, any]) -> None:
         """Log specific Nova Sonic event types for debugging."""
         if "usageEvent" in nova_event:
-            logger.debug("Nova usage: %s", nova_event["usageEvent"])
+            logger.debug("usage=<%s> | nova usage event received", nova_event["usageEvent"])
         elif "textOutput" in nova_event:
-            logger.debug("Nova text output")
+            logger.debug("nova text output received")
         elif "toolUse" in nova_event:
             tool_use = nova_event["toolUse"]
-            logger.debug("Nova tool use: %s (id: %s)", tool_use["toolName"], tool_use["toolUseId"])
+            logger.debug(
+                "tool_name=<%s>, tool_use_id=<%s> | nova tool use received",
+                tool_use["toolName"],
+                tool_use["toolUseId"],
+            )
         elif "audioOutput" in nova_event:
             audio_content = nova_event["audioOutput"]["content"]
             audio_bytes = base64.b64decode(audio_content)
-            logger.debug("Nova audio output: %d bytes", len(audio_bytes))
+            logger.debug("audio_bytes=<%d> | nova audio output received", len(audio_bytes))
 
     async def receive(self) -> AsyncIterable[dict[str, any]]:
         """Receive Nova Sonic events and convert to provider-agnostic format."""
@@ -215,7 +219,7 @@ class BidiNovaSonicModel(BidiModel):
             logger.error("Stream is None")
             return
 
-        logger.debug("Nova events - starting event stream")
+        logger.debug("nova event stream starting")
 
         # Emit connection start event
         yield BidiConnectionStartEvent(connection_id=self.connection_id, model=self.model_id)
@@ -240,7 +244,7 @@ class BidiNovaSonicModel(BidiModel):
                     continue
 
         except Exception as e:
-            logger.error("Error receiving Nova Sonic event: %s", e)
+            logger.error("error=<%s> | error receiving nova sonic event", e)
             logger.error(traceback.format_exc())
             yield BidiErrorEvent(error=e)
         finally:
@@ -274,9 +278,9 @@ class BidiNovaSonicModel(BidiModel):
                 if tool_result:
                     await self._send_tool_result(tool_result)
             else:
-                logger.warning(f"Unknown content type: {type(content)}")
+                logger.warning("content_type=<%s> | unknown content type", type(content).__name__)
         except Exception as e:
-            logger.error(f"Error sending content: {e}")
+            logger.error("error=<%s> | error sending content to nova sonic", e)
             raise  # Propagate exception for debugging in experimental code
 
     async def _start_audio_connection(self) -> None:
@@ -284,7 +288,7 @@ class BidiNovaSonicModel(BidiModel):
         if self.audio_connection_active:
             return
 
-        logger.debug("Nova audio connection start")
+        logger.debug("nova audio connection starting")
 
         audio_content_start = json.dumps(
             {
@@ -331,7 +335,7 @@ class BidiNovaSonicModel(BidiModel):
         if not self.audio_connection_active:
             return
 
-        logger.debug("Nova audio connection end")
+        logger.debug("nova audio connection ending")
 
         audio_content_end = json.dumps(
             {"event": {"contentEnd": {"promptName": self.connection_id, "contentName": self.audio_content_name}}}
@@ -372,7 +376,7 @@ class BidiNovaSonicModel(BidiModel):
         """Internal: Send tool result using Nova Sonic toolResult format."""
         tool_use_id = tool_result.get("toolUseId")
 
-        logger.debug("Nova tool result send: %s", tool_use_id)
+        logger.debug("tool_use_id=<%s> | sending nova tool result", tool_use_id)
 
         # Extract result content
         result_data = {}
@@ -398,7 +402,7 @@ class BidiNovaSonicModel(BidiModel):
         if not self._active:
             return
 
-        logger.debug("Nova cleanup - starting connection close")
+        logger.debug("nova connection cleanup starting")
         self._active = False
 
         try:
@@ -413,18 +417,18 @@ class BidiNovaSonicModel(BidiModel):
                 try:
                     await self._send_nova_event(event)
                 except Exception as e:
-                    logger.warning("Error during Nova Sonic cleanup: %s", e)
+                    logger.warning("error=<%s> | error during nova sonic cleanup", e)
 
             # Close stream
             try:
                 await self.stream.input_stream.close()
             except Exception as e:
-                logger.warning("Error closing Nova Sonic stream: %s", e)
+                logger.warning("error=<%s> | error closing nova sonic stream", e)
 
         except Exception as e:
-            logger.error("Nova cleanup error: %s", str(e))
+            logger.error("error=<%s> | nova cleanup failed", str(e))
         finally:
-            logger.debug("Nova connection closed")
+            logger.debug("nova connection closed")
 
     def _convert_nova_event(self, nova_event: dict[str, any]) -> BidiOutputEvent | None:
         """Convert Nova Sonic events to TypedEvent format."""
@@ -432,7 +436,7 @@ class BidiNovaSonicModel(BidiModel):
         if "completionStart" in nova_event:
             completion_data = nova_event["completionStart"]
             self._current_completion_id = completion_data.get("completionId")
-            logger.debug("Nova completion started: %s", self._current_completion_id)
+            logger.debug("completion_id=<%s> | nova completion started", self._current_completion_id)
             return None
 
         # Handle completion end
@@ -463,7 +467,7 @@ class BidiNovaSonicModel(BidiModel):
             text_content = nova_event["textOutput"]["content"]
             # Check for Nova Sonic interruption pattern
             if '{ "interrupted" : true }' in text_content:
-                logger.debug("Nova interruption detected in text")
+                logger.debug("nova interruption detected in text output")
                 return BidiInterruptionEvent(reason="user_speech")
 
             return BidiTranscriptStreamEvent(
@@ -487,7 +491,7 @@ class BidiNovaSonicModel(BidiModel):
 
         # Handle interruption
         if nova_event.get("stopReason") == "INTERRUPTED":
-            logger.debug("Nova interruption stop reason")
+            logger.debug("nova interruption detected via stop reason")
             return BidiInterruptionEvent(reason="user_speech")
 
         # Handle usage events - convert to multimodal usage format
@@ -646,11 +650,10 @@ class BidiNovaSonicModel(BidiModel):
             bytes_data = event.encode("utf-8")
             chunk = InvokeModelWithBidirectionalStreamInputChunk(value=BidirectionalInputPayloadPart(bytes_=bytes_data))
             await self.stream.input_stream.send(chunk)
-            logger.debug("Successfully sent Nova Sonic event")
+            logger.debug("nova sonic event sent successfully")
 
         except Exception as e:
-            logger.error("Error sending Nova Sonic event: %s", e)
-            logger.error("Event was: %s", event)
+            logger.error("error=<%s>, event=<%s> | error sending nova sonic event", e, event[:100])
             raise
 
     async def _initialize_client(self) -> None:
@@ -665,11 +668,11 @@ class BidiNovaSonicModel(BidiModel):
             )
 
             self.client = BedrockRuntimeClient(config=config)
-            logger.debug("Nova Sonic client initialized")
+            logger.debug("region=<%s> | nova sonic client initialized", self.region)
 
         except ImportError as e:
-            logger.error("Nova Sonic dependencies not available: %s", e)
+            logger.error("error=<%s> | nova sonic dependencies not available", e)
             raise
         except Exception as e:
-            logger.error("Error initializing Nova Sonic client: %s", e)
+            logger.error("error=<%s> | error initializing nova sonic client", e)
             raise

@@ -165,7 +165,6 @@ async def receive(agent, context):
             elif event_type == "bidi_transcript_stream":
                 transcript_text = event.get("text", "")
                 transcript_role = event.get("role", "unknown")
-                is_final = event.get("is_final", False)
 
                 # Print transcripts with special formatting
                 if transcript_role == "user":
@@ -257,7 +256,7 @@ async def get_frames(context):
                 await context["agent"].send(image_event)
                 print("📸 Frame sent to model")
             except Exception as e:
-                logger.error(f"Error sending frame: {e}")
+                logger.error("error=<%s> | error sending frame", e)
 
             # Wait 1 second between frames (1 FPS)
             await asyncio.sleep(1.0)

@@ -109,7 +109,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
         self._function_call_buffer = {}
 
-        logger.debug("OpenAI Realtime bidirectional model initialized: %s", model)
+        logger.debug("model=<%s> | openai realtime model initialized", model)
 
     async def start(
         self,
@@ -129,7 +129,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         if self._active:
             raise RuntimeError("Connection already active. Close the existing connection before creating a new one.")
 
-        logger.info("Creating OpenAI Realtime connection...")
+        logger.info("openai realtime connection starting")
 
         try:
             # Initialize connection state
@@ -147,7 +147,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
                 headers.append(("OpenAI-Project", self.project))
 
             self.websocket = await websockets.connect(url, additional_headers=headers)
-            logger.info("WebSocket connected successfully")
+            logger.info("connection_id=<%s> | websocket connected successfully", self.connection_id)
 
             # Configure session
             session_config = self._build_session_config(system_prompt, tools)
@@ -159,7 +159,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
         except Exception as e:
             self._active = False
-            logger.error("OpenAI connection error: %s", e)
+            logger.error("error=<%s> | openai connection failed", e)
             raise
 
     def _require_active(self) -> bool:
@@ -224,7 +224,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
             if key in supported_params:
                 config[key] = value
             else:
-                logger.warning("Ignoring unsupported session parameter: %s", key)
+                logger.warning("parameter=<%s> | ignoring unsupported session parameter", key)
 
         return config
 
@@ -289,7 +289,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
                         yield event
 
         except Exception as e:
-            logger.error("Error receiving OpenAI Realtime event: %s", e)
+            logger.error("error=<%s> | error receiving openai realtime event", e)
             yield BidiErrorEvent(error=e)
         finally:
             # Emit connection close event
@@ -359,7 +359,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
         elif event_type == "conversation.item.input_audio_transcription.failed":
             error_info = openai_event.get("error", {})
-            logger.warning("OpenAI transcription failed: %s", error_info.get("message", "Unknown error"))
+            logger.warning("error=<%s> | openai transcription failed", error_info.get("message", "unknown error"))
             return None
 
         # Function call processing
@@ -387,7 +387,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
                     # Return ToolUseStreamEvent for consistency with standard agent
                     return [ToolUseStreamEvent(delta={"toolUse": tool_use}, current_tool_use=tool_use)]
                 except (json.JSONDecodeError, KeyError) as e:
-                    logger.warning("Error parsing function arguments for %s: %s", call_id, e)
+                    logger.warning("call_id=<%s>, error=<%s> | error parsing function arguments", call_id, e)
                     del self._function_call_buffer[call_id]
             return None
 
@@ -400,7 +400,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         elif event_type == "response.cancelled":
             response = openai_event.get("response", {})
             response_id = response.get("id", "unknown")
-            logger.debug("OpenAI response cancelled: %s", response_id)
+            logger.debug("response_id=<%s> | openai response cancelled", response_id)
             return [BidiResponseCompleteEvent(response_id=response_id, stop_reason="interrupted")]
 
         # Turn complete and usage - response finished
@@ -476,11 +476,11 @@ class BidiOpenAIRealtimeModel(BidiModel):
         elif event_type in ["conversation.item.retrieve", "conversation.item.added"]:
             item = openai_event.get("item", {})
             action = "retrieved" if "retrieve" in event_type else "added"
-            logger.debug("OpenAI conversation item %s: %s", action, item.get("id"))
+            logger.debug("action=<%s>, item_id=<%s> | openai conversation item event", action, item.get("id"))
             return None
 
         elif event_type == "conversation.item.done":
-            logger.debug("OpenAI conversation item done: %s", openai_event.get("item", {}).get("id"))
+            logger.debug("item_id=<%s> | openai conversation item done", openai_event.get("item", {}).get("id"))
             return None
 
         # Response output events - combine similar events
@@ -491,7 +491,11 @@ class BidiOpenAIRealtimeModel(BidiModel):
             "response.content_part.done",
         ]:
             item_data = openai_event.get("item") or openai_event.get("part")
-            logger.debug("OpenAI %s: %s", event_type, item_data.get("id") if item_data else "unknown")
+            logger.debug(
+                "event_type=<%s>, item_id=<%s> | openai output event",
+                event_type,
+                item_data.get("id") if item_data else "unknown",
+            )
 
             # Track function call names from response.output_item.added
             if event_type == "response.output_item.added":
@@ -517,7 +521,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
             "session.created",
             "session.updated",
         ]:
-            logger.debug("OpenAI %s event", event_type)
+            logger.debug("event_type=<%s> | openai event received", event_type)
             return None
 
         elif event_type == "error":
@@ -528,15 +532,15 @@ class BidiOpenAIRealtimeModel(BidiModel):
             if error_code == "response_cancel_not_active":
                 # This happens when trying to cancel a response that's not active
                 # It's safe to ignore as the session remains functional
-                logger.debug("OpenAI response cancel attempted when no response active (safe to ignore)")
+                logger.debug("openai response cancel attempted when no response active")
                 return None
 
             # Log other errors
-            logger.error("OpenAI Realtime error: %s", error_data)
+            logger.error("error=<%s> | openai realtime error", error_data)
             return None
 
         else:
-            logger.debug("Unhandled OpenAI event type: %s", event_type)
+            logger.debug("event_type=<%s> | unhandled openai event type", event_type)
             return None
 
     async def send(
@@ -567,9 +571,9 @@ class BidiOpenAIRealtimeModel(BidiModel):
                 if tool_result:
                     await self._send_tool_result(tool_result)
             else:
-                logger.warning(f"Unknown content type: {type(content).__name__}")
+                logger.warning("content_type=<%s> | unknown content type", type(content).__name__)
         except Exception as e:
-            logger.error(f"Error sending content: {e}")
+            logger.error("error=<%s> | error sending content to openai", e)
             raise  # Propagate exception for debugging in experimental code
 
     async def _send_audio_content(self, audio_input: BidiAudioInputEvent) -> None:
@@ -591,7 +595,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         """Internal: Send tool result back to OpenAI."""
         tool_use_id = tool_result.get("toolUseId")
 
-        logger.debug("OpenAI tool result send: %s", tool_use_id)
+        logger.debug("tool_use_id=<%s> | sending openai tool result", tool_use_id)
 
         # Extract result content
         result_data = {}
@@ -613,22 +617,22 @@ class BidiOpenAIRealtimeModel(BidiModel):
         if not self._active:
             return
 
-        logger.debug("OpenAI Realtime cleanup - starting connection close")
+        logger.debug("openai realtime connection cleanup starting")
         self._active = False
 
         try:
             await self.websocket.close()
         except Exception as e:
-            logger.warning("Error closing OpenAI Realtime WebSocket: %s", e)
+            logger.warning("error=<%s> | error closing openai realtime websocket", e)
 
-        logger.debug("OpenAI Realtime connection closed")
+        logger.debug("openai realtime connection closed")
 
     async def _send_event(self, event: dict[str, any]) -> None:
         """Send event to OpenAI via WebSocket."""
         try:
             message = json.dumps(event)
             await self.websocket.send(message)
-            logger.debug("Sent OpenAI event: %s", event.get("type"))
+            logger.debug("event_type=<%s> | openai event sent", event.get("type"))
         except Exception as e:
-            logger.error("Error sending OpenAI event: %s", e)
+            logger.error("error=<%s> | error sending openai event", e)
             raise

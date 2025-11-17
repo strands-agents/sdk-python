@@ -46,6 +46,12 @@ class _BidiAudioInput(BidiInput):
 
     async def start(self) -> None:
         """Start input stream."""
+        logger.debug(
+            "rate=<%d>, channels=<%d>, device_index=<%s> | starting audio input stream",
+            self._rate,
+            self._channels,
+            self._device_index,
+        )
         self._audio = pyaudio.PyAudio()
         self._stream = self._audio.open(
             channels=self._channels,
@@ -55,9 +61,11 @@ class _BidiAudioInput(BidiInput):
             input_device_index=self._device_index,
             rate=self._rate,
         )
+        logger.info("rate=<%d>, channels=<%d> | audio input stream started", self._rate, self._channels)
 
     async def stop(self) -> None:
         """Stop input stream."""
+        logger.debug("stopping audio input stream")
         # TODO: Provide time for streaming thread to exit cleanly to prevent conflicts with the Nova threads.
         #       See if we can remove after properly handling cancellation for agent.
         await asyncio.sleep(0.1)
@@ -67,6 +75,7 @@ class _BidiAudioInput(BidiInput):
 
         self._stream = None
         self._audio = None
+        logger.debug("audio input stream stopped")
 
     async def __call__(self) -> BidiAudioInputEvent:
         """Read audio from input stream."""
@@ -115,6 +124,13 @@ class _BidiAudioOutput(BidiOutput):
 
     async def start(self) -> None:
         """Start output stream."""
+        logger.debug(
+            "rate=<%d>, channels=<%d>, device_index=<%s>, buffer_size=<%s> | starting audio output stream",
+            self._rate,
+            self._channels,
+            self._device_index,
+            self._buffer_size,
+        )
         self._audio = pyaudio.PyAudio()
         self._stream = self._audio.open(
             channels=self._channels,
@@ -127,9 +143,11 @@ class _BidiAudioOutput(BidiOutput):
         self._buffer = deque(maxlen=self._buffer_size)
         self._buffer_event = asyncio.Event()
         self._output_task = asyncio.create_task(self._output())
+        logger.info("rate=<%d>, channels=<%d> | audio output stream started", self._rate, self._channels)
 
     async def stop(self) -> None:
         """Stop output stream."""
+        logger.debug("stopping audio output stream")
         self._buffer.clear()
         self._buffer.append(None)
         self._buffer_event.set()
@@ -143,6 +161,7 @@ class _BidiAudioOutput(BidiOutput):
         self._buffer_event = None
         self._stream = None
         self._audio = None
+        logger.debug("audio output stream stopped")
 
     async def __call__(self, event: BidiOutputEvent) -> None:
         """Handle audio events with direct stream writing."""
@@ -150,8 +169,10 @@ class _BidiAudioOutput(BidiOutput):
             audio_bytes = base64.b64decode(event["audio"])
             self._buffer.append(audio_bytes)
             self._buffer_event.set()
+            logger.debug("audio_bytes=<%d> | audio chunk buffered for playback", len(audio_bytes))
 
         elif isinstance(event, BidiInterruptionEvent):
+            logger.debug("reason=<%s> | clearing audio buffer due to interruption", event["reason"])
             self._buffer.clear()
             self._buffer_event.clear()
 
@@ -191,9 +212,9 @@ class BidiAudioIO:
         self._config = config
 
     def input(self) -> _BidiAudioInput:
-        """Return audio processing BidiInput"""
+        """Return audio processing BidiInput."""
         return _BidiAudioInput(self._config)
 
     def output(self) -> _BidiAudioOutput:
-        """Return audio processing BidiOutput"""
+        """Return audio processing BidiOutput."""
         return _BidiAudioOutput(self._config)

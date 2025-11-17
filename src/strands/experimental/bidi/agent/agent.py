@@ -210,7 +210,7 @@ class BidiAgent:
         self.messages.append(tool_result_msg)
         self.messages.append(assistant_msg)
 
-        logger.debug("Direct tool call recorded in message history: %s", tool["name"])
+        logger.debug("tool_name=<%s> | direct tool call recorded in message history", tool["name"])
 
     def _filter_tool_parameters_for_recording(self, tool_name: str, input_params: dict[str, Any]) -> dict[str, Any]:
         """Filter input parameters to only include those defined in the tool specification.
@@ -237,7 +237,7 @@ class BidiAgent:
         Initializes the streaming connection and starts background tasks for processing
         model events, tool execution, and connection management.
         """
-        logger.debug("starting agent")
+        logger.debug("agent starting")
 
         await self._loop.start()
 
@@ -272,7 +272,7 @@ class BidiAgent:
 
             self.messages.append(user_message)
 
-            logger.debug("Text sent: %d characters", len(input_data))
+            logger.debug("text_length=<%d> | text sent to model", len(input_data))
             # Create BidiTextInputEvent for send()
             text_event = BidiTextInputEvent(text=input_data, role="user")
             await self.model.send(text_event)
@@ -307,7 +307,9 @@ class BidiAgent:
 
         # If we get here, input type is invalid
         raise ValueError(
-            f"Input must be a string, BidiInputEvent (BidiTextInputEvent/BidiAudioInputEvent/BidiImageInputEvent), or event dict with 'type' field, got: {type(input_data)}"
+            f"Input must be a string, BidiInputEvent "
+            f"(BidiTextInputEvent/BidiAudioInputEvent/BidiImageInputEvent), "
+            f"or event dict with 'type' field, got: {type(input_data)}"
         )
 
     async def receive(self) -> AsyncIterable[BidiOutputEvent]:
@@ -338,7 +340,7 @@ class BidiAgent:
         Returns:
             Self for use in the context.
         """
-        logger.debug("Entering async context manager - starting connection")
+        logger.debug("context_manager=<enter> | starting connection")
         await self.start()
         return self
 
@@ -354,16 +356,16 @@ class BidiAgent:
             exc_tb: Exception traceback if an exception occurred, None otherwise.
         """
         try:
-            logger.debug("Exiting async context manager - cleaning up adapters and connection")
+            logger.debug("context_manager=<exit> | cleaning up adapters and connection")
 
             # Cleanup adapters if any are currently active
             for adapter in self._current_adapters:
                 if hasattr(adapter, "cleanup"):
                     try:
                         adapter.stop()
-                        logger.debug(f"Cleaned up adapter: {type(adapter).__name__}")
+                        logger.debug("adapter_type=<%s> | adapter cleaned up", type(adapter).__name__)
                     except Exception as adapter_error:
-                        logger.warning(f"Error cleaning up adapter: {adapter_error}")
+                        logger.warning("adapter_error=<%s> | error cleaning up adapter", adapter_error)
 
             # Clear current adapters
             self._current_adapters = []
@@ -374,12 +376,13 @@ class BidiAgent:
         except Exception as cleanup_error:
             if exc_type is None:
                 # No original exception, re-raise cleanup error
-                logger.error("Error during context manager cleanup: %s", cleanup_error)
+                logger.error("cleanup_error=<%s> | error during context manager cleanup", cleanup_error)
                 raise
             else:
                 # Original exception exists, log cleanup error but don't suppress original
                 logger.error(
-                    "Error during context manager cleanup (suppressed due to original exception): %s", cleanup_error
+                    "cleanup_error=<%s> | error during context manager cleanup suppressed due to original exception",
+                    cleanup_error,
                 )
 
     @property
@@ -409,8 +412,9 @@ class BidiAgent:
                     event = await input_()
                     await self.send(event)
 
-                    # TODO: Need to make tool result send in Nova provider atomic. Audio input events end up interleaving
-                    # and leading to failures. Adding a sleep here as a temporary solution.
+                    # TODO: Need to make tool result send in Nova provider atomic.
+                    # Audio input events end up interleaving and leading to failures.
+                    # Adding a sleep here as a temporary solution.
                     await asyncio.sleep(0.001)
 
         async def run_outputs():

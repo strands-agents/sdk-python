@@ -5,7 +5,7 @@ import unittest.mock
 import pytest
 
 from strands.experimental.bidi.io import BidiAudioIO
-from strands.experimental.bidi.types.events import BidiAudioInputEvent, BidiAudioStreamEvent, BidiInterruptionEvent
+from strands.experimental.bidi.types.events import BidiAudioInputEvent, BidiAudioStreamEvent
 
 
 @pytest.fixture
@@ -35,7 +35,7 @@ async def test_bidi_audio_io_input(py_audio, audio_input):
     microphone.read.return_value = b"test-audio"
 
     py_audio.open.return_value = microphone
-    
+
     await audio_input.start()
     tru_event = await audio_input()
     await audio_input.stop()
@@ -55,17 +55,18 @@ async def test_bidi_audio_io_input(py_audio, audio_input):
 async def test_bidi_audio_io_output(py_audio, audio_output):
     write_future = asyncio.Future()
     write_event = asyncio.Event()
+
     def write(data):
         write_future.set_result(data)
         write_event.set()
-    
+
     speaker = unittest.mock.Mock()
     speaker.write.side_effect = write
 
     py_audio.open.return_value = speaker
-    
+
     await audio_output.start()
-    
+
     audio_event = BidiAudioStreamEvent(
         audio=base64.b64encode(b"test-audio").decode("utf-8"),
         channels=1,
@@ -76,5 +77,5 @@ async def test_bidi_audio_io_output(py_audio, audio_output):
     await write_event.wait()
 
     await audio_output.stop()
-    
+
     speaker.write.assert_called_once_with(write_future.result())
