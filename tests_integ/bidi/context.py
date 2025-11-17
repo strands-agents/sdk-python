@@ -147,7 +147,7 @@ class BidirectionalTestContext:
             chunk_event = self.audio_generator.create_audio_input_event(chunk)
             await self.input_queue.put({"type": "audio_chunk", "data": chunk_event})
 
-        logger.debug(f"Queued {len(audio_data)} bytes of audio for: {text[:50]}...")
+        logger.debug("audio_bytes=<%d>, text_preview=<%s> | queued audio for text", len(audio_data), text[:50])
 
     async def send(self, data: str | dict) -> None:
         """Send data directly to model (text, image, etc.).
@@ -158,7 +158,7 @@ class BidirectionalTestContext:
                 - dict: Custom event (e.g., image, audio)
         """
         await self.input_queue.put({"type": "direct", "data": data})
-        logger.debug(f"Queued direct send: {type(data).__name__}")
+        logger.debug("data_type=<%s> | queued direct send", type(data).__name__)
 
     async def wait_for_response(
         self,
@@ -189,14 +189,15 @@ class BidirectionalTestContext:
                 elapsed_since_event = time.monotonic() - self.last_event_time
                 if elapsed_since_event >= silence_threshold:
                     logger.debug(
-                        f"Response complete: {len(current_events) - initial_event_count} events, "
-                        f"{elapsed_since_event:.1f}s silence"
+                        "event_count=<%d>, silence_duration=<%.1f> | response complete",
+                        len(current_events) - initial_event_count,
+                        elapsed_since_event,
                     )
                     return
 
             await asyncio.sleep(WAIT_POLL_INTERVAL)
 
-        logger.warning(f"Response timeout after {timeout}s")
+        logger.warning("timeout=<%s> | response timeout", timeout)
 
     def get_events(self, event_type: str | None = None) -> list[dict]:
         """Get collected events, optionally filtered by type.
@@ -305,7 +306,7 @@ class BidirectionalTestContext:
         - Sends direct data to model
         """
         try:
-            logger.debug(f"Input thread starting, active={self.active}")
+            logger.debug("active=<%s> | input thread starting", self.active)
             while self.active:
                 try:
                     # Check for queued input (non-blocking with short timeout)
@@ -324,7 +325,7 @@ class BidirectionalTestContext:
                             if isinstance(input_item["data"], str)
                             else type(input_item["data"]).__name__
                         )
-                        logger.debug(f"Sent direct: {data_repr}")
+                        logger.debug("data=<%s> | sent direct data", data_repr)
 
                 except asyncio.TimeoutError:
                     # No input queued - send silence chunk to simulate continuous microphone input
@@ -337,9 +338,9 @@ class BidirectionalTestContext:
             logger.debug("Input thread cancelled")
             raise  # Re-raise to properly propagate cancellation
         except Exception as e:
-            logger.exception(f"Input thread error: {e}")
+            logger.exception("error=<%s> | input thread error", e)
         finally:
-            logger.debug(f"Input thread stopped, active={self.active}")
+            logger.debug("active=<%s> | input thread stopped", self.active)
 
     async def _event_collection_thread(self):
         """Continuously collect events from model."""
@@ -350,13 +351,13 @@ class BidirectionalTestContext:
 
                 # Thread-safe: put in queue instead of direct append
                 await self._event_queue.put(event)
-                logger.debug(f"Event collected: {list(event.keys())}")
+                logger.debug("event_type=<%s> | event collected", event.get("type", "unknown"))
 
         except asyncio.CancelledError:
             logger.debug("Event collection thread cancelled")
             raise  # Re-raise to properly propagate cancellation
         except Exception as e:
-            logger.error(f"Event collection thread error: {e}")
+            logger.error("error=<%s> | event collection thread error", e)
 
     def _generate_silence_chunk(self) -> dict:
         """Generate silence chunk for background audio.

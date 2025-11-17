@@ -52,7 +52,7 @@ class _BidiAgentLoop:
         if self.active:
             return
 
-        logger.debug("starting agent loop")
+        logger.debug("agent loop starting")
 
         self._event_queue = asyncio.Queue(maxsize=1)
         self._stop_event = object()
@@ -73,7 +73,7 @@ class _BidiAgentLoop:
         if not self.active:
             return
 
-        logger.debug("stopping agent loop")
+        logger.debug("agent loop stopping")
 
         for task in self._tasks:
             task.cancel()
@@ -120,7 +120,7 @@ class _BidiAgentLoop:
 
         Events are streamed through the event queue.
         """
-        logger.debug("running model")
+        logger.debug("model task starting")
 
         async for event in self._agent.model.receive():
             await self._event_queue.put(event)
@@ -139,7 +139,7 @@ class _BidiAgentLoop:
 
     async def _run_tool(self, tool_use: ToolUse) -> None:
         """Task for running tool requested by the model."""
-        logger.debug("running tool")
+        logger.debug("tool_name=<%s> | tool execution starting", tool_use["name"])
 
         result: ToolResult = None
 

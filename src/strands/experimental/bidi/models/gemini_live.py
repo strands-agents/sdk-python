@@ -142,7 +142,7 @@ class BidiGeminiLiveModel(BidiModel):
 
         except Exception as e:
             self._active = False
-            logger.error("Error connecting to Gemini Live: %s", e)
+            logger.error("error=<%s> | error connecting to gemini live", e)
             raise
 
     async def _send_message_history(self, messages: Messages) -> None:
@@ -188,15 +188,15 @@ class BidiGeminiLiveModel(BidiModel):
 
                     # SDK exits receive loop after turn_complete - restart automatically
                     if self._active:
-                        logger.debug("Restarting receive loop after turn completion")
+                        logger.debug("gemini receive loop restarting after turn completion")
 
                 except Exception as e:
-                    logger.error("Error in receive iteration: %s", e)
+                    logger.error("error=<%s> | error in gemini receive iteration", e)
                     # Small delay before retrying to avoid tight error loops
                     await asyncio.sleep(0.1)
 
         except Exception as e:
-            logger.error("Fatal error in receive loop: %s", e)
+            logger.error("error=<%s> | fatal error in gemini receive loop", e)
             yield BidiErrorEvent(error=e)
         finally:
             # Emit connection close event when exiting
@@ -226,7 +226,7 @@ class BidiGeminiLiveModel(BidiModel):
                 if hasattr(input_transcript, "text") and input_transcript.text:
                     transcription_text = input_transcript.text
                     role = getattr(input_transcript, "role", "user")
-                    logger.debug(f"Input transcription detected: {transcription_text}")
+                    logger.debug("text_length=<%d> | gemini input transcription detected", len(transcription_text))
                     return [
                         BidiTranscriptStreamEvent(
                             delta={"text": transcription_text},
@@ -244,7 +244,7 @@ class BidiGeminiLiveModel(BidiModel):
                 if hasattr(output_transcript, "text") and output_transcript.text:
                     transcription_text = output_transcript.text
                     role = getattr(output_transcript, "role", "assistant")
-                    logger.debug(f"Output transcription detected: {transcription_text}")
+                    logger.debug("text_length=<%d> | gemini output transcription detected", len(transcription_text))
                     return [
                         BidiTranscriptStreamEvent(
                             delta={"text": transcription_text},
@@ -353,9 +353,11 @@ class BidiGeminiLiveModel(BidiModel):
             return []
 
         except Exception as e:
-            logger.error("Error converting Gemini Live event: %s", e)
-            logger.error("Message type: %s", type(message).__name__)
-            logger.error("Message attributes: %s", [attr for attr in dir(message) if not attr.startswith("_")])
+            logger.error(
+                "error=<%s>, message_type=<%s> | error converting gemini live event",
+                e,
+                type(message).__name__,
+            )
             # Return ErrorEvent in list so caller can handle it
             return [BidiErrorEvent(error=e)]
 
@@ -385,9 +387,9 @@ class BidiGeminiLiveModel(BidiModel):
                 if tool_result:
                     await self._send_tool_result(tool_result)
             else:
-                logger.warning(f"Unknown content type: {type(content)}")
+                logger.warning("content_type=<%s> | unknown content type", type(content).__name__)
         except Exception as e:
-            logger.error(f"Error sending content: {e}")
+            logger.error("error=<%s> | error sending content to gemini live", e)
             raise  # Propagate exception for debugging in experimental code
 
     async def _send_audio_content(self, audio_input: BidiAudioInputEvent) -> None:
@@ -407,7 +409,7 @@ class BidiGeminiLiveModel(BidiModel):
             await self.live_session.send_realtime_input(audio=audio_blob)
 
         except Exception as e:
-            logger.error("Error sending audio content: %s", e)
+            logger.error("error=<%s> | error sending audio content to gemini live", e)
 
     async def _send_image_content(self, image_input: BidiImageInputEvent) -> None:
         """Internal: Send image content using Gemini Live API.
@@ -423,7 +425,7 @@ class BidiGeminiLiveModel(BidiModel):
             await self.live_session.send(input=msg)
 
         except Exception as e:
-            logger.error("Error sending image content: %s", e)
+            logger.error("error=<%s> | error sending image content to gemini live", e)
 
     async def _send_text_content(self, text: str) -> None:
         """Internal: Send text content using Gemini Live API."""
@@ -435,7 +437,7 @@ class BidiGeminiLiveModel(BidiModel):
             await self.live_session.send_client_content(turns=content)
 
         except Exception as e:
-            logger.error("Error sending text content: %s", e)
+            logger.error("error=<%s> | error sending text content to gemini live", e)
 
     async def _send_tool_result(self, tool_result: ToolResult) -> None:
         """Internal: Send tool result using Gemini Live API."""
@@ -461,7 +463,7 @@ class BidiGeminiLiveModel(BidiModel):
             # Send tool response
             await self.live_session.send_tool_response(function_responses=[func_response])
         except Exception as e:
-            logger.error("Error sending tool result: %s", e)
+            logger.error("error=<%s> | error sending tool result to gemini live", e)
 
     async def stop(self) -> None:
         """Close Gemini Live API connection."""
@@ -475,7 +477,7 @@ class BidiGeminiLiveModel(BidiModel):
             if self.live_session_context_manager:
                 await self.live_session_context_manager.__aexit__(None, None, None)
         except Exception as e:
-            logger.error("Error closing Gemini Live connection: %s", e)
+            logger.error("error=<%s> | error closing gemini live connection", e)
             raise
 
     def _build_live_config(

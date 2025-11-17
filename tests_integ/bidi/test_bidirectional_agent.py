@@ -169,7 +169,7 @@ async def test_bidirectional_agent(agent_with_calculator, audio_generator, provi
     provider_name = provider_config["name"]
     silence_duration = provider_config["silence_duration"]
 
-    logger.info(f"Testing provider: {provider_name}")
+    logger.info("provider=<%s> | testing provider", provider_name)
 
     async with BidirectionalTestContext(agent_with_calculator, audio_generator) as ctx:
         # Turn 1: Simple greeting to test basic audio I/O
@@ -183,8 +183,8 @@ async def test_bidirectional_agent(agent_with_calculator, audio_generator, provi
         # Validate turn 1 - just check we got a response
         assert len(text_outputs_turn1) > 0, f"[{provider_name}] No text output received in turn 1"
 
-        logger.info(f"[{provider_name}] ✓ Turn 1 complete: received response")
-        logger.info(f"[{provider_name}]   Response: {text_outputs_turn1[0][:100]}...")
+        logger.info("provider=<%s> | turn 1 complete received response", provider_name)
+        logger.info("provider=<%s>, response=<%s> | turn 1 response", provider_name, text_outputs_turn1[0][:100])
 
         # Turn 2: Follow-up to test multi-turn conversation
         await ctx.say("What's your name?")
@@ -197,8 +197,8 @@ async def test_bidirectional_agent(agent_with_calculator, audio_generator, provi
         # Validate turn 2 - check we got more responses
         assert len(text_outputs_turn2) > len(text_outputs_turn1), f"[{provider_name}] No new text output in turn 2"
 
-        logger.info(f"[{provider_name}] ✓ Turn 2 complete: multi-turn conversation works")
-        logger.info(f"[{provider_name}]   Total responses: {len(text_outputs_turn2)}")
+        logger.info("provider=<%s> | turn 2 complete multi-turn conversation works", provider_name)
+        logger.info("provider=<%s>, response_count=<%d> | total responses", provider_name, len(text_outputs_turn2))
 
         # Validate full conversation
         # Validate audio outputs
@@ -208,9 +208,13 @@ async def test_bidirectional_agent(agent_with_calculator, audio_generator, provi
 
         # Summary
         logger.info("=" * 60)
-        logger.info(f"[{provider_name}] ✓ Multi-turn conversation test PASSED")
-        logger.info(f"  Provider: {provider_name}")
-        logger.info(f"  Total events: {len(ctx.get_events())}")
-        logger.info(f"  Text responses: {len(text_outputs_turn2)}")
-        logger.info(f"  Audio chunks: {len(audio_outputs)} ({total_audio_bytes:,} bytes)")
+        logger.info("provider=<%s> | multi-turn conversation test passed", provider_name)
+        logger.info("provider=<%s> | test summary", provider_name)
+        logger.info("event_count=<%d> | total events", len(ctx.get_events()))
+        logger.info("text_response_count=<%d> | text responses", len(text_outputs_turn2))
+        logger.info(
+            "audio_chunk_count=<%d>, audio_bytes=<%d> | audio chunks",
+            len(audio_outputs),
+            total_audio_bytes,
+        )
         logger.info("=" * 60)

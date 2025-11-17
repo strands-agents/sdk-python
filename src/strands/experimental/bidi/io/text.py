@@ -14,11 +14,22 @@ class _BidiTextOutput(BidiOutput):
     async def __call__(self, event: BidiOutputEvent) -> None:
         """Print text events to stdout."""
         if isinstance(event, BidiInterruptionEvent):
+            logger.debug("reason=<%s> | text output interrupted", event["reason"])
             print("interrupted")
 
         elif isinstance(event, BidiTranscriptStreamEvent):
             text = event["text"]
-            if not event["is_final"]:
+            is_final = event["is_final"]
+            role = event["role"]
+
+            logger.debug(
+                "role=<%s>, is_final=<%s>, text_length=<%d> | text transcript received",
+                role,
+                is_final,
+                len(text),
+            )
+
+            if not is_final:
                 text = f"Preview: {text}"
 
             print(text)
