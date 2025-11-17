@@ -13,17 +13,14 @@ Features:
 """
 
 import logging
-from typing import AsyncIterable, Protocol, Union
+from typing import AsyncIterable, Protocol
 
 from ....types._events import ToolResultEvent
 from ....types.content import Messages
 from ....types.tools import ToolSpec
 from ..types.events import (
-    BidiAudioInputEvent,
-    BidiImageInputEvent,
     BidiInputEvent,
     BidiOutputEvent,
-    BidiTextInputEvent,
 )
 
 logger = logging.getLogger(__name__)

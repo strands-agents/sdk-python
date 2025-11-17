@@ -6,16 +6,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
-from strands.experimental.bidi.agent.agent import BidiAgent
-from strands.experimental.bidi.models.novasonic import BidiNovaSonicModel
-from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
 from strands_tools import calculator
+
+from strands.experimental.bidi.agent.agent import BidiAgent
+from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
+from strands.experimental.bidi.models.novasonic import BidiNovaSonicModel
 
 
 async def main():
     """Test the BidirectionalAgent API."""
-
-    
     # Nova Sonic model
     audio_io = BidiAudioIO()
     text_io = BidiTextIO()
@@ -35,4 +34,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"❌ Error: {e}")
         import traceback
+
         traceback.print_exc()

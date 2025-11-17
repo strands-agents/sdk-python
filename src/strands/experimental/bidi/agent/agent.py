@@ -24,15 +24,14 @@ from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
 from ....tools.watcher import ToolWatcher
 from ....types.content import Message, Messages
-from ....types.tools import ToolResult, ToolUse, AgentTool
-
-from .loop import _BidiAgentLoop
+from ....types.tools import AgentTool, ToolResult, ToolUse
+from ...tools import ToolProvider
 from ..models.bidi_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
-from ..types.events import BidiAudioInputEvent, BidiImageInputEvent, BidiTextInputEvent, BidiInputEvent, BidiOutputEvent
+from ..types.events import BidiAudioInputEvent, BidiImageInputEvent, BidiInputEvent, BidiOutputEvent, BidiTextInputEvent
 from ..types.io import BidiInput, BidiOutput
-from ...tools import ToolProvider
+from .loop import _BidiAgentLoop
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +48,8 @@ class BidiAgent:
 
     def __init__(
         self,
-        model: BidiModel| str | None = None,
-        tools: list[str| AgentTool| ToolProvider]| None = None,
+        model: BidiModel | str | None = None,
+        tools: list[str | AgentTool | ToolProvider] | None = None,
         system_prompt: str | None = None,
         messages: Messages | None = None,
         record_direct_tool_call: bool = True,
@@ -244,21 +243,21 @@ class BidiAgent:
 
     async def send(self, input_data: BidiAgentInput) -> None:
         """Send input to the model (text, audio, image, or event dict).
-        
+
         Unified method for sending text, audio, and image input to the model during
         an active conversation session. Accepts TypedEvent instances or plain dicts
         (e.g., from WebSocket clients) which are automatically reconstructed.
-        
+
         Args:
             input_data: Can be:
                 - str: Text message from user
                 - BidiAudioInputEvent: Audio data with format/sample rate
                 - BidiImageInputEvent: Image data with MIME type
                 - dict: Event dictionary (will be reconstructed to TypedEvent)
-            
+
         Raises:
             ValueError: If no active session or invalid input type.
-            
+
         Example:
             await agent.send("Hello")
             await agent.send(BidiAudioInputEvent(audio="base64...", format="pcm", ...))
@@ -278,13 +277,13 @@ class BidiAgent:
             text_event = BidiTextInputEvent(text=input_data, role="user")
             await self.model.send(text_event)
             return
-        
+
         # Handle BidiInputEvent instances
         # Check this before dict since TypedEvent inherits from dict
         if isinstance(input_data, BidiInputEvent):
             await self.model.send(input_data)
             return
-        
+
         # Handle plain dict - reconstruct TypedEvent for WebSocket integration
         if isinstance(input_data, dict) and "type" in input_data:
             event_type = input_data["type"]
@@ -295,20 +294,17 @@ class BidiAgent:
                     audio=input_data["audio"],
                     format=input_data["format"],
                     sample_rate=input_data["sample_rate"],
-                    channels=input_data["channels"]
+                    channels=input_data["channels"],
                 )
             elif event_type == "bidi_image_input":
-                input_event = BidiImageInputEvent(
-                    image=input_data["image"],
-                    mime_type=input_data["mime_type"]
-                )
+                input_event = BidiImageInputEvent(image=input_data["image"], mime_type=input_data["mime_type"])
             else:
                 raise ValueError(f"Unknown event type: {event_type}")
-            
+
             # Send the reconstructed TypedEvent
             await self.model.send(input_event)
             return
-        
+
         # If we get here, input type is invalid
         raise ValueError(
             f"Input must be a string, BidiInputEvent (BidiTextInputEvent/BidiAudioInputEvent/BidiImageInputEvent), or event dict with 'type' field, got: {type(input_data)}"
@@ -359,7 +355,7 @@ class BidiAgent:
         """
         try:
             logger.debug("Exiting async context manager - cleaning up adapters and connection")
-            
+
             # Cleanup adapters if any are currently active
             for adapter in self._current_adapters:
                 if hasattr(adapter, "cleanup"):
@@ -368,10 +364,10 @@ class BidiAgent:
                         logger.debug(f"Cleaned up adapter: {type(adapter).__name__}")
                     except Exception as adapter_error:
                         logger.warning(f"Error cleaning up adapter: {adapter_error}")
-            
+
             # Clear current adapters
             self._current_adapters = []
-            
+
             # Cleanup agent connection
             await self.stop()
 
@@ -397,7 +393,7 @@ class BidiAgent:
         Args:
             inputs: Input callables to read data from a source
             outputs: Output callables to receive events from the agent
-                
+
         Example:
             ```python
             audio_io = BidiAudioIO(audio_config={"input_sample_rate": 16000})
@@ -406,6 +402,7 @@ class BidiAgent:
             await agent.run(inputs=[audio_io.input()], outputs=[audio_io.output(), text_io.output()])
             ```
         """
+
         async def run_inputs():
             while self.active:
                 for input_ in inputs:

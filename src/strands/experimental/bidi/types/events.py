@@ -19,7 +19,7 @@ Audio format normalization:
 - Audio data stored as base64-encoded strings for JSON compatibility
 """
 
-from typing import Any, Dict, List, Literal, Optional, Union, cast
+from typing import Any, Dict, List, Literal, Optional, cast
 
 from ....types._events import ModelStreamEvent, TypedEvent
 from ....types.streaming import ContentBlockDelta
@@ -236,7 +236,7 @@ class BidiAudioStreamEvent(TypedEvent):
 
 class BidiTranscriptStreamEvent(ModelStreamEvent):
     """Audio transcription streaming (user or assistant speech).
-    
+
     Supports incremental transcript updates for providers that send partial
     transcripts before the final version.
 
@@ -478,7 +478,7 @@ class BidiErrorEvent(TypedEvent):
     @property
     def error(self) -> Exception:
         """The original exception that occurred.
-        
+
         Can be used for re-raising or type-based error handling.
         """
         return self._error
