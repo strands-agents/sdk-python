@@ -118,10 +118,6 @@ class BidiNovaSonicModel(BidiModel):
         # Audio connection state
         self.audio_connection_active = False
 
-        # Background task and event queue
-        self._response_task = None
-        self._event_queue = None
-        
         # Track API-provided identifiers
         self._current_completion_id = None
         self._current_role = None
@@ -158,7 +154,6 @@ class BidiNovaSonicModel(BidiModel):
             self.connection_id = str(uuid.uuid4())
             self._active = True
             self.audio_content_name = str(uuid.uuid4())
-            self._event_queue = asyncio.Queue()
 
             # Start Nova Sonic bidirectional stream
             self.stream = await self.client.invoke_model_with_bidirectional_stream(
@@ -178,9 +173,6 @@ class BidiNovaSonicModel(BidiModel):
 
             logger.debug("Nova Sonic initialization - sending %d events", len(init_events))
             await self._send_initialization_events(init_events)
-
-            # Start background response processor
-            self._response_task = asyncio.create_task(self._process_responses())
 
             logger.info("Nova Sonic connection established successfully")
 
@@ -207,48 +199,6 @@ class BidiNovaSonicModel(BidiModel):
         for _i, event in enumerate(events):
             await self._send_nova_event(event)
             await asyncio.sleep(EVENT_DELAY)
-
-    async def _process_responses(self) -> None:
-        """Process Nova Sonic responses continuously."""
-        logger.debug("Nova Sonic response processor started")
-
-        try:
-            while self._active:
-                try:
-                    output = await asyncio.wait_for(self.stream.await_output(), timeout=RESPONSE_TIMEOUT)
-                    result = await output[1].receive()
-
-                    if result.value and result.value.bytes_:
-                        await self._handle_response_data(result.value.bytes_.decode("utf-8"))
-
-                except asyncio.TimeoutError:
-                    await asyncio.sleep(0.1)
-                    continue
-                except Exception as e:
-                    logger.warning("Nova Sonic response error: %s", e)
-                    await asyncio.sleep(0.1)
-                    continue
-
-        except Exception as e:
-            logger.error("Nova Sonic fatal error: %s", e)
-        finally:
-            logger.debug("Nova Sonic response processor stopped")
-
-    async def _handle_response_data(self, response_data: str) -> None:
-        """Handle decoded response data from Nova Sonic."""
-        try:
-            json_data = json.loads(response_data)
-
-            if "event" in json_data:
-                nova_event = json_data["event"]
-                self._log_event_type(nova_event)
-
-                if not hasattr(self, "_event_queue"):
-                    self._event_queue = asyncio.Queue()
-
-                await self._event_queue.put(nova_event)
-        except json.JSONDecodeError as e:
-            logger.warning("Nova Sonic JSON decode error: %s", e)
 
     def _log_event_type(self, nova_event: dict[str, any]) -> None:
         """Log specific Nova Sonic event types for debugging."""
@@ -281,8 +231,13 @@ class BidiNovaSonicModel(BidiModel):
         try:
             while self._active:
                 try:
-                    # Get events from the queue populated by _process_responses
-                    nova_event = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)
+                    output = await asyncio.wait_for(self.stream.await_output(), timeout=RESPONSE_TIMEOUT)
+                    result = await output[1].receive()
+
+                    response_data = result.value.bytes_.decode("utf-8")
+                    json_data = json.loads(response_data)
+                    nova_event = json_data["event"]
+                    self._log_event_type(nova_event)
 
                     # Convert to provider-agnostic format
                     provider_event = self._convert_nova_event(nova_event)
@@ -290,7 +245,6 @@ class BidiNovaSonicModel(BidiModel):
                         yield provider_event
 
                 except asyncio.TimeoutError:
-                    # No events in queue - continue waiting
                     continue
 
         except Exception as e:
@@ -454,14 +408,6 @@ class BidiNovaSonicModel(BidiModel):
 
         logger.debug("Nova cleanup - starting connection close")
         self._active = False
-
-        # Cancel response processing task if running
-        if hasattr(self, "_response_task") and not self._response_task.done():
-            self._response_task.cancel()
-            try:
-                await self._response_task
-            except asyncio.CancelledError:
-                pass
 
         try:
             # End audio connection if active
