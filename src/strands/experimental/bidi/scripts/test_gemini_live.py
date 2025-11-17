@@ -165,7 +165,6 @@ async def receive(agent, context):
             elif event_type == "bidi_transcript_stream":
                 transcript_text = event.get("text", "")
                 transcript_role = event.get("role", "unknown")
-                is_final = event.get("is_final", False)
 
                 # Print transcripts with special formatting
                 if transcript_role == "user":

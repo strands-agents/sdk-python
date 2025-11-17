@@ -28,5 +28,5 @@ class BidiTextIO:
     """Handle text input and output from bidi agent."""
 
     def output(self) -> _BidiTextOutput:
-        """Return text processing BidiOutput"""
+        """Return text processing BidiOutput."""
         return _BidiTextOutput()

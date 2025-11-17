@@ -337,7 +337,7 @@ class BidirectionalTestContext:
             logger.debug("Input thread cancelled")
             raise  # Re-raise to properly propagate cancellation
         except Exception as e:
-            logger.error(f"Input thread error: {e}", exc_info=True)
+            logger.exception(f"Input thread error: {e}")
         finally:
             logger.debug(f"Input thread stopped, active={self.active}")
 

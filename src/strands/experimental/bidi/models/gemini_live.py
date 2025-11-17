@@ -273,9 +273,6 @@ class BidiGeminiLiveModel(BidiModel):
                     # Concatenate all text parts (Gemini may send multiple parts)
                     text_parts = []
                     for part in model_turn.parts:
-                        # Log all part types for debugging
-                        part_attrs = {attr: getattr(part, attr, None) for attr in dir(part) if not attr.startswith("_")}
-
                         # Check if part has text attribute and it's not empty
                         if hasattr(part, "text") and part.text:
                             text_parts.append(part.text)
@@ -366,7 +363,7 @@ class BidiGeminiLiveModel(BidiModel):
         self,
         content: BidiInputEvent | ToolResultEvent,
     ) -> None:
-        """Unified send method for all content types. Sends the given inputs to Google Live API
+        """Unified send method for all content types. Sends the given inputs to Google Live API.
 
         Dispatches to appropriate internal handler based on content type.
 

@@ -179,7 +179,6 @@ async def test_bidirectional_agent(agent_with_calculator, audio_generator, provi
         await ctx.wait_for_response()
 
         text_outputs_turn1 = ctx.get_text_outputs()
-        all_text_turn1 = " ".join(text_outputs_turn1).lower()
 
         # Validate turn 1 - just check we got a response
         assert len(text_outputs_turn1) > 0, f"[{provider_name}] No text output received in turn 1"

@@ -191,9 +191,9 @@ class BidiAudioIO:
         self._config = config
 
     def input(self) -> _BidiAudioInput:
-        """Return audio processing BidiInput"""
+        """Return audio processing BidiInput."""
         return _BidiAudioInput(self._config)
 
     def output(self) -> _BidiAudioOutput:
-        """Return audio processing BidiOutput"""
+        """Return audio processing BidiOutput."""
         return _BidiAudioOutput(self._config)
