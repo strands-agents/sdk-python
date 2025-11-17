@@ -412,15 +412,12 @@ class BidiAgent:
                     event = await input_()
                     await self.send(event)
 
-                    # TODO: Need to make tool result send in Nova provider atomic.
-                    # Audio input events end up interleaving and leading to failures.
-                    # Adding a sleep here as a temporary solution.
-                    await asyncio.sleep(0.001)
-
         async def run_outputs():
             async for event in self.receive():
                 for output in outputs:
                     await output(event)
+
+        await self.start()
 
         for input_ in inputs:
             if hasattr(input_, "start"):
@@ -430,14 +427,10 @@ class BidiAgent:
             if hasattr(output, "start"):
                 await output.start()
 
-        # Start agent after all IO is ready
-        await self.start()
         try:
             await asyncio.gather(run_inputs(), run_outputs(), return_exceptions=True)
 
         finally:
-            await self.stop()
-
             for input_ in inputs:
                 if hasattr(input_, "stop"):
                     await input_.stop()
@@ -445,6 +438,8 @@ class BidiAgent:
             for output in outputs:
                 if hasattr(output, "stop"):
                     await output.stop()
+
+            await self.stop()
 
     def _validate_active_connection(self) -> None:
         """Validate that an active connection exists.
