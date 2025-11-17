@@ -519,7 +519,7 @@ class BidiNovaSonicModel(BidiModel):
             return BidiAudioStreamEvent(
                 audio=audio_content,
                 format="pcm",
-                sample_rate=24000,
+                sample_rate=NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"],
                 channels=1
             )
 

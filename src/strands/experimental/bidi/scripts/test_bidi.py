@@ -17,7 +17,7 @@ async def main():
 
     
     # Nova Sonic model
-    audio_io = BidiAudioIO(audio_config={})
+    audio_io = BidiAudioIO()
     text_io = BidiTextIO()
     model = BidiNovaSonicModel(region="us-east-1")
 
