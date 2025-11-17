@@ -12,15 +12,15 @@ from typing import Any
 
 import pyaudio
 
-from ..types.io import BidiInput, BidiOutput
 from ..types.events import BidiAudioInputEvent, BidiAudioStreamEvent, BidiInterruptionEvent, BidiOutputEvent
+from ..types.io import BidiInput, BidiOutput
 
 logger = logging.getLogger(__name__)
 
 
 class _BidiAudioInput(BidiInput):
     """Handle audio input from user.
-    
+
     Attributes:
         _audio: PyAudio instance for audio system access.
         _stream: Audio input stream.
@@ -43,7 +43,7 @@ class _BidiAudioInput(BidiInput):
         self._format = config.get("input_format", _BidiAudioInput._FORMAT)
         self._frames_per_buffer = config.get("input_frames_per_buffer", _BidiAudioInput._FRAMES_PER_BUFFER)
         self._rate = config.get("input_rate", _BidiAudioInput._RATE)
-        
+
     async def start(self) -> None:
         """Start input stream."""
         self._audio = pyaudio.PyAudio()
@@ -70,9 +70,7 @@ class _BidiAudioInput(BidiInput):
 
     async def __call__(self) -> BidiAudioInputEvent:
         """Read audio from input stream."""
-        audio_bytes = await asyncio.to_thread(
-            self._stream.read, self._frames_per_buffer, exception_on_overflow=False
-        )
+        audio_bytes = await asyncio.to_thread(self._stream.read, self._frames_per_buffer, exception_on_overflow=False)
 
         return BidiAudioInputEvent(
             audio=base64.b64encode(audio_bytes).decode("utf-8"),
@@ -84,7 +82,7 @@ class _BidiAudioInput(BidiInput):
 
 class _BidiAudioOutput(BidiOutput):
     """Handle audio output from bidi agent.
-    
+
     Attributes:
         _audio: PyAudio instance for audio system access.
         _stream: Audio output stream.
@@ -161,7 +159,7 @@ class _BidiAudioOutput(BidiOutput):
         while True:
             await self._buffer_event.wait()
             self._buffer_event.clear()
-            
+
             while self._buffer:
                 audio_bytes = self._buffer.popleft()
                 if not audio_bytes:

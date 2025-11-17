@@ -28,9 +28,9 @@ from aws_sdk_bedrock_runtime.models import (
 )
 from smithy_aws_core.identity.environment import EnvironmentCredentialsResolver
 
+from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
-from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ..types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
@@ -40,12 +40,12 @@ from ..types.events import (
     BidiImageInputEvent,
     BidiInputEvent,
     BidiInterruptionEvent,
-    BidiUsageEvent,
     BidiOutputEvent,
-    BidiTextInputEvent,
-    BidiTranscriptStreamEvent,
     BidiResponseCompleteEvent,
     BidiResponseStartEvent,
+    BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
+    BidiUsageEvent,
 )
 from .bidi_model import BidiModel
 
@@ -89,12 +89,7 @@ class BidiNovaSonicModel(BidiModel):
     tool execution patterns while providing the standard BidiModel interface.
     """
 
-    def __init__(
-        self,
-        model_id: str = "amazon.nova-sonic-v1:0",
-        region: str = "us-east-1",
-        **kwargs
-    ) -> None:
+    def __init__(self, model_id: str = "amazon.nova-sonic-v1:0", region: str = "us-east-1", **kwargs) -> None:
         """Initialize Nova Sonic bidirectional model.
 
         Args:
@@ -223,10 +218,7 @@ class BidiNovaSonicModel(BidiModel):
         logger.debug("Nova events - starting event stream")
 
         # Emit connection start event
-        yield BidiConnectionStartEvent(
-            connection_id=self.connection_id,
-            model=self.model_id
-        )
+        yield BidiConnectionStartEvent(connection_id=self.connection_id, model=self.model_id)
 
         try:
             while self._active:
@@ -442,31 +434,28 @@ class BidiNovaSonicModel(BidiModel):
             self._current_completion_id = completion_data.get("completionId")
             logger.debug("Nova completion started: %s", self._current_completion_id)
             return None
-        
+
         # Handle completion end
         if "completionEnd" in nova_event:
             completion_data = nova_event["completionEnd"]
             completion_id = completion_data.get("completionId", self._current_completion_id)
             stop_reason = completion_data.get("stopReason", "END_TURN")
-            
+
             event = BidiResponseCompleteEvent(
                 response_id=completion_id or str(uuid.uuid4()),  # Fallback to UUID if missing
-                stop_reason="interrupted" if stop_reason == "INTERRUPTED" else "complete"
+                stop_reason="interrupted" if stop_reason == "INTERRUPTED" else "complete",
             )
-            
+
             # Clear completion tracking
             self._current_completion_id = None
             return event
-        
+
         # Handle audio output
         if "audioOutput" in nova_event:
             # Audio is already base64 string from Nova Sonic
             audio_content = nova_event["audioOutput"]["content"]
             return BidiAudioStreamEvent(
-                audio=audio_content,
-                format="pcm",
-                sample_rate=NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"],
-                channels=1
+                audio=audio_content, format="pcm", sample_rate=NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"], channels=1
             )
 
         # Handle text output (transcripts)
@@ -482,7 +471,7 @@ class BidiNovaSonicModel(BidiModel):
                 text=text_content,
                 role=self._current_role.lower() if self._current_role else "assistant",
                 is_final=self._generation_stage == "FINAL",
-                current_transcript=text_content
+                current_transcript=text_content,
             )
 
         # Handle tool use
@@ -494,10 +483,7 @@ class BidiNovaSonicModel(BidiModel):
                 "input": json.loads(tool_use["content"]),
             }
             # Return ToolUseStreamEvent for consistency with standard agent
-            return ToolUseStreamEvent(
-                delta={"toolUse": tool_use_event},
-                current_tool_use=tool_use_event
-            )
+            return ToolUseStreamEvent(delta={"toolUse": tool_use_event}, current_tool_use=tool_use_event)
 
         # Handle interruption
         if nova_event.get("stopReason") == "INTERRUPTED":
@@ -509,11 +495,11 @@ class BidiNovaSonicModel(BidiModel):
             usage_data = nova_event["usageEvent"]
             total_input = usage_data.get("totalInputTokens", 0)
             total_output = usage_data.get("totalOutputTokens", 0)
-            
+
             return BidiUsageEvent(
                 input_tokens=total_input,
                 output_tokens=total_output,
-                total_tokens=usage_data.get("totalTokens", total_input + total_output)
+                total_tokens=usage_data.get("totalTokens", total_input + total_output),
             )
 
         # Handle content start events (track role and emit response start)
@@ -522,10 +508,10 @@ class BidiNovaSonicModel(BidiModel):
             role = content_data.get("role", "unknown")
             # Store role for subsequent text output events
             self._current_role = role
-            
+
             if content_data["type"] == "TEXT":
                 self._generation_stage = json.loads(content_data["additionalModelFields"])["generationStage"]
-            
+
             # Emit response start event using API-provided completionId
             # completionId should already be tracked from completionStart event
             return BidiResponseStartEvent(

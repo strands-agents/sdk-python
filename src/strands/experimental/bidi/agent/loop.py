@@ -5,12 +5,12 @@ The agent loop handles the events received from the model and executes tools whe
 
 import asyncio
 import logging
-from typing import AsyncIterable, Awaitable, TYPE_CHECKING
+from typing import TYPE_CHECKING, AsyncIterable, Awaitable
 
-from ..types.events import BidiOutputEvent, BidiTranscriptStreamEvent
 from ....types._events import ToolResultEvent, ToolResultMessageEvent, ToolStreamEvent, ToolUseStreamEvent
 from ....types.content import Message
 from ....types.tools import ToolResult, ToolUse
+from ..types.events import BidiOutputEvent, BidiTranscriptStreamEvent
 
 if TYPE_CHECKING:
     from .agent import BidiAgent
@@ -46,7 +46,7 @@ class _BidiAgentLoop:
 
     async def start(self) -> None:
         """Start the agent loop.
-        
+
         The agent model is started as part of this call.
         """
         if self.active:
@@ -159,11 +159,7 @@ class _BidiAgentLoop:
                     await self._event_queue.put(ToolStreamEvent(tool_use, event))
 
         except Exception as e:
-            result = {
-                "toolUseId": tool_use["toolUseId"],
-                "status": "error",
-                "content": [{"text": f"Error: {str(e)}"}]
-            }
+            result = {"toolUseId": tool_use["toolUseId"], "status": "error", "content": [{"text": f"Error: {str(e)}"}]}
 
         await self._agent.model.send(ToolResultEvent(result))
 

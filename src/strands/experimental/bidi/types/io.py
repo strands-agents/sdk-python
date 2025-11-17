@@ -27,11 +27,12 @@ class BidiInput(Protocol):
 
     def __call__(self) -> Awaitable[BidiInputEvent]:
         """Read input data from the source.
-        
+
         Returns:
             Awaitable that resolves to an input event (audio, text, image, etc.)
         """
         ...
+
 
 class BidiOutput(Protocol):
     """Protocol for bidirectional output callables.
@@ -50,7 +51,7 @@ class BidiOutput(Protocol):
 
     def __call__(self, event: BidiOutputEvent) -> Awaitable[None]:
         """Process output events from the agent.
-        
+
         Args:
             event: Output event from the agent (audio, text, tool calls, etc.)
         """
