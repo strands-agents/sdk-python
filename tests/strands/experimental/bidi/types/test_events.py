@@ -115,7 +115,6 @@ def test_event_json_serialization(event_class, kwargs, expected_type):
             assert key in data
 
 
-
 def test_transcript_stream_event_delta_pattern():
     """Test that BidiTranscriptStreamEvent follows ModelStreamEvent delta pattern."""
     # Test partial transcript (delta)
@@ -126,13 +125,13 @@ def test_transcript_stream_event_delta_pattern():
         is_final=False,
         current_transcript=None,
     )
-    
+
     assert partial_event.text == "Hello"
     assert partial_event.role == "user"
     assert partial_event.is_final is False
     assert partial_event.current_transcript is None
     assert partial_event.delta == {"text": "Hello"}
-    
+
     # Test final transcript with accumulated text
     final_event = BidiTranscriptStreamEvent(
         delta={"text": " world"},
@@ -141,7 +140,7 @@ def test_transcript_stream_event_delta_pattern():
         is_final=True,
         current_transcript="Hello world",
     )
-    
+
     assert final_event.text == " world"
     assert final_event.role == "user"
     assert final_event.is_final is True
@@ -152,7 +151,7 @@ def test_transcript_stream_event_delta_pattern():
 def test_transcript_stream_event_extends_model_stream_event():
     """Test that BidiTranscriptStreamEvent is a ModelStreamEvent."""
     from strands.types._events import ModelStreamEvent
-    
+
     event = BidiTranscriptStreamEvent(
         delta={"text": "test"},
         text="test",
@@ -160,5 +159,5 @@ def test_transcript_stream_event_extends_model_stream_event():
         is_final=True,
         current_transcript="test",
     )
-    
+
     assert isinstance(event, ModelStreamEvent)

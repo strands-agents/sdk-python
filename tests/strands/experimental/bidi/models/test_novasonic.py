@@ -109,7 +109,7 @@ async def test_connection_lifecycle(nova_model, mock_client, mock_stream):
             {
                 "name": "get_weather",
                 "description": "Get weather information",
-                "inputSchema": {"json": json.dumps({"type": "object", "properties": {}})}
+                "inputSchema": {"json": json.dumps({"type": "object", "properties": {}})},
             }
         ]
         await nova_model.start(system_prompt="You are helpful", tools=tools)
@@ -154,13 +154,8 @@ async def test_send_all_content_types(nova_model, mock_client, mock_stream):
         assert mock_stream.input_stream.send.call_count >= 3
 
         # Test audio content (base64 encoded)
-        audio_b64 = base64.b64encode(b"audio data").decode('utf-8')
-        audio_event = BidiAudioInputEvent(
-            audio=audio_b64,
-            format="pcm",
-            sample_rate=16000,
-            channels=1
-        )
+        audio_b64 = base64.b64encode(b"audio data").decode("utf-8")
+        audio_event = BidiAudioInputEvent(audio=audio_b64, format="pcm", sample_rate=16000, channels=1)
         await nova_model.send(audio_event)
         # Should start audio connection and send audio
         assert nova_model.audio_connection_active
@@ -170,7 +165,7 @@ async def test_send_all_content_types(nova_model, mock_client, mock_stream):
         tool_result: ToolResult = {
             "toolUseId": "tool-123",
             "status": "success",
-            "content": [{"text": "Weather is sunny"}]
+            "content": [{"text": "Weather is sunny"}],
         }
         await nova_model.send(ToolResultEvent(tool_result))
         # Should send contentStart, toolResult, and contentEnd
@@ -191,7 +186,7 @@ async def test_send_edge_cases(nova_model, mock_client, mock_stream, caplog):
 
         # Test image content (not supported, base64 encoded, no encoding parameter)
         await nova_model.start()
-        image_b64 = base64.b64encode(b"image data").decode('utf-8')
+        image_b64 = base64.b64encode(b"image data").decode("utf-8")
         image_event = BidiImageInputEvent(
             image=image_b64,
             mime_type="image/jpeg",
@@ -261,13 +256,7 @@ async def test_event_conversion(nova_model):
 
     # Test tool use (now returns ToolUseStreamEvent from core strands)
     tool_input = {"location": "Seattle"}
-    nova_event = {
-        "toolUse": {
-            "toolUseId": "tool-123",
-            "toolName": "get_weather",
-            "content": json.dumps(tool_input)
-        }
-    }
+    nova_event = {"toolUse": {"toolUseId": "tool-123", "toolName": "get_weather", "content": json.dumps(tool_input)}}
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
     # ToolUseStreamEvent has delta and current_tool_use, not a "type" field
@@ -292,13 +281,7 @@ async def test_event_conversion(nova_model):
             "totalTokens": 100,
             "totalInputTokens": 40,
             "totalOutputTokens": 60,
-            "details": {
-                "total": {
-                    "output": {
-                        "speechTokens": 30
-                    }
-                }
-            }
+            "details": {"total": {"output": {"speechTokens": 30}}},
         }
     }
     result = nova_model._convert_nova_event(nova_event)
@@ -350,13 +333,8 @@ async def test_silence_detection(nova_model, mock_client, mock_stream):
         await nova_model.start()
 
         # Send audio to start connection (base64 encoded)
-        audio_b64 = base64.b64encode(b"audio data").decode('utf-8')
-        audio_event = BidiAudioInputEvent(
-            audio=audio_b64,
-            format="pcm",
-            sample_rate=16000,
-            channels=1
-        )
+        audio_b64 = base64.b64encode(b"audio data").decode("utf-8")
+        audio_event = BidiAudioInputEvent(audio=audio_b64, format="pcm", sample_rate=16000, channels=1)
 
         await nova_model.send(audio_event)
         assert nova_model.audio_connection_active
@@ -380,14 +358,7 @@ async def test_tool_configuration(nova_model):
         {
             "name": "get_weather",
             "description": "Get weather information",
-            "inputSchema": {
-                "json": json.dumps({
-                    "type": "object",
-                    "properties": {
-                        "location": {"type": "string"}
-                    }
-                })
-            }
+            "inputSchema": {"json": json.dumps({"type": "object", "properties": {"location": {"type": "string"}}})},
         }
     ]
 

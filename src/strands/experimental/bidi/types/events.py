@@ -59,10 +59,12 @@ class BidiTextInputEvent(TypedEvent):
 
     @property
     def text(self) -> str:
+        """The text content to send to the model."""
         return cast(str, self.get("text"))
 
     @property
     def role(self) -> str:
+        """The role of the message sender."""
         return cast(str, self.get("role"))
 
 
@@ -97,18 +99,22 @@ class BidiAudioInputEvent(TypedEvent):
 
     @property
     def audio(self) -> str:
+        """Base64-encoded audio string."""
         return cast(str, self.get("audio"))
 
     @property
     def format(self) -> str:
+        """Audio encoding format."""
         return cast(str, self.get("format"))
 
     @property
     def sample_rate(self) -> int:
+        """Number of audio samples per second in Hz."""
         return cast(int, self.get("sample_rate"))
 
     @property
     def channels(self) -> int:
+        """Number of audio channels (1=mono, 2=stereo)."""
         return cast(int, self.get("channels"))
 
 
@@ -137,10 +143,12 @@ class BidiImageInputEvent(TypedEvent):
 
     @property
     def image(self) -> str:
+        """Base64-encoded image string."""
         return cast(str, self.get("image"))
 
     @property
     def mime_type(self) -> str:
+        """MIME type of the image (e.g., "image/jpeg", "image/png")."""
         return cast(str, self.get("mime_type"))
 
 
@@ -168,10 +176,12 @@ class BidiConnectionStartEvent(TypedEvent):
 
     @property
     def connection_id(self) -> str:
+        """Unique identifier for this streaming connection."""
         return cast(str, self.get("connection_id"))
 
     @property
     def model(self) -> str:
+        """Model identifier (e.g., 'gpt-realtime', 'gemini-2.0-flash-live')."""
         return cast(str, self.get("model"))
 
 
@@ -187,6 +197,7 @@ class BidiResponseStartEvent(TypedEvent):
 
     @property
     def response_id(self) -> str:
+        """Unique identifier for this response."""
         return cast(str, self.get("response_id"))
 
 
@@ -219,18 +230,22 @@ class BidiAudioStreamEvent(TypedEvent):
 
     @property
     def audio(self) -> str:
+        """Base64-encoded audio string."""
         return cast(str, self.get("audio"))
 
     @property
     def format(self) -> str:
+        """Audio encoding format."""
         return cast(str, self.get("format"))
 
     @property
     def sample_rate(self) -> int:
+        """Number of audio samples per second in Hz."""
         return cast(int, self.get("sample_rate"))
 
     @property
     def channels(self) -> int:
+        """Number of audio channels (1=mono, 2=stereo)."""
         return cast(int, self.get("channels"))
 
 
@@ -269,22 +284,27 @@ class BidiTranscriptStreamEvent(ModelStreamEvent):
 
     @property
     def delta(self) -> ContentBlockDelta:
+        """The incremental transcript change."""
         return cast(ContentBlockDelta, self.get("delta"))
 
     @property
     def text(self) -> str:
+        """The text content to send to the model."""
         return cast(str, self.get("text"))
 
     @property
     def role(self) -> str:
+        """The role of the message sender."""
         return cast(str, self.get("role"))
 
     @property
     def is_final(self) -> bool:
+        """Whether this is the final/complete transcript."""
         return cast(bool, self.get("is_final"))
 
     @property
     def current_transcript(self) -> Optional[str]:
+        """The accumulated transcript text so far."""
         return cast(Optional[str], self.get("current_transcript"))
 
 
@@ -306,6 +326,7 @@ class BidiInterruptionEvent(TypedEvent):
 
     @property
     def reason(self) -> str:
+        """Why the interruption occurred."""
         return cast(str, self.get("reason"))
 
 
@@ -332,10 +353,12 @@ class BidiResponseCompleteEvent(TypedEvent):
 
     @property
     def response_id(self) -> str:
+        """Unique identifier for this response."""
         return cast(str, self.get("response_id"))
 
     @property
     def stop_reason(self) -> str:
+        """Why the response ended."""
         return cast(str, self.get("stop_reason"))
 
 
@@ -393,26 +416,32 @@ class BidiUsageEvent(TypedEvent):
 
     @property
     def input_tokens(self) -> int:
+        """Total tokens used for all input modalities."""
         return cast(int, self.get("inputTokens"))
 
     @property
     def output_tokens(self) -> int:
+        """Total tokens used for all output modalities."""
         return cast(int, self.get("outputTokens"))
 
     @property
     def total_tokens(self) -> int:
+        """Sum of input and output tokens."""
         return cast(int, self.get("totalTokens"))
 
     @property
     def modality_details(self) -> List[ModalityUsage]:
+        """Optional list of token usage per modality."""
         return cast(List[ModalityUsage], self.get("modality_details", []))
 
     @property
     def cache_read_input_tokens(self) -> Optional[int]:
+        """Optional tokens read from cache."""
         return cast(Optional[int], self.get("cacheReadInputTokens"))
 
     @property
     def cache_write_input_tokens(self) -> Optional[int]:
+        """Optional tokens written to cache."""
         return cast(Optional[int], self.get("cacheWriteInputTokens"))
 
 
@@ -439,10 +468,12 @@ class BidiConnectionCloseEvent(TypedEvent):
 
     @property
     def connection_id(self) -> str:
+        """Unique identifier for this streaming connection."""
         return cast(str, self.get("connection_id"))
 
     @property
     def reason(self) -> str:
+        """Why the interruption occurred."""
         return cast(str, self.get("reason"))
 
 

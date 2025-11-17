@@ -122,8 +122,8 @@ class AudioGenerator:
             BidiAudioInputEvent dict ready for agent.send().
         """
         # Convert bytes to base64 string for JSON compatibility
-        audio_b64 = base64.b64encode(audio_data).decode('utf-8')
-        
+        audio_b64 = base64.b64encode(audio_data).decode("utf-8")
+
         return {
             "type": "bidi_audio_input",
             "audio": audio_b64,
