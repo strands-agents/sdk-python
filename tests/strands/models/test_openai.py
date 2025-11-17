@@ -944,3 +944,45 @@ async def test_structured_output_rate_limit_as_throttle(openai_client, model, me
     # Verify the exception message contains the original error
     assert "tokens per min" in str(exc_info.value)
     assert exc_info.value.__cause__ == mock_error
+
+
+def test_format_request_messages_with_system_prompt_content():
+    """Test format_request_messages with system_prompt_content parameter."""
+    messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+    system_prompt_content = [{"text": "You are a helpful assistant."}]
+
+    result = OpenAIModel.format_request_messages(messages, system_prompt_content=system_prompt_content)
+
+    expected = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": [{"text": "Hello", "type": "text"}]},
+    ]
+
+    assert result == expected
+
+
+def test_format_request_messages_with_none_system_prompt_content():
+    """Test format_request_messages with system_prompt_content parameter."""
+    messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+
+    result = OpenAIModel.format_request_messages(messages)
+
+    expected = [{"role": "user", "content": [{"text": "Hello", "type": "text"}]}]
+
+    assert result == expected
+
+
+def test_format_request_messages_drops_cache_points():
+    """Test that cache points are dropped in OpenAI format_request_messages."""
+    messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+    system_prompt_content = [{"text": "You are a helpful assistant."}, {"cachePoint": {"type": "default"}}]
+
+    result = OpenAIModel.format_request_messages(messages, system_prompt_content=system_prompt_content)
+
+    # Cache points should be dropped, only text content included
+    expected = [
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": [{"text": "Hello", "type": "text"}]},
+    ]
+
+    assert result == expected
