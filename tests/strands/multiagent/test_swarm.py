@@ -1149,3 +1149,30 @@ async def test_swarm_persistence(mock_strands_tracer, mock_use_span):
     assert final_state["status"] == "completed"
     assert len(final_state["node_history"]) == 1
     assert "test_agent" in final_state["node_results"]
+
+
+@pytest.mark.asyncio
+async def test_swarm_handle_handoff():
+    first_agent = create_mock_agent("first")
+    second_agent = create_mock_agent("second")
+
+    swarm = Swarm([first_agent, second_agent])
+
+    async def handoff_stream(*args, **kwargs):
+        yield {"agent_start": True}
+
+        swarm._handle_handoff(swarm.nodes["second"], "test message", {})
+
+        assert swarm.state.current_node.node_id == "first"
+        assert swarm.state.handoff_node.node_id == "second"
+
+        yield {"result": first_agent.return_value}
+
+    first_agent.stream_async = Mock(side_effect=handoff_stream)
+
+    result = await swarm.invoke_async("test")
+    assert result.status == Status.COMPLETED
+
+    tru_node_order = [node.node_id for node in result.node_history]
+    exp_node_order = ["first", "second"]
+    assert tru_node_order == exp_node_order
