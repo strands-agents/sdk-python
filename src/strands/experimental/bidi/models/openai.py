@@ -5,12 +5,11 @@ with WebSocket connections, voice activity detection, and function calling.
 """
 
 import asyncio
-import base64
 import json
 import logging
 import os
 import uuid
-from typing import AsyncIterable, Union
+from typing import AsyncIterable
 
 import websockets
 from websockets.exceptions import ConnectionClosed
@@ -110,8 +109,6 @@ class BidiOpenAIRealtimeModel(BidiModel):
         self.connection_id = None
         self._active = False
         
-        self._event_queue = None
-        self._response_task = None
         self._function_call_buffer = {}
         
         logger.debug("OpenAI Realtime bidirectional model initialized: %s", model)
@@ -140,7 +137,6 @@ class BidiOpenAIRealtimeModel(BidiModel):
             # Initialize connection state
             self.connection_id = str(uuid.uuid4())
             self._active = True
-            self._event_queue = asyncio.Queue()
             self._function_call_buffer = {}
             
             # Establish WebSocket connection
@@ -162,10 +158,6 @@ class BidiOpenAIRealtimeModel(BidiModel):
             # Add conversation history if provided
             if messages:
                 await self._add_conversation_history(messages)
-            
-            # Start background response processor
-            self._response_task = asyncio.create_task(self._process_responses())
-            logger.info("OpenAI Realtime connection established")
             
         except Exception as e:
             self._active = False
@@ -270,30 +262,6 @@ class BidiOpenAIRealtimeModel(BidiModel):
             
             await self._send_event(conversation_item)
 
-    async def _process_responses(self) -> None:
-        """Process incoming WebSocket messages."""
-        logger.debug("OpenAI Realtime response processor started")
-        
-        try:
-            async for message in self.websocket:
-                if not self._active:
-                    break
-                
-                try:
-                    event = json.loads(message)
-                    await self._event_queue.put(event)
-                except json.JSONDecodeError as e:
-                    logger.warning("Failed to parse OpenAI event: %s", e)
-                    continue
-                    
-        except ConnectionClosed:
-            logger.debug("OpenAI Realtime WebSocket connection closed")
-        except Exception as e:
-            logger.error("Error in OpenAI Realtime response processing: %s", e)
-        finally:
-            self._active = False
-            logger.debug("OpenAI Realtime response processor stopped")
-
     async def receive(self) -> AsyncIterable[BidiOutputEvent]:
         """Receive OpenAI events and convert to Strands TypedEvent format."""
         # Emit connection start event
@@ -304,12 +272,14 @@ class BidiOpenAIRealtimeModel(BidiModel):
         
         try:
             while self._active:
-                try:
-                    openai_event = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)
+                async for message in self.websocket:
+                    if not self._active:
+                        break
+                    
+                    openai_event = json.loads(message)
+
                     for event in self._convert_openai_event(openai_event) or []: 
                         yield event
-                except asyncio.TimeoutError:
-                    continue
                     
         except Exception as e:
             logger.error("Error receiving OpenAI Realtime event: %s", e)
@@ -317,6 +287,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         finally:
             # Emit connection close event
             yield BidiConnectionCloseEvent(connection_id=self.connection_id, reason="complete")
+            self._active = False
 
     def _convert_openai_event(self, openai_event: dict[str, any]) -> list[BidiOutputEvent] | None:
         """Convert OpenAI events to Strands TypedEvent format."""
@@ -334,14 +305,22 @@ class BidiOpenAIRealtimeModel(BidiModel):
             return [BidiAudioStreamEvent(
                 audio=openai_event["delta"],
                 format="pcm",
-                sample_rate=24000,
+                sample_rate=AUDIO_FORMAT["rate"],
                 channels=1
             )]
         
         # Assistant text output events - combine multiple similar events
         elif event_type in ["response.output_text.delta", "response.output_audio_transcript.delta"]:
             role = openai_event.get("role", "assistant")
-            return [self._create_text_event(openai_event["delta"], role.lower() if isinstance(role, str) else "assistant")]
+            return [self._create_text_event(openai_event["delta"], role.lower() if isinstance(role, str) else "assistant", is_final=False)]
+
+        elif event_type in ["response.output_audio_transcript.done"]:
+            role = openai_event.get("role", "assistant").lower()
+            return [self._create_text_event(openai_event["transcript"], role)]
+
+        elif event_type in ["response.output_text.done"]:
+            role = openai_event.get("role", "assistant").lower()
+            return [self._create_text_event(openai_event["text"], role)]
         
         # User transcription events - combine multiple similar events
         elif event_type in ["conversation.item.input_audio_transcription.delta", 
@@ -625,13 +604,6 @@ class BidiOpenAIRealtimeModel(BidiModel):
         
         logger.debug("OpenAI Realtime cleanup - starting connection close")
         self._active = False
-        
-        if self._response_task and not self._response_task.done():
-            self._response_task.cancel()
-            try:
-                await self._response_task
-            except asyncio.CancelledError:
-                pass
         
         try:
             await self.websocket.close()
