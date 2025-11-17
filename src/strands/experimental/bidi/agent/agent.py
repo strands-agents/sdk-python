@@ -307,7 +307,9 @@ class BidiAgent:
 
         # If we get here, input type is invalid
         raise ValueError(
-            f"Input must be a string, BidiInputEvent (BidiTextInputEvent/BidiAudioInputEvent/BidiImageInputEvent), or event dict with 'type' field, got: {type(input_data)}"
+            f"Input must be a string, BidiInputEvent "
+            f"(BidiTextInputEvent/BidiAudioInputEvent/BidiImageInputEvent), "
+            f"or event dict with 'type' field, got: {type(input_data)}"
         )
 
     async def receive(self) -> AsyncIterable[BidiOutputEvent]:
@@ -409,8 +411,9 @@ class BidiAgent:
                     event = await input_()
                     await self.send(event)
 
-                    # TODO: Need to make tool result send in Nova provider atomic. Audio input events end up interleaving
-                    # and leading to failures. Adding a sleep here as a temporary solution.
+                    # TODO: Need to make tool result send in Nova provider atomic.
+                    # Audio input events end up interleaving and leading to failures.
+                    # Adding a sleep here as a temporary solution.
                     await asyncio.sleep(0.001)
 
         async def run_outputs():

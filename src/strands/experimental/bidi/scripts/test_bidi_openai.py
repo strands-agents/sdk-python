@@ -256,7 +256,11 @@ async def main():
     agent = BidiAgent(
         model=model,
         tools=[calculator],
-        system_prompt="You are a helpful voice assistant. Keep your responses brief and natural. Say hello when you first connect.",
+        system_prompt=(
+            "You are a helpful voice assistant. "
+            "Keep your responses brief and natural. "
+            "Say hello when you first connect."
+        ),
     )
 
     # Start the session
