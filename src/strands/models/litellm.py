@@ -272,6 +272,8 @@ class LiteLLMModel(OpenAIModel):
 
         logger.debug("invoking model")
         try:
+            if kwargs.get("stream") is False:
+                raise ValueError("stream parameter cannot be explicitly set to False")
             response = await litellm.acompletion(**self.client_args, **request)
         except ContextWindowExceededError as e:
             logger.warning("litellm client raised context window overflow")
