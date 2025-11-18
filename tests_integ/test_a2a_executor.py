@@ -2,17 +2,20 @@
 
 import base64
 import os
-from unittest.mock import MagicMock
+import threading
+import time
 
 import pytest
-from a2a.types import FilePart, TextPart
+import requests
+import uvicorn
 
-from strands.multiagent.a2a.executor import StrandsA2AExecutor
+from strands import Agent
+from strands.multiagent.a2a import A2AServer
 
 
 @pytest.mark.asyncio
 async def test_a2a_executor_with_real_image():
-    """Test A2A executor processes a real image file correctly."""
+    """Test A2A server processes a real image file correctly via HTTP."""
     # Read the test image file
     test_image_path = os.path.join(os.path.dirname(__file__), "yellow.png")
     with open(test_image_path, "rb") as f:
@@ -21,45 +24,57 @@ async def test_a2a_executor_with_real_image():
     # Encode as base64 (A2A format)
     base64_image = base64.b64encode(original_image_bytes).decode("utf-8")
 
-    # Create executor
-    executor = StrandsA2AExecutor(MagicMock())
+    # Create real Strands agent
+    strands_agent = Agent(name="Test Image Agent", description="Agent for testing image processing")
 
-    # Create A2A message parts
-    text_part = MagicMock(spec=TextPart)
-    text_part.text = "Please analyze this image"
-    text_part_mock = MagicMock()
-    text_part_mock.root = text_part
+    # Create A2A server
+    a2a_server = A2AServer(agent=strands_agent, port=9001)
+    fastapi_app = a2a_server.to_fastapi_app()
 
-    # Create file part with real image data
-    file_obj = MagicMock()
-    file_obj.name = "yellow.png"
-    file_obj.mime_type = "image/png"
-    file_obj.bytes = base64_image  # A2A sends base64-encoded string
-    file_obj.uri = None
+    # Start server in background
+    server_thread = threading.Thread(target=lambda: uvicorn.run(fastapi_app, port=9001), daemon=True)
+    server_thread.start()
+    time.sleep(1)  # Give server time to start
 
-    file_part = MagicMock(spec=FilePart)
-    file_part.file = file_obj
-    file_part_mock = MagicMock()
-    file_part_mock.root = file_part
+    try:
+        # Create A2A message with real image
+        message_payload = {
+            "jsonrpc": "2.0",
+            "id": "test-image-request",
+            "method": "message/send",
+            "params": {
+                "message": {
+                    "messageId": "msg-123",
+                    "role": "user",
+                    "parts": [
+                        {
+                            "kind": "text",
+                            "text": "What primary color is this image, respond with NONE if you are unsure",
+                            "metadata": None,
+                        },
+                        {
+                            "kind": "file",
+                            "file": {"name": "image.png", "mimeType": "image/png", "bytes": base64_image},
+                            "metadata": None,
+                        },
+                    ],
+                }
+            },
+        }
 
-    # Convert parts to content blocks
-    parts = [text_part_mock, file_part_mock]
-    content_blocks = executor._convert_a2a_parts_to_content_blocks(parts)
+        # Send request to A2A server
+        response = requests.post(
+            "http://127.0.0.1:9001", headers={"Content-Type": "application/json"}, json=message_payload, timeout=30
+        )
 
-    # Verify conversion worked correctly
-    assert len(content_blocks) == 2
+        # Verify response
+        assert response.status_code == 200
+        response_data = response.json()
+        assert "completed" == response_data["result"]["status"]["state"]
+        assert "yellow" in response_data["result"]["history"][1]["parts"][0]["text"].lower()
 
-    # Verify text conversion
-    assert content_blocks[0]["text"] == "Please analyze this image"
-
-    # Verify image conversion - most importantly, bytes should match original
-    assert "image" in content_blocks[1]
-    assert content_blocks[1]["image"]["format"] == "png"
-    assert content_blocks[1]["image"]["source"]["bytes"] == original_image_bytes
-
-    # Verify the round-trip: original -> base64 -> decoded == original
-    assert len(content_blocks[1]["image"]["source"]["bytes"]) == len(original_image_bytes)
-    assert content_blocks[1]["image"]["source"]["bytes"] == original_image_bytes
+    except Exception as e:
+        pytest.fail(f"Integration test failed: {e}")
 
 
 def test_a2a_executor_image_roundtrip():
