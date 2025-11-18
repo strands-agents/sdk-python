@@ -79,11 +79,12 @@ class Tracer:
 
     When the OTEL_EXPORTER_OTLP_ENDPOINT environment variable is set, traces
     are sent to the OTLP endpoint.
+
+    Both attributes are controlled by including "gen_ai_latest_experimental" or "gen_ai_tool_definitions",
+    respectively, in the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
     """
 
-    def __init__(
-        self,
-    ) -> None:
+    def __init__(self) -> None:
         """Initialize the tracer."""
         self.service_name = __name__
         self.tracer_provider: Optional[trace_api.TracerProvider] = None
@@ -92,17 +93,19 @@ class Tracer:
         ThreadingInstrumentor().instrument()
 
         # Read OTEL_SEMCONV_STABILITY_OPT_IN environment variable
-        self.use_latest_genai_conventions = self._parse_semconv_opt_in()
+        opt_in_values = self._parse_semconv_opt_in()
+        ## To-do: should not set below attributes directly, use env var instead
+        self.use_latest_genai_conventions = "gen_ai_latest_experimental" in opt_in_values
+        self._include_tool_definitions = "gen_ai_tool_definitions" in opt_in_values
 
-    def _parse_semconv_opt_in(self) -> bool:
+    def _parse_semconv_opt_in(self) -> set[str]:
         """Parse the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
 
         Returns:
-            Set of opt-in values from the environment variable
+            A set of opt-in values from the environment variable.
         """
         opt_in_env = os.getenv("OTEL_SEMCONV_STABILITY_OPT_IN", "")
-
-        return "gen_ai_latest_experimental" in opt_in_env
+        return {value.strip() for value in opt_in_env.split(",")}
 
     def _start_span(
         self,
@@ -551,6 +554,7 @@ class Tracer:
         model_id: Optional[str] = None,
         tools: Optional[list] = None,
         custom_trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
+        tools_config: Optional[dict] = None,
         **kwargs: Any,
     ) -> Span:
         """Start a new span for an agent invocation.
@@ -561,6 +565,7 @@ class Tracer:
             model_id: Optional model identifier.
             tools: Optional list of tools being used.
             custom_trace_attributes: Optional mapping of custom trace attributes to include in the span.
+            tools_config: Optional dictionary of tool configurations.
             **kwargs: Additional attributes to add to the span.
 
         Returns:
@@ -577,8 +582,15 @@ class Tracer:
             attributes["gen_ai.request.model"] = model_id
 
         if tools:
-            tools_json = serialize(tools)
-            attributes["gen_ai.agent.tools"] = tools_json
+            attributes["gen_ai.agent.tools"] = serialize(tools)
+
+        if self._include_tool_definitions and tools_config:
+            try:
+                tool_definitions = self._construct_tool_definitions(tools_config)
+                attributes["gen_ai.tool.definitions"] = serialize(tool_definitions)
+            except Exception:
+                # A failure in telemetry should not crash the agent
+                logger.warning("failed to attach tool metadata to agent span", exc_info=True)
 
         # Add custom trace attributes if provided
         if custom_trace_attributes:
@@ -648,6 +660,18 @@ class Tracer:
                 )
 
         self._end_span(span, attributes, error)
+
+    def _construct_tool_definitions(self, tools_config: dict) -> list[dict[str, Any]]:
+        """Constructs a list of tool definitions from the provided tools_config."""
+        return [
+            {
+                "name": name,
+                "description": spec.get("description"),
+                "inputSchema": spec.get("inputSchema"),
+                "outputSchema": spec.get("outputSchema"),
+            }
+            for name, spec in tools_config.items()
+        ]
 
     def start_multiagent_span(
         self,

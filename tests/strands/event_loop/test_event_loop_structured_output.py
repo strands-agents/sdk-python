@@ -1,6 +1,6 @@
 """Tests for structured output integration in the event loop."""
 
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from pydantic import BaseModel
@@ -38,10 +38,10 @@ def mock_agent():
     agent.tool_registry = ToolRegistry()
     agent.event_loop_metrics = EventLoopMetrics()
     agent.hooks = Mock()
-    agent.hooks.invoke_callbacks = Mock()
+    agent.hooks.invoke_callbacks_async = AsyncMock()
     agent.trace_span = None
     agent.tool_executor = Mock()
-    agent._append_message = Mock()
+    agent._append_message = AsyncMock()
 
     # Set up _interrupt_state properly
     agent._interrupt_state = Mock()

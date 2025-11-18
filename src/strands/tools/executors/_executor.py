@@ -85,7 +85,7 @@ class ToolExecutor(abc.ABC):
             }
         )
 
-        before_event, interrupts = agent.hooks.invoke_callbacks(
+        before_event, interrupts = await agent.hooks.invoke_callbacks_async(
             BeforeToolCallEvent(
                 agent=agent,
                 selected_tool=tool_func,
@@ -109,7 +109,7 @@ class ToolExecutor(abc.ABC):
                 "status": "error",
                 "content": [{"text": cancel_message}],
             }
-            after_event, _ = agent.hooks.invoke_callbacks(
+            after_event, _ = await agent.hooks.invoke_callbacks_async(
                 AfterToolCallEvent(
                     agent=agent,
                     tool_use=tool_use,
@@ -147,7 +147,7 @@ class ToolExecutor(abc.ABC):
                     "status": "error",
                     "content": [{"text": f"Unknown tool: {tool_name}"}],
                 }
-                after_event, _ = agent.hooks.invoke_callbacks(
+                after_event, _ = await agent.hooks.invoke_callbacks_async(
                     AfterToolCallEvent(
                         agent=agent,
                         selected_tool=selected_tool,
@@ -184,7 +184,7 @@ class ToolExecutor(abc.ABC):
 
             result = cast(ToolResult, event)
 
-            after_event, _ = agent.hooks.invoke_callbacks(
+            after_event, _ = await agent.hooks.invoke_callbacks_async(
                 AfterToolCallEvent(
                     agent=agent,
                     selected_tool=selected_tool,
@@ -204,7 +204,7 @@ class ToolExecutor(abc.ABC):
                 "status": "error",
                 "content": [{"text": f"Error: {str(e)}"}],
             }
-            after_event, _ = agent.hooks.invoke_callbacks(
+            after_event, _ = await agent.hooks.invoke_callbacks_async(
                 AfterToolCallEvent(
                     agent=agent,
                     selected_tool=selected_tool,
