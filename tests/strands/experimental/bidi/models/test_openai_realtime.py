@@ -44,9 +44,7 @@ def mock_websockets_connect(mock_websocket):
     async def async_connect(*args, **kwargs):
         return mock_websocket
 
-    with unittest.mock.patch(
-        "strands.experimental.bidi.models.openai.websockets.connect"
-    ) as mock_connect:
+    with unittest.mock.patch("strands.experimental.bidi.models.openai.websockets.connect") as mock_connect:
         mock_connect.side_effect = async_connect
         yield mock_connect, mock_websocket
 
