@@ -21,7 +21,7 @@ Audio format normalization:
 
 from typing import Any, Dict, List, Literal, Optional, cast
 
-from ....types._events import ModelStreamEvent, TypedEvent
+from ....types._events import ModelStreamEvent, ToolUseStreamEvent, TypedEvent
 from ....types.streaming import ContentBlockDelta
 
 # Audio format constants
@@ -561,4 +561,5 @@ BidiOutputEvent = (
     | BidiUsageEvent
     | BidiConnectionCloseEvent
     | BidiErrorEvent
+    | ToolUseStreamEvent
 )

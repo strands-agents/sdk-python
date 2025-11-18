@@ -11,6 +11,7 @@ import uuid
 from typing import Any, AsyncIterable
 
 import websockets
+from websockets import ClientConnection
 
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
@@ -76,7 +77,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         organization: str | None = None,
         project: str | None = None,
         session_config: dict[str, Any] | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """Initialize OpenAI Realtime bidirectional model.
 
@@ -103,11 +104,11 @@ class BidiOpenAIRealtimeModel(BidiModel):
                 )
 
         # Connection state (initialized in start())
-        self.websocket = None
-        self.connection_id = None
-        self._active = False
+        self.websocket: ClientConnection
+        self.connection_id: str
+        self._active: bool = False
 
-        self._function_call_buffer = {}
+        self._function_call_buffer: dict[str, Any] = {}
 
         logger.debug("model=<%s> | openai realtime model initialized", model)
 
@@ -116,7 +117,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         system_prompt: str | None = None,
         tools: list[ToolSpec] | None = None,
         messages: Messages | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """Establish bidirectional connection to OpenAI Realtime API.
 
@@ -182,7 +183,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         return BidiTranscriptStreamEvent(
             delta={"text": text},
             text=text,
-            role=normalized_role,
+            role=normalized_role,  # type: ignore
             is_final=is_final,
             current_transcript=text if is_final else None,
         )
@@ -203,7 +204,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
             config["instructions"] = system_prompt
 
         if tools:
-            config["tools"] = self._convert_tools_to_openai_format(tools)
+            config["tools"] = self._convert_tools_to_openai_format(tools)  # type: ignore
 
         # Apply user-provided session configuration
         supported_params = {
@@ -255,7 +256,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
     async def _add_conversation_history(self, messages: Messages) -> None:
         """Add conversation history to the session."""
         for message in messages:
-            conversation_item = {
+            conversation_item: dict[Any, Any] = {
                 "type": "conversation.item.create",
                 "item": {"type": "message", "role": message["role"], "content": []},
             }
@@ -272,7 +273,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
             await self._send_event(conversation_item)
 
-    async def receive(self) -> AsyncIterable[BidiOutputEvent]:
+    async def receive(self) -> AsyncIterable[BidiOutputEvent]:  # type: ignore
         """Receive OpenAI events and convert to Strands TypedEvent format."""
         # Emit connection start event
         yield BidiConnectionStartEvent(connection_id=self.connection_id, model=self.model)
@@ -281,7 +282,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
             while self._active:
                 async for message in self.websocket:
                     if not self._active:
-                        break
+                        break  # type: ignore
 
                     openai_event = json.loads(message)
 
@@ -311,7 +312,10 @@ class BidiOpenAIRealtimeModel(BidiModel):
             # Audio is already base64 string from OpenAI
             return [
                 BidiAudioStreamEvent(
-                    audio=openai_event["delta"], format="pcm", sample_rate=AUDIO_FORMAT["rate"], channels=1
+                    audio=openai_event["delta"],
+                    format="pcm",
+                    sample_rate=AUDIO_FORMAT["rate"],  # type: ignore
+                    channels=1,
                 )
             ]
 
@@ -385,7 +389,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
                     }
                     del self._function_call_buffer[call_id]
                     # Return ToolUseStreamEvent for consistency with standard agent
-                    return [ToolUseStreamEvent(delta={"toolUse": tool_use}, current_tool_use=tool_use)]
+                    return [ToolUseStreamEvent(delta={"toolUse": tool_use}, current_tool_use=dict(tool_use))]
                 except (json.JSONDecodeError, KeyError) as e:
                     logger.warning("call_id=<%s>, error=<%s> | error parsing function arguments", call_id, e)
                     del self._function_call_buffer[call_id]
@@ -419,11 +423,11 @@ class BidiOpenAIRealtimeModel(BidiModel):
             }
 
             # Build list of events to return
-            events = []
+            events: list[Any] = []
 
             # Always add response complete event
             events.append(
-                BidiResponseCompleteEvent(response_id=response_id, stop_reason=stop_reason_map.get(status, "complete"))
+                BidiResponseCompleteEvent(response_id=response_id, stop_reason=stop_reason_map.get(status, "complete"))  # type: ignore
             )
 
             # Add usage event if available
@@ -464,7 +468,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
                         input_tokens=usage.get("input_tokens", 0),
                         output_tokens=usage.get("output_tokens", 0),
                         total_tokens=usage.get("total_tokens", 0),
-                        modality_details=modality_details if modality_details else None,
+                        modality_details=modality_details if modality_details else None,  # type: ignore
                         cache_read_input_tokens=cached_tokens if cached_tokens > 0 else None,
                     )
                 )
@@ -570,8 +574,6 @@ class BidiOpenAIRealtimeModel(BidiModel):
                 tool_result = content.get("tool_result")
                 if tool_result:
                     await self._send_tool_result(tool_result)
-            else:
-                logger.warning("content_type=<%s> | unknown content type", type(content).__name__)
         except Exception as e:
             logger.error("error=<%s> | error sending content to openai", e)
             raise  # Propagate exception for debugging in experimental code
@@ -598,7 +600,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         logger.debug("tool_use_id=<%s> | sending openai tool result", tool_use_id)
 
         # Extract result content
-        result_data = {}
+        result_data: dict[Any, Any] | str = {}
         if "content" in tool_result:
             # Extract text from content blocks
             for block in tool_result["content"]:

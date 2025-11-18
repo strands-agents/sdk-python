@@ -486,7 +486,7 @@ class BidiNovaSonicModel(BidiModel):
                 "input": json.loads(tool_use["content"]),
             }
             # Return ToolUseStreamEvent - cast to dict for type compatibility
-            return ToolUseStreamEvent(delta={"toolUse": tool_use_event}, current_tool_use=dict(tool_use_event))  # type: ignore[return-value]
+            return ToolUseStreamEvent(delta={"toolUse": tool_use_event}, current_tool_use=dict(tool_use_event))
 
         # Handle interruption
         if nova_event.get("stopReason") == "INTERRUPTED":
