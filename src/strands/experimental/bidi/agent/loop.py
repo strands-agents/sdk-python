@@ -5,7 +5,7 @@ The agent loop handles the events received from the model and executes tools whe
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, AsyncIterable, Awaitable
+from typing import TYPE_CHECKING, Any, AsyncIterable, Awaitable
 
 from ....types._events import ToolResultEvent, ToolResultMessageEvent, ToolStreamEvent, ToolUseStreamEvent
 from ....types.content import Message
@@ -32,6 +32,7 @@ class _BidiAgentLoop:
     _event_queue: asyncio.Queue
     _stop_event: object
     _tasks: set
+    _active: bool
 
     def __init__(self, agent: "BidiAgent") -> None:
         """Initialize members of the agent loop.
@@ -42,7 +43,7 @@ class _BidiAgentLoop:
             agent: Bidirectional agent to loop over.
         """
         self._agent = agent
-        self._active = False
+        self._active: bool = False
 
     async def start(self) -> None:
         """Start the agent loop.
@@ -87,9 +88,6 @@ class _BidiAgentLoop:
         self._event_queue.put_nowait(self._stop_event)
 
         self._active = False
-        self._tasks = None
-        self._stop_event = None
-        self._event_queue = None
 
     async def receive(self) -> AsyncIterable[BidiOutputEvent]:
         """Receive model and tool call events."""
@@ -110,7 +108,7 @@ class _BidiAgentLoop:
 
         Adds a clean up callback to run after task completes.
         """
-        task = asyncio.create_task(coro)
+        task: asyncio.Task[None] = asyncio.create_task(coro) # type: ignore
         task.add_done_callback(lambda task: self._tasks.remove(task))
 
         self._tasks.add(task)
@@ -127,15 +125,15 @@ class _BidiAgentLoop:
 
             if isinstance(event, BidiTranscriptStreamEvent):
                 if event["is_final"]:
-                    message: Message = {"role": event["role"], "content": [{"text": event["text"]}]}
-                    self._agent.messages.append(message)
+                    transcript_message: Message = {"role": event["role"], "content": [{"text": event["text"]}]}
+                    self._agent.messages.append(transcript_message)
 
             elif isinstance(event, ToolUseStreamEvent):
                 tool_use = event["current_tool_use"]
                 self._create_task(self._run_tool(tool_use))
 
-                message: Message = {"role": "assistant", "content": [{"toolUse": tool_use}]}
-                self._agent.messages.append(message)
+                tool_message: Message = {"role": "assistant", "content": [{"toolUse": tool_use}]}
+                self._agent.messages.append(tool_message)
 
     async def _run_tool(self, tool_use: ToolUse) -> None:
         """Task for running tool requested by the model."""
@@ -145,7 +143,7 @@ class _BidiAgentLoop:
 
         try:
             tool = self._agent.tool_registry.registry[tool_use["name"]]
-            invocation_state = {}
+            invocation_state: dict[str, Any] = {}
 
             async for event in tool.stream(tool_use, invocation_state):
                 if isinstance(event, ToolResultEvent):
