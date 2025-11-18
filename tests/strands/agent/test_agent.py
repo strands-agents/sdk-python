@@ -2001,8 +2001,9 @@ def test_agent__call__resume_interrupt(mock_model, tool_decorated, agenerator):
         reason="test reason",
     )
 
-    agent._interrupt_state.activate(context={"tool_use_message": tool_use_message, "tool_results": []})
+    agent._interrupt_state.context = {"tool_use_message": tool_use_message, "tool_results": []}
     agent._interrupt_state.interrupts[interrupt.id] = interrupt
+    agent._interrupt_state.activate()
 
     interrupt_response = {}
 
