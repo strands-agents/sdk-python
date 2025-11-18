@@ -1,17 +1,16 @@
 """Conversion functions between Strands and A2A types."""
 
-from typing import TypeAlias, cast
+from typing import cast
 from uuid import uuid4
 
 from a2a.types import Message as A2AMessage
-from a2a.types import Part, Role, Task, TaskArtifactUpdateEvent, TaskStatusUpdateEvent, TextPart
+from a2a.types import Part, Role, TaskArtifactUpdateEvent, TaskStatusUpdateEvent, TextPart
 
 from ...agent.agent_result import AgentResult
 from ...telemetry.metrics import EventLoopMetrics
+from ...types.a2a import A2AResponse
 from ...types.agent import AgentInput
 from ...types.content import ContentBlock, Message
-
-A2AResponse: TypeAlias = tuple[Task, TaskStatusUpdateEvent | TaskArtifactUpdateEvent | None] | A2AMessage
 
 
 def convert_input_to_message(prompt: AgentInput) -> A2AMessage:
@@ -89,7 +88,21 @@ def convert_response_to_agent_result(response: A2AResponse) -> AgentResult:
 
     if isinstance(response, tuple) and len(response) == 2:
         task, update_event = response
-        if update_event is None and task and hasattr(task, "artifacts") and task.artifacts is not None:
+
+        # Handle artifact updates
+        if isinstance(update_event, TaskArtifactUpdateEvent):
+            if update_event.artifact and hasattr(update_event.artifact, "parts"):
+                for part in update_event.artifact.parts:
+                    if hasattr(part, "root") and hasattr(part.root, "text"):
+                        content.append({"text": part.root.text})
+        # Handle status updates with messages
+        elif isinstance(update_event, TaskStatusUpdateEvent):
+            if update_event.status and hasattr(update_event.status, "message") and update_event.status.message:
+                for part in update_event.status.message.parts:
+                    if hasattr(part, "root") and hasattr(part.root, "text"):
+                        content.append({"text": part.root.text})
+        # Handle initial task or task without update event
+        elif update_event is None and task and hasattr(task, "artifacts") and task.artifacts is not None:
             for artifact in task.artifacts:
                 if hasattr(artifact, "parts"):
                     for part in artifact.parts:
