@@ -84,7 +84,7 @@ class BidiAudioInputEvent(TypedEvent):
     def __init__(
         self,
         audio: str,
-        format: Literal["pcm", "wav", "opus", "mp3"],
+        format: Literal["pcm", "wav", "opus", "mp3"] | str,
         sample_rate: Literal[16000, 24000, 48000],
         channels: Literal[1, 2],
     ):
