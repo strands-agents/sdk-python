@@ -88,13 +88,17 @@ class _BidiAgentLoop:
         logger.debug("agent loop stopping")
 
         try:
+            # Cancel all tasks
             for task in self._tasks:
                 task.cancel()
 
+            # Wait briefly for tasks to finish their current operations
             await asyncio.gather(*self._tasks, return_exceptions=True)
 
+            # Stop the model
             await self._agent.model.stop()
 
+            # Clean up the event queue
             if not self._event_queue.empty():
                 self._event_queue.get_nowait()
             self._event_queue.put_nowait(self._stop_event)

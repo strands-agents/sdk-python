@@ -20,6 +20,7 @@ from typing import Any, AsyncIterable
 from .... import _identifier
 from ....hooks import HookProvider, HookRegistry
 from ....tools.caller import _ToolCaller
+from ..hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
