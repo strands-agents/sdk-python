@@ -108,7 +108,7 @@ class _BidiAgentLoop:
 
         Adds a clean up callback to run after task completes.
         """
-        task: asyncio.Task[None] = asyncio.create_task(coro) # type: ignore
+        task: asyncio.Task[None] = asyncio.create_task(coro)  # type: ignore
         task.add_done_callback(lambda task: self._tasks.remove(task))
 
         self._tasks.add(task)
@@ -139,7 +139,7 @@ class _BidiAgentLoop:
         """Task for running tool requested by the model."""
         logger.debug("tool_name=<%s> | tool execution starting", tool_use["name"])
 
-        result: ToolResult = None
+        result: ToolResult | None = None
 
         try:
             tool = self._agent.tool_registry.registry[tool_use["name"]]
@@ -159,11 +159,12 @@ class _BidiAgentLoop:
         except Exception as e:
             result = {"toolUseId": tool_use["toolUseId"], "status": "error", "content": [{"text": f"Error: {str(e)}"}]}
 
-        await self._agent.model.send(ToolResultEvent(result))
+        if result is not None:
+            await self._agent.model.send(ToolResultEvent(result))
 
-        message: Message = {
-            "role": "user",
-            "content": [{"toolResult": result}],
-        }
-        self._agent.messages.append(message)
-        await self._event_queue.put(ToolResultMessageEvent(message))
+            message: Message = {
+                "role": "user",
+                "content": [{"toolResult": result}],
+            }
+            self._agent.messages.append(message)
+            await self._event_queue.put(ToolResultMessageEvent(message))

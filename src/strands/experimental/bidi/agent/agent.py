@@ -15,7 +15,7 @@ Key capabilities:
 import asyncio
 import json
 import logging
-from typing import Any, AsyncIterable, cast
+from typing import Any, AsyncIterable
 
 from .... import _identifier
 from ....tools.caller import _ToolCaller
@@ -23,7 +23,7 @@ from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
 from ....tools.watcher import ToolWatcher
-from ....types.content import Message, Messages
+from ....types.content import ContentBlock, Message, Messages
 from ....types.tools import AgentTool, ToolResult, ToolUse
 from ...tools import ToolProvider
 from ..models.bidi_model import BidiModel
@@ -169,7 +169,7 @@ class BidiAgent:
         # Create user message describing the tool call
         input_parameters = json.dumps(filtered_input, default=lambda o: f"<<non-serializable: {type(o).__qualname__}>>")
 
-        user_msg_content = [
+        user_msg_content: list[ContentBlock] = [
             {"text": (f"agent.tool.{tool['name']} direct tool call.\nInput parameters: {input_parameters}\n")}
         ]
 
@@ -374,7 +374,7 @@ class BidiAgent:
     @property
     def active(self) -> bool:
         """True if agent loop started, False otherwise."""
-        return cast(bool, self._loop.active)
+        return self._loop.active
 
     async def run(self, inputs: list[BidiInput], outputs: list[BidiOutput]) -> None:
         """Run the agent using provided IO channels for bidirectional communication.
