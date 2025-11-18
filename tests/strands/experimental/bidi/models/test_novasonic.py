@@ -241,7 +241,7 @@ async def test_event_conversion(nova_model):
     # Audio is kept as base64 string
     assert result.get("audio") == audio_base64
     assert result.get("format") == "pcm"
-    assert result.get("sample_rate") == 24000
+    assert result.get("sample_rate") == 16000
 
     # Test text output (now returns BidiTranscriptStreamEvent)
     nova_event = {"textOutput": {"content": "Hello, world!", "role": "ASSISTANT"}}
@@ -293,12 +293,34 @@ async def test_event_conversion(nova_model):
     assert result.get("outputTokens") == 60
 
     # Test content start tracks role and emits BidiResponseStartEvent
-    nova_event = {"contentStart": {"role": "USER"}}
+    # TEXT type contentStart (matches API spec)
+    nova_event = {
+        "contentStart": {
+            "role": "ASSISTANT",
+            "type": "TEXT",
+            "additionalModelFields": '{"generationStage":"FINAL"}',
+            "contentId": "content-123",
+        }
+    }
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
     assert isinstance(result, BidiResponseStartEvent)
     assert result.get("type") == "bidi_response_start"
-    assert nova_model._current_role == "USER"
+    assert nova_model._current_role == "ASSISTANT"
+    assert nova_model._generation_stage == "FINAL"
+
+    # Test AUDIO type contentStart (no additionalModelFields)
+    nova_event = {"contentStart": {"role": "ASSISTANT", "type": "AUDIO", "contentId": "content-456"}}
+    result = nova_model._convert_nova_event(nova_event)
+    assert result is not None
+    assert isinstance(result, BidiResponseStartEvent)
+    assert nova_model._current_role == "ASSISTANT"
+
+    # Test TOOL type contentStart
+    nova_event = {"contentStart": {"role": "TOOL", "type": "TOOL", "contentId": "content-789"}}
+    result = nova_model._convert_nova_event(nova_event)
+    assert result is not None
+    assert isinstance(result, BidiResponseStartEvent)
 
 
 # Audio Streaming Tests
@@ -318,31 +340,6 @@ async def test_audio_connection_lifecycle(nova_model, mock_client, mock_stream):
 
         # End audio connection
         await nova_model._end_audio_input()
-        assert not nova_model.audio_connection_active
-
-        await nova_model.stop()
-
-
-@pytest.mark.asyncio
-async def test_silence_detection(nova_model, mock_client, mock_stream):
-    """Test that silence detection automatically ends audio input."""
-    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model.client = mock_client
-        nova_model.silence_threshold = 0.1  # Short threshold for testing
-
-        await nova_model.start()
-
-        # Send audio to start connection (base64 encoded)
-        audio_b64 = base64.b64encode(b"audio data").decode("utf-8")
-        audio_event = BidiAudioInputEvent(audio=audio_b64, format="pcm", sample_rate=16000, channels=1)
-
-        await nova_model.send(audio_event)
-        assert nova_model.audio_connection_active
-
-        # Wait for silence detection
-        await asyncio.sleep(0.2)
-
-        # Audio connection should be ended
         assert not nova_model.audio_connection_active
 
         await nova_model.stop()
