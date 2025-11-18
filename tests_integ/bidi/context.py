@@ -84,7 +84,7 @@ class BidirectionalTestContext:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Stop context manager, cleanup threads, and end agent session."""
         # End agent session FIRST - this will cause receive() to exit cleanly
-        if self.agent._agent_loop and self.agent._agent_loop.active:
+        if self.agent._loop and self.agent._loop.active:
             await self.agent.stop()
             logger.debug("Agent session stopped")
 

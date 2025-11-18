@@ -45,7 +45,7 @@ def mock_websockets_connect(mock_websocket):
         return mock_websocket
 
     with unittest.mock.patch(
-        "strands.experimental.bidirectional_streaming.models.openai.websockets.connect"
+        "strands.experimental.bidi.models.openai.websockets.connect"
     ) as mock_connect:
         mock_connect.side_effect = async_connect
         yield mock_connect, mock_websocket
@@ -134,8 +134,6 @@ async def test_connection_lifecycle(mock_websockets_connect, model, system_promp
     assert model._active is True
     assert model.connection_id is not None
     assert model.websocket == mock_ws
-    assert model._event_queue is not None
-    assert model._response_task is not None
     mock_connect.assert_called_once()
 
     # Test close
@@ -293,13 +291,13 @@ async def test_send_edge_cases(mock_websockets_connect, model):
         image=image_b64,
         mime_type="image/jpeg",
     )
-    with unittest.mock.patch("strands.experimental.bidirectional_streaming.models.openai.logger") as mock_logger:
+    with unittest.mock.patch("strands.experimental.bidi.models.openai.logger") as mock_logger:
         await model.send(image_input)
         mock_logger.warning.assert_called_with("Image input not supported by OpenAI Realtime API")
 
     # Test unknown content type
     unknown_content = {"unknown_field": "value"}
-    with unittest.mock.patch("strands.experimental.bidirectional_streaming.models.openai.logger") as mock_logger:
+    with unittest.mock.patch("strands.experimental.bidi.models.openai.logger") as mock_logger:
         await model.send(unknown_content)
         assert mock_logger.warning.called
 
@@ -366,7 +364,7 @@ async def test_event_conversion(mock_websockets_connect, model):
     assert converted[0].get("text") == "Hello from OpenAI"
     assert converted[0].get("role") == "assistant"
     assert converted[0].delta == {"text": "Hello from OpenAI"}
-    assert converted[0].is_final is True
+    assert converted[0].is_final is False  # Delta events are not final
 
     # Test function call sequence
     item_added = {
@@ -480,7 +478,7 @@ def test_helper_methods(model):
     assert text_event.get("text") == "Hello"
     assert text_event.get("role") == "user"
     assert text_event.delta == {"text": "Hello"}
-    assert text_event.is_final is True
+    assert text_event.is_final is True  # Done events are final
     assert text_event.current_transcript == "Hello"
 
     # Test _create_voice_activity_event (now returns BidiInterruptionEvent for speech_started)
