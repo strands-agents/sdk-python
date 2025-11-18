@@ -12,11 +12,8 @@ from strands.multiagent.a2a.executor import StrandsA2AExecutor
 from strands.types.content import ContentBlock
 
 # Test data constants
-VALID_PNG_BYTES = (
-    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
-    b"\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xdb\x00\x00\x00\x00IEND\xaeB`\x82"
-)
-VALID_MP4_BYTES = b"\x00\x00\x00\x20ftypmp42\x00\x00\x00\x00mp42isom"
+VALID_PNG_BYTES = b"fake_png_data"
+VALID_MP4_BYTES = b"fake_mp4_data"
 VALID_DOCUMENT_BYTES = b"fake_document_data"
 
 
