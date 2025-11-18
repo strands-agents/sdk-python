@@ -8,7 +8,7 @@ import json
 import logging
 import os
 import uuid
-from typing import AsyncIterable
+from typing import Any, AsyncIterable
 
 import websockets
 
@@ -75,7 +75,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         api_key: str | None = None,
         organization: str | None = None,
         project: str | None = None,
-        session_config: dict[str, any] | None = None,
+        session_config: dict[str, Any] | None = None,
         **kwargs,
     ) -> None:
         """Initialize OpenAI Realtime bidirectional model.
@@ -296,7 +296,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
             yield BidiConnectionCloseEvent(connection_id=self.connection_id, reason="complete")
             self._active = False
 
-    def _convert_openai_event(self, openai_event: dict[str, any]) -> list[BidiOutputEvent] | None:
+    def _convert_openai_event(self, openai_event: dict[str, Any]) -> list[BidiOutputEvent] | None:
         """Convert OpenAI events to Strands TypedEvent format."""
         event_type = openai_event.get("type")
 
@@ -627,7 +627,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
         logger.debug("openai realtime connection closed")
 
-    async def _send_event(self, event: dict[str, any]) -> None:
+    async def _send_event(self, event: dict[str, Any]) -> None:
         """Send event to OpenAI via WebSocket."""
         try:
             message = json.dumps(event)

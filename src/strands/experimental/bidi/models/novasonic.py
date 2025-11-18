@@ -18,7 +18,7 @@ import json
 import logging
 import traceback
 import uuid
-from typing import AsyncIterable
+from typing import Any, AsyncIterable
 
 from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
 from aws_sdk_bedrock_runtime.config import Config, HTTPAuthSchemeResolver, SigV4AuthScheme
@@ -195,7 +195,7 @@ class BidiNovaSonicModel(BidiModel):
         """Send initialization events."""
         await self._send_nova_event(events)
 
-    def _log_event_type(self, nova_event: dict[str, any]) -> None:
+    def _log_event_type(self, nova_event: dict[str, Any]) -> None:
         """Log specific Nova Sonic event types for debugging."""
         if "usageEvent" in nova_event:
             logger.debug("usage=<%s> | nova usage event received", nova_event["usageEvent"])
@@ -213,7 +213,7 @@ class BidiNovaSonicModel(BidiModel):
             audio_bytes = base64.b64decode(audio_content)
             logger.debug("audio_bytes=<%d> | nova audio output received", len(audio_bytes))
 
-    async def receive(self) -> AsyncIterable[dict[str, any]]:
+    async def receive(self) -> AsyncIterable[BidiOutputEvent]:
         """Receive Nova Sonic events and convert to provider-agnostic format."""
         if not self.stream:
             logger.error("Stream is None")
@@ -424,7 +424,7 @@ class BidiNovaSonicModel(BidiModel):
         finally:
             logger.debug("nova connection closed")
 
-    def _convert_nova_event(self, nova_event: dict[str, any]) -> BidiOutputEvent | None:
+    def _convert_nova_event(self, nova_event: dict[str, Any]) -> BidiOutputEvent | None:
         """Convert Nova Sonic events to TypedEvent format."""
         # Handle completion start - track completionId
         if "completionStart" in nova_event:
@@ -611,7 +611,7 @@ class BidiNovaSonicModel(BidiModel):
             {"event": {"textInput": {"promptName": self.connection_id, "contentName": content_name, "content": text}}}
         )
 
-    def _get_tool_result_event(self, content_name: str, result: dict[str, any]) -> str:
+    def _get_tool_result_event(self, content_name: str, result: dict[str, Any]) -> str:
         """Generate tool result event."""
         return json.dumps(
             {
