@@ -88,7 +88,7 @@ class BidiNovaSonicModel(BidiModel):
     tool execution patterns while providing the standard BidiModel interface.
     """
 
-    def __init__(self, model_id: str = "amazon.nova-sonic-v1:0", region: str = "us-east-1", **kwargs) -> None:
+    def __init__(self, model_id: str = "amazon.nova-sonic-v1:0", region: str = "us-east-1", **kwargs: Any) -> None:
         """Initialize Nova Sonic bidirectional model.
 
         Args:
@@ -99,23 +99,23 @@ class BidiNovaSonicModel(BidiModel):
         # Model configuration
         self.model_id = model_id
         self.region = region
-        self.client = None
+        self.client: Any = None
 
         # Connection state (initialized in start())
-        self.stream = None
-        self.connection_id = None
+        self.stream: Any = None
+        self.connection_id: str = ""
         self._active = False
 
         # Nova Sonic requires unique content names
-        self.audio_content_name = None
+        self.audio_content_name: str | None = None
 
         # Audio connection state
         self.audio_connection_active = False
 
         # Track API-provided identifiers
-        self._current_completion_id = None
-        self._current_role = None
-        self._generation_stage = None
+        self._current_completion_id: str | None = None
+        self._current_role: str | None = None
+        self._generation_stage: str | None = None
 
         # Ensure certain events are sent in sequence when required
         self._send_lock = asyncio.Lock()
@@ -127,7 +127,7 @@ class BidiNovaSonicModel(BidiModel):
         system_prompt: str | None = None,
         tools: list[ToolSpec] | None = None,
         messages: Messages | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """Establish bidirectional connection to Nova Sonic.
 
@@ -179,7 +179,7 @@ class BidiNovaSonicModel(BidiModel):
             raise
 
     def _build_initialization_events(
-        self, system_prompt: str, tools: list[ToolSpec], messages: Messages | None
+        self, system_prompt: str, tools: list[ToolSpec], messages: Messages | None = None
     ) -> list[str]:
         """Build the sequence of initialization events."""
         events = [self._get_connection_start_event(), self._get_prompt_start_event(tools)]
@@ -213,7 +213,7 @@ class BidiNovaSonicModel(BidiModel):
             audio_bytes = base64.b64decode(audio_content)
             logger.debug("audio_bytes=<%d> | nova audio output received", len(audio_bytes))
 
-    async def receive(self) -> AsyncIterable[BidiOutputEvent]:
+    async def receive(self) -> AsyncIterable[BidiOutputEvent]:  # type: ignore[override]
         """Receive Nova Sonic events and convert to provider-agnostic format."""
         if not self.stream:
             logger.error("Stream is None")
@@ -225,7 +225,7 @@ class BidiNovaSonicModel(BidiModel):
         yield BidiConnectionStartEvent(connection_id=self.connection_id, model=self.model_id)
 
         try:
-            while self._active:
+            while self._active and self.stream:
                 try:
                     output = await asyncio.wait_for(self.stream.await_output(), timeout=RESPONSE_TIMEOUT)
                     result = await output[1].receive()
@@ -277,8 +277,6 @@ class BidiNovaSonicModel(BidiModel):
                 tool_result = content.get("tool_result")
                 if tool_result:
                     await self._send_tool_result(tool_result)
-            else:
-                logger.warning("content_type=<%s> | unknown content type", type(content).__name__)
         except Exception as e:
             logger.error("error=<%s> | error sending content to nova sonic", e)
             raise  # Propagate exception for debugging in experimental code
@@ -373,6 +371,9 @@ class BidiNovaSonicModel(BidiModel):
     async def _send_tool_result(self, tool_result: ToolResult) -> None:
         """Internal: Send tool result using Nova Sonic toolResult format."""
         tool_use_id = tool_result.get("toolUseId")
+        if not tool_use_id:
+            logger.error("tool result missing toolUseId")
+            return
 
         logger.debug("tool_use_id=<%s> | sending nova tool result", tool_use_id)
 
@@ -414,10 +415,11 @@ class BidiNovaSonicModel(BidiModel):
                 logger.warning("error=<%s> | error during nova sonic cleanup", e)
 
             # Close stream
-            try:
-                await self.stream.input_stream.close()
-            except Exception as e:
-                logger.warning("error=<%s> | error closing nova sonic stream", e)
+            if self.stream:
+                try:
+                    await self.stream.input_stream.close()
+                except Exception as e:
+                    logger.warning("error=<%s> | error closing nova sonic stream", e)
 
         except Exception as e:
             logger.error("error=<%s> | nova cleanup failed", str(e))
@@ -453,7 +455,10 @@ class BidiNovaSonicModel(BidiModel):
             # Audio is already base64 string from Nova Sonic
             audio_content = nova_event["audioOutput"]["content"]
             return BidiAudioStreamEvent(
-                audio=audio_content, format="pcm", sample_rate=NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"], channels=1
+                audio=audio_content,
+                format="pcm",
+                sample_rate=NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"],  # type: ignore
+                channels=1,
             )
 
         # Handle text output (transcripts)
@@ -467,7 +472,7 @@ class BidiNovaSonicModel(BidiModel):
             return BidiTranscriptStreamEvent(
                 delta={"text": text_content},
                 text=text_content,
-                role=self._current_role.lower() if self._current_role else "assistant",
+                role=self._current_role.lower() if self._current_role else "assistant",  # type: ignore
                 is_final=self._generation_stage == "FINAL",
                 current_transcript=text_content,
             )
@@ -480,8 +485,8 @@ class BidiNovaSonicModel(BidiModel):
                 "name": tool_use["toolName"],
                 "input": json.loads(tool_use["content"]),
             }
-            # Return ToolUseStreamEvent for consistency with standard agent
-            return ToolUseStreamEvent(delta={"toolUse": tool_use_event}, current_tool_use=tool_use_event)
+            # Return ToolUseStreamEvent - cast to dict for type compatibility
+            return ToolUseStreamEvent(delta={"toolUse": tool_use_event}, current_tool_use=dict(tool_use_event))  # type: ignore[return-value]
 
         # Handle interruption
         if nova_event.get("stopReason") == "INTERRUPTED":
@@ -517,7 +522,7 @@ class BidiNovaSonicModel(BidiModel):
             )
 
         # Ignore other events (contentEnd, etc.)
-        return
+        return None
 
     # Nova Sonic event template methods
     def _get_connection_start_event(self) -> str:
@@ -526,7 +531,7 @@ class BidiNovaSonicModel(BidiModel):
 
     def _get_prompt_start_event(self, tools: list[ToolSpec]) -> str:
         """Generate Nova Sonic prompt start event with tool configuration."""
-        prompt_start_event = {
+        prompt_start_event: dict[str, Any] = {
             "event": {
                 "promptStart": {
                     "promptName": self.connection_id,
@@ -543,9 +548,9 @@ class BidiNovaSonicModel(BidiModel):
 
         return json.dumps(prompt_start_event)
 
-    def _build_tool_configuration(self, tools: list[ToolSpec]) -> list[dict]:
+    def _build_tool_configuration(self, tools: list[ToolSpec]) -> list[dict[str, Any]]:
         """Build tool configuration from tool specs."""
-        tool_config = []
+        tool_config: list[dict[str, Any]] = []
         for tool in tools:
             input_schema = (
                 {"json": json.dumps(tool["inputSchema"]["json"])}
@@ -645,6 +650,10 @@ class BidiNovaSonicModel(BidiModel):
         Args:
             events: Jsonified event.
         """
+        if not self.stream:
+            logger.error("cannot send event: stream is None")
+            return
+
         try:
             async with self._send_lock:
                 for event in events:

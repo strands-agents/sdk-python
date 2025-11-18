@@ -156,7 +156,7 @@ class _BidiAudioOutput(BidiOutput):
         self._stream.close()
         self._audio.terminate()
 
-    # Adding type ignore to adhere to mypy
+        # Adding type ignore to adhere to mypy
         self._output_task = None  # type: ignore[assignment]
         self._buffer = None  # type: ignore[assignment]
         self._buffer_event = None  # type: ignore[assignment]
