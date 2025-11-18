@@ -31,9 +31,7 @@ from strands.types.tools import ToolResult
 @pytest.fixture
 def mock_genai_client():
     """Mock the Google GenAI client."""
-    with unittest.mock.patch(
-        "strands.experimental.bidirectional_streaming.models.gemini_live.genai.Client"
-    ) as mock_client_cls:
+    with unittest.mock.patch("strands.experimental.bidi.models.gemini_live.genai.Client") as mock_client_cls:
         mock_client = mock_client_cls.return_value
         mock_client.aio = unittest.mock.MagicMock()
 
