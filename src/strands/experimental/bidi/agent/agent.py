@@ -283,7 +283,7 @@ class BidiAgent:
             return
 
         # Handle plain dict - reconstruct TypedEvent for WebSocket integration
-        if isinstance(input_data, dict) and "type" in input_data:
+        if isinstance(input_data, dict) and "type" in input_data:  # type: ignore
             event_type = input_data["type"]
             if event_type == "bidi_text_input":
                 input_event = BidiTextInputEvent(text=input_data["text"], role=input_data["role"])

@@ -120,7 +120,7 @@ class _BidiAgentLoop:
         """
         logger.debug("model task starting")
 
-        async for event in self._agent.model.receive():
+        async for event in self._agent.model.receive():  # type: ignore
             await self._event_queue.put(event)
 
             if isinstance(event, BidiTranscriptStreamEvent):
