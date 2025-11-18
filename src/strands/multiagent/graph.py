@@ -453,7 +453,7 @@ class Graph(MultiAgentBase):
         self._resume_from_session = False
         self.id = id
 
-        self.hooks.invoke_callbacks(MultiAgentInitializedEvent(self))
+        run_async(lambda: self.hooks.invoke_callbacks_async(MultiAgentInitializedEvent(self)))
 
     def __call__(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
@@ -516,7 +516,7 @@ class Graph(MultiAgentBase):
         if invocation_state is None:
             invocation_state = {}
 
-        self.hooks.invoke_callbacks(BeforeMultiAgentInvocationEvent(self, invocation_state))
+        await self.hooks.invoke_callbacks_async(BeforeMultiAgentInvocationEvent(self, invocation_state))
 
         logger.debug("task=<%s> | starting graph execution", task)
 
@@ -569,7 +569,7 @@ class Graph(MultiAgentBase):
                 raise
             finally:
                 self.state.execution_time = round((time.time() - start_time) * 1000)
-                self.hooks.invoke_callbacks(AfterMultiAgentInvocationEvent(self))
+                await self.hooks.invoke_callbacks_async(AfterMultiAgentInvocationEvent(self))
                 self._resume_from_session = False
                 self._resume_next_nodes.clear()
 
@@ -776,7 +776,7 @@ class Graph(MultiAgentBase):
 
     async def _execute_node(self, node: GraphNode, invocation_state: dict[str, Any]) -> AsyncIterator[Any]:
         """Execute a single node and yield TypedEvent objects."""
-        self.hooks.invoke_callbacks(BeforeNodeCallEvent(self, node.node_id, invocation_state))
+        await self.hooks.invoke_callbacks_async(BeforeNodeCallEvent(self, node.node_id, invocation_state))
 
         # Reset the node's state if reset_on_revisit is enabled, and it's being revisited
         if self.reset_on_revisit and node in self.state.completed_nodes:
@@ -920,7 +920,7 @@ class Graph(MultiAgentBase):
             raise
 
         finally:
-            self.hooks.invoke_callbacks(AfterNodeCallEvent(self, node.node_id, invocation_state))
+            await self.hooks.invoke_callbacks_async(AfterNodeCallEvent(self, node.node_id, invocation_state))
 
     def _accumulate_metrics(self, node_result: NodeResult) -> None:
         """Accumulate metrics from a node result."""

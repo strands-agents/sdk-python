@@ -39,6 +39,7 @@ class AnthropicModel(Model):
     }
 
     OVERFLOW_MESSAGES = {
+        "prompt is too long:",
         "input is too long",
         "input length exceeds context window",
         "input and output tokens exceed your context limit",

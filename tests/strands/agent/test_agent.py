@@ -1221,6 +1221,37 @@ async def test_stream_async_multi_modal_input(mock_model, agent, agenerator, ali
     assert tru_message == exp_message
 
 
+def test_system_prompt_setter_string():
+    """Test that setting system_prompt with string updates both internal fields."""
+    agent = Agent(system_prompt="initial prompt")
+
+    agent.system_prompt = "updated prompt"
+
+    assert agent.system_prompt == "updated prompt"
+    assert agent._system_prompt_content == [{"text": "updated prompt"}]
+
+
+def test_system_prompt_setter_list():
+    """Test that setting system_prompt with list updates both internal fields."""
+    agent = Agent()
+
+    content_blocks = [{"text": "You are helpful"}, {"cache_control": {"type": "ephemeral"}}]
+    agent.system_prompt = content_blocks
+
+    assert agent.system_prompt == "You are helpful"
+    assert agent._system_prompt_content == content_blocks
+
+
+def test_system_prompt_setter_none():
+    """Test that setting system_prompt to None clears both internal fields."""
+    agent = Agent(system_prompt="initial prompt")
+
+    agent.system_prompt = None
+
+    assert agent.system_prompt is None
+    assert agent._system_prompt_content is None
+
+
 @pytest.mark.asyncio
 async def test_stream_async_passes_invocation_state(agent, mock_model, mock_event_loop_cycle, agenerator, alist):
     mock_model.mock_stream.side_effect = [
@@ -1360,6 +1391,7 @@ def test_agent_call_creates_and_ends_span_on_success(mock_get_tracer, mock_model
         tools=agent.tool_names,
         system_prompt=agent.system_prompt,
         custom_trace_attributes=agent.trace_attributes,
+        tools_config=unittest.mock.ANY,
     )
 
     # Verify span was ended with the result
@@ -1394,6 +1426,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_success(mock_get_trac
         tools=agent.tool_names,
         system_prompt=agent.system_prompt,
         custom_trace_attributes=agent.trace_attributes,
+        tools_config=unittest.mock.ANY,
     )
 
     expected_response = AgentResult(
@@ -1432,6 +1465,7 @@ def test_agent_call_creates_and_ends_span_on_exception(mock_get_tracer, mock_mod
         tools=agent.tool_names,
         system_prompt=agent.system_prompt,
         custom_trace_attributes=agent.trace_attributes,
+        tools_config=unittest.mock.ANY,
     )
 
     # Verify span was ended with the exception
@@ -1468,6 +1502,7 @@ async def test_agent_stream_async_creates_and_ends_span_on_exception(mock_get_tr
         tools=agent.tool_names,
         system_prompt=agent.system_prompt,
         custom_trace_attributes=agent.trace_attributes,
+        tools_config=unittest.mock.ANY,
     )
 
     # Verify span was ended with the exception

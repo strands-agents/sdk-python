@@ -1,12 +1,11 @@
 import concurrent
 import unittest.mock
-from unittest.mock import ANY, MagicMock, call, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 import pytest
 
 import strands
 import strands.telemetry
-from strands.agent.interrupt import InterruptState
 from strands.hooks import (
     AfterModelCallEvent,
     BeforeModelCallEvent,
@@ -14,7 +13,7 @@ from strands.hooks import (
     HookRegistry,
     MessageAddedEvent,
 )
-from strands.interrupt import Interrupt
+from strands.interrupt import Interrupt, _InterruptState
 from strands.telemetry.metrics import EventLoopMetrics
 from strands.tools.executors import SequentialToolExecutor
 from strands.tools.registry import ToolRegistry
@@ -143,7 +142,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.event_loop_metrics = EventLoopMetrics()
     mock.hooks = hook_registry
     mock.tool_executor = tool_executor
-    mock._interrupt_state = InterruptState()
+    mock._interrupt_state = _InterruptState()
 
     return mock
 
@@ -750,6 +749,7 @@ async def test_request_state_initialization(alist):
     # not setting this to False results in endless recursion
     mock_agent._interrupt_state.activated = False
     mock_agent.event_loop_metrics.start_cycle.return_value = (0, MagicMock())
+    mock_agent.hooks.invoke_callbacks_async = AsyncMock()
 
     # Call without providing request_state
     stream = strands.event_loop.event_loop.event_loop_cycle(

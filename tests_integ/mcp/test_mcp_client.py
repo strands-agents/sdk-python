@@ -420,3 +420,70 @@ async def test_streamable_http_mcp_client_times_out_before_tool():
         result = await streamable_http_client.call_tool_async(tool_use_id="123", name="timeout_tool")
         assert result["status"] == "error"
         assert result["content"][0]["text"] == "Tool execution failed: Connection closed"
+
+
+def start_5xx_proxy_for_tool_calls(target_url: str, proxy_port: int):
+    """Starts a proxy that throws a 5XX when a tool call is invoked"""
+    import aiohttp
+    from aiohttp import web
+
+    async def proxy_handler(request):
+        url = f"{target_url}{request.path_qs}"
+
+        async with aiohttp.ClientSession() as session:
+            data = await request.read()
+
+            if "tools/call" in f"{data}":
+                return web.Response(status=500, text="Internal Server Error")
+
+            async with session.request(
+                method=request.method, url=url, headers=request.headers, data=data, allow_redirects=False
+            ) as resp:
+                print(f"Got request to {url} {data}")
+                response = web.StreamResponse(status=resp.status, headers=resp.headers)
+                await response.prepare(request)
+
+                async for chunk in resp.content.iter_chunked(8192):
+                    await response.write(chunk)
+
+                return response
+
+    app = web.Application()
+    app.router.add_route("*", "/{path:.*}", proxy_handler)
+
+    web.run_app(app, host="127.0.0.1", port=proxy_port)
+
+
+@pytest.mark.asyncio
+async def test_streamable_http_mcp_client_with_500_error():
+    import asyncio
+    import multiprocessing
+
+    server_thread = threading.Thread(
+        target=start_comprehensive_mcp_server, kwargs={"transport": "streamable-http", "port": 8001}, daemon=True
+    )
+    server_thread.start()
+
+    proxy_process = multiprocessing.Process(
+        target=start_5xx_proxy_for_tool_calls, kwargs={"target_url": "http://127.0.0.1:8001", "proxy_port": 8002}
+    )
+    proxy_process.start()
+
+    try:
+        await asyncio.sleep(2)  # wait for server to startup completely
+
+        def transport_callback() -> MCPTransport:
+            return streamablehttp_client(url="http://127.0.0.1:8002/mcp")
+
+        streamable_http_client = MCPClient(transport_callback)
+        with pytest.raises(RuntimeError, match="Connection to the MCP server was closed"):
+            with streamable_http_client:
+                result = await streamable_http_client.call_tool_async(
+                    tool_use_id="123", name="calculator", arguments={"x": 3, "y": 4}
+                )
+    finally:
+        proxy_process.terminate()
+        proxy_process.join()
+
+    assert result["status"] == "error"
+    assert result["content"][0]["text"] == "Tool execution failed: Connection to the MCP server was closed"
