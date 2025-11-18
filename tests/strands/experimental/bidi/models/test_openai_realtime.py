@@ -8,7 +8,6 @@ Tests the unified BidiOpenAIRealtimeModel interface including:
 - Connection lifecycle management
 """
 
-import asyncio
 import base64
 import json
 import unittest.mock
@@ -41,10 +40,13 @@ def mock_websocket():
 @pytest.fixture
 def mock_websockets_connect(mock_websocket):
     """Mock websockets.connect function."""
+
     async def async_connect(*args, **kwargs):
         return mock_websocket
 
-    with unittest.mock.patch("strands.experimental.bidirectional_streaming.models.openai.websockets.connect") as mock_connect:
+    with unittest.mock.patch(
+        "strands.experimental.bidirectional_streaming.models.openai.websockets.connect"
+    ) as mock_connect:
         mock_connect.side_effect = async_connect
         yield mock_connect, mock_websocket
 
@@ -102,12 +104,7 @@ def test_model_initialization(api_key, model_name):
     assert model_custom.api_key == api_key
 
     # Test with organization and project
-    model_org = BidiOpenAIRealtimeModel(
-        model=model_name,
-        api_key=api_key,
-        organization="org-123",
-        project="proj-456"
-    )
+    model_org = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key, organization="org-123", project="proj-456")
     assert model_org.organization == "org-123"
     assert model_org.project == "proj-456"
 
@@ -150,8 +147,7 @@ async def test_connection_lifecycle(mock_websockets_connect, model, system_promp
     await model.start(system_prompt=system_prompt)
     calls = mock_ws.send.call_args_list
     session_update = next(
-        (json.loads(call[0][0]) for call in calls if json.loads(call[0][0]).get("type") == "session.update"),
-        None
+        (json.loads(call[0][0]) for call in calls if json.loads(call[0][0]).get("type") == "session.update"), None
     )
     assert session_update is not None
     assert system_prompt in session_update["session"]["instructions"]
@@ -161,7 +157,9 @@ async def test_connection_lifecycle(mock_websockets_connect, model, system_promp
     await model.start(tools=[tool_spec])
     calls = mock_ws.send.call_args_list
     # Tools are sent in a separate session.update after initial connection
-    session_updates = [json.loads(call[0][0]) for call in calls if json.loads(call[0][0]).get("type") == "session.update"]
+    session_updates = [
+        json.loads(call[0][0]) for call in calls if json.loads(call[0][0]).get("type") == "session.update"
+    ]
     assert len(session_updates) > 0
     # Check if any session update has tools
     has_tools = any("tools" in update.get("session", {}) for update in session_updates)
@@ -171,7 +169,9 @@ async def test_connection_lifecycle(mock_websockets_connect, model, system_promp
     # Test connection with messages
     await model.start(messages=messages)
     calls = mock_ws.send.call_args_list
-    item_creates = [json.loads(call[0][0]) for call in calls if json.loads(call[0][0]).get("type") == "conversation.item.create"]
+    item_creates = [
+        json.loads(call[0][0]) for call in calls if json.loads(call[0][0]).get("type") == "conversation.item.create"
+    ]
     assert len(item_creates) > 0
     await model.stop()
 
@@ -200,6 +200,7 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
     # Reset mock
     async def async_connect(*args, **kwargs):
         return mock_ws
+
     mock_connect.side_effect = async_connect
 
     # Test double connection
@@ -241,7 +242,7 @@ async def test_send_all_content_types(mock_websockets_connect, model):
     assert len(response_create) > 0
 
     # Test audio input (base64 encoded)
-    audio_b64 = base64.b64encode(b"audio_bytes").decode('utf-8')
+    audio_b64 = base64.b64encode(b"audio_bytes").decode("utf-8")
     audio_input = BidiAudioInputEvent(
         audio=audio_b64,
         format="pcm",
@@ -287,7 +288,7 @@ async def test_send_edge_cases(mock_websockets_connect, model):
 
     # Test image input (not supported, base64 encoded, no encoding parameter)
     await model.start()
-    image_b64 = base64.b64encode(b"image_bytes").decode('utf-8')
+    image_b64 = base64.b64encode(b"image_bytes").decode("utf-8")
     image_input = BidiImageInputEvent(
         image=image_b64,
         mime_type="image/jpeg",
@@ -346,10 +347,7 @@ async def test_event_conversion(mock_websockets_connect, model):
     await model.start()
 
     # Test audio output (now returns list with BidiAudioStreamEvent)
-    audio_event = {
-        "type": "response.output_audio.delta",
-        "delta": base64.b64encode(b"audio_data").decode()
-    }
+    audio_event = {"type": "response.output_audio.delta", "delta": base64.b64encode(b"audio_data").decode()}
     converted = model._convert_openai_event(audio_event)
     assert isinstance(converted, list)
     assert len(converted) == 1
@@ -359,10 +357,7 @@ async def test_event_conversion(mock_websockets_connect, model):
     assert converted[0].get("format") == "pcm"
 
     # Test text output (now returns list with BidiTranscriptStreamEvent)
-    text_event = {
-        "type": "response.output_text.delta",
-        "delta": "Hello from OpenAI"
-    }
+    text_event = {"type": "response.output_text.delta", "delta": "Hello from OpenAI"}
     converted = model._convert_openai_event(text_event)
     assert isinstance(converted, list)
     assert len(converted) == 1
@@ -376,25 +371,18 @@ async def test_event_conversion(mock_websockets_connect, model):
     # Test function call sequence
     item_added = {
         "type": "response.output_item.added",
-        "item": {
-            "type": "function_call",
-            "call_id": "call-123",
-            "name": "calculator"
-        }
+        "item": {"type": "function_call", "call_id": "call-123", "name": "calculator"},
     }
     model._convert_openai_event(item_added)
 
     args_delta = {
         "type": "response.function_call_arguments.delta",
         "call_id": "call-123",
-        "delta": '{"expression": "2+2"}'
+        "delta": '{"expression": "2+2"}',
     }
     model._convert_openai_event(args_delta)
 
-    args_done = {
-        "type": "response.function_call_arguments.done",
-        "call_id": "call-123"
-    }
+    args_done = {"type": "response.function_call_arguments.done", "call_id": "call-123"}
     converted = model._convert_openai_event(args_done)
     # Now returns list with ToolUseStreamEvent
     assert isinstance(converted, list)
@@ -408,9 +396,7 @@ async def test_event_conversion(mock_websockets_connect, model):
     assert tool_use["input"]["expression"] == "2+2"
 
     # Test voice activity (now returns list with BidiInterruptionEvent for speech_started)
-    speech_started = {
-        "type": "input_audio_buffer.speech_started"
-    }
+    speech_started = {"type": "input_audio_buffer.speech_started"}
     converted = model._convert_openai_event(speech_started)
     assert isinstance(converted, list)
     assert len(converted) == 1
@@ -419,12 +405,7 @@ async def test_event_conversion(mock_websockets_connect, model):
     assert converted[0].get("reason") == "user_speech"
 
     # Test response.cancelled event (should return ResponseCompleteEvent with interrupted reason)
-    response_cancelled = {
-        "type": "response.cancelled",
-        "response": {
-            "id": "resp_123"
-        }
-    }
+    response_cancelled = {"type": "response.cancelled", "response": {"id": "resp_123"}}
     converted = model._convert_openai_event(response_cancelled)
     assert isinstance(converted, list)
     assert len(converted) == 1
@@ -436,22 +417,13 @@ async def test_event_conversion(mock_websockets_connect, model):
     # Test error handling - response_cancel_not_active should be suppressed
     error_cancel_not_active = {
         "type": "error",
-        "error": {
-            "code": "response_cancel_not_active",
-            "message": "No active response to cancel"
-        }
+        "error": {"code": "response_cancel_not_active", "message": "No active response to cancel"},
     }
     converted = model._convert_openai_event(error_cancel_not_active)
     assert converted is None  # Should be suppressed
 
     # Test error handling - other errors should be logged but return None
-    error_other = {
-        "type": "error",
-        "error": {
-            "code": "some_other_error",
-            "message": "Something went wrong"
-        }
-    }
+    error_other = {"type": "error", "error": {"code": "some_other_error", "message": "Something went wrong"}}
     converted = model._convert_openai_event(error_other)
     assert converted is None
 
@@ -516,7 +488,7 @@ def test_helper_methods(model):
     assert isinstance(voice_event, BidiInterruptionEvent)
     assert voice_event.get("type") == "bidi_interruption"
     assert voice_event.get("reason") == "user_speech"
-    
+
     # Other voice activities return None
     assert model._create_voice_activity_event("speech_stopped") is None
 

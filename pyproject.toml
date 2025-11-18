@@ -129,7 +129,9 @@ source = "vcs"  # Use git tags for versioning
 
 [tool.hatch.envs.hatch-static-analysis]
 installer = "uv"
-features = ["all", "bidi-all"]
+# Only install 'all' features, not 'bidi-all' which requires Python 3.12+
+# The bidi code will still be type-checked, but without installing its runtime dependencies
+features = ["all"]
 dependencies = [
   "mypy>=1.15.0,<2.0.0",
   "ruff>=0.13.0,<0.14.0",
@@ -221,6 +223,14 @@ warn_no_return = true
 warn_unreachable = true
 follow_untyped_imports = true
 ignore_missing_imports = false
+# Ignore missing imports for optional bidi dependencies (not installed in lint environment)
+[[tool.mypy.overrides]]
+module = [
+    "smithy_core.*",
+    "smithy_aws_core.*",
+    "aws_sdk_bedrock_runtime.*",
+]
+ignore_missing_imports = true
 
 
 [tool.ruff]

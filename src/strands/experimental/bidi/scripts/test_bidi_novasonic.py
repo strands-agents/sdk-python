@@ -6,11 +6,6 @@ interruption handling, and concurrent tool execution using Nova Sonic.
 
 import asyncio
 import base64
-import sys
-from pathlib import Path
-
-# Add the src directory to Python path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 import os
 import time
 
@@ -32,7 +27,7 @@ def test_direct_tools():
 
     try:
         model = BidiNovaSonicModel()
-        agent = BidirectionalAgent(model=model, tools=[calculator])
+        agent = BidiAgent(model=model, tools=[calculator])
 
         # Test calculator
         result = agent.tool.calculator(expression="2 * 3")
@@ -131,7 +126,7 @@ async def receive(agent, context):
     try:
         async for event in agent.receive():
             event_type = event.get("type", "unknown")
-            
+
             # Handle audio stream events (bidi_audio_stream)
             if event_type == "bidi_audio_stream":
                 if not context.get("interrupted", False):
@@ -148,25 +143,25 @@ async def receive(agent, context):
             elif event_type == "bidi_transcript_stream":
                 text_content = event.get("text", "")
                 role = event.get("role", "unknown")
-                
+
                 # Log transcript output
                 if role == "user":
                     print(f"User: {text_content}")
                 elif role == "assistant":
                     print(f"Assistant: {text_content}")
-            
+
             # Handle response complete events (bidi_response_complete)
             elif event_type == "bidi_response_complete":
                 # Reset interrupted state since the turn is complete
                 context["interrupted"] = False
-            
+
             # Handle tool use events (tool_use_stream)
             elif event_type == "tool_use_stream":
                 tool_use = event.get("current_tool_use", {})
                 tool_name = tool_use.get("name", "unknown")
                 tool_input = tool_use.get("input", {})
                 print(f"🔧 Tool called: {tool_name} with input: {tool_input}")
-            
+
             # Handle tool result events (tool_result)
             elif event_type == "tool_result":
                 tool_result = event.get("tool_result", {})
@@ -191,14 +186,9 @@ async def send(agent, context):
                 audio_bytes = context["audio_in"].get_nowait()
                 # Create audio event using TypedEvent
                 from strands.experimental.bidi.types.events import BidiAudioInputEvent
-                
-                audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
-                audio_event = BidiAudioInputEvent(
-                    audio=audio_b64,
-                    format="pcm",
-                    sample_rate=16000,
-                    channels=1
-                )
+
+                audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+                audio_event = BidiAudioInputEvent(audio=audio_b64, format="pcm", sample_rate=16000, channels=1)
                 await agent.send(audio_event)
             except asyncio.QueueEmpty:
                 await asyncio.sleep(0.01)  # Restored to working timing

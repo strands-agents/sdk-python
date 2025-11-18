@@ -74,11 +74,11 @@ class AudioGenerator:
             cache_path = self._get_cache_path(cache_key)
 
             if cache_path.exists():
-                logger.debug(f"Using cached audio for: {text[:50]}...")
+                logger.debug("text_preview=<%s> | using cached audio", text[:50])
                 return cache_path.read_bytes()
 
         # Generate audio with Polly
-        logger.debug(f"Generating audio with Polly: {text[:50]}...")
+        logger.debug("text_preview=<%s> | generating audio with polly", text[:50])
 
         try:
             response = self.polly_client.synthesize_speech(
@@ -95,12 +95,12 @@ class AudioGenerator:
             # Cache for future use
             if use_cache:
                 cache_path.write_bytes(audio_data)
-                logger.debug(f"Cached audio: {cache_path}")
+                logger.debug("cache_path=<%s> | cached audio", cache_path)
 
             return audio_data
 
         except Exception as e:
-            logger.error(f"Polly audio generation failed: {e}")
+            logger.error("error=<%s> | polly audio generation failed", e)
             raise
 
     def create_audio_input_event(
@@ -122,8 +122,8 @@ class AudioGenerator:
             BidiAudioInputEvent dict ready for agent.send().
         """
         # Convert bytes to base64 string for JSON compatibility
-        audio_b64 = base64.b64encode(audio_data).decode('utf-8')
-        
+        audio_b64 = base64.b64encode(audio_data).decode("utf-8")
+
         return {
             "type": "bidi_audio_input",
             "audio": audio_b64,

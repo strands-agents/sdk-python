@@ -1,6 +1,12 @@
 """Bidirectional streaming package."""
 
 # Main components - Primary user interface
+# Re-export standard agent events for tool handling
+from ...types._events import (
+    ToolResultEvent,
+    ToolStreamEvent,
+    ToolUseStreamEvent,
+)
 from .agent.agent import BidiAgent
 
 # IO channels - Hardware abstraction
@@ -24,20 +30,13 @@ from .types.events import (
     BidiImageInputEvent,
     BidiInputEvent,
     BidiInterruptionEvent,
-    ModalityUsage,
-    BidiUsageEvent,
     BidiOutputEvent,
     BidiResponseCompleteEvent,
     BidiResponseStartEvent,
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
-)
-
-# Re-export standard agent events for tool handling
-from ...types._events import (
-    ToolResultEvent,
-    ToolStreamEvent,
-    ToolUseStreamEvent,
+    BidiUsageEvent,
+    ModalityUsage,
 )
 
 __all__ = [
@@ -49,13 +48,11 @@ __all__ = [
     "BidiGeminiLiveModel",
     "BidiNovaSonicModel",
     "BidiOpenAIRealtimeModel",
-    
     # Input Event types
     "BidiTextInputEvent",
     "BidiAudioInputEvent",
     "BidiImageInputEvent",
     "BidiInputEvent",
-    
     # Output Event types
     "BidiConnectionStartEvent",
     "BidiConnectionCloseEvent",
@@ -68,12 +65,10 @@ __all__ = [
     "ModalityUsage",
     "BidiErrorEvent",
     "BidiOutputEvent",
-    
     # Tool Event types (reused from standard agent)
     "ToolUseStreamEvent",
     "ToolResultEvent",
     "ToolStreamEvent",
-    
     # Model interface
     "BidiModel",
 ]

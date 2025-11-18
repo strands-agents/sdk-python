@@ -25,16 +25,14 @@ from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
 from ....tools.watcher import ToolWatcher
 from ....types.content import Message, Messages
-from ....types.tools import ToolResult, ToolUse, AgentTool
-
-from .loop import _BidiAgentLoop
-from ..hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
+from ....types.tools import AgentTool, ToolResult, ToolUse
+from ...tools import ToolProvider
 from ..models.bidi_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
-from ..types.events import BidiAudioInputEvent, BidiImageInputEvent, BidiTextInputEvent, BidiInputEvent, BidiOutputEvent
+from ..types.events import BidiAudioInputEvent, BidiImageInputEvent, BidiInputEvent, BidiOutputEvent, BidiTextInputEvent
 from ..types.io import BidiInput, BidiOutput
-from ...tools import ToolProvider
+from .loop import _BidiAgentLoop
 
 logger = logging.getLogger(__name__)
 
@@ -51,8 +49,8 @@ class BidiAgent:
 
     def __init__(
         self,
-        model: BidiModel| str | None = None,
-        tools: list[str| AgentTool| ToolProvider]| None = None,
+        model: BidiModel | str | None = None,
+        tools: list[str | AgentTool | ToolProvider] | None = None,
         system_prompt: str | None = None,
         messages: Messages | None = None,
         record_direct_tool_call: bool = True,
@@ -224,7 +222,7 @@ class BidiAgent:
         self.messages.append(tool_result_msg)
         self.messages.append(assistant_msg)
 
-        logger.debug("Direct tool call recorded in message history: %s", tool["name"])
+        logger.debug("tool_name=<%s> | direct tool call recorded in message history", tool["name"])
 
     def _filter_tool_parameters_for_recording(self, tool_name: str, input_params: dict[str, Any]) -> dict[str, Any]:
         """Filter input parameters to only include those defined in the tool specification.
@@ -251,27 +249,27 @@ class BidiAgent:
         Initializes the streaming connection and starts background tasks for processing
         model events, tool execution, and connection management.
         """
-        logger.debug("starting agent")
+        logger.debug("agent starting")
 
         await self._loop.start()
 
     async def send(self, input_data: BidiAgentInput) -> None:
         """Send input to the model (text, audio, image, or event dict).
-        
+
         Unified method for sending text, audio, and image input to the model during
         an active conversation session. Accepts TypedEvent instances or plain dicts
         (e.g., from WebSocket clients) which are automatically reconstructed.
-        
+
         Args:
             input_data: Can be:
                 - str: Text message from user
                 - BidiAudioInputEvent: Audio data with format/sample rate
                 - BidiImageInputEvent: Image data with MIME type
                 - dict: Event dictionary (will be reconstructed to TypedEvent)
-            
+
         Raises:
             ValueError: If no active session or invalid input type.
-            
+
         Example:
             await agent.send("Hello")
             await agent.send(BidiAudioInputEvent(audio="base64...", format="pcm", ...))
@@ -287,18 +285,18 @@ class BidiAgent:
             self.messages.append(user_message)
             self.hooks.invoke_callbacks(BidiMessageAddedEvent(agent=self, message=user_message))
 
-            logger.debug("Text sent: %d characters", len(input_data))
+            logger.debug("text_length=<%d> | text sent to model", len(input_data))
             # Create BidiTextInputEvent for send()
             text_event = BidiTextInputEvent(text=input_data, role="user")
             await self.model.send(text_event)
             return
-        
+
         # Handle BidiInputEvent instances
         # Check this before dict since TypedEvent inherits from dict
         if isinstance(input_data, BidiInputEvent):
             await self.model.send(input_data)
             return
-        
+
         # Handle plain dict - reconstruct TypedEvent for WebSocket integration
         if isinstance(input_data, dict) and "type" in input_data:
             event_type = input_data["type"]
@@ -309,23 +307,22 @@ class BidiAgent:
                     audio=input_data["audio"],
                     format=input_data["format"],
                     sample_rate=input_data["sample_rate"],
-                    channels=input_data["channels"]
+                    channels=input_data["channels"],
                 )
             elif event_type == "bidi_image_input":
-                input_event = BidiImageInputEvent(
-                    image=input_data["image"],
-                    mime_type=input_data["mime_type"]
-                )
+                input_event = BidiImageInputEvent(image=input_data["image"], mime_type=input_data["mime_type"])
             else:
                 raise ValueError(f"Unknown event type: {event_type}")
-            
+
             # Send the reconstructed TypedEvent
             await self.model.send(input_event)
             return
-        
+
         # If we get here, input type is invalid
         raise ValueError(
-            f"Input must be a string, BidiInputEvent (BidiTextInputEvent/BidiAudioInputEvent/BidiImageInputEvent), or event dict with 'type' field, got: {type(input_data)}"
+            f"Input must be a string, BidiInputEvent "
+            f"(BidiTextInputEvent/BidiAudioInputEvent/BidiImageInputEvent), "
+            f"or event dict with 'type' field, got: {type(input_data)}"
         )
 
     async def receive(self) -> AsyncIterable[BidiOutputEvent]:
@@ -356,7 +353,7 @@ class BidiAgent:
         Returns:
             Self for use in the context.
         """
-        logger.debug("Entering async context manager - starting connection")
+        logger.debug("context_manager=<enter> | starting connection")
         await self.start()
         return self
 
@@ -372,32 +369,33 @@ class BidiAgent:
             exc_tb: Exception traceback if an exception occurred, None otherwise.
         """
         try:
-            logger.debug("Exiting async context manager - cleaning up adapters and connection")
-            
+            logger.debug("context_manager=<exit> | cleaning up adapters and connection")
+
             # Cleanup adapters if any are currently active
             for adapter in self._current_adapters:
                 if hasattr(adapter, "cleanup"):
                     try:
                         adapter.stop()
-                        logger.debug(f"Cleaned up adapter: {type(adapter).__name__}")
+                        logger.debug("adapter_type=<%s> | adapter cleaned up", type(adapter).__name__)
                     except Exception as adapter_error:
-                        logger.warning(f"Error cleaning up adapter: {adapter_error}")
-            
+                        logger.warning("adapter_error=<%s> | error cleaning up adapter", adapter_error)
+
             # Clear current adapters
             self._current_adapters = []
-            
+
             # Cleanup agent connection
             await self.stop()
 
         except Exception as cleanup_error:
             if exc_type is None:
                 # No original exception, re-raise cleanup error
-                logger.error("Error during context manager cleanup: %s", cleanup_error)
+                logger.error("cleanup_error=<%s> | error during context manager cleanup", cleanup_error)
                 raise
             else:
                 # Original exception exists, log cleanup error but don't suppress original
                 logger.error(
-                    "Error during context manager cleanup (suppressed due to original exception): %s", cleanup_error
+                    "cleanup_error=<%s> | error during context manager cleanup suppressed due to original exception",
+                    cleanup_error,
                 )
 
     @property
@@ -411,29 +409,31 @@ class BidiAgent:
         Args:
             inputs: Input callables to read data from a source
             outputs: Output callables to receive events from the agent
-                
+
         Example:
             ```python
-            audio_io = BidiAudioIO(audio_config={"input_sample_rate": 16000})
+            audio_io = BidiAudioIO(input_rate=16000)
             text_io = BidiTextIO()
             agent = BidiAgent(model=model, tools=[calculator])
             await agent.run(inputs=[audio_io.input()], outputs=[audio_io.output(), text_io.output()])
             ```
         """
-        async def run_inputs():
-            while self.active:
-                for input_ in inputs:
+
+        async def run_inputs() -> None:
+            async def task(input_: BidiInput) -> None:
+                while self.active:
                     event = await input_()
                     await self.send(event)
 
-                    # TODO: Need to make tool result send in Nova provider atomic. Audio input events end up interleaving
-                    # and leading to failures. Adding a sleep here as a temporary solution.
-                    await asyncio.sleep(0.001)
+            tasks = [task(input_) for input_ in inputs]
+            await asyncio.gather(*tasks)
 
-        async def run_outputs():
+        async def run_outputs() -> None:
             async for event in self.receive():
-                for output in outputs:
-                    await output(event)
+                tasks = [output(event) for output in outputs]
+                await asyncio.gather(*tasks)
+
+        await self.start()
 
         for input_ in inputs:
             if hasattr(input_, "start"):
@@ -442,15 +442,11 @@ class BidiAgent:
         for output in outputs:
             if hasattr(output, "start"):
                 await output.start()
-        
-        # Start agent after all IO is ready
-        await self.start()
+
         try:
-            await asyncio.gather(run_inputs(), run_outputs(), return_exceptions=True)
+            await asyncio.gather(run_inputs(), run_outputs())
 
         finally:
-            await self.stop()
-            
             for input_ in inputs:
                 if hasattr(input_, "stop"):
                     await input_.stop()
@@ -458,6 +454,8 @@ class BidiAgent:
             for output in outputs:
                 if hasattr(output, "stop"):
                     await output.stop()
+
+            await self.stop()
 
     def _validate_active_connection(self) -> None:
         """Validate that an active connection exists.
