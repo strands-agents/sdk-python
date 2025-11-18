@@ -11,6 +11,7 @@ from opentelemetry.trace import (
 
 from strands.telemetry.tracer import JSONEncoder, Tracer, get_tracer, serialize
 from strands.types.content import ContentBlock
+from strands.types.interrupt import InterruptResponseContent
 from strands.types.streaming import Metrics, StopReason, Usage
 
 
@@ -394,6 +395,34 @@ def test_start_swarm_span_with_contentblock_task(mock_tracer):
             "gen_ai.user.message", attributes={"content": '[{"text": "Original Task: foo bar"}]'}
         )
         assert span is not None
+
+
+@pytest.mark.parametrize(
+    "task, expected_parts",
+    [
+        ([ContentBlock(text="Test message")], [{"type": "text", "content": "Test message"}]),
+        (
+            [InterruptResponseContent(interruptResponse={"interruptId": "test-id", "response": "approved"})],
+            [{"type": "interrupt_response", "id": "test-id", "response": "approved"}],
+        ),
+    ],
+)
+def test_start_multiagent_span_task_part_conversion(mock_tracer, task, expected_parts, monkeypatch):
+    monkeypatch.setenv("OTEL_SEMCONV_STABILITY_OPT_IN", "gen_ai_latest_experimental")
+
+    with mock.patch("strands.telemetry.tracer.trace_api.get_tracer", return_value=mock_tracer):
+        tracer = Tracer()
+        tracer.tracer = mock_tracer
+
+        mock_span = mock.MagicMock()
+        mock_tracer.start_span.return_value = mock_span
+
+        tracer.start_multiagent_span(task, "swarm")
+
+        expected_content = json.dumps([{"role": "user", "parts": expected_parts}])
+        mock_span.add_event.assert_any_call(
+            "gen_ai.client.inference.operation.details", attributes={"gen_ai.input.messages": expected_content}
+        )
 
 
 def test_start_swarm_span_with_contentblock_task_latest_conventions(mock_tracer, monkeypatch):
