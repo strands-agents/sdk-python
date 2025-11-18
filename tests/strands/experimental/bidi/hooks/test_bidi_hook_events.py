@@ -138,7 +138,6 @@ def test_before_tool_call_event_can_write_properties(before_tool_event):
     new_tool_use = ToolUse(name="new_tool", toolUseId="456", input={})
     before_tool_event.selected_tool = None  # Should not raise
     before_tool_event.tool_use = new_tool_use  # Should not raise
-    before_tool_event.cancel_tool = True  # Should not raise
 
 
 def test_before_tool_call_event_cannot_write_properties(before_tool_event):
@@ -167,4 +166,3 @@ def test_after_tool_call_event_cannot_write_properties(after_tool_event):
         after_tool_event.invocation_state = {}
     with pytest.raises(AttributeError, match="Property exception is not writable"):
         after_tool_event.exception = Exception("test")
-

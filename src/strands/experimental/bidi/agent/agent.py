@@ -284,7 +284,7 @@ class BidiAgent:
             user_message: Message = {"role": "user", "content": [{"text": input_data}]}
 
             self.messages.append(user_message)
-            self.hooks.invoke_callbacks(BidiMessageAddedEvent(agent=self, message=user_message))
+            await self.hooks.invoke_callbacks_async(BidiMessageAddedEvent(agent=self, message=user_message))
 
             logger.debug("text_length=<%d> | text sent to model", len(input_data))
             # Create BidiTextInputEvent for send()
