@@ -95,22 +95,17 @@ class _BidiAgentLoop:
 
             await self._agent.model.stop()
 
-<<<<<<< HEAD
-            self._active = False
+            if not self._event_queue.empty():
+                self._event_queue.get_nowait()
+            self._event_queue.put_nowait(self._stop_event)
 
+            self._active = False
+            self._tasks = None
+            self._stop_event = None
+            self._event_queue = None
         finally:
             # Emit after invocation event (reverse order for cleanup)
             self._agent.hooks.invoke_callbacks(BidiAfterInvocationEvent(agent=self._agent))
-=======
-        if not self._event_queue.empty():
-            self._event_queue.get_nowait()
-        self._event_queue.put_nowait(self._stop_event)
-
-        self._active = False
-        self._tasks = None
-        self._stop_event = None
-        self._event_queue = None
->>>>>>> main
 
     async def receive(self) -> AsyncIterable[BidiOutputEvent]:
         """Receive model and tool call events."""
@@ -156,7 +151,9 @@ class _BidiAgentLoop:
                 tool_use = event["current_tool_use"]
                 self._create_task(self._run_tool(tool_use))
 
-<<<<<<< HEAD
+                message: Message = {"role": "assistant", "content": [{"toolUse": tool_use}]}
+                self._agent.messages.append(message)
+
             elif isinstance(event, BidiInterruptionEvent):
                 # Emit interruption hook event
                 self._agent.hooks.invoke_callbacks(
@@ -166,16 +163,6 @@ class _BidiAgentLoop:
                         interrupted_response_id=event.get("interrupted_response_id"),
                     )
                 )
-
-                # clear the audio
-                for _ in range(self._event_queue.qsize()):
-                    event = self._event_queue.get_nowait()
-                    if not isinstance(event, BidiAudioStreamEvent):
-                        self._event_queue.put_nowait(event)
-=======
-                message: Message = {"role": "assistant", "content": [{"toolUse": tool_use}]}
-                self._agent.messages.append(message)
->>>>>>> main
 
     async def _run_tool(self, tool_use: ToolUse) -> None:
         """Task for running tool requested by the model."""
@@ -211,16 +198,8 @@ class _BidiAgentLoop:
                     await self._event_queue.put(ToolStreamEvent(tool_use, event))
 
         except Exception as e:
-<<<<<<< HEAD
-            exception = e
-            result = {
-                "toolUseId": tool_use["toolUseId"],
-                "status": "error",
-                "content": [{"text": f"Error: {str(e)}"}]
-            }
-=======
             result = {"toolUseId": tool_use["toolUseId"], "status": "error", "content": [{"text": f"Error: {str(e)}"}]}
->>>>>>> main
+
 
         finally:
             # Emit after tool call event (reverse order for cleanup)
@@ -243,9 +222,6 @@ class _BidiAgentLoop:
             "content": [{"toolResult": result}],
         }
         self._agent.messages.append(message)
-<<<<<<< HEAD
         self._agent.hooks.invoke_callbacks(BidiMessageAddedEvent(agent=self._agent, message=message))
-        self._event_queue.put_nowait(ToolResultMessageEvent(message))
-=======
         await self._event_queue.put(ToolResultMessageEvent(message))
->>>>>>> main
+

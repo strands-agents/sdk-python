@@ -286,7 +286,7 @@ class Agent:
         self._system_prompt, self._system_prompt_content = self._initialize_system_prompt(value)
 
     @property
-    def tool(self) -> ToolCaller:
+    def tool(self) -> _ToolCaller:
         """Call tool as a function.
 
         Returns:
