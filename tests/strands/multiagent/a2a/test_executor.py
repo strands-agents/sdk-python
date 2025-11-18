@@ -1,14 +1,23 @@
 """Tests for the StrandsA2AExecutor class."""
 
+import base64
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from a2a.types import InternalError, UnsupportedOperationError
+from a2a.types import DataPart, FilePart, InternalError, TextPart, UnsupportedOperationError
 from a2a.utils.errors import ServerError
 
 from strands.agent.agent_result import AgentResult as SAAgentResult
 from strands.multiagent.a2a.executor import StrandsA2AExecutor
 from strands.types.content import ContentBlock
+
+# Test data constants
+VALID_PNG_BYTES = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+    b"\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xdb\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+VALID_MP4_BYTES = b"\x00\x00\x00\x20ftypmp42\x00\x00\x00\x00mp42isom"
+VALID_DOCUMENT_BYTES = b"fake_document_data"
 
 
 def test_executor_initialization(mock_strands_agent):
@@ -96,18 +105,15 @@ def test_convert_a2a_parts_to_content_blocks_text_part():
 
 def test_convert_a2a_parts_to_content_blocks_file_part_image_bytes():
     """Test conversion of FilePart with image bytes to ContentBlock."""
-    from a2a.types import FilePart
-
     executor = StrandsA2AExecutor(MagicMock())
 
-    # Create test image bytes (no base64 encoding needed)
-    test_bytes = b"fake_image_data"
+    base64_bytes = base64.b64encode(VALID_PNG_BYTES).decode("utf-8")
 
     # Mock file object
     file_obj = MagicMock()
-    file_obj.name = "test_image.jpeg"
-    file_obj.mime_type = "image/jpeg"
-    file_obj.bytes = test_bytes
+    file_obj.name = "test_image.png"
+    file_obj.mime_type = "image/png"
+    file_obj.bytes = base64_bytes
     file_obj.uri = None
 
     # Mock FilePart with proper spec
@@ -123,24 +129,21 @@ def test_convert_a2a_parts_to_content_blocks_file_part_image_bytes():
     assert len(result) == 1
     content_block = result[0]
     assert "image" in content_block
-    assert content_block["image"]["format"] == "jpeg"
-    assert content_block["image"]["source"]["bytes"] == test_bytes
+    assert content_block["image"]["format"] == "png"
+    assert content_block["image"]["source"]["bytes"] == VALID_PNG_BYTES
 
 
 def test_convert_a2a_parts_to_content_blocks_file_part_video_bytes():
     """Test conversion of FilePart with video bytes to ContentBlock."""
-    from a2a.types import FilePart
-
     executor = StrandsA2AExecutor(MagicMock())
 
-    # Create test video bytes (no base64 encoding needed)
-    test_bytes = b"fake_video_data"
+    base64_bytes = base64.b64encode(VALID_MP4_BYTES).decode("utf-8")
 
     # Mock file object
     file_obj = MagicMock()
     file_obj.name = "test_video.mp4"
     file_obj.mime_type = "video/mp4"
-    file_obj.bytes = test_bytes
+    file_obj.bytes = base64_bytes
     file_obj.uri = None
 
     # Mock FilePart with proper spec
@@ -157,23 +160,20 @@ def test_convert_a2a_parts_to_content_blocks_file_part_video_bytes():
     content_block = result[0]
     assert "video" in content_block
     assert content_block["video"]["format"] == "mp4"
-    assert content_block["video"]["source"]["bytes"] == test_bytes
+    assert content_block["video"]["source"]["bytes"] == VALID_MP4_BYTES
 
 
 def test_convert_a2a_parts_to_content_blocks_file_part_document_bytes():
     """Test conversion of FilePart with document bytes to ContentBlock."""
-    from a2a.types import FilePart
-
     executor = StrandsA2AExecutor(MagicMock())
 
-    # Create test document bytes (no base64 encoding needed)
-    test_bytes = b"fake_document_data"
+    base64_bytes = base64.b64encode(VALID_DOCUMENT_BYTES).decode("utf-8")
 
     # Mock file object
     file_obj = MagicMock()
     file_obj.name = "test_document.pdf"
     file_obj.mime_type = "application/pdf"
-    file_obj.bytes = test_bytes
+    file_obj.bytes = base64_bytes
     file_obj.uri = None
 
     # Mock FilePart with proper spec
@@ -191,7 +191,7 @@ def test_convert_a2a_parts_to_content_blocks_file_part_document_bytes():
     assert "document" in content_block
     assert content_block["document"]["format"] == "pdf"
     assert content_block["document"]["name"] == "test_document"
-    assert content_block["document"]["source"]["bytes"] == test_bytes
+    assert content_block["document"]["source"]["bytes"] == VALID_DOCUMENT_BYTES
 
 
 def test_convert_a2a_parts_to_content_blocks_file_part_uri():
@@ -226,15 +226,15 @@ def test_convert_a2a_parts_to_content_blocks_file_part_uri():
 
 def test_convert_a2a_parts_to_content_blocks_file_part_with_bytes():
     """Test conversion of FilePart with bytes data."""
-    from a2a.types import FilePart
-
     executor = StrandsA2AExecutor(MagicMock())
+
+    base64_bytes = base64.b64encode(VALID_PNG_BYTES).decode("utf-8")
 
     # Mock file object with bytes (no validation needed since no decoding)
     file_obj = MagicMock()
     file_obj.name = "test_image.png"
     file_obj.mime_type = "image/png"
-    file_obj.bytes = b"some_binary_data"
+    file_obj.bytes = base64_bytes
     file_obj.uri = None
 
     # Mock FilePart with proper spec
@@ -250,7 +250,34 @@ def test_convert_a2a_parts_to_content_blocks_file_part_with_bytes():
     assert len(result) == 1
     content_block = result[0]
     assert "image" in content_block
-    assert content_block["image"]["source"]["bytes"] == b"some_binary_data"
+    assert content_block["image"]["source"]["bytes"] == VALID_PNG_BYTES
+
+
+def test_convert_a2a_parts_to_content_blocks_file_part_invalid_base64():
+    """Test conversion of FilePart with invalid base64 data raises ValueError."""
+    executor = StrandsA2AExecutor(MagicMock())
+
+    # Invalid base64 string - contains invalid characters
+    invalid_base64 = "SGVsbG8gV29ybGQ@#$%"
+
+    # Mock file object with invalid base64 bytes
+    file_obj = MagicMock()
+    file_obj.name = "test.txt"
+    file_obj.mime_type = "text/plain"
+    file_obj.bytes = invalid_base64
+    file_obj.uri = None
+
+    # Mock FilePart
+    file_part = MagicMock(spec=FilePart)
+    file_part.file = file_obj
+    part = MagicMock()
+    part.root = file_part
+
+    # Should handle the base64 decode error gracefully and return empty list
+    result = executor._convert_a2a_parts_to_content_blocks([part])
+    assert isinstance(result, list)
+    # The part should be skipped due to base64 decode error
+    assert len(result) == 0
 
 
 def test_convert_a2a_parts_to_content_blocks_data_part():
@@ -704,15 +731,15 @@ def test_convert_a2a_parts_to_content_blocks_empty_list():
 
 def test_convert_a2a_parts_to_content_blocks_file_part_no_name():
     """Test conversion of FilePart with no file name."""
-    from a2a.types import FilePart
-
     executor = StrandsA2AExecutor(MagicMock())
+
+    base64_bytes = base64.b64encode(VALID_DOCUMENT_BYTES).decode("utf-8")
 
     # Mock file object without name
     file_obj = MagicMock()
     delattr(file_obj, "name")  # Remove name attribute
     file_obj.mime_type = "text/plain"
-    file_obj.bytes = b"test content"
+    file_obj.bytes = base64_bytes
     file_obj.uri = None
 
     # Mock FilePart with proper spec
@@ -733,15 +760,15 @@ def test_convert_a2a_parts_to_content_blocks_file_part_no_name():
 
 def test_convert_a2a_parts_to_content_blocks_file_part_no_mime_type():
     """Test conversion of FilePart with no MIME type."""
-    from a2a.types import FilePart
-
     executor = StrandsA2AExecutor(MagicMock())
+
+    base64_bytes = base64.b64encode(VALID_DOCUMENT_BYTES).decode("utf-8")
 
     # Mock file object without MIME type
     file_obj = MagicMock()
     file_obj.name = "test_file"
     delattr(file_obj, "mime_type")
-    file_obj.bytes = b"test content"
+    file_obj.bytes = base64_bytes
     file_obj.uri = None
 
     # Mock FilePart with proper spec
@@ -837,7 +864,6 @@ async def test_execute_streaming_mode_raises_error_for_empty_content_blocks(
 @pytest.mark.asyncio
 async def test_execute_with_mixed_part_types(mock_strands_agent, mock_request_context, mock_event_queue):
     """Test execute with a message containing mixed A2A part types."""
-    from a2a.types import DataPart, FilePart, TextPart
 
     async def mock_stream(content_blocks):
         """Mock streaming function."""
@@ -866,7 +892,7 @@ async def test_execute_with_mixed_part_types(mock_strands_agent, mock_request_co
     file_obj = MagicMock()
     file_obj.name = "image.png"
     file_obj.mime_type = "image/png"
-    file_obj.bytes = b"fake_image"
+    file_obj.bytes = base64.b64encode(VALID_PNG_BYTES).decode("utf-8")
     file_obj.uri = None
     file_part = MagicMock(spec=FilePart)
     file_part.file = file_obj
@@ -907,8 +933,6 @@ def test_integration_example():
 
     This test serves as documentation for the conversion functionality.
     """
-    from a2a.types import DataPart, FilePart, TextPart
-
     executor = StrandsA2AExecutor(MagicMock())
 
     # Example 1: Text content
@@ -918,7 +942,7 @@ def test_integration_example():
     text_part_mock.root = text_part
 
     # Example 2: Image file
-    image_bytes = b"fake_image_content"
+    image_bytes = base64.b64encode(VALID_PNG_BYTES).decode("utf-8")
     image_file = MagicMock()
     image_file.name = "photo.jpg"
     image_file.mime_type = "image/jpeg"
@@ -931,7 +955,7 @@ def test_integration_example():
     image_part_mock.root = image_part
 
     # Example 3: Document file
-    doc_bytes = b"PDF document content"
+    doc_bytes = base64.b64encode(VALID_DOCUMENT_BYTES).decode("utf-8")
     doc_file = MagicMock()
     doc_file.name = "report.pdf"
     doc_file.mime_type = "application/pdf"
@@ -962,13 +986,13 @@ def test_integration_example():
     # Image part becomes image ContentBlock with proper format and bytes
     assert "image" in content_blocks[1]
     assert content_blocks[1]["image"]["format"] == "jpeg"
-    assert content_blocks[1]["image"]["source"]["bytes"] == image_bytes
+    assert content_blocks[1]["image"]["source"]["bytes"] == VALID_PNG_BYTES
 
     # Document part becomes document ContentBlock
     assert "document" in content_blocks[2]
     assert content_blocks[2]["document"]["format"] == "pdf"
     assert content_blocks[2]["document"]["name"] == "report"  # Extension stripped
-    assert content_blocks[2]["document"]["source"]["bytes"] == doc_bytes
+    assert content_blocks[2]["document"]["source"]["bytes"] == VALID_DOCUMENT_BYTES
 
     # Data part becomes text ContentBlock with JSON representation
     assert "text" in content_blocks[3]

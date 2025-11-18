@@ -8,6 +8,7 @@ The A2A AgentExecutor ensures clients receive responses for synchronous and
 streamed requests to the A2AServer.
 """
 
+import base64
 import json
 import logging
 import mimetypes
@@ -268,18 +269,31 @@ class StrandsA2AExecutor(AgentExecutor):
                     file_name = self._strip_file_extension(raw_file_name)
                     file_type = self._get_file_type_from_mime_type(mime_type)
                     file_format = self._get_file_format_from_mime_type(mime_type, file_type)
+                    logger.info(
+                        "File processing: name=%s, mime=%s, type=%s, format=%s",
+                        raw_file_name,
+                        mime_type,
+                        file_type,
+                        file_format,
+                    )
 
                     # Handle FileWithBytes vs FileWithUri
                     bytes_data = getattr(file_obj, "bytes", None)
                     uri_data = getattr(file_obj, "uri", None)
 
                     if bytes_data:
+                        # A2A bytes are always base64-encoded strings
+                        try:
+                            decoded_bytes = base64.b64decode(bytes_data)
+                        except Exception as e:
+                            raise ValueError(f"Failed to decode base64 data for file '{raw_file_name}': {e}") from e
+
                         if file_type == "image":
                             content_blocks.append(
                                 ContentBlock(
                                     image=ImageContent(
                                         format=file_format,  # type: ignore
-                                        source=ImageSource(bytes=bytes_data),
+                                        source=ImageSource(bytes=decoded_bytes),
                                     )
                                 )
                             )
@@ -288,7 +302,7 @@ class StrandsA2AExecutor(AgentExecutor):
                                 ContentBlock(
                                     video=VideoContent(
                                         format=file_format,  # type: ignore
-                                        source=VideoSource(bytes=bytes_data),
+                                        source=VideoSource(bytes=decoded_bytes),
                                     )
                                 )
                             )
@@ -298,7 +312,7 @@ class StrandsA2AExecutor(AgentExecutor):
                                     document=DocumentContent(
                                         format=file_format,  # type: ignore
                                         name=file_name,
-                                        source=DocumentSource(bytes=bytes_data),
+                                        source=DocumentSource(bytes=decoded_bytes),
                                     )
                                 )
                             )
