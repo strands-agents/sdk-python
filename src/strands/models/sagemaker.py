@@ -202,6 +202,7 @@ class SageMakerAIModel(OpenAIModel):
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
         tool_choice: ToolChoice | None = None,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         """Format an Amazon SageMaker chat streaming request.
 
@@ -211,6 +212,7 @@ class SageMakerAIModel(OpenAIModel):
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation. **Note: This parameter is accepted for
                 interface consistency but is currently ignored for this model provider.**
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             An Amazon SageMaker chat streaming request.
@@ -501,11 +503,12 @@ class SageMakerAIModel(OpenAIModel):
 
     @override
     @classmethod
-    def format_request_tool_message(cls, tool_result: ToolResult) -> dict[str, Any]:
+    def format_request_tool_message(cls, tool_result: ToolResult, **kwargs: Any) -> dict[str, Any]:
         """Format a SageMaker compatible tool message.
 
         Args:
             tool_result: Tool result collected from a tool execution.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             SageMaker compatible tool message with content as a string.
@@ -531,11 +534,12 @@ class SageMakerAIModel(OpenAIModel):
 
     @override
     @classmethod
-    def format_request_message_content(cls, content: ContentBlock) -> dict[str, Any]:
+    def format_request_message_content(cls, content: ContentBlock, **kwargs: Any) -> dict[str, Any]:
         """Format a content block.
 
         Args:
             content: Message content.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             Formatted content block.

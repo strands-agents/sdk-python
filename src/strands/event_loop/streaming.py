@@ -350,8 +350,11 @@ def extract_usage_metrics(event: MetadataEvent, time_to_first_byte_ms: int | Non
     Returns:
         The extracted usage metrics and latency.
     """
-    usage = Usage(**event["usage"])
-    metrics = Metrics(**event["metrics"])
+    # MetadataEvent has total=False, making all fields optional, but Usage and Metrics types
+    # have Required fields. Provide defaults to handle cases where custom models don't
+    # provide usage/metrics (e.g., when latency info is unavailable).
+    usage = Usage(**{"inputTokens": 0, "outputTokens": 0, "totalTokens": 0, **event.get("usage", {})})
+    metrics = Metrics(**{"latencyMs": 0, **event.get("metrics", {})})
     if time_to_first_byte_ms:
         metrics["timeToFirstByteMs"] = time_to_first_byte_ms
 

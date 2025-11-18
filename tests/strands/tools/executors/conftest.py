@@ -4,8 +4,8 @@ import unittest.mock
 import pytest
 
 import strands
-from strands.agent.interrupt import InterruptState
 from strands.hooks import AfterToolCallEvent, BeforeToolCallEvent, HookRegistry
+from strands.interrupt import _InterruptState
 from strands.tools.registry import ToolRegistry
 from strands.types.tools import ToolContext
 
@@ -104,7 +104,7 @@ def agent(tool_registry, hook_registry):
     mock_agent = unittest.mock.Mock()
     mock_agent.tool_registry = tool_registry
     mock_agent.hooks = hook_registry
-    mock_agent._interrupt_state = InterruptState()
+    mock_agent._interrupt_state = _InterruptState()
     return mock_agent
 
 

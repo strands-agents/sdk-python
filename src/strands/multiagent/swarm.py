@@ -156,6 +156,7 @@ class SwarmState:
     # Total metrics across all agents
     accumulated_metrics: Metrics = field(default_factory=lambda: Metrics(latencyMs=0))
     execution_time: int = 0  # Total execution time in milliseconds
+    handoff_node: SwarmNode | None = None  # The agent to execute next
     handoff_message: str | None = None  # Message passed during agent handoff
 
     def should_continue(
@@ -273,7 +274,7 @@ class Swarm(MultiAgentBase):
 
         self._setup_swarm(nodes)
         self._inject_swarm_tools()
-        self.hooks.invoke_callbacks(MultiAgentInitializedEvent(self))
+        run_async(lambda: self.hooks.invoke_callbacks_async(MultiAgentInitializedEvent(self)))
 
     def __call__(
         self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
@@ -336,7 +337,7 @@ class Swarm(MultiAgentBase):
         if invocation_state is None:
             invocation_state = {}
 
-        self.hooks.invoke_callbacks(BeforeMultiAgentInvocationEvent(self, invocation_state))
+        await self.hooks.invoke_callbacks_async(BeforeMultiAgentInvocationEvent(self, invocation_state))
 
         logger.debug("starting swarm execution")
 
@@ -375,7 +376,7 @@ class Swarm(MultiAgentBase):
                 raise
             finally:
                 self.state.execution_time = round((time.time() - self.state.start_time) * 1000)
-                self.hooks.invoke_callbacks(AfterMultiAgentInvocationEvent(self, invocation_state))
+                await self.hooks.invoke_callbacks_async(AfterMultiAgentInvocationEvent(self, invocation_state))
                 self._resume_from_session = False
 
             # Yield final result after execution_time is set
@@ -537,7 +538,7 @@ class Swarm(MultiAgentBase):
                 # Execute handoff
                 swarm_ref._handle_handoff(target_node, message, context)
 
-                return {"status": "success", "content": [{"text": f"Handed off to {agent_name}: {message}"}]}
+                return {"status": "success", "content": [{"text": f"Handing off to {agent_name}: {message}"}]}
             except Exception as e:
                 return {"status": "error", "content": [{"text": f"Error in handoff: {str(e)}"}]}
 
@@ -553,21 +554,19 @@ class Swarm(MultiAgentBase):
             )
             return
 
-        # Update swarm state
-        previous_agent = cast(SwarmNode, self.state.current_node)
-        self.state.current_node = target_node
+        current_node = cast(SwarmNode, self.state.current_node)
 
-        # Store handoff message for the target agent
+        self.state.handoff_node = target_node
         self.state.handoff_message = message
 
         # Store handoff context as shared context
         if context:
             for key, value in context.items():
-                self.shared_context.add_context(previous_agent, key, value)
+                self.shared_context.add_context(current_node, key, value)
 
         logger.debug(
-            "from_node=<%s>, to_node=<%s> | handed off from agent to agent",
-            previous_agent.node_id,
+            "from_node=<%s>, to_node=<%s> | handing off from agent to agent",
+            current_node.node_id,
             target_node.node_id,
         )
 
@@ -667,7 +666,6 @@ class Swarm(MultiAgentBase):
                     logger.debug("reason=<%s> | stopping execution", reason)
                     break
 
-                # Get current node
                 current_node = self.state.current_node
                 if not current_node or current_node.node_id not in self.nodes:
                     logger.error("node=<%s> | node not found", current_node.node_id if current_node else "None")
@@ -680,14 +678,11 @@ class Swarm(MultiAgentBase):
                     len(self.state.node_history) + 1,
                 )
 
-                # Store the current node before execution to detect handoffs
-                previous_node = current_node
-
-                # Execute node with timeout protection
                 # TODO: Implement cancellation token to stop _execute_node from continuing
                 try:
-                    # Execute with timeout wrapper for async generator streaming
-                    self.hooks.invoke_callbacks(BeforeNodeCallEvent(self, current_node.node_id, invocation_state))
+                    await self.hooks.invoke_callbacks_async(
+                        BeforeNodeCallEvent(self, current_node.node_id, invocation_state)
+                    )
                     node_stream = self._stream_with_timeout(
                         self._execute_node(current_node, self.state.task, invocation_state),
                         self.node_timeout,
@@ -697,28 +692,33 @@ class Swarm(MultiAgentBase):
                         yield event
 
                     self.state.node_history.append(current_node)
-
-                    #  After self.state add current node, swarm state finish updating, we persist here
-                    self.hooks.invoke_callbacks(AfterNodeCallEvent(self, current_node.node_id, invocation_state))
+                    await self.hooks.invoke_callbacks_async(
+                        AfterNodeCallEvent(self, current_node.node_id, invocation_state)
+                    )
 
                     logger.debug("node=<%s> | node execution completed", current_node.node_id)
 
-                    # Check if handoff occurred during execution
-                    if self.state.current_node is not None and self.state.current_node != previous_node:
-                        # Emit handoff event (single node transition in Swarm)
+                    # Check if handoff requested during execution
+                    if self.state.handoff_node:
+                        previous_node = current_node
+                        current_node = self.state.handoff_node
+
+                        self.state.handoff_node = None
+                        self.state.current_node = current_node
+
                         handoff_event = MultiAgentHandoffEvent(
                             from_node_ids=[previous_node.node_id],
-                            to_node_ids=[self.state.current_node.node_id],
+                            to_node_ids=[current_node.node_id],
                             message=self.state.handoff_message or "Agent handoff occurred",
                         )
                         yield handoff_event
                         logger.debug(
                             "from_node=<%s>, to_node=<%s> | handoff detected",
                             previous_node.node_id,
-                            self.state.current_node.node_id,
+                            current_node.node_id,
                         )
+
                     else:
-                        # No handoff occurred, mark swarm as complete
                         logger.debug("node=<%s> | no handoff occurred, marking swarm as complete", current_node.node_id)
                         self.state.completion_status = Status.COMPLETED
                         break
@@ -862,11 +862,12 @@ class Swarm(MultiAgentBase):
     def serialize_state(self) -> dict[str, Any]:
         """Serialize the current swarm state to a dictionary."""
         status_str = self.state.completion_status.value
-        next_nodes = (
-            [self.state.current_node.node_id]
-            if self.state.completion_status == Status.EXECUTING and self.state.current_node
-            else []
-        )
+        if self.state.handoff_node:
+            next_nodes = [self.state.handoff_node.node_id]
+        elif self.state.completion_status == Status.EXECUTING and self.state.current_node:
+            next_nodes = [self.state.current_node.node_id]
+        else:
+            next_nodes = []
 
         return {
             "type": "swarm",
