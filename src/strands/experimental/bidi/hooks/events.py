@@ -4,15 +4,11 @@ This module defines the events that are emitted as BidiAgent runs through
 the lifecycle of a streaming session.
 """
 
-import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from typing_extensions import override
-
 from ....hooks.registry import BaseHookEvent
 from ....types.content import Message
-from ....types.interrupt import _Interruptible
 from ....types.tools import AgentTool, ToolResult, ToolUse
 
 if TYPE_CHECKING:
@@ -96,7 +92,7 @@ class BidiMessageAddedEvent(BidiHookEvent):
 
 
 @dataclass
-class BidiBeforeToolCallEvent(BidiHookEvent, _Interruptible):
+class BidiBeforeToolCallEvent(BidiHookEvent):
     """Event triggered before BidiAgent executes a tool.
 
     This event is fired just before the BidiAgent executes a tool during a streaming
@@ -109,30 +105,14 @@ class BidiBeforeToolCallEvent(BidiHookEvent, _Interruptible):
             to change which tool gets executed. This may be None if tool lookup failed.
         tool_use: The tool parameters that will be passed to selected_tool.
         invocation_state: Keyword arguments that will be passed to the tool.
-        cancel_tool: A user defined message that when set, will cancel the tool call.
-            The message will be placed into a tool result with an error status. If set to `True`,
-            Strands will cancel the tool call and use a default cancel message.
     """
 
     selected_tool: Optional[AgentTool]
     tool_use: ToolUse
     invocation_state: dict[str, Any]
-    cancel_tool: bool | str = False
 
     def _can_write(self, name: str) -> bool:
-        return name in ["cancel_tool", "selected_tool", "tool_use"]
-
-    @override
-    def _interrupt_id(self, name: str) -> str:
-        """Unique id for the interrupt.
-
-        Args:
-            name: User defined name for the interrupt.
-
-        Returns:
-            Interrupt id.
-        """
-        return f"v1:bidi_before_tool_call:{self.tool_use['toolUseId']}:{uuid.uuid5(uuid.NAMESPACE_OID, name)}"
+        return name in ["selected_tool", "tool_use"]
 
 
 @dataclass
