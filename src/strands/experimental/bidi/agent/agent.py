@@ -22,6 +22,7 @@ from ....tools.caller import _ToolCaller
 from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
+from ....agent.state import AgentState
 from ....tools.watcher import ToolWatcher
 from ....types.content import Message, Messages
 from ....types.tools import AgentTool, ToolResult, ToolUse
@@ -58,6 +59,7 @@ class BidiAgent:
         name: str | None = None,
         tool_executor: ToolExecutor | None = None,
         description: str | None = None,
+        state: AgentState | dict | None = None,
         **kwargs: Any,
     ):
         """Initialize bidirectional agent.
@@ -73,10 +75,11 @@ class BidiAgent:
             name: Name of the Agent.
             tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
             description: Description of what the Agent does.
+            state: Stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
             **kwargs: Additional configuration for future extensibility.
 
         Raises:
-            ValueError: If model configuration is invalid.
+            ValueError: If model configuration is invalid or state is invalid type.
             TypeError: If model type is unsupported.
         """
         self.model = (
@@ -112,6 +115,17 @@ class BidiAgent:
 
         # Initialize tool executor
         self.tool_executor = tool_executor or ConcurrentToolExecutor()
+
+        # Initialize agent state management
+        if state is not None:
+            if isinstance(state, dict):
+                self.state = AgentState(state)
+            elif isinstance(state, AgentState):
+                self.state = state
+            else:
+                raise ValueError("state must be an AgentState object or a dict")
+        else:
+            self.state = AgentState()
 
         # Initialize other components
         self._tool_caller = _ToolCaller(self)
