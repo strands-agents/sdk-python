@@ -1,11 +1,12 @@
 import asyncio
 import time
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import ANY, MagicMock, Mock, patch
 
 import pytest
 
 from strands.agent import Agent, AgentResult
 from strands.agent.state import AgentState
+from strands.experimental.hooks.multiagent import BeforeNodeCallEvent
 from strands.hooks.registry import HookRegistry
 from strands.multiagent.base import Status
 from strands.multiagent.swarm import SharedContext, Swarm, SwarmNode, SwarmResult, SwarmState
@@ -1176,3 +1177,38 @@ async def test_swarm_handle_handoff():
     tru_node_order = [node.node_id for node in result.node_history]
     exp_node_order = ["first", "second"]
     assert tru_node_order == exp_node_order
+
+
+@pytest.mark.parametrize(
+    ("cancel_node", "cancel_message"),
+    [(True, "node cancelled by user"), ("custom cancel message", "custom cancel message")],
+)
+@pytest.mark.asyncio
+async def test_swarm_cancel_node(cancel_node, cancel_message, alist):
+    def cancel_callback(event):
+        event.cancel_node = cancel_node
+        return event
+
+    agent = create_mock_agent("test_agent", "Should not execute")
+    swarm = Swarm([agent])
+    swarm.hooks.add_callback(BeforeNodeCallEvent, cancel_callback)
+
+    stream = swarm.stream_async("test task")
+
+    tru_events = await alist(stream)
+    exp_events = [
+        {
+            "message": cancel_message,
+            "node_id": "test_agent",
+            "type": "multiagent_node_cancel",
+        },
+        {
+            "result": ANY,
+            "type": "multiagent_result",
+        },
+    ]
+    assert tru_events == exp_events
+
+    tru_status = swarm.state.completion_status
+    exp_status = Status.FAILED
+    assert tru_status == exp_status

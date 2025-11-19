@@ -38,6 +38,7 @@ from ..session import SessionManager
 from ..telemetry import get_tracer
 from ..types._events import (
     MultiAgentHandoffEvent,
+    MultiAgentNodeCancelEvent,
     MultiAgentNodeStartEvent,
     MultiAgentNodeStopEvent,
     MultiAgentNodeStreamEvent,
@@ -776,8 +777,6 @@ class Graph(MultiAgentBase):
 
     async def _execute_node(self, node: GraphNode, invocation_state: dict[str, Any]) -> AsyncIterator[Any]:
         """Execute a single node and yield TypedEvent objects."""
-        await self.hooks.invoke_callbacks_async(BeforeNodeCallEvent(self, node.node_id, invocation_state))
-
         # Reset the node's state if reset_on_revisit is enabled, and it's being revisited
         if self.reset_on_revisit and node in self.state.completed_nodes:
             logger.debug("node_id=<%s> | resetting node state for revisit", node.node_id)
@@ -793,8 +792,20 @@ class Graph(MultiAgentBase):
         )
         yield start_event
 
+        before_event, _ = await self.hooks.invoke_callbacks_async(
+            BeforeNodeCallEvent(self, node.node_id, invocation_state)
+        )
+
         start_time = time.time()
         try:
+            if before_event.cancel_node:
+                cancel_message = (
+                    before_event.cancel_node if isinstance(before_event.cancel_node, str) else "node cancelled by user"
+                )
+                logger.debug("reason=<%s> | cancelling execution", cancel_message)
+                yield MultiAgentNodeCancelEvent(node.node_id, cancel_message)
+                raise RuntimeError(cancel_message)
+
             # Build node input from satisfied dependencies
             node_input = self._build_node_input(node)
 
