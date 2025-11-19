@@ -159,6 +159,9 @@ class _BidiAgentLoop:
 
                 message: Message = {"role": "assistant", "content": [{"toolUse": tool_use}]}
                 self._agent.messages.append(message)
+                await self._agent.hooks.invoke_callbacks_async(
+                    BidiMessageAddedEvent(agent=self._agent, message=message)
+                )
 
             elif isinstance(event, BidiInterruptionEvent):
                 # Emit interruption hook event
