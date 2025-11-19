@@ -11,6 +11,14 @@ logger = logging.getLogger(__name__)
 class _BidiTextOutput(BidiOutput):
     """Handle text output from bidi agent."""
 
+    async def start(self) -> None:
+        """Start text output."""
+        pass
+
+    async def stop(self) -> None:
+        """Stop text output."""
+        pass
+
     async def __call__(self, event: BidiOutputEvent) -> None:
         """Print text events to stdout."""
         if isinstance(event, BidiInterruptionEvent):
