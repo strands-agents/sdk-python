@@ -186,8 +186,10 @@ class BidiNovaSonicModel(BidiModel):
 
         events.extend(self._get_system_prompt_events(system_prompt))
 
-        # Message history would be processed here if needed in the future
-        # Currently not implemented as it's not used in the existing test cases
+        # Add conversation history if provided
+        if messages:
+            events.extend(self._get_message_history_events(messages))
+            logger.debug("message_count=<%d> | conversation history added to initialization", len(messages))
 
         return events
 
@@ -566,6 +568,57 @@ class BidiNovaSonicModel(BidiModel):
             self._get_text_input_event(content_name, system_prompt),
             self._get_content_end_event(content_name),
         ]
+
+    def _get_message_history_events(self, messages: Messages) -> list[str]:
+        """Generate conversation history events from agent messages.
+
+        Converts agent message history to Nova Sonic format following the
+        contentStart/textInput/contentEnd pattern for each message.
+
+        Args:
+            messages: List of conversation messages with role and content.
+
+        Returns:
+            List of JSON event strings for Nova Sonic.
+        """
+        events = []
+
+        for message in messages:
+            role = message["role"].upper()  # Convert to ASSISTANT or USER
+            content_blocks = message.get("content", [])
+
+            # Extract text content from content blocks
+            text_parts = []
+            for block in content_blocks:
+                if "text" in block:
+                    text_parts.append(block["text"])
+                elif "toolUse" in block:
+                    # Include tool use information in text format for context
+                    tool_use = block["toolUse"]
+                    text_parts.append(f"[Tool: {tool_use['name']}]")
+                elif "toolResult" in block:
+                    # Include tool result information in text format for context
+                    tool_result = block["toolResult"]
+                    if "content" in tool_result:
+                        for result_block in tool_result["content"]:
+                            if "text" in result_block:
+                                text_parts.append(f"[Tool Result: {result_block['text']}]")
+
+            # Combine all text parts
+            if text_parts:
+                combined_text = "\n".join(text_parts)
+                content_name = str(uuid.uuid4())
+
+                # Add contentStart, textInput, and contentEnd events
+                events.extend(
+                    [
+                        self._get_text_content_start_event(content_name, role),
+                        self._get_text_input_event(content_name, combined_text),
+                        self._get_content_end_event(content_name),
+                    ]
+                )
+
+        return events
 
     def _get_text_content_start_event(self, content_name: str, role: str = "USER") -> str:
         """Generate text content start event."""
