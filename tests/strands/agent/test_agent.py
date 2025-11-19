@@ -784,6 +784,16 @@ async def test_agent__call__in_async_context(mock_model, agent, agenerator):
 
 
 @pytest.mark.asyncio
+async def test_agent_parallel_invocations():
+    model = MockedModelProvider([{"role": "assistant", "content": [{"text": "hello!"}]}])
+    agent = Agent(model=model)
+
+    async with agent._invocation_lock:
+        with pytest.raises(RuntimeError, match="Concurrent invocations are not supported"):
+            await agent.invoke_async("test")
+
+
+@pytest.mark.asyncio
 async def test_agent_invoke_async(mock_model, agent, agenerator):
     mock_model.mock_stream.return_value = agenerator(
         [

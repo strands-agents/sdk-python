@@ -4,11 +4,20 @@ Demonstrates different patterns of callback handling and processing.
 """
 
 import logging
+import threading
+import time
 
-from strands import Agent
+from strands import Agent, tool
 
 logging.getLogger("strands").setLevel(logging.DEBUG)
 logging.basicConfig(format="%(levelname)s | %(name)s | %(message)s", handlers=[logging.StreamHandler()])
+
+
+@tool
+def wait(seconds: int) -> None:
+    """Waits x seconds based on the user input.
+    Seconds - seconds to wait"""
+    time.sleep(seconds)
 
 
 class ToolCountingCallbackHandler:
@@ -68,3 +77,58 @@ def test_basic_interaction():
     agent("Tell me a short joke from your general knowledge")
 
     print("\nBasic Interaction Complete")
+
+
+def test_parallel_async_interaction():
+    """Test that concurrent agent invocations are not allowed"""
+
+    # Initialize agent
+    agent = Agent(
+        callback_handler=ToolCountingCallbackHandler().callback_handler, load_tools_from_directory=False, tools=[wait]
+    )
+
+    # Track results from both threads
+    results = {"thread1": None, "thread2": None, "exception": None}
+
+    def invoke_agent_1():
+        """First invocation - should succeed"""
+        try:
+            result = agent("wait 5 seconds")
+            results["thread1"] = result
+        except Exception as e:
+            results["thread1"] = e
+
+    def invoke_agent_2():
+        """Second invocation - should fail with exception"""
+        try:
+            result = agent("wait 5 seconds")
+            results["thread2"] = result
+        except Exception as e:
+            results["thread2"] = e
+            results["exception"] = e
+
+    # Start first invocation
+    thread1 = threading.Thread(target=invoke_agent_1)
+    thread1.start()
+
+    # Give it time to start and begin waiting
+    time.sleep(1)
+
+    # Try second invocation while first is still running
+    thread2 = threading.Thread(target=invoke_agent_2)
+    thread2.start()
+
+    thread1.join()
+    thread2.join()
+
+    # Assertions
+    assert results["thread1"] is not None, "First invocation should complete"
+    assert not isinstance(results["thread1"], Exception), "First invocation should succeed"
+
+    assert results["exception"] is not None, "Second invocation should throw exception"
+    assert isinstance(results["thread2"], Exception), "Second invocation should fail"
+
+    expected_message = "Agent is already processing a request. Concurrent invocations are not supported"
+    assert expected_message in str(results["thread2"]), (
+        f"Exception message should contain '{expected_message}', but got: {str(results['thread2'])}"
+    )

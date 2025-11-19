@@ -9,6 +9,7 @@ The Agent interface supports two complementary interaction patterns:
 2. Method-style for direct tool access: `agent.tool.tool_name(param1="value")`
 """
 
+import asyncio
 import json
 import logging
 import random
@@ -293,6 +294,7 @@ class Agent:
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
+        self._invocation_lock = asyncio.Lock()
 
         # If not provided, create a new PrintingCallbackHandler instance
         # If explicitly set to None, use null_callback_handler
@@ -494,13 +496,17 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
-        events = self.stream_async(
-            prompt, invocation_state=invocation_state, structured_output_model=structured_output_model, **kwargs
-        )
-        async for event in events:
-            _ = event
+        if self._invocation_lock.locked():
+            raise RuntimeError("Agent is already processing a request. Concurrent invocations are not supported.")
 
-        return cast(AgentResult, event["result"])
+        async with self._invocation_lock:
+            events = self.stream_async(
+                prompt, invocation_state=invocation_state, structured_output_model=structured_output_model, **kwargs
+            )
+            async for event in events:
+                _ = event
+
+            return cast(AgentResult, event["result"])
 
     def structured_output(self, output_model: Type[T], prompt: AgentInput = None) -> T:
         """This method allows you to get structured output from the agent.
