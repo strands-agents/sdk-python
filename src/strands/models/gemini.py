@@ -141,14 +141,18 @@ class GeminiModel(Model):
             )
 
         if "toolUse" in content:
-            return genai.types.Part(
+            thought_signature = cast(Optional[str], content["toolUse"].get("thoughtSignature"))
+
+            part = genai.types.Part(
                 function_call=genai.types.FunctionCall(
                     args=content["toolUse"]["input"],
                     id=content["toolUse"]["toolUseId"],
                     name=content["toolUse"]["name"],
                 ),
             )
-
+            if thought_signature:
+                part.thought_signature = thought_signature.encode("utf-8")
+            return part
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
 
     def _format_request_content(self, messages: Messages) -> list[genai.types.Content]:
@@ -268,14 +272,15 @@ class GeminiModel(Model):
                         #       that name be set in the equivalent FunctionResponse type. Consequently, we assign
                         #       function name to toolUseId in our tool use block. And another reason, function_call is
                         #       not guaranteed to have id populated.
+                        tool_use: dict[str, Any] = {
+                            "name": event["data"].function_call.name,
+                            "toolUseId": event["data"].function_call.name,
+                        }
+                        if event.get("thought_signature"):
+                            tool_use["thoughtSignature"] = event["thought_signature"]
                         return {
                             "contentBlockStart": {
-                                "start": {
-                                    "toolUse": {
-                                        "name": event["data"].function_call.name,
-                                        "toolUseId": event["data"].function_call.name,
-                                    },
-                                },
+                                "start": {"toolUse": cast(Any, tool_use)},
                             },
                         }
 
@@ -302,7 +307,7 @@ class GeminiModel(Model):
                                             if event["data"].thought_signature
                                             else {}
                                         ),
-                                    },
+                                    }
                                 },
                             },
                         }
@@ -378,10 +383,18 @@ class GeminiModel(Model):
                 candidate = candidates[0] if candidates else None
                 content = candidate.content if candidate else None
                 parts = content.parts if content and content.parts else []
+                thought_signature = getattr(candidate, "thought_signature", None) if candidate else None
 
                 for part in parts:
                     if part.function_call:
-                        yield self._format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": part})
+                        yield self._format_chunk(
+                            {
+                                "chunk_type": "content_start",
+                                "data_type": "tool",
+                                "data": part,
+                                "thought_signature": thought_signature,
+                            }
+                        )
                         yield self._format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": part})
                         yield self._format_chunk({"chunk_type": "content_stop", "data_type": "tool", "data": part})
                         tool_used = True

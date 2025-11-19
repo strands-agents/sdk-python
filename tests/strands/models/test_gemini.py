@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import unittest.mock
@@ -637,3 +638,36 @@ async def test_stream_handles_non_json_error(gemini_client, model, messages, cap
 
     assert "Gemini API returned non-JSON error" in caplog.text
     assert f"error_message=<{error_message}>" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_stream_request_preserves_tool_use_signature(gemini_client, model):
+    """Verify that a signature stored in a previous toolUse turn is sent back to the API."""
+    signature_str = "original_signature_string"
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "c1",
+                        "name": "calculator",
+                        "input": {"expression": "2+2"},
+                        "thoughtSignature": signature_str,
+                    },
+                },
+            ],
+        }
+    ]
+
+    await anext(model.stream(messages))
+
+    call_args = gemini_client.aio.models.generate_content_stream.call_args
+    _, kwargs = call_args
+    sent_contents = kwargs["contents"]
+
+    tool_part = sent_contents[0]["parts"][0]
+
+    expected_signature = base64.b64encode(signature_str.encode("utf-8")).decode("utf-8")
+    assert "function_call" in tool_part
+    assert tool_part["thought_signature"] == expected_signature
