@@ -26,7 +26,7 @@ from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
 from ....agent.state import AgentState
 from ....tools.watcher import ToolWatcher
-from ....types.content import Message, Messages
+from ....types.content import ContentBlock, Message, Messages
 from ....types.tools import AgentTool, ToolResult, ToolUse
 from ...tools import ToolProvider
 from ..models.bidi_model import BidiModel
@@ -134,8 +134,6 @@ class BidiAgent:
         # Initialize other components
         self._tool_caller = _ToolCaller(self)
 
-        self._current_adapters = []  # Track adapters for cleanup
-
         # Initialize hooks registry
         self.hooks = HookRegistry()
         if hooks:
@@ -198,7 +196,7 @@ class BidiAgent:
         # Create user message describing the tool call
         input_parameters = json.dumps(filtered_input, default=lambda o: f"<<non-serializable: {type(o).__qualname__}>>")
 
-        user_msg_content = [
+        user_msg_content: list[ContentBlock] = [
             {"text": (f"agent.tool.{tool['name']} direct tool call.\nInput parameters: {input_parameters}\n")}
         ]
 
@@ -313,7 +311,7 @@ class BidiAgent:
             return
 
         # Handle plain dict - reconstruct TypedEvent for WebSocket integration
-        if isinstance(input_data, dict) and "type" in input_data:
+        if isinstance(input_data, dict) and "type" in input_data:  # type: ignore
             event_type = input_data["type"]
             if event_type == "bidi_text_input":
                 input_event = BidiTextInputEvent(text=input_data["text"], role=input_data["role"])
@@ -372,10 +370,10 @@ class BidiAgent:
         await self.start()
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: Any) -> None:
         """Async context manager exit point.
 
-        Automatically ends the connection and cleans up resources including adapters
+        Automatically ends the connection and cleans up resources including
         when exiting the context, regardless of whether an exception occurred.
 
         Args:
@@ -384,19 +382,7 @@ class BidiAgent:
             exc_tb: Exception traceback if an exception occurred, None otherwise.
         """
         try:
-            logger.debug("context_manager=<exit> | cleaning up adapters and connection")
-
-            # Cleanup adapters if any are currently active
-            for adapter in self._current_adapters:
-                if hasattr(adapter, "cleanup"):
-                    try:
-                        adapter.stop()
-                        logger.debug("adapter_type=<%s> | adapter cleaned up", type(adapter).__name__)
-                    except Exception as adapter_error:
-                        logger.warning("adapter_error=<%s> | error cleaning up adapter", adapter_error)
-
-            # Clear current adapters
-            self._current_adapters = []
+            logger.debug("context_manager=<exit> | cleaning up connection")
 
             # Cleanup agent connection
             await self.stop()

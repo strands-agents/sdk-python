@@ -10,7 +10,7 @@ import logging
 from collections import deque
 from typing import Any
 
-import pyaudio
+import pyaudio  # type: ignore[import-untyped]
 
 from ..types.events import BidiAudioInputEvent, BidiAudioStreamEvent, BidiInterruptionEvent, BidiOutputEvent
 from ..types.io import BidiInput, BidiOutput
@@ -156,9 +156,10 @@ class _BidiAudioOutput(BidiOutput):
         self._stream.close()
         self._audio.terminate()
 
-        self._output_task = None
-        self._buffer = None
-        self._buffer_event = None
+        # Adding type ignore to adhere to mypy
+        self._output_task = None  # type: ignore[assignment]
+        self._buffer = None  # type: ignore[assignment]
+        self._buffer_event = None  # type: ignore[assignment]
         self._stream = None
         self._audio = None
         logger.debug("audio output stream stopped")

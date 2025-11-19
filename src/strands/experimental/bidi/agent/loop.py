@@ -5,7 +5,7 @@ The agent loop handles the events received from the model and executes tools whe
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, AsyncIterable, Awaitable
+from typing import TYPE_CHECKING, Any, AsyncIterable, Awaitable
 
 from ..hooks.events import (
     BidiAfterInvocationEvent,
@@ -41,6 +41,7 @@ class _BidiAgentLoop:
     _event_queue: asyncio.Queue
     _stop_event: object
     _tasks: set
+    _active: bool
 
     def __init__(self, agent: "BidiAgent") -> None:
         """Initialize members of the agent loop.
@@ -51,7 +52,7 @@ class _BidiAgentLoop:
             agent: Bidirectional agent to loop over.
         """
         self._agent = agent
-        self._active = False
+        self._active: bool = False
 
     async def start(self) -> None:
         """Start the agent loop.
@@ -104,9 +105,7 @@ class _BidiAgentLoop:
             self._event_queue.put_nowait(self._stop_event)
 
             self._active = False
-            self._tasks = None
-            self._stop_event = None
-            self._event_queue = None
+
         finally:
             # Emit after invocation event (reverse order for cleanup)
             await self._agent.hooks.invoke_callbacks_async(BidiAfterInvocationEvent(agent=self._agent))
@@ -130,7 +129,7 @@ class _BidiAgentLoop:
 
         Adds a clean up callback to run after task completes.
         """
-        task = asyncio.create_task(coro)
+        task: asyncio.Task[None] = asyncio.create_task(coro)  # type: ignore
         task.add_done_callback(lambda task: self._tasks.remove(task))
 
         self._tasks.add(task)
@@ -142,7 +141,7 @@ class _BidiAgentLoop:
         """
         logger.debug("model task starting")
 
-        async for event in self._agent.model.receive():
+        async for event in self._agent.model.receive():  # type: ignore
             await self._event_queue.put(event)
 
             if isinstance(event, BidiTranscriptStreamEvent):
@@ -157,8 +156,8 @@ class _BidiAgentLoop:
                 tool_use = event["current_tool_use"]
                 self._create_task(self._run_tool(tool_use))
 
-                message: Message = {"role": "assistant", "content": [{"toolUse": tool_use}]}
-                self._agent.messages.append(message)
+                tool_message: Message = {"role": "assistant", "content": [{"toolUse": tool_use}]}
+                self._agent.messages.append(tool_message)
 
             elif isinstance(event, BidiInterruptionEvent):
                 # Emit interruption hook event

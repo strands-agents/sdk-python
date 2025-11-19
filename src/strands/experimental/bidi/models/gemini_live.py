@@ -15,11 +15,11 @@ import asyncio
 import base64
 import logging
 import uuid
-from typing import Any, AsyncIterable, Dict, List, Optional
+from typing import Any, AsyncIterable, Dict, List, Optional, cast
 
 from google import genai
 from google.genai import types as genai_types
-from google.genai.types import LiveServerMessage
+from google.genai.types import LiveConnectConfigOrDict, LiveServerMessage
 
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
@@ -59,9 +59,9 @@ class BidiGeminiLiveModel(BidiModel):
     def __init__(
         self,
         model_id: str = "gemini-2.5-flash-native-audio-preview-09-2025",
-        api_key: Optional[str] = None,
-        live_config: Optional[Dict[str, Any]] = None,
-        **kwargs,
+        api_key: str | None = None,
+        live_config: Dict[str, Any] | None = None,
+        **kwargs: Any,
     ):
         """Initialize Gemini Live API bidirectional model.
 
@@ -89,7 +89,7 @@ class BidiGeminiLiveModel(BidiModel):
         self.live_config = default_config
 
         # Create Gemini client with proper API version
-        client_kwargs = {}
+        client_kwargs: dict[str, Any] = {}
         if api_key:
             client_kwargs["api_key"] = api_key
 
@@ -99,17 +99,17 @@ class BidiGeminiLiveModel(BidiModel):
         self.client = genai.Client(**client_kwargs)
 
         # Connection state (initialized in start())
-        self.live_session = None
+        self.live_session: Any
         self.live_session_context_manager = None
-        self.connection_id = None
-        self._active = False
+        self.connection_id | str
+        self._active: bool = False
 
     async def start(
         self,
         system_prompt: Optional[str] = None,
         tools: Optional[List[ToolSpec]] = None,
         messages: Optional[Messages] = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """Establish bidirectional connection with Gemini Live API.
 
@@ -131,7 +131,9 @@ class BidiGeminiLiveModel(BidiModel):
             live_config = self._build_live_config(system_prompt, tools, **kwargs)
 
             # Create the context manager
-            self.live_session_context_manager = self.client.aio.live.connect(model=self.model_id, config=live_config)
+            self.live_session_context_manager = self.client.aio.live.connect(
+                model=self.model_id, config=cast(LiveConnectConfigOrDict, live_config)
+            )
 
             # Enter the context manager
             self.live_session = await self.live_session_context_manager.__aenter__()
@@ -167,9 +169,10 @@ class BidiGeminiLiveModel(BidiModel):
                 # "assistant" role from Messages format maps to "model" in Gemini
                 role = "model" if message["role"] == "assistant" else message["role"]
                 content = genai_types.Content(role=role, parts=content_parts)
-                await self.live_session.send_client_content(turns=content)
+                if self.live_session:
+                    await self.live_session.send_client_content(turns=content)
 
-    async def receive(self) -> AsyncIterable[BidiOutputEvent]:
+    async def receive(self) -> AsyncIterable[BidiOutputEvent]:  # type: ignore
         """Receive Gemini Live API events and convert to provider-agnostic format."""
         # Emit connection start event
         yield BidiConnectionStartEvent(connection_id=self.connection_id, model=self.model_id)
@@ -180,7 +183,7 @@ class BidiGeminiLiveModel(BidiModel):
                 try:
                     async for message in self.live_session.receive():
                         if not self._active:
-                            break
+                            raise ValueError("connection is not active")
 
                         # Convert to provider-agnostic format (always returns list)
                         for event in self._convert_gemini_live_event(message):
@@ -231,7 +234,7 @@ class BidiGeminiLiveModel(BidiModel):
                         BidiTranscriptStreamEvent(
                             delta={"text": transcription_text},
                             text=transcription_text,
-                            role=role.lower() if isinstance(role, str) else "user",
+                            role=role.lower() if isinstance(role, str) else "user",  # type: ignore
                             is_final=True,
                             current_transcript=transcription_text,
                         )
@@ -249,7 +252,7 @@ class BidiGeminiLiveModel(BidiModel):
                         BidiTranscriptStreamEvent(
                             delta={"text": transcription_text},
                             text=transcription_text,
-                            role=role.lower() if isinstance(role, str) else "assistant",
+                            role=role.lower() if isinstance(role, str) else "assistant",  # type: ignore
                             is_final=True,
                             current_transcript=transcription_text,
                         )
@@ -262,7 +265,10 @@ class BidiGeminiLiveModel(BidiModel):
                 audio_b64 = base64.b64encode(message.data).decode("utf-8")
                 return [
                     BidiAudioStreamEvent(
-                        audio=audio_b64, format="pcm", sample_rate=GEMINI_OUTPUT_SAMPLE_RATE, channels=GEMINI_CHANNELS
+                        audio=audio_b64,
+                        format="pcm",
+                        sample_rate=GEMINI_OUTPUT_SAMPLE_RATE,  # type: ignore
+                        channels=GEMINI_CHANNELS,  # type: ignore
                     )
                 ]
 
@@ -294,15 +300,15 @@ class BidiGeminiLiveModel(BidiModel):
                 tool_events = []
                 for func_call in message.tool_call.function_calls:
                     tool_use_event: ToolUse = {
-                        "toolUseId": func_call.id,
-                        "name": func_call.name,
+                        "toolUseId": func_call.id,  # type: ignore
+                        "name": func_call.name,  # type: ignore
                         "input": func_call.args or {},
                     }
                     # Create ToolUseStreamEvent for consistency with standard agent
                     tool_events.append(
-                        ToolUseStreamEvent(delta={"toolUse": tool_use_event}, current_tool_use=tool_use_event)
+                        ToolUseStreamEvent(delta={"toolUse": tool_use_event}, current_tool_use=dict(tool_use_event))
                     )
-                return tool_events
+                return tool_events  # type: ignore
 
             # Handle usage metadata
             if hasattr(message, "usage_metadata") and message.usage_metadata:
@@ -342,7 +348,7 @@ class BidiGeminiLiveModel(BidiModel):
                         input_tokens=usage.prompt_token_count or 0,
                         output_tokens=usage.response_token_count or 0,
                         total_tokens=usage.total_token_count or 0,
-                        modality_details=modality_details if modality_details else None,
+                        modality_details=modality_details if modality_details else None,  # type: ignore
                         cache_read_input_tokens=usage.cached_content_token_count
                         if usage.cached_content_token_count
                         else None,
@@ -386,8 +392,6 @@ class BidiGeminiLiveModel(BidiModel):
                 tool_result = content.get("tool_result")
                 if tool_result:
                     await self._send_tool_result(tool_result)
-            else:
-                logger.warning("content_type=<%s> | unknown content type", type(content).__name__)
         except Exception as e:
             logger.error("error=<%s> | error sending content to gemini live", e)
             raise  # Propagate exception for debugging in experimental code
@@ -481,7 +485,7 @@ class BidiGeminiLiveModel(BidiModel):
             raise
 
     def _build_live_config(
-        self, system_prompt: Optional[str] = None, tools: Optional[List[ToolSpec]] = None, **kwargs
+        self, system_prompt: Optional[str] = None, tools: Optional[List[ToolSpec]] = None, **kwargs: Any
     ) -> Dict[str, Any]:
         """Build LiveConnectConfig for the official SDK.
 
@@ -489,7 +493,7 @@ class BidiGeminiLiveModel(BidiModel):
         to configure any Gemini Live API parameter directly.
         """
         # Start with user-provided live_config
-        config_dict = {}
+        config_dict: dict[str, Any] = {}
         if self.live_config:
             config_dict.update(self.live_config)
 
