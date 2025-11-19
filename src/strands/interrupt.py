@@ -104,6 +104,8 @@ class _InterruptState:
 
             self.interrupts[interrupt_id].response = interrupt_response
 
+        self.context["responses"] = contents
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dict for session management."""
         return asdict(self)

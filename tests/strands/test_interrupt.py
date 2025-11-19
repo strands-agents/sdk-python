@@ -100,6 +100,10 @@ def test_interrupt_state_resume():
     exp_response = "test response"
     assert tru_response == exp_response
 
+    tru_context = interrupt_state.context
+    exp_context = {"responses": prompt}
+    assert tru_context == exp_context
+
 
 def test_interrupt_state_resumse_deactivated():
     interrupt_state = _InterruptState(activated=False)
