@@ -964,8 +964,9 @@ async def test_event_loop_cycle_interrupt_resume(agent, model, tool, tool_times_
         },
     ]
 
-    agent._interrupt_state.activate(context={"tool_use_message": tool_use_message, "tool_results": tool_results})
+    agent._interrupt_state.context = {"tool_use_message": tool_use_message, "tool_results": tool_results}
     agent._interrupt_state.interrupts[interrupt.id] = interrupt
+    agent._interrupt_state.activate()
 
     interrupt_response = {}
 

@@ -45,6 +45,7 @@ from ..types._events import (
 )
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
+from ..types.multiagent import MultiAgentInput
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
 logger = logging.getLogger(__name__)
@@ -145,7 +146,7 @@ class SwarmState:
     """Current state of swarm execution."""
 
     current_node: SwarmNode | None  # The agent currently executing
-    task: str | list[ContentBlock]  # The original task from the user that is being executed
+    task: MultiAgentInput  # The original task from the user that is being executed
     completion_status: Status = Status.PENDING  # Current swarm execution status
     shared_context: SharedContext = field(default_factory=SharedContext)  # Context shared between agents
     node_history: list[SwarmNode] = field(default_factory=list)  # Complete history of agents that have executed
@@ -277,7 +278,7 @@ class Swarm(MultiAgentBase):
         run_async(lambda: self.hooks.invoke_callbacks_async(MultiAgentInitializedEvent(self)))
 
     def __call__(
-        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> SwarmResult:
         """Invoke the swarm synchronously.
 
@@ -292,7 +293,7 @@ class Swarm(MultiAgentBase):
         return run_async(lambda: self.invoke_async(task, invocation_state))
 
     async def invoke_async(
-        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> SwarmResult:
         """Invoke the swarm asynchronously.
 
@@ -316,7 +317,7 @@ class Swarm(MultiAgentBase):
         return cast(SwarmResult, final_event["result"])
 
     async def stream_async(
-        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> AsyncIterator[dict[str, Any]]:
         """Stream events during swarm execution.
 
@@ -741,7 +742,7 @@ class Swarm(MultiAgentBase):
             )
 
     async def _execute_node(
-        self, node: SwarmNode, task: str | list[ContentBlock], invocation_state: dict[str, Any]
+        self, node: SwarmNode, task: MultiAgentInput, invocation_state: dict[str, Any]
     ) -> AsyncIterator[Any]:
         """Execute swarm node and yield TypedEvent objects."""
         start_time = time.time()

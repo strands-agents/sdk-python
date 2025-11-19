@@ -8,7 +8,7 @@ import json
 import logging
 import os
 from datetime import date, datetime, timezone
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional, cast
 
 import opentelemetry.trace as trace_api
 from opentelemetry.instrumentation.threading import ThreadingInstrumentor
@@ -16,6 +16,8 @@ from opentelemetry.trace import Span, StatusCode
 
 from ..agent.agent_result import AgentResult
 from ..types.content import ContentBlock, Message, Messages
+from ..types.interrupt import InterruptResponseContent
+from ..types.multiagent import MultiAgentInput
 from ..types.streaming import Metrics, StopReason, Usage
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import Attributes, AttributeValue
@@ -675,7 +677,7 @@ class Tracer:
 
     def start_multiagent_span(
         self,
-        task: str | list[ContentBlock],
+        task: MultiAgentInput,
         instance: str,
     ) -> Span:
         """Start a new span for swarm invocation."""
@@ -789,12 +791,23 @@ class Tracer:
                     {"content": serialize(message["content"])},
                 )
 
-    def _map_content_blocks_to_otel_parts(self, content_blocks: list[ContentBlock]) -> list[dict[str, Any]]:
-        """Map ContentBlock objects to OpenTelemetry parts format."""
+    def _map_content_blocks_to_otel_parts(
+        self, content_blocks: list[ContentBlock] | list[InterruptResponseContent]
+    ) -> list[dict[str, Any]]:
+        """Map content blocks to OpenTelemetry parts format."""
         parts: list[dict[str, Any]] = []
 
-        for block in content_blocks:
-            if "text" in block:
+        for block in cast(list[dict[str, Any]], content_blocks):
+            if "interruptResponse" in block:
+                interrupt_response = block["interruptResponse"]
+                parts.append(
+                    {
+                        "type": "interrupt_response",
+                        "id": interrupt_response["interruptId"],
+                        "response": interrupt_response["response"],
+                    },
+                )
+            elif "text" in block:
                 # Standard TextPart
                 parts.append({"type": "text", "content": block["text"]})
             elif "toolUse" in block:
