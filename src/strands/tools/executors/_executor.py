@@ -75,6 +75,7 @@ class ToolExecutor(abc.ABC):
 
         invocation_state.update(
             {
+                "agent": agent,
                 "model": agent.model,
                 "messages": agent.messages,
                 "system_prompt": agent.system_prompt,
