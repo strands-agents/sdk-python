@@ -84,5 +84,5 @@ def test_interrupt_hook_event_interrupt_missing_agent():
         pass
 
     event = Event()
-    with pytest.raises(RuntimeError, match=f"agent instance attribute not set"):
+    with pytest.raises(RuntimeError, match="agent instance attribute not set"):
         event.interrupt("test_name")
