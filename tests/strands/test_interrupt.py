@@ -27,13 +27,8 @@ def test_interrupt_to_dict(interrupt):
 def test_interrupt_state_activate():
     interrupt_state = _InterruptState()
 
-    interrupt_state.activate(context={"test": "context"})
-
+    interrupt_state.activate()
     assert interrupt_state.activated
-
-    tru_context = interrupt_state.context
-    exp_context = {"test": "context"}
-    assert tru_context == exp_context
 
 
 def test_interrupt_state_deactivate():

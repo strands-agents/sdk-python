@@ -45,6 +45,7 @@ from ..types._events import (
 )
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
+from ..types.multiagent import MultiAgentInput
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
 logger = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ class GraphState:
     """
 
     # Task (with default empty string)
-    task: str | list[ContentBlock] = ""
+    task: MultiAgentInput = ""
 
     # Execution state
     status: Status = Status.PENDING
@@ -456,7 +457,7 @@ class Graph(MultiAgentBase):
         run_async(lambda: self.hooks.invoke_callbacks_async(MultiAgentInitializedEvent(self)))
 
     def __call__(
-        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> GraphResult:
         """Invoke the graph synchronously.
 
@@ -472,7 +473,7 @@ class Graph(MultiAgentBase):
         return run_async(lambda: self.invoke_async(task, invocation_state))
 
     async def invoke_async(
-        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> GraphResult:
         """Invoke the graph asynchronously.
 
@@ -496,7 +497,7 @@ class Graph(MultiAgentBase):
         return cast(GraphResult, final_event["result"])
 
     async def stream_async(
-        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> AsyncIterator[dict[str, Any]]:
         """Stream events during graph execution.
 
