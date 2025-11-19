@@ -413,3 +413,153 @@ def test_fix_broken_tool_use_does_not_change_valid_message(session_manager):
 
     # Should remain unchanged since toolUse is in last message
     assert fixed_messages == messages
+
+
+# ============================================================================
+# BidiAgent Session Tests
+# ============================================================================
+
+
+@pytest.fixture
+def mock_bidi_agent():
+    """Create a mock BidiAgent for testing."""
+    from unittest.mock import Mock
+    from strands.agent.state import AgentState
+
+    agent = Mock()
+    agent.agent_id = "bidi-agent-1"
+    agent.messages = [{"role": "user", "content": [{"text": "Hello from bidi!"}]}]
+    agent.state = AgentState({"key": "value"})
+    # BidiAgent doesn't have _interrupt_state yet
+    return agent
+
+
+def test_initialize_bidi_agent_creates_new(session_manager, mock_bidi_agent):
+    """Test initializing a new BidiAgent creates session data."""
+    session_manager.initialize_bidi_agent(mock_bidi_agent)
+
+    # Verify agent created in repository
+    agent_data = session_manager.session_repository.read_agent("test-session", "bidi-agent-1")
+    assert agent_data is not None
+    assert agent_data.agent_id == "bidi-agent-1"
+    assert agent_data.conversation_manager_state == {}  # Empty for BidiAgent
+    assert agent_data.state == {"key": "value"}
+
+    # Verify message created
+    messages = session_manager.session_repository.list_messages("test-session", "bidi-agent-1")
+    assert len(messages) == 1
+    assert messages[0].message["role"] == "user"
+
+
+def test_initialize_bidi_agent_restores_existing(session_manager, mock_bidi_agent):
+    """Test initializing BidiAgent restores from existing session."""
+    from strands.types.session import SessionAgent, SessionMessage
+
+    # Create existing session data
+    session_agent = SessionAgent(
+        agent_id="bidi-agent-1",
+        state={"restored": "state"},
+        conversation_manager_state={},  # Empty for BidiAgent
+    )
+    session_manager.session_repository.create_agent("test-session", session_agent)
+
+    # Add messages
+    msg1 = SessionMessage.from_message({"role": "user", "content": [{"text": "Message 1"}]}, 0)
+    msg2 = SessionMessage.from_message({"role": "assistant", "content": [{"text": "Response 1"}]}, 1)
+    session_manager.session_repository.create_message("test-session", "bidi-agent-1", msg1)
+    session_manager.session_repository.create_message("test-session", "bidi-agent-1", msg2)
+
+    # Initialize agent
+    session_manager.initialize_bidi_agent(mock_bidi_agent)
+
+    # Verify state restored
+    assert mock_bidi_agent.state.get() == {"restored": "state"}
+
+    # Verify messages restored
+    assert len(mock_bidi_agent.messages) == 2
+    assert mock_bidi_agent.messages[0]["role"] == "user"
+    assert mock_bidi_agent.messages[1]["role"] == "assistant"
+
+
+def test_append_bidi_message(session_manager, mock_bidi_agent):
+    """Test appending messages to BidiAgent session."""
+    # Initialize agent first
+    session_manager.initialize_bidi_agent(mock_bidi_agent)
+
+    # Append new message
+    new_message = {"role": "assistant", "content": [{"text": "Response"}]}
+    session_manager.append_bidi_message(new_message, mock_bidi_agent)
+
+    # Verify message stored
+    messages = session_manager.session_repository.list_messages("test-session", "bidi-agent-1")
+    assert len(messages) == 2  # Initial + new
+    assert messages[1].message["role"] == "assistant"
+
+
+def test_sync_bidi_agent(session_manager, mock_bidi_agent):
+    """Test syncing BidiAgent state to session."""
+    from strands.agent.state import AgentState
+
+    # Initialize agent
+    session_manager.initialize_bidi_agent(mock_bidi_agent)
+
+    # Update agent state
+    mock_bidi_agent.state = AgentState({"updated": "state"})
+
+    # Sync agent
+    session_manager.sync_bidi_agent(mock_bidi_agent)
+
+    # Verify state updated in repository
+    agent_data = session_manager.session_repository.read_agent("test-session", "bidi-agent-1")
+    assert agent_data.state == {"updated": "state"}
+
+
+def test_bidi_agent_no_conversation_manager(session_manager, mock_bidi_agent):
+    """Test that BidiAgent session doesn't use conversation_manager."""
+    session_manager.initialize_bidi_agent(mock_bidi_agent)
+
+    # Verify conversation_manager_state is empty
+    agent_data = session_manager.session_repository.read_agent("test-session", "bidi-agent-1")
+    assert agent_data.conversation_manager_state == {}
+
+
+def test_bidi_agent_unique_id_constraint(session_manager, mock_bidi_agent):
+    """Test that BidiAgent agent_id must be unique in session."""
+    # Initialize first agent
+    session_manager.initialize_bidi_agent(mock_bidi_agent)
+
+    # Try to initialize another agent with same ID
+    from unittest.mock import Mock
+    from strands.agent.state import AgentState
+
+    agent2 = Mock()
+    agent2.agent_id = "bidi-agent-1"  # Same ID
+    agent2.messages = []
+    agent2.state = AgentState({})
+
+    with pytest.raises(SessionException, match="The `agent_id` of an agent must be unique in a session."):
+        session_manager.initialize_bidi_agent(agent2)
+
+
+def test_bidi_agent_messages_with_offset_zero(session_manager, mock_bidi_agent):
+    """Test that BidiAgent uses offset=0 for message restoration (no conversation_manager)."""
+    from strands.types.session import SessionAgent, SessionMessage
+
+    # Create session with messages
+    session_agent = SessionAgent(
+        agent_id="bidi-agent-1",
+        state={},
+        conversation_manager_state={},
+    )
+    session_manager.session_repository.create_agent("test-session", session_agent)
+
+    # Add 5 messages
+    for i in range(5):
+        msg = SessionMessage.from_message({"role": "user", "content": [{"text": f"Message {i}"}]}, i)
+        session_manager.session_repository.create_message("test-session", "bidi-agent-1", msg)
+
+    # Initialize agent
+    session_manager.initialize_bidi_agent(mock_bidi_agent)
+
+    # Verify all messages restored (offset=0, no removed_message_count)
+    assert len(mock_bidi_agent.messages) == 5

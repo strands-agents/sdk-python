@@ -15,9 +15,12 @@ Key capabilities:
 import asyncio
 import json
 import logging
-from typing import Any, AsyncIterable
+from typing import TYPE_CHECKING, Any, AsyncIterable
 
 from .... import _identifier
+
+if TYPE_CHECKING:
+    from ....session.session_manager import SessionManager
 from ....hooks import HookProvider, HookRegistry
 from ....tools.caller import _ToolCaller
 from ..hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
@@ -63,6 +66,7 @@ class BidiAgent:
         description: str | None = None,
         hooks: list[HookProvider] | None = None,
         state: AgentState | dict | None = None,
+        session_manager: "SessionManager | None" = None,
         **kwargs: Any,
     ):
         """Initialize bidirectional agent.
@@ -80,6 +84,8 @@ class BidiAgent:
             description: Description of what the Agent does.
             hooks: Optional list of hook providers to register for lifecycle events.
             state: Stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
+            session_manager: Manager for handling agent sessions including conversation history and state.
+                If provided, enables session-based persistence and state management.
             **kwargs: Additional configuration for future extensibility.
 
         Raises:
@@ -141,6 +147,11 @@ class BidiAgent:
         if hooks:
             for hook in hooks:
                 self.hooks.add_hook(hook)
+
+        # Initialize session management functionality
+        self._session_manager = session_manager
+        if self._session_manager:
+            self.hooks.add_hook(self._session_manager)
 
         self._loop = _BidiAgentLoop(self)
 
