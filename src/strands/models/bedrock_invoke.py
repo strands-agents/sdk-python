@@ -8,7 +8,7 @@ import asyncio
 import json
 import logging
 import os
-from typing import Any, AsyncGenerator, Callable, Dict, Optional, Type, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, Callable, Optional, Type, TypeVar, Union, cast
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -19,7 +19,7 @@ from typing_extensions import TypedDict, Unpack, override
 from .._exception_notes import add_exception_note
 from ..event_loop import streaming
 from ..tools import convert_pydantic_to_tool_spec
-from ..types.content import ContentBlock, Messages, SystemContentBlock
+from ..types.content import Messages, SystemContentBlock
 from ..types.exceptions import (
     ContextWindowOverflowException,
     ModelThrottledException,
@@ -46,14 +46,14 @@ T = TypeVar("T", bound=BaseModel)
 
 class BedrockModelInvoke(Model):
     """AWS Bedrock model provider using InvokeModel APIs.
-    
+
     This implementation uses the native InvokeModel and InvokeModelWithResponseStream
     APIs instead of Converse/ConverseStream for models that don't support the latter.
     """
 
     class BedrockInvokeConfig(TypedDict, total=False):
         """Configuration options for Bedrock InvokeModel."""
-        
+
         guardrail_id: Optional[str]
         guardrail_version: Optional[str]
         max_tokens: Optional[int]
@@ -79,7 +79,7 @@ class BedrockModelInvoke(Model):
 
         session = boto_session or boto3.Session()
         resolved_region = region_name or session.region_name or os.environ.get("AWS_REGION") or DEFAULT_BEDROCK_REGION
-        
+
         self.config = BedrockModelInvoke.BedrockInvokeConfig(
             model_id=model_config.get("model_id", DEFAULT_BEDROCK_MODEL_ID),
             streaming=True,
@@ -146,7 +146,7 @@ class BedrockModelInvoke(Model):
         request = {
             "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": self.config.get("max_tokens", 4096),
-            "messages": []
+            "messages": [],
         }
 
         # Add system prompt
@@ -159,41 +159,43 @@ class BedrockModelInvoke(Model):
         for msg in messages:
             role = msg["role"]
             content = []
-            
+
             for block in msg["content"]:
                 if "text" in block:
                     content.append({"type": "text", "text": block["text"]})
                 elif "image" in block:
                     image_data = block["image"]
-                    content.append({
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": image_data["format"],
-                            "data": image_data["source"]["bytes"]
+                    content.append(
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": image_data["format"],
+                                "data": image_data["source"]["bytes"],
+                            },
                         }
-                    })
+                    )
                 elif "toolUse" in block:
                     tool_use = block["toolUse"]
-                    content.append({
-                        "type": "tool_use",
-                        "id": tool_use["toolUseId"],
-                        "name": tool_use["name"],
-                        "input": tool_use["input"]
-                    })
+                    content.append(
+                        {
+                            "type": "tool_use",
+                            "id": tool_use["toolUseId"],
+                            "name": tool_use["name"],
+                            "input": tool_use["input"],
+                        }
+                    )
                 elif "toolResult" in block:
                     tool_result = block["toolResult"]
                     result_content = []
                     for result_block in tool_result["content"]:
                         if "text" in result_block:
                             result_content.append({"type": "text", "text": result_block["text"]})
-                    
-                    content.append({
-                        "type": "tool_result",
-                        "tool_use_id": tool_result["toolUseId"],
-                        "content": result_content
-                    })
-            
+
+                    content.append(
+                        {"type": "tool_result", "tool_use_id": tool_result["toolUseId"], "content": result_content}
+                    )
+
             if content:
                 request["messages"].append({"role": role, "content": content})
 
@@ -201,11 +203,13 @@ class BedrockModelInvoke(Model):
         if tool_specs:
             request["tools"] = []
             for tool_spec in tool_specs:
-                request["tools"].append({
-                    "name": tool_spec["name"],
-                    "description": tool_spec["description"],
-                    "input_schema": tool_spec["inputSchema"]
-                })
+                request["tools"].append(
+                    {
+                        "name": tool_spec["name"],
+                        "description": tool_spec["description"],
+                        "input_schema": tool_spec["inputSchema"],
+                    }
+                )
 
         # Add inference parameters
         if self.config.get("temperature") is not None:
@@ -231,7 +235,7 @@ class BedrockModelInvoke(Model):
             "model": self.config["model_id"],
             "messages": [],
             "max_tokens": self.config.get("max_tokens", 4096),
-            "stream": self.config.get("streaming", True)
+            "stream": self.config.get("streaming", True),
         }
 
         # Add system message
@@ -244,11 +248,11 @@ class BedrockModelInvoke(Model):
         for msg in messages:
             role = msg["role"]
             content = ""
-            
+
             for block in msg["content"]:
                 if "text" in block:
                     content += block["text"]
-            
+
             if content:
                 request["messages"].append({"role": role, "content": content})
 
@@ -256,14 +260,16 @@ class BedrockModelInvoke(Model):
         if tool_specs:
             request["tools"] = []
             for tool_spec in tool_specs:
-                request["tools"].append({
-                    "type": "function",
-                    "function": {
-                        "name": tool_spec["name"],
-                        "description": tool_spec["description"],
-                        "parameters": tool_spec["inputSchema"]
+                request["tools"].append(
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": tool_spec["name"],
+                            "description": tool_spec["description"],
+                            "parameters": tool_spec["inputSchema"],
+                        },
                     }
-                })
+                )
 
         # Add inference parameters
         if self.config.get("temperature") is not None:
@@ -289,36 +295,30 @@ class BedrockModelInvoke(Model):
     def _parse_anthropic_response(self, response: dict[str, Any]) -> list[StreamEvent]:
         """Parse response into StreamEvent format."""
         events = []
-        
+
         # Start message
         events.append({"messageStart": {"role": "assistant"}})
-        
+
         # Extract text from any possible field
         text_content = self._extract_text_from_response(response)
-        
+
         # Add text content if found
         if text_content:
-            events.append({
-                "contentBlockDelta": {
-                    "delta": {"text": text_content}
-                }
-            })
+            events.append({"contentBlockDelta": {"delta": {"text": text_content}}})
             events.append({"contentBlockStop": {}})
-        
+
         # End message
-        events.append({
-            "messageStop": {"stopReason": "end_turn"}
-        })
-        
+        events.append({"messageStop": {"stopReason": "end_turn"}})
+
         return events
-    
+
     def _extract_text_from_response(self, response: dict[str, Any]) -> str:
         """Extract text content from any response format."""
         # Try common text fields
         for field in ["completion", "outputText", "text", "response", "output"]:
             if field in response and isinstance(response[field], str):
                 return response[field]
-        
+
         # Try Anthropic content format
         if "content" in response and isinstance(response["content"], list):
             text_parts = []
@@ -329,7 +329,7 @@ class BedrockModelInvoke(Model):
                     text_parts.append(block)
             if text_parts:
                 return "".join(text_parts)
-        
+
         # Fallback: convert entire response to string if no text found
         return json.dumps(response)
 
@@ -339,23 +339,25 @@ class BedrockModelInvoke(Model):
         if "choices" in chunk and chunk["choices"]:
             choice = chunk["choices"][0]
             delta = choice.get("delta", {})
-            
+
             if "content" in delta and delta["content"]:
                 return {"contentBlockDelta": {"delta": {"text": delta["content"]}}}
-        
+
         # Standard Anthropic format
         chunk_type = chunk.get("type")
         if chunk_type == "content_block_delta":
             delta = chunk.get("delta", {})
             if "text" in delta:
                 return {"contentBlockDelta": {"delta": {"text": delta["text"]}}}
-        
+
         return None
-    
-    def _extract_usage_from_response(self, response: dict[str, Any], response_body: dict[str, Any] = None) -> Optional[dict[str, Any]]:
+
+    def _extract_usage_from_response(
+        self, response: dict[str, Any], response_body: dict[str, Any] = None
+    ) -> Optional[dict[str, Any]]:
         """Extract usage information from response body."""
         usage = {}
-        
+
         # Check response body for usage info (model-specific formats)
         if response_body:
             # Anthropic format
@@ -365,7 +367,7 @@ class BedrockModelInvoke(Model):
                     usage["inputTokens"] = body_usage["input_tokens"]
                 if "output_tokens" in body_usage:
                     usage["outputTokens"] = body_usage["output_tokens"]
-            
+
             # OpenAI format (for imported models)
             elif "usage" in response_body:
                 body_usage = response_body["usage"]
@@ -375,11 +377,11 @@ class BedrockModelInvoke(Model):
                     usage["outputTokens"] = body_usage["completion_tokens"]
                 if "total_tokens" in body_usage:
                     usage["totalTokens"] = body_usage["total_tokens"]
-        
+
         # Calculate total tokens if not provided
         if "inputTokens" in usage and "outputTokens" in usage and "totalTokens" not in usage:
             usage["totalTokens"] = usage["inputTokens"] + usage["outputTokens"]
-        
+
         return usage if usage else None
 
     @override
@@ -394,7 +396,7 @@ class BedrockModelInvoke(Model):
         **kwargs: Any,
     ) -> AsyncGenerator[StreamEvent, None]:
         """Stream conversation with the Bedrock model using InvokeModel APIs."""
-        
+
         def callback(event: Optional[StreamEvent] = None) -> None:
             loop.call_soon_threadsafe(queue.put_nowait, event)
 
@@ -431,31 +433,31 @@ class BedrockModelInvoke(Model):
             logger.debug("request_body=<%s>", request_body)
 
             streaming = self.config.get("streaming", True)
-            
+
             if streaming:
                 logger.debug("invoking model with streaming")
                 response = self.client.invoke_model_with_response_stream(
                     modelId=self.config["model_id"],
                     body=json.dumps(request_body),
                     contentType="application/json",
-                    accept="application/json"
+                    accept="application/json",
                 )
-                
+
                 # Send messageStart event first
                 callback({"messageStart": {"role": "assistant"}})
                 callback({"contentBlockStart": {"start": {"text": {}}}})
-                
+
                 for event in response["body"]:
                     chunk = json.loads(event["chunk"]["bytes"])
                     logger.debug("streaming_chunk=<%s>", chunk)
                     parsed_event = self._parse_anthropic_streaming_chunk(chunk)
                     if parsed_event:
                         callback(parsed_event)
-                
+
                 # Send end events
                 callback({"contentBlockStop": {}})
                 callback({"messageStop": {"stopReason": "end_turn"}})
-                
+
                 # Usage info not available in streaming responses for InvokeModel API
             else:
                 logger.debug("invoking model without streaming")
@@ -463,15 +465,15 @@ class BedrockModelInvoke(Model):
                     modelId=self.config["model_id"],
                     body=json.dumps(request_body),
                     contentType="application/json",
-                    accept="application/json"
+                    accept="application/json",
                 )
-                
+
                 response_body = json.loads(response["body"].read())
                 logger.debug("response_body=<%s>", response_body)
                 events = self._parse_anthropic_response(response_body)
                 for event in events:
                     callback(event)
-                
+
                 # Extract usage from response
                 usage = self._extract_usage_from_response(response, response_body)
                 if usage:
