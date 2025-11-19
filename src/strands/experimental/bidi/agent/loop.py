@@ -7,6 +7,15 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, AsyncIterable, Awaitable
 
+from ..hooks.events import (
+    BidiAfterInvocationEvent,
+    BidiAfterToolCallEvent,
+    BidiBeforeInvocationEvent,
+    BidiBeforeToolCallEvent,
+    BidiInterruptionEvent as BidiInterruptionHookEvent,
+    BidiMessageAddedEvent,
+)
+from ..types.events import BidiAudioStreamEvent, BidiInterruptionEvent, BidiOutputEvent, BidiTranscriptStreamEvent
 from ....types._events import ToolResultEvent, ToolResultMessageEvent, ToolStreamEvent, ToolUseStreamEvent
 from ....types.content import Message
 from ....types.tools import ToolResult, ToolUse
@@ -59,6 +68,9 @@ class _BidiAgentLoop:
         self._stop_event = object()
         self._tasks = set()
 
+        # Emit before invocation event
+        await self._agent.hooks.invoke_callbacks_async(BidiBeforeInvocationEvent(agent=self._agent))
+
         await self._agent.model.start(
             system_prompt=self._agent.system_prompt,
             tools=self._agent.tool_registry.get_all_tool_specs(),
@@ -76,18 +88,27 @@ class _BidiAgentLoop:
 
         logger.debug("agent loop stopping")
 
-        for task in self._tasks:
-            task.cancel()
+        try:
+            # Cancel all tasks
+            for task in self._tasks:
+                task.cancel()
 
-        await asyncio.gather(*self._tasks, return_exceptions=True)
+            # Wait briefly for tasks to finish their current operations
+            await asyncio.gather(*self._tasks, return_exceptions=True)
 
-        await self._agent.model.stop()
+            # Stop the model
+            await self._agent.model.stop()
 
-        if not self._event_queue.empty():
-            self._event_queue.get_nowait()
-        self._event_queue.put_nowait(self._stop_event)
+            # Clean up the event queue
+            if not self._event_queue.empty():
+                self._event_queue.get_nowait()
+            self._event_queue.put_nowait(self._stop_event)
 
-        self._active = False
+            self._active = False
+
+        finally:
+            # Emit after invocation event (reverse order for cleanup)
+            await self._agent.hooks.invoke_callbacks_async(BidiAfterInvocationEvent(agent=self._agent))
 
     async def receive(self) -> AsyncIterable[BidiOutputEvent]:
         """Receive model and tool call events."""
@@ -125,8 +146,11 @@ class _BidiAgentLoop:
 
             if isinstance(event, BidiTranscriptStreamEvent):
                 if event["is_final"]:
-                    transcript_message: Message = {"role": event["role"], "content": [{"text": event["text"]}]}
-                    self._agent.messages.append(transcript_message)
+                    message: Message = {"role": event["role"], "content": [{"text": event["text"]}]}
+                    self._agent.messages.append(message)
+                    await self._agent.hooks.invoke_callbacks_async(
+                        BidiMessageAddedEvent(agent=self._agent, message=message)
+                    )
 
             elif isinstance(event, ToolUseStreamEvent):
                 tool_use = event["current_tool_use"]
@@ -135,15 +159,37 @@ class _BidiAgentLoop:
                 tool_message: Message = {"role": "assistant", "content": [{"toolUse": tool_use}]}
                 self._agent.messages.append(tool_message)
 
+            elif isinstance(event, BidiInterruptionEvent):
+                # Emit interruption hook event
+                await self._agent.hooks.invoke_callbacks_async(
+                    BidiInterruptionHookEvent(
+                        agent=self._agent,
+                        reason=event["reason"],
+                        interrupted_response_id=event.get("interrupted_response_id"),
+                    )
+                )
+
     async def _run_tool(self, tool_use: ToolUse) -> None:
         """Task for running tool requested by the model."""
         logger.debug("tool_name=<%s> | tool execution starting", tool_use["name"])
 
-        result: ToolResult | None = None
+        result: ToolResult = None
+        exception: Exception | None = None
+        tool = None
+        invocation_state = {}
 
         try:
             tool = self._agent.tool_registry.registry[tool_use["name"]]
-            invocation_state: dict[str, Any] = {}
+
+            # Emit before tool call event
+            await self._agent.hooks.invoke_callbacks_async(
+                BidiBeforeToolCallEvent(
+                    agent=self._agent,
+                    selected_tool=tool,
+                    tool_use=tool_use,
+                    invocation_state=invocation_state,
+                )
+            )
 
             async for event in tool.stream(tool_use, invocation_state):
                 if isinstance(event, ToolResultEvent):
@@ -159,12 +205,25 @@ class _BidiAgentLoop:
         except Exception as e:
             result = {"toolUseId": tool_use["toolUseId"], "status": "error", "content": [{"text": f"Error: {str(e)}"}]}
 
-        if result is not None:
-            await self._agent.model.send(ToolResultEvent(result))
+        finally:
+            # Emit after tool call event (reverse order for cleanup)
+            await self._agent.hooks.invoke_callbacks_async(
+                BidiAfterToolCallEvent(
+                    agent=self._agent,
+                    selected_tool=tool,
+                    tool_use=tool_use,
+                    invocation_state=invocation_state,
+                    result=result,
+                    exception=exception,
+                )
+            )
 
-            message: Message = {
-                "role": "user",
-                "content": [{"toolResult": result}],
-            }
-            self._agent.messages.append(message)
-            await self._event_queue.put(ToolResultMessageEvent(message))
+        await self._agent.model.send(ToolResultEvent(result))
+
+        message: Message = {
+            "role": "user",
+            "content": [{"toolResult": result}],
+        }
+        self._agent.messages.append(message)
+        await self._agent.hooks.invoke_callbacks_async(BidiMessageAddedEvent(agent=self._agent, message=message))
+        await self._event_queue.put(ToolResultMessageEvent(message))
