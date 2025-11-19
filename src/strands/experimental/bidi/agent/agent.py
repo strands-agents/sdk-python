@@ -18,17 +18,17 @@ import logging
 from typing import Any, AsyncIterable
 
 from .... import _identifier
+from ....agent.state import AgentState
 from ....hooks import HookProvider, HookRegistry
 from ....tools.caller import _ToolCaller
-from ..hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
-from ....agent.state import AgentState
 from ....tools.watcher import ToolWatcher
 from ....types.content import ContentBlock, Message, Messages
 from ....types.tools import AgentTool, ToolResult, ToolUse
 from ...tools import ToolProvider
+from ..hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from ..models.bidi_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput

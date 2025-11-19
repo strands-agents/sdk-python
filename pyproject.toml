@@ -234,9 +234,10 @@ module = [
     "smithy_core.*",
     "smithy_aws_core.*",
     "aws_sdk_bedrock_runtime.*",
+    "pyaudio",
 ]
 ignore_missing_imports = true
-
+follow_imports = "skip"
 
 [tool.ruff]
 line-length = 120

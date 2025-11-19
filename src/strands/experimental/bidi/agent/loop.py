@@ -7,19 +7,20 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, AsyncIterable, Awaitable
 
+from ....types._events import ToolResultEvent, ToolResultMessageEvent, ToolStreamEvent, ToolUseStreamEvent
+from ....types.content import Message
+from ....types.tools import ToolResult, ToolUse
 from ..hooks.events import (
     BidiAfterInvocationEvent,
     BidiAfterToolCallEvent,
     BidiBeforeInvocationEvent,
     BidiBeforeToolCallEvent,
-    BidiInterruptionEvent as BidiInterruptionHookEvent,
     BidiMessageAddedEvent,
 )
-from ..types.events import BidiAudioStreamEvent, BidiInterruptionEvent, BidiOutputEvent, BidiTranscriptStreamEvent
-from ....types._events import ToolResultEvent, ToolResultMessageEvent, ToolStreamEvent, ToolUseStreamEvent
-from ....types.content import Message
-from ....types.tools import ToolResult, ToolUse
-from ..types.events import BidiOutputEvent, BidiTranscriptStreamEvent
+from ..hooks.events import (
+    BidiInterruptionEvent as BidiInterruptionHookEvent,
+)
+from ..types.events import BidiInterruptionEvent, BidiOutputEvent, BidiTranscriptStreamEvent
 
 if TYPE_CHECKING:
     from .agent import BidiAgent
@@ -173,10 +174,10 @@ class _BidiAgentLoop:
         """Task for running tool requested by the model."""
         logger.debug("tool_name=<%s> | tool execution starting", tool_use["name"])
 
-        result: ToolResult = None
+        result: ToolResult
         exception: Exception | None = None
         tool = None
-        invocation_state = {}
+        invocation_state: dict[str, Any] = {}
 
         try:
             tool = self._agent.tool_registry.registry[tool_use["name"]]

@@ -1,7 +1,5 @@
 """Integration tests for BidiAgent hooks with real model providers."""
 
-import asyncio
-
 import pytest
 
 from src.strands import tool
@@ -162,7 +160,7 @@ class TestBidiAgentHooksEventData:
         await agent.stop()
 
         # All events should reference the same agent
-        for event_type, event in collector.events:
+        for _, event in collector.events:
             assert hasattr(event, "agent")
             assert event.agent == agent
 
