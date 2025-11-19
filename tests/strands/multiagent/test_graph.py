@@ -2033,3 +2033,184 @@ async def test_graph_persisted(mock_strands_tracer, mock_use_span):
     assert final_state["status"] == "completed"
     assert len(final_state["completed_nodes"]) == 1
     assert "test_node" in final_state["node_results"]
+
+
+class TestGraphStructuredOutput:
+    """Test Graph structured output functionality."""
+
+    @pytest.mark.asyncio
+    async def test_graph_passes_structured_output_model_to_agents(self, mock_strands_tracer, mock_use_span):
+        """Test that Graph passes structured_output_model to agent nodes."""
+        from pydantic import BaseModel, Field
+
+        class SimpleOutput(BaseModel):
+            """Simple output structure for testing."""
+
+            message: str = Field(description="A simple message")
+            number: int = Field(description="A number between 1 and 10")
+
+        # Create a mock agent that captures structured_output_model
+        captured_structured_output_model = None
+
+        async def mock_stream_async(*args, **kwargs):
+            nonlocal captured_structured_output_model
+            # structured_output_model is passed as a keyword argument
+            captured_structured_output_model = kwargs.get("structured_output_model")
+
+            # Create a result with structured output
+            structured_result = SimpleOutput(message="Hello", number=7)
+            mock_result = AgentResult(
+                message={"role": "assistant", "content": [{"text": "Hello"}]},
+                stop_reason="end_turn",
+                state={},
+                metrics=Mock(
+                    accumulated_usage={"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                    accumulated_metrics={"latencyMs": 100.0},
+                ),
+                structured_output=structured_result,
+            )
+            yield {"result": mock_result}
+
+        mock_agent = create_mock_agent("test_agent", "Test response")
+        # Assign the async generator function directly
+        mock_agent.stream_async = mock_stream_async
+
+        # Build graph
+        builder = GraphBuilder()
+        builder.add_node(mock_agent, "test_node")
+        graph = builder.build()
+
+        # Execute graph with structured_output_model
+        result = await graph.invoke_async("Test task", structured_output_model=SimpleOutput)
+
+        # Verify structured_output_model was passed to agent
+        assert captured_structured_output_model == SimpleOutput
+        assert result.status == Status.COMPLETED
+        assert "test_node" in result.results
+
+        # Verify structured output is accessible in the result
+        node_result = result.results["test_node"].result
+        assert isinstance(node_result, AgentResult)
+        assert node_result.structured_output is not None
+        assert isinstance(node_result.structured_output, SimpleOutput)
+        assert node_result.structured_output.message == "Hello"
+        assert node_result.structured_output.number == 7
+
+    @pytest.mark.asyncio
+    async def test_graph_structured_output_sync(self, mock_strands_tracer, mock_use_span):
+        """Test Graph structured output with synchronous __call__."""
+        from pydantic import BaseModel, Field
+
+        class SummaryOutput(BaseModel):
+            """Summary output structure for testing."""
+
+            summary: str = Field(description="A summary")
+            key_points: list[str] = Field(description="List of key points")
+
+        # Create a mock agent that captures structured_output_model
+        captured_structured_output_model = None
+
+        async def mock_stream_async(*args, **kwargs):
+            nonlocal captured_structured_output_model
+            captured_structured_output_model = kwargs.get("structured_output_model")
+
+            structured_result = SummaryOutput(summary="Test summary", key_points=["point1", "point2"])
+            mock_result = AgentResult(
+                message={"role": "assistant", "content": [{"text": "Summary"}]},
+                stop_reason="end_turn",
+                state={},
+                metrics=Mock(
+                    accumulated_usage={"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                    accumulated_metrics={"latencyMs": 100.0},
+                ),
+                structured_output=structured_result,
+            )
+            yield {"result": mock_result}
+
+        mock_agent = create_mock_agent("summary_agent", "Summary response")
+        # Assign the async generator function directly
+        mock_agent.stream_async = mock_stream_async
+
+        # Build graph
+        builder = GraphBuilder()
+        builder.add_node(mock_agent, "summary_node")
+        graph = builder.build()
+
+        # Execute graph with structured_output_model using __call__
+        result = graph("Test task", structured_output_model=SummaryOutput)
+
+        # Verify structured_output_model was passed to agent
+        assert captured_structured_output_model == SummaryOutput
+        assert result.status == Status.COMPLETED
+        assert "summary_node" in result.results
+
+        # Verify structured output is accessible
+        node_result = result.results["summary_node"].result
+        assert isinstance(node_result, AgentResult)
+        assert node_result.structured_output is not None
+        assert isinstance(node_result.structured_output, SummaryOutput)
+        assert node_result.structured_output.summary == "Test summary"
+        assert len(node_result.structured_output.key_points) == 2
+
+    @pytest.mark.asyncio
+    async def test_graph_structured_output_multiple_nodes(self, mock_strands_tracer, mock_use_span):
+        """Test Graph structured output with multiple agent nodes."""
+        from pydantic import BaseModel, Field
+
+        class NodeOutput(BaseModel):
+            """Node output structure for testing."""
+
+            node_id: str = Field(description="Node identifier")
+            output: str = Field(description="Node output")
+
+        captured_models = {}
+
+        def create_mock_agent_with_capture(name):
+            async def mock_stream_async(*args, **kwargs):
+                captured_models[name] = kwargs.get("structured_output_model")
+
+                structured_result = NodeOutput(node_id=name, output=f"Output from {name}")
+                mock_result = AgentResult(
+                    message={"role": "assistant", "content": [{"text": f"Output from {name}"}]},
+                    stop_reason="end_turn",
+                    state={},
+                    metrics=Mock(
+                        accumulated_usage={"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                        accumulated_metrics={"latencyMs": 100.0},
+                    ),
+                    structured_output=structured_result,
+                )
+                yield {"result": mock_result}
+
+            agent = create_mock_agent(name, f"Response from {name}")
+            # Assign the async generator function directly
+            agent.stream_async = mock_stream_async
+            return agent
+
+        # Create multiple agents
+        agent1 = create_mock_agent_with_capture("agent1")
+        agent2 = create_mock_agent_with_capture("agent2")
+
+        # Build graph with multiple nodes
+        builder = GraphBuilder()
+        builder.add_node(agent1, "node1")
+        builder.add_node(agent2, "node2")
+        graph = builder.build()
+
+        # Execute graph with structured_output_model
+        result = await graph.invoke_async("Test task", structured_output_model=NodeOutput)
+
+        # Verify structured_output_model was passed to both agents
+        assert captured_models["agent1"] == NodeOutput
+        assert captured_models["agent2"] == NodeOutput
+        assert result.status == Status.COMPLETED
+        assert "node1" in result.results
+        assert "node2" in result.results
+
+        # Verify structured output is accessible for both nodes
+        node1_result = result.results["node1"].result
+        node2_result = result.results["node2"].result
+        assert node1_result.structured_output is not None
+        assert node2_result.structured_output is not None
+        assert node1_result.structured_output.node_id == "agent1"
+        assert node2_result.structured_output.node_id == "agent2"
