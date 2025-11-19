@@ -146,6 +146,12 @@ class GeminiModel(Model):
             )
 
         if "toolUse" in content:
+            # Store the mapping from toolUseId to name for later use in toolResult formatting.
+            # This mapping is built as we format the request, ensuring that when we encounter
+            # toolResult blocks (which come after toolUse blocks in the message history),
+            # we can look up the function name.
+            self._tool_use_id_to_name[content["toolUse"]["toolUseId"]] = content["toolUse"]["name"]
+
             return genai.types.Part(
                 function_call=genai.types.FunctionCall(
                     args=content["toolUse"]["input"],
@@ -269,15 +275,9 @@ class GeminiModel(Model):
             case "content_start":
                 match event["data_type"]:
                     case "tool":
-                        # Generate a unique toolUseId that matches tooluse_<base64> pattern
                         function_call = event["data"].function_call
-                        tool_use_id = f"tooluse_{secrets.token_urlsafe(16)}"
-
-                        # Store mapping from toolUseId to function name for later lookup in
-                        # _format_request_content_part. This is done because Gemini requires the
-                        # function name to be set in the equivalent FunctionResponse type, but we
-                        # also want a unique identifier for the tool use.
-                        self._tool_use_id_to_name[tool_use_id] = function_call.name
+                        # Use Gemini's provided ID or generate one if missing
+                        tool_use_id = function_call.id or f"tooluse_{secrets.token_urlsafe(16)}"
 
                         return {
                             "contentBlockStart": {
