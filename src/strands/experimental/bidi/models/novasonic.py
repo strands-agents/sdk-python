@@ -167,7 +167,6 @@ class BidiNovaSonicModel(BidiModel):
         # Use static resolver with credentials configured as properties
         resolver = StaticCredentialsResolver()
 
-        print("🔍 CREDENTIAL DEBUG: Creating Config with credentials as properties...")
         config = Config(
             endpoint_uri=f"https://bedrock-runtime.{self.region}.amazonaws.com",
             region=self.region,
@@ -180,9 +179,7 @@ class BidiNovaSonicModel(BidiModel):
             aws_session_token=credentials.token,
         )
 
-        print("🔍 CREDENTIAL DEBUG: Creating BedrockRuntimeClient...")
         self.client = BedrockRuntimeClient(config=config)
-        print("✅ CREDENTIAL DEBUG: Nova Sonic client initialized successfully!")
         logger.debug("region=<%s> | nova sonic client initialized", self.region)
 
         client = BedrockRuntimeClient(config=config)
