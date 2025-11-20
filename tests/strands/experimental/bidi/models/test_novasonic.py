@@ -56,19 +56,21 @@ def mock_stream():
 @pytest.fixture
 def mock_client(mock_stream):
     """Mock Bedrock Runtime client."""
-    client = AsyncMock()
-    client.invoke_model_with_bidirectional_stream = AsyncMock(return_value=mock_stream)
-    return client
+    with patch("strands.experimental.bidi.models.novasonic.BedrockRuntimeClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_instance.invoke_model_with_bidirectional_stream = AsyncMock(return_value=mock_stream)
+        mock_cls.return_value = mock_instance
+
+        yield mock_instance
 
 
 @pytest_asyncio.fixture
-async def nova_model(model_id, region):
+def nova_model(model_id, region, mock_client):
     """Create Nova Sonic model instance."""
+    _ = mock_client
+
     model = BidiNovaSonicModel(model_id=model_id, region=region)
     yield model
-    # Cleanup
-    if model._active:
-        await model.stop()
 
 
 # Initialization and Connection Tests
@@ -81,150 +83,96 @@ async def test_model_initialization(model_id, region):
 
     assert model.model_id == model_id
     assert model.region == region
-    assert model.stream is None
-    assert not model._active
-    assert model.connection_id is None
+    assert model._connection_id is None
 
 
 @pytest.mark.asyncio
 async def test_connection_lifecycle(nova_model, mock_client, mock_stream):
     """Test complete connection lifecycle with various configurations."""
-    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model.client = mock_client
 
-        # Test basic connection
-        await nova_model.start(system_prompt="Test system prompt")
-        assert nova_model._active
-        assert nova_model.stream == mock_stream
-        assert nova_model.connection_id is not None
-        assert mock_client.invoke_model_with_bidirectional_stream.called
+    # Test basic connection
+    await nova_model.start(system_prompt="Test system prompt")
+    assert nova_model._stream == mock_stream
+    assert nova_model._connection_id is not None
+    assert mock_client.invoke_model_with_bidirectional_stream.called
 
-        # Test close
-        await nova_model.stop()
-        assert not nova_model._active
-        assert mock_stream.input_stream.close.called
+    # Test close
+    await nova_model.stop()
+    assert mock_stream.close.called
 
-        # Test connection with tools
-        tools = [
-            {
-                "name": "get_weather",
-                "description": "Get weather information",
-                "inputSchema": {"json": json.dumps({"type": "object", "properties": {}})},
-            }
-        ]
-        await nova_model.start(system_prompt="You are helpful", tools=tools)
-        # Verify initialization events were sent (connectionStart, promptStart, system prompt)
-        assert mock_stream.input_stream.send.call_count >= 3
-        await nova_model.stop()
+    # Test connection with tools
+    tools = [
+        {
+            "name": "get_weather",
+            "description": "Get weather information",
+            "inputSchema": {"json": json.dumps({"type": "object", "properties": {}})},
+        }
+    ]
+    await nova_model.start(system_prompt="You are helpful", tools=tools)
+    # Verify initialization events were sent (connectionStart, promptStart, system prompt)
+    assert mock_stream.input_stream.send.call_count >= 3
+    await nova_model.stop()
 
 
 @pytest.mark.asyncio
-async def test_connection_edge_cases(nova_model, mock_client, mock_stream, model_id, region):
-    """Test connection error handling and edge cases."""
-    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model.client = mock_client
-
-        # Test double connection
-        await nova_model.start()
-        with pytest.raises(RuntimeError, match="Connection already active"):
-            await nova_model.start()
-        await nova_model.stop()
-
-    # Test close when already closed
-    model2 = BidiNovaSonicModel(model_id=model_id, region=region)
-    await model2.stop()  # Should not raise
-    await model2.stop()  # Second call should also be safe
+async def test_model_stop_alone(nova_model):
+    await nova_model.stop()  # Should not raise
 
 
 # Send Method Tests
 
 
 @pytest.mark.asyncio
-async def test_send_all_content_types(nova_model, mock_client, mock_stream):
+async def test_send_all_content_types(nova_model, mock_stream):
     """Test sending all content types through unified send() method."""
-    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model.client = mock_client
+    await nova_model.start()
 
-        await nova_model.start()
+    # Test text content
+    text_event = BidiTextInputEvent(text="Hello, Nova!", role="user")
+    await nova_model.send(text_event)
+    # Should send contentStart, textInput, and contentEnd
+    assert mock_stream.input_stream.send.call_count >= 3
 
-        # Test text content
-        text_event = BidiTextInputEvent(text="Hello, Nova!", role="user")
-        await nova_model.send(text_event)
-        # Should send contentStart, textInput, and contentEnd
-        assert mock_stream.input_stream.send.call_count >= 3
+    # Test audio content (base64 encoded)
+    audio_b64 = base64.b64encode(b"audio data").decode("utf-8")
+    audio_event = BidiAudioInputEvent(audio=audio_b64, format="pcm", sample_rate=16000, channels=1)
+    await nova_model.send(audio_event)
+    # Should start audio connection and send audio
+    assert nova_model._audio_content_name
+    assert mock_stream.input_stream.send.called
 
-        # Test audio content (base64 encoded)
-        audio_b64 = base64.b64encode(b"audio data").decode("utf-8")
-        audio_event = BidiAudioInputEvent(audio=audio_b64, format="pcm", sample_rate=16000, channels=1)
-        await nova_model.send(audio_event)
-        # Should start audio connection and send audio
-        assert nova_model.audio_connection_active
-        assert mock_stream.input_stream.send.called
+    # Test tool result
+    tool_result: ToolResult = {
+        "toolUseId": "tool-123",
+        "status": "success",
+        "content": [{"text": "Weather is sunny"}],
+    }
+    await nova_model.send(ToolResultEvent(tool_result))
+    # Should send contentStart, toolResult, and contentEnd
+    assert mock_stream.input_stream.send.called
 
-        # Test tool result
-        tool_result: ToolResult = {
-            "toolUseId": "tool-123",
-            "status": "success",
-            "content": [{"text": "Weather is sunny"}],
-        }
-        await nova_model.send(ToolResultEvent(tool_result))
-        # Should send contentStart, toolResult, and contentEnd
-        assert mock_stream.input_stream.send.called
-
-        await nova_model.stop()
+    await nova_model.stop()
 
 
 @pytest.mark.asyncio
-async def test_send_edge_cases(nova_model, mock_client, mock_stream, caplog):
+async def test_send_edge_cases(nova_model):
     """Test send() edge cases and error handling."""
-    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model.client = mock_client
 
-        # Test send when inactive
-        text_event = BidiTextInputEvent(text="Hello", role="user")
-        await nova_model.send(text_event)  # Should not raise
+    # Test image content (not supported, base64 encoded, no encoding parameter)
+    await nova_model.start()
+    image_b64 = base64.b64encode(b"image data").decode("utf-8")
+    image_event = BidiImageInputEvent(
+        image=image_b64,
+        mime_type="image/jpeg",
+    )
 
-        # Test image content (not supported, base64 encoded, no encoding parameter)
-        await nova_model.start()
-        image_b64 = base64.b64encode(b"image data").decode("utf-8")
-        image_event = BidiImageInputEvent(
-            image=image_b64,
-            mime_type="image/jpeg",
-        )
+    with pytest.raises(ValueError, match=r"content not supported by nova sonic"):
         await nova_model.send(image_event)
-        # Should log warning about unsupported image input
-        assert any("not supported" in record.message.lower() for record in caplog.records)
 
-        await nova_model.stop()
+    await nova_model.stop()
 
 
 # Receive and Event Conversion Tests
-
-
-@pytest.mark.asyncio
-async def test_receive_lifecycle_events(nova_model, mock_client, mock_stream):
-    """Test that receive() emits connection start and end events."""
-    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model.client = mock_client
-
-        # Setup mock to return no events and then stop
-        async def mock_wait_for(*args, **kwargs):
-            await asyncio.sleep(0.1)
-            nova_model._active = False
-            raise asyncio.TimeoutError()
-
-        with patch("asyncio.wait_for", side_effect=mock_wait_for):
-            await nova_model.start()
-
-            events = []
-            async for event in nova_model.receive():
-                events.append(event)
-
-            # Should have session start and end (new TypedEvent format)
-            assert len(events) >= 2
-            assert events[0].get("type") == "bidi_connection_start"
-            assert events[0].get("connection_id") == nova_model.connection_id
-            assert events[-1].get("type") == "bidi_connection_close"
 
 
 @pytest.mark.asyncio
@@ -306,7 +254,6 @@ async def test_event_conversion(nova_model):
     assert result is not None
     assert isinstance(result, BidiResponseStartEvent)
     assert result.get("type") == "bidi_response_start"
-    assert nova_model._current_role == "ASSISTANT"
     assert nova_model._generation_stage == "FINAL"
 
     # Test AUDIO type contentStart (no additionalModelFields)
@@ -314,7 +261,6 @@ async def test_event_conversion(nova_model):
     result = nova_model._convert_nova_event(nova_event)
     assert result is not None
     assert isinstance(result, BidiResponseStartEvent)
-    assert nova_model._current_role == "ASSISTANT"
 
     # Test TOOL type contentStart
     nova_event = {"contentStart": {"role": "TOOL", "type": "TOOL", "contentId": "content-789"}}
@@ -327,22 +273,20 @@ async def test_event_conversion(nova_model):
 
 
 @pytest.mark.asyncio
-async def test_audio_connection_lifecycle(nova_model, mock_client, mock_stream):
+async def test_audio_connection_lifecycle(nova_model):
     """Test audio connection start and end lifecycle."""
-    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model.client = mock_client
 
-        await nova_model.start()
+    await nova_model.start()
 
-        # Start audio connection
-        await nova_model._start_audio_connection()
-        assert nova_model.audio_connection_active
+    # Start audio connection
+    await nova_model._start_audio_connection()
+    assert nova_model._audio_content_name
 
-        # End audio connection
-        await nova_model._end_audio_input()
-        assert not nova_model.audio_connection_active
+    # End audio connection
+    await nova_model._end_audio_input()
+    assert not nova_model._audio_content_name
 
-        await nova_model.stop()
+    await nova_model.stop()
 
 
 # Helper Method Tests
@@ -378,7 +322,7 @@ async def test_event_templates(nova_model):
     assert "inferenceConfiguration" in event["event"]["sessionStart"]
 
     # Test prompt start event
-    nova_model.connection_id = "test-connection"
+    nova_model._connection_id = "test-connection"
     event_json = nova_model._get_prompt_start_event([])
     event = json.loads(event_json)
     assert "event" in event
@@ -406,21 +350,19 @@ async def test_event_templates(nova_model):
 
 
 @pytest.mark.asyncio
-async def test_error_handling(nova_model, mock_client, mock_stream):
+async def test_error_handling(nova_model, mock_stream):
     """Test error handling in various scenarios."""
-    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model.client = mock_client
 
-        # Test response processor handles errors gracefully
-        async def mock_error(*args, **kwargs):
-            raise Exception("Test error")
+    # Test response processor handles errors gracefully
+    async def mock_error(*args, **kwargs):
+        raise Exception("Test error")
 
-        mock_stream.await_output.side_effect = mock_error
+    mock_stream.await_output.side_effect = mock_error
 
-        await nova_model.start()
+    await nova_model.start()
 
-        # Wait a bit for response processor to handle error
-        await asyncio.sleep(0.1)
+    # Wait a bit for response processor to handle error
+    await asyncio.sleep(0.1)
 
-        # Should still be able to close cleanly
-        await nova_model.stop()
+    # Should still be able to close cleanly
+    await nova_model.stop()
