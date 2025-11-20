@@ -32,14 +32,12 @@ class ToolExecutor(abc.ABC):
 
     @staticmethod
     def _is_bidi_agent(agent: Union["Agent", "BidiAgent"]) -> bool:
-        """Check if the agent is a BidiAgent instance.
+        """Check if the agent is a BidiAgent by type name.
 
-        Uses isinstance() with runtime import to avoid circular imports.
+        Uses type name comparison to avoid circular imports while maintaining
+        type safety. This works because we control both Agent and BidiAgent types.
         """
-        # Import at runtime to avoid circular dependency
-        from ...experimental.bidi.agent.agent import BidiAgent
-
-        return isinstance(agent, BidiAgent)
+        return type(agent).__name__ == "BidiAgent"
 
     @staticmethod
     async def _invoke_before_tool_call_hook(
