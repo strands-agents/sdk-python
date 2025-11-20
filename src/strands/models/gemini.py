@@ -277,7 +277,7 @@ class GeminiModel(Model):
                             "toolUseId": event["data"].function_call.name,
                         }
                         if event.get("thought_signature"):
-                            tool_use["thoughtSignature"] = event["thought_signature"]
+                            tool_use["thoughtSignature"] = event["thought_signature"].decode("utf-8")
                         return {
                             "contentBlockStart": {
                                 "start": {"toolUse": cast(Any, tool_use)},
