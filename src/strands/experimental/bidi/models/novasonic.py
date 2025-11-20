@@ -19,13 +19,14 @@ import logging
 import uuid
 from typing import Any, AsyncIterable
 
+import boto3
 from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
 from aws_sdk_bedrock_runtime.config import Config, HTTPAuthSchemeResolver, SigV4AuthScheme
 from aws_sdk_bedrock_runtime.models import (
     BidirectionalInputPayloadPart,
     InvokeModelWithBidirectionalStreamInputChunk,
 )
-from smithy_aws_core.identity.environment import EnvironmentCredentialsResolver
+from smithy_aws_core.identity.static import StaticCredentialsResolver
 from smithy_core.aio.eventstream import DuplexEventStream
 
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
@@ -89,16 +90,31 @@ class BidiNovaSonicModel(BidiModel):
 
     _stream: DuplexEventStream
 
-    def __init__(self, model_id: str = "amazon.nova-sonic-v1:0", region: str = "us-east-1", **kwargs: Any) -> None:
+    def __init__(
+        self,
+        model_id: str = "amazon.nova-sonic-v1:0",
+        boto_session: boto3.Session | None = None,
+        region: str | None = None,
+        **kwargs: Any,
+    ) -> None:
         """Initialize Nova Sonic bidirectional model.
 
         Args:
             model_id: Nova Sonic model identifier.
-            region: AWS region.
+            boto_session: Boto Session to use when calling the Nova Sonic Model.
+            region: AWS region
             **kwargs: Reserved for future parameters.
         """
+        if region and boto_session:
+            raise ValueError("Cannot specify both `region_name` and `boto_session`.")
+
+        # Create session and resolve region
+        self._session = boto_session or boto3.Session()
+        resolved_region = region or self._session.region_name or "us-east-1"
+
+        # Model configuration
         self.model_id = model_id
-        self.region = region
+        self.region = resolved_region
 
         # Track API-provided identifiers
         self._connection_id: str | None = None
@@ -139,13 +155,33 @@ class BidiNovaSonicModel(BidiModel):
 
         self._connection_id = str(uuid.uuid4())
 
+        # Get credentials from boto3 session (full credential chain)
+        credentials = self._session.get_credentials()
+
+        if not credentials:
+            raise ValueError(
+                "no AWS credentials found. configure credentials via environment variables, "
+                "credential files, IAM roles, or SSO."
+            )
+
+        # Use static resolver with credentials configured as properties
+        resolver = StaticCredentialsResolver()
+
         config = Config(
             endpoint_uri=f"https://bedrock-runtime.{self.region}.amazonaws.com",
             region=self.region,
-            aws_credentials_identity_resolver=EnvironmentCredentialsResolver(),
+            aws_credentials_identity_resolver=resolver,
             auth_scheme_resolver=HTTPAuthSchemeResolver(),
             auth_schemes={"aws.auth#sigv4": SigV4AuthScheme(service="bedrock")},
+            # Configure static credentials as properties
+            aws_access_key_id=credentials.access_key,
+            aws_secret_access_key=credentials.secret_key,
+            aws_session_token=credentials.token,
         )
+
+        self.client = BedrockRuntimeClient(config=config)
+        logger.debug("region=<%s> | nova sonic client initialized", self.region)
+
         client = BedrockRuntimeClient(config=config)
         self._stream = await client.invoke_model_with_bidirectional_stream(
             InvokeModelWithBidirectionalStreamOperationInput(model_id=self.model_id)
