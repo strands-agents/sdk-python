@@ -173,7 +173,15 @@ class _BidiAgentLoop:
         logger.debug("tool_name=<%s> | tool execution starting", tool_use["name"])
 
         tool_results: list[ToolResult] = []
-        invocation_state: dict[str, Any] = {"agent": self._agent}
+        
+        # Build invocation_state from stored state and current agent context
+        invocation_state: dict[str, Any] = {
+            **self._agent._invocation_state,  # User-provided context
+            "agent": self._agent,  # Always include agent reference
+            "model": self._agent.model,
+            "messages": self._agent.messages,
+            "system_prompt": self._agent.system_prompt,
+        }
 
         # Use the tool executor to run the tool (no tracing/metrics for BidiAgent yet)
         tool_events = self._agent.tool_executor._stream(
