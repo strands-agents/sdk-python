@@ -103,7 +103,7 @@ class BidiNovaSonicModel(BidiModel):
 
         # Connection state (initialized in start())
         self.stream: Any = None
-        self.connection_id: str = ""
+        self.connection_id: str | None = None
         self._active = False
 
         # Nova Sonic requires unique content names

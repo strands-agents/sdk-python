@@ -99,9 +99,9 @@ class BidiGeminiLiveModel(BidiModel):
         self.client = genai.Client(**client_kwargs)
 
         # Connection state (initialized in start())
-        self.live_session: Any
+        self.live_session: Any = None
         self.live_session_context_manager = None
-        self.connection_id | str
+        self.connection_id: str | None = None
         self._active: bool = False
 
     async def start(

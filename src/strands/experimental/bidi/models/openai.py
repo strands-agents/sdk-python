@@ -104,8 +104,8 @@ class BidiOpenAIRealtimeModel(BidiModel):
                 )
 
         # Connection state (initialized in start())
-        self.websocket: ClientConnection
-        self.connection_id: str
+        self.websocket: ClientConnection | None = None
+        self.connection_id: str | None = None
         self._active: bool = False
 
         self._function_call_buffer: dict[str, Any] = {}
@@ -574,6 +574,8 @@ class BidiOpenAIRealtimeModel(BidiModel):
                 tool_result = content.get("tool_result")
                 if tool_result:
                     await self._send_tool_result(tool_result)
+            else:
+                logger.warning("Unknown content type: %s", type(content).__name__)
         except Exception as e:
             logger.error("error=<%s> | error sending content to openai", e)
             raise  # Propagate exception for debugging in experimental code
