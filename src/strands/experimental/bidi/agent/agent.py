@@ -28,7 +28,7 @@ from ....tools.watcher import ToolWatcher
 from ....types.content import ContentBlock, Message, Messages
 from ....types.tools import AgentTool, ToolResult, ToolUse
 from ...tools import ToolProvider
-from ..hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
+from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from ..models.bidi_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
@@ -59,10 +59,10 @@ class BidiAgent:
         load_tools_from_directory: bool = False,
         agent_id: str | None = None,
         name: str | None = None,
-        tool_executor: ToolExecutor | None = None,
         description: str | None = None,
         hooks: list[HookProvider] | None = None,
         state: AgentState | dict | None = None,
+        tool_executor: ToolExecutor | None = None,
         **kwargs: Any,
     ):
         """Initialize bidirectional agent.
@@ -76,10 +76,10 @@ class BidiAgent:
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.
             agent_id: Optional ID for the agent, useful for connection management and multi-agent scenarios.
             name: Name of the Agent.
-            tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
             description: Description of what the Agent does.
             hooks: Optional list of hook providers to register for lifecycle events.
             state: Stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
+            tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
             **kwargs: Additional configuration for future extensibility.
 
         Raises:
@@ -117,9 +117,6 @@ class BidiAgent:
         if self.load_tools_from_directory:
             self.tool_watcher = ToolWatcher(tool_registry=self.tool_registry)
 
-        # Initialize tool executor
-        self.tool_executor = tool_executor or ConcurrentToolExecutor()
-
         # Initialize agent state management
         if state is not None:
             if isinstance(state, dict):
@@ -133,6 +130,9 @@ class BidiAgent:
 
         # Initialize other components
         self._tool_caller = _ToolCaller(self)
+
+        # Initialize tool executor
+        self.tool_executor = tool_executor or ConcurrentToolExecutor()
 
         # Initialize hooks registry
         self.hooks = HookRegistry()

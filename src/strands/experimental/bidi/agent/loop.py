@@ -10,14 +10,12 @@ from typing import TYPE_CHECKING, Any, AsyncIterable, Awaitable
 from ....types._events import ToolResultEvent, ToolResultMessageEvent, ToolStreamEvent, ToolUseStreamEvent
 from ....types.content import Message
 from ....types.tools import ToolResult, ToolUse
-from ..hooks.events import (
+from ...hooks.events import (
     BidiAfterInvocationEvent,
-    BidiAfterToolCallEvent,
     BidiBeforeInvocationEvent,
-    BidiBeforeToolCallEvent,
     BidiMessageAddedEvent,
 )
-from ..hooks.events import (
+from ...hooks.events import (
     BidiInterruptionEvent as BidiInterruptionHookEvent,
 )
 from ..types.events import BidiInterruptionEvent, BidiOutputEvent, BidiTranscriptStreamEvent
@@ -171,56 +169,30 @@ class _BidiAgentLoop:
                 )
 
     async def _run_tool(self, tool_use: ToolUse) -> None:
-        """Task for running tool requested by the model."""
+        """Task for running tool requested by the model using the tool executor."""
         logger.debug("tool_name=<%s> | tool execution starting", tool_use["name"])
 
-        result: ToolResult
-        exception: Exception | None = None
-        tool = None
-        invocation_state: dict[str, Any] = {}
+        tool_results: list[ToolResult] = []
+        invocation_state: dict[str, Any] = {"agent": self._agent}
 
-        try:
-            tool = self._agent.tool_registry.registry[tool_use["name"]]
+        # Use the tool executor to run the tool (no tracing/metrics for BidiAgent yet)
+        tool_events = self._agent.tool_executor._stream(
+            self._agent,
+            tool_use,
+            tool_results,
+            invocation_state,
+            structured_output_context=None,  # BidiAgent doesn't support structured output yet
+        )
 
-            # Emit before tool call event
-            await self._agent.hooks.invoke_callbacks_async(
-                BidiBeforeToolCallEvent(
-                    agent=self._agent,
-                    selected_tool=tool,
-                    tool_use=tool_use,
-                    invocation_state=invocation_state,
-                )
-            )
+        async for event in tool_events:
+            await self._event_queue.put(event)
+            if isinstance(event, ToolResultEvent):
+                result = event.tool_result
 
-            async for event in tool.stream(tool_use, invocation_state):
-                if isinstance(event, ToolResultEvent):
-                    await self._event_queue.put(event)
-                    result = event.tool_result
-                    break
-
-                if isinstance(event, ToolStreamEvent):
-                    await self._event_queue.put(event)
-                else:
-                    await self._event_queue.put(ToolStreamEvent(tool_use, event))
-
-        except Exception as e:
-            result = {"toolUseId": tool_use["toolUseId"], "status": "error", "content": [{"text": f"Error: {str(e)}"}]}
-
-        finally:
-            # Emit after tool call event (reverse order for cleanup)
-            await self._agent.hooks.invoke_callbacks_async(
-                BidiAfterToolCallEvent(
-                    agent=self._agent,
-                    selected_tool=tool,
-                    tool_use=tool_use,
-                    invocation_state=invocation_state,
-                    result=result,
-                    exception=exception,
-                )
-            )
-
+        # Send tool result to model
         await self._agent.model.send(ToolResultEvent(result))
 
+        # Add tool result message to conversation history
         message: Message = {
             "role": "user",
             "content": [{"toolResult": result}],

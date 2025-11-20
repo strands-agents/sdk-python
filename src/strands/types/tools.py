@@ -136,7 +136,7 @@ class ToolContext(_Interruptible):
 
     Attributes:
         tool_use: The complete ToolUse object containing tool invocation details.
-        agent: The Agent instance executing this tool, providing access to conversation history,
+        agent: The Agent or BidiAgent instance executing this tool, providing access to conversation history,
                model configuration, and other agent state.
         invocation_state: Caller-provided kwargs that were passed to the agent when it was invoked (agent(),
                           agent.invoke_async(), etc.).
@@ -147,7 +147,7 @@ class ToolContext(_Interruptible):
     """
 
     tool_use: ToolUse
-    agent: "Agent"
+    agent: Any  # Agent or BidiAgent - using Any for backwards compatibility
     invocation_state: dict[str, Any]
 
     def _interrupt_id(self, name: str) -> str:
