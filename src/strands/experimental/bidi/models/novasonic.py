@@ -102,8 +102,7 @@ class BidiNovaSonicModel(BidiModel):
         Args:
             model_id: Nova Sonic model identifier.
             boto_session: Boto Session to use when calling the Nova Sonic Model.
-            region_name: AWS region to use for the Nova Sonic service.
-                Defaults to the AWS_REGION environment variable if set, or "us-east-1" if not set.
+            region: AWS region
             **kwargs: Reserved for future parameters.
         """
         if region and boto_session:
