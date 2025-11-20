@@ -159,8 +159,8 @@ class BidiNovaSonicModel(BidiModel):
         credentials = self._session.get_credentials()
 
         if not credentials:
-            raise RuntimeError(
-                "No AWS credentials found. Configure credentials via environment variables, "
+            raise ValueError(
+                "no AWS credentials found. configure credentials via environment variables, "
                 "credential files, IAM roles, or SSO."
             )
 
