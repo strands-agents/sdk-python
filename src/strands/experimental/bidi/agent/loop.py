@@ -173,7 +173,7 @@ class _BidiAgentLoop:
         logger.debug("tool_name=<%s> | tool execution starting", tool_use["name"])
 
         tool_results: list[ToolResult] = []
-        
+
         # Build invocation_state from stored state and current agent context
         invocation_state: dict[str, Any] = {
             **self._agent._invocation_state,  # User-provided context

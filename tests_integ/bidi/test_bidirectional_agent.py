@@ -244,4 +244,3 @@ async def test_bidirectional_agent(agent_with_calculator, audio_generator, provi
             len(tool_calls),
         )
         logger.info("=" * 60)
-

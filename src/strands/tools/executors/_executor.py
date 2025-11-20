@@ -33,12 +33,12 @@ class ToolExecutor(abc.ABC):
     @staticmethod
     def _is_bidi_agent(agent: Union["Agent", "BidiAgent"]) -> bool:
         """Check if the agent is a BidiAgent instance.
-        
+
         Uses isinstance() with runtime import to avoid circular imports.
         """
         # Import at runtime to avoid circular dependency
         from ...experimental.bidi.agent.agent import BidiAgent
-        
+
         return isinstance(agent, BidiAgent)
 
     @staticmethod
@@ -181,7 +181,7 @@ class ToolExecutor(abc.ABC):
                 "status": "error",
                 "content": [{"text": cancel_message}],
             }
-            
+
             after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
                 agent, None, tool_use, invocation_state, cancel_result, cancel_message=cancel_message
             )
@@ -213,7 +213,7 @@ class ToolExecutor(abc.ABC):
                     "status": "error",
                     "content": [{"text": f"Unknown tool: {tool_name}"}],
                 }
-                
+
                 after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
                     agent, selected_tool, tool_use, invocation_state, result
                 )
@@ -259,7 +259,7 @@ class ToolExecutor(abc.ABC):
                 "status": "error",
                 "content": [{"text": f"Error: {str(e)}"}],
             }
-            
+
             after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
                 agent, selected_tool, tool_use, invocation_state, error_result, exception=e
             )
