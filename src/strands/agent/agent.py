@@ -25,6 +25,7 @@ from typing import (
     cast,
 )
 
+import anyio
 from opentelemetry import trace as trace_api
 from pydantic import BaseModel
 
@@ -185,6 +186,7 @@ class Agent:
         self.agent_id = _identifier.validate(agent_id or _DEFAULT_AGENT_ID, _identifier.Identifier.AGENT)
         self.name = name or _DEFAULT_AGENT_NAME
         self.description = description
+        self._invocation_lock = anyio.Lock()
 
         # If not provided, create a new PrintingCallbackHandler instance
         # If explicitly set to None, use null_callback_handler
@@ -386,13 +388,23 @@ class Agent:
                 - metrics: Performance metrics from the event loop
                 - state: The final state of the event loop
         """
-        events = self.stream_async(
-            prompt, invocation_state=invocation_state, structured_output_model=structured_output_model, **kwargs
-        )
-        async for event in events:
-            _ = event
+        try:
+            self._invocation_lock.acquire_nowait()
+        except anyio.WouldBlock:
+            raise RuntimeError(
+                "Agent is already processing a request. Concurrent invocations are not supported."
+            ) from None
 
-        return cast(AgentResult, event["result"])
+        try:
+            events = self.stream_async(
+                prompt, invocation_state=invocation_state, structured_output_model=structured_output_model, **kwargs
+            )
+            async for event in events:
+                _ = event
+
+            return cast(AgentResult, event["result"])
+        finally:
+            self._invocation_lock.release()
 
     def structured_output(self, output_model: Type[T], prompt: AgentInput = None) -> T:
         """This method allows you to get structured output from the agent.
