@@ -17,6 +17,7 @@ from ...telemetry.metrics import Trace
 from ...telemetry.tracer import get_tracer, serialize
 from ...types._events import ToolCancelEvent, ToolInterruptEvent, ToolResultEvent, ToolStreamEvent, TypedEvent
 from ...types.content import Message
+from ...types.interrupt import Interrupt
 from ...types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolResult, ToolUse
 from ..structured_output._structured_output_context import StructuredOutputContext
 
@@ -51,26 +52,17 @@ class ToolExecutor(abc.ABC):
         tool_func: Any,
         tool_use: ToolUse,
         invocation_state: dict[str, Any],
-    ) -> tuple[Any, list]:
+    ) -> tuple[Union[BeforeToolCallEvent, BidiBeforeToolCallEvent], list[Interrupt]]:
         """Invoke the appropriate before tool call hook based on agent type."""
-        if ToolExecutor._is_bidi_agent(agent):
-            return await agent.hooks.invoke_callbacks_async(
-                BidiBeforeToolCallEvent(
-                    agent=agent,  # type: ignore[arg-type]
-                    selected_tool=tool_func,
-                    tool_use=tool_use,
-                    invocation_state=invocation_state,
-                )
+        event_cls = BidiBeforeToolCallEvent if ToolExecutor._is_bidi_agent(agent) else BeforeToolCallEvent
+        return await agent.hooks.invoke_callbacks_async(
+            event_cls(
+                agent=agent,  # type: ignore[arg-type]
+                selected_tool=tool_func,
+                tool_use=tool_use,
+                invocation_state=invocation_state,
             )
-        else:
-            return await agent.hooks.invoke_callbacks_async(
-                BeforeToolCallEvent(
-                    agent=agent,  # type: ignore[arg-type]
-                    selected_tool=tool_func,
-                    tool_use=tool_use,
-                    invocation_state=invocation_state,
-                )
-            )
+        )
 
     @staticmethod
     async def _invoke_after_tool_call_hook(
@@ -81,32 +73,20 @@ class ToolExecutor(abc.ABC):
         result: ToolResult,
         exception: Exception | None = None,
         cancel_message: str | None = None,
-    ) -> tuple[Any, list]:
+    ) -> tuple[Union[AfterToolCallEvent, BidiAfterToolCallEvent], list[Interrupt]]:
         """Invoke the appropriate after tool call hook based on agent type."""
-        if ToolExecutor._is_bidi_agent(agent):
-            return await agent.hooks.invoke_callbacks_async(
-                BidiAfterToolCallEvent(
-                    agent=agent,  # type: ignore[arg-type]
-                    selected_tool=selected_tool,
-                    tool_use=tool_use,
-                    invocation_state=invocation_state,
-                    result=result,
-                    exception=exception,
-                    cancel_message=cancel_message,
-                )
+        event_cls = BidiAfterToolCallEvent if ToolExecutor._is_bidi_agent(agent) else AfterToolCallEvent
+        return await agent.hooks.invoke_callbacks_async(
+            event_cls(
+                agent=agent,  # type: ignore[arg-type]
+                selected_tool=selected_tool,
+                tool_use=tool_use,
+                invocation_state=invocation_state,
+                result=result,
+                exception=exception,
+                cancel_message=cancel_message,
             )
-        else:
-            return await agent.hooks.invoke_callbacks_async(
-                AfterToolCallEvent(
-                    agent=agent,  # type: ignore[arg-type]
-                    selected_tool=selected_tool,
-                    tool_use=tool_use,
-                    invocation_state=invocation_state,
-                    result=result,
-                    exception=exception,
-                    cancel_message=cancel_message,
-                )
-            )
+        )
 
     @staticmethod
     async def _stream(
@@ -165,7 +145,6 @@ class ToolExecutor(abc.ABC):
             }
         )
 
-        # Invoke appropriate before tool call hook based on agent type
         before_event, interrupts = await ToolExecutor._invoke_before_tool_call_hook(
             agent, tool_func, tool_use, invocation_state
         )
@@ -321,7 +300,6 @@ class ToolExecutor(abc.ABC):
             tool_success = result.get("status") == "success"
             tool_duration = time.time() - tool_start_time
             message = Message(role="user", content=[{"toolResult": result}])
-            # Only add tool usage metrics for regular Agent (not BidiAgent)
             if not ToolExecutor._is_bidi_agent(agent):
                 agent.event_loop_metrics.add_tool_usage(  # type: ignore[union-attr]
                     tool_use, tool_duration, tool_trace, tool_success, message

@@ -7,7 +7,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, AsyncIterable, Awaitable
 
-from ....types._events import ToolResultEvent, ToolResultMessageEvent, ToolUseStreamEvent
+from ....types._events import ToolInterruptEvent, ToolResultEvent, ToolResultMessageEvent, ToolUseStreamEvent
 from ....types.content import Message
 from ....types.tools import ToolResult, ToolUse
 from ...hooks.events import (
@@ -174,33 +174,34 @@ class _BidiAgentLoop:
 
         tool_results: list[ToolResult] = []
 
-        # Build invocation_state from stored state and current agent context
         invocation_state: dict[str, Any] = {
-            **self._agent._invocation_state,  # User-provided context
-            "agent": self._agent,  # Always include agent reference
+            **self._agent._invocation_state,
+            "agent": self._agent,
             "model": self._agent.model,
             "messages": self._agent.messages,
             "system_prompt": self._agent.system_prompt,
         }
 
-        # Use the tool executor to run the tool (no tracing/metrics for BidiAgent yet)
         tool_events = self._agent.tool_executor._stream(
             self._agent,
             tool_use,
             tool_results,
             invocation_state,
-            structured_output_context=None,  # BidiAgent doesn't support structured output yet
+            structured_output_context=None,
         )
 
         async for event in tool_events:
+            if isinstance(event, ToolInterruptEvent):
+                raise RuntimeError(
+                    "Tool interruption is not yet supported in BidiAgent. "
+                    "ToolInterruptEvent received but cannot be handled in bidirectional streaming context."
+                )
             await self._event_queue.put(event)
             if isinstance(event, ToolResultEvent):
                 result = event.tool_result
 
-        # Send tool result to model
         await self._agent.model.send(ToolResultEvent(result))
 
-        # Add tool result message to conversation history
         message: Message = {
             "role": "user",
             "content": [{"toolResult": result}],
