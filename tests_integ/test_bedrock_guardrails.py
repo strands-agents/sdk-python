@@ -343,6 +343,39 @@ def test_guardrail_last_turn_only_recovery_scenario(boto_session, bedrock_guardr
     assert len(agent.messages) == 4  # 2 user + 2 assistant messages
 
 
+def test_guardrail_last_turn_only_output_intervention(boto_session, bedrock_guardrail):
+    """Test that guardrail_last_turn_only works with OUTPUT guardrails.
+
+    This tests that when the assistant tries to output blocked content,
+    the OUTPUT guardrail intervenes, even with guardrail_last_turn_only=True.
+    Then verifies that subsequent normal responses work correctly.
+    """
+    bedrock_model = BedrockModel(
+        guardrail_id=bedrock_guardrail,
+        guardrail_version="DRAFT",
+        guardrail_last_turn_only=True,
+        guardrail_stream_processing_mode="sync",
+        boto_session=boto_session,
+    )
+
+    agent = Agent(
+        model=bedrock_model,
+        system_prompt="When asked to say the word, say CACTUS. Otherwise respond normally.",
+        callback_handler=None,
+        load_tools_from_directory=False,
+    )
+
+    # First turn - assistant tries to output "CACTUS", should be blocked by OUTPUT guardrail
+    response1 = agent("Say the word.")
+    assert response1.stop_reason == "guardrail_intervened"
+    assert BLOCKED_OUTPUT in str(response1)
+
+    # Second turn - normal question should work fine
+    response2 = agent("What is 2+2?")
+    assert response2.stop_reason != "guardrail_intervened"
+    assert BLOCKED_OUTPUT not in str(response2)
+
+
 def test_guardrail_input_intervention_properly_redacts_in_session(boto_session, bedrock_guardrail, temp_dir):
     bedrock_model = BedrockModel(
         guardrail_id=bedrock_guardrail,
