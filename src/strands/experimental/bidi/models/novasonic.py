@@ -431,7 +431,8 @@ class BidiNovaSonicModel(BidiModel):
 
         # Handle text output (transcripts)
         elif "textOutput" in nova_event:
-            text_content = nova_event["textOutput"]["content"]
+            text_output = nova_event["textOutput"]
+            text_content = text_output["content"]
             # Check for Nova Sonic interruption pattern
             if '{ "interrupted" : true }' in text_content:
                 logger.debug("nova interruption detected in text output")
@@ -440,7 +441,7 @@ class BidiNovaSonicModel(BidiModel):
             return BidiTranscriptStreamEvent(
                 delta={"text": text_content},
                 text=text_content,
-                role="assistant",
+                role=text_output["role"].lower(),
                 is_final=self._generation_stage == "FINAL",
                 current_transcript=text_content,
             )
