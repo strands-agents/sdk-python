@@ -311,14 +311,14 @@ class BedrockModel(Model):
     def _get_last_turn_messages(self, messages: Messages) -> Messages:
         """Get the last turn messages for guardrail evaluation.
 
-        Returns the latest user message and the previous assistant message (if it exists).
+        Returns the latest user message and the assistant's response (if it exists).
         This reduces the conversation context sent to guardrails when guardrail_last_turn_only is True.
 
         Args:
             messages: Full conversation messages.
 
         Returns:
-            Messages containing only the last turn (user + previous assistant if exists).
+            Messages containing only the last turn (user + assistant response if exists).
         """
         if not messages:
             return []
@@ -334,13 +334,12 @@ class BedrockModel(Model):
             # No user message found, return empty
             return []
 
-        # Include the previous assistant message if it exists
-        result_messages: Messages = []
-        if last_user_index > 0 and messages[last_user_index - 1]["role"] == "assistant":
-            result_messages.append(messages[last_user_index - 1])
+        # Start with the last user message
+        result_messages: Messages = [messages[last_user_index]]
 
-        # Add the last user message
-        result_messages.append(messages[last_user_index])
+        # Include the assistant's response if it exists (the message after the user message)
+        if last_user_index < len(messages) - 1 and messages[last_user_index + 1]["role"] == "assistant":
+            result_messages.append(messages[last_user_index + 1])
 
         return result_messages
 
