@@ -688,3 +688,77 @@ def test_call_tool_sync_embedded_unknown_resource_type_dropped(mock_transport, m
         mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None)
         assert result["status"] == "success"
         assert len(result["content"]) == 0  # Unknown resource type should be dropped
+
+
+@pytest.mark.asyncio
+async def test_handle_error_message_non_fatal_error():
+    """Test that _handle_error_message ignores non-fatal errors and logs them."""
+    client = MCPClient(MagicMock())
+
+    # Test the message handler directly with a non-fatal error
+    with patch.object(client, "_log_debug_with_thread") as mock_log:
+        # This should not raise an exception
+        await client._handle_error_message(Exception("unknown request id: abc123"))
+
+        # Verify the non-fatal error was logged as ignored
+        assert mock_log.called
+        call_args = mock_log.call_args[0]
+        assert "ignoring non-fatal MCP session error" in call_args[0]
+
+
+@pytest.mark.asyncio
+async def test_handle_error_message_fatal_error():
+    """Test that _handle_error_message raises fatal errors."""
+    client = MCPClient(MagicMock())
+
+    # This should raise the exception
+    with pytest.raises(Exception, match="connection timeout"):
+        await client._handle_error_message(Exception("connection timeout"))
+
+
+@pytest.mark.asyncio
+async def test_handle_error_message_non_exception():
+    """Test that _handle_error_message handles non-exception messages."""
+    client = MCPClient(MagicMock())
+
+    # This should not raise an exception
+    await client._handle_error_message("normal message")
+
+
+def test_mcp_client_connection_stability_with_timeout():
+    """Integration test to verify connection remains stable with very small timeouts."""
+    from datetime import timedelta
+    from unittest.mock import patch
+
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+
+    stdio_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
+    )
+
+    with stdio_mcp_client:
+        # Spy on the logger to capture non-fatal error messages
+        with patch.object(stdio_mcp_client, "_log_debug_with_thread") as mock_log:
+            # Make multiple calls with very small timeout to trigger "unknown request id" errors
+            for i in range(3):
+                try:
+                    result = stdio_mcp_client.call_tool_sync(
+                        tool_use_id=f"test_{i}",
+                        name="echo",
+                        arguments={"to_echo": f"test_{i}"},
+                        read_timeout_seconds=timedelta(milliseconds=1),  # Very small timeout
+                    )
+                except Exception:
+                    pass  # Ignore exceptions, we're testing connection stability
+
+            # Verify connection is still alive by making a successful call
+            result = stdio_mcp_client.call_tool_sync(
+                tool_use_id="final_test", name="echo", arguments={"to_echo": "connection_alive"}
+            )
+            assert result["status"] == "success"
+            assert result["content"][0]["text"] == "connection_alive"
+
+            # Verify that non-fatal error messages were logged
+            log_calls = [str(call) for call in mock_log.call_args_list]
+            non_fatal_logs = [call for call in log_calls if "ignoring non-fatal MCP session error" in call]
+            assert len(non_fatal_logs) > 0, "Expected non-fatal error messages to be logged"
