@@ -1,11 +1,11 @@
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
+requires = ["hatchling"]  # Removed hatch-vcs for manual version testing
 build-backend = "hatchling.build"
 
 
 [project]
 name = "strands-agents"
-dynamic = ["version"]  # Version determined by git tags
+version = "1.18.0dev"  # Temporary override for testing thought_signature fix
 description = "A model-driven approach to building AI agents in just a few lines of code"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -94,8 +94,8 @@ Documentation = "https://strandsagents.com"
 packages = ["src/strands"]
 
 
-[tool.hatch.version]
-source = "vcs"  # Use git tags for versioning
+# [tool.hatch.version]
+# source = "vcs"  # Temporarily disabled for testing - using manual version
 
 
 [tool.hatch.envs.hatch-static-analysis]
