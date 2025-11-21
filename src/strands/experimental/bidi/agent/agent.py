@@ -280,8 +280,6 @@ class BidiAgent:
             ```
         """
         logger.debug("agent starting")
-
-        # Store invocation_state for use during tool execution
         self._invocation_state = invocation_state or {}
 
         await self._loop.start()
