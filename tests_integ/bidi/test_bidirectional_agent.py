@@ -19,6 +19,7 @@ from strands.experimental.bidi.models.novasonic import BidiNovaSonicModel
 from strands.experimental.bidi.models.openai import BidiOpenAIRealtimeModel
 
 from .context import BidirectionalTestContext
+from .hook_utils import HookEventCollector
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +136,13 @@ def provider_config(request):
 
 
 @pytest.fixture
-def agent_with_calculator(provider_config):
+def hook_collector():
+    """Provide a hook event collector for tracking all events."""
+    return HookEventCollector()
+
+
+@pytest.fixture
+def agent_with_calculator(provider_config, hook_collector):
     """Provide bidirectional agent with calculator tool for the given provider.
 
     Note: Session lifecycle (start/end) is handled by BidirectionalTestContext.
@@ -148,11 +155,12 @@ def agent_with_calculator(provider_config):
         model=model,
         tools=[calculator],
         system_prompt="You are a helpful assistant with access to a calculator tool. Keep responses brief.",
+        hooks=[hook_collector],
     )
 
 
 @pytest.mark.asyncio
-async def test_bidirectional_agent(agent_with_calculator, audio_generator, provider_config):
+async def test_bidirectional_agent(agent_with_calculator, audio_generator, provider_config, hook_collector):
     """Test multi-turn conversation with follow-up questions across providers.
 
     This test runs against all configured providers (Nova Sonic, OpenAI, etc.)
@@ -162,7 +170,7 @@ async def test_bidirectional_agent(agent_with_calculator, audio_generator, provi
     - Session lifecycle (start/end via context manager)
     - Audio input streaming
     - Speech-to-text transcription
-    - Tool execution (calculator)
+    - Tool execution (calculator) with hook verification
     - Multi-turn conversation flow
     - Text-to-speech audio output
     """
@@ -206,6 +214,20 @@ async def test_bidirectional_agent(agent_with_calculator, audio_generator, provi
         assert len(audio_outputs) > 0, f"[{provider_name}] No audio output received"
         total_audio_bytes = sum(len(audio) for audio in audio_outputs)
 
+        # Verify tool execution hooks if tools were called
+        tool_calls = hook_collector.get_tool_calls()
+        if len(tool_calls) > 0:
+            logger.info("provider=<%s> | tool execution detected", provider_name)
+            # Verify hooks are properly paired
+            verified_tools = hook_collector.verify_tool_execution()
+            logger.info(
+                "provider=<%s>, tools_called=<%s> | tool execution hooks verified",
+                provider_name,
+                verified_tools,
+            )
+        else:
+            logger.info("provider=<%s> | no tools were called during conversation", provider_name)
+
         # Summary
         logger.info("=" * 60)
         logger.info("provider=<%s> | multi-turn conversation test passed", provider_name)
@@ -216,5 +238,9 @@ async def test_bidirectional_agent(agent_with_calculator, audio_generator, provi
             "audio_chunk_count=<%d>, audio_bytes=<%d> | audio chunks",
             len(audio_outputs),
             total_audio_bytes,
+        )
+        logger.info(
+            "tool_calls=<%d> | tool execution count",
+            len(tool_calls),
         )
         logger.info("=" * 60)
