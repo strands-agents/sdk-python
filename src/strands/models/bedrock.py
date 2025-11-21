@@ -82,6 +82,8 @@ class BedrockModel(Model):
             guardrail_redact_input_message: If a Bedrock Input guardrail triggers, replace the input with this message.
             guardrail_redact_output: Flag to redact output if guardrail is triggered. Defaults to False.
             guardrail_redact_output_message: If a Bedrock Output guardrail triggers, replace output with this message.
+            guardrail_last_turn_only: Flag to send only the last turn to guardrails instead of full conversation.
+                Defaults to False.
             max_tokens: Maximum number of tokens to generate in the response
             model_id: The Bedrock model ID (e.g., "us.anthropic.claude-sonnet-4-20250514-v1:0")
             include_tool_result_status: Flag to include status field in tool results.
@@ -105,6 +107,7 @@ class BedrockModel(Model):
         guardrail_redact_input_message: Optional[str]
         guardrail_redact_output: Optional[bool]
         guardrail_redact_output_message: Optional[str]
+        guardrail_last_turn_only: Optional[bool]
         max_tokens: Optional[int]
         model_id: str
         include_tool_result_status: Optional[Literal["auto"] | bool]
@@ -206,9 +209,19 @@ class BedrockModel(Model):
         Returns:
             A Bedrock converse stream request.
         """
+        # Filter messages for guardrails if guardrail_last_turn_only is enabled
+        messages_for_request = messages
+        if (
+            self.config.get("guardrail_last_turn_only", False)
+            and self.config.get("guardrail_id")
+            and self.config.get("guardrail_version")
+        ):
+            messages_for_request = self._get_last_turn_messages(messages)
+
         if not tool_specs:
             has_tool_content = any(
-                any("toolUse" in block or "toolResult" in block for block in msg.get("content", [])) for msg in messages
+                any("toolUse" in block or "toolResult" in block for block in msg.get("content", []))
+                for msg in messages_for_request
             )
             if has_tool_content:
                 tool_specs = [noop_tool.tool_spec]
@@ -224,7 +237,7 @@ class BedrockModel(Model):
 
         return {
             "modelId": self.config["model_id"],
-            "messages": self._format_bedrock_messages(messages),
+            "messages": self._format_bedrock_messages(messages_for_request),
             "system": system_blocks,
             **(
                 {
@@ -294,6 +307,42 @@ class BedrockModel(Model):
                 else {}
             ),
         }
+
+    def _get_last_turn_messages(self, messages: Messages) -> Messages:
+        """Get the last turn messages for guardrail evaluation.
+
+        Returns the latest user message and the previous assistant message (if it exists).
+        This reduces the conversation context sent to guardrails when guardrail_last_turn_only is True.
+
+        Args:
+            messages: Full conversation messages.
+
+        Returns:
+            Messages containing only the last turn (user + previous assistant if exists).
+        """
+        if not messages:
+            return []
+
+        # Find the last user message
+        last_user_index = -1
+        for i in range(len(messages) - 1, -1, -1):
+            if messages[i]["role"] == "user":
+                last_user_index = i
+                break
+
+        if last_user_index == -1:
+            # No user message found, return empty
+            return []
+
+        # Include the previous assistant message if it exists
+        result_messages: Messages = []
+        if last_user_index > 0 and messages[last_user_index - 1]["role"] == "assistant":
+            result_messages.append(messages[last_user_index - 1])
+
+        # Add the last user message
+        result_messages.append(messages[last_user_index])
+
+        return result_messages
 
     def _format_bedrock_messages(self, messages: Messages) -> list[dict[str, Any]]:
         """Format messages for Bedrock API compatibility.
