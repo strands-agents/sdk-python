@@ -18,7 +18,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Callable, Optional, Tuple, cast
+from typing import Any, AsyncIterator, Callable, Mapping, Optional, Tuple, cast
 
 from opentelemetry import trace as trace_api
 
@@ -46,6 +46,7 @@ from ..types._events import (
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
+from ..types.traces import AttributeValue
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
 logger = logging.getLogger(__name__)
@@ -226,6 +227,7 @@ class Swarm(MultiAgentBase):
         session_manager: Optional[SessionManager] = None,
         hooks: Optional[list[HookProvider]] = None,
         id: str = _DEFAULT_SWARM_ID,
+        trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
     ) -> None:
         """Initialize Swarm with agents and configuration.
 
@@ -243,6 +245,7 @@ class Swarm(MultiAgentBase):
                 Disabled by default (default: 0)
             session_manager: Session manager for persisting graph state and execution history (default: None)
             hooks: List of hook providers for monitoring and extending graph execution behavior (default: None)
+            trace_attributes: Custom trace attributes to apply to the agent's trace span (default: None)
         """
         super().__init__()
         self.id = id
@@ -262,6 +265,7 @@ class Swarm(MultiAgentBase):
             completion_status=Status.PENDING,
         )
         self.tracer = get_tracer()
+        self.trace_attributes: dict[str, AttributeValue] = self._parse_trace_attributes(trace_attributes)
 
         self.session_manager = session_manager
         self.hooks = HookRegistry()
@@ -356,7 +360,7 @@ class Swarm(MultiAgentBase):
             self.state.completion_status = Status.EXECUTING
             self.state.start_time = time.time()
 
-        span = self.tracer.start_multiagent_span(task, "swarm")
+        span = self.tracer.start_multiagent_span(task, "swarm", custom_trace_attributes=self.trace_attributes)
         with trace_api.use_span(span, end_on_exit=True):
             try:
                 current_node = cast(SwarmNode, self.state.current_node)

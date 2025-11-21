@@ -209,7 +209,9 @@ async def test_executor_stream_with_trace(
     exp_results = [exp_events[-1].tool_result]
     assert tru_results == exp_results
 
-    tracer.start_tool_call_span.assert_called_once_with(tool_use, cycle_span)
+    tracer.start_tool_call_span.assert_called_once_with(
+        tool_use, cycle_span, custom_trace_attributes=agent.trace_attributes
+    )
     tracer.end_tool_call_span.assert_called_once_with(
         tracer.start_tool_call_span.return_value,
         {"content": [{"text": "sunny"}], "status": "success", "toolUseId": "1"},

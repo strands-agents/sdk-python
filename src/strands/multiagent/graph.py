@@ -19,7 +19,7 @@ import copy
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Callable, Optional, Tuple, cast
+from typing import Any, AsyncIterator, Callable, Mapping, Optional, Tuple, cast
 
 from opentelemetry import trace as trace_api
 
@@ -46,6 +46,7 @@ from ..types._events import (
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
+from ..types.traces import AttributeValue
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
 logger = logging.getLogger(__name__)
@@ -413,6 +414,7 @@ class Graph(MultiAgentBase):
         session_manager: Optional[SessionManager] = None,
         hooks: Optional[list[HookProvider]] = None,
         id: str = _DEFAULT_GRAPH_ID,
+        trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
     ) -> None:
         """Initialize Graph with execution limits and reset behavior.
 
@@ -427,6 +429,7 @@ class Graph(MultiAgentBase):
             session_manager: Session manager for persisting graph state and execution history (default: None)
             hooks: List of hook providers for monitoring and extending graph execution behavior (default: None)
             id: Unique graph id (default: None)
+            trace_attributes: Custom trace attributes to apply to the agent's trace span (default: None)
         """
         super().__init__()
 
@@ -442,6 +445,7 @@ class Graph(MultiAgentBase):
         self.reset_on_revisit = reset_on_revisit
         self.state = GraphState()
         self.tracer = get_tracer()
+        self.trace_attributes: dict[str, AttributeValue] = self._parse_trace_attributes(trace_attributes)
         self.session_manager = session_manager
         self.hooks = HookRegistry()
         if self.session_manager:
@@ -537,7 +541,7 @@ class Graph(MultiAgentBase):
             self.state.status = Status.EXECUTING
             self.state.start_time = start_time
 
-        span = self.tracer.start_multiagent_span(task, "graph")
+        span = self.tracer.start_multiagent_span(task, "graph", custom_trace_attributes=self.trace_attributes)
         with trace_api.use_span(span, end_on_exit=True):
             try:
                 logger.debug(

@@ -249,7 +249,9 @@ class ToolExecutor(abc.ABC):
 
         tracer = get_tracer()
 
-        tool_call_span = tracer.start_tool_call_span(tool_use, cycle_span)
+        tool_call_span = tracer.start_tool_call_span(
+            tool_use, cycle_span, custom_trace_attributes=agent.trace_attributes
+        )
         tool_trace = Trace(f"Tool: {tool_name}", parent_id=cycle_trace.id, raw_name=tool_name)
         tool_start_time = time.time()
 
