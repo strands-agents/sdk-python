@@ -21,7 +21,7 @@ Audio format normalization:
 
 from typing import Any, Dict, List, Literal, Optional, cast
 
-from ....types._events import ModelStreamEvent, TypedEvent
+from ....types._events import ModelStreamEvent, ToolUseStreamEvent, TypedEvent
 from ....types.streaming import ContentBlockDelta
 
 # Audio format constants
@@ -84,7 +84,7 @@ class BidiAudioInputEvent(TypedEvent):
     def __init__(
         self,
         audio: str,
-        format: Literal["pcm", "wav", "opus", "mp3"],
+        format: Literal["pcm", "wav", "opus", "mp3"] | str,
         sample_rate: Literal[16000, 24000, 48000],
         channels: Literal[1, 2],
     ):
@@ -561,4 +561,5 @@ BidiOutputEvent = (
     | BidiUsageEvent
     | BidiConnectionCloseEvent
     | BidiErrorEvent
+    | ToolUseStreamEvent
 )

@@ -15,6 +15,7 @@ from ..types.content import Message
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
+    from ..experimental.bidi.agent.agent import BidiAgent
     from ..multiagent.base import MultiAgentBase
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,9 @@ class SessionManager(HookProvider, ABC):
             )
 
             registry.add_callback(BidiAgentInitializedEvent, lambda event: self.initialize_bidi_agent(event.agent))
-            registry.add_callback(BidiMessageAddedEvent, lambda event: self.append_bidi_message(event.message, event.agent))
+            registry.add_callback(
+                BidiMessageAddedEvent, lambda event: self.append_bidi_message(event.message, event.agent)
+            )
             registry.add_callback(BidiMessageAddedEvent, lambda event: self.sync_bidi_agent(event.agent))
             registry.add_callback(BidiAfterInvocationEvent, lambda event: self.sync_bidi_agent(event.agent))
         except ImportError:

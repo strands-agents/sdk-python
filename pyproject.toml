@@ -223,15 +223,21 @@ warn_no_return = true
 warn_unreachable = true
 follow_untyped_imports = true
 ignore_missing_imports = false
+
+exclude = [
+    "src/strands/experimental/bidi/scripts/.*",
+]
+
 # Ignore missing imports for optional bidi dependencies (not installed in lint environment)
 [[tool.mypy.overrides]]
 module = [
     "smithy_core.*",
     "smithy_aws_core.*",
     "aws_sdk_bedrock_runtime.*",
+    "pyaudio",
 ]
 ignore_missing_imports = true
-
+follow_imports = "skip"
 
 [tool.ruff]
 line-length = 120

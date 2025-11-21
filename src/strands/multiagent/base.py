@@ -12,8 +12,8 @@ from typing import Any, AsyncIterator, Union
 
 from .._async import run_async
 from ..agent import AgentResult
-from ..types.content import ContentBlock
 from ..types.event_loop import Metrics, Usage
+from ..types.multiagent import MultiAgentInput
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +173,7 @@ class MultiAgentBase(ABC):
 
     @abstractmethod
     async def invoke_async(
-        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> MultiAgentResult:
         """Invoke asynchronously.
 
@@ -186,7 +186,7 @@ class MultiAgentBase(ABC):
         raise NotImplementedError("invoke_async not implemented")
 
     async def stream_async(
-        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> AsyncIterator[dict[str, Any]]:
         """Stream events during multi-agent execution.
 
@@ -211,7 +211,7 @@ class MultiAgentBase(ABC):
         yield {"result": result}
 
     def __call__(
-        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> MultiAgentResult:
         """Invoke synchronously.
 

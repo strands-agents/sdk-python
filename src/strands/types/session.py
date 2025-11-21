@@ -140,21 +140,21 @@ class SessionAgent:
     @classmethod
     def from_bidi_agent(cls, agent: "BidiAgent") -> "SessionAgent":
         """Convert a BidiAgent to a SessionAgent.
-        
+
         Args:
             agent: BidiAgent to convert
-            
+
         Returns:
             SessionAgent with empty conversation_manager_state (BidiAgent doesn't use conversation manager)
         """
         if agent.agent_id is None:
             raise ValueError("agent_id needs to be defined.")
-        
+
         # BidiAgent doesn't have _interrupt_state yet, so we use empty dict for internal state
         internal_state = {}
         if hasattr(agent, "_interrupt_state"):
             internal_state["interrupt_state"] = agent._interrupt_state.to_dict()
-        
+
         return cls(
             agent_id=agent.agent_id,
             conversation_manager_state={},  # BidiAgent has no conversation_manager
@@ -178,7 +178,7 @@ class SessionAgent:
 
     def initialize_bidi_internal_state(self, agent: "BidiAgent") -> None:
         """Initialize internal state of BidiAgent.
-        
+
         Args:
             agent: BidiAgent to initialize internal state for
         """

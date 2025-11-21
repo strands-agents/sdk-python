@@ -113,7 +113,7 @@ class _ToolCaller:
 
             # Registry defends against similar names, so take first match
             if filtered_tools:
-                return filtered_tools[0]
+                return filtered_tools[0]  # type: ignore
 
         raise AttributeError(f"Tool '{name}' not found")
 

@@ -73,8 +73,6 @@ class _BidiAudioInput(BidiInput):
         self._stream.close()
         self._audio.terminate()
 
-        self._stream = None
-        self._audio = None
         logger.debug("audio input stream stopped")
 
     async def __call__(self) -> BidiAudioInputEvent:
@@ -156,11 +154,6 @@ class _BidiAudioOutput(BidiOutput):
         self._stream.close()
         self._audio.terminate()
 
-        self._output_task = None
-        self._buffer = None
-        self._buffer_event = None
-        self._stream = None
-        self._audio = None
         logger.debug("audio output stream stopped")
 
     async def __call__(self, event: BidiOutputEvent) -> None:

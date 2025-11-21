@@ -13,11 +13,12 @@ Features:
 """
 
 import logging
-from typing import AsyncIterable, Protocol
+from typing import Any, AsyncIterable, Protocol
 
 from ....types._events import ToolResultEvent
 from ....types.content import Messages
 from ....types.tools import ToolSpec
+from ..types._async import Startable
 from ..types.events import (
     BidiInputEvent,
     BidiOutputEvent,
@@ -26,7 +27,7 @@ from ..types.events import (
 logger = logging.getLogger(__name__)
 
 
-class BidiModel(Protocol):
+class BidiModel(Startable, Protocol):
     """Protocol for bidirectional streaming models.
 
     This interface defines the contract for models that support persistent streaming
@@ -39,7 +40,7 @@ class BidiModel(Protocol):
         system_prompt: str | None = None,
         tools: list[ToolSpec] | None = None,
         messages: Messages | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         """Establish a persistent streaming connection with the model.
 

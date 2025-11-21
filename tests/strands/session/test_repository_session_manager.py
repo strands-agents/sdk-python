@@ -424,6 +424,7 @@ def test_fix_broken_tool_use_does_not_change_valid_message(session_manager):
 def mock_bidi_agent():
     """Create a mock BidiAgent for testing."""
     from unittest.mock import Mock
+
     from strands.agent.state import AgentState
 
     agent = Mock()
@@ -530,6 +531,7 @@ def test_bidi_agent_unique_id_constraint(session_manager, mock_bidi_agent):
 
     # Try to initialize another agent with same ID
     from unittest.mock import Mock
+
     from strands.agent.state import AgentState
 
     agent2 = Mock()

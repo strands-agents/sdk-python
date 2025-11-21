@@ -483,7 +483,8 @@ async def _handle_tool_execution(
 
     if interrupts:
         # Session state stored on AfterInvocationEvent.
-        agent._interrupt_state.activate(context={"tool_use_message": message, "tool_results": tool_results})
+        agent._interrupt_state.context = {"tool_use_message": message, "tool_results": tool_results}
+        agent._interrupt_state.activate()
 
         agent.event_loop_metrics.end_cycle(cycle_start_time, cycle_trace)
         yield EventLoopStopEvent(

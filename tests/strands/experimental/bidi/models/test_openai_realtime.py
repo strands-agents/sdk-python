@@ -193,7 +193,9 @@ async def test_connection_with_message_history(mock_websockets_connect, model):
         {"role": "assistant", "content": [{"text": "I'll check the weather for you."}]},
         {
             "role": "assistant",
-            "content": [{"toolUse": {"toolUseId": "call-123", "name": "get_weather", "input": {"location": "Seattle"}}}],
+            "content": [
+                {"toolUse": {"toolUseId": "call-123", "name": "get_weather", "input": {"location": "Seattle"}}}
+            ],
         },
         {
             "role": "user",
