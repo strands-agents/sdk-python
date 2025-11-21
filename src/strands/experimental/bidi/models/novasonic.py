@@ -17,7 +17,7 @@ import base64
 import json
 import logging
 import uuid
-from typing import Any, AsyncIterable
+from typing import Any, AsyncIterable, Literal
 
 import boto3
 from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
@@ -47,6 +47,7 @@ from ..types.events import (
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
 )
+from ..types.io import AudioConfig
 from .bidi_model import BidiModel
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,7 @@ class BidiNovaSonicModel(BidiModel):
         model_id: str = "amazon.nova-sonic-v1:0",
         boto_session: boto3.Session | None = None,
         region: str | None = None,
+        audio_config: AudioConfig | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize Nova Sonic bidirectional model.
@@ -103,6 +105,8 @@ class BidiNovaSonicModel(BidiModel):
             model_id: Nova Sonic model identifier.
             boto_session: Boto Session to use when calling the Nova Sonic Model.
             region: AWS region
+            audio_config: Optional audio configuration override. If not provided,
+                         uses Nova Sonic's default configuration.
             **kwargs: Reserved for future parameters.
         """
         if region and boto_session:
@@ -128,6 +132,28 @@ class BidiNovaSonicModel(BidiModel):
         self._send_lock = asyncio.Lock()
 
         logger.debug("model_id=<%s> | nova sonic model initialized", model_id)
+
+        # Build audio configuration - use provided values or defaults
+        self.audio_config: AudioConfig = {
+            "input_rate": audio_config.get("input_rate", NOVA_AUDIO_INPUT_CONFIG["sampleRateHertz"])
+            if audio_config
+            else NOVA_AUDIO_INPUT_CONFIG["sampleRateHertz"],  # type: ignore[typeddict-item]
+            "output_rate": audio_config.get("output_rate", NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"])
+            if audio_config
+            else NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"],  # type: ignore[typeddict-item]
+            "channels": audio_config.get("channels", NOVA_AUDIO_INPUT_CONFIG["channelCount"])
+            if audio_config
+            else NOVA_AUDIO_INPUT_CONFIG["channelCount"],  # type: ignore[typeddict-item]
+            "format": audio_config.get("format", "pcm") if audio_config else "pcm",
+            "voice": audio_config.get("voice", NOVA_AUDIO_OUTPUT_CONFIG["voiceId"])
+            if audio_config
+            else NOVA_AUDIO_OUTPUT_CONFIG["voiceId"],  # type: ignore[typeddict-item]
+        }
+
+        if audio_config:
+            logger.debug("audio_config | merged user-provided config with defaults")
+        else:
+            logger.debug("audio_config | using default Nova Sonic audio configuration")
 
     @start
     async def start(
@@ -283,6 +309,16 @@ class BidiNovaSonicModel(BidiModel):
         logger.debug("nova audio connection starting")
         self._audio_content_name = str(uuid.uuid4())
 
+        # Build audio input configuration from audio_config
+        audio_input_config = {
+            "mediaType": "audio/lpcm",
+            "sampleRateHertz": self.audio_config["input_rate"],
+            "sampleSizeBits": 16,
+            "channelCount": self.audio_config["channels"],
+            "audioType": "SPEECH",
+            "encoding": "base64",
+        }
+
         audio_content_start = json.dumps(
             {
                 "event": {
@@ -292,7 +328,7 @@ class BidiNovaSonicModel(BidiModel):
                         "type": "AUDIO",
                         "interactive": True,
                         "role": "USER",
-                        "audioInputConfiguration": NOVA_AUDIO_INPUT_CONFIG,
+                        "audioInputConfiguration": audio_input_config,
                     }
                 }
             }
@@ -422,11 +458,13 @@ class BidiNovaSonicModel(BidiModel):
         if "audioOutput" in nova_event:
             # Audio is already base64 string from Nova Sonic
             audio_content = nova_event["audioOutput"]["content"]
+            # Channels from audio_config is guaranteed to be 1 or 2
+            channels: Literal[1, 2] = self.audio_config["channels"]  # type: ignore[assignment]
             return BidiAudioStreamEvent(
                 audio=audio_content,
                 format="pcm",
-                sample_rate=NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"],  # type: ignore
-                channels=1,
+                sample_rate=self.audio_config["output_rate"],  # type: ignore
+                channels=channels,
             )
 
         # Handle text output (transcripts)
@@ -498,12 +536,23 @@ class BidiNovaSonicModel(BidiModel):
 
     def _get_prompt_start_event(self, tools: list[ToolSpec]) -> str:
         """Generate Nova Sonic prompt start event with tool configuration."""
+        # Build audio output configuration from audio_config
+        audio_output_config = {
+            "mediaType": "audio/lpcm",
+            "sampleRateHertz": self.audio_config["output_rate"],
+            "sampleSizeBits": 16,
+            "channelCount": self.audio_config["channels"],
+            "voiceId": self.audio_config.get("voice", "matthew"),
+            "encoding": "base64",
+            "audioType": "SPEECH",
+        }
+
         prompt_start_event: dict[str, Any] = {
             "event": {
                 "promptStart": {
                     "promptName": self._connection_id,
                     "textOutputConfiguration": NOVA_TEXT_CONFIG,
-                    "audioOutputConfiguration": NOVA_AUDIO_OUTPUT_CONFIG,
+                    "audioOutputConfiguration": audio_output_config,
                 }
             }
         }

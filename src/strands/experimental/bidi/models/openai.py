@@ -8,7 +8,7 @@ import json
 import logging
 import os
 import uuid
-from typing import Any, AsyncIterable
+from typing import Any, AsyncIterable, Literal
 
 import websockets
 from websockets import ClientConnection
@@ -32,6 +32,7 @@ from ..types.events import (
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
 )
+from ..types.io import AudioConfig
 from .bidi_model import BidiModel
 
 logger = logging.getLogger(__name__)
@@ -77,6 +78,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         organization: str | None = None,
         project: str | None = None,
         session_config: dict[str, Any] | None = None,
+        audio_config: AudioConfig | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize OpenAI Realtime bidirectional model.
@@ -87,6 +89,8 @@ class BidiOpenAIRealtimeModel(BidiModel):
             organization: OpenAI organization ID for API requests.
             project: OpenAI project ID for API requests.
             session_config: Session configuration parameters (e.g., voice, turn_detection, modalities).
+            audio_config: Optional audio configuration override. If not provided,
+                         uses OpenAI Realtime API's default configuration.
             **kwargs: Reserved for future parameters.
         """
         # Model configuration
@@ -111,6 +115,33 @@ class BidiOpenAIRealtimeModel(BidiModel):
         self._function_call_buffer: dict[str, Any] = {}
 
         logger.debug("model=<%s> | openai realtime model initialized", model)
+
+        # Extract voice from session_config if provided, otherwise use default
+        default_voice = "alloy"
+        if self.session_config and "audio" in self.session_config:
+            audio_settings = self.session_config["audio"]
+            if isinstance(audio_settings, dict) and "output" in audio_settings:
+                output_settings = audio_settings["output"]
+                if isinstance(output_settings, dict):
+                    default_voice = output_settings.get("voice", default_voice)
+
+        # Build audio configuration - use provided values or defaults
+        self.audio_config: AudioConfig = {
+            "input_rate": audio_config.get("input_rate", AUDIO_FORMAT["rate"])
+            if audio_config
+            else AUDIO_FORMAT["rate"],  # type: ignore[typeddict-item]
+            "output_rate": audio_config.get("output_rate", AUDIO_FORMAT["rate"])
+            if audio_config
+            else AUDIO_FORMAT["rate"],  # type: ignore[typeddict-item]
+            "channels": audio_config.get("channels", 1) if audio_config else 1,
+            "format": audio_config.get("format", "pcm") if audio_config else "pcm",
+            "voice": audio_config.get("voice", default_voice) if audio_config else default_voice,
+        }
+
+        if audio_config:
+            logger.debug("audio_config | merged user-provided config with defaults")
+        else:
+            logger.debug("audio_config | using default OpenAI Realtime audio configuration")
 
     async def start(
         self,
@@ -227,6 +258,10 @@ class BidiOpenAIRealtimeModel(BidiModel):
             else:
                 logger.warning("parameter=<%s> | ignoring unsupported session parameter", key)
 
+        # Override voice with audio_config value if present (audio_config takes precedence)
+        if "voice" in self.audio_config:
+            config.setdefault("audio", {}).setdefault("output", {})["voice"] = self.audio_config["voice"]  # type: ignore
+
         return config
 
     def _convert_tools_to_openai_format(self, tools: list[ToolSpec]) -> list[dict]:
@@ -310,12 +345,14 @@ class BidiOpenAIRealtimeModel(BidiModel):
         # Audio output
         elif event_type == "response.output_audio.delta":
             # Audio is already base64 string from OpenAI
+            # Channels from audio_config is guaranteed to be 1 or 2
+            channels: Literal[1, 2] = self.audio_config["channels"]  # type: ignore[assignment]
             return [
                 BidiAudioStreamEvent(
                     audio=openai_event["delta"],
                     format="pcm",
-                    sample_rate=AUDIO_FORMAT["rate"],  # type: ignore
-                    channels=1,
+                    sample_rate=self.audio_config["output_rate"],  # type: ignore
+                    channels=channels,
                 )
             ]
 

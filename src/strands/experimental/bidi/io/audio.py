@@ -13,7 +13,7 @@ from typing import Any
 import pyaudio
 
 from ..types.events import BidiAudioInputEvent, BidiAudioStreamEvent, BidiInterruptionEvent, BidiOutputEvent
-from ..types.io import BidiInput, BidiOutput
+from ..types.io import AudioConfig, BidiInput, BidiOutput
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +24,12 @@ class _BidiAudioInput(BidiInput):
     Attributes:
         _audio: PyAudio instance for audio system access.
         _stream: Audio input stream.
+        _user_config_set: Track which config values were explicitly set by user.
     """
 
     _audio: pyaudio.PyAudio
     _stream: pyaudio.Stream
+    _user_config_set: set[str]
 
     _CHANNELS: int = 1
     _DEVICE_INDEX: int | None = None
@@ -37,15 +39,33 @@ class _BidiAudioInput(BidiInput):
     _RATE: int = 16000
 
     def __init__(self, config: dict[str, Any]) -> None:
-        """Extract configs."""
+        """Extract configs and track which were explicitly set by user."""
+        # Track which config values were explicitly provided by user
+        self._user_config_set = set(config.keys())
+
         self._channels = config.get("input_channels", _BidiAudioInput._CHANNELS)
         self._device_index = config.get("input_device_index", _BidiAudioInput._DEVICE_INDEX)
         self._format = config.get("input_format", _BidiAudioInput._FORMAT)
         self._frames_per_buffer = config.get("input_frames_per_buffer", _BidiAudioInput._FRAMES_PER_BUFFER)
         self._rate = config.get("input_rate", _BidiAudioInput._RATE)
 
-    async def start(self) -> None:
-        """Start input stream."""
+    async def start(self, audio_config: AudioConfig | None = None) -> None:
+        """Start input stream.
+
+        Args:
+            audio_config: Optional audio configuration from model provider.
+                         Only applied if user did not explicitly set the value
+                         in the constructor.
+        """
+        # Apply audio config overrides only if user didn't explicitly set them
+        if audio_config:
+            if "input_rate" in audio_config and "input_rate" not in self._user_config_set:
+                self._rate = audio_config["input_rate"]
+                logger.debug("audio_config | applying model input rate: %d Hz", self._rate)
+            if "channels" in audio_config and "input_channels" not in self._user_config_set:
+                self._channels = audio_config["channels"]
+                logger.debug("audio_config | applying model channels: %d", self._channels)
+
         logger.debug(
             "rate=<%d>, channels=<%d>, device_index=<%s> | starting audio input stream",
             self._rate,
@@ -96,6 +116,7 @@ class _BidiAudioOutput(BidiOutput):
         _buffer: Deque buffer for queuing audio data.
         _buffer_event: Event to signal when buffer has data.
         _output_task: Background task for processing audio output.
+        _user_config_set: Track which config values were explicitly set by user.
     """
 
     _audio: pyaudio.PyAudio
@@ -103,6 +124,7 @@ class _BidiAudioOutput(BidiOutput):
     _buffer: deque
     _buffer_event: asyncio.Event
     _output_task: asyncio.Task
+    _user_config_set: set[str]
 
     _BUFFER_SIZE: int | None = None
     _CHANNELS: int = 1
@@ -112,7 +134,10 @@ class _BidiAudioOutput(BidiOutput):
     _RATE: int = 16000
 
     def __init__(self, config: dict[str, Any]) -> None:
-        """Extract configs."""
+        """Extract configs and track which were explicitly set by user."""
+        # Track which config values were explicitly provided by user
+        self._user_config_set = set(config.keys())
+
         self._buffer_size = config.get("output_buffer_size", _BidiAudioOutput._BUFFER_SIZE)
         self._channels = config.get("output_channels", _BidiAudioOutput._CHANNELS)
         self._device_index = config.get("output_device_index", _BidiAudioOutput._DEVICE_INDEX)
@@ -120,8 +145,23 @@ class _BidiAudioOutput(BidiOutput):
         self._frames_per_buffer = config.get("output_frames_per_buffer", _BidiAudioOutput._FRAMES_PER_BUFFER)
         self._rate = config.get("output_rate", _BidiAudioOutput._RATE)
 
-    async def start(self) -> None:
-        """Start output stream."""
+    async def start(self, audio_config: AudioConfig | None = None) -> None:
+        """Start output stream.
+
+        Args:
+            audio_config: Optional audio configuration from model provider.
+                         Only applied if user did not explicitly set the value
+                         in the constructor.
+        """
+        # Apply audio config overrides only if user didn't explicitly set them
+        if audio_config:
+            if "output_rate" in audio_config and "output_rate" not in self._user_config_set:
+                self._rate = audio_config["output_rate"]
+                logger.debug("audio_config | applying model output rate: %d Hz", self._rate)
+            if "channels" in audio_config and "output_channels" not in self._user_config_set:
+                self._channels = audio_config["channels"]
+                logger.debug("audio_config | applying model channels: %d", self._channels)
+
         logger.debug(
             "rate=<%d>, channels=<%d>, device_index=<%s>, buffer_size=<%s> | starting audio output stream",
             self._rate,

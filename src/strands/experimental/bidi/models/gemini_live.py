@@ -38,6 +38,7 @@ from ..types.events import (
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
 )
+from ..types.io import AudioConfig
 from .bidi_model import BidiModel
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ class BidiGeminiLiveModel(BidiModel):
         model_id: str = "gemini-2.5-flash-native-audio-preview-09-2025",
         api_key: str | None = None,
         live_config: Dict[str, Any] | None = None,
+        audio_config: AudioConfig | None = None,
         **kwargs: Any,
     ):
         """Initialize Gemini Live API bidirectional model.
@@ -69,6 +71,8 @@ class BidiGeminiLiveModel(BidiModel):
             model_id: Gemini Live model identifier.
             api_key: Google AI API key for authentication.
             live_config: Gemini Live API configuration parameters (e.g., response_modalities, speech_config).
+            audio_config: Optional audio configuration override. If not provided,
+                         uses Gemini Live API's default configuration.
             **kwargs: Reserved for future parameters.
         """
         # Model configuration
@@ -103,6 +107,37 @@ class BidiGeminiLiveModel(BidiModel):
         self.live_session_context_manager = None
         self.connection_id | str
         self._active: bool = False
+
+        # Extract voice from live_config if provided
+        default_voice = None
+        if self.live_config and "speech_config" in self.live_config:
+            speech_config = self.live_config["speech_config"]
+            if isinstance(speech_config, dict):
+                default_voice = speech_config.get("voice_config", {}).get("prebuilt_voice_config", {}).get("voice_name")
+
+        # Build audio configuration - use provided values or defaults
+        config_dict: AudioConfig = {
+            "input_rate": audio_config.get("input_rate", GEMINI_INPUT_SAMPLE_RATE)
+            if audio_config
+            else GEMINI_INPUT_SAMPLE_RATE,
+            "output_rate": audio_config.get("output_rate", GEMINI_OUTPUT_SAMPLE_RATE)
+            if audio_config
+            else GEMINI_OUTPUT_SAMPLE_RATE,
+            "channels": audio_config.get("channels", GEMINI_CHANNELS) if audio_config else GEMINI_CHANNELS,
+            "format": audio_config.get("format", "pcm") if audio_config else "pcm",
+        }
+
+        # Add voice if configured (either from user or live_config)
+        voice_value = audio_config.get("voice", default_voice) if audio_config else default_voice
+        if voice_value:
+            config_dict["voice"] = voice_value
+
+        self.audio_config = config_dict
+
+        if audio_config:
+            logger.debug("audio_config | merged user-provided config with defaults")
+        else:
+            logger.debug("audio_config | using default Gemini Live audio configuration")
 
     async def start(
         self,
@@ -267,8 +302,8 @@ class BidiGeminiLiveModel(BidiModel):
                     BidiAudioStreamEvent(
                         audio=audio_b64,
                         format="pcm",
-                        sample_rate=GEMINI_OUTPUT_SAMPLE_RATE,  # type: ignore
-                        channels=GEMINI_CHANNELS,  # type: ignore
+                        sample_rate=self.audio_config["output_rate"],  # type: ignore
+                        channels=self.audio_config["channels"],  # type: ignore
                     )
                 ]
 
@@ -406,8 +441,10 @@ class BidiGeminiLiveModel(BidiModel):
             # Decode base64 audio to bytes for SDK
             audio_bytes = base64.b64decode(audio_input.audio)
 
-            # Create audio blob for the SDK
-            audio_blob = genai_types.Blob(data=audio_bytes, mime_type=f"audio/pcm;rate={GEMINI_INPUT_SAMPLE_RATE}")
+            # Create audio blob for the SDK using audio_config
+            audio_blob = genai_types.Blob(
+                data=audio_bytes, mime_type=f"audio/pcm;rate={self.audio_config['input_rate']}"
+            )
 
             # Send real-time audio input - this automatically handles VAD and interruption
             await self.live_session.send_realtime_input(audio=audio_blob)
@@ -507,6 +544,12 @@ class BidiGeminiLiveModel(BidiModel):
         # Add tools if provided
         if tools:
             config_dict["tools"] = self._format_tools_for_live_api(tools)
+
+        # Override voice with audio_config value if present (audio_config takes precedence)
+        if "voice" in self.audio_config:
+            config_dict.setdefault("speech_config", {}).setdefault("voice_config", {}).setdefault(
+                "prebuilt_voice_config", {}
+            )["voice_name"] = self.audio_config["voice"]
 
         return config_dict
 

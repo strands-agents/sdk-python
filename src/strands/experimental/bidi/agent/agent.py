@@ -29,6 +29,7 @@ from ....types.content import ContentBlock, Message, Messages
 from ....types.tools import AgentTool, ToolResult, ToolUse
 from ...tools import ToolProvider
 from ..hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
+from ..io.audio import _BidiAudioInput, _BidiAudioOutput
 from ..models.bidi_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
@@ -419,6 +420,16 @@ class BidiAgent:
             await agent.run(inputs=[audio_io.input()], outputs=[audio_io.output(), text_io.output()])
             ```
         """
+        # Extract audio config from model if available
+        audio_config = getattr(self.model, "audio_config", None)
+        if audio_config:
+            logger.debug(
+                "audio_config | model provides: input_rate=%s, output_rate=%s, channels=%s, voice=%s",
+                audio_config.get("input_rate"),
+                audio_config.get("output_rate"),
+                audio_config.get("channels"),
+                audio_config.get("voice"),
+            )
 
         async def run_inputs() -> None:
             async def task(input_: BidiInput) -> None:
@@ -436,13 +447,23 @@ class BidiAgent:
 
         await self.start()
 
+        # Start inputs with audio config if applicable
         for input_ in inputs:
             if hasattr(input_, "start"):
-                await input_.start()
+                # Pass audio config to audio inputs
+                if audio_config and isinstance(input_, _BidiAudioInput):
+                    await input_.start(audio_config=audio_config)
+                else:
+                    await input_.start()
 
+        # Start outputs with audio config if applicable
         for output in outputs:
             if hasattr(output, "start"):
-                await output.start()
+                # Pass audio config to audio outputs
+                if audio_config and isinstance(output, _BidiAudioOutput):
+                    await output.start(audio_config=audio_config)
+                else:
+                    await output.start()
 
         try:
             await asyncio.gather(run_inputs(), run_outputs())
