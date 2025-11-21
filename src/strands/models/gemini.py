@@ -142,18 +142,20 @@ class GeminiModel(Model):
             )
 
         if "toolUse" in content:
-            thought_signature_b64 = cast(Optional[str], content["toolUse"].get("thoughtSignature"))
+            thought_signature_b64 = content["toolUse"].get("thoughtSignature")
             
-            thought_signature = None
+            tool_use_thought_signature: Optional[bytes] = None
             if thought_signature_b64:
                 try:
-                    thought_signature = base64.b64decode(thought_signature_b64)
+                    tool_use_thought_signature = base64.b64decode(thought_signature_b64)
                 except Exception as e:
-                    logger.error("toolUseId=<%s> | failed to decode thoughtSignature: %s", content["toolUse"].get("toolUseId"), e)
+                    tool_use_id = content["toolUse"].get("toolUseId")
+                    logger.error("toolUseId=<%s> | failed to decode thoughtSignature: %s", tool_use_id, e)
             else:
                 # thoughtSignature is now preserved by the Strands framework (as of v1.18+)
                 # If missing, it means the model didn't provide one (e.g., older Gemini versions)
-                logger.debug("toolUseId=<%s> | no thoughtSignature in toolUse (model may not require it)", content["toolUse"].get("toolUseId"))
+                tool_use_id = content["toolUse"].get("toolUseId")
+                logger.debug("toolUseId=<%s> | no thoughtSignature in toolUse (model may not require it)", tool_use_id)
 
             return genai.types.Part(
                 function_call=genai.types.FunctionCall(
@@ -161,7 +163,7 @@ class GeminiModel(Model):
                     id=content["toolUse"]["toolUseId"],
                     name=content["toolUse"]["name"],
                 ),
-                thought_signature=thought_signature,
+                thought_signature=tool_use_thought_signature,
             )
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
