@@ -6,12 +6,14 @@ import pytest
 
 from strands.agent import Agent, AgentResult
 from strands.agent.state import AgentState
+from strands.experimental.hooks.multiagent import BeforeNodeCallEvent
 from strands.hooks import AgentInitializedEvent
 from strands.hooks.registry import HookProvider, HookRegistry
 from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult
 from strands.multiagent.graph import Graph, GraphBuilder, GraphEdge, GraphNode, GraphResult, GraphState, Status
 from strands.session.file_session_manager import FileSessionManager
 from strands.session.session_manager import SessionManager
+from strands.types._events import MultiAgentNodeCancelEvent
 
 
 def create_mock_agent(name, response_text="Default response", metrics=None, agent_id=None):
@@ -2033,3 +2035,36 @@ async def test_graph_persisted(mock_strands_tracer, mock_use_span):
     assert final_state["status"] == "completed"
     assert len(final_state["completed_nodes"]) == 1
     assert "test_node" in final_state["node_results"]
+
+
+@pytest.mark.parametrize(
+    ("cancel_node", "cancel_message"),
+    [(True, "node cancelled by user"), ("custom cancel message", "custom cancel message")],
+)
+@pytest.mark.asyncio
+async def test_graph_cancel_node(cancel_node, cancel_message):
+    def cancel_callback(event):
+        event.cancel_node = cancel_node
+        return event
+
+    agent = create_mock_agent("test_agent", "Should not execute")
+    builder = GraphBuilder()
+    builder.add_node(agent, "test_agent")
+    builder.set_entry_point("test_agent")
+    graph = builder.build()
+    graph.hooks.add_callback(BeforeNodeCallEvent, cancel_callback)
+
+    stream = graph.stream_async("test task")
+
+    tru_cancel_event = None
+    with pytest.raises(RuntimeError, match=cancel_message):
+        async for event in stream:
+            if event.get("type") == "multiagent_node_cancel":
+                tru_cancel_event = event
+
+    exp_cancel_event = MultiAgentNodeCancelEvent(node_id="test_agent", message=cancel_message)
+    assert tru_cancel_event == exp_cancel_event
+
+    tru_status = graph.state.status
+    exp_status = Status.FAILED
+    assert tru_status == exp_status
