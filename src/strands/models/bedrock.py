@@ -398,7 +398,7 @@ class BedrockModel(Model):
 
             # Handle source
             if "source" in document:
-                result["source"] = {"bytes": document["source"]["bytes"]}
+                result["source"] = document["source"]
 
             # Handle optional fields
             if "citations" in document and document["citations"] is not None:

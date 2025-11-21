@@ -19,6 +19,7 @@ from strands.models.bedrock import (
     DEFAULT_BEDROCK_REGION,
     DEFAULT_READ_TIMEOUT,
 )
+from strands.types.content import ContentBlock
 from strands.types.exceptions import ModelThrottledException
 from strands.types.tools import ToolSpec
 
@@ -2070,3 +2071,23 @@ async def test_stream_backward_compatibility_system_prompt(bedrock_client, model
         "system": [{"text": system_prompt}],
     }
     bedrock_client.converse_stream.assert_called_once_with(**expected_request)
+
+
+def test_format_request_document_with_text_source(model):
+    """Test that _format_request_message_content correctly handles a document with a 'text' source."""
+    document_text = "This is the document content."
+    content_block: ContentBlock = {
+        "document": {
+            "name": "test_doc",
+            "source": {"text": document_text},
+            "format": "txt",
+        }
+    }
+
+    formatted_content = model._format_request_message_content(content_block)
+
+    expected_source = {"text": document_text}
+    assert "document" in formatted_content
+    assert "source" in formatted_content["document"]
+
+    assert formatted_content["document"]["source"] == expected_source
