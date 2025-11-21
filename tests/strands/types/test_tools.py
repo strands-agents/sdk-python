@@ -1,6 +1,5 @@
 """Tests for strands.types.tools module."""
 
-import pytest
 
 from strands.types.tools import ToolUse
 
@@ -105,4 +104,3 @@ def test_tool_use_base64_encoded_signature():
     }
 
     assert tool_use_empty["thoughtSignature"] == ""
-

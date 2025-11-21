@@ -1,6 +1,5 @@
 """Tests for strands.types.content module."""
 
-import pytest
 
 from strands.types.content import ContentBlockStartToolUse
 
@@ -94,4 +93,3 @@ def test_content_block_start_tool_use_long_signature():
 
     assert content_block["thoughtSignature"] == long_signature
     assert len(content_block["thoughtSignature"]) > 100
-
