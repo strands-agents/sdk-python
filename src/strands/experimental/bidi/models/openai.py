@@ -266,14 +266,16 @@ class BidiOpenAIRealtimeModel(BidiModel):
             messages: List of conversation messages with role and content.
         """
         # Track tool call IDs to ensure consistency between calls and results
-        call_id_map = {}
+        call_id_map: dict[str, str] = {}
 
         # First pass: collect all tool call IDs
         for message in messages:
-            conversation_item: dict[Any, Any] = {
-                "type": "conversation.item.create",
-                "item": {"type": "message", "role": message["role"], "content": []},
-            }
+            for block in message.get("content", []):
+                if "toolUse" in block:
+                    tool_use = block["toolUse"]
+                    original_id = tool_use["toolUseId"]
+                    call_id = original_id[:32]
+                    call_id_map[original_id] = call_id
 
         # Second pass: send messages
         for message in messages:
