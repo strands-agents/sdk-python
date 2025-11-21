@@ -620,8 +620,6 @@ class MCPClient(ToolProvider):
     # Raise an exception if the underlying client raises an exception in a message
     # This happens when the underlying client has an http timeout error
     async def _handle_error_message(self, message: Exception | Any) -> None:
-        print("YELLO")
-        logger.error("YELLO")
         if isinstance(message, Exception):
             error_msg = str(message).lower()
             if any(pattern in error_msg for pattern in _NON_FATAL_ERROR_PATTERNS):
