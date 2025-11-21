@@ -289,6 +289,60 @@ def test_guardrail_intervention_properly_redacts_tool_result(bedrock_guardrail, 
     assert tool_result["content"][0]["text"] == INPUT_REDACT_MESSAGE
 
 
+def test_guardrail_last_turn_only(boto_session, bedrock_guardrail):
+    """Test that guardrail_last_turn_only only sends the last turn to guardrails."""
+    bedrock_model = BedrockModel(
+        guardrail_id=bedrock_guardrail,
+        guardrail_version="DRAFT",
+        guardrail_last_turn_only=True,
+        boto_session=boto_session,
+    )
+
+    agent = Agent(model=bedrock_model, system_prompt="You are a helpful assistant.", callback_handler=None)
+
+    # First conversation turn - should not trigger guardrail
+    response1 = agent("Hello, how are you?")
+    assert response1.stop_reason != "guardrail_intervened"
+
+    # Second conversation turn with blocked word - should trigger guardrail
+    # Since guardrail_last_turn_only=True, only this message and the previous assistant response
+    # should be evaluated by the guardrail, not the entire conversation history
+    response2 = agent("CACTUS")
+    assert response2.stop_reason == "guardrail_intervened"
+    assert str(response2).strip() == BLOCKED_INPUT
+
+
+def test_guardrail_last_turn_only_recovery_scenario(boto_session, bedrock_guardrail):
+    """Test guardrail recovery: blocked content followed by normal question.
+
+    This tests the key benefit of guardrail_last_turn_only:
+    1. First turn: blocked content triggers guardrail
+    2. Second turn: normal question should work because only last turn is analyzed
+    """
+    bedrock_model = BedrockModel(
+        guardrail_id=bedrock_guardrail,
+        guardrail_version="DRAFT",
+        guardrail_last_turn_only=True,
+        boto_session=boto_session,
+    )
+
+    agent = Agent(model=bedrock_model, system_prompt="You are a helpful assistant.", callback_handler=None)
+
+    # First turn - should be blocked by guardrail
+    response1 = agent("CACTUS")
+    assert response1.stop_reason == "guardrail_intervened"
+    assert str(response1).strip() == BLOCKED_INPUT
+
+    # Second turn - should work normally with last turn only
+    # This is the key test: normal questions should work after blocked content
+    response2 = agent("What is the weather like today?")
+    assert response2.stop_reason != "guardrail_intervened"
+    assert str(response2).strip() != BLOCKED_INPUT
+
+    # Verify the conversation has both messages
+    assert len(agent.messages) == 4  # 2 user + 2 assistant messages
+
+
 def test_guardrail_input_intervention_properly_redacts_in_session(boto_session, bedrock_guardrail, temp_dir):
     bedrock_model = BedrockModel(
         guardrail_id=bedrock_guardrail,

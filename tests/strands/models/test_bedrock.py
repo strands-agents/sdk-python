@@ -2052,6 +2052,50 @@ def test_format_request_filters_output_schema(model, messages, model_id):
     assert tool_spec["inputSchema"] == {"type": "object", "properties": {}}
 
 
+def test_get_last_turn_messages(model):
+    """Test _get_last_turn_messages helper method."""
+    # Test empty messages
+    assert model._get_last_turn_messages([]) == []
+
+    # Test single user message
+    messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+    result = model._get_last_turn_messages(messages)
+    assert len(result) == 1
+    assert result[0]["role"] == "user"
+
+    # Test user-assistant pair
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi"}]},
+        {"role": "user", "content": [{"text": "How are you?"}]},
+    ]
+    result = model._get_last_turn_messages(messages)
+    assert len(result) == 2
+    assert result[0]["role"] == "assistant"
+    assert result[1]["role"] == "user"
+    assert result[1]["content"][0]["text"] == "How are you?"
+
+
+def test_format_request_with_guardrail_last_turn_only(model, model_id):
+    """Test _format_request uses filtered messages when guardrail_last_turn_only=True."""
+    model.update_config(guardrail_id="test-guardrail", guardrail_version="DRAFT", guardrail_last_turn_only=True)
+
+    messages = [
+        {"role": "user", "content": [{"text": "First message"}]},
+        {"role": "assistant", "content": [{"text": "First response"}]},
+        {"role": "user", "content": [{"text": "Latest message"}]},
+    ]
+
+    request = model._format_request(messages)
+
+    # Should only include the last turn (assistant + user)
+    formatted_messages = request["messages"]
+    assert len(formatted_messages) == 2
+    assert formatted_messages[0]["role"] == "assistant"
+    assert formatted_messages[1]["role"] == "user"
+    assert formatted_messages[1]["content"][0]["text"] == "Latest message"
+
+
 @pytest.mark.asyncio
 async def test_stream_backward_compatibility_system_prompt(bedrock_client, model, messages, alist):
     """Test that system_prompt is converted to system_prompt_content when system_prompt_content is None."""
