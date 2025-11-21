@@ -3,7 +3,7 @@
 These types are modeled after the Bedrock API.
 """
 
-from typing import List, Union
+from typing import List
 
 from typing_extensions import TypedDict
 
@@ -18,67 +18,41 @@ class CitationsConfig(TypedDict):
     enabled: bool
 
 
-class DocumentCharLocation(TypedDict, total=False):
-    """Specifies a character-level location within a document.
+class WebLocationDetail(TypedDict, total=False):
+    """Details of a web-based location.
 
-    Provides precise positioning information for cited content using
-    start and end character indices.
+    Attributes:
+        url: The URL of the web page containing the cited content.
+        domain: The domain of the web page containing the cited content.
+    """
+
+    url: str
+    domain: str
+
+
+class CitationLocation(TypedDict, total=False):
+    """Specifies a location for cited content.
+
+    Can represent different types of locations depending on which fields are present:
+    - Document-based citations: Uses documentIndex, start, and end for character/chunk/page positions
+    - Web-based citations: Uses web dict with url and domain
+
+    All fields are optional as only the relevant subset will be present based on citation type.
 
     Attributes:
         documentIndex: The index of the document within the array of documents
-            provided in the request. Minimum value of 0.
-        start: The starting character position of the cited content within
-            the document. Minimum value of 0.
-        end: The ending character position of the cited content within
-            the document. Minimum value of 0.
+            provided in the request. Used for document-based citations.
+        start: The starting position (character, chunk, or page) of the cited content.
+            Used for document-based citations.
+        end: The ending position (character, chunk, or page) of the cited content.
+            Used for document-based citations.
+        web: Web location details containing URL and domain. Used for web-based citations.
     """
 
     documentIndex: int
     start: int
     end: int
-
-
-class DocumentChunkLocation(TypedDict, total=False):
-    """Specifies a chunk-level location within a document.
-
-    Provides positioning information for cited content using logical
-    document segments or chunks.
-
-    Attributes:
-        documentIndex: The index of the document within the array of documents
-            provided in the request. Minimum value of 0.
-        start: The starting chunk identifier or index of the cited content
-            within the document. Minimum value of 0.
-        end: The ending chunk identifier or index of the cited content
-            within the document. Minimum value of 0.
-    """
-
-    documentIndex: int
-    start: int
-    end: int
-
-
-class DocumentPageLocation(TypedDict, total=False):
-    """Specifies a page-level location within a document.
-
-    Provides positioning information for cited content using page numbers.
-
-    Attributes:
-        documentIndex: The index of the document within the array of documents
-            provided in the request. Minimum value of 0.
-        start: The starting page number of the cited content within
-            the document. Minimum value of 0.
-        end: The ending page number of the cited content within
-            the document. Minimum value of 0.
-    """
-
-    documentIndex: int
-    start: int
-    end: int
-
-
-# Union type for citation locations
-CitationLocation = Union[DocumentCharLocation, DocumentChunkLocation, DocumentPageLocation]
+    web: WebLocationDetail
 
 
 class CitationSourceContent(TypedDict, total=False):
