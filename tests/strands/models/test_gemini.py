@@ -251,6 +251,7 @@ async def test_stream_request_with_tool_spec(gemini_client, model, model_id, too
                     ],
                 },
             ],
+            "thinking_config": {"include_thoughts": False},
         },
         "contents": [],
         "model": model_id,
