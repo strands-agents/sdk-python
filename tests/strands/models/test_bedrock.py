@@ -2086,8 +2086,36 @@ def test_format_request_document_with_text_source(model):
 
     formatted_content = model._format_request_message_content(content_block)
 
-    expected_source = {"text": document_text}
-    assert "document" in formatted_content
-    assert "source" in formatted_content["document"]
+    assert formatted_content["document"]["source"] == {"text": document_text}
 
-    assert formatted_content["document"]["source"] == expected_source
+
+def test_format_request_document_with_bytes_source(model):
+    """Test that _format_request_message_content correctly handles a 'bytes' source."""
+
+    content_block: ContentBlock = {
+        "document": {
+            "name": "test_doc",
+            "source": {"bytes": b"some byte data"},
+            "format": "txt",
+        }
+    }
+
+    formatted_content = model._format_request_message_content(content_block)
+
+    assert formatted_content["document"]["source"] == {"bytes": b"some byte data"}
+
+
+def test_format_request_document_with_content_source(model):
+    """Test that _format_request_message_content correctly handles a 'content' source."""
+    doc_content = [{"text": "structured content"}]
+    content_block: ContentBlock = {
+        "document": {
+            "name": "test_doc",
+            "source": {"content": doc_content},
+            "format": "txt",
+        }
+    }
+
+    formatted_content = model._format_request_message_content(content_block)
+
+    assert formatted_content["document"]["source"] == {"content": doc_content}
