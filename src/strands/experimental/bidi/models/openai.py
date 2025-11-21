@@ -386,11 +386,19 @@ class BidiOpenAIRealtimeModel(BidiModel):
         # Audio output
         elif event_type == "response.output_audio.delta":
             # Audio is already base64 string from OpenAI
+            # Get sample rate from user's session config if provided, otherwise use default
+            sample_rate = (
+                self.session_config.get("audio", {})
+                .get("output", {})
+                .get("format", {})
+                .get("rate", AUDIO_FORMAT["rate"])
+            )
+
             return [
                 BidiAudioStreamEvent(
                     audio=openai_event["delta"],
                     format="pcm",
-                    sample_rate=AUDIO_FORMAT["rate"],  # type: ignore
+                    sample_rate=sample_rate,  # type: ignore
                     channels=1,
                 )
             ]

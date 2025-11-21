@@ -566,3 +566,90 @@ async def test_send_event_helper(mock_websockets_connect, model):
     assert sent_message == test_event
 
     await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_custom_audio_sample_rate(mock_websockets_connect, api_key):
+    """Test that custom audio sample rate from session_config is used in audio events."""
+    _, mock_ws = mock_websockets_connect
+
+    # Create model with custom sample rate
+    custom_sample_rate = 48000
+    session_config = {"audio": {"output": {"format": {"rate": custom_sample_rate}}}}
+    model = BidiOpenAIRealtimeModel(api_key=api_key, session_config=session_config)
+
+    await model.start()
+
+    # Simulate receiving an audio delta event from OpenAI
+    openai_audio_event = {"type": "response.output_audio.delta", "delta": "base64audiodata"}
+
+    # Convert the event
+    converted_events = model._convert_openai_event(openai_audio_event)
+
+    # Verify the audio event uses the custom sample rate
+    assert converted_events is not None
+    assert len(converted_events) == 1
+    audio_event = converted_events[0]
+    assert isinstance(audio_event, BidiAudioStreamEvent)
+    assert audio_event.sample_rate == custom_sample_rate
+    assert audio_event.format == "pcm"
+    assert audio_event.channels == 1
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_default_audio_sample_rate(mock_websockets_connect, api_key):
+    """Test that default audio sample rate is used when no custom config is provided."""
+    _, mock_ws = mock_websockets_connect
+
+    # Create model without custom audio config
+    model = BidiOpenAIRealtimeModel(api_key=api_key)
+
+    await model.start()
+
+    # Simulate receiving an audio delta event from OpenAI
+    openai_audio_event = {"type": "response.output_audio.delta", "delta": "base64audiodata"}
+
+    # Convert the event
+    converted_events = model._convert_openai_event(openai_audio_event)
+
+    # Verify the audio event uses the default sample rate (24000)
+    assert converted_events is not None
+    assert len(converted_events) == 1
+    audio_event = converted_events[0]
+    assert isinstance(audio_event, BidiAudioStreamEvent)
+    assert audio_event.sample_rate == 24000  # Default from AUDIO_FORMAT
+    assert audio_event.format == "pcm"
+    assert audio_event.channels == 1
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_partial_audio_config(mock_websockets_connect, api_key):
+    """Test that partial audio config doesn't break and falls back to defaults."""
+    _, mock_ws = mock_websockets_connect
+
+    # Create model with partial audio config (missing format.rate)
+    session_config = {"audio": {"output": {"voice": "alloy"}}}
+    model = BidiOpenAIRealtimeModel(api_key=api_key, session_config=session_config)
+
+    await model.start()
+
+    # Simulate receiving an audio delta event from OpenAI
+    openai_audio_event = {"type": "response.output_audio.delta", "delta": "base64audiodata"}
+
+    # Convert the event
+    converted_events = model._convert_openai_event(openai_audio_event)
+
+    # Verify the audio event uses the default sample rate
+    assert converted_events is not None
+    assert len(converted_events) == 1
+    audio_event = converted_events[0]
+    assert isinstance(audio_event, BidiAudioStreamEvent)
+    assert audio_event.sample_rate == 24000  # Falls back to default
+    assert audio_event.format == "pcm"
+    assert audio_event.channels == 1
+
+    await model.stop()
