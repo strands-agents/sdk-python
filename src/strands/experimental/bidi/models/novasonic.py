@@ -147,7 +147,7 @@ class BidiNovaSonicModel(BidiModel):
             RuntimeError: If user calls start again without first stopping.
         """
         if self._connection_id:
-            raise RuntimeError("call stop before starting again")
+            raise RuntimeError("model already started | call stop before starting again")
 
         logger.debug("nova connection starting")
 
@@ -233,7 +233,7 @@ class BidiNovaSonicModel(BidiModel):
             RuntimeError: If start has not been called.
         """
         if not self._connection_id:
-            raise RuntimeError("must call start")
+            raise RuntimeError("model not started | call start before receiving")
 
         logger.debug("nova event stream starting")
         yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model_id)
@@ -260,7 +260,7 @@ class BidiNovaSonicModel(BidiModel):
             ValueError: If content type not supported (e.g., image content).
         """
         if not self._connection_id:
-            raise RuntimeError("must call start")
+            raise RuntimeError("model not started | call start before sending")
 
         if isinstance(content, BidiTextInputEvent):
             await self._send_text_content(content.text)
@@ -271,7 +271,7 @@ class BidiNovaSonicModel(BidiModel):
             if tool_result:
                 await self._send_tool_result(tool_result)
         else:
-            raise ValueError(f"content_type={type(content)} | content not supported by nova sonic")
+            raise ValueError(f"content_type={type(content)} | content not supported")
 
     async def _start_audio_connection(self) -> None:
         """Internal: Start audio input connection (call once before sending audio chunks)."""

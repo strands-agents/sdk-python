@@ -93,8 +93,6 @@ def test_model_initialization(api_key, model_name):
     model_default = BidiOpenAIRealtimeModel(api_key="test-key")
     assert model_default.model == "gpt-realtime"
     assert model_default.api_key == "test-key"
-    assert model_default._active is False
-    assert model_default.websocket is None
 
     # Test with custom model
     model_custom = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
@@ -129,14 +127,12 @@ async def test_connection_lifecycle(mock_websockets_connect, model, system_promp
 
     # Test basic connection
     await model.start()
-    assert model._active is True
-    assert model.connection_id is not None
-    assert model.websocket == mock_ws
+    assert model._connection_id is not None
+    assert model._websocket == mock_ws
     mock_connect.assert_called_once()
 
     # Test close
     await model.stop()
-    assert model._active is False
     mock_ws.close.assert_called_once()
 
     # Test connection with system prompt
@@ -202,7 +198,7 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
     # Test double connection
     model2 = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
     await model2.start()
-    with pytest.raises(RuntimeError, match="Connection already active"):
+    with pytest.raises(RuntimeError, match=r"call stop before starting again"):
         await model2.start()
     await model2.stop()
 
@@ -210,12 +206,12 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
     model3 = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
     await model3.stop()  # Should not raise
 
-    # Test close error handling (should not raise, just log)
+    # Test close error
     model4 = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
     await model4.start()
     mock_ws.close.side_effect = Exception("Close failed")
-    await model4.stop()  # Should not raise
-    assert model4._active is False
+    with pytest.raises(ExceptionGroup):  # noqa: F821
+        await model4.stop()
 
 
 # Send Method Tests
@@ -279,7 +275,8 @@ async def test_send_edge_cases(mock_websockets_connect, model):
 
     # Test send when inactive
     text_input = BidiTextInputEvent(text="Hello", role="user")
-    await model.send(text_input)
+    with pytest.raises(RuntimeError, match=r"call start before sending"):
+        await model.send(text_input)
     mock_ws.send.assert_not_called()
 
     # Test image input (not supported, base64 encoded, no encoding parameter)
@@ -289,15 +286,8 @@ async def test_send_edge_cases(mock_websockets_connect, model):
         image=image_b64,
         mime_type="image/jpeg",
     )
-    with unittest.mock.patch("strands.experimental.bidi.models.openai.logger") as mock_logger:
+    with pytest.raises(ValueError, match=r"content not supported"):
         await model.send(image_input)
-        mock_logger.warning.assert_called_with("Image input not supported by OpenAI Realtime API")
-
-    # Test unknown content type
-    unknown_content = {"unknown_field": "value"}
-    with unittest.mock.patch("strands.experimental.bidi.models.openai.logger") as mock_logger:
-        await model.send(unknown_content)
-        assert mock_logger.warning.called
 
     await model.stop()
 
@@ -318,7 +308,7 @@ async def test_receive_lifecycle_events(mock_websockets_connect, model):
 
     # First event should be connection start (new TypedEvent format)
     assert first_event.get("type") == "bidi_connection_start"
-    assert first_event.get("connection_id") == model.connection_id
+    assert first_event.get("connection_id") == model._connection_id
     assert first_event.get("model") == model.model
 
     # Close to trigger session end
@@ -331,9 +321,6 @@ async def test_receive_lifecycle_events(mock_websockets_connect, model):
             events.append(event)
     except StopAsyncIteration:
         pass
-
-    # Last event should be connection close (new TypedEvent format)
-    assert events[-1].get("type") == "bidi_connection_close"
 
 
 @pytest.mark.asyncio
@@ -463,12 +450,6 @@ def test_tool_conversion(model, tool_spec):
 
 def test_helper_methods(model):
     """Test various helper methods."""
-    # Test _require_active
-    assert model._require_active() is False
-    model._active = True
-    assert model._require_active() is True
-    model._active = False
-
     # Test _create_text_event (now returns BidiTranscriptStreamEvent)
     text_event = model._create_text_event("Hello", "user")
     assert isinstance(text_event, BidiTranscriptStreamEvent)
