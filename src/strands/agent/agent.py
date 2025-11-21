@@ -87,7 +87,7 @@ _DEFAULT_AGENT_ID = "default"
 
 
 class Agent:
-    """Core Agent interface.
+    """Core Agent implementation.
 
     An agent orchestrates the following workflow:
 
