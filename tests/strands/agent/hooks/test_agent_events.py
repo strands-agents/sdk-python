@@ -268,13 +268,15 @@ async def test_stream_e2e_success(alist):
             "tool_stream_event": {
                 "data": {"tool_streaming": True},
                 "tool_use": {"input": {}, "name": "streaming_tool", "toolUseId": "12345"},
-            }
+            },
+            "type": "tool_stream",
         },
         {
             "tool_stream_event": {
                 "data": "Final result",
                 "tool_use": {"input": {}, "name": "streaming_tool", "toolUseId": "12345"},
-            }
+            },
+            "type": "tool_stream",
         },
         {
             "message": {
@@ -573,6 +575,7 @@ async def test_structured_output(agenerator):
         },
         {"event": {"contentBlockDelta": {"delta": {"toolUse": {"input": ""}}, "contentBlockIndex": 0}}},
         {
+            "type": "tool_use_stream",
             "delta": {"toolUse": {"input": ""}},
             "current_tool_use": {
                 "toolUseId": "tooluse_efwXnrK_S6qTyxzcq1IUMQ",
@@ -582,6 +585,7 @@ async def test_structured_output(agenerator):
         },
         {"event": {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"na'}}, "contentBlockIndex": 0}}},
         {
+            "type": "tool_use_stream",
             "delta": {"toolUse": {"input": '{"na'}},
             "current_tool_use": {
                 "toolUseId": "tooluse_efwXnrK_S6qTyxzcq1IUMQ",
@@ -591,6 +595,7 @@ async def test_structured_output(agenerator):
         },
         {"event": {"contentBlockDelta": {"delta": {"toolUse": {"input": 'me"'}}, "contentBlockIndex": 0}}},
         {
+            "type": "tool_use_stream",
             "delta": {"toolUse": {"input": 'me"'}},
             "current_tool_use": {
                 "toolUseId": "tooluse_efwXnrK_S6qTyxzcq1IUMQ",
@@ -600,6 +605,7 @@ async def test_structured_output(agenerator):
         },
         {"event": {"contentBlockDelta": {"delta": {"toolUse": {"input": ': "J'}}, "contentBlockIndex": 0}}},
         {
+            "type": "tool_use_stream",
             "delta": {"toolUse": {"input": ': "J'}},
             "current_tool_use": {
                 "toolUseId": "tooluse_efwXnrK_S6qTyxzcq1IUMQ",
@@ -609,6 +615,7 @@ async def test_structured_output(agenerator):
         },
         {"event": {"contentBlockDelta": {"delta": {"toolUse": {"input": 'ohn"'}}, "contentBlockIndex": 0}}},
         {
+            "type": "tool_use_stream",
             "delta": {"toolUse": {"input": 'ohn"'}},
             "current_tool_use": {
                 "toolUseId": "tooluse_efwXnrK_S6qTyxzcq1IUMQ",
@@ -618,6 +625,7 @@ async def test_structured_output(agenerator):
         },
         {"event": {"contentBlockDelta": {"delta": {"toolUse": {"input": ', "age": 3'}}, "contentBlockIndex": 0}}},
         {
+            "type": "tool_use_stream",
             "delta": {"toolUse": {"input": ', "age": 3'}},
             "current_tool_use": {
                 "toolUseId": "tooluse_efwXnrK_S6qTyxzcq1IUMQ",
@@ -627,6 +635,7 @@ async def test_structured_output(agenerator):
         },
         {"event": {"contentBlockDelta": {"delta": {"toolUse": {"input": "1}"}}, "contentBlockIndex": 0}}},
         {
+            "type": "tool_use_stream",
             "delta": {"toolUse": {"input": "1}"}},
             "current_tool_use": {
                 "toolUseId": "tooluse_efwXnrK_S6qTyxzcq1IUMQ",

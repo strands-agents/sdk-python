@@ -27,8 +27,8 @@ from ....tools.registry import ToolRegistry
 from ....tools.watcher import ToolWatcher
 from ....types.content import ContentBlock, Message, Messages
 from ....types.tools import AgentTool, ToolResult, ToolUse
+from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from ...tools import ToolProvider
-from ..hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from ..models.bidi_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
@@ -62,11 +62,11 @@ class BidiAgent:
         load_tools_from_directory: bool = False,
         agent_id: str | None = None,
         name: str | None = None,
-        tool_executor: ToolExecutor | None = None,
         description: str | None = None,
         hooks: list[HookProvider] | None = None,
         state: AgentState | dict | None = None,
         session_manager: "SessionManager | None" = None,
+        tool_executor: ToolExecutor | None = None,
         **kwargs: Any,
     ):
         """Initialize bidirectional agent.
@@ -80,12 +80,12 @@ class BidiAgent:
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.
             agent_id: Optional ID for the agent, useful for connection management and multi-agent scenarios.
             name: Name of the Agent.
-            tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
             description: Description of what the Agent does.
             hooks: Optional list of hook providers to register for lifecycle events.
             state: Stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
             session_manager: Manager for handling agent sessions including conversation history and state.
                 If provided, enables session-based persistence and state management.
+            tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
             **kwargs: Additional configuration for future extensibility.
 
         Raises:
@@ -123,9 +123,6 @@ class BidiAgent:
         if self.load_tools_from_directory:
             self.tool_watcher = ToolWatcher(tool_registry=self.tool_registry)
 
-        # Initialize tool executor
-        self.tool_executor = tool_executor or ConcurrentToolExecutor()
-
         # Initialize agent state management
         if state is not None:
             if isinstance(state, dict):
@@ -140,6 +137,9 @@ class BidiAgent:
         # Initialize other components
         self._tool_caller = _ToolCaller(self)
 
+        # Initialize tool executor
+        self.tool_executor = tool_executor or ConcurrentToolExecutor()
+
         # Initialize hooks registry
         self.hooks = HookRegistry()
         if hooks:
@@ -150,6 +150,8 @@ class BidiAgent:
         self._session_manager = session_manager
         if self._session_manager:
             self.hooks.add_hook(self._session_manager)
+        # Initialize invocation state (will be set in start())
+        self._invocation_state: dict[str, Any] = {}
 
         self._loop = _BidiAgentLoop(self)
 
@@ -267,13 +269,28 @@ class BidiAgent:
         properties = tool_spec["inputSchema"]["json"]["properties"]
         return {k: v for k, v in input_params.items() if k in properties}
 
-    async def start(self) -> None:
+    async def start(self, invocation_state: dict[str, Any] | None = None) -> None:
         """Start a persistent bidirectional conversation connection.
 
         Initializes the streaming connection and starts background tasks for processing
         model events, tool execution, and connection management.
+
+        Args:
+            invocation_state: Optional context to pass to tools during execution.
+                This allows passing custom data (user_id, session_id, database connections, etc.)
+                that tools can access via their invocation_state parameter.
+
+        Example:
+            ```python
+            await agent.start(invocation_state={
+                "user_id": "user_123",
+                "session_id": "session_456",
+                "database": db_connection,
+            })
+            ```
         """
         logger.debug("agent starting")
+        self._invocation_state = invocation_state or {}
 
         await self._loop.start()
 
@@ -415,19 +432,28 @@ class BidiAgent:
         """True if agent loop started, False otherwise."""
         return self._loop.active
 
-    async def run(self, inputs: list[BidiInput], outputs: list[BidiOutput]) -> None:
+    async def run(
+        self, inputs: list[BidiInput], outputs: list[BidiOutput], invocation_state: dict[str, Any] | None = None
+    ) -> None:
         """Run the agent using provided IO channels for bidirectional communication.
 
         Args:
             inputs: Input callables to read data from a source
             outputs: Output callables to receive events from the agent
+            invocation_state: Optional context to pass to tools during execution.
+                This allows passing custom data (user_id, session_id, database connections, etc.)
+                that tools can access via their invocation_state parameter.
 
         Example:
             ```python
             audio_io = BidiAudioIO(input_rate=16000)
             text_io = BidiTextIO()
             agent = BidiAgent(model=model, tools=[calculator])
-            await agent.run(inputs=[audio_io.input()], outputs=[audio_io.output(), text_io.output()])
+            await agent.run(
+                inputs=[audio_io.input()],
+                outputs=[audio_io.output(), text_io.output()],
+                invocation_state={"user_id": "user_123"}
+            )
             ```
         """
 
@@ -445,7 +471,7 @@ class BidiAgent:
                 tasks = [output(event) for output in outputs]
                 await asyncio.gather(*tasks)
 
-        await self.start()
+        await self.start(invocation_state=invocation_state)
 
         for input_ in inputs:
             if hasattr(input_, "start"):
