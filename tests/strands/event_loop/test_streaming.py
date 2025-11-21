@@ -124,12 +124,41 @@ def test_handle_message_start():
             {"start": {"toolUse": {"toolUseId": "test", "name": "test"}}},
             {"toolUseId": "test", "name": "test", "input": ""},
         ),
+        (
+            {"start": {"toolUse": {"toolUseId": "test", "name": "test", "thoughtSignature": "YWJj"}}},
+            {"toolUseId": "test", "name": "test", "input": "", "thoughtSignature": "YWJj"},
+        ),
     ],
 )
 def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use):
     tru_tool_use = strands.event_loop.streaming.handle_content_block_start(chunk)
 
     assert tru_tool_use == exp_tool_use
+
+
+def test_handle_content_block_start_with_thought_signature():
+    """Test that thoughtSignature is preserved when starting tool use block."""
+    chunk: ContentBlockStartEvent = {
+        "start": {
+            "toolUse": {
+                "toolUseId": "test-id",
+                "name": "test_tool",
+                "thoughtSignature": "dGVzdF9zaWduYXR1cmU=",
+            }
+        }
+    }
+
+    tru_tool_use = strands.event_loop.streaming.handle_content_block_start(chunk)
+    exp_tool_use = {
+        "toolUseId": "test-id",
+        "name": "test_tool",
+        "input": "",
+        "thoughtSignature": "dGVzdF9zaWduYXR1cmU=",
+    }
+
+    assert tru_tool_use == exp_tool_use
+    assert "thoughtSignature" in tru_tool_use
+    assert tru_tool_use["thoughtSignature"] == "dGVzdF9zaWduYXR1cmU="
 
 
 @pytest.mark.parametrize(
@@ -238,6 +267,39 @@ def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_up
             },
             {
                 "content": [{"toolUse": {"toolUseId": "123", "name": "test", "input": {"key": "value"}}}],
+                "current_tool_use": {},
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+        ),
+        # Tool Use - With thoughtSignature
+        (
+            {
+                "content": [],
+                "current_tool_use": {
+                    "toolUseId": "123",
+                    "name": "test",
+                    "input": '{"key": "value"}',
+                    "thoughtSignature": "dGVzdF9zaWduYXR1cmU=",
+                },
+                "text": "",
+                "reasoningText": "",
+                "citationsContent": [],
+                "redactedContent": b"",
+            },
+            {
+                "content": [
+                    {
+                        "toolUse": {
+                            "toolUseId": "123",
+                            "name": "test",
+                            "input": {"key": "value"},
+                            "thoughtSignature": "dGVzdF9zaWduYXR1cmU=",
+                        }
+                    }
+                ],
                 "current_tool_use": {},
                 "text": "",
                 "reasoningText": "",
@@ -1058,3 +1120,161 @@ async def test_stream_messages_normalizes_messages(agenerator, alist):
         {"content": [{"toolUse": {"name": "INVALID_TOOL_NAME"}}], "role": "assistant"},
         {"content": [{"toolUse": {"name": "INVALID_TOOL_NAME"}}], "role": "assistant"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_process_stream_preserves_thought_signature(agenerator, alist):
+    """Test that thoughtSignature is preserved through the entire streaming pipeline."""
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {
+            "contentBlockStart": {
+                "start": {
+                    "toolUse": {
+                        "toolUseId": "calculator-123",
+                        "name": "calculator",
+                        "thoughtSignature": "dGVzdF9zaWduYXR1cmVfYnl0ZXM=",
+                    }
+                }
+            },
+        },
+        {
+            "contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}},
+        },
+        {"contentBlockStop": {}},
+        {
+            "messageStop": {"stopReason": "tool_use"},
+        },
+        {
+            "metadata": {
+                "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
+                "metrics": {"latencyMs": 100},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+
+    last_event = cast(ModelStopReason, (await alist(stream))[-1])
+    message = _get_message_from_event(last_event)
+
+    # Verify the message has the tool use with thoughtSignature preserved
+    assert len(message["content"]) == 1
+    assert "toolUse" in message["content"][0]
+    tool_use = message["content"][0]["toolUse"]
+    assert tool_use["toolUseId"] == "calculator-123"
+    assert tool_use["name"] == "calculator"
+    assert tool_use["input"] == {"expression": "2+2"}
+    assert "thoughtSignature" in tool_use
+    assert tool_use["thoughtSignature"] == "dGVzdF9zaWduYXR1cmVfYnl0ZXM="
+
+
+@pytest.mark.asyncio
+async def test_process_stream_tool_use_without_thought_signature(agenerator, alist):
+    """Test that tool use works correctly when thoughtSignature is not present."""
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {
+            "contentBlockStart": {
+                "start": {
+                    "toolUse": {
+                        "toolUseId": "calculator-123",
+                        "name": "calculator",
+                        # No thoughtSignature
+                    }
+                }
+            },
+        },
+        {
+            "contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}},
+        },
+        {"contentBlockStop": {}},
+        {
+            "messageStop": {"stopReason": "tool_use"},
+        },
+        {
+            "metadata": {
+                "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
+                "metrics": {"latencyMs": 100},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+
+    last_event = cast(ModelStopReason, (await alist(stream))[-1])
+    message = _get_message_from_event(last_event)
+
+    # Verify the message has the tool use without thoughtSignature
+    assert len(message["content"]) == 1
+    assert "toolUse" in message["content"][0]
+    tool_use = message["content"][0]["toolUse"]
+    assert tool_use["toolUseId"] == "calculator-123"
+    assert tool_use["name"] == "calculator"
+    assert tool_use["input"] == {"expression": "2+2"}
+    assert "thoughtSignature" not in tool_use
+
+
+@pytest.mark.asyncio
+async def test_process_stream_multiple_tool_uses_with_thought_signatures(agenerator, alist):
+    """Test that multiple tool uses each preserve their thoughtSignature."""
+    response = [
+        {"messageStart": {"role": "assistant"}},
+        {
+            "contentBlockStart": {
+                "start": {
+                    "toolUse": {
+                        "toolUseId": "tool1",
+                        "name": "calculator",
+                        "thoughtSignature": "c2lnbmF0dXJlMQ==",
+                    }
+                }
+            },
+        },
+        {
+            "contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}},
+        },
+        {"contentBlockStop": {}},
+        {
+            "contentBlockStart": {
+                "start": {
+                    "toolUse": {
+                        "toolUseId": "tool2",
+                        "name": "weather",
+                        "thoughtSignature": "c2lnbmF0dXJlMg==",
+                    }
+                }
+            },
+        },
+        {
+            "contentBlockDelta": {"delta": {"toolUse": {"input": '{"city": "SF"}'}}},
+        },
+        {"contentBlockStop": {}},
+        {
+            "messageStop": {"stopReason": "tool_use"},
+        },
+        {
+            "metadata": {
+                "usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15},
+                "metrics": {"latencyMs": 100},
+            }
+        },
+    ]
+
+    stream = strands.event_loop.streaming.process_stream(agenerator(response))
+
+    last_event = cast(ModelStopReason, (await alist(stream))[-1])
+    message = _get_message_from_event(last_event)
+
+    # Verify both tool uses have their respective thoughtSignatures
+    assert len(message["content"]) == 2
+
+    tool_use1 = message["content"][0]["toolUse"]
+    assert tool_use1["toolUseId"] == "tool1"
+    assert tool_use1["name"] == "calculator"
+    assert tool_use1["thoughtSignature"] == "c2lnbmF0dXJlMQ=="
+
+    tool_use2 = message["content"][1]["toolUse"]
+    assert tool_use2["toolUseId"] == "tool2"
+    assert tool_use2["name"] == "weather"
+    assert tool_use2["thoughtSignature"] == "c2lnbmF0dXJlMg=="

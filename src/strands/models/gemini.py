@@ -143,7 +143,7 @@ class GeminiModel(Model):
 
         if "toolUse" in content:
             thought_signature_b64 = content["toolUse"].get("thoughtSignature")
-
+            
             tool_use_thought_signature: Optional[bytes] = None
             if thought_signature_b64:
                 try:
@@ -237,7 +237,7 @@ class GeminiModel(Model):
         thinking_config = None
         if tool_specs:
             thinking_config = genai.types.ThinkingConfig(include_thoughts=False)
-
+        
         return genai.types.GenerateContentConfig(
             system_instruction=system_prompt,
             tools=self._format_request_tools(tool_specs),
@@ -299,17 +299,17 @@ class GeminiModel(Model):
                             "name": event["data"].function_call.name,
                             "toolUseId": event["data"].function_call.name,
                         }
-
+                        
                         # Get thought_signature from the event dict (passed from stream method)
                         thought_sig = event.get("thought_signature")
-
+                        
                         if thought_sig:
                             # Ensure it's bytes for encoding
                             if isinstance(thought_sig, str):
                                 thought_sig = thought_sig.encode("utf-8")
                             # Use base64 encoding for storage
                             tool_use["thoughtSignature"] = base64.b64encode(thought_sig).decode("utf-8")
-
+                        
                         return {
                             "contentBlockStart": {
                                 "start": {"toolUse": cast(Any, tool_use)},
@@ -413,7 +413,7 @@ class GeminiModel(Model):
             # Track thought_signature to associate with function calls
             # According to Gemini docs, thought_signature can be on any part
             last_thought_signature: Optional[bytes] = None
-
+            
             async for event in response:
                 candidates = event.candidates
                 candidate = candidates[0] if candidates else None
@@ -424,11 +424,11 @@ class GeminiModel(Model):
                     # Check ALL parts for thought_signature (Gemini may still include it even with thinking disabled)
                     if hasattr(part, "thought_signature") and part.thought_signature:
                         last_thought_signature = part.thought_signature
-
+                    
                     if part.function_call:
                         # Use the last thought_signature captured
                         effective_thought_signature = last_thought_signature
-
+                        
                         yield self._format_chunk(
                             {
                                 "chunk_type": "content_start",

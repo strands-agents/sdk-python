@@ -259,6 +259,29 @@ async def test_stream_request_with_tool_spec(gemini_client, model, model_id, too
 
 
 @pytest.mark.asyncio
+async def test_stream_request_with_tool_spec_sets_thinking_config(gemini_client, model, model_id, tool_spec):
+    """Test that thinking_config is set to disable thinking text when tools are present."""
+    await anext(model.stream([], [tool_spec]))
+
+    # Get the actual call arguments
+    call_args = gemini_client.aio.models.generate_content_stream.call_args
+    config = call_args.kwargs.get("config")
+
+    # Verify thinking_config is set correctly
+    assert config is not None
+    # Config might be a dict when mocked
+    if isinstance(config, dict):
+        assert "thinking_config" in config
+        thinking_config = config["thinking_config"]
+        assert thinking_config["include_thoughts"] is False
+    else:
+        assert hasattr(config, "thinking_config")
+        thinking_config = config.thinking_config
+        assert thinking_config is not None
+        assert thinking_config.include_thoughts is False
+
+
+@pytest.mark.asyncio
 async def test_stream_request_with_tool_use(gemini_client, model, model_id):
     messages = [
         {
@@ -297,6 +320,76 @@ async def test_stream_request_with_tool_use(gemini_client, model, model_id):
         "model": model_id,
     }
     gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_tool_use_and_thought_signature(gemini_client, model, model_id):
+    """Test that thoughtSignature is properly decoded from base64 and passed to Gemini API."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "c1",
+                        "name": "calculator",
+                        "input": {"expression": "2+2"},
+                        "thoughtSignature": "YWJjZGVmZ2g=",  # base64 encoded "abcdefgh"
+                    },
+                },
+            ],
+        },
+    ]
+    await anext(model.stream(messages))
+
+    # Verify that the call was made - Gemini SDK handles the thought_signature serialization internally
+    call_args = gemini_client.aio.models.generate_content_stream.call_args
+    assert call_args is not None
+    
+    # Check that the content includes the thought_signature (SDK may serialize it differently)
+    contents = call_args.kwargs["contents"]
+    assert len(contents) == 1
+    assert len(contents[0]["parts"]) == 1
+    part = contents[0]["parts"][0]
+    assert "function_call" in part
+    assert part["function_call"]["name"] == "calculator"
+    # The SDK handles thought_signature internally, verify it's present
+    assert "thought_signature" in part
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_tool_use_missing_thought_signature(gemini_client, model, model_id):
+    """Test that missing thoughtSignature is handled gracefully."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "c1",
+                        "name": "calculator",
+                        "input": {"expression": "2+2"},
+                        # No thoughtSignature
+                    },
+                },
+            ],
+        },
+    ]
+    await anext(model.stream(messages))
+
+    # Verify the call was made without thought_signature when not present
+    call_args = gemini_client.aio.models.generate_content_stream.call_args
+    assert call_args is not None
+    
+    contents = call_args.kwargs["contents"]
+    assert len(contents) == 1
+    assert len(contents[0]["parts"]) == 1
+    part = contents[0]["parts"][0]
+    assert "function_call" in part
+    assert part["function_call"]["name"] == "calculator"
+    # When thoughtSignature is missing, the SDK may omit it entirely
+    # This is acceptable behavior
+    assert "thought_signature" not in part or part.get("thought_signature") is None
 
 
 @pytest.mark.asyncio
@@ -441,6 +534,106 @@ async def test_stream_response_tool_use(gemini_client, model, messages, agenerat
                                         id="c1",
                                         name="calculator",
                                     ),
+                                ),
+                            ],
+                        ),
+                        finish_reason="STOP",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=1,
+                    total_token_count=3,
+                ),
+            ),
+        ]
+    )
+
+    tru_chunks = await alist(model.stream(messages))
+    exp_chunks = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockStart": {"start": {"toolUse": {"name": "calculator", "toolUseId": "calculator"}}}},
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "tool_use"}},
+        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+    ]
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_response_tool_use_with_thought_signature(gemini_client, model, messages, agenerator, alist):
+    """Test that thoughtSignature from Gemini response is captured and base64-encoded."""
+    gemini_client.aio.models.generate_content_stream.return_value = agenerator(
+        [
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        content=genai.types.Content(
+                            parts=[
+                                genai.types.Part(
+                                    function_call=genai.types.FunctionCall(
+                                        args={"expression": "2+2"},
+                                        id="c1",
+                                        name="calculator",
+                                    ),
+                                    thought_signature=b"test_signature_bytes",  # Raw bytes from Gemini
+                                ),
+                            ],
+                        ),
+                        finish_reason="STOP",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=1,
+                    total_token_count=3,
+                ),
+            ),
+        ]
+    )
+
+    tru_chunks = await alist(model.stream(messages))
+    exp_chunks = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {
+            "contentBlockStart": {
+                "start": {
+                    "toolUse": {
+                    "name": "calculator",
+                    "toolUseId": "calculator",
+                    "thoughtSignature": "dGVzdF9zaWduYXR1cmVfYnl0ZXM=",  # base64 encoded
+                    }
+                }
+            }
+        },
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "2+2"}'}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "tool_use"}},
+        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+    ]
+    assert tru_chunks == exp_chunks
+
+
+@pytest.mark.asyncio
+async def test_stream_response_tool_use_without_thought_signature(gemini_client, model, messages, agenerator, alist):
+    """Test that missing thoughtSignature in response is handled gracefully."""
+    gemini_client.aio.models.generate_content_stream.return_value = agenerator(
+        [
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        content=genai.types.Content(
+                            parts=[
+                                genai.types.Part(
+                                    function_call=genai.types.FunctionCall(
+                                        args={"expression": "2+2"},
+                                        id="c1",
+                                        name="calculator",
+                                    ),
+                                    # No thought_signature
                                 ),
                             ],
                         ),
