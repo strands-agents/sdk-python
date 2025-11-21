@@ -3,6 +3,7 @@
 - Docs: https://ai.google.dev/api
 """
 
+import base64
 import json
 import logging
 import mimetypes
@@ -141,12 +142,28 @@ class GeminiModel(Model):
             )
 
         if "toolUse" in content:
+            thought_signature_b64 = content["toolUse"].get("thoughtSignature")
+
+            tool_use_thought_signature: Optional[bytes] = None
+            if thought_signature_b64:
+                try:
+                    tool_use_thought_signature = base64.b64decode(thought_signature_b64)
+                except Exception as e:
+                    tool_use_id = content["toolUse"].get("toolUseId")
+                    logger.error("toolUseId=<%s> | failed to decode thoughtSignature: %s", tool_use_id, e)
+            else:
+                # thoughtSignature is now preserved by the Strands framework (as of v1.18+)
+                # If missing, it means the model didn't provide one (e.g., older Gemini versions)
+                tool_use_id = content["toolUse"].get("toolUseId")
+                logger.debug("toolUseId=<%s> | no thoughtSignature in toolUse (model may not require it)", tool_use_id)
+
             return genai.types.Part(
                 function_call=genai.types.FunctionCall(
                     args=content["toolUse"]["input"],
                     id=content["toolUse"]["toolUseId"],
                     name=content["toolUse"]["name"],
                 ),
+                thought_signature=tool_use_thought_signature,
             )
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
@@ -212,9 +229,19 @@ class GeminiModel(Model):
         Returns:
             Gemini request config.
         """
+        # Disable thinking text output when tools are present
+        # Note: Setting include_thoughts=False prevents thinking text in responses but
+        # Gemini still returns thought_signature for function calls. As of Strands v1.18+,
+        # the framework properly preserves this field through the message history.
+        # See: https://ai.google.dev/gemini-api/docs/thought-signatures
+        thinking_config = None
+        if tool_specs:
+            thinking_config = genai.types.ThinkingConfig(include_thoughts=False)
+
         return genai.types.GenerateContentConfig(
             system_instruction=system_prompt,
             tools=self._format_request_tools(tool_specs),
+            thinking_config=thinking_config,
             **(params or {}),
         )
 
@@ -268,14 +295,24 @@ class GeminiModel(Model):
                         #       that name be set in the equivalent FunctionResponse type. Consequently, we assign
                         #       function name to toolUseId in our tool use block. And another reason, function_call is
                         #       not guaranteed to have id populated.
+                        tool_use: dict[str, Any] = {
+                            "name": event["data"].function_call.name,
+                            "toolUseId": event["data"].function_call.name,
+                        }
+
+                        # Get thought_signature from the event dict (passed from stream method)
+                        thought_sig = event.get("thought_signature")
+
+                        if thought_sig:
+                            # Ensure it's bytes for encoding
+                            if isinstance(thought_sig, str):
+                                thought_sig = thought_sig.encode("utf-8")
+                            # Use base64 encoding for storage
+                            tool_use["thoughtSignature"] = base64.b64encode(thought_sig).decode("utf-8")
+
                         return {
                             "contentBlockStart": {
-                                "start": {
-                                    "toolUse": {
-                                        "name": event["data"].function_call.name,
-                                        "toolUseId": event["data"].function_call.name,
-                                    },
-                                },
+                                "start": {"toolUse": cast(Any, tool_use)},
                             },
                         }
 
@@ -373,6 +410,10 @@ class GeminiModel(Model):
             yield self._format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
             tool_used = False
+            # Track thought_signature to associate with function calls
+            # According to Gemini docs, thought_signature can be on any part
+            last_thought_signature: Optional[bytes] = None
+
             async for event in response:
                 candidates = event.candidates
                 candidate = candidates[0] if candidates else None
@@ -380,8 +421,22 @@ class GeminiModel(Model):
                 parts = content.parts if content and content.parts else []
 
                 for part in parts:
+                    # Check ALL parts for thought_signature (Gemini may still include it even with thinking disabled)
+                    if hasattr(part, "thought_signature") and part.thought_signature:
+                        last_thought_signature = part.thought_signature
+
                     if part.function_call:
-                        yield self._format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": part})
+                        # Use the last thought_signature captured
+                        effective_thought_signature = last_thought_signature
+
+                        yield self._format_chunk(
+                            {
+                                "chunk_type": "content_start",
+                                "data_type": "tool",
+                                "data": part,
+                                "thought_signature": effective_thought_signature,
+                            }
+                        )
                         yield self._format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": part})
                         yield self._format_chunk({"chunk_type": "content_stop", "data_type": "tool", "data": part})
                         tool_used = True
