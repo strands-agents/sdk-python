@@ -32,12 +32,18 @@ class ToolExecutor(abc.ABC):
 
     @staticmethod
     def _is_bidi_agent(agent: Union["Agent", "BidiAgent"]) -> bool:
-        """Check if the agent is a BidiAgent by type name.
+        """Check if the agent is a BidiAgent using isinstance.
 
-        Uses type name comparison to avoid circular imports while maintaining
-        type safety. This works because we control both Agent and BidiAgent types.
+        Uses runtime import to avoid circular dependency at module load time.
+        This properly handles subclasses of BidiAgent.
         """
-        return type(agent).__name__ == "BidiAgent"
+        try:
+            from ...experimental.bidi.agent.agent import BidiAgent
+
+            return isinstance(agent, BidiAgent)
+        except ImportError:
+            # If BidiAgent is not available, it can't be a BidiAgent
+            return False
 
     @staticmethod
     async def _invoke_before_tool_call_hook(
@@ -50,7 +56,7 @@ class ToolExecutor(abc.ABC):
         if ToolExecutor._is_bidi_agent(agent):
             return await agent.hooks.invoke_callbacks_async(
                 BidiBeforeToolCallEvent(
-                    agent=agent,
+                    agent=agent,  # type: ignore[arg-type]
                     selected_tool=tool_func,
                     tool_use=tool_use,
                     invocation_state=invocation_state,
@@ -59,7 +65,7 @@ class ToolExecutor(abc.ABC):
         else:
             return await agent.hooks.invoke_callbacks_async(
                 BeforeToolCallEvent(
-                    agent=agent,
+                    agent=agent,  # type: ignore[arg-type]
                     selected_tool=tool_func,
                     tool_use=tool_use,
                     invocation_state=invocation_state,
@@ -80,7 +86,7 @@ class ToolExecutor(abc.ABC):
         if ToolExecutor._is_bidi_agent(agent):
             return await agent.hooks.invoke_callbacks_async(
                 BidiAfterToolCallEvent(
-                    agent=agent,
+                    agent=agent,  # type: ignore[arg-type]
                     selected_tool=selected_tool,
                     tool_use=tool_use,
                     invocation_state=invocation_state,
@@ -92,7 +98,7 @@ class ToolExecutor(abc.ABC):
         else:
             return await agent.hooks.invoke_callbacks_async(
                 AfterToolCallEvent(
-                    agent=agent,
+                    agent=agent,  # type: ignore[arg-type]
                     selected_tool=selected_tool,
                     tool_use=tool_use,
                     invocation_state=invocation_state,
@@ -315,7 +321,11 @@ class ToolExecutor(abc.ABC):
             tool_success = result.get("status") == "success"
             tool_duration = time.time() - tool_start_time
             message = Message(role="user", content=[{"toolResult": result}])
-            agent.event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, tool_success, message)
+            # Only add tool usage metrics for regular Agent (not BidiAgent)
+            if not ToolExecutor._is_bidi_agent(agent):
+                agent.event_loop_metrics.add_tool_usage(  # type: ignore[union-attr]
+                    tool_use, tool_duration, tool_trace, tool_success, message
+                )
             cycle_trace.add_child(tool_trace)
 
             tracer.end_tool_call_span(tool_call_span, result)

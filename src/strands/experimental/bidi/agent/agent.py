@@ -27,8 +27,8 @@ from ....tools.registry import ToolRegistry
 from ....tools.watcher import ToolWatcher
 from ....types.content import ContentBlock, Message, Messages
 from ....types.tools import AgentTool, ToolResult, ToolUse
-from ...tools import ToolProvider
 from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
+from ...tools import ToolProvider
 from ..models.bidi_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput

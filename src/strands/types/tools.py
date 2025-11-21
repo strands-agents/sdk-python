@@ -8,15 +8,12 @@ These types are modeled after the Bedrock API.
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
+from typing import Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
 
 from typing_extensions import NotRequired, TypedDict
 
 from .interrupt import _Interruptible
 from .media import DocumentContent, ImageContent
-
-if TYPE_CHECKING:
-    from .. import Agent
 
 JSONSchema = dict
 """Type alias for JSON Schema dictionaries."""

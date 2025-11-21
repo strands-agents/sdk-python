@@ -7,7 +7,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, AsyncIterable, Awaitable
 
-from ....types._events import ToolResultEvent, ToolResultMessageEvent, ToolStreamEvent, ToolUseStreamEvent
+from ....types._events import ToolResultEvent, ToolResultMessageEvent, ToolUseStreamEvent
 from ....types.content import Message
 from ....types.tools import ToolResult, ToolUse
 from ...hooks.events import (
