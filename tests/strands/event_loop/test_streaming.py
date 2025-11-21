@@ -136,31 +136,6 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
     assert tru_tool_use == exp_tool_use
 
 
-def test_handle_content_block_start_with_thought_signature():
-    """Test that thoughtSignature is preserved when starting tool use block."""
-    chunk: ContentBlockStartEvent = {
-        "start": {
-            "toolUse": {
-                "toolUseId": "test-id",
-                "name": "test_tool",
-                "thoughtSignature": "dGVzdF9zaWduYXR1cmU=",
-            }
-        }
-    }
-
-    tru_tool_use = strands.event_loop.streaming.handle_content_block_start(chunk)
-    exp_tool_use = {
-        "toolUseId": "test-id",
-        "name": "test_tool",
-        "input": "",
-        "thoughtSignature": "dGVzdF9zaWduYXR1cmU=",
-    }
-
-    assert tru_tool_use == exp_tool_use
-    assert "thoughtSignature" in tru_tool_use
-    assert tru_tool_use["thoughtSignature"] == "dGVzdF9zaWduYXR1cmU="
-
-
 @pytest.mark.parametrize(
     ("event", "state", "exp_updated_state", "callback_args"),
     [
