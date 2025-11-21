@@ -1,11 +1,11 @@
 [build-system]
-requires = ["hatchling"]  # Removed hatch-vcs for manual version testing
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 
 [project]
 name = "strands-agents"
-version = "1.18.0dev"  # Temporary override for testing thought_signature fix
+dynamic = ["version"]  # Version determined by git tags
 description = "A model-driven approach to building AI agents in just a few lines of code"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -38,7 +38,6 @@ dependencies = [
     "opentelemetry-api>=1.30.0,<2.0.0",
     "opentelemetry-sdk>=1.30.0,<2.0.0",
     "opentelemetry-instrumentation-threading>=0.51b0,<1.00b0",
-    "hatch>=1.15.1",
 ]
 
 
@@ -95,8 +94,8 @@ Documentation = "https://strandsagents.com"
 packages = ["src/strands"]
 
 
-# [tool.hatch.version]
-# source = "vcs"  # Temporarily disabled for testing - using manual version
+[tool.hatch.version]
+source = "vcs"  # Use git tags for versioning
 
 
 [tool.hatch.envs.hatch-static-analysis]
