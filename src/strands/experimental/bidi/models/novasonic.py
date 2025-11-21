@@ -32,11 +32,10 @@ from smithy_core.aio.eventstream import DuplexEventStream
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
-from .._async import start, stop
+from .._async import stop_all
 from ..types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
-    BidiConnectionCloseEvent,
     BidiConnectionStartEvent,
     BidiInputEvent,
     BidiInterruptionEvent,
@@ -129,7 +128,6 @@ class BidiNovaSonicModel(BidiModel):
 
         logger.debug("model_id=<%s> | nova sonic model initialized", model_id)
 
-    @start
     async def start(
         self,
         system_prompt: str | None = None,
@@ -240,18 +238,15 @@ class BidiNovaSonicModel(BidiModel):
         logger.debug("nova event stream starting")
         yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model_id)
 
-        try:
-            _, output = await self._stream.await_output()
-            while True:
-                event_data = await output.receive()
-                nova_event = json.loads(event_data.value.bytes_.decode("utf-8"))["event"]
-                self._log_event_type(nova_event)
+        _, output = await self._stream.await_output()
+        while True:
+            event_data = await output.receive()
+            nova_event = json.loads(event_data.value.bytes_.decode("utf-8"))["event"]
+            self._log_event_type(nova_event)
 
-                model_event = self._convert_nova_event(nova_event)
-                if model_event:
-                    yield model_event
-        finally:
-            yield BidiConnectionCloseEvent(connection_id=self._connection_id, reason="complete")
+            model_event = self._convert_nova_event(nova_event)
+            if model_event:
+                yield model_event
 
     async def send(self, content: BidiInputEvent | ToolResultEvent) -> None:
         """Unified send method for all content types. Sends the given content to Nova Sonic.
@@ -382,7 +377,7 @@ class BidiNovaSonicModel(BidiModel):
             await self._send_nova_events(cleanup_events)
 
         async def stop_stream() -> None:
-            if not self._connection_id or not self._stream:
+            if not hasattr(self, "_stream"):
                 return
 
             await self._stream.close()
@@ -390,7 +385,7 @@ class BidiNovaSonicModel(BidiModel):
         async def stop_connection() -> None:
             self._connection_id = None
 
-        await stop(stop_events, stop_stream, stop_connection)
+        await stop_all(stop_events, stop_stream, stop_connection)
 
         logger.debug("nova connection closed")
 
