@@ -9,7 +9,6 @@ The Agent interface supports two complementary interaction patterns:
 2. Method-style for direct tool access: `agent.tool.tool_name(param1="value")`
 """
 
-import json
 import logging
 import warnings
 from typing import (
@@ -51,7 +50,7 @@ from ..models.model import Model
 from ..session.session_manager import SessionManager
 from ..telemetry.metrics import EventLoopMetrics
 from ..telemetry.tracer import get_tracer, serialize
-from ..tools.caller import _ToolCaller
+from ..tools._caller import _ToolCaller
 from ..tools.executors import ConcurrentToolExecutor
 from ..tools.executors._executor import ToolExecutor
 from ..tools.registry import ToolRegistry
@@ -61,7 +60,6 @@ from ..types._events import AgentResultEvent, InitEventLoopEvent, ModelStreamChu
 from ..types.agent import AgentInput
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException
-from ..types.tools import ToolResult, ToolUse
 from ..types.traces import AttributeValue
 from .agent_result import AgentResult
 from .conversation_manager import (
@@ -100,6 +98,9 @@ class Agent:
     5. Continues reasoning with the new information
     6. Produces a final response
     """
+
+    # For backwards compatibility
+    ToolCaller = _ToolCaller
 
     def __init__(
         self,
@@ -745,71 +746,6 @@ class Agent:
             raise ValueError("Input prompt must be of type: `str | list[Contentblock] | Messages | None`.")
         return messages
 
-    async def _record_tool_execution(
-        self,
-        tool: ToolUse,
-        tool_result: ToolResult,
-        user_message_override: Optional[str],
-    ) -> None:
-        """Record a tool execution in the message history.
-
-        Creates a sequence of messages that represent the tool execution:
-
-        1. A user message describing the tool call
-        2. An assistant message with the tool use
-        3. A user message with the tool result
-        4. An assistant message acknowledging the tool call
-
-        Args:
-            tool: The tool call information.
-            tool_result: The result returned by the tool.
-            user_message_override: Optional custom message to include.
-        """
-        # Filter tool input parameters to only include those defined in tool spec
-        filtered_input = self._filter_tool_parameters_for_recording(tool["name"], tool["input"])
-
-        # Create user message describing the tool call
-        input_parameters = json.dumps(filtered_input, default=lambda o: f"<<non-serializable: {type(o).__qualname__}>>")
-
-        user_msg_content: list[ContentBlock] = [
-            {"text": (f"agent.tool.{tool['name']} direct tool call.\nInput parameters: {input_parameters}\n")}
-        ]
-
-        # Add override message if provided
-        if user_message_override:
-            user_msg_content.insert(0, {"text": f"{user_message_override}\n"})
-
-        # Create filtered tool use for message history
-        filtered_tool: ToolUse = {
-            "toolUseId": tool["toolUseId"],
-            "name": tool["name"],
-            "input": filtered_input,
-        }
-
-        # Create the message sequence
-        user_msg: Message = {
-            "role": "user",
-            "content": user_msg_content,
-        }
-        tool_use_msg: Message = {
-            "role": "assistant",
-            "content": [{"toolUse": filtered_tool}],
-        }
-        tool_result_msg: Message = {
-            "role": "user",
-            "content": [{"toolResult": tool_result}],
-        }
-        assistant_msg: Message = {
-            "role": "assistant",
-            "content": [{"text": f"agent.tool.{tool['name']} was called."}],
-        }
-
-        # Add to message history
-        await self._append_message(user_msg)
-        await self._append_message(tool_use_msg)
-        await self._append_message(tool_result_msg)
-        await self._append_message(assistant_msg)
-
     def _start_agent_trace_span(self, messages: Messages) -> trace_api.Span:
         """Starts a trace span for the agent.
 
@@ -850,25 +786,6 @@ class Agent:
                 trace_attributes["error"] = error
 
             self.tracer.end_agent_span(**trace_attributes)
-
-    def _filter_tool_parameters_for_recording(self, tool_name: str, input_params: dict[str, Any]) -> dict[str, Any]:
-        """Filter input parameters to only include those defined in the tool specification.
-
-        Args:
-            tool_name: Name of the tool to get specification for
-            input_params: Original input parameters
-
-        Returns:
-            Filtered parameters containing only those defined in tool spec
-        """
-        all_tools_config = self.tool_registry.get_all_tools_config()
-        tool_spec = all_tools_config.get(tool_name)
-
-        if not tool_spec or "inputSchema" not in tool_spec:
-            return input_params.copy()
-
-        properties = tool_spec["inputSchema"]["json"]["properties"]
-        return {k: v for k, v in input_params.items() if k in properties}
 
     def _initialize_system_prompt(
         self, system_prompt: str | list[SystemContentBlock] | None
