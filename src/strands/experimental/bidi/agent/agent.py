@@ -29,6 +29,7 @@ from ....types.content import ContentBlock, Message, Messages
 from ....types.tools import AgentTool, ToolResult, ToolUse
 from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from ...tools import ToolProvider
+from .._async import stop_all
 from ..models.bidi_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
@@ -140,13 +141,12 @@ class BidiAgent:
             for hook in hooks:
                 self.hooks.add_hook(hook)
 
-        # Initialize invocation state (will be set in start())
-        self._invocation_state: dict[str, Any] = {}
-
         self._loop = _BidiAgentLoop(self)
 
         # Emit initialization event
         self.hooks.invoke_callbacks(BidiAgentInitializedEvent(agent=self))
+
+        self._started = False
 
     @property
     def tool(self) -> _ToolCaller:
@@ -279,10 +279,12 @@ class BidiAgent:
             })
             ```
         """
-        logger.debug("agent starting")
-        self._invocation_state = invocation_state or {}
+        if self._started:
+            raise RuntimeError("agent already started | call stop before starting again")
 
-        await self._loop.start()
+        logger.debug("agent starting")
+        await self._loop.start(invocation_state)
+        self._started = True
 
     async def send(self, input_data: BidiAgentInput) -> None:
         """Send input to the model (text, audio, image, or event dict).
@@ -299,14 +301,16 @@ class BidiAgent:
                 - dict: Event dictionary (will be reconstructed to TypedEvent)
 
         Raises:
-            ValueError: If no active session or invalid input type.
+            RuntimeError: If start has not been called.
+            ValueError: If invalid input type.
 
         Example:
             await agent.send("Hello")
             await agent.send(BidiAudioInputEvent(audio="base64...", format="pcm", ...))
             await agent.send({"type": "bidirectional_text_input", "text": "Hello", "role": "user"})
         """
-        self._validate_active_connection()
+        if not self._started:
+            raise RuntimeError("agent not started | call start before sending")
 
         # Handle string input
         if isinstance(input_data, str):
@@ -359,12 +363,16 @@ class BidiAgent:
     async def receive(self) -> AsyncIterable[BidiOutputEvent]:
         """Receive events from the model including audio, text, and tool calls.
 
-        Yields model output events processed by background tasks including audio output,
-        text responses, tool calls, and connection updates.
-
         Yields:
-            Model and tool call events.
+            Model output events processed by background tasks including audio output,
+            text responses, tool calls, and connection updates.
+
+        Raises:
+            RuntimeError: If start has not been called.
         """
+        if not self._started:
+            raise RuntimeError("agent not started | call start before receiving")
+
         async for event in self._loop.receive():
             yield event
 
@@ -374,53 +382,34 @@ class BidiAgent:
         Terminates the streaming connection, cancels background tasks, and
         closes the connection to the model provider.
         """
+        self._started = False
         await self._loop.stop()
 
-    async def __aenter__(self) -> "BidiAgent":
+    async def __aenter__(self, invocation_state: dict[str, Any] | None = None) -> "BidiAgent":
         """Async context manager entry point.
 
         Automatically starts the bidirectional connection when entering the context.
 
+        Args:
+            invocation_state: Optional context to pass to tools during execution.
+                This allows passing custom data (user_id, session_id, database connections, etc.)
+                that tools can access via their invocation_state parameter.
+
         Returns:
             Self for use in the context.
         """
-        logger.debug("context_manager=<enter> | starting connection")
-        await self.start()
+        logger.debug("context_manager=<enter> | starting agent")
+        await self.start(invocation_state)
         return self
 
-    async def __aexit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: Any) -> None:
+    async def __aexit__(self, *_: Any) -> None:
         """Async context manager exit point.
 
         Automatically ends the connection and cleans up resources including
         when exiting the context, regardless of whether an exception occurred.
-
-        Args:
-            exc_type: Exception type if an exception occurred, None otherwise.
-            exc_val: Exception value if an exception occurred, None otherwise.
-            exc_tb: Exception traceback if an exception occurred, None otherwise.
         """
-        try:
-            logger.debug("context_manager=<exit> | cleaning up connection")
-
-            # Cleanup agent connection
-            await self.stop()
-
-        except Exception as cleanup_error:
-            if exc_type is None:
-                # No original exception, re-raise cleanup error
-                logger.error("cleanup_error=<%s> | error during context manager cleanup", cleanup_error)
-                raise
-            else:
-                # Original exception exists, log cleanup error but don't suppress original
-                logger.error(
-                    "cleanup_error=<%s> | error during context manager cleanup suppressed due to original exception",
-                    cleanup_error,
-                )
-
-    @property
-    def active(self) -> bool:
-        """True if agent loop started, False otherwise."""
-        return self._loop.active
+        logger.debug("context_manager=<exit> | stopping agent")
+        await self.stop()
 
     async def run(
         self, inputs: list[BidiInput], outputs: list[BidiOutput], invocation_state: dict[str, Any] | None = None
@@ -449,7 +438,7 @@ class BidiAgent:
 
         async def run_inputs() -> None:
             async def task(input_: BidiInput) -> None:
-                while self.active:
+                while True:
                     event = await input_()
                     await self.send(event)
 
@@ -461,35 +450,20 @@ class BidiAgent:
                 tasks = [output(event) for output in outputs]
                 await asyncio.gather(*tasks)
 
-        await self.start(invocation_state=invocation_state)
-
-        for input_ in inputs:
-            if hasattr(input_, "start"):
-                await input_.start()
-
-        for output in outputs:
-            if hasattr(output, "start"):
-                await output.start()
-
         try:
-            await asyncio.gather(run_inputs(), run_outputs())
+            await self.start(invocation_state)
+
+            start_inputs = [input_.start for input_ in inputs if hasattr(input_, "start")]
+            start_outputs = [output.start for output in outputs if hasattr(output, "start")]
+            for start in [*start_inputs, *start_outputs]:
+                await start()
+
+            async with asyncio.TaskGroup() as task_group:  # type: ignore
+                task_group.create_task(run_inputs())
+                task_group.create_task(run_outputs())
 
         finally:
-            for input_ in inputs:
-                if hasattr(input_, "stop"):
-                    await input_.stop()
+            stop_inputs = [input_.stop for input_ in inputs if hasattr(input_, "stop")]
+            stop_outputs = [output.stop for output in outputs if hasattr(output, "stop")]
 
-            for output in outputs:
-                if hasattr(output, "stop"):
-                    await output.stop()
-
-            await self.stop()
-
-    def _validate_active_connection(self) -> None:
-        """Validate that an active connection exists.
-
-        Raises:
-            ValueError: If no active connection.
-        """
-        if not self.active:
-            raise ValueError("No active conversation. Call start() first or use async context manager.")
+            await stop_all(*stop_inputs, *stop_outputs, self.stop)

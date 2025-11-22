@@ -35,12 +35,16 @@ class _BidiAgentLoop:
         _stop_event: Sentinel to mark end of loop.
         _tasks: Track active async tasks created in loop.
         _active: Flag if agent loop is started.
+        _invocation_state: Optional context to pass to tools during execution.
+            This allows passing custom data (user_id, session_id, database connections, etc.)
+            that tools can access via their invocation_state parameter.
     """
 
     _event_queue: asyncio.Queue
     _stop_event: object
     _tasks: set
     _active: bool
+    _invocation_state: dict[str, Any]
 
     def __init__(self, agent: "BidiAgent") -> None:
         """Initialize members of the agent loop.
@@ -51,17 +55,25 @@ class _BidiAgentLoop:
             agent: Bidirectional agent to loop over.
         """
         self._agent = agent
-        self._active: bool = False
+        self._active = False
+        self._invocation_state = {}
 
-    async def start(self) -> None:
+    async def start(self, invocation_state: dict[str, Any] | None = None) -> None:
         """Start the agent loop.
 
         The agent model is started as part of this call.
+
+        Args:
+            invocation_state: Optional context to pass to tools during execution.
+                This allows passing custom data (user_id, session_id, database connections, etc.)
+                that tools can access via their invocation_state parameter.
         """
         if self.active:
             return
 
         logger.debug("agent loop starting")
+
+        self._invocation_state = invocation_state or {}
 
         self._event_queue = asyncio.Queue(maxsize=1)
         self._stop_event = object()
@@ -86,6 +98,8 @@ class _BidiAgentLoop:
             return
 
         logger.debug("agent loop stopping")
+
+        self._invocation_state = {}
 
         try:
             # Cancel all tasks
@@ -175,7 +189,7 @@ class _BidiAgentLoop:
         tool_results: list[ToolResult] = []
 
         invocation_state: dict[str, Any] = {
-            **self._agent._invocation_state,
+            **self._invocation_state,
             "agent": self._agent,
             "model": self._agent.model,
             "messages": self._agent.messages,
