@@ -750,3 +750,65 @@ async def test_handle_error_message_non_exception():
 
     # This should not raise an exception
     await client._handle_error_message("normal message")
+
+
+def test_call_tool_sync_with_meta_field(mock_transport, mock_session):
+    """Test that call_tool_sync correctly handles meta field."""
+    mock_content = MCPTextContent(type="text", text="Test message")
+    meta_data = {"tokenUsage": {"inputTokens": 100, "outputTokens": 50}, "executionTime": 1.5}
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[mock_content], meta=meta_data)
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
+
+        mock_session.call_tool.assert_called_once_with("test_tool", {"param": "value"}, None)
+
+        assert result["status"] == "success"
+        assert result["toolUseId"] == "test-123"
+        assert len(result["content"]) == 1
+        assert result["content"][0]["text"] == "Test message"
+        assert "meta" in result
+        assert result["meta"] == meta_data
+        assert result["meta"]["tokenUsage"]["inputTokens"] == 100
+        assert result["meta"]["tokenUsage"]["outputTokens"] == 50
+        assert result["meta"]["executionTime"] == 1.5
+
+
+def test_call_tool_sync_without_meta_field(mock_transport, mock_session):
+    """Test that call_tool_sync works correctly when no meta field is provided."""
+    mock_content = MCPTextContent(type="text", text="Test message")
+    mock_session.call_tool.return_value = MCPCallToolResult(
+        isError=False,
+        content=[mock_content],
+    )
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
+
+        assert result["status"] == "success"
+        assert result["toolUseId"] == "test-123"
+        assert len(result["content"]) == 1
+        assert result["content"][0]["text"] == "Test message"
+        assert result.get("meta") is None
+
+
+def test_call_tool_sync_with_meta_and_structured_content(mock_transport, mock_session):
+    """Test that call_tool_sync correctly handles both meta and structuredContent fields."""
+    mock_content = MCPTextContent(type="text", text="Test message")
+    meta_data = {"tokenUsage": {"inputTokens": 100, "outputTokens": 50}}
+    structured_content = {"result": 42, "status": "completed"}
+    mock_session.call_tool.return_value = MCPCallToolResult(
+        isError=False, content=[mock_content], meta=meta_data, structuredContent=structured_content
+    )
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="test-123", name="test_tool", arguments={"param": "value"})
+
+        mock_session.call_tool.assert_called_once_with("test_tool", {"param": "value"}, None)
+
+        assert result["status"] == "success"
+        assert result["toolUseId"] == "test-123"
+        assert "meta" in result
+        assert result["meta"] == meta_data
+        assert "structuredContent" in result
+        assert result["structuredContent"] == structured_content

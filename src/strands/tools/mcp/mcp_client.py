@@ -567,6 +567,10 @@ class MCPClient(ToolProvider):
         if call_tool_result.structuredContent:
             result["structuredContent"] = call_tool_result.structuredContent
 
+        call_tool_result_dict = call_tool_result.model_dump()
+        if call_tool_result_dict.get("meta"):
+            result["meta"] = call_tool_result_dict["meta"]
+
         return result
 
     async def _async_background_thread(self) -> None:
