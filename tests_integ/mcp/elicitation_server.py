@@ -19,6 +19,7 @@ def server() -> None:
             The elicitation result from the user.
         """
         request = ElicitRequest(
+            method="elicitation/create",
             params=ElicitRequestParams(
                 message="Do you approve",
                 requestedSchema={
