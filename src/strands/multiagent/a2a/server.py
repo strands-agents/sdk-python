@@ -196,16 +196,21 @@ class A2AServer:
 
         return a2a_app
 
-    def to_fastapi_app(self) -> FastAPI:
+    def to_fastapi_app(self, **kwargs: Any) -> FastAPI:
         """Create a FastAPI application for serving this agent via HTTP.
 
         Automatically handles path-based mounting if a mount path was derived
         from the http_url parameter.
 
+        Args:
+            **kwargs: Additional keyword arguments to pass to the FastAPI constructor.
+
         Returns:
             FastAPI: A FastAPI application configured to serve this agent.
         """
-        a2a_app = A2AFastAPIApplication(agent_card=self.public_agent_card, http_handler=self.request_handler).build()
+        a2a_app = A2AFastAPIApplication(agent_card=self.public_agent_card, http_handler=self.request_handler).build(
+            **kwargs
+        )
 
         if self.mount_path:
             # Create parent app and mount the A2A app at the specified path
