@@ -20,6 +20,7 @@ from typing import Any, AsyncIterable
 from .... import _identifier
 from ....agent.state import AgentState
 from ....hooks import HookProvider, HookRegistry
+from ....interrupt import _InterruptState
 from ....tools.caller import _ToolCaller
 from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
@@ -146,6 +147,9 @@ class BidiAgent:
         # Emit initialization event
         self.hooks.invoke_callbacks(BidiAgentInitializedEvent(agent=self))
 
+        # TODO: Determine if full support is required
+        self._interrupt_state = _InterruptState()
+
         self._started = False
 
     @property
@@ -269,6 +273,10 @@ class BidiAgent:
             invocation_state: Optional context to pass to tools during execution.
                 This allows passing custom data (user_id, session_id, database connections, etc.)
                 that tools can access via their invocation_state parameter.
+
+        Raises:
+            RuntimeError:
+                If agent already started.
 
         Example:
             ```python
