@@ -1,5 +1,10 @@
 """Bidirectional streaming package."""
 
+import sys
+
+if sys.version_info < (3, 12):
+    raise ImportError("bidi only supported for >= Python 3.12")
+
 # Main components - Primary user interface
 # Re-export standard agent events for tool handling
 from ...types._events import (

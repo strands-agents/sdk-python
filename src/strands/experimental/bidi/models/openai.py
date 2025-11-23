@@ -8,7 +8,7 @@ import json
 import logging
 import os
 import uuid
-from typing import Any, AsyncIterable
+from typing import Any, AsyncGenerator, cast
 
 import websockets
 from websockets import ClientConnection
@@ -29,6 +29,10 @@ from ..types.events import (
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
+    ModalityUsage,
+    Role,
+    SampleRate,
+    StopReason,
 )
 from .bidi_model import BidiModel
 
@@ -171,7 +175,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         return BidiTranscriptStreamEvent(
             delta={"text": text},
             text=text,
-            role=normalized_role,  # type: ignore
+            role=cast(Role, normalized_role),
             is_final=is_final,
             current_transcript=text if is_final else None,
         )
@@ -184,15 +188,15 @@ class BidiOpenAIRealtimeModel(BidiModel):
         # Other voice activity events are logged but don't create events
         return None
 
-    def _build_session_config(self, system_prompt: str | None, tools: list[ToolSpec] | None) -> dict:
+    def _build_session_config(self, system_prompt: str | None, tools: list[ToolSpec] | None) -> dict[str, Any]:
         """Build session configuration for OpenAI Realtime API."""
-        config = DEFAULT_SESSION_CONFIG.copy()
+        config: dict[str, Any] = DEFAULT_SESSION_CONFIG.copy()
 
         if system_prompt:
             config["instructions"] = system_prompt
 
         if tools:
-            config["tools"] = self._convert_tools_to_openai_format(tools)  # type: ignore
+            config["tools"] = self._convert_tools_to_openai_format(tools)
 
         # Apply user-provided session configuration
         supported_params = {
@@ -261,7 +265,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
             await self._send_event(conversation_item)
 
-    async def receive(self) -> AsyncIterable[BidiOutputEvent]:  # type: ignore
+    async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive OpenAI events and convert to Strands TypedEvent format."""
         if not self._connection_id:
             raise RuntimeError("model not started | call start before receiving")
@@ -291,7 +295,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
                 BidiAudioStreamEvent(
                     audio=openai_event["delta"],
                     format="pcm",
-                    sample_rate=AUDIO_FORMAT["rate"],  # type: ignore
+                    sample_rate=cast(SampleRate, AUDIO_FORMAT["rate"]),
                     channels=1,
                 )
             ]
@@ -404,7 +408,10 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
             # Always add response complete event
             events.append(
-                BidiResponseCompleteEvent(response_id=response_id, stop_reason=stop_reason_map.get(status, "complete"))  # type: ignore
+                BidiResponseCompleteEvent(
+                    response_id=response_id,
+                    stop_reason=cast(StopReason, stop_reason_map.get(status, "complete")),
+                ),
             )
 
             # Add usage event if available
@@ -445,7 +452,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
                         input_tokens=usage.get("input_tokens", 0),
                         output_tokens=usage.get("output_tokens", 0),
                         total_tokens=usage.get("total_tokens", 0),
-                        modality_details=modality_details if modality_details else None,  # type: ignore
+                        modality_details=cast(list[ModalityUsage], modality_details) if modality_details else None,
                         cache_read_input_tokens=cached_tokens if cached_tokens > 0 else None,
                     )
                 )

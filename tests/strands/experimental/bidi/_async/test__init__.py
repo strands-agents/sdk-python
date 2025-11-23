@@ -11,7 +11,7 @@ async def test_stop_exception():
     func2 = AsyncMock(side_effect=ValueError("stop 2 failed"))
     func3 = AsyncMock()
 
-    with pytest.raises(ExceptionGroup) as exc_info:  # type: ignore  # noqa: F821
+    with pytest.raises(ExceptionGroup) as exc_info:
         await stop_all(func1, func2, func3)
 
     func1.assert_called_once()

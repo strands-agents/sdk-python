@@ -17,7 +17,7 @@ import base64
 import json
 import logging
 import uuid
-from typing import Any, AsyncIterable
+from typing import Any, AsyncGenerator, cast
 
 import boto3
 from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
@@ -28,6 +28,7 @@ from aws_sdk_bedrock_runtime.models import (
 )
 from smithy_aws_core.identity.static import StaticCredentialsResolver
 from smithy_core.aio.eventstream import DuplexEventStream
+from smithy_core.shapes import ShapeID
 
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
@@ -45,6 +46,7 @@ from ..types.events import (
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
+    SampleRate,
 )
 from .bidi_model import BidiModel
 
@@ -170,7 +172,7 @@ class BidiNovaSonicModel(BidiModel):
             region=self.region,
             aws_credentials_identity_resolver=resolver,
             auth_scheme_resolver=HTTPAuthSchemeResolver(),
-            auth_schemes={"aws.auth#sigv4": SigV4AuthScheme(service="bedrock")},
+            auth_schemes={ShapeID("aws.auth#sigv4"): SigV4AuthScheme(service="bedrock")},
             # Configure static credentials as properties
             aws_access_key_id=credentials.access_key,
             aws_secret_access_key=credentials.secret_key,
@@ -226,7 +228,7 @@ class BidiNovaSonicModel(BidiModel):
             audio_bytes = base64.b64decode(audio_content)
             logger.debug("audio_bytes=<%d> | nova audio output received", len(audio_bytes))
 
-    async def receive(self) -> AsyncIterable[BidiOutputEvent]:  # type: ignore[override]
+    async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive Nova Sonic events and convert to provider-agnostic format.
 
         Raises:
@@ -241,6 +243,9 @@ class BidiNovaSonicModel(BidiModel):
         _, output = await self._stream.await_output()
         while True:
             event_data = await output.receive()
+            if not event_data:
+                continue
+
             nova_event = json.loads(event_data.value.bytes_.decode("utf-8"))["event"]
             self._log_event_type(nova_event)
 
@@ -420,7 +425,7 @@ class BidiNovaSonicModel(BidiModel):
             return BidiAudioStreamEvent(
                 audio=audio_content,
                 format="pcm",
-                sample_rate=NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"],  # type: ignore
+                sample_rate=cast(SampleRate, NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"]),
                 channels=1,
             )
 

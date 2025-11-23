@@ -15,7 +15,7 @@ Key capabilities:
 import asyncio
 import json
 import logging
-from typing import Any, AsyncIterable
+from typing import Any, AsyncGenerator
 
 from .... import _identifier
 from ....agent.state import AgentState
@@ -294,7 +294,7 @@ class BidiAgent:
         await self._loop.start(invocation_state)
         self._started = True
 
-    async def send(self, input_data: BidiAgentInput) -> None:
+    async def send(self, input_data: BidiAgentInput | dict[str, Any]) -> None:
         """Send input to the model (text, audio, image, or event dict).
 
         Unified method for sending text, audio, and image input to the model during
@@ -341,8 +341,9 @@ class BidiAgent:
             return
 
         # Handle plain dict - reconstruct TypedEvent for WebSocket integration
-        if isinstance(input_data, dict) and "type" in input_data:  # type: ignore
+        if isinstance(input_data, dict) and "type" in input_data:
             event_type = input_data["type"]
+            input_event: BidiInputEvent
             if event_type == "bidi_text_input":
                 input_event = BidiTextInputEvent(text=input_data["text"], role=input_data["role"])
             elif event_type == "bidi_audio_input":
@@ -368,7 +369,7 @@ class BidiAgent:
             f"or event dict with 'type' field, got: {type(input_data)}"
         )
 
-    async def receive(self) -> AsyncIterable[BidiOutputEvent]:
+    async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive events from the model including audio, text, and tool calls.
 
         Yields:
@@ -466,7 +467,7 @@ class BidiAgent:
             for start in [*start_inputs, *start_outputs]:
                 await start()
 
-            async with asyncio.TaskGroup() as task_group:  # type: ignore
+            async with asyncio.TaskGroup() as task_group:
                 task_group.create_task(run_inputs())
                 task_group.create_task(run_outputs())
 

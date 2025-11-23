@@ -2,12 +2,6 @@
 
 from .agent import BidiAgentInput
 from .events import (
-    DEFAULT_CHANNELS,
-    DEFAULT_FORMAT,
-    DEFAULT_SAMPLE_RATE,
-    SUPPORTED_AUDIO_FORMATS,
-    SUPPORTED_CHANNELS,
-    SUPPORTED_SAMPLE_RATES,
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
     BidiConnectionCloseEvent,
@@ -47,11 +41,4 @@ __all__ = [
     "ModalityUsage",
     "BidiErrorEvent",
     "BidiOutputEvent",
-    # Constants
-    "SUPPORTED_AUDIO_FORMATS",
-    "SUPPORTED_SAMPLE_RATES",
-    "SUPPORTED_CHANNELS",
-    "DEFAULT_SAMPLE_RATE",
-    "DEFAULT_CHANNELS",
-    "DEFAULT_FORMAT",
 ]

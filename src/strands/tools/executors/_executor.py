@@ -57,7 +57,7 @@ class ToolExecutor(abc.ABC):
         event_cls = BidiBeforeToolCallEvent if ToolExecutor._is_bidi_agent(agent) else BeforeToolCallEvent
         return await agent.hooks.invoke_callbacks_async(
             event_cls(
-                agent=agent,  # type: ignore[arg-type]
+                agent=agent,
                 selected_tool=tool_func,
                 tool_use=tool_use,
                 invocation_state=invocation_state,
@@ -78,7 +78,7 @@ class ToolExecutor(abc.ABC):
         event_cls = BidiAfterToolCallEvent if ToolExecutor._is_bidi_agent(agent) else AfterToolCallEvent
         return await agent.hooks.invoke_callbacks_async(
             event_cls(
-                agent=agent,  # type: ignore[arg-type]
+                agent=agent,
                 selected_tool=selected_tool,
                 tool_use=tool_use,
                 invocation_state=invocation_state,
@@ -301,9 +301,7 @@ class ToolExecutor(abc.ABC):
             tool_duration = time.time() - tool_start_time
             message = Message(role="user", content=[{"toolResult": result}])
             if not ToolExecutor._is_bidi_agent(agent):
-                agent.event_loop_metrics.add_tool_usage(  # type: ignore[union-attr]
-                    tool_use, tool_duration, tool_trace, tool_success, message
-                )
+                agent.event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, tool_success, message)
             cycle_trace.add_child(tool_trace)
 
             tracer.end_tool_call_span(tool_call_span, result)

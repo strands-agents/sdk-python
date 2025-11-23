@@ -26,4 +26,4 @@ async def stop_all(*funcs: Callable[..., Awaitable[None]]) -> None:
             exceptions.append(exception)
 
     if exceptions:
-        raise ExceptionGroup("failed stop sequence", exceptions)  # type: ignore  # noqa: F821
+        raise ExceptionGroup("failed stop sequence", exceptions)

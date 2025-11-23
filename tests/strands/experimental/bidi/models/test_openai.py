@@ -210,7 +210,7 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
     model4 = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
     await model4.start()
     mock_ws.close.side_effect = Exception("Close failed")
-    with pytest.raises(ExceptionGroup):  # noqa: F821
+    with pytest.raises(ExceptionGroup):
         await model4.stop()
 
 

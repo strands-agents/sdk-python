@@ -64,7 +64,7 @@ class BidiModel(Protocol):
         """
         ...
 
-    async def receive(self) -> AsyncIterable[BidiOutputEvent]:
+    def receive(self) -> AsyncIterable[BidiOutputEvent]:
         """Receive streaming events from the model.
 
         Continuously yields events from the model as they arrive over the connection.

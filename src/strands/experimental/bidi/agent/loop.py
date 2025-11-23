@@ -5,7 +5,7 @@ The agent loop handles the events received from the model and executes tools whe
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, AsyncIterable
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from ....types._events import ToolInterruptEvent, ToolResultEvent, ToolResultMessageEvent, ToolUseStreamEvent
 from ....types.content import Message
@@ -106,7 +106,7 @@ class _BidiAgentLoop:
         finally:
             await self._agent.hooks.invoke_callbacks_async(BidiAfterInvocationEvent(agent=self._agent))
 
-    async def receive(self) -> AsyncIterable[BidiOutputEvent]:
+    async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive model and tool call events.
 
         Raises:
@@ -130,7 +130,7 @@ class _BidiAgentLoop:
         logger.debug("model task starting")
 
         try:
-            async for event in self._agent.model.receive():  # type: ignore
+            async for event in self._agent.model.receive():
                 await self._event_queue.put(event)
 
                 if isinstance(event, BidiTranscriptStreamEvent):
