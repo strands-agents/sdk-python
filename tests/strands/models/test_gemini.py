@@ -831,3 +831,104 @@ async def test_stream_handles_non_json_error(gemini_client, model, messages, cap
 
     assert "Gemini API returned non-JSON error" in caplog.text
     assert f"error_message=<{error_message}>" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_invalid_base64_thought_signature(gemini_client, model, model_id, caplog):
+    """Test that invalid base64 in thoughtSignature logs error but doesn't crash."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "c1",
+                        "name": "calculator",
+                        "input": {"expression": "2+2"},
+                        "thoughtSignature": "invalid-base64-data!!!",  # Invalid base64
+                    },
+                },
+            ],
+        },
+    ]
+
+    with caplog.at_level(logging.ERROR):
+        await anext(model.stream(messages))
+
+    # Verify error was logged
+    assert "failed to decode thoughtSignature" in caplog.text
+    assert "toolUseId=<c1>" in caplog.text
+
+    # Verify the request was still made (graceful degradation)
+    call_args = gemini_client.aio.models.generate_content_stream.call_args
+    assert call_args is not None
+
+    # Verify content was formatted despite the error
+    contents = call_args.kwargs["contents"]
+    assert len(contents) == 1
+    assert len(contents[0]["parts"]) == 1
+    part = contents[0]["parts"][0]
+    assert "function_call" in part
+    assert part["function_call"]["name"] == "calculator"
+    # thought_signature should be None when decode fails
+    assert part.get("thought_signature") is None
+
+
+@pytest.mark.asyncio
+async def test_stream_response_tool_use_with_string_thought_signature(
+    gemini_client, model, messages, agenerator, alist
+):
+    """Test that thoughtSignature as a string (not bytes) is properly converted and encoded."""
+    # Create a mock Part with thought_signature as a string instead of bytes
+    mock_part = genai.types.Part(
+        function_call=genai.types.FunctionCall(
+            args={"expression": "3+3"},
+            id="c2",
+            name="calculator",
+        )
+    )
+    # Manually set thought_signature as a string (edge case)
+    mock_part.thought_signature = "string_signature"  # String instead of bytes
+
+    gemini_client.aio.models.generate_content_stream.return_value = agenerator(
+        [
+            genai.types.GenerateContentResponse(
+                candidates=[
+                    genai.types.Candidate(
+                        content=genai.types.Content(
+                            parts=[mock_part],
+                        ),
+                        finish_reason="STOP",
+                    ),
+                ],
+                usage_metadata=genai.types.GenerateContentResponseUsageMetadata(
+                    prompt_token_count=1,
+                    total_token_count=3,
+                ),
+            ),
+        ]
+    )
+
+    tru_chunks = await alist(model.stream(messages))
+    exp_chunks = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {
+            "contentBlockStart": {
+                "start": {
+                    "toolUse": {
+                        "name": "calculator",
+                        "toolUseId": "calculator",
+                        # String should be encoded to bytes, then base64 encoded
+                        "thoughtSignature": "c3RyaW5nX3NpZ25hdHVyZQ==",  # base64("string_signature")
+                    }
+                }
+            }
+        },
+        {"contentBlockDelta": {"delta": {"toolUse": {"input": '{"expression": "3+3"}'}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "tool_use"}},
+        {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
+    ]
+    assert tru_chunks == exp_chunks
