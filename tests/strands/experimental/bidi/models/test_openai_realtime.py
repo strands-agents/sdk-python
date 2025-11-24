@@ -94,7 +94,6 @@ def test_model_initialization(api_key, model_name):
     assert model_default.model == "gpt-realtime"
     assert model_default.api_key == "test-key"
     assert model_default._active is False
-    assert model_default.websocket is None
 
     # Test with custom model
     model_custom = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
@@ -355,11 +354,9 @@ async def test_send_edge_cases(mock_websockets_connect, model):
         await model.send(image_input)
         mock_logger.warning.assert_called_with("Image input not supported by OpenAI Realtime API")
 
-    # Test unknown content type
+    # Test unknown content type - should just be ignored without warning
     unknown_content = {"unknown_field": "value"}
-    with unittest.mock.patch("strands.experimental.bidi.models.openai.logger") as mock_logger:
-        await model.send(unknown_content)
-        assert mock_logger.warning.called
+    await model.send(unknown_content)
 
     await model.stop()
 

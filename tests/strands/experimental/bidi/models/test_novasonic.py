@@ -122,46 +122,43 @@ async def test_model_stop_alone(nova_model):
 @pytest.mark.asyncio
 async def test_connection_with_message_history(nova_model, mock_client, mock_stream):
     """Test connection initialization with conversation history."""
-    with patch.object(nova_model, "_initialize_client", new_callable=AsyncMock):
-        nova_model.client = mock_client
+    nova_model.client = mock_client
 
-        # Create message history
-        messages = [
-            {"role": "user", "content": [{"text": "What's the weather?"}]},
-            {"role": "assistant", "content": [{"text": "I'll check the weather for you."}]},
-            {
-                "role": "assistant",
-                "content": [{"toolUse": {"toolUseId": "tool-123", "name": "get_weather", "input": {}}}],
-            },
-            {
-                "role": "user",
-                "content": [{"toolResult": {"toolUseId": "tool-123", "content": [{"text": "Sunny, 72°F"}]}}],
-            },
-            {"role": "assistant", "content": [{"text": "It's sunny and 72 degrees."}]},
-        ]
+    # Create message history
+    messages = [
+        {"role": "user", "content": [{"text": "What's the weather?"}]},
+        {"role": "assistant", "content": [{"text": "I'll check the weather for you."}]},
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "tool-123", "name": "get_weather", "input": {}}}],
+        },
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "tool-123", "content": [{"text": "Sunny, 72°F"}]}}],
+        },
+        {"role": "assistant", "content": [{"text": "It's sunny and 72 degrees."}]},
+    ]
 
-        # Start connection with message history
-        await nova_model.start(system_prompt="You are a helpful assistant", messages=messages)
+    # Start connection with message history
+    await nova_model.start(system_prompt="You are a helpful assistant", messages=messages)
 
-        # Verify initialization events were sent
-        # Should include: sessionStart, promptStart, system prompt (3 events),
-        # and message history (5 messages * 3 events each = 15 events)
-        # Total: 1 + 1 + 3 + 15 = 20 events minimum
-        assert mock_stream.input_stream.send.call_count >= 18
+    # Verify initialization events were sent
+    # Should include: sessionStart, promptStart, system prompt (3 events),
+    # and message history (5 messages * 3 events each = 15 events)
+    # Total: 1 + 1 + 3 + 15 = 20 events minimum
+    assert mock_stream.input_stream.send.call_count >= 18
 
-        # Verify the events contain proper role information
-        sent_events = [
-            call.args[0].value.bytes_.decode("utf-8") for call in mock_stream.input_stream.send.call_args_list
-        ]
+    # Verify the events contain proper role information
+    sent_events = [call.args[0].value.bytes_.decode("utf-8") for call in mock_stream.input_stream.send.call_args_list]
 
-        # Check that USER and ASSISTANT roles are present in contentStart events
-        user_events = [e for e in sent_events if '"role": "USER"' in e]
-        assistant_events = [e for e in sent_events if '"role": "ASSISTANT"' in e]
+    # Check that USER and ASSISTANT roles are present in contentStart events
+    user_events = [e for e in sent_events if '"role": "USER"' in e]
+    assistant_events = [e for e in sent_events if '"role": "ASSISTANT"' in e]
 
-        assert len(user_events) >= 2  # At least 2 user messages
-        assert len(assistant_events) >= 3  # At least 3 assistant messages
+    assert len(user_events) >= 2  # At least 2 user messages
+    assert len(assistant_events) >= 3  # At least 3 assistant messages
 
-        await nova_model.stop()
+    await nova_model.stop()
 
 
 # Send Method Tests

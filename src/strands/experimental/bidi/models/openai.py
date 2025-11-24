@@ -398,7 +398,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
                 BidiAudioStreamEvent(
                     audio=openai_event["delta"],
                     format="pcm",
-                    sample_rate=sample_rate,  # type: ignore
+                    sample_rate=sample_rate,
                     channels=1,
                 )
             ]

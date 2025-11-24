@@ -50,7 +50,7 @@ class SessionManager(HookProvider, ABC):
 
         # Register BidiAgent hooks if the experimental module is available
         try:
-            from ..experimental.bidi.hooks.events import (
+            from ..experimental.hooks.events import (
                 BidiAfterInvocationEvent,
                 BidiAgentInitializedEvent,
                 BidiMessageAddedEvent,
