@@ -25,13 +25,11 @@ from ....types._events import ModelStreamEvent, ToolUseStreamEvent, TypedEvent
 from ....types.streaming import ContentBlockDelta
 
 # Audio format constants
-SUPPORTED_AUDIO_FORMATS = ["pcm", "wav", "opus", "mp3"]
-SUPPORTED_SAMPLE_RATES = [16000, 24000, 48000]
-SUPPORTED_CHANNELS = [1, 2]  # 1=mono, 2=stereo
-DEFAULT_SAMPLE_RATE = 16000
-DEFAULT_CHANNELS = 1
-DEFAULT_FORMAT = "pcm"
-
+AudioFormat = Literal["pcm", "wav", "opus", "mp3"]
+SampleRate = Literal[16000, 24000, 48000]
+Channel = Literal[1, 2]  # 1=mono, 2=stereo
+Role = Literal["user", "assistant"]
+StopReason = Literal["complete", "interrupted", "tool_use", "error"]
 
 # ============================================================================
 # Input Events (sent via agent.send())
@@ -84,9 +82,9 @@ class BidiAudioInputEvent(TypedEvent):
     def __init__(
         self,
         audio: str,
-        format: Literal["pcm", "wav", "opus", "mp3"] | str,
-        sample_rate: Literal[16000, 24000, 48000],
-        channels: Literal[1, 2],
+        format: AudioFormat | str,
+        sample_rate: SampleRate,
+        channels: Channel,
     ):
         """Initialize audio input event."""
         super().__init__(
@@ -219,9 +217,9 @@ class BidiAudioStreamEvent(TypedEvent):
     def __init__(
         self,
         audio: str,
-        format: Literal["pcm", "wav", "opus", "mp3"],
-        sample_rate: Literal[16000, 24000, 48000],
-        channels: Literal[1, 2],
+        format: AudioFormat,
+        sample_rate: SampleRate,
+        channels: Channel,
     ):
         """Initialize audio stream event."""
         super().__init__(
@@ -273,7 +271,7 @@ class BidiTranscriptStreamEvent(ModelStreamEvent):
         self,
         delta: ContentBlockDelta,
         text: str,
-        role: Literal["user", "assistant"],
+        role: Role,
         is_final: bool,
         current_transcript: Optional[str] = None,
     ):
@@ -349,7 +347,7 @@ class BidiResponseCompleteEvent(TypedEvent):
     def __init__(
         self,
         response_id: str,
-        stop_reason: Literal["complete", "interrupted", "tool_use", "error"],
+        stop_reason: StopReason,
     ):
         """Initialize response complete event."""
         super().__init__(

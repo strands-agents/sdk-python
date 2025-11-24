@@ -17,7 +17,6 @@ from strands.experimental.bidi.models.gemini_live import BidiGeminiLiveModel
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
-    BidiConnectionCloseEvent,
     BidiConnectionStartEvent,
     BidiImageInputEvent,
     BidiInterruptionEvent,
@@ -96,8 +95,7 @@ def test_model_initialization(mock_genai_client, model_id, api_key):
     model_default = BidiGeminiLiveModel()
     assert model_default.model_id == "gemini-2.5-flash-native-audio-preview-09-2025"
     assert model_default.api_key is None
-    assert model_default._active is False
-    assert model_default.live_session is None
+    assert model_default._live_session is None
     # Check default config includes transcription
     assert model_default.live_config["response_modalities"] == ["AUDIO"]
     assert "outputAudioTranscription" in model_default.live_config
@@ -128,14 +126,12 @@ async def test_connection_lifecycle(mock_genai_client, model, system_prompt, too
 
     # Test basic connection
     await model.start()
-    assert model._active is True
-    assert model.connection_id is not None
-    assert model.live_session == mock_live_session
+    assert model._connection_id is not None
+    assert model._live_session == mock_live_session
     mock_client.aio.live.connect.assert_called_once()
 
     # Test close
     await model.stop()
-    assert model._active is False
     mock_live_session_cm.__aexit__.assert_called_once()
 
     # Test connection with system prompt
@@ -167,7 +163,7 @@ async def test_connection_edge_cases(mock_genai_client, api_key, model_id):
     # Test connection error
     model1 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
     mock_client.aio.live.connect.side_effect = Exception("Connection failed")
-    with pytest.raises(Exception, match="Connection failed"):
+    with pytest.raises(Exception, match=r"Connection failed"):
         await model1.start()
 
     # Reset mock for next tests
@@ -176,7 +172,7 @@ async def test_connection_edge_cases(mock_genai_client, api_key, model_id):
     # Test double connection
     model2 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
     await model2.start()
-    with pytest.raises(RuntimeError, match="Connection already active"):
+    with pytest.raises(RuntimeError, match="call stop before starting again"):
         await model2.start()
     await model2.stop()
 
@@ -188,7 +184,7 @@ async def test_connection_edge_cases(mock_genai_client, api_key, model_id):
     model4 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
     await model4.start()
     mock_live_session_cm.__aexit__.side_effect = Exception("Close failed")
-    with pytest.raises(Exception, match="Close failed"):
+    with pytest.raises(ExceptionGroup):
         await model4.stop()
 
 
@@ -249,13 +245,15 @@ async def test_send_edge_cases(mock_genai_client, model):
 
     # Test send when inactive
     text_input = BidiTextInputEvent(text="Hello", role="user")
-    await model.send(text_input)
+    with pytest.raises(RuntimeError, match=r"call start before sending"):
+        await model.send(text_input)
     mock_live_session.send_client_content.assert_not_called()
 
     # Test unknown content type
     await model.start()
     unknown_content = {"unknown_field": "value"}
-    await model.send(unknown_content)  # Should not raise, just log warning
+    with pytest.raises(ValueError, match=r"content not supported"):
+        await model.send(unknown_content)
 
     await model.stop()
 
@@ -271,21 +269,14 @@ async def test_receive_lifecycle_events(mock_genai_client, model, agenerator):
 
     await model.start()
 
-    # Collect events
-    events = []
     async for event in model.receive():
-        events.append(event)
-        # Close after first event to trigger connection end
-        if len(events) == 1:
-            await model.stop()
+        _ = event
+        break
 
     # Verify connection start and end
-    assert len(events) >= 2
-    assert isinstance(events[0], BidiConnectionStartEvent)
-    assert events[0].get("type") == "bidi_connection_start"
-    assert events[0].connection_id == model.connection_id
-    assert isinstance(events[-1], BidiConnectionCloseEvent)
-    assert events[-1].get("type") == "bidi_connection_close"
+    assert isinstance(event, BidiConnectionStartEvent)
+    assert event.get("type") == "bidi_connection_start"
+    assert event.connection_id == model._connection_id
 
 
 @pytest.mark.asyncio

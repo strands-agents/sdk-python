@@ -18,7 +18,6 @@ from typing import Any, AsyncIterable, Protocol
 from ....types._events import ToolResultEvent
 from ....types.content import Messages
 from ....types.tools import ToolSpec
-from ..types._async import Startable
 from ..types.events import (
     BidiInputEvent,
     BidiOutputEvent,
@@ -27,7 +26,7 @@ from ..types.events import (
 logger = logging.getLogger(__name__)
 
 
-class BidiModel(Startable, Protocol):
+class BidiModel(Protocol):
     """Protocol for bidirectional streaming models.
 
     This interface defines the contract for models that support persistent streaming
@@ -65,7 +64,7 @@ class BidiModel(Startable, Protocol):
         """
         ...
 
-    async def receive(self) -> AsyncIterable[BidiOutputEvent]:
+    def receive(self) -> AsyncIterable[BidiOutputEvent]:
         """Receive streaming events from the model.
 
         Continuously yields events from the model as they arrive over the connection.

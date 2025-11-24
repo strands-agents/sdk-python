@@ -11,11 +11,10 @@ Key improvements over custom WebSocket implementation:
 - Native support for audio/text streaming and interruption
 """
 
-import asyncio
 import base64
 import logging
 import uuid
-from typing import Any, AsyncIterable, Dict, List, Optional, cast
+from typing import Any, AsyncGenerator, cast
 
 from google import genai
 from google.genai import types as genai_types
@@ -24,12 +23,11 @@ from google.genai.types import LiveConnectConfigOrDict, LiveServerMessage
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
+from .._async import stop_all
 from ..types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
-    BidiConnectionCloseEvent,
     BidiConnectionStartEvent,
-    BidiErrorEvent,
     BidiImageInputEvent,
     BidiInputEvent,
     BidiInterruptionEvent,
@@ -37,6 +35,9 @@ from ..types.events import (
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
+    Channel,
+    ModalityUsage,
+    SampleRate,
 )
 from .bidi_model import BidiModel
 
@@ -60,7 +61,7 @@ class BidiGeminiLiveModel(BidiModel):
         self,
         model_id: str = "gemini-2.5-flash-native-audio-preview-09-2025",
         api_key: str | None = None,
-        live_config: Dict[str, Any] | None = None,
+        live_config: dict[str, Any] | None = None,
         **kwargs: Any,
     ):
         """Initialize Gemini Live API bidirectional model.
@@ -96,19 +97,18 @@ class BidiGeminiLiveModel(BidiModel):
         # Use v1alpha for Live API as it has better model support
         client_kwargs["http_options"] = {"api_version": "v1alpha"}
 
-        self.client = genai.Client(**client_kwargs)
+        self._client = genai.Client(**client_kwargs)
 
         # Connection state (initialized in start())
-        self.live_session: Any
-        self.live_session_context_manager = None
-        self.connection_id | str
-        self._active: bool = False
+        self._live_session: Any = None
+        self._live_session_context_manager: Any = None
+        self._connection_id: str | None = None
 
     async def start(
         self,
-        system_prompt: Optional[str] = None,
-        tools: Optional[List[ToolSpec]] = None,
-        messages: Optional[Messages] = None,
+        system_prompt: str | None = None,
+        tools: list[ToolSpec] | None = None,
+        messages: Messages | None = None,
         **kwargs: Any,
     ) -> None:
         """Establish bidirectional connection with Gemini Live API.
@@ -119,33 +119,23 @@ class BidiGeminiLiveModel(BidiModel):
             messages: Conversation history to initialize with.
             **kwargs: Additional configuration options.
         """
-        if self._active:
-            raise RuntimeError("Connection already active. Close the existing connection before creating a new one.")
+        if self._connection_id:
+            raise RuntimeError("model already started | call stop before starting again")
 
-        try:
-            # Initialize connection state
-            self.connection_id = str(uuid.uuid4())
-            self._active = True
+        self._connection_id = str(uuid.uuid4())
 
-            # Build live config
-            live_config = self._build_live_config(system_prompt, tools, **kwargs)
+        # Build live config
+        live_config = self._build_live_config(system_prompt, tools, **kwargs)
 
-            # Create the context manager
-            self.live_session_context_manager = self.client.aio.live.connect(
-                model=self.model_id, config=cast(LiveConnectConfigOrDict, live_config)
-            )
+        # Create the context manager and session
+        self._live_session_context_manager = self._client.aio.live.connect(
+            model=self.model_id, config=cast(LiveConnectConfigOrDict, live_config)
+        )
+        self._live_session = await self._live_session_context_manager.__aenter__()
 
-            # Enter the context manager
-            self.live_session = await self.live_session_context_manager.__aenter__()
-
-            # Send initial message history if provided
-            if messages:
-                await self._send_message_history(messages)
-
-        except Exception as e:
-            self._active = False
-            logger.error("error=<%s> | error connecting to gemini live", e)
-            raise
+        # Send initial message history if provided
+        if messages:
+            await self._send_message_history(messages)
 
     async def _send_message_history(self, messages: Messages) -> None:
         """Send conversation history to Gemini Live API.
@@ -169,43 +159,22 @@ class BidiGeminiLiveModel(BidiModel):
                 # "assistant" role from Messages format maps to "model" in Gemini
                 role = "model" if message["role"] == "assistant" else message["role"]
                 content = genai_types.Content(role=role, parts=content_parts)
-                if self.live_session:
-                    await self.live_session.send_client_content(turns=content)
+                await self._live_session.send_client_content(turns=content)
 
-    async def receive(self) -> AsyncIterable[BidiOutputEvent]:  # type: ignore
+    async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive Gemini Live API events and convert to provider-agnostic format."""
-        # Emit connection start event
-        yield BidiConnectionStartEvent(connection_id=self.connection_id, model=self.model_id)
+        if not self._connection_id:
+            raise RuntimeError("model not started | call start before receiving")
 
-        try:
-            # Wrap in while loop to restart after turn_complete (SDK limitation workaround)
-            while self._active:
-                try:
-                    async for message in self.live_session.receive():
-                        if not self._active:
-                            raise ValueError("connection is not active")
+        yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model_id)
 
-                        # Convert to provider-agnostic format (always returns list)
-                        for event in self._convert_gemini_live_event(message):
-                            yield event
+        # Wrap in while loop to restart after turn_complete (SDK limitation workaround)
+        while True:
+            async for message in self._live_session.receive():
+                for event in self._convert_gemini_live_event(message):
+                    yield event
 
-                    # SDK exits receive loop after turn_complete - restart automatically
-                    if self._active:
-                        logger.debug("gemini receive loop restarting after turn completion")
-
-                except Exception as e:
-                    logger.error("error=<%s> | error in gemini receive iteration", e)
-                    # Small delay before retrying to avoid tight error loops
-                    await asyncio.sleep(0.1)
-
-        except Exception as e:
-            logger.error("error=<%s> | fatal error in gemini receive loop", e)
-            yield BidiErrorEvent(error=e)
-        finally:
-            # Emit connection close event when exiting
-            yield BidiConnectionCloseEvent(connection_id=self.connection_id, reason="complete")
-
-    def _convert_gemini_live_event(self, message: LiveServerMessage) -> List[BidiOutputEvent]:
+    def _convert_gemini_live_event(self, message: LiveServerMessage) -> list[BidiOutputEvent]:
         """Convert Gemini Live API events to provider-agnostic format.
 
         Handles different types of content:
@@ -217,155 +186,145 @@ class BidiGeminiLiveModel(BidiModel):
         Returns:
             List of event dicts (empty list if no events to emit).
         """
-        try:
-            # Handle interruption first (from server_content)
-            if message.server_content and message.server_content.interrupted:
-                return [BidiInterruptionEvent(reason="user_speech")]
+        # Handle interruption first (from server_content)
+        if message.server_content and message.server_content.interrupted:
+            return [BidiInterruptionEvent(reason="user_speech")]
 
-            # Handle input transcription (user's speech) - emit as transcript event
-            if message.server_content and message.server_content.input_transcription:
-                input_transcript = message.server_content.input_transcription
-                # Check if the transcription object has text content
-                if hasattr(input_transcript, "text") and input_transcript.text:
-                    transcription_text = input_transcript.text
-                    role = getattr(input_transcript, "role", "user")
-                    logger.debug("text_length=<%d> | gemini input transcription detected", len(transcription_text))
-                    return [
-                        BidiTranscriptStreamEvent(
-                            delta={"text": transcription_text},
-                            text=transcription_text,
-                            role=role.lower() if isinstance(role, str) else "user",  # type: ignore
-                            is_final=True,
-                            current_transcript=transcription_text,
-                        )
-                    ]
-
-            # Handle output transcription (model's audio) - emit as transcript event
-            if message.server_content and message.server_content.output_transcription:
-                output_transcript = message.server_content.output_transcription
-                # Check if the transcription object has text content
-                if hasattr(output_transcript, "text") and output_transcript.text:
-                    transcription_text = output_transcript.text
-                    role = getattr(output_transcript, "role", "assistant")
-                    logger.debug("text_length=<%d> | gemini output transcription detected", len(transcription_text))
-                    return [
-                        BidiTranscriptStreamEvent(
-                            delta={"text": transcription_text},
-                            text=transcription_text,
-                            role=role.lower() if isinstance(role, str) else "assistant",  # type: ignore
-                            is_final=True,
-                            current_transcript=transcription_text,
-                        )
-                    ]
-
-            # Handle audio output using SDK's built-in data property
-            # Check this BEFORE text to avoid triggering warning on mixed content
-            if message.data:
-                # Convert bytes to base64 string for JSON serializability
-                audio_b64 = base64.b64encode(message.data).decode("utf-8")
+        # Handle input transcription (user's speech) - emit as transcript event
+        if message.server_content and message.server_content.input_transcription:
+            input_transcript = message.server_content.input_transcription
+            # Check if the transcription object has text content
+            if hasattr(input_transcript, "text") and input_transcript.text:
+                transcription_text = input_transcript.text
+                logger.debug("text_length=<%d> | gemini input transcription detected", len(transcription_text))
                 return [
-                    BidiAudioStreamEvent(
-                        audio=audio_b64,
-                        format="pcm",
-                        sample_rate=GEMINI_OUTPUT_SAMPLE_RATE,  # type: ignore
-                        channels=GEMINI_CHANNELS,  # type: ignore
+                    BidiTranscriptStreamEvent(
+                        delta={"text": transcription_text},
+                        text=transcription_text,
+                        role="user",
+                        # TODO: https://github.com/googleapis/python-genai/issues/1504
+                        is_final=bool(input_transcript.finished),
+                        current_transcript=transcription_text,
                     )
                 ]
 
-            # Handle text output from model_turn (avoids warning by checking parts directly)
-            if message.server_content and message.server_content.model_turn:
-                model_turn = message.server_content.model_turn
-                if model_turn.parts:
-                    # Concatenate all text parts (Gemini may send multiple parts)
-                    text_parts = []
-                    for part in model_turn.parts:
-                        # Check if part has text attribute and it's not empty
-                        if hasattr(part, "text") and part.text:
-                            text_parts.append(part.text)
-
-                    if text_parts:
-                        full_text = " ".join(text_parts)
-                        return [
-                            BidiTranscriptStreamEvent(
-                                delta={"text": full_text},
-                                text=full_text,
-                                role="assistant",
-                                is_final=True,
-                                current_transcript=full_text,
-                            )
-                        ]
-
-            # Handle tool calls - return list to support multiple tool calls
-            if message.tool_call and message.tool_call.function_calls:
-                tool_events = []
-                for func_call in message.tool_call.function_calls:
-                    tool_use_event: ToolUse = {
-                        "toolUseId": func_call.id,  # type: ignore
-                        "name": func_call.name,  # type: ignore
-                        "input": func_call.args or {},
-                    }
-                    # Create ToolUseStreamEvent for consistency with standard agent
-                    tool_events.append(
-                        ToolUseStreamEvent(delta={"toolUse": tool_use_event}, current_tool_use=dict(tool_use_event))
+        # Handle output transcription (model's audio) - emit as transcript event
+        if message.server_content and message.server_content.output_transcription:
+            output_transcript = message.server_content.output_transcription
+            # Check if the transcription object has text content
+            if hasattr(output_transcript, "text") and output_transcript.text:
+                transcription_text = output_transcript.text
+                logger.debug("text_length=<%d> | gemini output transcription detected", len(transcription_text))
+                return [
+                    BidiTranscriptStreamEvent(
+                        delta={"text": transcription_text},
+                        text=transcription_text,
+                        role="assistant",
+                        # TODO: https://github.com/googleapis/python-genai/issues/1504
+                        is_final=bool(output_transcript.finished),
+                        current_transcript=transcription_text,
                     )
-                return tool_events  # type: ignore
+                ]
 
-            # Handle usage metadata
-            if hasattr(message, "usage_metadata") and message.usage_metadata:
-                usage = message.usage_metadata
+        # Handle audio output using SDK's built-in data property
+        # Check this BEFORE text to avoid triggering warning on mixed content
+        if message.data:
+            # Convert bytes to base64 string for JSON serializability
+            audio_b64 = base64.b64encode(message.data).decode("utf-8")
+            return [
+                BidiAudioStreamEvent(
+                    audio=audio_b64,
+                    format="pcm",
+                    sample_rate=cast(SampleRate, GEMINI_OUTPUT_SAMPLE_RATE),
+                    channels=cast(Channel, GEMINI_CHANNELS),
+                )
+            ]
 
-                # Build modality details from token details
-                modality_details = []
+        # Handle text output from model_turn (avoids warning by checking parts directly)
+        if message.server_content and message.server_content.model_turn:
+            model_turn = message.server_content.model_turn
+            if model_turn.parts:
+                # Concatenate all text parts (Gemini may send multiple parts)
+                text_parts = []
+                for part in model_turn.parts:
+                    # Check if part has text attribute and it's not empty
+                    if hasattr(part, "text") and part.text:
+                        text_parts.append(part.text)
 
-                # Process prompt tokens details
-                if usage.prompt_tokens_details:
-                    for detail in usage.prompt_tokens_details:
-                        if detail.modality and detail.token_count:
+                if text_parts:
+                    full_text = " ".join(text_parts)
+                    return [
+                        BidiTranscriptStreamEvent(
+                            delta={"text": full_text},
+                            text=full_text,
+                            role="assistant",
+                            is_final=True,
+                            current_transcript=full_text,
+                        )
+                    ]
+
+        # Handle tool calls - return list to support multiple tool calls
+        if message.tool_call and message.tool_call.function_calls:
+            tool_events: list[BidiOutputEvent] = []
+            for func_call in message.tool_call.function_calls:
+                tool_use_event: ToolUse = {
+                    "toolUseId": cast(str, func_call.id),
+                    "name": cast(str, func_call.name),
+                    "input": func_call.args or {},
+                }
+                # Create ToolUseStreamEvent for consistency with standard agent
+                tool_events.append(
+                    ToolUseStreamEvent(delta={"toolUse": tool_use_event}, current_tool_use=dict(tool_use_event))
+                )
+            return tool_events
+
+        # Handle usage metadata
+        if hasattr(message, "usage_metadata") and message.usage_metadata:
+            usage = message.usage_metadata
+
+            # Build modality details from token details
+            modality_details = []
+
+            # Process prompt tokens details
+            if usage.prompt_tokens_details:
+                for detail in usage.prompt_tokens_details:
+                    if detail.modality and detail.token_count:
+                        modality_details.append(
+                            {
+                                "modality": str(detail.modality).lower(),
+                                "input_tokens": detail.token_count,
+                                "output_tokens": 0,
+                            }
+                        )
+
+            # Process response tokens details
+            if usage.response_tokens_details:
+                for detail in usage.response_tokens_details:
+                    if detail.modality and detail.token_count:
+                        # Find or create modality entry
+                        modality_str = str(detail.modality).lower()
+                        existing = next((m for m in modality_details if m["modality"] == modality_str), None)
+                        if existing:
+                            existing["output_tokens"] = detail.token_count
+                        else:
                             modality_details.append(
-                                {
-                                    "modality": str(detail.modality).lower(),
-                                    "input_tokens": detail.token_count,
-                                    "output_tokens": 0,
-                                }
+                                {"modality": modality_str, "input_tokens": 0, "output_tokens": detail.token_count}
                             )
 
-                # Process response tokens details
-                if usage.response_tokens_details:
-                    for detail in usage.response_tokens_details:
-                        if detail.modality and detail.token_count:
-                            # Find or create modality entry
-                            modality_str = str(detail.modality).lower()
-                            existing = next((m for m in modality_details if m["modality"] == modality_str), None)
-                            if existing:
-                                existing["output_tokens"] = detail.token_count
-                            else:
-                                modality_details.append(
-                                    {"modality": modality_str, "input_tokens": 0, "output_tokens": detail.token_count}
-                                )
+            return [
+                BidiUsageEvent(
+                    input_tokens=usage.prompt_token_count or 0,
+                    output_tokens=usage.response_token_count or 0,
+                    total_tokens=usage.total_token_count or 0,
+                    modality_details=cast(list[ModalityUsage], modality_details) if modality_details else None,
+                    cache_read_input_tokens=usage.cached_content_token_count
+                    if usage.cached_content_token_count
+                    else None,
+                )
+            ]
 
-                return [
-                    BidiUsageEvent(
-                        input_tokens=usage.prompt_token_count or 0,
-                        output_tokens=usage.response_token_count or 0,
-                        total_tokens=usage.total_token_count or 0,
-                        modality_details=modality_details if modality_details else None,  # type: ignore
-                        cache_read_input_tokens=usage.cached_content_token_count
-                        if usage.cached_content_token_count
-                        else None,
-                    )
-                ]
-
-            # Silently ignore setup_complete and generation_complete messages
-            return []
-
-        except Exception as e:
-            logger.error(
-                "error=<%s>, message_type=<%s> | error converting gemini live event",
-                e,
-                type(message).__name__,
-            )
-            # Return ErrorEvent in list so caller can handle it
-            return [BidiErrorEvent(error=e)]
+        # Silently ignore setup_complete and generation_complete messages
+        return []
 
     async def send(
         self,
@@ -377,24 +336,25 @@ class BidiGeminiLiveModel(BidiModel):
 
         Args:
             content: Typed event (BidiTextInputEvent, BidiAudioInputEvent, BidiImageInputEvent, or ToolResultEvent).
-        """
-        if not self._active:
-            return
 
-        try:
-            if isinstance(content, BidiTextInputEvent):
-                await self._send_text_content(content.text)
-            elif isinstance(content, BidiAudioInputEvent):
-                await self._send_audio_content(content)
-            elif isinstance(content, BidiImageInputEvent):
-                await self._send_image_content(content)
-            elif isinstance(content, ToolResultEvent):
-                tool_result = content.get("tool_result")
-                if tool_result:
-                    await self._send_tool_result(tool_result)
-        except Exception as e:
-            logger.error("error=<%s> | error sending content to gemini live", e)
-            raise  # Propagate exception for debugging in experimental code
+        Raises:
+            ValueError: If content type not supported (e.g., image content).
+        """
+        if not self._connection_id:
+            raise RuntimeError("model not started | call start before sending")
+
+        if isinstance(content, BidiTextInputEvent):
+            await self._send_text_content(content.text)
+        elif isinstance(content, BidiAudioInputEvent):
+            await self._send_audio_content(content)
+        elif isinstance(content, BidiImageInputEvent):
+            await self._send_image_content(content)
+        elif isinstance(content, ToolResultEvent):
+            tool_result = content.get("tool_result")
+            if tool_result:
+                await self._send_tool_result(tool_result)
+        else:
+            raise ValueError(f"content_type={type(content)} | content not supported")
 
     async def _send_audio_content(self, audio_input: BidiAudioInputEvent) -> None:
         """Internal: Send audio content using Gemini Live API.
@@ -402,18 +362,14 @@ class BidiGeminiLiveModel(BidiModel):
         Gemini Live expects continuous audio streaming via send_realtime_input.
         This automatically triggers VAD and can interrupt ongoing responses.
         """
-        try:
-            # Decode base64 audio to bytes for SDK
-            audio_bytes = base64.b64decode(audio_input.audio)
+        # Decode base64 audio to bytes for SDK
+        audio_bytes = base64.b64decode(audio_input.audio)
 
-            # Create audio blob for the SDK
-            audio_blob = genai_types.Blob(data=audio_bytes, mime_type=f"audio/pcm;rate={GEMINI_INPUT_SAMPLE_RATE}")
+        # Create audio blob for the SDK
+        audio_blob = genai_types.Blob(data=audio_bytes, mime_type=f"audio/pcm;rate={GEMINI_INPUT_SAMPLE_RATE}")
 
-            # Send real-time audio input - this automatically handles VAD and interruption
-            await self.live_session.send_realtime_input(audio=audio_blob)
-
-        except Exception as e:
-            logger.error("error=<%s> | error sending audio content to gemini live", e)
+        # Send real-time audio input - this automatically handles VAD and interruption
+        await self._live_session.send_realtime_input(audio=audio_blob)
 
     async def _send_image_content(self, image_input: BidiImageInputEvent) -> None:
         """Internal: Send image content using Gemini Live API.
@@ -421,72 +377,60 @@ class BidiGeminiLiveModel(BidiModel):
         Sends image frames following the same pattern as the GitHub example.
         Images are sent as base64-encoded data with MIME type.
         """
-        try:
-            # Image is already base64 encoded in the event
-            msg = {"mime_type": image_input.mime_type, "data": image_input.image}
+        # Image is already base64 encoded in the event
+        msg = {"mime_type": image_input.mime_type, "data": image_input.image}
 
-            # Send using the same method as the GitHub example
-            await self.live_session.send(input=msg)
-
-        except Exception as e:
-            logger.error("error=<%s> | error sending image content to gemini live", e)
+        # Send using the same method as the GitHub example
+        await self._live_session.send(input=msg)
 
     async def _send_text_content(self, text: str) -> None:
         """Internal: Send text content using Gemini Live API."""
-        try:
-            # Create content with text
-            content = genai_types.Content(role="user", parts=[genai_types.Part(text=text)])
+        # Create content with text
+        content = genai_types.Content(role="user", parts=[genai_types.Part(text=text)])
 
-            # Send as client content
-            await self.live_session.send_client_content(turns=content)
-
-        except Exception as e:
-            logger.error("error=<%s> | error sending text content to gemini live", e)
+        # Send as client content
+        await self._live_session.send_client_content(turns=content)
 
     async def _send_tool_result(self, tool_result: ToolResult) -> None:
         """Internal: Send tool result using Gemini Live API."""
-        try:
-            tool_use_id = tool_result.get("toolUseId")
+        tool_use_id = tool_result.get("toolUseId")
 
-            # Extract result content
-            result_data = {}
-            if "content" in tool_result:
-                # Extract text from content blocks
-                for block in tool_result["content"]:
-                    if "text" in block:
-                        result_data = {"result": block["text"]}
-                        break
+        # TODO: We need to extract all content and content types
+        result_data = {}
+        if "content" in tool_result:
+            # Extract text from content blocks
+            for block in tool_result["content"]:
+                if "text" in block:
+                    result_data = {"result": block["text"]}
+                    break
 
-            # Create function response
-            func_response = genai_types.FunctionResponse(
-                id=tool_use_id,
-                name=tool_use_id,  # Gemini uses name as identifier
-                response=result_data,
-            )
+        # Create function response
+        func_response = genai_types.FunctionResponse(
+            id=tool_use_id,
+            name=tool_use_id,  # Gemini uses name as identifier
+            response=result_data,
+        )
 
-            # Send tool response
-            await self.live_session.send_tool_response(function_responses=[func_response])
-        except Exception as e:
-            logger.error("error=<%s> | error sending tool result to gemini live", e)
+        # Send tool response
+        await self._live_session.send_tool_response(function_responses=[func_response])
 
     async def stop(self) -> None:
         """Close Gemini Live API connection."""
-        if not self._active:
-            return
 
-        self._active = False
+        async def stop_session() -> None:
+            if not self._live_session_context_manager:
+                return
 
-        try:
-            # Exit the context manager properly
-            if self.live_session_context_manager:
-                await self.live_session_context_manager.__aexit__(None, None, None)
-        except Exception as e:
-            logger.error("error=<%s> | error closing gemini live connection", e)
-            raise
+            await self._live_session_context_manager.__aexit__(None, None, None)
+
+        async def stop_connection() -> None:
+            self._connection_id = None
+
+        await stop_all(stop_session, stop_connection)
 
     def _build_live_config(
-        self, system_prompt: Optional[str] = None, tools: Optional[List[ToolSpec]] = None, **kwargs: Any
-    ) -> Dict[str, Any]:
+        self, system_prompt: str | None = None, tools: list[ToolSpec] | None = None, **kwargs: Any
+    ) -> dict[str, Any]:
         """Build LiveConnectConfig for the official SDK.
 
         Simply passes through all config parameters from live_config, allowing users
@@ -510,7 +454,7 @@ class BidiGeminiLiveModel(BidiModel):
 
         return config_dict
 
-    def _format_tools_for_live_api(self, tool_specs: List[ToolSpec]) -> List[genai_types.Tool]:
+    def _format_tools_for_live_api(self, tool_specs: list[ToolSpec]) -> list[genai_types.Tool]:
         """Format tool specs for Gemini Live API."""
         if not tool_specs:
             return []
