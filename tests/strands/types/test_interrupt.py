@@ -77,3 +77,12 @@ def test_interrupt_hook_event_interrupt_response_empty(interrupt, agent, interru
 
     with pytest.raises(InterruptException):
         interrupt_hook_event.interrupt("test_name")
+
+
+def test_interrupt_hook_event_interrupt_missing_agent():
+    class Event(_Interruptible):
+        pass
+
+    event = Event()
+    with pytest.raises(RuntimeError, match="agent instance attribute not set"):
+        event.interrupt("test_name")

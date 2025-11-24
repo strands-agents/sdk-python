@@ -216,7 +216,7 @@ async def test_send_edge_cases(nova_model):
         mime_type="image/jpeg",
     )
 
-    with pytest.raises(ValueError, match=r"content not supported by nova sonic"):
+    with pytest.raises(ValueError, match=r"content not supported"):
         await nova_model.send(image_event)
 
     await nova_model.stop()

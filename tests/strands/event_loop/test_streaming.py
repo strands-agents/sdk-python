@@ -133,11 +133,12 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
 
 
 @pytest.mark.parametrize(
-    ("event", "state", "exp_updated_state", "callback_args"),
+    ("event", "event_type", "state", "exp_updated_state", "callback_args"),
     [
         # Tool Use - Existing input
         (
             {"delta": {"toolUse": {"input": '"value"}'}}},
+            {"type": "tool_use_stream"},
             {"current_tool_use": {"input": '{"key": '}},
             {"current_tool_use": {"input": '{"key": "value"}'}},
             {"current_tool_use": {"input": '{"key": "value"}'}},
@@ -145,6 +146,7 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
         # Tool Use - New input
         (
             {"delta": {"toolUse": {"input": '{"key": '}}},
+            {"type": "tool_use_stream"},
             {"current_tool_use": {}},
             {"current_tool_use": {"input": '{"key": '}},
             {"current_tool_use": {"input": '{"key": '}},
@@ -152,6 +154,7 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
         # Text
         (
             {"delta": {"text": " world"}},
+            {},
             {"text": "hello"},
             {"text": "hello world"},
             {"data": " world"},
@@ -159,6 +162,7 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
         # Reasoning - Text - Existing
         (
             {"delta": {"reasoningContent": {"text": "king"}}},
+            {},
             {"reasoningText": "thin"},
             {"reasoningText": "thinking"},
             {"reasoningText": "king", "reasoning": True},
@@ -167,12 +171,14 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
         (
             {"delta": {"reasoningContent": {"text": "thin"}}},
             {},
+            {},
             {"reasoningText": "thin"},
             {"reasoningText": "thin", "reasoning": True},
         ),
         # Reasoning - Signature - Existing
         (
             {"delta": {"reasoningContent": {"signature": "ue"}}},
+            {},
             {"signature": "val"},
             {"signature": "value"},
             {"reasoning_signature": "ue", "reasoning": True},
@@ -181,6 +187,7 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
         (
             {"delta": {"reasoningContent": {"signature": "val"}}},
             {},
+            {},
             {"signature": "val"},
             {"reasoning_signature": "val", "reasoning": True},
         ),
@@ -188,12 +195,14 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
         pytest.param(
             {"delta": {"reasoningContent": {"redactedContent": b"encoded"}}},
             {},
+            {},
             {"redactedContent": b"encoded"},
             {"reasoningRedactedContent": b"encoded", "reasoning": True},
         ),
         # Reasoning - redactedContent - Existing
         pytest.param(
             {"delta": {"reasoningContent": {"redactedContent": b"data"}}},
+            {},
             {"redactedContent": b"encoded_"},
             {"redactedContent": b"encoded_data"},
             {"reasoningRedactedContent": b"data", "reasoning": True},
@@ -204,6 +213,7 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
             {},
             {},
             {},
+            {},
         ),
         # Empty
         (
@@ -211,11 +221,12 @@ def test_handle_content_block_start(chunk: ContentBlockStartEvent, exp_tool_use)
             {},
             {},
             {},
+            {},
         ),
     ],
 )
-def test_handle_content_block_delta(event: ContentBlockDeltaEvent, state, exp_updated_state, callback_args):
-    exp_callback_event = {**callback_args, "delta": event["delta"]} if callback_args else {}
+def test_handle_content_block_delta(event: ContentBlockDeltaEvent, event_type, state, exp_updated_state, callback_args):
+    exp_callback_event = {**event_type, **callback_args, "delta": event["delta"]} if callback_args else {}
 
     tru_updated_state, tru_callback_event = strands.event_loop.streaming.handle_content_block_delta(event, state)
 
@@ -526,6 +537,7 @@ def test_extract_usage_metrics_empty_metadata():
                             "input": '{"key": "value"}',
                         },
                     },
+                    "type": "tool_use_stream",
                 },
                 {
                     "event": {

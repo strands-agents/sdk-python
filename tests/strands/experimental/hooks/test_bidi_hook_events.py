@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from strands.experimental.bidi.hooks import (
+from strands.experimental.hooks import (
     BidiAfterInvocationEvent,
     BidiAfterToolCallEvent,
     BidiAgentInitializedEvent,
@@ -138,6 +138,7 @@ def test_before_tool_call_event_can_write_properties(before_tool_event):
     new_tool_use = ToolUse(name="new_tool", toolUseId="456", input={})
     before_tool_event.selected_tool = None  # Should not raise
     before_tool_event.tool_use = new_tool_use  # Should not raise
+    before_tool_event.cancel_tool = "Cancelled by user"  # Should not raise
 
 
 def test_before_tool_call_event_cannot_write_properties(before_tool_event):

@@ -1,4 +1,5 @@
 import unittest.mock
+from uuid import uuid4
 
 import pydantic
 import pytest
@@ -220,7 +221,7 @@ async def test_cache_read_tokens_multi_turn(model):
 
     system_prompt_content: list[SystemContentBlock] = [
         # Caching only works when prompts are large
-        {"text": "You are a helpful assistant. Always be concise." * 200},
+        {"text": f"You are helpful assistant No. {uuid4()}  Always be concise." * 200},
         {"cachePoint": {"type": "default"}},
     ]
 

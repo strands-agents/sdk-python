@@ -7,20 +7,23 @@ thread pools, etc.).
 import abc
 import logging
 import time
-from typing import TYPE_CHECKING, Any, AsyncGenerator, cast
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Union, cast
 
 from opentelemetry import trace as trace_api
 
+from ...experimental.hooks.events import BidiAfterToolCallEvent, BidiBeforeToolCallEvent
 from ...hooks import AfterToolCallEvent, BeforeToolCallEvent
 from ...telemetry.metrics import Trace
 from ...telemetry.tracer import get_tracer, serialize
 from ...types._events import ToolCancelEvent, ToolInterruptEvent, ToolResultEvent, ToolStreamEvent, TypedEvent
 from ...types.content import Message
+from ...types.interrupt import Interrupt
 from ...types.tools import ToolChoice, ToolChoiceAuto, ToolConfig, ToolResult, ToolUse
 from ..structured_output._structured_output_context import StructuredOutputContext
 
 if TYPE_CHECKING:  # pragma: no cover
     from ...agent import Agent
+    from ...experimental.bidi.agent.agent import BidiAgent
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +32,65 @@ class ToolExecutor(abc.ABC):
     """Abstract base class for tool executors."""
 
     @staticmethod
+    def _is_bidi_agent(agent: Union["Agent", "BidiAgent"]) -> bool:
+        """Check if the agent is a BidiAgent using isinstance.
+
+        Uses runtime import to avoid circular dependency at module load time.
+        This properly handles subclasses of BidiAgent.
+        """
+        try:
+            from ...experimental.bidi.agent.agent import BidiAgent
+
+            return isinstance(agent, BidiAgent)
+        except ImportError:
+            # If BidiAgent is not available, it can't be a BidiAgent
+            return False
+
+    @staticmethod
+    async def _invoke_before_tool_call_hook(
+        agent: Union["Agent", "BidiAgent"],
+        tool_func: Any,
+        tool_use: ToolUse,
+        invocation_state: dict[str, Any],
+    ) -> tuple[Union[BeforeToolCallEvent, BidiBeforeToolCallEvent], list[Interrupt]]:
+        """Invoke the appropriate before tool call hook based on agent type."""
+        event_cls = BidiBeforeToolCallEvent if ToolExecutor._is_bidi_agent(agent) else BeforeToolCallEvent
+        return await agent.hooks.invoke_callbacks_async(
+            event_cls(
+                agent=agent,
+                selected_tool=tool_func,
+                tool_use=tool_use,
+                invocation_state=invocation_state,
+            )
+        )
+
+    @staticmethod
+    async def _invoke_after_tool_call_hook(
+        agent: Union["Agent", "BidiAgent"],
+        selected_tool: Any,
+        tool_use: ToolUse,
+        invocation_state: dict[str, Any],
+        result: ToolResult,
+        exception: Exception | None = None,
+        cancel_message: str | None = None,
+    ) -> tuple[Union[AfterToolCallEvent, BidiAfterToolCallEvent], list[Interrupt]]:
+        """Invoke the appropriate after tool call hook based on agent type."""
+        event_cls = BidiAfterToolCallEvent if ToolExecutor._is_bidi_agent(agent) else AfterToolCallEvent
+        return await agent.hooks.invoke_callbacks_async(
+            event_cls(
+                agent=agent,
+                selected_tool=selected_tool,
+                tool_use=tool_use,
+                invocation_state=invocation_state,
+                result=result,
+                exception=exception,
+                cancel_message=cancel_message,
+            )
+        )
+
+    @staticmethod
     async def _stream(
-        agent: "Agent",
+        agent: "Agent | BidiAgent",
         tool_use: ToolUse,
         tool_results: list[ToolResult],
         invocation_state: dict[str, Any],
@@ -48,7 +108,7 @@ class ToolExecutor(abc.ABC):
         - Interrupt handling for human-in-the-loop workflows
 
         Args:
-            agent: The agent for which the tool is being executed.
+            agent: The agent (Agent or BidiAgent) for which the tool is being executed.
             tool_use: Metadata and inputs for the tool to be executed.
             tool_results: List of tool results from each tool execution.
             invocation_state: Context for the tool invocation.
@@ -85,13 +145,8 @@ class ToolExecutor(abc.ABC):
             }
         )
 
-        before_event, interrupts = await agent.hooks.invoke_callbacks_async(
-            BeforeToolCallEvent(
-                agent=agent,
-                selected_tool=tool_func,
-                tool_use=tool_use,
-                invocation_state=invocation_state,
-            )
+        before_event, interrupts = await ToolExecutor._invoke_before_tool_call_hook(
+            agent, tool_func, tool_use, invocation_state
         )
 
         if interrupts:
@@ -109,15 +164,9 @@ class ToolExecutor(abc.ABC):
                 "status": "error",
                 "content": [{"text": cancel_message}],
             }
-            after_event, _ = await agent.hooks.invoke_callbacks_async(
-                AfterToolCallEvent(
-                    agent=agent,
-                    tool_use=tool_use,
-                    invocation_state=invocation_state,
-                    selected_tool=None,
-                    result=cancel_result,
-                    cancel_message=cancel_message,
-                )
+
+            after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
+                agent, None, tool_use, invocation_state, cancel_result, cancel_message=cancel_message
             )
             yield ToolResultEvent(after_event.result)
             tool_results.append(after_event.result)
@@ -147,14 +196,9 @@ class ToolExecutor(abc.ABC):
                     "status": "error",
                     "content": [{"text": f"Unknown tool: {tool_name}"}],
                 }
-                after_event, _ = await agent.hooks.invoke_callbacks_async(
-                    AfterToolCallEvent(
-                        agent=agent,
-                        selected_tool=selected_tool,
-                        tool_use=tool_use,
-                        invocation_state=invocation_state,
-                        result=result,
-                    )
+
+                after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
+                    agent, selected_tool, tool_use, invocation_state, result
                 )
                 yield ToolResultEvent(after_event.result)
                 tool_results.append(after_event.result)
@@ -184,14 +228,8 @@ class ToolExecutor(abc.ABC):
 
             result = cast(ToolResult, event)
 
-            after_event, _ = await agent.hooks.invoke_callbacks_async(
-                AfterToolCallEvent(
-                    agent=agent,
-                    selected_tool=selected_tool,
-                    tool_use=tool_use,
-                    invocation_state=invocation_state,
-                    result=result,
-                )
+            after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
+                agent, selected_tool, tool_use, invocation_state, result
             )
 
             yield ToolResultEvent(after_event.result)
@@ -204,22 +242,16 @@ class ToolExecutor(abc.ABC):
                 "status": "error",
                 "content": [{"text": f"Error: {str(e)}"}],
             }
-            after_event, _ = await agent.hooks.invoke_callbacks_async(
-                AfterToolCallEvent(
-                    agent=agent,
-                    selected_tool=selected_tool,
-                    tool_use=tool_use,
-                    invocation_state=invocation_state,
-                    result=error_result,
-                    exception=e,
-                )
+
+            after_event, _ = await ToolExecutor._invoke_after_tool_call_hook(
+                agent, selected_tool, tool_use, invocation_state, error_result, exception=e
             )
             yield ToolResultEvent(after_event.result)
             tool_results.append(after_event.result)
 
     @staticmethod
     async def _stream_with_trace(
-        agent: "Agent",
+        agent: Union["Agent", "BidiAgent"],
         tool_use: ToolUse,
         tool_results: list[ToolResult],
         cycle_trace: Trace,
@@ -231,7 +263,7 @@ class ToolExecutor(abc.ABC):
         """Execute tool with tracing and metrics collection.
 
         Args:
-            agent: The agent for which the tool is being executed.
+            agent: The agent (Agent or BidiAgent) for which the tool is being executed.
             tool_use: Metadata and inputs for the tool to be executed.
             tool_results: List of tool results from each tool execution.
             cycle_trace: Trace object for the current event loop cycle.
@@ -268,7 +300,8 @@ class ToolExecutor(abc.ABC):
             tool_success = result.get("status") == "success"
             tool_duration = time.time() - tool_start_time
             message = Message(role="user", content=[{"toolResult": result}])
-            agent.event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, tool_success, message)
+            if not ToolExecutor._is_bidi_agent(agent):
+                agent.event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, tool_success, message)
             cycle_trace.add_child(tool_trace)
 
             tracer.end_tool_call_span(tool_call_span, result)
@@ -277,7 +310,7 @@ class ToolExecutor(abc.ABC):
     # pragma: no cover
     def _execute(
         self,
-        agent: "Agent",
+        agent: Union["Agent", "BidiAgent"],
         tool_uses: list[ToolUse],
         tool_results: list[ToolResult],
         cycle_trace: Trace,
@@ -288,7 +321,7 @@ class ToolExecutor(abc.ABC):
         """Execute the given tools according to this executor's strategy.
 
         Args:
-            agent: The agent for which tools are being executed.
+            agent: The agent (Agent or BidiAgent) for which tools are being executed.
             tool_uses: Metadata and inputs for the tools to be executed.
             tool_results: List of tool results from each tool execution.
             cycle_trace: Trace object for the current event loop cycle.

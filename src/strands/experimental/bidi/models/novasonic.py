@@ -17,7 +17,7 @@ import base64
 import json
 import logging
 import uuid
-from typing import Any, AsyncIterable, Literal
+from typing import Any, AsyncGenerator, cast
 
 import boto3
 from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
@@ -28,15 +28,15 @@ from aws_sdk_bedrock_runtime.models import (
 )
 from smithy_aws_core.identity.static import StaticCredentialsResolver
 from smithy_core.aio.eventstream import DuplexEventStream
+from smithy_core.shapes import ShapeID
 
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
-from .._async import start, stop
+from .._async import stop_all
 from ..types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
-    BidiConnectionCloseEvent,
     BidiConnectionStartEvent,
     BidiInputEvent,
     BidiInterruptionEvent,
@@ -46,6 +46,7 @@ from ..types.events import (
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
+    SampleRate,
 )
 from ..types.io import AudioConfig
 from .bidi_model import BidiModel
@@ -155,7 +156,6 @@ class BidiNovaSonicModel(BidiModel):
         else:
             logger.debug("audio_config | using default Nova Sonic audio configuration")
 
-    @start
     async def start(
         self,
         system_prompt: str | None = None,
@@ -175,7 +175,7 @@ class BidiNovaSonicModel(BidiModel):
             RuntimeError: If user calls start again without first stopping.
         """
         if self._connection_id:
-            raise RuntimeError("call stop before starting again")
+            raise RuntimeError("model already started | call stop before starting again")
 
         logger.debug("nova connection starting")
 
@@ -198,7 +198,7 @@ class BidiNovaSonicModel(BidiModel):
             region=self.region,
             aws_credentials_identity_resolver=resolver,
             auth_scheme_resolver=HTTPAuthSchemeResolver(),
-            auth_schemes={"aws.auth#sigv4": SigV4AuthScheme(service="bedrock")},
+            auth_schemes={ShapeID("aws.auth#sigv4"): SigV4AuthScheme(service="bedrock")},
             # Configure static credentials as properties
             aws_access_key_id=credentials.access_key,
             aws_secret_access_key=credentials.secret_key,
@@ -254,30 +254,30 @@ class BidiNovaSonicModel(BidiModel):
             audio_bytes = base64.b64decode(audio_content)
             logger.debug("audio_bytes=<%d> | nova audio output received", len(audio_bytes))
 
-    async def receive(self) -> AsyncIterable[BidiOutputEvent]:  # type: ignore[override]
+    async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive Nova Sonic events and convert to provider-agnostic format.
 
         Raises:
             RuntimeError: If start has not been called.
         """
         if not self._connection_id:
-            raise RuntimeError("must call start")
+            raise RuntimeError("model not started | call start before receiving")
 
         logger.debug("nova event stream starting")
         yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model_id)
 
-        try:
-            _, output = await self._stream.await_output()
-            while True:
-                event_data = await output.receive()
-                nova_event = json.loads(event_data.value.bytes_.decode("utf-8"))["event"]
-                self._log_event_type(nova_event)
+        _, output = await self._stream.await_output()
+        while True:
+            event_data = await output.receive()
+            if not event_data:
+                continue
 
-                model_event = self._convert_nova_event(nova_event)
-                if model_event:
-                    yield model_event
-        finally:
-            yield BidiConnectionCloseEvent(connection_id=self._connection_id, reason="complete")
+            nova_event = json.loads(event_data.value.bytes_.decode("utf-8"))["event"]
+            self._log_event_type(nova_event)
+
+            model_event = self._convert_nova_event(nova_event)
+            if model_event:
+                yield model_event
 
     async def send(self, content: BidiInputEvent | ToolResultEvent) -> None:
         """Unified send method for all content types. Sends the given content to Nova Sonic.
@@ -291,7 +291,7 @@ class BidiNovaSonicModel(BidiModel):
             ValueError: If content type not supported (e.g., image content).
         """
         if not self._connection_id:
-            raise RuntimeError("must call start")
+            raise RuntimeError("model not started | call start before sending")
 
         if isinstance(content, BidiTextInputEvent):
             await self._send_text_content(content.text)
@@ -302,7 +302,7 @@ class BidiNovaSonicModel(BidiModel):
             if tool_result:
                 await self._send_tool_result(tool_result)
         else:
-            raise ValueError(f"content_type={type(content)} | content not supported by nova sonic")
+            raise ValueError(f"content_type={type(content)} | content not supported")
 
     async def _start_audio_connection(self) -> None:
         """Internal: Start audio input connection (call once before sending audio chunks)."""
@@ -418,7 +418,7 @@ class BidiNovaSonicModel(BidiModel):
             await self._send_nova_events(cleanup_events)
 
         async def stop_stream() -> None:
-            if not self._connection_id or not self._stream:
+            if not hasattr(self, "_stream"):
                 return
 
             await self._stream.close()
@@ -426,7 +426,7 @@ class BidiNovaSonicModel(BidiModel):
         async def stop_connection() -> None:
             self._connection_id = None
 
-        await stop(stop_events, stop_stream, stop_connection)
+        await stop_all(stop_events, stop_stream, stop_connection)
 
         logger.debug("nova connection closed")
 
@@ -463,8 +463,8 @@ class BidiNovaSonicModel(BidiModel):
             return BidiAudioStreamEvent(
                 audio=audio_content,
                 format="pcm",
-                sample_rate=self.audio_config["output_rate"],  # type: ignore
-                channels=channels,
+                sample_rate=cast(SampleRate, NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"]),
+                channels=1,
             )
 
         # Handle text output (transcripts)

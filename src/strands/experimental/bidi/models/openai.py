@@ -8,7 +8,7 @@ import json
 import logging
 import os
 import uuid
-from typing import Any, AsyncIterable, Literal
+from typing import Any, AsyncGenerator, cast
 
 import websockets
 from websockets import ClientConnection
@@ -16,13 +16,11 @@ from websockets import ClientConnection
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
+from .._async import stop_all
 from ..types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
-    BidiConnectionCloseEvent,
     BidiConnectionStartEvent,
-    BidiErrorEvent,
-    BidiImageInputEvent,
     BidiInputEvent,
     BidiInterruptionEvent,
     BidiOutputEvent,
@@ -31,6 +29,10 @@ from ..types.events import (
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
+    ModalityUsage,
+    Role,
+    SampleRate,
+    StopReason,
 )
 from ..types.io import AudioConfig
 from .bidi_model import BidiModel
@@ -71,6 +73,8 @@ class BidiOpenAIRealtimeModel(BidiModel):
     function calling, and event conversion to Strands format.
     """
 
+    _websocket: ClientConnection
+
     def __init__(
         self,
         model: str = DEFAULT_MODEL,
@@ -108,9 +112,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
                 )
 
         # Connection state (initialized in start())
-        self.websocket: ClientConnection
-        self.connection_id: str
-        self._active: bool = False
+        self._connection_id: str | None = None
 
         self._function_call_buffer: dict[str, Any] = {}
 
@@ -158,45 +160,35 @@ class BidiOpenAIRealtimeModel(BidiModel):
             messages: Conversation history to initialize with.
             **kwargs: Additional configuration options.
         """
-        if self._active:
-            raise RuntimeError("Connection already active. Close the existing connection before creating a new one.")
+        if self._connection_id:
+            raise RuntimeError("model already started | call stop before starting again")
 
         logger.info("openai realtime connection starting")
 
-        try:
-            # Initialize connection state
-            self.connection_id = str(uuid.uuid4())
-            self._active = True
-            self._function_call_buffer = {}
+        # Initialize connection state
+        self._connection_id = str(uuid.uuid4())
 
-            # Establish WebSocket connection
-            url = f"{OPENAI_REALTIME_URL}?model={self.model}"
+        self._function_call_buffer = {}
 
-            headers = [("Authorization", f"Bearer {self.api_key}")]
-            if self.organization:
-                headers.append(("OpenAI-Organization", self.organization))
-            if self.project:
-                headers.append(("OpenAI-Project", self.project))
+        # Establish WebSocket connection
+        url = f"{OPENAI_REALTIME_URL}?model={self.model}"
 
-            self.websocket = await websockets.connect(url, additional_headers=headers)
-            logger.info("connection_id=<%s> | websocket connected successfully", self.connection_id)
+        headers = [("Authorization", f"Bearer {self.api_key}")]
+        if self.organization:
+            headers.append(("OpenAI-Organization", self.organization))
+        if self.project:
+            headers.append(("OpenAI-Project", self.project))
 
-            # Configure session
-            session_config = self._build_session_config(system_prompt, tools)
-            await self._send_event({"type": "session.update", "session": session_config})
+        self._websocket = await websockets.connect(url, additional_headers=headers)
+        logger.info("connection_id=<%s> | websocket connected successfully", self._connection_id)
 
-            # Add conversation history if provided
-            if messages:
-                await self._add_conversation_history(messages)
+        # Configure session
+        session_config = self._build_session_config(system_prompt, tools)
+        await self._send_event({"type": "session.update", "session": session_config})
 
-        except Exception as e:
-            self._active = False
-            logger.error("error=<%s> | openai connection failed", e)
-            raise
-
-    def _require_active(self) -> bool:
-        """Check if session is active."""
-        return self._active
+        # Add conversation history if provided
+        if messages:
+            await self._add_conversation_history(messages)
 
     def _create_text_event(self, text: str, role: str, is_final: bool = True) -> BidiTranscriptStreamEvent:
         """Create standardized transcript event.
@@ -214,7 +206,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         return BidiTranscriptStreamEvent(
             delta={"text": text},
             text=text,
-            role=normalized_role,  # type: ignore
+            role=cast(Role, normalized_role),
             is_final=is_final,
             current_transcript=text if is_final else None,
         )
@@ -227,15 +219,15 @@ class BidiOpenAIRealtimeModel(BidiModel):
         # Other voice activity events are logged but don't create events
         return None
 
-    def _build_session_config(self, system_prompt: str | None, tools: list[ToolSpec] | None) -> dict:
+    def _build_session_config(self, system_prompt: str | None, tools: list[ToolSpec] | None) -> dict[str, Any]:
         """Build session configuration for OpenAI Realtime API."""
-        config = DEFAULT_SESSION_CONFIG.copy()
+        config: dict[str, Any] = DEFAULT_SESSION_CONFIG.copy()
 
         if system_prompt:
             config["instructions"] = system_prompt
 
         if tools:
-            config["tools"] = self._convert_tools_to_openai_format(tools)  # type: ignore
+            config["tools"] = self._convert_tools_to_openai_format(tools)
 
         # Apply user-provided session configuration
         supported_params = {
@@ -308,29 +300,18 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
             await self._send_event(conversation_item)
 
-    async def receive(self) -> AsyncIterable[BidiOutputEvent]:  # type: ignore
+    async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive OpenAI events and convert to Strands TypedEvent format."""
-        # Emit connection start event
-        yield BidiConnectionStartEvent(connection_id=self.connection_id, model=self.model)
+        if not self._connection_id:
+            raise RuntimeError("model not started | call start before receiving")
 
-        try:
-            while self._active:
-                async for message in self.websocket:
-                    if not self._active:
-                        break  # type: ignore
+        yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model)
 
-                    openai_event = json.loads(message)
+        async for message in self._websocket:
+            openai_event = json.loads(message)
 
-                    for event in self._convert_openai_event(openai_event) or []:
-                        yield event
-
-        except Exception as e:
-            logger.error("error=<%s> | error receiving openai realtime event", e)
-            yield BidiErrorEvent(error=e)
-        finally:
-            # Emit connection close event
-            yield BidiConnectionCloseEvent(connection_id=self.connection_id, reason="complete")
-            self._active = False
+            for event in self._convert_openai_event(openai_event) or []:
+                yield event
 
     def _convert_openai_event(self, openai_event: dict[str, Any]) -> list[BidiOutputEvent] | None:
         """Convert OpenAI events to Strands TypedEvent format."""
@@ -351,8 +332,8 @@ class BidiOpenAIRealtimeModel(BidiModel):
                 BidiAudioStreamEvent(
                     audio=openai_event["delta"],
                     format="pcm",
-                    sample_rate=self.audio_config["output_rate"],  # type: ignore
-                    channels=channels,
+                    sample_rate=cast(SampleRate, AUDIO_FORMAT["rate"]),
+                    channels=1,
                 )
             ]
 
@@ -464,7 +445,10 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
             # Always add response complete event
             events.append(
-                BidiResponseCompleteEvent(response_id=response_id, stop_reason=stop_reason_map.get(status, "complete"))  # type: ignore
+                BidiResponseCompleteEvent(
+                    response_id=response_id,
+                    stop_reason=cast(StopReason, stop_reason_map.get(status, "complete")),
+                ),
             )
 
             # Add usage event if available
@@ -505,7 +489,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
                         input_tokens=usage.get("input_tokens", 0),
                         output_tokens=usage.get("output_tokens", 0),
                         total_tokens=usage.get("total_tokens", 0),
-                        modality_details=modality_details if modality_details else None,  # type: ignore
+                        modality_details=cast(list[ModalityUsage], modality_details) if modality_details else None,
                         cache_read_input_tokens=cached_tokens if cached_tokens > 0 else None,
                     )
                 )
@@ -594,26 +578,24 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
         Args:
             content: Typed event (BidiTextInputEvent, BidiAudioInputEvent, BidiImageInputEvent, or ToolResultEvent).
-        """
-        if not self._require_active():
-            return
 
-        try:
-            # Note: TypedEvent inherits from dict, so isinstance checks for TypedEvent must come first
-            if isinstance(content, BidiTextInputEvent):
-                await self._send_text_content(content.text)
-            elif isinstance(content, BidiAudioInputEvent):
-                await self._send_audio_content(content)
-            elif isinstance(content, BidiImageInputEvent):
-                # BidiImageInputEvent - not supported by OpenAI Realtime yet
-                logger.warning("Image input not supported by OpenAI Realtime API")
-            elif isinstance(content, ToolResultEvent):
-                tool_result = content.get("tool_result")
-                if tool_result:
-                    await self._send_tool_result(tool_result)
-        except Exception as e:
-            logger.error("error=<%s> | error sending content to openai", e)
-            raise  # Propagate exception for debugging in experimental code
+        Raises:
+            ValueError: If content type not supported (e.g., image content).
+        """
+        if not self._connection_id:
+            raise RuntimeError("model not started | call start before sending")
+
+        # Note: TypedEvent inherits from dict, so isinstance checks for TypedEvent must come first
+        if isinstance(content, BidiTextInputEvent):
+            await self._send_text_content(content.text)
+        elif isinstance(content, BidiAudioInputEvent):
+            await self._send_audio_content(content)
+        elif isinstance(content, ToolResultEvent):
+            tool_result = content.get("tool_result")
+            if tool_result:
+                await self._send_tool_result(tool_result)
+        else:
+            raise ValueError(f"content_type={type(content)} | content not supported")
 
     async def _send_audio_content(self, audio_input: BidiAudioInputEvent) -> None:
         """Internal: Send audio content to OpenAI for processing."""
@@ -636,7 +618,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
         logger.debug("tool_use_id=<%s> | sending openai tool result", tool_use_id)
 
-        # Extract result content
+        # TODO: We need to extract all content and content types
         result_data: dict[Any, Any] | str = {}
         if "content" in tool_result:
             # Extract text from content blocks
@@ -653,25 +635,23 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
     async def stop(self) -> None:
         """Close session and cleanup resources."""
-        if not self._active:
-            return
-
         logger.debug("openai realtime connection cleanup starting")
-        self._active = False
 
-        try:
-            await self.websocket.close()
-        except Exception as e:
-            logger.warning("error=<%s> | error closing openai realtime websocket", e)
+        async def stop_websocket() -> None:
+            if not hasattr(self, "_websocket"):
+                return
+
+            await self._websocket.close()
+
+        async def stop_connection() -> None:
+            self._connection_id = None
+
+        await stop_all(stop_websocket, stop_connection)
 
         logger.debug("openai realtime connection closed")
 
     async def _send_event(self, event: dict[str, Any]) -> None:
         """Send event to OpenAI via WebSocket."""
-        try:
-            message = json.dumps(event)
-            await self.websocket.send(message)
-            logger.debug("event_type=<%s> | openai event sent", event.get("type"))
-        except Exception as e:
-            logger.error("error=<%s> | error sending openai event", e)
-            raise
+        message = json.dumps(event)
+        await self._websocket.send(message)
+        logger.debug("event_type=<%s> | openai event sent", event.get("type"))

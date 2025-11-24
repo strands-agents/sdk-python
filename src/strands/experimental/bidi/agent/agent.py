@@ -15,11 +15,12 @@ Key capabilities:
 import asyncio
 import json
 import logging
-from typing import Any, AsyncIterable
+from typing import Any, AsyncGenerator
 
 from .... import _identifier
 from ....agent.state import AgentState
 from ....hooks import HookProvider, HookRegistry
+from ....interrupt import _InterruptState
 from ....tools.caller import _ToolCaller
 from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
@@ -27,9 +28,11 @@ from ....tools.registry import ToolRegistry
 from ....tools.watcher import ToolWatcher
 from ....types.content import ContentBlock, Message, Messages
 from ....types.tools import AgentTool, ToolResult, ToolUse
+from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from ...tools import ToolProvider
 from ..hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from ..io.audio import _BidiAudioInput, _BidiAudioOutput
+from .._async import stop_all
 from ..models.bidi_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
@@ -60,10 +63,10 @@ class BidiAgent:
         load_tools_from_directory: bool = False,
         agent_id: str | None = None,
         name: str | None = None,
-        tool_executor: ToolExecutor | None = None,
         description: str | None = None,
         hooks: list[HookProvider] | None = None,
         state: AgentState | dict | None = None,
+        tool_executor: ToolExecutor | None = None,
         **kwargs: Any,
     ):
         """Initialize bidirectional agent.
@@ -77,10 +80,10 @@ class BidiAgent:
             load_tools_from_directory: Whether to load and automatically reload tools in the `./tools/` directory.
             agent_id: Optional ID for the agent, useful for connection management and multi-agent scenarios.
             name: Name of the Agent.
-            tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
             description: Description of what the Agent does.
             hooks: Optional list of hook providers to register for lifecycle events.
             state: Stateful information for the agent. Can be either an AgentState object, or a json serializable dict.
+            tool_executor: Definition of tool execution strategy (e.g., sequential, concurrent, etc.).
             **kwargs: Additional configuration for future extensibility.
 
         Raises:
@@ -118,9 +121,6 @@ class BidiAgent:
         if self.load_tools_from_directory:
             self.tool_watcher = ToolWatcher(tool_registry=self.tool_registry)
 
-        # Initialize tool executor
-        self.tool_executor = tool_executor or ConcurrentToolExecutor()
-
         # Initialize agent state management
         if state is not None:
             if isinstance(state, dict):
@@ -135,6 +135,9 @@ class BidiAgent:
         # Initialize other components
         self._tool_caller = _ToolCaller(self)
 
+        # Initialize tool executor
+        self.tool_executor = tool_executor or ConcurrentToolExecutor()
+
         # Initialize hooks registry
         self.hooks = HookRegistry()
         if hooks:
@@ -145,6 +148,11 @@ class BidiAgent:
 
         # Emit initialization event
         self.hooks.invoke_callbacks(BidiAgentInitializedEvent(agent=self))
+
+        # TODO: Determine if full support is required
+        self._interrupt_state = _InterruptState()
+
+        self._started = False
 
     @property
     def tool(self) -> _ToolCaller:
@@ -257,17 +265,38 @@ class BidiAgent:
         properties = tool_spec["inputSchema"]["json"]["properties"]
         return {k: v for k, v in input_params.items() if k in properties}
 
-    async def start(self) -> None:
+    async def start(self, invocation_state: dict[str, Any] | None = None) -> None:
         """Start a persistent bidirectional conversation connection.
 
         Initializes the streaming connection and starts background tasks for processing
         model events, tool execution, and connection management.
+
+        Args:
+            invocation_state: Optional context to pass to tools during execution.
+                This allows passing custom data (user_id, session_id, database connections, etc.)
+                that tools can access via their invocation_state parameter.
+
+        Raises:
+            RuntimeError:
+                If agent already started.
+
+        Example:
+            ```python
+            await agent.start(invocation_state={
+                "user_id": "user_123",
+                "session_id": "session_456",
+                "database": db_connection,
+            })
+            ```
         """
+        if self._started:
+            raise RuntimeError("agent already started | call stop before starting again")
+
         logger.debug("agent starting")
+        await self._loop.start(invocation_state)
+        self._started = True
 
-        await self._loop.start()
-
-    async def send(self, input_data: BidiAgentInput) -> None:
+    async def send(self, input_data: BidiAgentInput | dict[str, Any]) -> None:
         """Send input to the model (text, audio, image, or event dict).
 
         Unified method for sending text, audio, and image input to the model during
@@ -282,14 +311,16 @@ class BidiAgent:
                 - dict: Event dictionary (will be reconstructed to TypedEvent)
 
         Raises:
-            ValueError: If no active session or invalid input type.
+            RuntimeError: If start has not been called.
+            ValueError: If invalid input type.
 
         Example:
             await agent.send("Hello")
             await agent.send(BidiAudioInputEvent(audio="base64...", format="pcm", ...))
             await agent.send({"type": "bidirectional_text_input", "text": "Hello", "role": "user"})
         """
-        self._validate_active_connection()
+        if not self._started:
+            raise RuntimeError("agent not started | call start before sending")
 
         # Handle string input
         if isinstance(input_data, str):
@@ -312,8 +343,9 @@ class BidiAgent:
             return
 
         # Handle plain dict - reconstruct TypedEvent for WebSocket integration
-        if isinstance(input_data, dict) and "type" in input_data:  # type: ignore
+        if isinstance(input_data, dict) and "type" in input_data:
             event_type = input_data["type"]
+            input_event: BidiInputEvent
             if event_type == "bidi_text_input":
                 input_event = BidiTextInputEvent(text=input_data["text"], role=input_data["role"])
             elif event_type == "bidi_audio_input":
@@ -339,15 +371,19 @@ class BidiAgent:
             f"or event dict with 'type' field, got: {type(input_data)}"
         )
 
-    async def receive(self) -> AsyncIterable[BidiOutputEvent]:
+    async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive events from the model including audio, text, and tool calls.
 
-        Yields model output events processed by background tasks including audio output,
-        text responses, tool calls, and connection updates.
-
         Yields:
-            Model and tool call events.
+            Model output events processed by background tasks including audio output,
+            text responses, tool calls, and connection updates.
+
+        Raises:
+            RuntimeError: If start has not been called.
         """
+        if not self._started:
+            raise RuntimeError("agent not started | call start before receiving")
+
         async for event in self._loop.receive():
             yield event
 
@@ -357,67 +393,57 @@ class BidiAgent:
         Terminates the streaming connection, cancels background tasks, and
         closes the connection to the model provider.
         """
+        self._started = False
         await self._loop.stop()
 
-    async def __aenter__(self) -> "BidiAgent":
+    async def __aenter__(self, invocation_state: dict[str, Any] | None = None) -> "BidiAgent":
         """Async context manager entry point.
 
         Automatically starts the bidirectional connection when entering the context.
 
+        Args:
+            invocation_state: Optional context to pass to tools during execution.
+                This allows passing custom data (user_id, session_id, database connections, etc.)
+                that tools can access via their invocation_state parameter.
+
         Returns:
             Self for use in the context.
         """
-        logger.debug("context_manager=<enter> | starting connection")
-        await self.start()
+        logger.debug("context_manager=<enter> | starting agent")
+        await self.start(invocation_state)
         return self
 
-    async def __aexit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: Any) -> None:
+    async def __aexit__(self, *_: Any) -> None:
         """Async context manager exit point.
 
         Automatically ends the connection and cleans up resources including
         when exiting the context, regardless of whether an exception occurred.
-
-        Args:
-            exc_type: Exception type if an exception occurred, None otherwise.
-            exc_val: Exception value if an exception occurred, None otherwise.
-            exc_tb: Exception traceback if an exception occurred, None otherwise.
         """
-        try:
-            logger.debug("context_manager=<exit> | cleaning up connection")
+        logger.debug("context_manager=<exit> | stopping agent")
+        await self.stop()
 
-            # Cleanup agent connection
-            await self.stop()
-
-        except Exception as cleanup_error:
-            if exc_type is None:
-                # No original exception, re-raise cleanup error
-                logger.error("cleanup_error=<%s> | error during context manager cleanup", cleanup_error)
-                raise
-            else:
-                # Original exception exists, log cleanup error but don't suppress original
-                logger.error(
-                    "cleanup_error=<%s> | error during context manager cleanup suppressed due to original exception",
-                    cleanup_error,
-                )
-
-    @property
-    def active(self) -> bool:
-        """True if agent loop started, False otherwise."""
-        return self._loop.active
-
-    async def run(self, inputs: list[BidiInput], outputs: list[BidiOutput]) -> None:
+    async def run(
+        self, inputs: list[BidiInput], outputs: list[BidiOutput], invocation_state: dict[str, Any] | None = None
+    ) -> None:
         """Run the agent using provided IO channels for bidirectional communication.
 
         Args:
             inputs: Input callables to read data from a source
             outputs: Output callables to receive events from the agent
+            invocation_state: Optional context to pass to tools during execution.
+                This allows passing custom data (user_id, session_id, database connections, etc.)
+                that tools can access via their invocation_state parameter.
 
         Example:
             ```python
             audio_io = BidiAudioIO(input_rate=16000)
             text_io = BidiTextIO()
             agent = BidiAgent(model=model, tools=[calculator])
-            await agent.run(inputs=[audio_io.input()], outputs=[audio_io.output(), text_io.output()])
+            await agent.run(
+                inputs=[audio_io.input()],
+                outputs=[audio_io.output(), text_io.output()],
+                invocation_state={"user_id": "user_123"}
+            )
             ```
         """
         # Extract audio config from model if available
@@ -433,7 +459,7 @@ class BidiAgent:
 
         async def run_inputs() -> None:
             async def task(input_: BidiInput) -> None:
-                while self.active:
+                while True:
                     event = await input_()
                     await self.send(event)
 
@@ -466,24 +492,19 @@ class BidiAgent:
                     await output.start()
 
         try:
-            await asyncio.gather(run_inputs(), run_outputs())
+            await self.start(invocation_state)
+
+            start_inputs = [input_.start for input_ in inputs if hasattr(input_, "start")]
+            start_outputs = [output.start for output in outputs if hasattr(output, "start")]
+            for start in [*start_inputs, *start_outputs]:
+                await start()
+
+            async with asyncio.TaskGroup() as task_group:
+                task_group.create_task(run_inputs())
+                task_group.create_task(run_outputs())
 
         finally:
-            for input_ in inputs:
-                if hasattr(input_, "stop"):
-                    await input_.stop()
+            stop_inputs = [input_.stop for input_ in inputs if hasattr(input_, "stop")]
+            stop_outputs = [output.stop for output in outputs if hasattr(output, "stop")]
 
-            for output in outputs:
-                if hasattr(output, "stop"):
-                    await output.stop()
-
-            await self.stop()
-
-    def _validate_active_connection(self) -> None:
-        """Validate that an active connection exists.
-
-        Raises:
-            ValueError: If no active connection.
-        """
-        if not self.active:
-            raise ValueError("No active conversation. Call start() first or use async context manager.")
+            await stop_all(*stop_inputs, *stop_outputs, self.stop)
