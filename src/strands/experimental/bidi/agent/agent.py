@@ -130,7 +130,7 @@ class BidiAgent:
             self.state = AgentState()
 
         # Initialize other components
-        self.tool_caller = _ToolCaller(self)
+        self._tool_caller = _ToolCaller(self)
 
         # Initialize tool executor
         self.tool_executor = tool_executor or ConcurrentToolExecutor()
@@ -164,7 +164,7 @@ class BidiAgent:
             agent.tool.calculator(expression="2+2")
             ```
         """
-        return self.tool_caller
+        return self._tool_caller
 
     @property
     def tool_names(self) -> list[str]:
@@ -374,6 +374,7 @@ class BidiAgent:
                 await asyncio.gather(*tasks)
 
         try:
+            await self.start(invocation_state)
 
             start_inputs = [input_.start for input_ in inputs if hasattr(input_, "start")]
             start_outputs = [output.start for output in outputs if hasattr(output, "start")]
