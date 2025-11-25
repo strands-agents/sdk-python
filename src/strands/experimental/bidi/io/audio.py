@@ -8,12 +8,15 @@ import asyncio
 import base64
 import logging
 from collections import deque
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pyaudio
 
 from ..types.events import BidiAudioInputEvent, BidiAudioStreamEvent, BidiInterruptionEvent, BidiOutputEvent
 from ..types.io import AudioConfig, BidiInput, BidiOutput
+
+if TYPE_CHECKING:
+    from ..agent.agent import BidiAgent
 
 logger = logging.getLogger(__name__)
 
@@ -49,14 +52,15 @@ class _BidiAudioInput(BidiInput):
         self._frames_per_buffer = config.get("input_frames_per_buffer", _BidiAudioInput._FRAMES_PER_BUFFER)
         self._rate = config.get("input_rate", _BidiAudioInput._RATE)
 
-    async def start(self, audio_config: AudioConfig | None = None) -> None:
+    async def start(self, agent: "BidiAgent") -> None:
         """Start input stream.
 
         Args:
-            audio_config: Optional audio configuration from model provider.
-                         Only applied if user did not explicitly set the value
-                         in the constructor.
+            agent: The BidiAgent instance, providing access to model configuration.
         """
+        # Extract audio config from agent's model
+        audio_config = getattr(agent.model, "audio_config", None)
+        
         # Apply audio config overrides only if user didn't explicitly set them
         if audio_config:
             if "input_rate" in audio_config and "input_rate" not in self._user_config_set:
@@ -145,14 +149,15 @@ class _BidiAudioOutput(BidiOutput):
         self._frames_per_buffer = config.get("output_frames_per_buffer", _BidiAudioOutput._FRAMES_PER_BUFFER)
         self._rate = config.get("output_rate", _BidiAudioOutput._RATE)
 
-    async def start(self, audio_config: AudioConfig | None = None) -> None:
+    async def start(self, agent: "BidiAgent") -> None:
         """Start output stream.
 
         Args:
-            audio_config: Optional audio configuration from model provider.
-                         Only applied if user did not explicitly set the value
-                         in the constructor.
+            agent: The BidiAgent instance, providing access to model configuration.
         """
+        # Extract audio config from agent's model
+        audio_config = getattr(agent.model, "audio_config", None)
+        
         # Apply audio config overrides only if user didn't explicitly set them
         if audio_config:
             if "output_rate" in audio_config and "output_rate" not in self._user_config_set:

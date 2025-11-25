@@ -31,7 +31,6 @@ from ....types.tools import AgentTool, ToolResult, ToolUse
 from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from ...tools import ToolProvider
 from ..hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
-from ..io.audio import _BidiAudioInput, _BidiAudioOutput
 from .._async import stop_all
 from ..models.bidi_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
@@ -446,16 +445,6 @@ class BidiAgent:
             )
             ```
         """
-        # Extract audio config from model if available
-        audio_config = getattr(self.model, "audio_config", None)
-        if audio_config:
-            logger.debug(
-                "audio_config | model provides: input_rate=%s, output_rate=%s, channels=%s, voice=%s",
-                audio_config.get("input_rate"),
-                audio_config.get("output_rate"),
-                audio_config.get("channels"),
-                audio_config.get("voice"),
-            )
 
         async def run_inputs() -> None:
             async def task(input_: BidiInput) -> None:
@@ -473,23 +462,15 @@ class BidiAgent:
 
         await self.start()
 
-        # Start inputs with audio config if applicable
+        # Start inputs, passing agent for configuration
         for input_ in inputs:
             if hasattr(input_, "start"):
-                # Pass audio config to audio inputs
-                if audio_config and isinstance(input_, _BidiAudioInput):
-                    await input_.start(audio_config=audio_config)
-                else:
-                    await input_.start()
+                await input_.start(self)
 
-        # Start outputs with audio config if applicable
+        # Start outputs, passing agent for configuration
         for output in outputs:
             if hasattr(output, "start"):
-                # Pass audio config to audio outputs
-                if audio_config and isinstance(output, _BidiAudioOutput):
-                    await output.start(audio_config=audio_config)
-                else:
-                    await output.start()
+                await output.start(self)
 
         try:
             await self.start(invocation_state)

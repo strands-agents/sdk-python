@@ -5,9 +5,12 @@ with BidiAgent. This approach provides better typing and flexibility
 by separating input and output concerns into independent callables.
 """
 
-from typing import Awaitable, Literal, Protocol, TypedDict
+from typing import TYPE_CHECKING, Awaitable, Literal, Protocol, TypedDict
 
 from ..types.events import BidiInputEvent, BidiOutputEvent
+
+if TYPE_CHECKING:
+    from ..agent.agent import BidiAgent
 
 
 class AudioConfig(TypedDict, total=False):
@@ -39,8 +42,12 @@ class BidiInput(Protocol):
     and return events to be sent to the agent.
     """
 
-    async def start(self) -> None:
-        """Start input."""
+    async def start(self, agent: "BidiAgent") -> None:
+        """Start input.
+        
+        Args:
+            agent: The BidiAgent instance, providing access to model configuration.
+        """
         ...
 
     async def stop(self) -> None:
@@ -63,8 +70,12 @@ class BidiOutput(Protocol):
     (play audio, display text, send over websocket, etc.).
     """
 
-    async def start(self) -> None:
-        """Start output."""
+    async def start(self, agent: "BidiAgent") -> None:
+        """Start output.
+        
+        Args:
+            agent: The BidiAgent instance, providing access to model configuration.
+        """
         ...
 
     async def stop(self) -> None:

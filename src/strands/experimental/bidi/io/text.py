@@ -1,9 +1,13 @@
 """Handle text input and output from bidi agent."""
 
 import logging
+from typing import TYPE_CHECKING
 
 from ..types.events import BidiInterruptionEvent, BidiOutputEvent, BidiTranscriptStreamEvent
 from ..types.io import BidiOutput
+
+if TYPE_CHECKING:
+    from ..agent.agent import BidiAgent
 
 logger = logging.getLogger(__name__)
 
@@ -11,8 +15,12 @@ logger = logging.getLogger(__name__)
 class _BidiTextOutput(BidiOutput):
     """Handle text output from bidi agent."""
 
-    async def start(self) -> None:
-        """Start text output."""
+    async def start(self, agent: "BidiAgent") -> None:
+        """Start text output.
+        
+        Args:
+            agent: The BidiAgent instance, providing access to model configuration.
+        """
         pass
 
     async def stop(self) -> None:
