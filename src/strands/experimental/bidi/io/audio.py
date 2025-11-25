@@ -213,9 +213,12 @@ class _BidiAudioOutput(BidiOutput):
 
 
 class BidiAudioIO:
-    """Send and receive audio data from devices.
-    
-    Args:
+    """Send and receive audio data from devices."""
+
+    def __init__(self, **config: Any) -> None:
+        """Initialize audio devices.
+        
+        Args:
         **config: Optional device configuration:
             - input_device_index (int): Specific input device (default: None = system default)
             - output_device_index (int): Specific output device (default: None = system default)
@@ -224,10 +227,7 @@ class BidiAudioIO:
             - input_frames_per_buffer (int): Input buffer size (default: 512)
             - output_frames_per_buffer (int): Output buffer size (default: 512)
             - output_buffer_size (int | None): Max output queue size (default: None = unlimited)
-    """
-
-    def __init__(self, **config: Any) -> None:
-        """Initialize audio devices."""
+        """
         self._config = config
 
     def input(self) -> _BidiAudioInput:

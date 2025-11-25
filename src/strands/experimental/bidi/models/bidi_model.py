@@ -34,6 +34,8 @@ class BidiModel(Protocol):
     connections with real-time audio and text communication. Implementations handle
     provider-specific protocols while exposing a standardized event-based API.
 
+    Attributes:
+        config: Configuration dictionary with provider-specific settings.
     """
 
     config: dict[str, Any]
