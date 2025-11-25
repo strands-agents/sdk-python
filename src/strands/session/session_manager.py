@@ -4,6 +4,11 @@ import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
+from ..experimental.hooks.events import (
+    BidiAfterInvocationEvent,
+    BidiAgentInitializedEvent,
+    BidiMessageAddedEvent,
+)
 from ..experimental.hooks.multiagent.events import (
     AfterMultiAgentInvocationEvent,
     AfterNodeCallEvent,
@@ -48,22 +53,11 @@ class SessionManager(HookProvider, ABC):
         registry.add_callback(AfterNodeCallEvent, lambda event: self.sync_multi_agent(event.source))
         registry.add_callback(AfterMultiAgentInvocationEvent, lambda event: self.sync_multi_agent(event.source))
 
-        # Register BidiAgent hooks if the experimental module is available
-        try:
-            from ..experimental.hooks.events import (
-                BidiAfterInvocationEvent,
-                BidiAgentInitializedEvent,
-                BidiMessageAddedEvent,
-            )
-
-            registry.add_callback(BidiAgentInitializedEvent, lambda event: self.initialize_bidi_agent(event.agent))
-            registry.add_callback(
-                BidiMessageAddedEvent, lambda event: self.append_bidi_message(event.message, event.agent)
-            )
-            registry.add_callback(BidiMessageAddedEvent, lambda event: self.sync_bidi_agent(event.agent))
-            registry.add_callback(BidiAfterInvocationEvent, lambda event: self.sync_bidi_agent(event.agent))
-        except ImportError:
-            pass
+        # Register BidiAgent hooks
+        registry.add_callback(BidiAgentInitializedEvent, lambda event: self.initialize_bidi_agent(event.agent))
+        registry.add_callback(BidiMessageAddedEvent, lambda event: self.append_bidi_message(event.message, event.agent))
+        registry.add_callback(BidiMessageAddedEvent, lambda event: self.sync_bidi_agent(event.agent))
+        registry.add_callback(BidiAfterInvocationEvent, lambda event: self.sync_bidi_agent(event.agent))
 
     @abstractmethod
     def redact_latest_message(self, redact_message: Message, agent: "Agent", **kwargs: Any) -> None:
