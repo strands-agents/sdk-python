@@ -1,13 +1,13 @@
 """Type definitions for MCP integration."""
 
 from contextlib import AbstractAsyncContextManager
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp.client.streamable_http import GetSessionIdCallback
 from mcp.shared.memory import MessageStream
 from mcp.shared.message import SessionMessage
-from typing_extensions import NotRequired
+from typing_extensions import NotRequired, TypedDict
 
 from ...types.tools import ToolResult
 
@@ -47,6 +47,23 @@ _MessageStreamWithGetSessionIdCallback = tuple[
 MCPTransport = AbstractAsyncContextManager[MessageStream | _MessageStreamWithGetSessionIdCallback]
 
 
+class MCPRetryMetadata(TypedDict, total=False):
+    """Metadata about retry attempts for MCP tool execution.
+
+    This metadata is included in MCPToolResult when retry strategies are used,
+    providing visibility into retry behavior for debugging and monitoring.
+    """
+
+    total_attempts: int
+    """Total number of attempts made (including the initial attempt)."""
+
+    retry_strategy_used: str
+    """Name of the retry strategy that was applied."""
+
+    last_exception: Optional[str]
+    """String representation of the last exception encountered."""
+
+
 class MCPToolResult(ToolResult):
     """Result of an MCP tool execution.
 
@@ -58,6 +75,8 @@ class MCPToolResult(ToolResult):
         structuredContent: Optional JSON object containing structured data returned
             by the MCP tool. This allows MCP tools to return complex data structures
             that can be processed programmatically by agents or other tools.
+        retryMetadata: Optional metadata about retry attempts made during tool execution.
     """
 
     structuredContent: NotRequired[Dict[str, Any]]
+    retryMetadata: NotRequired[MCPRetryMetadata]
