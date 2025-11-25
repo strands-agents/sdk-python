@@ -5,11 +5,12 @@ with BidiAgent. This approach provides better typing and flexibility
 by separating input and output concerns into independent callables.
 """
 
-from typing import Awaitable, Protocol
+from typing import Awaitable, Protocol, runtime_checkable
 
 from ..types.events import BidiInputEvent, BidiOutputEvent
 
 
+@runtime_checkable
 class BidiInput(Protocol):
     """Protocol for bidirectional input callables.
 
@@ -19,11 +20,11 @@ class BidiInput(Protocol):
 
     async def start(self) -> None:
         """Start input."""
-        ...
+        return
 
     async def stop(self) -> None:
         """Stop input."""
-        ...
+        return
 
     def __call__(self) -> Awaitable[BidiInputEvent]:
         """Read input data from the source.
@@ -34,6 +35,7 @@ class BidiInput(Protocol):
         ...
 
 
+@runtime_checkable
 class BidiOutput(Protocol):
     """Protocol for bidirectional output callables.
 
@@ -43,11 +45,11 @@ class BidiOutput(Protocol):
 
     async def start(self) -> None:
         """Start output."""
-        ...
+        return
 
     async def stop(self) -> None:
         """Stop output."""
-        ...
+        return
 
     def __call__(self, event: BidiOutputEvent) -> Awaitable[None]:
         """Process output events from the agent.

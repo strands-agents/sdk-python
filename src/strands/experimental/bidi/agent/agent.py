@@ -436,9 +436,9 @@ class BidiAgent:
         try:
             await self.start(invocation_state)
 
-            start_inputs = [input_.start for input_ in inputs if hasattr(input_, "start")]
-            start_outputs = [output.start for output in outputs if hasattr(output, "start")]
-            for start in [*start_inputs, *start_outputs]:
+            input_starts = [input_.start for input_ in inputs if isinstance(input_, BidiInput)]
+            output_starts = [output.start for output in outputs if isinstance(output, BidiOutput)]
+            for start in [*input_starts, *output_starts]:
                 await start()
 
             async with asyncio.TaskGroup() as task_group:
@@ -446,7 +446,7 @@ class BidiAgent:
                 task_group.create_task(run_outputs())
 
         finally:
-            stop_inputs = [input_.stop for input_ in inputs if hasattr(input_, "stop")]
-            stop_outputs = [output.stop for output in outputs if hasattr(output, "stop")]
+            input_stops = [input_.stop for input_ in inputs if isinstance(input_, BidiInput)]
+            output_stops = [output.stop for output in outputs if isinstance(output, BidiOutput)]
 
-            await stop_all(*stop_inputs, *stop_outputs, self.stop)
+            await stop_all(*input_stops, *output_stops, self.stop)
