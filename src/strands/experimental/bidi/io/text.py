@@ -1,23 +1,36 @@
 """Handle text input and output from bidi agent."""
 
+import asyncio
 import logging
+import sys
 
-from ..types.events import BidiInterruptionEvent, BidiOutputEvent, BidiTranscriptStreamEvent
-from ..types.io import BidiOutput
+from ..types.events import BidiInterruptionEvent, BidiOutputEvent, BidiTextInputEvent, BidiTranscriptStreamEvent
+from ..types.io import BidiInput, BidiOutput
 
 logger = logging.getLogger(__name__)
 
 
-class _BidiTextOutput(BidiOutput):
-    """Handle text output from bidi agent."""
+class _BidiTextInput(BidiInput):
+    """Handle text input from user."""
+
+    def __init__(self) -> None:
+        """Setup async stream reader."""
+        self._reader = asyncio.StreamReader()
 
     async def start(self) -> None:
-        """Start text output."""
-        pass
+        """Connect reader to stdin."""
+        loop = asyncio.get_running_loop()
+        protocol = asyncio.StreamReaderProtocol(self._reader)
+        await loop.connect_read_pipe(lambda: protocol, sys.stdin)
 
-    async def stop(self) -> None:
-        """Stop text output."""
-        pass
+    async def __call__(self) -> BidiTextInputEvent:
+        """Read user input from stdin."""
+        text = (await self._reader.readline()).decode().strip()
+        return BidiTextInputEvent(text, role="user")
+
+
+class _BidiTextOutput(BidiOutput):
+    """Handle text output from bidi agent."""
 
     async def __call__(self, event: BidiOutputEvent) -> None:
         """Print text events to stdout."""
@@ -45,6 +58,10 @@ class _BidiTextOutput(BidiOutput):
 
 class BidiTextIO:
     """Handle text input and output from bidi agent."""
+
+    def input(self) -> _BidiTextInput:
+        """Return text processing BidiInput."""
+        return _BidiTextInput()
 
     def output(self) -> _BidiTextOutput:
         """Return text processing BidiOutput."""
