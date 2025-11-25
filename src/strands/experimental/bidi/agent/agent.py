@@ -177,12 +177,6 @@ class BidiAgent:
         return list(all_tools.keys())
 
 
-
-    async def _append_message(self, message: Message) -> None:
-        """Appends a message to the agent's list of messages and invokes the callbacks for the MessageAddedEvent."""
-        self.messages.append(message)
-        await self.hooks.invoke_callbacks_async(BidiMessageAddedEvent(agent=self, message=message))
-
     async def start(self, invocation_state: dict[str, Any] | None = None) -> None:
         """Start a persistent bidirectional conversation connection.
 
@@ -380,9 +374,6 @@ class BidiAgent:
                 await asyncio.gather(*tasks)
 
         try:
-            # Only start if not already started (e.g., when used with async context manager)
-            if not self._started:
-                await self.start(invocation_state)
 
             start_inputs = [input_.start for input_ in inputs if hasattr(input_, "start")]
             start_outputs = [output.start for output in outputs if hasattr(output, "start")]
