@@ -13,7 +13,6 @@ Key capabilities:
 """
 
 import asyncio
-import json
 import logging
 from typing import Any, AsyncGenerator
 
@@ -21,13 +20,13 @@ from .... import _identifier
 from ....agent.state import AgentState
 from ....hooks import HookProvider, HookRegistry
 from ....interrupt import _InterruptState
-from ....tools.caller import _ToolCaller
+from ....tools._caller import _ToolCaller
 from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
 from ....tools.watcher import ToolWatcher
-from ....types.content import ContentBlock, Message, Messages
-from ....types.tools import AgentTool, ToolResult, ToolUse
+from ....types.content import Message, Messages
+from ....types.tools import AgentTool
 from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from ...tools import ToolProvider
 from .._async import stop_all
@@ -131,7 +130,7 @@ class BidiAgent:
             self.state = AgentState()
 
         # Initialize other components
-        self._tool_caller = _ToolCaller(self)
+        self.tool_caller = _ToolCaller(self)
 
         # Initialize tool executor
         self.tool_executor = tool_executor or ConcurrentToolExecutor()
@@ -165,7 +164,7 @@ class BidiAgent:
             agent.tool.calculator(expression="2+2")
             ```
         """
-        return self._tool_caller
+        return self.tool_caller
 
     @property
     def tool_names(self) -> list[str]:
@@ -177,91 +176,12 @@ class BidiAgent:
         all_tools = self.tool_registry.get_all_tools_config()
         return list(all_tools.keys())
 
-    def _record_tool_execution(
-        self,
-        tool: ToolUse,
-        tool_result: ToolResult,
-        user_message_override: str | None,
-    ) -> None:
-        """Record a tool execution in the message history.
 
-        Creates a sequence of messages that represent the tool execution:
 
-        1. A user message describing the tool call
-        2. An assistant message with the tool use
-        3. A user message with the tool result
-        4. An assistant message acknowledging the tool call
-
-        Args:
-            tool: The tool call information.
-            tool_result: The result returned by the tool.
-            user_message_override: Optional custom message to include.
-        """
-        # Filter tool input parameters to only include those defined in tool spec
-        filtered_input = self._filter_tool_parameters_for_recording(tool["name"], tool["input"])
-
-        # Create user message describing the tool call
-        input_parameters = json.dumps(filtered_input, default=lambda o: f"<<non-serializable: {type(o).__qualname__}>>")
-
-        user_msg_content: list[ContentBlock] = [
-            {"text": (f"agent.tool.{tool['name']} direct tool call.\nInput parameters: {input_parameters}\n")}
-        ]
-
-        # Add override message if provided
-        if user_message_override:
-            user_msg_content.insert(0, {"text": f"{user_message_override}\n"})
-
-        # Create filtered tool use for message history
-        filtered_tool: ToolUse = {
-            "toolUseId": tool["toolUseId"],
-            "name": tool["name"],
-            "input": filtered_input,
-        }
-
-        # Create the message sequence
-        user_msg: Message = {
-            "role": "user",
-            "content": user_msg_content,
-        }
-        tool_use_msg: Message = {
-            "role": "assistant",
-            "content": [{"toolUse": filtered_tool}],
-        }
-        tool_result_msg: Message = {
-            "role": "user",
-            "content": [{"toolResult": tool_result}],
-        }
-        assistant_msg: Message = {
-            "role": "assistant",
-            "content": [{"text": f"agent.tool.{tool['name']} was called."}],
-        }
-
-        # Add to message history
-        self.messages.append(user_msg)
-        self.messages.append(tool_use_msg)
-        self.messages.append(tool_result_msg)
-        self.messages.append(assistant_msg)
-
-        logger.debug("tool_name=<%s> | direct tool call recorded in message history", tool["name"])
-
-    def _filter_tool_parameters_for_recording(self, tool_name: str, input_params: dict[str, Any]) -> dict[str, Any]:
-        """Filter input parameters to only include those defined in the tool specification.
-
-        Args:
-            tool_name: Name of the tool to get specification for
-            input_params: Original input parameters
-
-        Returns:
-            Filtered parameters containing only those defined in tool spec
-        """
-        all_tools_config = self.tool_registry.get_all_tools_config()
-        tool_spec = all_tools_config.get(tool_name)
-
-        if not tool_spec or "inputSchema" not in tool_spec:
-            return input_params.copy()
-
-        properties = tool_spec["inputSchema"]["json"]["properties"]
-        return {k: v for k, v in input_params.items() if k in properties}
+    async def _append_message(self, message: Message) -> None:
+        """Appends a message to the agent's list of messages and invokes the callbacks for the MessageAddedEvent."""
+        self.messages.append(message)
+        await self.hooks.invoke_callbacks_async(BidiMessageAddedEvent(agent=self, message=message))
 
     async def start(self, invocation_state: dict[str, Any] | None = None) -> None:
         """Start a persistent bidirectional conversation connection.
@@ -460,7 +380,9 @@ class BidiAgent:
                 await asyncio.gather(*tasks)
 
         try:
-            await self.start(invocation_state)
+            # Only start if not already started (e.g., when used with async context manager)
+            if not self._started:
+                await self.start(invocation_state)
 
             start_inputs = [input_.start for input_ in inputs if hasattr(input_, "start")]
             start_outputs = [output.start for output in outputs if hasattr(output, "start")]
