@@ -43,10 +43,10 @@ class BidiTextInputEvent(TypedEvent):
 
     Parameters:
         text: The text content to send to the model.
-        role: The role of the message sender (typically "user").
+        role: The role of the message sender (default: "user").
     """
 
-    def __init__(self, text: str, role: str):
+    def __init__(self, text: str, role: Role = "user"):
         """Initialize text input event."""
         super().__init__(
             {
@@ -62,9 +62,9 @@ class BidiTextInputEvent(TypedEvent):
         return cast(str, self.get("text"))
 
     @property
-    def role(self) -> str:
+    def role(self) -> Role:
         """The role of the message sender."""
-        return cast(str, self.get("role"))
+        return cast(Role, self["role"])
 
 
 class BidiAudioInputEvent(TypedEvent):
@@ -298,9 +298,9 @@ class BidiTranscriptStreamEvent(ModelStreamEvent):
         return cast(str, self.get("text"))
 
     @property
-    def role(self) -> str:
+    def role(self) -> Role:
         """The role of the message sender."""
-        return cast(str, self.get("role"))
+        return cast(Role, self["role"])
 
     @property
     def is_final(self) -> bool:

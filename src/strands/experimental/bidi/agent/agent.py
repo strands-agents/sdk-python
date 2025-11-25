@@ -28,7 +28,7 @@ from ....tools.registry import ToolRegistry
 from ....tools.watcher import ToolWatcher
 from ....types.content import ContentBlock, Message, Messages
 from ....types.tools import AgentTool, ToolResult, ToolUse
-from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
+from ...hooks.events import BidiAgentInitializedEvent
 from ...tools import ToolProvider
 from .._async import stop_all
 from ..models.bidi_model import BidiModel
@@ -304,8 +304,7 @@ class BidiAgent:
         Args:
             input_data: Can be:
                 - str: Text message from user
-                - BidiAudioInputEvent: Audio data with format/sample rate
-                - BidiImageInputEvent: Image data with MIME type
+                - BidiInputEvent: TypedEvent
                 - dict: Event dictionary (will be reconstructed to TypedEvent)
 
         Raises:
@@ -320,54 +319,29 @@ class BidiAgent:
         if not self._started:
             raise RuntimeError("agent not started | call start before sending")
 
-        # Handle string input
+        input_event: BidiInputEvent
+
         if isinstance(input_data, str):
-            # Add user text message to history
-            user_message: Message = {"role": "user", "content": [{"text": input_data}]}
+            input_event = BidiTextInputEvent(text=input_data)
 
-            self.messages.append(user_message)
-            await self.hooks.invoke_callbacks_async(BidiMessageAddedEvent(agent=self, message=user_message))
+        elif isinstance(input_data, BidiInputEvent):
+            input_event = input_data
 
-            logger.debug("text_length=<%d> | text sent to model", len(input_data))
-            # Create BidiTextInputEvent for send()
-            text_event = BidiTextInputEvent(text=input_data, role="user")
-            await self.model.send(text_event)
-            return
-
-        # Handle BidiInputEvent instances
-        # Check this before dict since TypedEvent inherits from dict
-        if isinstance(input_data, BidiInputEvent):
-            await self.model.send(input_data)
-            return
-
-        # Handle plain dict - reconstruct TypedEvent for WebSocket integration
-        if isinstance(input_data, dict) and "type" in input_data:
-            event_type = input_data["type"]
-            input_event: BidiInputEvent
-            if event_type == "bidi_text_input":
-                input_event = BidiTextInputEvent(text=input_data["text"], role=input_data["role"])
-            elif event_type == "bidi_audio_input":
-                input_event = BidiAudioInputEvent(
-                    audio=input_data["audio"],
-                    format=input_data["format"],
-                    sample_rate=input_data["sample_rate"],
-                    channels=input_data["channels"],
-                )
-            elif event_type == "bidi_image_input":
-                input_event = BidiImageInputEvent(image=input_data["image"], mime_type=input_data["mime_type"])
+        elif isinstance(input_data, dict) and "type" in input_data:
+            input_type = input_data["type"]
+            if input_type == "bidi_text_input":
+                input_event = BidiTextInputEvent(**input_data)
+            elif input_type == "bidi_audio_input":
+                input_event = BidiAudioInputEvent(**input_data)
+            elif input_type == "bidi_image_input":
+                input_event = BidiImageInputEvent(**input_data)
             else:
-                raise ValueError(f"Unknown event type: {event_type}")
+                raise ValueError(f"input_type=<{input_type}> | input type not supported")
 
-            # Send the reconstructed TypedEvent
-            await self.model.send(input_event)
-            return
+        else:
+            raise ValueError("invalid input | must be str, BidiInputEvent, or event dict")
 
-        # If we get here, input type is invalid
-        raise ValueError(
-            f"Input must be a string, BidiInputEvent "
-            f"(BidiTextInputEvent/BidiAudioInputEvent/BidiImageInputEvent), "
-            f"or event dict with 'type' field, got: {type(input_data)}"
-        )
+        await self._loop.send(input_event)
 
     async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive events from the model including audio, text, and tool calls.
