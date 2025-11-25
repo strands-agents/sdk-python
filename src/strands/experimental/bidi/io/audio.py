@@ -219,14 +219,14 @@ class BidiAudioIO:
         """Initialize audio devices.
         
         Args:
-        **config: Optional device configuration:
-            - input_device_index (int): Specific input device (default: None = system default)
-            - output_device_index (int): Specific output device (default: None = system default)
-            - input_pyaudio_format (int): PyAudio format for input (default: pyaudio.paInt16)
-            - output_pyaudio_format (int): PyAudio format for output (default: pyaudio.paInt16)
-            - input_frames_per_buffer (int): Input buffer size (default: 512)
-            - output_frames_per_buffer (int): Output buffer size (default: 512)
-            - output_buffer_size (int | None): Max output queue size (default: None = unlimited)
+            **config: Optional device configuration:
+                - input_device_index (int): Specific input device (default: None = system default)
+                - output_device_index (int): Specific output device (default: None = system default)
+                - input_pyaudio_format (int): PyAudio format for input (default: pyaudio.paInt16)
+                - output_pyaudio_format (int): PyAudio format for output (default: pyaudio.paInt16)
+                - input_frames_per_buffer (int): Input buffer size (default: 512)
+                - output_frames_per_buffer (int): Output buffer size (default: 512)
+                - output_buffer_size (int | None): Max output queue size (default: None = unlimited)
         """
         self._config = config
 
