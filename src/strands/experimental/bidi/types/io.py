@@ -6,6 +6,7 @@ by separating input and output concerns into independent callables.
 """
 
 from typing import TYPE_CHECKING, Awaitable, Protocol
+from typing import Awaitable, Protocol, runtime_checkable
 
 from ..types.events import BidiInputEvent, BidiOutputEvent
 
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
     from ..agent.agent import BidiAgent
 
 
+@runtime_checkable
 class BidiInput(Protocol):
     """Protocol for bidirectional input callables.
 
@@ -20,17 +22,13 @@ class BidiInput(Protocol):
     and return events to be sent to the agent.
     """
 
-    async def start(self, agent: "BidiAgent") -> None:
-        """Start input.
-        
-        Args:
-            agent: The BidiAgent instance, providing access to model configuration.
-        """
-        ...
+    async def start(self) -> None:
+        """Start input."""
+        return
 
     async def stop(self) -> None:
         """Stop input."""
-        ...
+        return
 
     def __call__(self) -> Awaitable[BidiInputEvent]:
         """Read input data from the source.
@@ -41,6 +39,7 @@ class BidiInput(Protocol):
         ...
 
 
+@runtime_checkable
 class BidiOutput(Protocol):
     """Protocol for bidirectional output callables.
 
@@ -48,17 +47,13 @@ class BidiOutput(Protocol):
     (play audio, display text, send over websocket, etc.).
     """
 
-    async def start(self, agent: "BidiAgent") -> None:
-        """Start output.
-        
-        Args:
-            agent: The BidiAgent instance, providing access to model configuration.
-        """
-        ...
+    async def start(self) -> None:
+        """Start output."""
+        return
 
     async def stop(self) -> None:
         """Stop output."""
-        ...
+        return
 
     def __call__(self, event: BidiOutputEvent) -> Awaitable[None]:
         """Process output events from the agent.

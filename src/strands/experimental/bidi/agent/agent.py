@@ -13,7 +13,6 @@ Key capabilities:
 """
 
 import asyncio
-import json
 import logging
 from typing import Any, AsyncGenerator
 
@@ -21,14 +20,14 @@ from .... import _identifier
 from ....agent.state import AgentState
 from ....hooks import HookProvider, HookRegistry
 from ....interrupt import _InterruptState
-from ....tools.caller import _ToolCaller
+from ....tools._caller import _ToolCaller
 from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
 from ....tools.watcher import ToolWatcher
 from ....types.content import ContentBlock, Message, Messages
 from ....types.tools import AgentTool, ToolResult, ToolUse
-from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
+from ...hooks.events import BidiAgentInitializedEvent
 from ...tools import ToolProvider
 from .._async import stop_all
 from ..models.bidi_model import BidiModel
@@ -177,91 +176,6 @@ class BidiAgent:
         all_tools = self.tool_registry.get_all_tools_config()
         return list(all_tools.keys())
 
-    def _record_tool_execution(
-        self,
-        tool: ToolUse,
-        tool_result: ToolResult,
-        user_message_override: str | None,
-    ) -> None:
-        """Record a tool execution in the message history.
-
-        Creates a sequence of messages that represent the tool execution:
-
-        1. A user message describing the tool call
-        2. An assistant message with the tool use
-        3. A user message with the tool result
-        4. An assistant message acknowledging the tool call
-
-        Args:
-            tool: The tool call information.
-            tool_result: The result returned by the tool.
-            user_message_override: Optional custom message to include.
-        """
-        # Filter tool input parameters to only include those defined in tool spec
-        filtered_input = self._filter_tool_parameters_for_recording(tool["name"], tool["input"])
-
-        # Create user message describing the tool call
-        input_parameters = json.dumps(filtered_input, default=lambda o: f"<<non-serializable: {type(o).__qualname__}>>")
-
-        user_msg_content: list[ContentBlock] = [
-            {"text": (f"agent.tool.{tool['name']} direct tool call.\nInput parameters: {input_parameters}\n")}
-        ]
-
-        # Add override message if provided
-        if user_message_override:
-            user_msg_content.insert(0, {"text": f"{user_message_override}\n"})
-
-        # Create filtered tool use for message history
-        filtered_tool: ToolUse = {
-            "toolUseId": tool["toolUseId"],
-            "name": tool["name"],
-            "input": filtered_input,
-        }
-
-        # Create the message sequence
-        user_msg: Message = {
-            "role": "user",
-            "content": user_msg_content,
-        }
-        tool_use_msg: Message = {
-            "role": "assistant",
-            "content": [{"toolUse": filtered_tool}],
-        }
-        tool_result_msg: Message = {
-            "role": "user",
-            "content": [{"toolResult": tool_result}],
-        }
-        assistant_msg: Message = {
-            "role": "assistant",
-            "content": [{"text": f"agent.tool.{tool['name']} was called."}],
-        }
-
-        # Add to message history
-        self.messages.append(user_msg)
-        self.messages.append(tool_use_msg)
-        self.messages.append(tool_result_msg)
-        self.messages.append(assistant_msg)
-
-        logger.debug("tool_name=<%s> | direct tool call recorded in message history", tool["name"])
-
-    def _filter_tool_parameters_for_recording(self, tool_name: str, input_params: dict[str, Any]) -> dict[str, Any]:
-        """Filter input parameters to only include those defined in the tool specification.
-
-        Args:
-            tool_name: Name of the tool to get specification for
-            input_params: Original input parameters
-
-        Returns:
-            Filtered parameters containing only those defined in tool spec
-        """
-        all_tools_config = self.tool_registry.get_all_tools_config()
-        tool_spec = all_tools_config.get(tool_name)
-
-        if not tool_spec or "inputSchema" not in tool_spec:
-            return input_params.copy()
-
-        properties = tool_spec["inputSchema"]["json"]["properties"]
-        return {k: v for k, v in input_params.items() if k in properties}
 
     async def start(self, invocation_state: dict[str, Any] | None = None) -> None:
         """Start a persistent bidirectional conversation connection.
@@ -304,8 +218,7 @@ class BidiAgent:
         Args:
             input_data: Can be:
                 - str: Text message from user
-                - BidiAudioInputEvent: Audio data with format/sample rate
-                - BidiImageInputEvent: Image data with MIME type
+                - BidiInputEvent: TypedEvent
                 - dict: Event dictionary (will be reconstructed to TypedEvent)
 
         Raises:
@@ -320,54 +233,29 @@ class BidiAgent:
         if not self._started:
             raise RuntimeError("agent not started | call start before sending")
 
-        # Handle string input
+        input_event: BidiInputEvent
+
         if isinstance(input_data, str):
-            # Add user text message to history
-            user_message: Message = {"role": "user", "content": [{"text": input_data}]}
+            input_event = BidiTextInputEvent(text=input_data)
 
-            self.messages.append(user_message)
-            await self.hooks.invoke_callbacks_async(BidiMessageAddedEvent(agent=self, message=user_message))
+        elif isinstance(input_data, BidiInputEvent):
+            input_event = input_data
 
-            logger.debug("text_length=<%d> | text sent to model", len(input_data))
-            # Create BidiTextInputEvent for send()
-            text_event = BidiTextInputEvent(text=input_data, role="user")
-            await self.model.send(text_event)
-            return
-
-        # Handle BidiInputEvent instances
-        # Check this before dict since TypedEvent inherits from dict
-        if isinstance(input_data, BidiInputEvent):
-            await self.model.send(input_data)
-            return
-
-        # Handle plain dict - reconstruct TypedEvent for WebSocket integration
-        if isinstance(input_data, dict) and "type" in input_data:
-            event_type = input_data["type"]
-            input_event: BidiInputEvent
-            if event_type == "bidi_text_input":
-                input_event = BidiTextInputEvent(text=input_data["text"], role=input_data["role"])
-            elif event_type == "bidi_audio_input":
-                input_event = BidiAudioInputEvent(
-                    audio=input_data["audio"],
-                    format=input_data["format"],
-                    sample_rate=input_data["sample_rate"],
-                    channels=input_data["channels"],
-                )
-            elif event_type == "bidi_image_input":
-                input_event = BidiImageInputEvent(image=input_data["image"], mime_type=input_data["mime_type"])
+        elif isinstance(input_data, dict) and "type" in input_data:
+            input_type = input_data["type"]
+            if input_type == "bidi_text_input":
+                input_event = BidiTextInputEvent(**input_data)
+            elif input_type == "bidi_audio_input":
+                input_event = BidiAudioInputEvent(**input_data)
+            elif input_type == "bidi_image_input":
+                input_event = BidiImageInputEvent(**input_data)
             else:
-                raise ValueError(f"Unknown event type: {event_type}")
+                raise ValueError(f"input_type=<{input_type}> | input type not supported")
 
-            # Send the reconstructed TypedEvent
-            await self.model.send(input_event)
-            return
+        else:
+            raise ValueError("invalid input | must be str, BidiInputEvent, or event dict")
 
-        # If we get here, input type is invalid
-        raise ValueError(
-            f"Input must be a string, BidiInputEvent "
-            f"(BidiTextInputEvent/BidiAudioInputEvent/BidiImageInputEvent), "
-            f"or event dict with 'type' field, got: {type(input_data)}"
-        )
+        await self._loop.send(input_event)
 
     async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive events from the model including audio, text, and tool calls.
@@ -473,17 +361,17 @@ class BidiAgent:
         try:
             await self.start(invocation_state)
 
-            start_inputs = [input_.start for input_ in inputs if hasattr(input_, "start")]
-            start_outputs = [output.start for output in outputs if hasattr(output, "start")]
-            for start in [*start_inputs, *start_outputs]:
-                await start(self)
+            input_starts = [input_.start for input_ in inputs if isinstance(input_, BidiInput)]
+            output_starts = [output.start for output in outputs if isinstance(output, BidiOutput)]
+            for start in [*input_starts, *output_starts]:
+                await start()
 
             async with asyncio.TaskGroup() as task_group:
                 task_group.create_task(run_inputs())
                 task_group.create_task(run_outputs())
 
         finally:
-            stop_inputs = [input_.stop for input_ in inputs if hasattr(input_, "stop")]
-            stop_outputs = [output.stop for output in outputs if hasattr(output, "stop")]
+            input_stops = [input_.stop for input_ in inputs if isinstance(input_, BidiInput)]
+            output_stops = [output.stop for output in outputs if isinstance(output, BidiOutput)]
 
-            await stop_all(*stop_inputs, *stop_outputs, self.stop)
+            await stop_all(*input_stops, *output_stops, self.stop)

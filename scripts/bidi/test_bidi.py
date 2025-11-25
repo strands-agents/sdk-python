@@ -15,11 +15,11 @@ async def main():
     audio_io = BidiAudioIO()
     text_io = BidiTextIO()
     model = BidiNovaSonicModel(region="us-east-1")
+    agent = BidiAgent(model=model, tools=[calculator])
 
-    async with BidiAgent(model=model, tools=[calculator]) as agent:
-        print("New BidiAgent Experience")
-        print("Try asking: 'What is 25 times 8?' or 'Calculate the square root of 144'")
-        await agent.run(inputs=[audio_io.input()], outputs=[audio_io.output(), text_io.output()])
+    print("New BidiAgent Experience")
+    print("Try asking: 'What is 25 times 8?' or 'Calculate the square root of 144'")
+    await agent.run(inputs=[audio_io.input()], outputs=[audio_io.output(), text_io.output()])
 
 
 if __name__ == "__main__":
