@@ -334,7 +334,7 @@ class BidiAgent:
             )
             
             # Using custom audio config:
-            model = BidiNovaSonicModel(audio_config={"input_rate": 48000, "output_rate": 24000})
+            model = BidiNovaSonicModel(config={"audio": {"input_rate": 48000, "output_rate": 24000}})
             audio_io = BidiAudioIO()
             agent = BidiAgent(model=model, tools=[calculator])
             await agent.run(
@@ -364,7 +364,7 @@ class BidiAgent:
             input_starts = [input_.start for input_ in inputs if isinstance(input_, BidiInput)]
             output_starts = [output.start for output in outputs if isinstance(output, BidiOutput)]
             for start in [*input_starts, *output_starts]:
-                await start()
+                await start(self)
 
             async with asyncio.TaskGroup() as task_group:
                 task_group.create_task(run_inputs())

@@ -21,7 +21,7 @@ class _BidiTextInput(BidiInput):
         """Setup async stream reader."""
         self._reader = asyncio.StreamReader()
 
-    async def start(self) -> None:
+    async def start(self, agent: "BidiAgent") -> None:
         """Connect reader to stdin."""
         loop = asyncio.get_running_loop()
         protocol = asyncio.StreamReaderProtocol(self._reader)

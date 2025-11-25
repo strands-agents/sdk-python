@@ -22,7 +22,7 @@ class BidiInput(Protocol):
     and return events to be sent to the agent.
     """
 
-    async def start(self) -> None:
+    async def start(self, agent: "BidiAgent") -> None:
         """Start input."""
         return
 
@@ -47,7 +47,7 @@ class BidiOutput(Protocol):
     (play audio, display text, send over websocket, etc.).
     """
 
-    async def start(self) -> None:
+    async def start(self, agent: "BidiAgent") -> None:
         """Start output."""
         return
 

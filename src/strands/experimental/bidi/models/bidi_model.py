@@ -34,12 +34,9 @@ class BidiModel(Protocol):
     connections with real-time audio and text communication. Implementations handle
     provider-specific protocols while exposing a standardized event-based API.
 
-    All bidirectional models must provide an audio_config property that specifies
-    their audio processing requirements. This configuration is built by merging
-    user-provided values with model-specific defaults.
     """
 
-    audio_config: AudioConfig
+    config: dict[str, Any]
 
     async def start(
         self,

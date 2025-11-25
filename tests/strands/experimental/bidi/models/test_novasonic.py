@@ -94,46 +94,48 @@ async def test_audio_config_defaults(model_id, region):
     """Test default audio configuration."""
     model = BidiNovaSonicModel(model_id=model_id, region=region)
 
-    assert model.audio_config["input_rate"] == 16000
-    assert model.audio_config["output_rate"] == 16000
-    assert model.audio_config["channels"] == 1
-    assert model.audio_config["format"] == "pcm"
-    assert model.audio_config["voice"] == "matthew"
+    assert model.config["audio"]["input_rate"] == 16000
+    assert model.config["audio"]["output_rate"] == 16000
+    assert model.config["audio"]["channels"] == 1
+    assert model.config["audio"]["format"] == "pcm"
+    assert model.config["audio"]["voice"] == "matthew"
 
 
 @pytest.mark.asyncio
 async def test_audio_config_partial_override(model_id, region):
     """Test partial audio configuration override."""
-    audio_config = {"output_rate": 24000, "voice": "ruth"}
-    model = BidiNovaSonicModel(model_id=model_id, region=region, audio_config=audio_config)
+    config = {"audio": {"output_rate": 24000, "voice": "ruth"}}
+    model = BidiNovaSonicModel(model_id=model_id, region=region, config=config)
 
     # Overridden values
-    assert model.audio_config["output_rate"] == 24000
-    assert model.audio_config["voice"] == "ruth"
+    assert model.config["audio"]["output_rate"] == 24000
+    assert model.config["audio"]["voice"] == "ruth"
 
     # Default values preserved
-    assert model.audio_config["input_rate"] == 16000
-    assert model.audio_config["channels"] == 1
-    assert model.audio_config["format"] == "pcm"
+    assert model.config["audio"]["input_rate"] == 16000
+    assert model.config["audio"]["channels"] == 1
+    assert model.config["audio"]["format"] == "pcm"
 
 
 @pytest.mark.asyncio
 async def test_audio_config_full_override(model_id, region):
     """Test full audio configuration override."""
-    audio_config = {
-        "input_rate": 48000,
-        "output_rate": 48000,
-        "channels": 2,
-        "format": "pcm",
-        "voice": "stephen",
+    config = {
+        "audio": {
+            "input_rate": 48000,
+            "output_rate": 48000,
+            "channels": 2,
+            "format": "pcm",
+            "voice": "stephen",
+        }
     }
-    model = BidiNovaSonicModel(model_id=model_id, region=region, audio_config=audio_config)
+    model = BidiNovaSonicModel(model_id=model_id, region=region, config=config)
 
-    assert model.audio_config["input_rate"] == 48000
-    assert model.audio_config["output_rate"] == 48000
-    assert model.audio_config["channels"] == 2
-    assert model.audio_config["format"] == "pcm"
-    assert model.audio_config["voice"] == "stephen"
+    assert model.config["audio"]["input_rate"] == 48000
+    assert model.config["audio"]["output_rate"] == 48000
+    assert model.config["audio"]["channels"] == 2
+    assert model.config["audio"]["format"] == "pcm"
+    assert model.config["audio"]["voice"] == "stephen"
 
 
 @pytest.mark.asyncio

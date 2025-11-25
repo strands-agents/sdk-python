@@ -117,68 +117,70 @@ def test_audio_config_defaults(api_key, model_name):
     """Test default audio configuration."""
     model = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
 
-    assert model.audio_config["input_rate"] == 24000
-    assert model.audio_config["output_rate"] == 24000
-    assert model.audio_config["channels"] == 1
-    assert model.audio_config["format"] == "pcm"
-    assert model.audio_config["voice"] == "alloy"
+    assert model.config["audio"]["input_rate"] == 24000
+    assert model.config["audio"]["output_rate"] == 24000
+    assert model.config["audio"]["channels"] == 1
+    assert model.config["audio"]["format"] == "pcm"
+    assert model.config["audio"]["voice"] == "alloy"
 
 
 def test_audio_config_partial_override(api_key, model_name):
     """Test partial audio configuration override."""
-    audio_config = {"output_rate": 48000, "voice": "echo"}
-    model = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key, audio_config=audio_config)
+    config = {"audio": {"output_rate": 48000, "voice": "echo"}}
+    model = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key, config=config)
 
     # Overridden values
-    assert model.audio_config["output_rate"] == 48000
-    assert model.audio_config["voice"] == "echo"
+    assert model.config["audio"]["output_rate"] == 48000
+    assert model.config["audio"]["voice"] == "echo"
 
     # Default values preserved
-    assert model.audio_config["input_rate"] == 24000
-    assert model.audio_config["channels"] == 1
-    assert model.audio_config["format"] == "pcm"
+    assert model.config["audio"]["input_rate"] == 24000
+    assert model.config["audio"]["channels"] == 1
+    assert model.config["audio"]["format"] == "pcm"
 
 
 def test_audio_config_full_override(api_key, model_name):
     """Test full audio configuration override."""
-    audio_config = {
-        "input_rate": 48000,
-        "output_rate": 48000,
-        "channels": 2,
-        "format": "pcm",
-        "voice": "shimmer",
+    config = {
+        "audio": {
+            "input_rate": 48000,
+            "output_rate": 48000,
+            "channels": 2,
+            "format": "pcm",
+            "voice": "shimmer",
+        }
     }
-    model = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key, audio_config=audio_config)
+    model = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key, config=config)
 
-    assert model.audio_config["input_rate"] == 48000
-    assert model.audio_config["output_rate"] == 48000
-    assert model.audio_config["channels"] == 2
-    assert model.audio_config["format"] == "pcm"
-    assert model.audio_config["voice"] == "shimmer"
+    assert model.config["audio"]["input_rate"] == 48000
+    assert model.config["audio"]["output_rate"] == 48000
+    assert model.config["audio"]["channels"] == 2
+    assert model.config["audio"]["format"] == "pcm"
+    assert model.config["audio"]["voice"] == "shimmer"
 
 
 def test_audio_config_voice_priority(api_key, model_name):
-    """Test that audio_config voice takes precedence over session_config voice."""
+    """Test that config audio voice takes precedence over session_config voice."""
     session_config = {"audio": {"output": {"voice": "alloy"}}}
-    audio_config = {"voice": "nova"}
+    config = {"audio": {"voice": "nova"}}
 
     model = BidiOpenAIRealtimeModel(
-        model=model_name, api_key=api_key, session_config=session_config, audio_config=audio_config
+        model=model_name, api_key=api_key, session_config=session_config, config=config
     )
 
-    # Build config and verify audio_config voice takes precedence
-    config = model._build_session_config(None, None)
-    assert config["audio"]["output"]["voice"] == "nova"
+    # Build config and verify config audio voice takes precedence
+    built_config = model._build_session_config(None, None)
+    assert built_config["audio"]["output"]["voice"] == "nova"
 
 
 def test_audio_config_extracts_voice_from_session_config(api_key, model_name):
-    """Test that voice is extracted from session_config when audio_config not provided."""
+    """Test that voice is extracted from session_config when config audio not provided."""
     session_config = {"audio": {"output": {"voice": "fable"}}}
 
     model = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key, session_config=session_config)
 
     # Should extract voice from session_config
-    assert model.audio_config["voice"] == "fable"
+    assert model.config["audio"]["voice"] == "fable"
 
 
 def test_init_without_api_key_raises():
