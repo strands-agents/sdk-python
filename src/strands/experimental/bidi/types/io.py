@@ -5,34 +5,12 @@ with BidiAgent. This approach provides better typing and flexibility
 by separating input and output concerns into independent callables.
 """
 
-from typing import TYPE_CHECKING, Awaitable, Literal, Protocol, TypedDict
+from typing import TYPE_CHECKING, Awaitable, Protocol
 
 from ..types.events import BidiInputEvent, BidiOutputEvent
 
 if TYPE_CHECKING:
     from ..agent.agent import BidiAgent
-
-
-class AudioConfig(TypedDict, total=False):
-    """Audio configuration for bidirectional streaming.
-
-    Defines standard audio parameters shared between model providers
-    and audio I/O implementations. All fields are optional to support
-    models that may not use audio or only need specific parameters.
-
-    Attributes:
-        input_rate: Input sample rate in Hz (e.g., 16000, 24000, 48000)
-        output_rate: Output sample rate in Hz (e.g., 16000, 24000, 48000)
-        channels: Number of audio channels (1=mono, 2=stereo)
-        format: Audio encoding format
-        voice: Voice identifier for text-to-speech (e.g., "alloy", "matthew")
-    """
-
-    input_rate: int
-    output_rate: int
-    channels: int
-    format: Literal["pcm", "wav", "opus", "mp3"]
-    voice: str
 
 
 class BidiInput(Protocol):

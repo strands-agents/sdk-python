@@ -34,7 +34,7 @@ from ..types.events import (
     SampleRate,
     StopReason,
 )
-from ..types.io import AudioConfig
+from ..types.model import AudioConfig
 from .bidi_model import BidiModel
 
 logger = logging.getLogger(__name__)
@@ -77,7 +77,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
     def __init__(
         self,
-        model: str = DEFAULT_MODEL,
+        model_id: str = DEFAULT_MODEL,
         api_key: str | None = None,
         organization: str | None = None,
         project: str | None = None,
@@ -98,7 +98,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
             **kwargs: Reserved for future parameters.
         """
         # Model configuration
-        self.model = model
+        self.model_id = model_id
         self.api_key = api_key
         self.organization = organization
         self.project = project
@@ -171,7 +171,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         self._function_call_buffer = {}
 
         # Establish WebSocket connection
-        url = f"{OPENAI_REALTIME_URL}?model={self.model}"
+        url = f"{OPENAI_REALTIME_URL}?model={self.model_id}"
 
         headers = [("Authorization", f"Bearer {self.api_key}")]
         if self.organization:
@@ -305,7 +305,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         if not self._connection_id:
             raise RuntimeError("model not started | call start before receiving")
 
-        yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model)
+        yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model_id)
 
         async for message in self._websocket:
             openai_event = json.loads(message)

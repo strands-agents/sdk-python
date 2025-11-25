@@ -30,7 +30,6 @@ from ....types.content import ContentBlock, Message, Messages
 from ....types.tools import AgentTool, ToolResult, ToolUse
 from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from ...tools import ToolProvider
-from ..hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from .._async import stop_all
 from ..models.bidi_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
@@ -435,13 +434,24 @@ class BidiAgent:
 
         Example:
             ```python
-            audio_io = BidiAudioIO(input_rate=16000)
+            # Using model defaults:
+            model = BidiNovaSonicModel()
+            audio_io = BidiAudioIO()
             text_io = BidiTextIO()
             agent = BidiAgent(model=model, tools=[calculator])
             await agent.run(
                 inputs=[audio_io.input()],
                 outputs=[audio_io.output(), text_io.output()],
                 invocation_state={"user_id": "user_123"}
+            )
+            
+            # Using custom audio config:
+            model = BidiNovaSonicModel(audio_config={"input_rate": 48000, "output_rate": 24000})
+            audio_io = BidiAudioIO()
+            agent = BidiAgent(model=model, tools=[calculator])
+            await agent.run(
+                inputs=[audio_io.input()],
+                outputs=[audio_io.output()],
             )
             ```
         """

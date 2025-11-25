@@ -2,6 +2,8 @@
 
 Reads user audio from input device and sends agent audio to output device using PyAudio. If a user interrupts the agent,
 the output buffer is cleared to stop playback.
+
+Audio configuration is provided by the model via agent.model.audio_config.
 """
 
 import asyncio
@@ -13,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 import pyaudio
 
 from ..types.events import BidiAudioInputEvent, BidiAudioStreamEvent, BidiInterruptionEvent, BidiOutputEvent
-from ..types.io import AudioConfig, BidiInput, BidiOutput
+from ..types.io import BidiInput, BidiOutput
 
 if TYPE_CHECKING:
     from ..agent.agent import BidiAgent
@@ -27,30 +29,28 @@ class _BidiAudioInput(BidiInput):
     Attributes:
         _audio: PyAudio instance for audio system access.
         _stream: Audio input stream.
-        _user_config_set: Track which config values were explicitly set by user.
     """
 
     _audio: pyaudio.PyAudio
     _stream: pyaudio.Stream
-    _user_config_set: set[str]
 
-    _CHANNELS: int = 1
+    # Audio device constants
     _DEVICE_INDEX: int | None = None
-    _ENCODING: str = "pcm"
-    _FORMAT: int = pyaudio.paInt16
+    _PYAUDIO_FORMAT: int = pyaudio.paInt16
     _FRAMES_PER_BUFFER: int = 512
-    _RATE: int = 16000
 
     def __init__(self, config: dict[str, Any]) -> None:
-        """Extract configs and track which were explicitly set by user."""
-        # Track which config values were explicitly provided by user
-        self._user_config_set = set(config.keys())
-
-        self._channels = config.get("input_channels", _BidiAudioInput._CHANNELS)
-        self._device_index = config.get("input_device_index", _BidiAudioInput._DEVICE_INDEX)
-        self._format = config.get("input_format", _BidiAudioInput._FORMAT)
-        self._frames_per_buffer = config.get("input_frames_per_buffer", _BidiAudioInput._FRAMES_PER_BUFFER)
-        self._rate = config.get("input_rate", _BidiAudioInput._RATE)
+        """Initialize audio input handler.
+        
+        Args:
+            config: Configuration dictionary with optional overrides:
+                - input_device_index: Specific input device to use
+                - input_frames_per_buffer: Number of frames per buffer
+        """
+        # Initialize instance variables from config or class constants
+        self._device_index = config.get("input_device_index", self._DEVICE_INDEX)
+        self._pyaudio_format = self._PYAUDIO_FORMAT
+        self._frames_per_buffer = config.get("input_frames_per_buffer", self._FRAMES_PER_BUFFER)
 
     async def start(self, agent: "BidiAgent") -> None:
         """Start input stream.
@@ -58,17 +58,10 @@ class _BidiAudioInput(BidiInput):
         Args:
             agent: The BidiAgent instance, providing access to model configuration.
         """
-        # Extract audio config from agent's model
-        audio_config = getattr(agent.model, "audio_config", None)
-        
-        # Apply audio config overrides only if user didn't explicitly set them
-        if audio_config:
-            if "input_rate" in audio_config and "input_rate" not in self._user_config_set:
-                self._rate = audio_config["input_rate"]
-                logger.debug("audio_config | applying model input rate: %d Hz", self._rate)
-            if "channels" in audio_config and "input_channels" not in self._user_config_set:
-                self._channels = audio_config["channels"]
-                logger.debug("audio_config | applying model channels: %d", self._channels)
+        # Get audio parameters from model config
+        self._rate = agent.model.audio_config["input_rate"]
+        self._channels = agent.model.audio_config["channels"]
+        self._format = agent.model.audio_config.get("format", "pcm")  # Encoding format for events
 
         logger.debug(
             "rate=<%d>, channels=<%d>, device_index=<%s> | starting audio input stream",
@@ -79,7 +72,7 @@ class _BidiAudioInput(BidiInput):
         self._audio = pyaudio.PyAudio()
         self._stream = self._audio.open(
             channels=self._channels,
-            format=self._format,
+            format=self._pyaudio_format,
             frames_per_buffer=self._frames_per_buffer,
             input=True,
             input_device_index=self._device_index,
@@ -106,7 +99,7 @@ class _BidiAudioInput(BidiInput):
         return BidiAudioInputEvent(
             audio=base64.b64encode(audio_bytes).decode("utf-8"),
             channels=self._channels,
-            format=_BidiAudioInput._ENCODING,
+            format=self._format,
             sample_rate=self._rate,
         )
 
@@ -120,7 +113,6 @@ class _BidiAudioOutput(BidiOutput):
         _buffer: Deque buffer for queuing audio data.
         _buffer_event: Event to signal when buffer has data.
         _output_task: Background task for processing audio output.
-        _user_config_set: Track which config values were explicitly set by user.
     """
 
     _audio: pyaudio.PyAudio
@@ -128,26 +120,27 @@ class _BidiAudioOutput(BidiOutput):
     _buffer: deque
     _buffer_event: asyncio.Event
     _output_task: asyncio.Task
-    _user_config_set: set[str]
 
+    # Audio device constants
     _BUFFER_SIZE: int | None = None
-    _CHANNELS: int = 1
     _DEVICE_INDEX: int | None = None
-    _FORMAT: int = pyaudio.paInt16
+    _PYAUDIO_FORMAT: int = pyaudio.paInt16
     _FRAMES_PER_BUFFER: int = 512
-    _RATE: int = 16000
 
     def __init__(self, config: dict[str, Any]) -> None:
-        """Extract configs and track which were explicitly set by user."""
-        # Track which config values were explicitly provided by user
-        self._user_config_set = set(config.keys())
-
-        self._buffer_size = config.get("output_buffer_size", _BidiAudioOutput._BUFFER_SIZE)
-        self._channels = config.get("output_channels", _BidiAudioOutput._CHANNELS)
-        self._device_index = config.get("output_device_index", _BidiAudioOutput._DEVICE_INDEX)
-        self._format = config.get("output_format", _BidiAudioOutput._FORMAT)
-        self._frames_per_buffer = config.get("output_frames_per_buffer", _BidiAudioOutput._FRAMES_PER_BUFFER)
-        self._rate = config.get("output_rate", _BidiAudioOutput._RATE)
+        """Initialize audio output handler.
+        
+        Args:
+            config: Configuration dictionary with optional overrides:
+                - output_device_index: Specific output device to use
+                - output_frames_per_buffer: Number of frames per buffer
+                - output_buffer_size: Maximum buffer size (None = unlimited)
+        """
+        # Initialize instance variables from config or class constants
+        self._buffer_size = config.get("output_buffer_size", self._BUFFER_SIZE)
+        self._device_index = config.get("output_device_index", self._DEVICE_INDEX)
+        self._pyaudio_format = self._PYAUDIO_FORMAT  # Not configurable
+        self._frames_per_buffer = config.get("output_frames_per_buffer", self._FRAMES_PER_BUFFER)
 
     async def start(self, agent: "BidiAgent") -> None:
         """Start output stream.
@@ -155,29 +148,19 @@ class _BidiAudioOutput(BidiOutput):
         Args:
             agent: The BidiAgent instance, providing access to model configuration.
         """
-        # Extract audio config from agent's model
-        audio_config = getattr(agent.model, "audio_config", None)
-        
-        # Apply audio config overrides only if user didn't explicitly set them
-        if audio_config:
-            if "output_rate" in audio_config and "output_rate" not in self._user_config_set:
-                self._rate = audio_config["output_rate"]
-                logger.debug("audio_config | applying model output rate: %d Hz", self._rate)
-            if "channels" in audio_config and "output_channels" not in self._user_config_set:
-                self._channels = audio_config["channels"]
-                logger.debug("audio_config | applying model channels: %d", self._channels)
+        # Get audio parameters from model config
+        self._rate = agent.model.audio_config["output_rate"]
+        self._channels = agent.model.audio_config["channels"]
 
         logger.debug(
-            "rate=<%d>, channels=<%d>, device_index=<%s>, buffer_size=<%s> | starting audio output stream",
+            "rate=<%d>, channels=<%d> | starting audio output stream",
             self._rate,
             self._channels,
-            self._device_index,
-            self._buffer_size,
         )
         self._audio = pyaudio.PyAudio()
         self._stream = self._audio.open(
             channels=self._channels,
-            format=self._format,
+            format=self._pyaudio_format,
             frames_per_buffer=self._frames_per_buffer,
             output=True,
             output_device_index=self._device_index,
@@ -228,25 +211,19 @@ class _BidiAudioOutput(BidiOutput):
 
 
 class BidiAudioIO:
-    """Send and receive audio data from devices."""
+    """Send and receive audio data from devices.
+    
+    Args:
+        **config: Optional device configuration:
+            - input_device_index (int): Specific input device (default: None = system default)
+            - output_device_index (int): Specific output device (default: None = system default)
+            - input_frames_per_buffer (int): Input buffer size (default: 512)
+            - output_frames_per_buffer (int): Output buffer size (default: 512)
+            - output_buffer_size (int | None): Max output queue size (default: None = unlimited)
+    """
 
     def __init__(self, **config: Any) -> None:
-        """Initialize audio devices.
-
-        Args:
-            **config: Dictionary containing audio configuration:
-                - input_channels (int): Input channels (default: 1)
-                - input_device_index (int): Specific input device (optional)
-                - input_format (int): Audio format (default: paInt16)
-                - input_frames_per_buffer (int): Frames per buffer (default: 512)
-                - input_rate (int): Input sample rate (default: 16000)
-                - output_buffer_size (int): Maximum output buffer size (default: None)
-                - output_channels (int): Output channels (default: 1)
-                - output_device_index (int): Specific output device (optional)
-                - output_format (int): Audio format (default: paInt16)
-                - output_frames_per_buffer (int): Frames per buffer (default: 512)
-                - output_rate (int): Output sample rate (default: 16000)
-        """
+        """Initialize audio devices."""
         self._config = config
 
     def input(self) -> _BidiAudioInput:

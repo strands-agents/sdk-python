@@ -22,6 +22,7 @@ from ..types.events import (
     BidiInputEvent,
     BidiOutputEvent,
 )
+from ..types.model import AudioConfig
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,13 @@ class BidiModel(Protocol):
     This interface defines the contract for models that support persistent streaming
     connections with real-time audio and text communication. Implementations handle
     provider-specific protocols while exposing a standardized event-based API.
+
+    All bidirectional models must provide an audio_config property that specifies
+    their audio processing requirements. This configuration is built by merging
+    user-provided values with model-specific defaults.
     """
+
+    audio_config: AudioConfig
 
     async def start(
         self,

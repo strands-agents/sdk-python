@@ -39,7 +39,7 @@ from ..types.events import (
     ModalityUsage,
     SampleRate,
 )
-from ..types.io import AudioConfig
+from ..types.model import AudioConfig
 from .bidi_model import BidiModel
 
 logger = logging.getLogger(__name__)
