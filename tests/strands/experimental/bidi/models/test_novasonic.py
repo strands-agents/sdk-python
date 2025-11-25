@@ -86,6 +86,58 @@ async def test_model_initialization(model_id, region):
     assert model._connection_id is None
 
 
+# Audio Configuration Tests
+
+
+@pytest.mark.asyncio
+async def test_audio_config_defaults(model_id, region):
+    """Test default audio configuration."""
+    model = BidiNovaSonicModel(model_id=model_id, region=region)
+
+    assert model.config["audio"]["input_rate"] == 16000
+    assert model.config["audio"]["output_rate"] == 16000
+    assert model.config["audio"]["channels"] == 1
+    assert model.config["audio"]["format"] == "pcm"
+    assert model.config["audio"]["voice"] == "matthew"
+
+
+@pytest.mark.asyncio
+async def test_audio_config_partial_override(model_id, region):
+    """Test partial audio configuration override."""
+    config = {"audio": {"output_rate": 24000, "voice": "ruth"}}
+    model = BidiNovaSonicModel(model_id=model_id, region=region, config=config)
+
+    # Overridden values
+    assert model.config["audio"]["output_rate"] == 24000
+    assert model.config["audio"]["voice"] == "ruth"
+
+    # Default values preserved
+    assert model.config["audio"]["input_rate"] == 16000
+    assert model.config["audio"]["channels"] == 1
+    assert model.config["audio"]["format"] == "pcm"
+
+
+@pytest.mark.asyncio
+async def test_audio_config_full_override(model_id, region):
+    """Test full audio configuration override."""
+    config = {
+        "audio": {
+            "input_rate": 48000,
+            "output_rate": 48000,
+            "channels": 2,
+            "format": "pcm",
+            "voice": "stephen",
+        }
+    }
+    model = BidiNovaSonicModel(model_id=model_id, region=region, config=config)
+
+    assert model.config["audio"]["input_rate"] == 48000
+    assert model.config["audio"]["output_rate"] == 48000
+    assert model.config["audio"]["channels"] == 2
+    assert model.config["audio"]["format"] == "pcm"
+    assert model.config["audio"]["voice"] == "stephen"
+
+
 @pytest.mark.asyncio
 async def test_connection_lifecycle(nova_model, mock_client, mock_stream):
     """Test complete connection lifecycle with various configurations."""

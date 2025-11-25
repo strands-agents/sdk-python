@@ -5,9 +5,13 @@ with BidiAgent. This approach provides better typing and flexibility
 by separating input and output concerns into independent callables.
 """
 
+from typing import TYPE_CHECKING, Awaitable, Protocol
 from typing import Awaitable, Protocol, runtime_checkable
 
 from ..types.events import BidiInputEvent, BidiOutputEvent
+
+if TYPE_CHECKING:
+    from ..agent.agent import BidiAgent
 
 
 @runtime_checkable
@@ -18,7 +22,7 @@ class BidiInput(Protocol):
     and return events to be sent to the agent.
     """
 
-    async def start(self) -> None:
+    async def start(self, agent: "BidiAgent") -> None:
         """Start input."""
         return
 
@@ -43,7 +47,7 @@ class BidiOutput(Protocol):
     (play audio, display text, send over websocket, etc.).
     """
 
-    async def start(self) -> None:
+    async def start(self, agent: "BidiAgent") -> None:
         """Start output."""
         return
 

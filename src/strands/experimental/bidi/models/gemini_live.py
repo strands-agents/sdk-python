@@ -39,6 +39,7 @@ from ..types.events import (
     ModalityUsage,
     SampleRate,
 )
+from ..types.bidi_model import AudioConfig
 from .bidi_model import BidiModel
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ class BidiGeminiLiveModel(BidiModel):
         self,
         model_id: str = "gemini-2.5-flash-native-audio-preview-09-2025",
         api_key: str | None = None,
+        config: dict[str, Any] | None = None,
         live_config: dict[str, Any] | None = None,
         **kwargs: Any,
     ):
@@ -69,6 +71,8 @@ class BidiGeminiLiveModel(BidiModel):
         Args:
             model_id: Gemini Live model identifier.
             api_key: Google AI API key for authentication.
+            config: Optional configuration dictionary with structure {"audio": AudioConfig, ...}.
+                   If not provided or if "audio" key is missing, uses Gemini Live API's default audio configuration.
             live_config: Gemini Live API configuration parameters (e.g., response_modalities, speech_config).
             **kwargs: Reserved for future parameters.
         """
@@ -103,6 +107,39 @@ class BidiGeminiLiveModel(BidiModel):
         self._live_session: Any = None
         self._live_session_context_manager: Any = None
         self._connection_id: str | None = None
+
+        # Extract audio config from config dict if provided
+        user_audio_config = config.get("audio", {}) if config else {}
+
+        # Extract voice from live_config if provided
+        live_config_voice = None
+        if self.live_config and "speech_config" in self.live_config:
+            speech_config = self.live_config["speech_config"]
+            if isinstance(speech_config, dict):
+                live_config_voice = speech_config.get("voice_config", {}).get("prebuilt_voice_config", {}).get("voice_name")
+
+        # Define default audio configuration
+        default_audio_config: AudioConfig = {
+            "input_rate": GEMINI_INPUT_SAMPLE_RATE,
+            "output_rate": GEMINI_OUTPUT_SAMPLE_RATE,
+            "channels": GEMINI_CHANNELS,
+            "format": "pcm",
+        }
+
+        # Add voice to defaults if configured in live_config
+        if live_config_voice:
+            default_audio_config["voice"] = live_config_voice
+
+        # Merge user config with defaults (user values take precedence)
+        merged_audio_config = cast(AudioConfig, {**default_audio_config, **user_audio_config})
+
+        # Store config with audio defaults always populated
+        self.config: dict[str, Any] = {"audio": merged_audio_config}
+
+        if user_audio_config:
+            logger.debug("audio_config | merged user-provided config with defaults")
+        else:
+            logger.debug("audio_config | using default Gemini Live audio configuration")
 
     async def start(
         self,
@@ -451,6 +488,12 @@ class BidiGeminiLiveModel(BidiModel):
         # Add tools if provided
         if tools:
             config_dict["tools"] = self._format_tools_for_live_api(tools)
+
+        # Override voice with config value if present (config takes precedence)
+        if "voice" in self.config["audio"]:
+            config_dict.setdefault("speech_config", {}).setdefault("voice_config", {}).setdefault(
+                "prebuilt_voice_config", {}
+            )["voice_name"] = self.config["audio"]["voice"]
 
         return config_dict
 

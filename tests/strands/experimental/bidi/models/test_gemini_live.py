@@ -445,6 +445,75 @@ async def test_event_conversion(mock_genai_client, model):
     await model.stop()
 
 
+# Audio Configuration Tests
+
+
+def test_audio_config_defaults(mock_genai_client, model_id, api_key):
+    """Test default audio configuration."""
+    _ = mock_genai_client
+
+    model = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+
+    assert model.config["audio"]["input_rate"] == 16000
+    assert model.config["audio"]["output_rate"] == 24000
+    assert model.config["audio"]["channels"] == 1
+    assert model.config["audio"]["format"] == "pcm"
+    assert "voice" not in model.config["audio"]  # No default voice
+
+
+def test_audio_config_partial_override(mock_genai_client, model_id, api_key):
+    """Test partial audio configuration override."""
+    _ = mock_genai_client
+
+    config = {"audio": {"output_rate": 48000, "voice": "Puck"}}
+    model = BidiGeminiLiveModel(model_id=model_id, api_key=api_key, config=config)
+
+    # Overridden values
+    assert model.config["audio"]["output_rate"] == 48000
+    assert model.config["audio"]["voice"] == "Puck"
+
+    # Default values preserved
+    assert model.config["audio"]["input_rate"] == 16000
+    assert model.config["audio"]["channels"] == 1
+    assert model.config["audio"]["format"] == "pcm"
+
+
+def test_audio_config_full_override(mock_genai_client, model_id, api_key):
+    """Test full audio configuration override."""
+    _ = mock_genai_client
+
+    config = {
+        "audio": {
+            "input_rate": 48000,
+            "output_rate": 48000,
+            "channels": 2,
+            "format": "pcm",
+            "voice": "Aoede",
+        }
+    }
+    model = BidiGeminiLiveModel(model_id=model_id, api_key=api_key, config=config)
+
+    assert model.config["audio"]["input_rate"] == 48000
+    assert model.config["audio"]["output_rate"] == 48000
+    assert model.config["audio"]["channels"] == 2
+    assert model.config["audio"]["format"] == "pcm"
+    assert model.config["audio"]["voice"] == "Aoede"
+
+
+def test_audio_config_voice_priority(mock_genai_client, model_id, api_key):
+    """Test that config audio voice takes precedence over live_config voice."""
+    _ = mock_genai_client
+
+    live_config = {"speech_config": {"voice_config": {"prebuilt_voice_config": {"voice_name": "Puck"}}}}
+    config = {"audio": {"voice": "Aoede"}}
+
+    model = BidiGeminiLiveModel(model_id=model_id, api_key=api_key, live_config=live_config, config=config)
+
+    # Build config and verify config audio voice takes precedence
+    built_config = model._build_live_config()
+    assert built_config["speech_config"]["voice_config"]["prebuilt_voice_config"]["voice_name"] == "Aoede"
+
+
 # Helper Method Tests
 
 

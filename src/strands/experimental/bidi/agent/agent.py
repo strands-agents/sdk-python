@@ -322,13 +322,24 @@ class BidiAgent:
 
         Example:
             ```python
-            audio_io = BidiAudioIO(input_rate=16000)
+            # Using model defaults:
+            model = BidiNovaSonicModel()
+            audio_io = BidiAudioIO()
             text_io = BidiTextIO()
             agent = BidiAgent(model=model, tools=[calculator])
             await agent.run(
                 inputs=[audio_io.input()],
                 outputs=[audio_io.output(), text_io.output()],
                 invocation_state={"user_id": "user_123"}
+            )
+            
+            # Using custom audio config:
+            model = BidiNovaSonicModel(config={"audio": {"input_rate": 48000, "output_rate": 24000}})
+            audio_io = BidiAudioIO()
+            agent = BidiAgent(model=model, tools=[calculator])
+            await agent.run(
+                inputs=[audio_io.input()],
+                outputs=[audio_io.output()],
             )
             ```
         """
@@ -353,7 +364,7 @@ class BidiAgent:
             input_starts = [input_.start for input_ in inputs if isinstance(input_, BidiInput)]
             output_starts = [output.start for output in outputs if isinstance(output, BidiOutput)]
             for start in [*input_starts, *output_starts]:
-                await start()
+                await start(self)
 
             async with asyncio.TaskGroup() as task_group:
                 task_group.create_task(run_inputs())
