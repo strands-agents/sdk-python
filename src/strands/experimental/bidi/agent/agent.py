@@ -470,18 +470,6 @@ class BidiAgent:
                 tasks = [output(event) for output in outputs]
                 await asyncio.gather(*tasks)
 
-        await self.start()
-
-        # Start inputs, passing agent for configuration
-        for input_ in inputs:
-            if hasattr(input_, "start"):
-                await input_.start(self)
-
-        # Start outputs, passing agent for configuration
-        for output in outputs:
-            if hasattr(output, "start"):
-                await output.start(self)
-
         try:
             await self.start(invocation_state)
 
