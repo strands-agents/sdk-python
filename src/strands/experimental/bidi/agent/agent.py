@@ -476,7 +476,7 @@ class BidiAgent:
             start_inputs = [input_.start for input_ in inputs if hasattr(input_, "start")]
             start_outputs = [output.start for output in outputs if hasattr(output, "start")]
             for start in [*start_inputs, *start_outputs]:
-                await start()
+                await start(self)
 
             async with asyncio.TaskGroup() as task_group:
                 task_group.create_task(run_inputs())
