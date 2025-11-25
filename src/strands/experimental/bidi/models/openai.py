@@ -306,12 +306,31 @@ class BidiOpenAIRealtimeModel(BidiModel):
                 elif "toolResult" in block:
                     # Tool result - create as function_call_output item
                     tool_result = block["toolResult"]
-                    result_text = ""
+                    
+                    # Serialize the entire tool result content, preserving all data types
+                    result_output = ""
                     if "content" in tool_result:
+                        # Collect all content blocks
+                        content_parts = []
                         for result_block in tool_result["content"]:
                             if "text" in result_block:
-                                result_text = result_block["text"]
-                                break
+                                content_parts.append(result_block["text"])
+                            elif "json" in result_block:
+                                # Preserve JSON content
+                                json_content = result_block["json"]
+                                content_parts.append(
+                                    json.dumps(json_content) if not isinstance(json_content, str) else json_content
+                                )
+                            elif "image" in result_block:
+                                logger.warning("image content in tool results not supported by openai realtime api")
+                            elif "document" in result_block:
+                                logger.warning("document content in tool results not supported by openai realtime api")
+                        
+                        # Combine all parts - if single part, use as-is; if multiple, combine
+                        if len(content_parts) == 1:
+                            result_output = content_parts[0]
+                        elif content_parts:
+                            result_output = "\n".join(content_parts)
 
                     original_id = tool_result["toolUseId"]
                     # Use mapped call_id if available, otherwise skip orphaned result
@@ -325,7 +344,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
                         "item": {
                             "type": "function_call_output",
                             "call_id": call_id,
-                            "output": result_text,
+                            "output": result_output,
                         },
                     }
                     await self._send_event(result_item)
@@ -665,18 +684,36 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
         logger.debug("tool_use_id=<%s> | sending openai tool result", tool_use_id)
 
-        # TODO: We need to extract all content and content types
-        result_data: dict[Any, Any] | str = {}
+        # Serialize the entire tool result content, preserving all data types
+        result_output = ""
         if "content" in tool_result:
-            # Extract text from content blocks
+            # Collect all content blocks
+            content_parts = []
             for block in tool_result["content"]:
                 if "text" in block:
-                    result_data = block["text"]
-                    break
+                    content_parts.append(block["text"])
+                elif "json" in block:
+                    # Preserve JSON content
+                    json_content = block["json"]
+                    content_parts.append(
+                        json.dumps(json_content) if not isinstance(json_content, str) else json_content
+                    )
+                elif "image" in block:
+                    raise ValueError(
+                        f"tool_use_id=<{tool_use_id}> | Image content in tool results is not supported by OpenAI Realtime API"
+                    )
+                elif "document" in block:
+                    raise ValueError(
+                        f"tool_use_id=<{tool_use_id}> | Document content in tool results is not supported by OpenAI Realtime API"
+                    )
+            
+            # Combine all parts - if single part, use as-is; if multiple, combine
+            if len(content_parts) == 1:
+                result_output = content_parts[0]
+            elif content_parts:
+                result_output = "\n".join(content_parts)
 
-        result_text = json.dumps(result_data) if not isinstance(result_data, str) else result_data
-
-        item_data = {"type": "function_call_output", "call_id": tool_use_id, "output": result_text}
+        item_data = {"type": "function_call_output", "call_id": tool_use_id, "output": result_output}
         await self._send_event({"type": "conversation.item.create", "item": item_data})
         await self._send_event({"type": "response.create"})
 

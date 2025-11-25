@@ -312,7 +312,7 @@ async def test_send_all_content_types(mock_websockets_connect, model):
     # Audio should be passed through as base64
     assert audio_append[0]["audio"] == audio_b64
 
-    # Test tool result
+    # Test tool result with text content
     tool_result: ToolResult = {
         "toolUseId": "tool-123",
         "status": "success",
@@ -326,6 +326,60 @@ async def test_send_all_content_types(mock_websockets_connect, model):
     item = item_create[-1].get("item", {})
     assert item.get("type") == "function_call_output"
     assert item.get("call_id") == "tool-123"
+    assert item.get("output") == "Result: 42"
+
+    # Test tool result with JSON content
+    tool_result_json: ToolResult = {
+        "toolUseId": "tool-456",
+        "status": "success",
+        "content": [{"json": {"result": 42, "status": "ok"}}],
+    }
+    await model.send(ToolResultEvent(tool_result_json))
+    calls = mock_ws.send.call_args_list
+    messages = [json.loads(call[0][0]) for call in calls]
+    item_create = [m for m in messages if m.get("type") == "conversation.item.create"]
+    item = item_create[-1].get("item", {})
+    assert item.get("type") == "function_call_output"
+    assert item.get("call_id") == "tool-456"
+    # JSON should be serialized
+    assert json.loads(item.get("output")) == {"result": 42, "status": "ok"}
+
+    # Test tool result with multiple content blocks
+    tool_result_multi: ToolResult = {
+        "toolUseId": "tool-789",
+        "status": "success",
+        "content": [{"text": "Part 1"}, {"json": {"data": "value"}}, {"text": "Part 2"}],
+    }
+    await model.send(ToolResultEvent(tool_result_multi))
+    calls = mock_ws.send.call_args_list
+    messages = [json.loads(call[0][0]) for call in calls]
+    item_create = [m for m in messages if m.get("type") == "conversation.item.create"]
+    item = item_create[-1].get("item", {})
+    assert item.get("type") == "function_call_output"
+    assert item.get("call_id") == "tool-789"
+    # Multiple parts should be joined with newlines
+    output = item.get("output")
+    assert "Part 1" in output
+    assert '"data": "value"' in output or "'data': 'value'" in output
+    assert "Part 2" in output
+
+    # Test tool result with image content (should raise error)
+    tool_result_image: ToolResult = {
+        "toolUseId": "tool-999",
+        "status": "success",
+        "content": [{"image": {"format": "jpeg", "source": {"bytes": b"image_data"}}}],
+    }
+    with pytest.raises(ValueError, match=r"Image content.*not supported"):
+        await model.send(ToolResultEvent(tool_result_image))
+
+    # Test tool result with document content (should raise error)
+    tool_result_doc: ToolResult = {
+        "toolUseId": "tool-888",
+        "status": "success",
+        "content": [{"document": {"format": "pdf", "source": {"bytes": b"doc_data"}}}],
+    }
+    with pytest.raises(ValueError, match=r"Document content.*not supported"):
+        await model.send(ToolResultEvent(tool_result_doc))
 
     await model.stop()
 
@@ -632,5 +686,143 @@ async def test_partial_audio_config(mock_websockets_connect, api_key):
     assert audio_event.sample_rate == 24000  # Falls back to default
     assert audio_event.format == "pcm"
     assert audio_event.channels == 1
+
+    await model.stop()
+
+
+# Tool Result Content Tests
+
+
+@pytest.mark.asyncio
+async def test_tool_result_single_text_content(mock_websockets_connect, api_key):
+    """Test tool result with single text content block."""
+    _, mock_ws = mock_websockets_connect
+    model = BidiOpenAIRealtimeModel(api_key=api_key)
+    await model.start()
+
+    tool_result: ToolResult = {
+        "toolUseId": "call-123",
+        "status": "success",
+        "content": [{"text": "Simple text result"}],
+    }
+
+    await model.send(ToolResultEvent(tool_result))
+
+    # Verify the sent event
+    calls = mock_ws.send.call_args_list
+    messages = [json.loads(call[0][0]) for call in calls]
+    item_create = [m for m in messages if m.get("type") == "conversation.item.create"]
+
+    assert len(item_create) > 0
+    item = item_create[-1].get("item", {})
+    assert item.get("type") == "function_call_output"
+    assert item.get("call_id") == "call-123"
+    assert item.get("output") == "Simple text result"
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_tool_result_single_json_content(mock_websockets_connect, api_key):
+    """Test tool result with single JSON content block."""
+    _, mock_ws = mock_websockets_connect
+    model = BidiOpenAIRealtimeModel(api_key=api_key)
+    await model.start()
+
+    tool_result: ToolResult = {
+        "toolUseId": "call-456",
+        "status": "success",
+        "content": [{"json": {"temperature": 72, "condition": "sunny"}}],
+    }
+
+    await model.send(ToolResultEvent(tool_result))
+
+    # Verify the sent event
+    calls = mock_ws.send.call_args_list
+    messages = [json.loads(call[0][0]) for call in calls]
+    item_create = [m for m in messages if m.get("type") == "conversation.item.create"]
+
+    item = item_create[-1].get("item", {})
+    assert item.get("type") == "function_call_output"
+    assert item.get("call_id") == "call-456"
+    # JSON should be serialized as string
+    output = item.get("output")
+    parsed = json.loads(output)
+    assert parsed == {"temperature": 72, "condition": "sunny"}
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_tool_result_multiple_content_blocks(mock_websockets_connect, api_key):
+    """Test tool result with multiple content blocks (text and json)."""
+    _, mock_ws = mock_websockets_connect
+    model = BidiOpenAIRealtimeModel(api_key=api_key)
+    await model.start()
+
+    tool_result: ToolResult = {
+        "toolUseId": "call-789",
+        "status": "success",
+        "content": [
+            {"text": "Weather data:"},
+            {"json": {"temp": 72, "humidity": 65}},
+            {"text": "Forecast: sunny"},
+        ],
+    }
+
+    await model.send(ToolResultEvent(tool_result))
+
+    # Verify the sent event
+    calls = mock_ws.send.call_args_list
+    messages = [json.loads(call[0][0]) for call in calls]
+    item_create = [m for m in messages if m.get("type") == "conversation.item.create"]
+
+    item = item_create[-1].get("item", {})
+    assert item.get("type") == "function_call_output"
+    assert item.get("call_id") == "call-789"
+    # Multiple parts should be joined with newlines
+    output = item.get("output")
+    assert "Weather data:" in output
+    assert "temp" in output
+    assert "humidity" in output
+    assert "Forecast: sunny" in output
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_tool_result_image_content_raises_error(mock_websockets_connect, api_key):
+    """Test that tool result with image content raises ValueError."""
+    _, mock_ws = mock_websockets_connect
+    model = BidiOpenAIRealtimeModel(api_key=api_key)
+    await model.start()
+
+    tool_result: ToolResult = {
+        "toolUseId": "call-999",
+        "status": "success",
+        "content": [{"image": {"format": "jpeg", "source": {"bytes": b"fake_image_data"}}}],
+    }
+
+    with pytest.raises(ValueError, match=r"Image content.*not supported.*OpenAI Realtime API"):
+        await model.send(ToolResultEvent(tool_result))
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_tool_result_document_content_raises_error(mock_websockets_connect, api_key):
+    """Test that tool result with document content raises ValueError."""
+    _, mock_ws = mock_websockets_connect
+    model = BidiOpenAIRealtimeModel(api_key=api_key)
+    await model.start()
+
+    tool_result: ToolResult = {
+        "toolUseId": "call-888",
+        "status": "success",
+        "content": [{"document": {"format": "pdf", "source": {"bytes": b"fake_pdf_data"}}}],
+    }
+
+    with pytest.raises(ValueError, match=r"Document content.*not supported.*OpenAI Realtime API"):
+        await model.send(ToolResultEvent(tool_result))
 
     await model.stop()

@@ -354,14 +354,15 @@ class BidiNovaSonicModel(BidiModel):
 
         logger.debug("tool_use_id=<%s> | sending nova tool result", tool_use_id)
 
-        # TODO: We need to extract all content and content types
-        result_data = {}
-        if "content" in tool_result:
-            # Extract text from content blocks
-            for block in tool_result["content"]:
-                if "text" in block:
-                    result_data = {"result": block["text"]}
-                    break
+        # Nova Sonic expects stringified JSON in toolResult.content
+        content = tool_result.get("content", [])
+        
+        # Optimize for single content item - unwrap the array
+        if len(content) == 1:
+            result_data: dict[str, Any] = content[0]
+        else:
+            # Multiple items - send as array
+            result_data = {"content": content}
 
         content_name = str(uuid.uuid4())
         events = [
@@ -564,17 +565,6 @@ class BidiNovaSonicModel(BidiModel):
             for block in content_blocks:
                 if "text" in block:
                     text_parts.append(block["text"])
-                elif "toolUse" in block:
-                    # Include tool use information in text format for context
-                    tool_use = block["toolUse"]
-                    text_parts.append(f"[Tool: {tool_use['name']}]")
-                elif "toolResult" in block:
-                    # Include tool result information in text format for context
-                    tool_result = block["toolResult"]
-                    if "content" in tool_result:
-                        for result_block in tool_result["content"]:
-                            if "text" in result_block:
-                                text_parts.append(f"[Tool Result: {result_block['text']}]")
 
             # Combine all text parts
             if text_parts:
