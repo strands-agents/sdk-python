@@ -2,8 +2,8 @@
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING
 import sys
+from typing import TYPE_CHECKING
 
 from ..types.events import BidiInterruptionEvent, BidiOutputEvent, BidiTextInputEvent, BidiTranscriptStreamEvent
 from ..types.io import BidiInput, BidiOutput

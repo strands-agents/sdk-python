@@ -24,6 +24,7 @@ from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
 from .._async import stop_all
+from ..types.bidi_model import AudioConfig
 from ..types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
@@ -39,7 +40,6 @@ from ..types.events import (
     ModalityUsage,
     SampleRate,
 )
-from ..types.bidi_model import AudioConfig
 from .bidi_model import BidiModel
 
 logger = logging.getLogger(__name__)
@@ -116,7 +116,9 @@ class BidiGeminiLiveModel(BidiModel):
         if self.live_config and "speech_config" in self.live_config:
             speech_config = self.live_config["speech_config"]
             if isinstance(speech_config, dict):
-                live_config_voice = speech_config.get("voice_config", {}).get("prebuilt_voice_config", {}).get("voice_name")
+                live_config_voice = (
+                    speech_config.get("voice_config", {}).get("prebuilt_voice_config", {}).get("voice_name")
+                )
 
         # Define default audio configuration
         default_audio_config: AudioConfig = {

@@ -5,8 +5,7 @@ with BidiAgent. This approach provides better typing and flexibility
 by separating input and output concerns into independent callables.
 """
 
-from typing import TYPE_CHECKING, Awaitable, Protocol
-from typing import Awaitable, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Awaitable, Protocol, runtime_checkable
 
 from ..types.events import BidiInputEvent, BidiOutputEvent
 

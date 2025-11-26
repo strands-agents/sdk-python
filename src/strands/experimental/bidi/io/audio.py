@@ -3,13 +3,13 @@
 Reads user audio from input device and sends agent audio to output device using PyAudio. If a user interrupts the agent,
 the output buffer is cleared to stop playback.
 
-Audio configuration is provided by the model via agent.model.audio_config.
+Audio configuration is provided by the model via agent.model.config["audio"].
 """
 
 import asyncio
 import base64
 import logging
-from collections import deque
+import queue
 from typing import TYPE_CHECKING, Any
 
 import pyaudio
@@ -23,35 +23,112 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class _BidiAudioBuffer:
+    """Buffer chunks of audio data between agent and PyAudio."""
+
+    _buffer: queue.Queue
+    _data: bytearray
+
+    def __init__(self, size: int | None = None):
+        """Initialize buffer settings.
+
+        Args:
+            size: Size of the buffer (default: unbounded).
+        """
+        self._size = size or 0
+
+    def start(self) -> None:
+        """Setup buffer."""
+        self._buffer = queue.Queue(self._size)
+        self._data = bytearray()
+
+    def stop(self) -> None:
+        """Tear down buffer."""
+        if hasattr(self, "_data"):
+            self._data.clear()
+        if hasattr(self, "_buffer"):
+            # Unblocking waited get calls by putting an empty chunk
+            # Note, Queue.shutdown exists but is a 3.13+ only feature
+            # We simulate shutdown with the below logic
+            self._buffer.put_nowait(b"")
+            self._buffer = queue.Queue(self._size)
+
+    def put(self, chunk: bytes) -> None:
+        """Put data chunk into buffer.
+
+        If full, removes the oldest chunk.
+        """
+        if self._buffer.full():
+            logger.debug("buffer is full | removing oldest chunk")
+            try:
+                self._buffer.get_nowait()
+            except queue.Empty:
+                logger.debug("buffer already empty")
+                pass
+
+        self._buffer.put_nowait(chunk)
+
+    def get(self, byte_count: int | None = None) -> bytes:
+        """Get the number of bytes specified from the buffer.
+
+        Args:
+            byte_count: Number of bytes to get from buffer.
+                - If the number of bytes specified is not available, the return is padded with silence.
+                - If the number of bytes is not specified, get the first chunk put in the buffer.
+
+        Returns:
+            Specified number of bytes.
+        """
+        if not byte_count:
+            self._data.extend(self._buffer.get())
+            byte_count = len(self._data)
+
+        while len(self._data) < byte_count:
+            try:
+                self._data.extend(self._buffer.get_nowait())
+            except queue.Empty:
+                break
+
+        padding_bytes = b"\x00" * max(byte_count - len(self._data), 0)
+        self._data.extend(padding_bytes)
+
+        data = self._data[:byte_count]
+        del self._data[:byte_count]
+
+        return bytes(data)
+
+    def clear(self) -> None:
+        """Clear the buffer."""
+        while True:
+            try:
+                self._buffer.get_nowait()
+            except queue.Empty:
+                break
+
+
 class _BidiAudioInput(BidiInput):
     """Handle audio input from user.
 
     Attributes:
         _audio: PyAudio instance for audio system access.
         _stream: Audio input stream.
+        _buffer: Buffer for sharing audio data between agent and PyAudio.
     """
 
     _audio: pyaudio.PyAudio
     _stream: pyaudio.Stream
 
-    # Audio device constants
-    _DEVICE_INDEX: int | None = None
-    _PYAUDIO_FORMAT: int = pyaudio.paInt16
-    _FRAMES_PER_BUFFER: int = 512
+    _BUFFER_SIZE = None
+    _DEVICE_INDEX = None
+    _FRAMES_PER_BUFFER = 512
 
     def __init__(self, config: dict[str, Any]) -> None:
-        """Initialize audio input handler.
-        
-        Args:
-            config: Configuration dictionary with optional overrides:
-                - input_device_index: Specific input device to use
-                - input_pyaudio_format: PyAudio format (default: paInt16)
-                - input_frames_per_buffer: Number of frames per buffer
-        """
-        # Initialize instance variables from config or class constants
-        self._device_index = config.get("input_device_index", self._DEVICE_INDEX)
-        self._pyaudio_format = config.get("input_pyaudio_format", self._PYAUDIO_FORMAT)
-        self._frames_per_buffer = config.get("input_frames_per_buffer", self._FRAMES_PER_BUFFER)
+        """Extract configs."""
+        self._buffer_size = config.get("input_buffer_size", _BidiAudioInput._BUFFER_SIZE)
+        self._device_index = config.get("input_device_index", _BidiAudioInput._DEVICE_INDEX)
+        self._frames_per_buffer = config.get("input_frames_per_buffer", _BidiAudioInput._FRAMES_PER_BUFFER)
+
+        self._buffer = _BidiAudioBuffer(self._buffer_size)
 
     async def start(self, agent: "BidiAgent") -> None:
         """Start input stream.
@@ -59,50 +136,54 @@ class _BidiAudioInput(BidiInput):
         Args:
             agent: The BidiAgent instance, providing access to model configuration.
         """
-        # Get audio parameters from model config
-        self._rate = agent.model.config["audio"]["input_rate"]
-        self._channels = agent.model.config["audio"]["channels"]
-        self._format = agent.model.config["audio"].get("format", "pcm")  # Encoding format for events
+        logger.debug("starting audio input stream")
 
-        logger.debug(
-            "rate=<%d>, channels=<%d>, device_index=<%s> | starting audio input stream",
-            self._rate,
-            self._channels,
-            self._device_index,
-        )
+        self._channels = agent.model.config["audio"]["channels"]
+        self._format = agent.model.config["audio"]["format"]
+        self._rate = agent.model.config["audio"]["input_rate"]
+
+        self._buffer.start()
         self._audio = pyaudio.PyAudio()
         self._stream = self._audio.open(
             channels=self._channels,
-            format=self._pyaudio_format,
+            format=pyaudio.paInt16,
             frames_per_buffer=self._frames_per_buffer,
             input=True,
             input_device_index=self._device_index,
             rate=self._rate,
+            stream_callback=self._callback,
         )
-        logger.info("rate=<%d>, channels=<%d> | audio input stream started", self._rate, self._channels)
+
+        logger.debug("audio input stream started")
 
     async def stop(self) -> None:
         """Stop input stream."""
         logger.debug("stopping audio input stream")
-        # TODO: Provide time for streaming thread to exit cleanly to prevent conflicts with the Nova threads.
-        #       See if we can remove after properly handling cancellation for agent.
-        await asyncio.sleep(0.1)
 
-        self._stream.close()
-        self._audio.terminate()
+        if hasattr(self, "_stream"):
+            self._stream.close()
+        if hasattr(self, "_audio"):
+            self._audio.terminate()
+        if hasattr(self, "_buffer"):
+            self._buffer.stop()
 
         logger.debug("audio input stream stopped")
 
     async def __call__(self) -> BidiAudioInputEvent:
         """Read audio from input stream."""
-        audio_bytes = await asyncio.to_thread(self._stream.read, self._frames_per_buffer, exception_on_overflow=False)
+        data = await asyncio.to_thread(self._buffer.get)
 
         return BidiAudioInputEvent(
-            audio=base64.b64encode(audio_bytes).decode("utf-8"),
+            audio=base64.b64encode(data).decode("utf-8"),
             channels=self._channels,
             format=self._format,
             sample_rate=self._rate,
         )
+
+    def _callback(self, in_data: bytes, *_: Any) -> tuple[None, Any]:
+        """Callback to receive audio data from PyAudio."""
+        self._buffer.put(in_data)
+        return (None, pyaudio.paContinue)
 
 
 class _BidiAudioOutput(BidiOutput):
@@ -111,38 +192,23 @@ class _BidiAudioOutput(BidiOutput):
     Attributes:
         _audio: PyAudio instance for audio system access.
         _stream: Audio output stream.
-        _buffer: Deque buffer for queuing audio data.
-        _buffer_event: Event to signal when buffer has data.
-        _output_task: Background task for processing audio output.
+        _buffer: Buffer for sharing audio data between agent and PyAudio.
     """
 
     _audio: pyaudio.PyAudio
     _stream: pyaudio.Stream
-    _buffer: deque
-    _buffer_event: asyncio.Event
-    _output_task: asyncio.Task
 
-    # Audio device constants
-    _BUFFER_SIZE: int | None = None
-    _DEVICE_INDEX: int | None = None
-    _PYAUDIO_FORMAT: int = pyaudio.paInt16
-    _FRAMES_PER_BUFFER: int = 512
+    _BUFFER_SIZE = None
+    _DEVICE_INDEX = None
+    _FRAMES_PER_BUFFER = 512
 
     def __init__(self, config: dict[str, Any]) -> None:
-        """Initialize audio output handler.
-        
-        Args:
-            config: Configuration dictionary with optional overrides:
-                - output_device_index: Specific output device to use
-                - output_pyaudio_format: PyAudio format (default: paInt16)
-                - output_frames_per_buffer: Number of frames per buffer
-                - output_buffer_size: Maximum buffer size (None = unlimited)
-        """
-        # Initialize instance variables from config or class constants
-        self._buffer_size = config.get("output_buffer_size", self._BUFFER_SIZE)
-        self._device_index = config.get("output_device_index", self._DEVICE_INDEX)
-        self._pyaudio_format = config.get("output_pyaudio_format", self._PYAUDIO_FORMAT)
-        self._frames_per_buffer = config.get("output_frames_per_buffer", self._FRAMES_PER_BUFFER)
+        """Extract configs."""
+        self._buffer_size = config.get("output_buffer_size", _BidiAudioOutput._BUFFER_SIZE)
+        self._device_index = config.get("output_device_index", _BidiAudioOutput._DEVICE_INDEX)
+        self._frames_per_buffer = config.get("output_frames_per_buffer", _BidiAudioOutput._FRAMES_PER_BUFFER)
+
+        self._buffer = _BidiAudioBuffer(self._buffer_size)
 
     async def start(self, agent: "BidiAgent") -> None:
         """Start output stream.
@@ -150,66 +216,54 @@ class _BidiAudioOutput(BidiOutput):
         Args:
             agent: The BidiAgent instance, providing access to model configuration.
         """
-        # Get audio parameters from model config
-        self._rate = agent.model.config["audio"]["output_rate"]
-        self._channels = agent.model.config["audio"]["channels"]
+        logger.debug("starting audio output stream")
 
-        logger.debug(
-            "rate=<%d>, channels=<%d> | starting audio output stream",
-            self._rate,
-            self._channels,
-        )
+        self._channels = agent.model.config["audio"]["channels"]
+        self._rate = agent.model.config["audio"]["output_rate"]
+
+        self._buffer.start()
         self._audio = pyaudio.PyAudio()
         self._stream = self._audio.open(
             channels=self._channels,
-            format=self._pyaudio_format,
+            format=pyaudio.paInt16,
             frames_per_buffer=self._frames_per_buffer,
             output=True,
             output_device_index=self._device_index,
             rate=self._rate,
+            stream_callback=self._callback,
         )
-        self._buffer = deque(maxlen=self._buffer_size)
-        self._buffer_event = asyncio.Event()
-        self._output_task = asyncio.create_task(self._output())
-        logger.info("rate=<%d>, channels=<%d> | audio output stream started", self._rate, self._channels)
+
+        logger.debug("audio output stream started")
 
     async def stop(self) -> None:
         """Stop output stream."""
         logger.debug("stopping audio output stream")
-        self._buffer.clear()
-        self._buffer.append(None)
-        self._buffer_event.set()
-        await self._output_task
 
-        self._stream.close()
-        self._audio.terminate()
+        if hasattr(self, "_stream"):
+            self._stream.close()
+        if hasattr(self, "_audio"):
+            self._audio.terminate()
+        if hasattr(self, "_buffer"):
+            self._buffer.stop()
 
         logger.debug("audio output stream stopped")
 
     async def __call__(self, event: BidiOutputEvent) -> None:
-        """Handle audio events with direct stream writing."""
+        """Send audio to output stream."""
         if isinstance(event, BidiAudioStreamEvent):
-            audio_bytes = base64.b64decode(event["audio"])
-            self._buffer.append(audio_bytes)
-            self._buffer_event.set()
-            logger.debug("audio_bytes=<%d> | audio chunk buffered for playback", len(audio_bytes))
+            data = base64.b64decode(event["audio"])
+            self._buffer.put(data)
+            logger.debug("audio_bytes=<%d> | audio chunk buffered for playback", len(data))
 
         elif isinstance(event, BidiInterruptionEvent):
             logger.debug("reason=<%s> | clearing audio buffer due to interruption", event["reason"])
             self._buffer.clear()
-            self._buffer_event.clear()
 
-    async def _output(self) -> None:
-        while True:
-            await self._buffer_event.wait()
-            self._buffer_event.clear()
-
-            while self._buffer:
-                audio_bytes = self._buffer.popleft()
-                if not audio_bytes:
-                    return
-
-                await asyncio.to_thread(self._stream.write, audio_bytes)
+    def _callback(self, _in_data: None, frame_count: int, *_: Any) -> tuple[bytes, Any]:
+        """Callback to send audio data to PyAudio."""
+        byte_count = frame_count * pyaudio.get_sample_size(pyaudio.paInt16)
+        data = self._buffer.get(byte_count)
+        return (data, pyaudio.paContinue)
 
 
 class BidiAudioIO:
@@ -217,16 +271,15 @@ class BidiAudioIO:
 
     def __init__(self, **config: Any) -> None:
         """Initialize audio devices.
-        
+
         Args:
             **config: Optional device configuration:
+                - input_buffer_size (int): Maximum input buffer size (default: None)
                 - input_device_index (int): Specific input device (default: None = system default)
-                - output_device_index (int): Specific output device (default: None = system default)
-                - input_pyaudio_format (int): PyAudio format for input (default: pyaudio.paInt16)
-                - output_pyaudio_format (int): PyAudio format for output (default: pyaudio.paInt16)
                 - input_frames_per_buffer (int): Input buffer size (default: 512)
+                - output_buffer_size (int): Maximum output buffer size (default: None)
+                - output_device_index (int): Specific output device (default: None = system default)
                 - output_frames_per_buffer (int): Output buffer size (default: 512)
-                - output_buffer_size (int | None): Max output queue size (default: None = unlimited)
         """
         self._config = config
 

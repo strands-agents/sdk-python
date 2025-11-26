@@ -8,7 +8,7 @@ import json
 import logging
 import os
 import uuid
-from typing import Any, AsyncGenerator, cast, Literal
+from typing import Any, AsyncGenerator, Literal, cast
 
 import websockets
 from websockets import ClientConnection
@@ -17,6 +17,7 @@ from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
 from .._async import stop_all
+from ..types.bidi_model import AudioConfig
 from ..types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
@@ -34,7 +35,6 @@ from ..types.events import (
     SampleRate,
     StopReason,
 )
-from ..types.bidi_model import AudioConfig
 from .bidi_model import BidiModel
 
 logger = logging.getLogger(__name__)
@@ -88,7 +88,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         """Initialize OpenAI Realtime bidirectional model.
 
         Args:
-            model: OpenAI model identifier (default: gpt-realtime).
+            model_id: OpenAI model identifier (default: gpt-realtime).
             api_key: OpenAI API key for authentication.
             organization: OpenAI organization ID for API requests.
             project: OpenAI project ID for API requests.
@@ -338,7 +338,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
                     audio=openai_event["delta"],
                     format="pcm",
                     sample_rate=cast(SampleRate, AUDIO_FORMAT["rate"]),
-                    channels=1,
+                    channels=channels,
                 )
             ]
 

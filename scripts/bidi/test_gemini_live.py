@@ -316,7 +316,7 @@ async def main(duration=180):
         "active": True,
         "audio_in": asyncio.Queue(),
         "audio_out": asyncio.Queue(),
-        "connection": agent._agent_loop,
+        "connection": agent._loop,
         "duration": duration,
         "start_time": time.time(),
         "interrupted": False,

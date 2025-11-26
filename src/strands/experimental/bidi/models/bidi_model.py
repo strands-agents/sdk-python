@@ -22,7 +22,6 @@ from ..types.events import (
     BidiInputEvent,
     BidiOutputEvent,
 )
-from ..types.bidi_model import AudioConfig
 
 logger = logging.getLogger(__name__)
 
