@@ -543,3 +543,27 @@ class MultiAgentNodeCancelEvent(TypedEvent):
                 "message": message,
             }
         )
+
+
+class MultiAgentNodeInterruptEvent(TypedEvent):
+    """Event emitted when a node is interrupted."""
+
+    def __init__(self, node_id: str, interrupts: list[Interrupt]) -> None:
+        """Set interrupt in the event payload.
+
+        Args:
+            node_id: Unique identifier for the node generating the event.
+            interrupts: Interrupts raised by user.
+        """
+        super().__init__(
+            {
+                "type": "multiagent_node_interrupt",
+                "node_id": node_id,
+                "interrupts": interrupts,
+            }
+        )
+
+    @property
+    def interrupts(self) -> list[Interrupt]:
+        """The interrupt instances."""
+        return cast(list[Interrupt], self["interrupts"])

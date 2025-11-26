@@ -33,12 +33,14 @@ from ..experimental.hooks.multiagent import (
     MultiAgentInitializedEvent,
 )
 from ..hooks import HookProvider, HookRegistry
+from ..interrupt import Interrupt, _InterruptState
 from ..session import SessionManager
 from ..telemetry import get_tracer
 from ..tools.decorator import tool
 from ..types._events import (
     MultiAgentHandoffEvent,
     MultiAgentNodeCancelEvent,
+    MultiAgentNodeInterruptEvent,
     MultiAgentNodeStartEvent,
     MultiAgentNodeStopEvent,
     MultiAgentNodeStreamEvent,
@@ -61,6 +63,7 @@ class SwarmNode:
 
     node_id: str
     executor: Agent
+    swarm: Optional["Swarm"] = None
     _initial_messages: Messages = field(default_factory=list, init=False)
     _initial_state: AgentState = field(default_factory=AgentState, init=False)
 
@@ -89,7 +92,17 @@ class SwarmNode:
         return f"SwarmNode(node_id='{self.node_id}')"
 
     def reset_executor_state(self) -> None:
-        """Reset SwarmNode executor state to initial state when swarm was created."""
+        """Reset SwarmNode executor state to initial state when swarm was created.
+
+        If Swarm is resuming from an interrupt, we reset the executor state from the interrupt context.
+        """
+        if self.swarm and self.swarm._interrupt_state.activated:
+            context = self.swarm._interrupt_state.context[self.node_id]
+            self.executor.messages = context["messages"]
+            self.executor.state = AgentState(context["state"])
+            self.executor._interrupt_state = _InterruptState.from_dict(context["interrupt_state"])
+            return
+
         self.executor.messages = copy.deepcopy(self._initial_messages)
         self.executor.state = AgentState(self._initial_state.get())
 
@@ -260,11 +273,14 @@ class Swarm(MultiAgentBase):
 
         self.shared_context = SharedContext()
         self.nodes: dict[str, SwarmNode] = {}
+
         self.state = SwarmState(
             current_node=None,  # Placeholder, will be set properly
             task="",
             completion_status=Status.PENDING,
         )
+        self._interrupt_state = _InterruptState()
+
         self.tracer = get_tracer()
         self.trace_attributes: dict[str, AttributeValue] = self._parse_trace_attributes(trace_attributes)
 
@@ -340,6 +356,8 @@ class Swarm(MultiAgentBase):
             - multi_agent_node_stop: When a node stops execution
             - result: Final swarm result
         """
+        self._interrupt_state.resume(task)
+
         if invocation_state is None:
             invocation_state = {}
 
@@ -347,7 +365,10 @@ class Swarm(MultiAgentBase):
 
         logger.debug("starting swarm execution")
 
-        if not self._resume_from_session:
+        if self._resume_from_session or self._interrupt_state.activated:
+            self.state.completion_status = Status.EXECUTING
+            self.state.start_time = time.time()
+        else:
             # Initialize swarm state with configuration
             initial_node = self._initial_node()
 
@@ -357,12 +378,11 @@ class Swarm(MultiAgentBase):
                 completion_status=Status.EXECUTING,
                 shared_context=self.shared_context,
             )
-        else:
-            self.state.completion_status = Status.EXECUTING
-            self.state.start_time = time.time()
 
         span = self.tracer.start_multiagent_span(task, "swarm", custom_trace_attributes=self.trace_attributes)
         with trace_api.use_span(span, end_on_exit=True):
+            interrupts = []
+
             try:
                 current_node = cast(SwarmNode, self.state.current_node)
                 logger.debug("current_node=<%s> | starting swarm execution with node", current_node.node_id)
@@ -374,6 +394,9 @@ class Swarm(MultiAgentBase):
                 )
 
                 async for event in self._execute_swarm(invocation_state):
+                    if isinstance(event, MultiAgentNodeInterruptEvent):
+                        interrupts = event.interrupts
+
                     yield event.as_dict()
 
             except Exception:
@@ -386,7 +409,7 @@ class Swarm(MultiAgentBase):
                 self._resume_from_session = False
 
             # Yield final result after execution_time is set
-            result = self._build_result()
+            result = self._build_result(interrupts)
             yield MultiAgentResultEvent(result=result).as_dict()
 
     async def _stream_with_timeout(
@@ -450,7 +473,7 @@ class Swarm(MultiAgentBase):
             if node_id in self.nodes:
                 raise ValueError(f"Node ID '{node_id}' is not unique. Each agent must have a unique name.")
 
-            self.nodes[node_id] = SwarmNode(node_id=node_id, executor=node)
+            self.nodes[node_id] = SwarmNode(node_id, node, swarm=self)
 
         # Validate entry point if specified
         if self.entry_point is not None:
@@ -650,6 +673,31 @@ class Swarm(MultiAgentBase):
 
         return context_text
 
+    def _activate_interrupt(self, node: SwarmNode, interrupts: list[Interrupt]) -> MultiAgentNodeInterruptEvent:
+        """Activate the interrupt state.
+
+        Args:
+            node: The interrupted node.
+            interrupts: The interrupts raised by the user.
+
+        Returns:
+            MultiAgentNodeInterruptEvent
+        """
+        logger.debug("node=<%s> | node interrupted", node.node_id)
+        self.state.completion_status = Status.INTERRUPTED
+
+        self._interrupt_state.context[node.node_id] = {
+            "activated": node.executor._interrupt_state.activated,
+            "interrupt_state": node.executor._interrupt_state.to_dict(),
+            "state": node.executor.state.get(),
+            "messages": node.executor.messages,
+        }
+
+        self._interrupt_state.interrupts.update({interrupt.id: interrupt for interrupt in interrupts})
+        self._interrupt_state.activate()
+
+        return MultiAgentNodeInterruptEvent(node.node_id, interrupts)
+
     async def _execute_swarm(self, invocation_state: dict[str, Any]) -> AsyncIterator[Any]:
         """Execute swarm and yield TypedEvent objects."""
         try:
@@ -684,12 +732,16 @@ class Swarm(MultiAgentBase):
                     len(self.state.node_history) + 1,
                 )
 
-                before_event, _ = await self.hooks.invoke_callbacks_async(
+                before_event, interrupts = await self.hooks.invoke_callbacks_async(
                     BeforeNodeCallEvent(self, current_node.node_id, invocation_state)
                 )
 
                 # TODO: Implement cancellation token to stop _execute_node from continuing
                 try:
+                    if interrupts:
+                        yield self._activate_interrupt(current_node, interrupts)
+                        break
+
                     if before_event.cancel_node:
                         cancel_message = (
                             before_event.cancel_node
@@ -708,6 +760,14 @@ class Swarm(MultiAgentBase):
                     )
                     async for event in node_stream:
                         yield event
+
+                    stop_event = cast(MultiAgentNodeStopEvent, event)
+                    node_result = stop_event["node_result"]
+                    if node_result.status == Status.INTERRUPTED:
+                        yield self._activate_interrupt(current_node, node_result.interrupts)
+                        break
+
+                    self._interrupt_state.deactivate()
 
                     self.state.node_history.append(current_node)
 
@@ -772,16 +832,20 @@ class Swarm(MultiAgentBase):
         yield start_event
 
         try:
-            # Prepare context for node
-            context_text = self._build_node_input(node)
-            node_input = [ContentBlock(text=f"Context:\n{context_text}\n\n")]
+            if self._interrupt_state.activated and self._interrupt_state.context[node_name]["activated"]:
+                node_input = self._interrupt_state.context["responses"]
 
-            # Clear handoff message after it's been included in context
-            self.state.handoff_message = None
+            else:
+                # Prepare context for node
+                context_text = self._build_node_input(node)
+                node_input = [ContentBlock(text=f"Context:\n{context_text}\n\n")]
 
-            if not isinstance(task, str):
-                # Include additional ContentBlocks in node input
-                node_input = node_input + task
+                # Clear handoff message after it's been included in context
+                self.state.handoff_message = None
+
+                if not isinstance(task, str):
+                    # Include additional ContentBlocks in node input
+                    node_input = node_input + cast(list[ContentBlock], task)
 
             # Execute node with streaming
             node.reset_executor_state()
@@ -799,13 +863,8 @@ class Swarm(MultiAgentBase):
             if result is None:
                 raise ValueError(f"Node '{node_name}' did not produce a result event")
 
-            if result.stop_reason == "interrupt":
-                node.executor.messages.pop()  # remove interrupted tool use message
-                node.executor._interrupt_state.deactivate()
-
-                raise RuntimeError("user raised interrupt from agent | interrupts are not yet supported in swarms")
-
             execution_time = round((time.time() - start_time) * 1000)
+            status = Status.INTERRUPTED if result.stop_reason == "interrupt" else Status.COMPLETED
 
             # Create NodeResult with extracted metrics
             result_metrics = getattr(result, "metrics", None)
@@ -815,10 +874,11 @@ class Swarm(MultiAgentBase):
             node_result = NodeResult(
                 result=result,
                 execution_time=execution_time,
-                status=Status.COMPLETED,
+                status=status,
                 accumulated_usage=usage,
                 accumulated_metrics=metrics,
                 execution_count=1,
+                interrupts=result.interrupts or [],
             )
 
             # Store result in state
@@ -867,7 +927,7 @@ class Swarm(MultiAgentBase):
         self.state.accumulated_usage["totalTokens"] += node_result.accumulated_usage.get("totalTokens", 0)
         self.state.accumulated_metrics["latencyMs"] += node_result.accumulated_metrics.get("latencyMs", 0)
 
-    def _build_result(self) -> SwarmResult:
+    def _build_result(self, interrupts: list[Interrupt]) -> SwarmResult:
         """Build swarm result from current state."""
         return SwarmResult(
             status=self.state.completion_status,
@@ -877,15 +937,18 @@ class Swarm(MultiAgentBase):
             execution_count=len(self.state.node_history),
             execution_time=self.state.execution_time,
             node_history=self.state.node_history,
+            interrupts=interrupts,
         )
 
     def serialize_state(self) -> dict[str, Any]:
         """Serialize the current swarm state to a dictionary."""
         status_str = self.state.completion_status.value
-        if self.state.handoff_node:
-            next_nodes = [self.state.handoff_node.node_id]
-        elif self.state.completion_status == Status.EXECUTING and self.state.current_node:
+        if self.state.completion_status == Status.EXECUTING and self.state.current_node:
             next_nodes = [self.state.current_node.node_id]
+        elif self.state.completion_status == Status.INTERRUPTED and self.state.current_node:
+            next_nodes = [self.state.current_node.node_id]
+        elif self.state.handoff_node:
+            next_nodes = [self.state.handoff_node.node_id]
         else:
             next_nodes = []
 
@@ -899,7 +962,11 @@ class Swarm(MultiAgentBase):
             "current_task": self.state.task,
             "context": {
                 "shared_context": getattr(self.state.shared_context, "context", {}) or {},
+                "handoff_node": self.state.handoff_node.node_id if self.state.handoff_node else None,
                 "handoff_message": self.state.handoff_message,
+            },
+            "_internal_state": {
+                "interrupt_state": self._interrupt_state.to_dict(),
             },
         }
 
@@ -916,19 +983,23 @@ class Swarm(MultiAgentBase):
             payload: Dictionary containing persisted state data including status,
                     completed nodes, results, and next nodes to execute.
         """
-        if not payload.get("next_nodes_to_execute"):
-            for node in self.nodes.values():
-                node.reset_executor_state()
-            self.state = SwarmState(
-                current_node=SwarmNode("", Agent()),
-                task="",
-                completion_status=Status.PENDING,
-            )
-            self._resume_from_session = False
-            return
-        else:
+        if "_internal_state" in payload:
+            internal_state = payload["_internal_state"]
+            self._interrupt_state = _InterruptState.from_dict(internal_state["interrupt_state"])
+
+        self._resume_from_session = "next_nodes_to_execute" in payload
+        if self._resume_from_session:
             self._from_dict(payload)
-            self._resume_from_session = True
+            return
+
+        for node in self.nodes.values():
+            node.reset_executor_state()
+
+        self.state = SwarmState(
+            current_node=SwarmNode("", Agent(), swarm=self),
+            task="",
+            completion_status=Status.PENDING,
+        )
 
     def _from_dict(self, payload: dict[str, Any]) -> None:
         self.state.completion_status = Status(payload["status"])
@@ -936,6 +1007,7 @@ class Swarm(MultiAgentBase):
         context = payload["context"] or {}
         self.shared_context.context = context.get("shared_context") or {}
         self.state.handoff_message = context.get("handoff_message")
+        self.state.handoff_node = self.nodes[context["handoff_node"]] if context.get("handoff_node") else None
 
         self.state.node_history = [self.nodes[nid] for nid in (payload.get("node_history") or []) if nid in self.nodes]
 
