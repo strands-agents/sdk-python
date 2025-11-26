@@ -18,7 +18,7 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Callable, Optional, Tuple, cast
+from typing import Any, AsyncIterator, Callable, Mapping, Optional, Tuple, cast
 
 from opentelemetry import trace as trace_api
 
@@ -38,6 +38,7 @@ from ..telemetry import get_tracer
 from ..tools.decorator import tool
 from ..types._events import (
     MultiAgentHandoffEvent,
+    MultiAgentNodeCancelEvent,
     MultiAgentNodeStartEvent,
     MultiAgentNodeStopEvent,
     MultiAgentNodeStreamEvent,
@@ -46,6 +47,7 @@ from ..types._events import (
 from ..types.content import ContentBlock, Messages
 from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
+from ..types.traces import AttributeValue
 from .base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
 logger = logging.getLogger(__name__)
@@ -226,6 +228,7 @@ class Swarm(MultiAgentBase):
         session_manager: Optional[SessionManager] = None,
         hooks: Optional[list[HookProvider]] = None,
         id: str = _DEFAULT_SWARM_ID,
+        trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
     ) -> None:
         """Initialize Swarm with agents and configuration.
 
@@ -243,6 +246,7 @@ class Swarm(MultiAgentBase):
                 Disabled by default (default: 0)
             session_manager: Session manager for persisting graph state and execution history (default: None)
             hooks: List of hook providers for monitoring and extending graph execution behavior (default: None)
+            trace_attributes: Custom trace attributes to apply to the agent's trace span (default: None)
         """
         super().__init__()
         self.id = id
@@ -262,6 +266,7 @@ class Swarm(MultiAgentBase):
             completion_status=Status.PENDING,
         )
         self.tracer = get_tracer()
+        self.trace_attributes: dict[str, AttributeValue] = self._parse_trace_attributes(trace_attributes)
 
         self.session_manager = session_manager
         self.hooks = HookRegistry()
@@ -356,7 +361,7 @@ class Swarm(MultiAgentBase):
             self.state.completion_status = Status.EXECUTING
             self.state.start_time = time.time()
 
-        span = self.tracer.start_multiagent_span(task, "swarm")
+        span = self.tracer.start_multiagent_span(task, "swarm", custom_trace_attributes=self.trace_attributes)
         with trace_api.use_span(span, end_on_exit=True):
             try:
                 current_node = cast(SwarmNode, self.state.current_node)
@@ -679,11 +684,23 @@ class Swarm(MultiAgentBase):
                     len(self.state.node_history) + 1,
                 )
 
+                before_event, _ = await self.hooks.invoke_callbacks_async(
+                    BeforeNodeCallEvent(self, current_node.node_id, invocation_state)
+                )
+
                 # TODO: Implement cancellation token to stop _execute_node from continuing
                 try:
-                    await self.hooks.invoke_callbacks_async(
-                        BeforeNodeCallEvent(self, current_node.node_id, invocation_state)
-                    )
+                    if before_event.cancel_node:
+                        cancel_message = (
+                            before_event.cancel_node
+                            if isinstance(before_event.cancel_node, str)
+                            else "node cancelled by user"
+                        )
+                        logger.debug("reason=<%s> | cancelling execution", cancel_message)
+                        yield MultiAgentNodeCancelEvent(current_node.node_id, cancel_message)
+                        self.state.completion_status = Status.FAILED
+                        break
+
                     node_stream = self._stream_with_timeout(
                         self._execute_node(current_node, self.state.task, invocation_state),
                         self.node_timeout,
@@ -693,40 +710,42 @@ class Swarm(MultiAgentBase):
                         yield event
 
                     self.state.node_history.append(current_node)
-                    await self.hooks.invoke_callbacks_async(
-                        AfterNodeCallEvent(self, current_node.node_id, invocation_state)
-                    )
-
-                    logger.debug("node=<%s> | node execution completed", current_node.node_id)
-
-                    # Check if handoff requested during execution
-                    if self.state.handoff_node:
-                        previous_node = current_node
-                        current_node = self.state.handoff_node
-
-                        self.state.handoff_node = None
-                        self.state.current_node = current_node
-
-                        handoff_event = MultiAgentHandoffEvent(
-                            from_node_ids=[previous_node.node_id],
-                            to_node_ids=[current_node.node_id],
-                            message=self.state.handoff_message or "Agent handoff occurred",
-                        )
-                        yield handoff_event
-                        logger.debug(
-                            "from_node=<%s>, to_node=<%s> | handoff detected",
-                            previous_node.node_id,
-                            current_node.node_id,
-                        )
-
-                    else:
-                        logger.debug("node=<%s> | no handoff occurred, marking swarm as complete", current_node.node_id)
-                        self.state.completion_status = Status.COMPLETED
-                        break
 
                 except Exception:
                     logger.exception("node=<%s> | node execution failed", current_node.node_id)
                     self.state.completion_status = Status.FAILED
+                    break
+
+                finally:
+                    await self.hooks.invoke_callbacks_async(
+                        AfterNodeCallEvent(self, current_node.node_id, invocation_state)
+                    )
+
+                logger.debug("node=<%s> | node execution completed", current_node.node_id)
+
+                # Check if handoff requested during execution
+                if self.state.handoff_node:
+                    previous_node = current_node
+                    current_node = self.state.handoff_node
+
+                    self.state.handoff_node = None
+                    self.state.current_node = current_node
+
+                    handoff_event = MultiAgentHandoffEvent(
+                        from_node_ids=[previous_node.node_id],
+                        to_node_ids=[current_node.node_id],
+                        message=self.state.handoff_message or "Agent handoff occurred",
+                    )
+                    yield handoff_event
+                    logger.debug(
+                        "from_node=<%s>, to_node=<%s> | handoff detected",
+                        previous_node.node_id,
+                        current_node.node_id,
+                    )
+
+                else:
+                    logger.debug("node=<%s> | no handoff occurred, marking swarm as complete", current_node.node_id)
+                    self.state.completion_status = Status.COMPLETED
                     break
 
         except Exception:

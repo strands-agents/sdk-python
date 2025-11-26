@@ -524,3 +524,22 @@ class MultiAgentNodeStreamEvent(TypedEvent):
                 "event": agent_event,  # Nest agent event to avoid field conflicts
             }
         )
+
+
+class MultiAgentNodeCancelEvent(TypedEvent):
+    """Event emitted when a user cancels node execution from their BeforeNodeCallEvent hook."""
+
+    def __init__(self, node_id: str, message: str) -> None:
+        """Initialize with cancel message.
+
+        Args:
+            node_id: Unique identifier for the node.
+            message: The node cancellation message.
+        """
+        super().__init__(
+            {
+                "type": "multiagent_node_cancel",
+                "node_id": node_id,
+                "message": message,
+            }
+        )
