@@ -151,8 +151,6 @@ class BidiAgent:
         self._session_manager = session_manager
         if self._session_manager:
             self.hooks.add_hook(self._session_manager)
-        # Initialize invocation state (will be set in start())
-        self._invocation_state: dict[str, Any] = {}
 
         self._loop = _BidiAgentLoop(self)
 

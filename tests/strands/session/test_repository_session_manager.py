@@ -7,6 +7,7 @@ import pytest
 from strands.agent.agent import Agent
 from strands.agent.conversation_manager.sliding_window_conversation_manager import SlidingWindowConversationManager
 from strands.agent.conversation_manager.summarizing_conversation_manager import SummarizingConversationManager
+from strands.agent.state import AgentState
 from strands.interrupt import _InterruptState
 from strands.session.repository_session_manager import RepositorySessionManager
 from strands.types.content import ContentBlock
@@ -423,10 +424,6 @@ def test_fix_broken_tool_use_does_not_change_valid_message(session_manager):
 @pytest.fixture
 def mock_bidi_agent():
     """Create a mock BidiAgent for testing."""
-    from unittest.mock import Mock
-
-    from strands.agent.state import AgentState
-
     agent = Mock()
     agent.agent_id = "bidi-agent-1"
     agent.messages = [{"role": "user", "content": [{"text": "Hello from bidi!"}]}]
@@ -454,8 +451,6 @@ def test_initialize_bidi_agent_creates_new(session_manager, mock_bidi_agent):
 
 def test_initialize_bidi_agent_restores_existing(session_manager, mock_bidi_agent):
     """Test initializing BidiAgent restores from existing session."""
-    from strands.types.session import SessionAgent, SessionMessage
-
     # Create existing session data
     session_agent = SessionAgent(
         agent_id="bidi-agent-1",
@@ -499,8 +494,6 @@ def test_append_bidi_message(session_manager, mock_bidi_agent):
 
 def test_sync_bidi_agent(session_manager, mock_bidi_agent):
     """Test syncing BidiAgent state to session."""
-    from strands.agent.state import AgentState
-
     # Initialize agent
     session_manager.initialize_bidi_agent(mock_bidi_agent)
 
@@ -530,10 +523,6 @@ def test_bidi_agent_unique_id_constraint(session_manager, mock_bidi_agent):
     session_manager.initialize_bidi_agent(mock_bidi_agent)
 
     # Try to initialize another agent with same ID
-    from unittest.mock import Mock
-
-    from strands.agent.state import AgentState
-
     agent2 = Mock()
     agent2.agent_id = "bidi-agent-1"  # Same ID
     agent2.messages = []
@@ -545,8 +534,6 @@ def test_bidi_agent_unique_id_constraint(session_manager, mock_bidi_agent):
 
 def test_bidi_agent_messages_with_offset_zero(session_manager, mock_bidi_agent):
     """Test that BidiAgent uses offset=0 for message restoration (no conversation_manager)."""
-    from strands.types.session import SessionAgent, SessionMessage
-
     # Create session with messages
     session_agent = SessionAgent(
         agent_id="bidi-agent-1",

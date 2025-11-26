@@ -346,6 +346,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
                 elif "toolResult" in block:
                     # Tool result - create as function_call_output item
                     tool_result = block["toolResult"]
+                    original_id = tool_result["toolUseId"]
                     
                     # Serialize the entire tool result content, preserving all data types
                     result_output = ""
@@ -361,18 +362,19 @@ class BidiOpenAIRealtimeModel(BidiModel):
                                 content_parts.append(
                                     json.dumps(json_content) if not isinstance(json_content, str) else json_content
                                 )
-                            elif "image" in result_block:
-                                logger.warning("image content in tool results not supported by openai realtime api")
-                            elif "document" in result_block:
-                                logger.warning("document content in tool results not supported by openai realtime api")
+                            else:
+                                # Generic warning for unsupported content types
+                                logger.warning(
+                                    "tool_use_id=<%s>, content_types=<%s> | content type in tool results not supported by openai realtime api",
+                                    original_id,
+                                    list(result_block.keys()),
+                                )
                         
                         # Combine all parts - if single part, use as-is; if multiple, combine
                         if len(content_parts) == 1:
                             result_output = content_parts[0]
                         elif content_parts:
                             result_output = "\n".join(content_parts)
-
-                    original_id = tool_result["toolUseId"]
                     # Use mapped call_id if available, otherwise skip orphaned result
                     if original_id not in call_id_map:
                         continue  # Skip this tool result since we don't have the call
@@ -740,13 +742,10 @@ class BidiOpenAIRealtimeModel(BidiModel):
                     content_parts.append(
                         json.dumps(json_content) if not isinstance(json_content, str) else json_content
                     )
-                elif "image" in block:
+                else:
+                    # Generic error for unsupported content types
                     raise ValueError(
-                        f"tool_use_id=<{tool_use_id}> | Image content in tool results is not supported by OpenAI Realtime API"
-                    )
-                elif "document" in block:
-                    raise ValueError(
-                        f"tool_use_id=<{tool_use_id}> | Document content in tool results is not supported by OpenAI Realtime API"
+                        f"tool_use_id=<{tool_use_id}>, content_types=<{list(block.keys())}> | Content type not supported by OpenAI Realtime API"
                     )
             
             # Combine all parts - if single part, use as-is; if multiple, combine
