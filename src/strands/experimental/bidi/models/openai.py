@@ -286,24 +286,108 @@ class BidiOpenAIRealtimeModel(BidiModel):
         return openai_tools
 
     async def _add_conversation_history(self, messages: Messages) -> None:
-        """Add conversation history to the session."""
+        """Add conversation history to the session.
+
+        Converts agent message history to OpenAI Realtime API format using
+        conversation.item.create events for each message.
+
+        Note: OpenAI Realtime API has a 32-character limit on call_id, so we truncate
+        UUIDs consistently to ensure tool calls and their results match.
+
+        Args:
+            messages: List of conversation messages with role and content.
+        """
+        # Track tool call IDs to ensure consistency between calls and results
+        call_id_map: dict[str, str] = {}
+
+        # First pass: collect all tool call IDs
         for message in messages:
-            conversation_item: dict[Any, Any] = {
-                "type": "conversation.item.create",
-                "item": {"type": "message", "role": message["role"], "content": []},
-            }
+            for block in message.get("content", []):
+                if "toolUse" in block:
+                    tool_use = block["toolUse"]
+                    original_id = tool_use["toolUseId"]
+                    call_id = original_id[:32]
+                    call_id_map[original_id] = call_id
 
-            content = message.get("content", "")
-            if isinstance(content, str):
-                conversation_item["item"]["content"].append({"type": "input_text", "text": content})
-            elif isinstance(content, list):
-                for item in content:
-                    if isinstance(item, dict) and item.get("type") == "text":
-                        conversation_item["item"]["content"].append(
-                            {"type": "input_text", "text": item.get("text", "")}
-                        )
+        # Second pass: send messages
+        for message in messages:
+            role = message["role"]
+            content_blocks = message.get("content", [])
 
-            await self._send_event(conversation_item)
+            # Build content array for OpenAI format
+            openai_content = []
+
+            for block in content_blocks:
+                if "text" in block:
+                    # Text content - use appropriate type based on role
+                    # User messages use "input_text", assistant messages use "output_text"
+                    if role == "user":
+                        openai_content.append({"type": "input_text", "text": block["text"]})
+                    else:  # assistant
+                        openai_content.append({"type": "output_text", "text": block["text"]})
+                elif "toolUse" in block:
+                    # Tool use - create as function_call item
+                    tool_use = block["toolUse"]
+                    original_id = tool_use["toolUseId"]
+                    # Use pre-mapped call_id
+                    call_id = call_id_map[original_id]
+
+                    tool_item = {
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call",
+                            "call_id": call_id,
+                            "name": tool_use["name"],
+                            "arguments": json.dumps(tool_use["input"]),
+                        },
+                    }
+                    await self._send_event(tool_item)
+                    continue  # Tool use is sent separately, not in message content
+                elif "toolResult" in block:
+                    # Tool result - create as function_call_output item
+                    tool_result = block["toolResult"]
+                    original_id = tool_result["toolUseId"]
+                    
+                    # Validate content types and serialize, preserving structure
+                    result_output = ""
+                    if "content" in tool_result:
+                        # First validate all content types are supported
+                        for result_block in tool_result["content"]:
+                            if "text" not in result_block and "json" not in result_block:
+                                # Unsupported content type - raise error
+                                raise ValueError(
+                                    f"tool_use_id=<{original_id}>, content_types=<{list(result_block.keys())}> | Content type not supported by OpenAI Realtime API"
+                                )
+                        
+                        # Preserve structure by JSON-dumping the entire content array
+                        result_output = json.dumps(tool_result["content"])
+                    
+                    # Use mapped call_id if available, otherwise skip orphaned result
+                    if original_id not in call_id_map:
+                        continue  # Skip this tool result since we don't have the call
+
+                    call_id = call_id_map[original_id]
+
+                    result_item = {
+                        "type": "conversation.item.create",
+                        "item": {
+                            "type": "function_call_output",
+                            "call_id": call_id,
+                            "output": result_output,
+                        },
+                    }
+                    await self._send_event(result_item)
+                    continue  # Tool result is sent separately, not in message content
+
+            # Only create message item if there's text content
+            if openai_content:
+                conversation_item = {
+                    "type": "conversation.item.create",
+                    "item": {"type": "message", "role": role, "content": openai_content},
+                }
+                await self._send_event(conversation_item)
+
+        logger.debug("message_count=<%d> | conversation history added to openai session", len(messages))
 
     async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive OpenAI events and convert to Strands TypedEvent format."""
@@ -331,6 +415,14 @@ class BidiOpenAIRealtimeModel(BidiModel):
         # Audio output
         elif event_type == "response.output_audio.delta":
             # Audio is already base64 string from OpenAI
+            # Get sample rate from user's session config if provided, otherwise use default
+            sample_rate = (
+                self.session_config.get("audio", {})
+                .get("output", {})
+                .get("format", {})
+                .get("rate", AUDIO_FORMAT["rate"])
+            )
+
             # Channels from config is guaranteed to be 1 or 2
             channels = cast(Literal[1, 2], self.config["audio"]["channels"])
             return [
@@ -623,18 +715,21 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
         logger.debug("tool_use_id=<%s> | sending openai tool result", tool_use_id)
 
-        # TODO: We need to extract all content and content types
-        result_data: dict[Any, Any] | str = {}
+        # Validate content types and serialize, preserving structure
+        result_output = ""
         if "content" in tool_result:
-            # Extract text from content blocks
+            # First validate all content types are supported
             for block in tool_result["content"]:
-                if "text" in block:
-                    result_data = block["text"]
-                    break
+                if "text" not in block and "json" not in block:
+                    # Unsupported content type - raise error
+                    raise ValueError(
+                        f"tool_use_id=<{tool_use_id}>, content_types=<{list(block.keys())}> | Content type not supported by OpenAI Realtime API"
+                    )
+            
+            # Preserve structure by JSON-dumping the entire content array
+            result_output = json.dumps(tool_result["content"])
 
-        result_text = json.dumps(result_data) if not isinstance(result_data, str) else result_data
-
-        item_data = {"type": "function_call_output", "call_id": tool_use_id, "output": result_text}
+        item_data = {"type": "function_call_output", "call_id": tool_use_id, "output": result_output}
         await self._send_event({"type": "conversation.item.create", "item": item_data})
         await self._send_event({"type": "response.create"})
 

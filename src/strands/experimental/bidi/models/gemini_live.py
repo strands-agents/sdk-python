@@ -433,15 +433,22 @@ class BidiGeminiLiveModel(BidiModel):
     async def _send_tool_result(self, tool_result: ToolResult) -> None:
         """Internal: Send tool result using Gemini Live API."""
         tool_use_id = tool_result.get("toolUseId")
+        content = tool_result.get("content", [])
 
-        # TODO: We need to extract all content and content types
-        result_data = {}
-        if "content" in tool_result:
-            # Extract text from content blocks
-            for block in tool_result["content"]:
-                if "text" in block:
-                    result_data = {"result": block["text"]}
-                    break
+        # Validate all content types are supported
+        for block in content:
+            if "text" not in block and "json" not in block:
+                # Unsupported content type - raise error
+                raise ValueError(
+                    f"tool_use_id=<{tool_use_id}>, content_types=<{list(block.keys())}> | Content type not supported by Gemini Live API"
+                )
+
+        # Optimize for single content item - unwrap the array
+        if len(content) == 1:
+            result_data: dict[str, Any] = content[0]
+        else:
+            # Multiple items - send as array
+            result_data = {"result": content}
 
         # Create function response
         func_response = genai_types.FunctionResponse(

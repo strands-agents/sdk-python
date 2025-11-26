@@ -232,8 +232,10 @@ class BidiNovaSonicModel(BidiModel):
             *self._get_system_prompt_events(system_prompt),
         ]
 
-        # TODO: Message history would be processed here if needed in the future
-        # Currently not implemented as it's not used in the existing test cases
+        # Add conversation history if provided
+        if messages:
+            events.extend(self._get_message_history_events(messages))
+            logger.debug("message_count=<%d> | conversation history added to initialization", len(messages))
 
         return events
 
@@ -389,14 +391,23 @@ class BidiNovaSonicModel(BidiModel):
 
         logger.debug("tool_use_id=<%s> | sending nova tool result", tool_use_id)
 
-        # TODO: We need to extract all content and content types
-        result_data = {}
-        if "content" in tool_result:
-            # Extract text from content blocks
-            for block in tool_result["content"]:
-                if "text" in block:
-                    result_data = {"result": block["text"]}
-                    break
+        # Validate content types and preserve structure
+        content = tool_result.get("content", [])
+        
+        # Validate all content types are supported
+        for block in content:
+            if "text" not in block and "json" not in block:
+                # Unsupported content type - raise error
+                raise ValueError(
+                    f"tool_use_id=<{tool_use_id}>, content_types=<{list(block.keys())}> | Content type not supported by Nova Sonic"
+                )
+        
+        # Optimize for single content item - unwrap the array
+        if len(content) == 1:
+            result_data: dict[str, Any] = content[0]
+        else:
+            # Multiple items - send as array
+            result_data = {"content": content}
 
         content_name = str(uuid.uuid4())
         events = [
@@ -588,6 +599,46 @@ class BidiNovaSonicModel(BidiModel):
             self._get_text_input_event(content_name, system_prompt or ""),
             self._get_content_end_event(content_name),
         ]
+
+    def _get_message_history_events(self, messages: Messages) -> list[str]:
+        """Generate conversation history events from agent messages.
+
+        Converts agent message history to Nova Sonic format following the
+        contentStart/textInput/contentEnd pattern for each message.
+
+        Args:
+            messages: List of conversation messages with role and content.
+
+        Returns:
+            List of JSON event strings for Nova Sonic.
+        """
+        events = []
+
+        for message in messages:
+            role = message["role"].upper()  # Convert to ASSISTANT or USER
+            content_blocks = message.get("content", [])
+
+            # Extract text content from content blocks
+            text_parts = []
+            for block in content_blocks:
+                if "text" in block:
+                    text_parts.append(block["text"])
+
+            # Combine all text parts
+            if text_parts:
+                combined_text = "\n".join(text_parts)
+                content_name = str(uuid.uuid4())
+
+                # Add contentStart, textInput, and contentEnd events
+                events.extend(
+                    [
+                        self._get_text_content_start_event(content_name, role),
+                        self._get_text_input_event(content_name, combined_text),
+                        self._get_content_end_event(content_name),
+                    ]
+                )
+
+        return events
 
     def _get_text_content_start_event(self, content_name: str, role: str = "USER") -> str:
         """Generate text content start event."""

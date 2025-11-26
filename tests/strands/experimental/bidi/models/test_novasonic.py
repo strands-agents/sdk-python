@@ -171,6 +171,50 @@ async def test_model_stop_alone(nova_model):
     await nova_model.stop()  # Should not raise
 
 
+@pytest.mark.asyncio
+async def test_connection_with_message_history(nova_model, mock_client, mock_stream):
+    """Test connection initialization with conversation history."""
+    nova_model.client = mock_client
+
+    # Create message history
+    messages = [
+        {"role": "user", "content": [{"text": "What's the weather?"}]},
+        {"role": "assistant", "content": [{"text": "I'll check the weather for you."}]},
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "tool-123", "name": "get_weather", "input": {}}}],
+        },
+        {
+            "role": "user",
+            "content": [{"toolResult": {"toolUseId": "tool-123", "content": [{"text": "Sunny, 72°F"}]}}],
+        },
+        {"role": "assistant", "content": [{"text": "It's sunny and 72 degrees."}]},
+    ]
+
+    # Start connection with message history
+    await nova_model.start(system_prompt="You are a helpful assistant", messages=messages)
+
+    # Verify initialization events were sent
+    # Should include: sessionStart, promptStart, system prompt (3 events),
+    # and message history (only text messages: 3 messages * 3 events each = 9 events)
+    # Tool use/result messages are now skipped in history
+    # Total: 1 + 1 + 3 + 9 = 14 events minimum
+    assert mock_stream.input_stream.send.call_count >= 14
+
+    # Verify the events contain proper role information
+    sent_events = [call.args[0].value.bytes_.decode("utf-8") for call in mock_stream.input_stream.send.call_args_list]
+
+    # Check that USER and ASSISTANT roles are present in contentStart events
+    user_events = [e for e in sent_events if '"role": "USER"' in e]
+    assistant_events = [e for e in sent_events if '"role": "ASSISTANT"' in e]
+
+    # Only text messages are sent, so we expect 1 user message and 2 assistant messages
+    assert len(user_events) >= 1
+    assert len(assistant_events) >= 2
+
+    await nova_model.stop()
+
+
 # Send Method Tests
 
 
@@ -193,14 +237,23 @@ async def test_send_all_content_types(nova_model, mock_stream):
     assert nova_model._audio_content_name
     assert mock_stream.input_stream.send.called
 
-    # Test tool result
-    tool_result: ToolResult = {
+    # Test tool result with single content item (should be unwrapped)
+    tool_result_single: ToolResult = {
         "toolUseId": "tool-123",
         "status": "success",
         "content": [{"text": "Weather is sunny"}],
     }
-    await nova_model.send(ToolResultEvent(tool_result))
+    await nova_model.send(ToolResultEvent(tool_result_single))
     # Should send contentStart, toolResult, and contentEnd
+    assert mock_stream.input_stream.send.called
+
+    # Test tool result with multiple content items (should send as array)
+    tool_result_multi: ToolResult = {
+        "toolUseId": "tool-456",
+        "status": "success",
+        "content": [{"text": "Part 1"}, {"json": {"data": "value"}}],
+    }
+    await nova_model.send(ToolResultEvent(tool_result_multi))
     assert mock_stream.input_stream.send.called
 
     await nova_model.stop()
@@ -398,6 +451,76 @@ async def test_event_templates(nova_model):
     assert json.loads(event["event"]["toolResult"]["content"]) == result
 
 
+@pytest.mark.asyncio
+async def test_message_history_conversion(nova_model):
+    """Test conversion of agent messages to Nova Sonic history events."""
+    nova_model.connection_id = "test-connection"
+
+    # Test with various message types
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi there!"}]},
+        {
+            "role": "assistant",
+            "content": [{"toolUse": {"toolUseId": "tool-1", "name": "calculator", "input": {"expr": "2+2"}}}],
+        },
+        {"role": "user", "content": [{"toolResult": {"toolUseId": "tool-1", "content": [{"text": "4"}]}}]},
+        {"role": "assistant", "content": [{"text": "The answer is 4"}]},
+    ]
+
+    events = nova_model._get_message_history_events(messages)
+
+    # Only text messages generate events (3 messages * 3 events each = 9 events)
+    # Tool use/result messages are now skipped in history
+    assert len(events) == 9
+
+    # Parse and verify events
+    parsed_events = [json.loads(e) for e in events]
+
+    # Check first message (user)
+    assert "contentStart" in parsed_events[0]["event"]
+    assert parsed_events[0]["event"]["contentStart"]["role"] == "USER"
+    assert "textInput" in parsed_events[1]["event"]
+    assert parsed_events[1]["event"]["textInput"]["content"] == "Hello"
+    assert "contentEnd" in parsed_events[2]["event"]
+
+    # Check second message (assistant)
+    assert "contentStart" in parsed_events[3]["event"]
+    assert parsed_events[3]["event"]["contentStart"]["role"] == "ASSISTANT"
+    assert "textInput" in parsed_events[4]["event"]
+    assert parsed_events[4]["event"]["textInput"]["content"] == "Hi there!"
+
+    # Check third message (assistant - last text message)
+    assert "contentStart" in parsed_events[6]["event"]
+    assert parsed_events[6]["event"]["contentStart"]["role"] == "ASSISTANT"
+    assert "textInput" in parsed_events[7]["event"]
+    assert parsed_events[7]["event"]["textInput"]["content"] == "The answer is 4"
+
+
+@pytest.mark.asyncio
+async def test_message_history_empty_and_edge_cases(nova_model):
+    """Test message history conversion with empty and edge cases."""
+    nova_model.connection_id = "test-connection"
+
+    # Test with empty messages
+    events = nova_model._get_message_history_events([])
+    assert len(events) == 0
+
+    # Test with message containing no text content
+    messages = [{"role": "user", "content": []}]
+    events = nova_model._get_message_history_events(messages)
+    assert len(events) == 0  # No events generated for empty content
+
+    # Test with multiple text blocks in one message
+    messages = [{"role": "user", "content": [{"text": "First part"}, {"text": "Second part"}]}]
+    events = nova_model._get_message_history_events(messages)
+    assert len(events) == 3  # contentStart, textInput, contentEnd
+    parsed = json.loads(events[1])
+    content = parsed["event"]["textInput"]["content"]
+    assert "First part" in content
+    assert "Second part" in content
+
+
 # Error Handling Tests
 
 
@@ -417,4 +540,154 @@ async def test_error_handling(nova_model, mock_stream):
     await asyncio.sleep(0.1)
 
     # Should still be able to close cleanly
+    await nova_model.stop()
+
+
+# Tool Result Content Tests
+
+
+@pytest.mark.asyncio
+async def test_tool_result_single_content_unwrapped(nova_model, mock_stream):
+    """Test that single content item is unwrapped (optimization)."""
+    await nova_model.start()
+
+    tool_result: ToolResult = {
+        "toolUseId": "tool-123",
+        "status": "success",
+        "content": [{"text": "Single result"}],
+    }
+
+    await nova_model.send(ToolResultEvent(tool_result))
+
+    # Verify events were sent
+    assert mock_stream.input_stream.send.called
+    calls = mock_stream.input_stream.send.call_args_list
+
+    # Find the toolResult event
+    tool_result_events = []
+    for call in calls:
+        event_json = call.args[0].value.bytes_.decode("utf-8")
+        event = json.loads(event_json)
+        if "toolResult" in event.get("event", {}):
+            tool_result_events.append(event)
+
+    assert len(tool_result_events) > 0
+    tool_result_event = tool_result_events[0]["event"]["toolResult"]
+
+    # Single content should be unwrapped (not in array)
+    content = json.loads(tool_result_event["content"])
+    assert content == {"text": "Single result"}
+
+    await nova_model.stop()
+
+
+@pytest.mark.asyncio
+async def test_tool_result_multiple_content_as_array(nova_model, mock_stream):
+    """Test that multiple content items are sent as array."""
+    await nova_model.start()
+
+    tool_result: ToolResult = {
+        "toolUseId": "tool-456",
+        "status": "success",
+        "content": [{"text": "Part 1"}, {"json": {"data": "value"}}],
+    }
+
+    await nova_model.send(ToolResultEvent(tool_result))
+
+    # Verify events were sent
+    assert mock_stream.input_stream.send.called
+    calls = mock_stream.input_stream.send.call_args_list
+
+    # Find the toolResult event
+    tool_result_events = []
+    for call in calls:
+        event_json = call.args[0].value.bytes_.decode("utf-8")
+        event = json.loads(event_json)
+        if "toolResult" in event.get("event", {}):
+            tool_result_events.append(event)
+
+    assert len(tool_result_events) > 0
+    tool_result_event = tool_result_events[0]["event"]["toolResult"]
+
+    # Multiple content should be in array format
+    content = json.loads(tool_result_event["content"])
+    assert "content" in content
+    assert isinstance(content["content"], list)
+    assert len(content["content"]) == 2
+    assert content["content"][0] == {"text": "Part 1"}
+    assert content["content"][1] == {"json": {"data": "value"}}
+
+    await nova_model.stop()
+
+
+@pytest.mark.asyncio
+async def test_tool_result_empty_content(nova_model, mock_stream):
+    """Test that empty content is handled gracefully."""
+    await nova_model.start()
+
+    tool_result: ToolResult = {
+        "toolUseId": "tool-789",
+        "status": "success",
+        "content": [],
+    }
+
+    await nova_model.send(ToolResultEvent(tool_result))
+
+    # Verify events were sent
+    assert mock_stream.input_stream.send.called
+    calls = mock_stream.input_stream.send.call_args_list
+
+    # Find the toolResult event
+    tool_result_events = []
+    for call in calls:
+        event_json = call.args[0].value.bytes_.decode("utf-8")
+        event = json.loads(event_json)
+        if "toolResult" in event.get("event", {}):
+            tool_result_events.append(event)
+
+    assert len(tool_result_events) > 0
+    tool_result_event = tool_result_events[0]["event"]["toolResult"]
+
+    # Empty content should result in empty array wrapped in content key
+    content = json.loads(tool_result_event["content"])
+    assert content == {"content": []}
+
+    await nova_model.stop()
+
+
+@pytest.mark.asyncio
+async def test_tool_result_unsupported_content_type(nova_model):
+    """Test that unsupported content types raise ValueError."""
+    await nova_model.start()
+
+    # Test with image content (unsupported)
+    tool_result_image: ToolResult = {
+        "toolUseId": "tool-999",
+        "status": "success",
+        "content": [{"image": {"format": "jpeg", "source": {"bytes": b"image_data"}}}],
+    }
+
+    with pytest.raises(ValueError, match=r"Content type not supported by Nova Sonic"):
+        await nova_model.send(ToolResultEvent(tool_result_image))
+
+    # Test with document content (unsupported)
+    tool_result_doc: ToolResult = {
+        "toolUseId": "tool-888",
+        "status": "success",
+        "content": [{"document": {"format": "pdf", "source": {"bytes": b"doc_data"}}}],
+    }
+
+    with pytest.raises(ValueError, match=r"Content type not supported by Nova Sonic"):
+        await nova_model.send(ToolResultEvent(tool_result_doc))
+
+    # Test with mixed content (one unsupported)
+    tool_result_mixed: ToolResult = {
+        "toolUseId": "tool-777",
+        "status": "success",
+        "content": [{"text": "Valid text"}, {"image": {"format": "jpeg", "source": {"bytes": b"image_data"}}}],
+    }
+
+    with pytest.raises(ValueError, match=r"Content type not supported by Nova Sonic"):
+        await nova_model.send(ToolResultEvent(tool_result_mixed))
+
     await nova_model.stop()
