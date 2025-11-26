@@ -7,7 +7,7 @@ thread pools, etc.).
 import abc
 import logging
 import time
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Union, cast
+from typing import TYPE_CHECKING, Any, AsyncGenerator, cast
 
 from opentelemetry import trace as trace_api
 
@@ -23,7 +23,7 @@ from ..structured_output._structured_output_context import StructuredOutputConte
 
 if TYPE_CHECKING:  # pragma: no cover
     from ...agent import Agent
-    from ...experimental.bidi.agent.agent import BidiAgent
+    from ...experimental.bidi import BidiAgent
 
 logger = logging.getLogger(__name__)
 
@@ -32,27 +32,17 @@ class ToolExecutor(abc.ABC):
     """Abstract base class for tool executors."""
 
     @staticmethod
-    def _is_bidi_agent(agent: Union["Agent", "BidiAgent"]) -> bool:
-        """Check if the agent is a BidiAgent using isinstance.
-
-        Uses runtime import to avoid circular dependency at module load time.
-        This properly handles subclasses of BidiAgent.
-        """
-        try:
-            from ...experimental.bidi.agent.agent import BidiAgent
-
-            return isinstance(agent, BidiAgent)
-        except ImportError:
-            # If BidiAgent is not available, it can't be a BidiAgent
-            return False
+    def _is_bidi_agent(agent: "Agent | BidiAgent") -> bool:
+        """Check if the agent is a BidiAgent instance."""
+        return agent.__class__.__name__ == "BidiAgent"
 
     @staticmethod
     async def _invoke_before_tool_call_hook(
-        agent: Union["Agent", "BidiAgent"],
+        agent: "Agent | BidiAgent",
         tool_func: Any,
         tool_use: ToolUse,
         invocation_state: dict[str, Any],
-    ) -> tuple[Union[BeforeToolCallEvent, BidiBeforeToolCallEvent], list[Interrupt]]:
+    ) -> tuple[BeforeToolCallEvent | BidiBeforeToolCallEvent, list[Interrupt]]:
         """Invoke the appropriate before tool call hook based on agent type."""
         event_cls = BidiBeforeToolCallEvent if ToolExecutor._is_bidi_agent(agent) else BeforeToolCallEvent
         return await agent.hooks.invoke_callbacks_async(
@@ -66,14 +56,14 @@ class ToolExecutor(abc.ABC):
 
     @staticmethod
     async def _invoke_after_tool_call_hook(
-        agent: Union["Agent", "BidiAgent"],
+        agent: "Agent | BidiAgent",
         selected_tool: Any,
         tool_use: ToolUse,
         invocation_state: dict[str, Any],
         result: ToolResult,
         exception: Exception | None = None,
         cancel_message: str | None = None,
-    ) -> tuple[Union[AfterToolCallEvent, BidiAfterToolCallEvent], list[Interrupt]]:
+    ) -> tuple[AfterToolCallEvent | BidiAfterToolCallEvent, list[Interrupt]]:
         """Invoke the appropriate after tool call hook based on agent type."""
         event_cls = BidiAfterToolCallEvent if ToolExecutor._is_bidi_agent(agent) else AfterToolCallEvent
         return await agent.hooks.invoke_callbacks_async(
@@ -252,7 +242,7 @@ class ToolExecutor(abc.ABC):
 
     @staticmethod
     async def _stream_with_trace(
-        agent: Union["Agent", "BidiAgent"],
+        agent: "Agent | BidiAgent",
         tool_use: ToolUse,
         tool_results: list[ToolResult],
         cycle_trace: Trace,
@@ -313,7 +303,7 @@ class ToolExecutor(abc.ABC):
     # pragma: no cover
     def _execute(
         self,
-        agent: Union["Agent", "BidiAgent"],
+        agent: "Agent | BidiAgent",
         tool_uses: list[ToolUse],
         tool_results: list[ToolResult],
         cycle_trace: Trace,

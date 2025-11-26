@@ -347,7 +347,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
                     # Tool result - create as function_call_output item
                     tool_result = block["toolResult"]
                     original_id = tool_result["toolUseId"]
-                    
+
                     # Validate content types and serialize, preserving structure
                     result_output = ""
                     if "content" in tool_result:
@@ -358,10 +358,10 @@ class BidiOpenAIRealtimeModel(BidiModel):
                                 raise ValueError(
                                     f"tool_use_id=<{original_id}>, content_types=<{list(result_block.keys())}> | Content type not supported by OpenAI Realtime API"
                                 )
-                        
+
                         # Preserve structure by JSON-dumping the entire content array
                         result_output = json.dumps(tool_result["content"])
-                    
+
                     # Use mapped call_id if available, otherwise skip orphaned result
                     if original_id not in call_id_map:
                         continue  # Skip this tool result since we don't have the call
@@ -725,7 +725,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
                     raise ValueError(
                         f"tool_use_id=<{tool_use_id}>, content_types=<{list(block.keys())}> | Content type not supported by OpenAI Realtime API"
                     )
-            
+
             # Preserve structure by JSON-dumping the entire content array
             result_output = json.dumps(tool_result["content"])
 
