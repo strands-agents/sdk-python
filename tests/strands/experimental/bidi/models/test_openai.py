@@ -95,12 +95,12 @@ def test_model_initialization(api_key, model_name):
     assert model_default.api_key == "test-key"
 
     # Test with custom model
-    model_custom = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
+    model_custom = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key)
     assert model_custom.model_id == model_name
     assert model_custom.api_key == api_key
 
     # Test with organization and project
-    model_org = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key, organization="org-123", project="proj-456")
+    model_org = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key, organization="org-123", project="proj-456")
     assert model_org.organization == "org-123"
     assert model_org.project == "proj-456"
 
@@ -115,7 +115,7 @@ def test_model_initialization(api_key, model_name):
 
 def test_audio_config_defaults(api_key, model_name):
     """Test default audio configuration."""
-    model = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
+    model = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key)
 
     assert model.config["audio"]["input_rate"] == 24000
     assert model.config["audio"]["output_rate"] == 24000
@@ -127,7 +127,7 @@ def test_audio_config_defaults(api_key, model_name):
 def test_audio_config_partial_override(api_key, model_name):
     """Test partial audio configuration override."""
     config = {"audio": {"output_rate": 48000, "voice": "echo"}}
-    model = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key, config=config)
+    model = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key, config=config)
 
     # Overridden values
     assert model.config["audio"]["output_rate"] == 48000
@@ -150,7 +150,7 @@ def test_audio_config_full_override(api_key, model_name):
             "voice": "shimmer",
         }
     }
-    model = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key, config=config)
+    model = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key, config=config)
 
     assert model.config["audio"]["input_rate"] == 48000
     assert model.config["audio"]["output_rate"] == 48000
@@ -165,7 +165,7 @@ def test_audio_config_voice_priority(api_key, model_name):
     config = {"audio": {"voice": "nova"}}
 
     model = BidiOpenAIRealtimeModel(
-        model=model_name, api_key=api_key, session_config=session_config, config=config
+        model_id=model_name, api_key=api_key, session_config=session_config, config=config
     )
 
     # Build config and verify config audio voice takes precedence
@@ -177,7 +177,7 @@ def test_audio_config_extracts_voice_from_session_config(api_key, model_name):
     """Test that voice is extracted from session_config when config audio not provided."""
     session_config = {"audio": {"output": {"voice": "fable"}}}
 
-    model = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key, session_config=session_config)
+    model = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key, session_config=session_config)
 
     # Should extract voice from session_config
     assert model.config["audio"]["voice"] == "fable"
@@ -321,7 +321,7 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
     mock_connect, mock_ws = mock_websockets_connect
 
     # Test connection error
-    model1 = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
+    model1 = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key)
     mock_connect.side_effect = Exception("Connection failed")
     with pytest.raises(Exception, match="Connection failed"):
         await model1.start()
@@ -333,18 +333,18 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
     mock_connect.side_effect = async_connect
 
     # Test double connection
-    model2 = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
+    model2 = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key)
     await model2.start()
     with pytest.raises(RuntimeError, match=r"call stop before starting again"):
         await model2.start()
     await model2.stop()
 
     # Test close when not connected
-    model3 = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
+    model3 = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key)
     await model3.stop()  # Should not raise
 
     # Test close error
-    model4 = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
+    model4 = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key)
     await model4.start()
     mock_ws.close.side_effect = Exception("Close failed")
     with pytest.raises(ExceptionGroup):

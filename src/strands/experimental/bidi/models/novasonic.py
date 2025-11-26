@@ -17,7 +17,7 @@ import base64
 import json
 import logging
 import uuid
-from typing import Any, AsyncGenerator, cast, Literal
+from typing import Any, AsyncGenerator, Literal, cast
 
 import boto3
 from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
@@ -34,6 +34,7 @@ from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
 from .._async import stop_all
+from ..types.bidi_model import AudioConfig
 from ..types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
@@ -48,7 +49,6 @@ from ..types.events import (
     BidiUsageEvent,
     SampleRate,
 )
-from ..types.bidi_model import AudioConfig
 from .bidi_model import BidiModel
 
 logger = logging.getLogger(__name__)
@@ -476,7 +476,7 @@ class BidiNovaSonicModel(BidiModel):
                 audio=audio_content,
                 format="pcm",
                 sample_rate=cast(SampleRate, NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"]),
-                channels=1,
+                channels=channels,
             )
 
         # Handle text output (transcripts)

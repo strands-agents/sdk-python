@@ -25,8 +25,8 @@ from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
 from ....tools.watcher import ToolWatcher
-from ....types.content import ContentBlock, Message, Messages
-from ....types.tools import AgentTool, ToolResult, ToolUse
+from ....types.content import Messages
+from ....types.tools import AgentTool
 from ...hooks.events import BidiAgentInitializedEvent
 from ...tools import ToolProvider
 from .._async import stop_all
@@ -187,7 +187,6 @@ class BidiAgent:
         all_tools = self.tool_registry.get_all_tools_config()
         return list(all_tools.keys())
 
-
     async def start(self, invocation_state: dict[str, Any] | None = None) -> None:
         """Start a persistent bidirectional conversation connection.
 
@@ -343,7 +342,7 @@ class BidiAgent:
                 outputs=[audio_io.output(), text_io.output()],
                 invocation_state={"user_id": "user_123"}
             )
-            
+
             # Using custom audio config:
             model = BidiNovaSonicModel(config={"audio": {"input_rate": 48000, "output_rate": 24000}})
             audio_io = BidiAudioIO()

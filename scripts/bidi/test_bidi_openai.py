@@ -233,7 +233,7 @@ async def main():
 
     # Create OpenAI model
     model = BidiOpenAIRealtimeModel(
-        model="gpt-4o-realtime-preview",
+        model_id="gpt-4o-realtime-preview",
         api_key=api_key,
         session={
             "output_modalities": ["audio"],

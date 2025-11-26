@@ -19,12 +19,13 @@ from ..types.tools import ToolResult, ToolUse
 
 if TYPE_CHECKING:
     from ..agent import Agent
+    from ..experimental.bidi.agent import BidiAgent
 
 
 class _ToolCaller:
     """Call tool as a function."""
 
-    def __init__(self, agent: "Agent") -> None:
+    def __init__(self, agent: "Agent | BidiAgent") -> None:
         """Initialize instance.
 
         Args:

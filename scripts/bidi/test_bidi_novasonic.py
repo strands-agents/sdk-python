@@ -46,7 +46,7 @@ async def play(context):
         channels=1,
         format=pyaudio.paInt16,
         output=True,
-        rate=24000,
+        rate=16000,
         frames_per_buffer=1024,
     )
 
@@ -216,7 +216,7 @@ async def main(duration=180):
         "active": True,
         "audio_in": asyncio.Queue(),
         "audio_out": asyncio.Queue(),
-        "connection": agent._agent_loop,
+        "connection": agent._loop,
         "duration": duration,
         "start_time": time.time(),
         "interrupted": False,
