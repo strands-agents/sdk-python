@@ -374,9 +374,8 @@ class GeminiModel(Model):
         Raises:
             ModelThrottledException: If the request is throttled by Gemini.
         """
-        self._tool_use_id_to_name.clear()
-
         request = self._format_request(messages, tool_specs, system_prompt, self.config.get("params"))
+        self._tool_use_id_to_name.clear()
 
         client = genai.Client(**self.client_args).aio
         try:
