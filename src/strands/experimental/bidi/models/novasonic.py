@@ -399,7 +399,8 @@ class BidiNovaSonicModel(BidiModel):
             if "text" not in block and "json" not in block:
                 # Unsupported content type - raise error
                 raise ValueError(
-                    f"tool_use_id=<{tool_use_id}>, content_types=<{list(block.keys())}> | Content type not supported by Nova Sonic"
+                    f"tool_use_id=<{tool_use_id}>, content_types=<{list(block.keys())}> | "
+                    f"Content type not supported by Nova Sonic"
                 )
         
         # Optimize for single content item - unwrap the array
@@ -475,7 +476,7 @@ class BidiNovaSonicModel(BidiModel):
             return BidiAudioStreamEvent(
                 audio=audio_content,
                 format="pcm",
-                sample_rate=cast(SampleRate, NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"]),
+                sample_rate=cast(SampleRate, self.config["audio"]["output_rate"]),
                 channels=channels,
             )
 

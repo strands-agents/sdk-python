@@ -525,6 +525,50 @@ async def test_message_history_empty_and_edge_cases(nova_model):
 
 
 @pytest.mark.asyncio
+async def test_custom_audio_rates_in_events(model_id, region):
+    """Test that audio events use configured sample rates."""
+    # Create model with custom audio configuration
+    config = {"audio": {"output_rate": 48000, "channels": 2}}
+    model = BidiNovaSonicModel(model_id=model_id, region=region, config=config)
+
+    # Test audio output event uses custom configuration
+    audio_bytes = b"test audio data"
+    audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+    nova_event = {"audioOutput": {"content": audio_base64}}
+    result = model._convert_nova_event(nova_event)
+    
+    assert result is not None
+    assert isinstance(result, BidiAudioStreamEvent)
+    # Should use configured rates, not constants
+    assert result.sample_rate == 48000  # Custom config
+    assert result.channels == 2         # Custom config
+    assert result.format == "pcm"
+
+
+@pytest.mark.asyncio
+async def test_default_audio_rates_in_events(model_id, region):
+    """Test that audio events use default sample rates when no custom config."""
+    # Create model without custom audio configuration
+    model = BidiNovaSonicModel(model_id=model_id, region=region)
+
+    # Test audio output event uses defaults
+    audio_bytes = b"test audio data"
+    audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+    nova_event = {"audioOutput": {"content": audio_base64}}
+    result = model._convert_nova_event(nova_event)
+    
+    assert result is not None
+    assert isinstance(result, BidiAudioStreamEvent)
+    # Should use default rates
+    assert result.sample_rate == 16000  # Default output rate
+    assert result.channels == 1         # Default channels
+    assert result.format == "pcm"
+
+
+# Error Handling Tests
+
+
+@pytest.mark.asyncio
 async def test_error_handling(nova_model, mock_stream):
     """Test error handling in various scenarios."""
 

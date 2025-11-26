@@ -63,7 +63,7 @@ class BidiGeminiLiveModel(BidiModel):
         model_id: str = "gemini-2.5-flash-native-audio-preview-09-2025",
         api_key: str | None = None,
         config: dict[str, Any] | None = None,
-        live_config: dict[str, Any] | None = None,
+        provider_config: dict[str, Any] | None = None,
         **kwargs: Any,
     ):
         """Initialize Gemini Live API bidirectional model.
@@ -73,7 +73,7 @@ class BidiGeminiLiveModel(BidiModel):
             api_key: Google AI API key for authentication.
             config: Optional configuration dictionary with structure {"audio": AudioConfig, ...}.
                    If not provided or if "audio" key is missing, uses Gemini Live API's default audio configuration.
-            live_config: Gemini Live API configuration parameters (e.g., response_modalities, speech_config).
+            provider_config: Gemini Live API configuration parameters (e.g., response_modalities, speech_config).
             **kwargs: Reserved for future parameters.
         """
         # Model configuration
@@ -88,10 +88,10 @@ class BidiGeminiLiveModel(BidiModel):
         }
 
         # Merge user config with defaults (user config takes precedence)
-        if live_config:
-            default_config.update(live_config)
+        if provider_config:
+            default_config.update(provider_config)
 
-        self.live_config = default_config
+        self.provider_config = default_config
 
         # Create Gemini client with proper API version
         client_kwargs: dict[str, Any] = {}
@@ -111,14 +111,8 @@ class BidiGeminiLiveModel(BidiModel):
         # Extract audio config from config dict if provided
         user_audio_config = config.get("audio", {}) if config else {}
 
-        # Extract voice from live_config if provided
-        live_config_voice = None
-        if self.live_config and "speech_config" in self.live_config:
-            speech_config = self.live_config["speech_config"]
-            if isinstance(speech_config, dict):
-                live_config_voice = (
-                    speech_config.get("voice_config", {}).get("prebuilt_voice_config", {}).get("voice_name")
-                )
+        # Extract voice from provider_config if provided
+        provider_voice = self._extract_voice_from_provider_config()
 
         # Define default audio configuration
         default_audio_config: AudioConfig = {
@@ -128,9 +122,9 @@ class BidiGeminiLiveModel(BidiModel):
             "format": "pcm",
         }
 
-        # Add voice to defaults if configured in live_config
-        if live_config_voice:
-            default_audio_config["voice"] = live_config_voice
+        # Add voice to defaults if configured in provider_config
+        if provider_voice:
+            default_audio_config["voice"] = provider_voice
 
         # Merge user config with defaults (user values take precedence)
         merged_audio_config = cast(AudioConfig, {**default_audio_config, **user_audio_config})
@@ -142,6 +136,16 @@ class BidiGeminiLiveModel(BidiModel):
             logger.debug("audio_config | merged user-provided config with defaults")
         else:
             logger.debug("audio_config | using default Gemini Live audio configuration")
+
+    def _extract_voice_from_provider_config(self) -> str | None:
+        """Extract voice from provider-specific config."""
+        if "speech_config" in self.provider_config:
+            speech_config = self.provider_config["speech_config"]
+            if isinstance(speech_config, dict):
+                return (speech_config.get("voice_config", {})
+                       .get("prebuilt_voice_config", {})
+                       .get("voice_name"))
+        return None
 
     async def start(
         self,
@@ -203,7 +207,7 @@ class BidiGeminiLiveModel(BidiModel):
     async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive Gemini Live API events and convert to provider-agnostic format."""
         if not self._connection_id:
-            raise RuntimeError("model not started | call start before receiving")
+            raise RuntimeError("model not started | call start before sending/receiving")
 
         yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model_id)
 
@@ -274,8 +278,8 @@ class BidiGeminiLiveModel(BidiModel):
                 BidiAudioStreamEvent(
                     audio=audio_b64,
                     format="pcm",
-                    sample_rate=cast(SampleRate, GEMINI_OUTPUT_SAMPLE_RATE),
-                    channels=cast(Channel, GEMINI_CHANNELS),
+                    sample_rate=cast(SampleRate, self.config["audio"]["output_rate"]),
+                    channels=cast(Channel, self.config["audio"]["channels"]),
                 )
             ]
 
@@ -380,7 +384,7 @@ class BidiGeminiLiveModel(BidiModel):
             ValueError: If content type not supported (e.g., image content).
         """
         if not self._connection_id:
-            raise RuntimeError("model not started | call start before sending")
+            raise RuntimeError("model not started | call start before sending/receiving")
 
         if isinstance(content, BidiTextInputEvent):
             await self._send_text_content(content.text)
@@ -405,7 +409,8 @@ class BidiGeminiLiveModel(BidiModel):
         audio_bytes = base64.b64decode(audio_input.audio)
 
         # Create audio blob for the SDK
-        audio_blob = genai_types.Blob(data=audio_bytes, mime_type=f"audio/pcm;rate={GEMINI_INPUT_SAMPLE_RATE}")
+        mime_type = f"audio/pcm;rate={self.config['audio']['input_rate']}"
+        audio_blob = genai_types.Blob(data=audio_bytes, mime_type=mime_type)
 
         # Send real-time audio input - this automatically handles VAD and interruption
         await self._live_session.send_realtime_input(audio=audio_blob)
@@ -440,7 +445,8 @@ class BidiGeminiLiveModel(BidiModel):
             if "text" not in block and "json" not in block:
                 # Unsupported content type - raise error
                 raise ValueError(
-                    f"tool_use_id=<{tool_use_id}>, content_types=<{list(block.keys())}> | Content type not supported by Gemini Live API"
+                    f"tool_use_id=<{tool_use_id}>, content_types=<{list(block.keys())}> | "
+                    f"Content type not supported by Gemini Live API"
                 )
 
         # Optimize for single content item - unwrap the array
@@ -479,13 +485,13 @@ class BidiGeminiLiveModel(BidiModel):
     ) -> dict[str, Any]:
         """Build LiveConnectConfig for the official SDK.
 
-        Simply passes through all config parameters from live_config, allowing users
+        Simply passes through all config parameters from provider_config, allowing users
         to configure any Gemini Live API parameter directly.
         """
-        # Start with user-provided live_config
+        # Start with user-provided provider_config
         config_dict: dict[str, Any] = {}
-        if self.live_config:
-            config_dict.update(self.live_config)
+        if self.provider_config:
+            config_dict.update(self.provider_config)
 
         # Override with any kwargs from start()
         config_dict.update(kwargs)
