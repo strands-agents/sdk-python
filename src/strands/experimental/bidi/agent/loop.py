@@ -19,7 +19,13 @@ from ...hooks.events import (
     BidiInterruptionEvent as BidiInterruptionHookEvent,
 )
 from .._async import _TaskPool, stop_all
-from ..types.events import BidiInterruptionEvent, BidiOutputEvent, BidiTranscriptStreamEvent
+from ..types.events import (
+    BidiInputEvent,
+    BidiInterruptionEvent,
+    BidiOutputEvent,
+    BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
+)
 
 if TYPE_CHECKING:
     from .agent import BidiAgent
@@ -105,6 +111,21 @@ class _BidiAgentLoop:
             await stop_all(stop_tasks, stop_model)
         finally:
             await self._agent.hooks.invoke_callbacks_async(BidiAfterInvocationEvent(agent=self._agent))
+
+    async def send(self, event: BidiInputEvent) -> None:
+        """Send model event.
+
+        Additional, add text input to messages array.
+
+        Args:
+            event: BidiInputEvent.
+        """
+        if isinstance(event, BidiTextInputEvent):
+            message: Message = {"role": "user", "content": [{"text": event.text}]}
+            self._agent.messages.append(message)
+            await self._agent.hooks.invoke_callbacks_async(BidiMessageAddedEvent(agent=self._agent, message=message))
+
+        await self._agent.model.send(event)
 
     async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive model and tool call events.

@@ -8,7 +8,7 @@ import json
 import logging
 import os
 import uuid
-from typing import Any, AsyncGenerator, cast
+from typing import Any, AsyncGenerator, cast, Literal
 
 import websockets
 from websockets import ClientConnection
@@ -34,6 +34,7 @@ from ..types.events import (
     SampleRate,
     StopReason,
 )
+from ..types.bidi_model import AudioConfig
 from .bidi_model import BidiModel
 
 logger = logging.getLogger(__name__)
@@ -76,11 +77,12 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
     def __init__(
         self,
-        model: str = DEFAULT_MODEL,
+        model_id: str = DEFAULT_MODEL,
         api_key: str | None = None,
         organization: str | None = None,
         project: str | None = None,
         session_config: dict[str, Any] | None = None,
+        config: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize OpenAI Realtime bidirectional model.
@@ -91,10 +93,12 @@ class BidiOpenAIRealtimeModel(BidiModel):
             organization: OpenAI organization ID for API requests.
             project: OpenAI project ID for API requests.
             session_config: Session configuration parameters (e.g., voice, turn_detection, modalities).
+            config: Optional configuration dictionary with structure {"audio": AudioConfig, ...}.
+                   If not provided or if "audio" key is missing, uses OpenAI Realtime API's default audio configuration.
             **kwargs: Reserved for future parameters.
         """
         # Model configuration
-        self.model = model
+        self.model_id = model_id
         self.api_key = api_key
         self.organization = organization
         self.project = project
@@ -112,7 +116,39 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
         self._function_call_buffer: dict[str, Any] = {}
 
-        logger.debug("model=<%s> | openai realtime model initialized", model)
+        logger.debug("model=<%s> | openai realtime model initialized", model_id)
+
+        # Extract audio config from config dict if provided
+        user_audio_config = config.get("audio", {}) if config else {}
+
+        # Extract voice from session_config if provided
+        session_config_voice = "alloy"
+        if self.session_config and "audio" in self.session_config:
+            audio_settings = self.session_config["audio"]
+            if isinstance(audio_settings, dict) and "output" in audio_settings:
+                output_settings = audio_settings["output"]
+                if isinstance(output_settings, dict):
+                    session_config_voice = output_settings.get("voice", "alloy")
+
+        # Define default audio configuration
+        default_audio_config: AudioConfig = {
+            "input_rate": cast(int, AUDIO_FORMAT["rate"]),
+            "output_rate": cast(int, AUDIO_FORMAT["rate"]),
+            "channels": 1,
+            "format": "pcm",
+            "voice": session_config_voice,
+        }
+
+        # Merge user config with defaults (user values take precedence)
+        merged_audio_config = cast(AudioConfig, {**default_audio_config, **user_audio_config})
+
+        # Store config with audio defaults always populated
+        self.config: dict[str, Any] = {"audio": merged_audio_config}
+
+        if user_audio_config:
+            logger.debug("audio_config | merged user-provided config with defaults")
+        else:
+            logger.debug("audio_config | using default OpenAI Realtime audio configuration")
 
     async def start(
         self,
@@ -140,7 +176,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         self._function_call_buffer = {}
 
         # Establish WebSocket connection
-        url = f"{OPENAI_REALTIME_URL}?model={self.model}"
+        url = f"{OPENAI_REALTIME_URL}?model={self.model_id}"
 
         headers = [("Authorization", f"Bearer {self.api_key}")]
         if self.organization:
@@ -218,6 +254,10 @@ class BidiOpenAIRealtimeModel(BidiModel):
                 config[key] = value
             else:
                 logger.warning("parameter=<%s> | ignoring unsupported session parameter", key)
+
+        # Override voice with config value if present (config takes precedence)
+        if "voice" in self.config["audio"]:
+            config.setdefault("audio", {}).setdefault("output", {})["voice"] = self.config["audio"]["voice"]
 
         return config
 
@@ -365,7 +405,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
         if not self._connection_id:
             raise RuntimeError("model not started | call start before receiving")
 
-        yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model)
+        yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model_id)
 
         async for message in self._websocket:
             openai_event = json.loads(message)
@@ -394,12 +434,14 @@ class BidiOpenAIRealtimeModel(BidiModel):
                 .get("rate", AUDIO_FORMAT["rate"])
             )
 
+            # Channels from config is guaranteed to be 1 or 2
+            channels = cast(Literal[1, 2], self.config["audio"]["channels"])
             return [
                 BidiAudioStreamEvent(
                     audio=openai_event["delta"],
                     format="pcm",
                     sample_rate=cast(SampleRate, sample_rate),
-                    channels=1,
+                    channels=channels,
                 )
             ]
 
