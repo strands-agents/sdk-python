@@ -653,3 +653,41 @@ async def test_tool_result_empty_content(nova_model, mock_stream):
     assert content == {"content": []}
 
     await nova_model.stop()
+
+
+@pytest.mark.asyncio
+async def test_tool_result_unsupported_content_type(nova_model):
+    """Test that unsupported content types raise ValueError."""
+    await nova_model.start()
+
+    # Test with image content (unsupported)
+    tool_result_image: ToolResult = {
+        "toolUseId": "tool-999",
+        "status": "success",
+        "content": [{"image": {"format": "jpeg", "source": {"bytes": b"image_data"}}}],
+    }
+
+    with pytest.raises(ValueError, match=r"Content type not supported by Nova Sonic"):
+        await nova_model.send(ToolResultEvent(tool_result_image))
+
+    # Test with document content (unsupported)
+    tool_result_doc: ToolResult = {
+        "toolUseId": "tool-888",
+        "status": "success",
+        "content": [{"document": {"format": "pdf", "source": {"bytes": b"doc_data"}}}],
+    }
+
+    with pytest.raises(ValueError, match=r"Content type not supported by Nova Sonic"):
+        await nova_model.send(ToolResultEvent(tool_result_doc))
+
+    # Test with mixed content (one unsupported)
+    tool_result_mixed: ToolResult = {
+        "toolUseId": "tool-777",
+        "status": "success",
+        "content": [{"text": "Valid text"}, {"image": {"format": "jpeg", "source": {"bytes": b"image_data"}}}],
+    }
+
+    with pytest.raises(ValueError, match=r"Content type not supported by Nova Sonic"):
+        await nova_model.send(ToolResultEvent(tool_result_mixed))
+
+    await nova_model.stop()

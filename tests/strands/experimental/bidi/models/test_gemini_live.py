@@ -543,3 +543,118 @@ def test_tool_formatting(model, tool_spec):
     # Test empty list
     formatted_empty = model._format_tools_for_live_api([])
     assert formatted_empty == []
+
+
+
+# Tool Result Content Tests
+
+
+@pytest.mark.asyncio
+async def test_tool_result_single_content_unwrapped(mock_genai_client, model):
+    """Test that single content item is unwrapped (optimization)."""
+    _, mock_live_session, _ = mock_genai_client
+    await model.start()
+
+    tool_result: ToolResult = {
+        "toolUseId": "tool-123",
+        "status": "success",
+        "content": [{"text": "Single result"}],
+    }
+
+    await model.send(ToolResultEvent(tool_result))
+
+    # Verify the tool response was sent
+    mock_live_session.send_tool_response.assert_called_once()
+    call_args = mock_live_session.send_tool_response.call_args
+    function_responses = call_args.kwargs.get("function_responses", [])
+
+    assert len(function_responses) == 1
+    func_response = function_responses[0]
+    assert func_response.id == "tool-123"
+    # Single content should be unwrapped (not in array)
+    assert func_response.response == {"text": "Single result"}
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_tool_result_multiple_content_as_array(mock_genai_client, model):
+    """Test that multiple content items are sent as array."""
+    _, mock_live_session, _ = mock_genai_client
+    await model.start()
+
+    tool_result: ToolResult = {
+        "toolUseId": "tool-456",
+        "status": "success",
+        "content": [{"text": "Part 1"}, {"json": {"data": "value"}}],
+    }
+
+    await model.send(ToolResultEvent(tool_result))
+
+    # Verify the tool response was sent
+    mock_live_session.send_tool_response.assert_called_once()
+    call_args = mock_live_session.send_tool_response.call_args
+    function_responses = call_args.kwargs.get("function_responses", [])
+
+    assert len(function_responses) == 1
+    func_response = function_responses[0]
+    assert func_response.id == "tool-456"
+    # Multiple content should be in array format
+    assert "result" in func_response.response
+    assert isinstance(func_response.response["result"], list)
+    assert len(func_response.response["result"]) == 2
+    assert func_response.response["result"][0] == {"text": "Part 1"}
+    assert func_response.response["result"][1] == {"json": {"data": "value"}}
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_tool_result_unsupported_content_type(mock_genai_client, model):
+    """Test that unsupported content types raise ValueError."""
+    _, _, _ = mock_genai_client
+    await model.start()
+
+    # Test with image content (unsupported)
+    tool_result_image: ToolResult = {
+        "toolUseId": "tool-999",
+        "status": "success",
+        "content": [{"image": {"format": "jpeg", "source": {"bytes": b"image_data"}}}],
+    }
+
+    with pytest.raises(ValueError, match=r"Content type not supported by Gemini Live API"):
+        await model.send(ToolResultEvent(tool_result_image))
+
+    # Test with document content (unsupported)
+    tool_result_doc: ToolResult = {
+        "toolUseId": "tool-888",
+        "status": "success",
+        "content": [{"document": {"format": "pdf", "source": {"bytes": b"doc_data"}}}],
+    }
+
+    with pytest.raises(ValueError, match=r"Content type not supported by Gemini Live API"):
+        await model.send(ToolResultEvent(tool_result_doc))
+
+    # Test with mixed content (one unsupported)
+    tool_result_mixed: ToolResult = {
+        "toolUseId": "tool-777",
+        "status": "success",
+        "content": [{"text": "Valid text"}, {"image": {"format": "jpeg", "source": {"bytes": b"image_data"}}}],
+    }
+
+    with pytest.raises(ValueError, match=r"Content type not supported by Gemini Live API"):
+        await model.send(ToolResultEvent(tool_result_mixed))
+
+    await model.stop()
+
+
+# Helper fixture for async generator
+@pytest.fixture
+def agenerator():
+    """Helper to create async generators for testing."""
+
+    async def _agenerator(items):
+        for item in items:
+            yield item
+
+    return _agenerator

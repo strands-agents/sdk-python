@@ -354,11 +354,9 @@ class BidiOpenAIRealtimeModel(BidiModel):
                         # First validate all content types are supported
                         for result_block in tool_result["content"]:
                             if "text" not in result_block and "json" not in result_block:
-                                # Unsupported content type - log warning and skip
-                                logger.warning(
-                                    "tool_use_id=<%s>, content_types=<%s> | content type in tool results not supported by openai realtime api",
-                                    original_id,
-                                    list(result_block.keys()),
+                                # Unsupported content type - raise error
+                                raise ValueError(
+                                    f"tool_use_id=<{original_id}>, content_types=<{list(result_block.keys())}> | Content type not supported by OpenAI Realtime API"
                                 )
                         
                         # Preserve structure by JSON-dumping the entire content array

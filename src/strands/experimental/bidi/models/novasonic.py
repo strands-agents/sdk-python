@@ -397,11 +397,9 @@ class BidiNovaSonicModel(BidiModel):
         # Validate all content types are supported
         for block in content:
             if "text" not in block and "json" not in block:
-                # Unsupported content type - log warning
-                logger.warning(
-                    "tool_use_id=<%s>, content_types=<%s> | content type in tool results not supported by nova sonic",
-                    tool_use_id,
-                    list(block.keys()),
+                # Unsupported content type - raise error
+                raise ValueError(
+                    f"tool_use_id=<{tool_use_id}>, content_types=<{list(block.keys())}> | Content type not supported by Nova Sonic"
                 )
         
         # Optimize for single content item - unwrap the array

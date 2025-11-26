@@ -91,12 +91,12 @@ def test_model_initialization(api_key, model_name):
     """Test model initialization with various configurations."""
     # Test default config
     model_default = BidiOpenAIRealtimeModel(api_key="test-key")
-    assert model_default.model == "gpt-realtime"
+    assert model_default.model_id == "gpt-realtime"
     assert model_default.api_key == "test-key"
 
     # Test with custom model
     model_custom = BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
-    assert model_custom.model == model_name
+    assert model_custom.model_id == model_name
     assert model_custom.api_key == api_key
 
     # Test with organization and project
@@ -308,7 +308,9 @@ async def test_connection_with_message_history(mock_websockets_connect, model):
     assert len(function_output_items) >= 1
     func_output = function_output_items[0]
     assert func_output["item"]["call_id"] == "call-123"
-    assert "Sunny, 72°F" in func_output["item"]["output"]
+    # Content is now preserved as JSON array
+    output = json.loads(func_output["item"]["output"])
+    assert output == [{"text": "Sunny, 72°F"}]
 
     await model.stop()
 
@@ -399,7 +401,9 @@ async def test_send_all_content_types(mock_websockets_connect, model):
     item = item_create[-1].get("item", {})
     assert item.get("type") == "function_call_output"
     assert item.get("call_id") == "tool-123"
-    assert item.get("output") == "Result: 42"
+    # Content is now preserved as JSON array
+    output = json.loads(item.get("output"))
+    assert output == [{"text": "Result: 42"}]
 
     # Test tool result with JSON content
     tool_result_json: ToolResult = {
@@ -414,8 +418,9 @@ async def test_send_all_content_types(mock_websockets_connect, model):
     item = item_create[-1].get("item", {})
     assert item.get("type") == "function_call_output"
     assert item.get("call_id") == "tool-456"
-    # JSON should be serialized
-    assert json.loads(item.get("output")) == {"result": 42, "status": "ok"}
+    # Content is now preserved as JSON array
+    output = json.loads(item.get("output"))
+    assert output == [{"json": {"result": 42, "status": "ok"}}]
 
     # Test tool result with multiple content blocks
     tool_result_multi: ToolResult = {
@@ -430,11 +435,9 @@ async def test_send_all_content_types(mock_websockets_connect, model):
     item = item_create[-1].get("item", {})
     assert item.get("type") == "function_call_output"
     assert item.get("call_id") == "tool-789"
-    # Multiple parts should be joined with newlines
-    output = item.get("output")
-    assert "Part 1" in output
-    assert '"data": "value"' in output or "'data': 'value'" in output
-    assert "Part 2" in output
+    # Content is now preserved as JSON array
+    output = json.loads(item.get("output"))
+    assert output == [{"text": "Part 1"}, {"json": {"data": "value"}}, {"text": "Part 2"}]
 
     # Test tool result with image content (should raise error)
     tool_result_image: ToolResult = {
@@ -442,7 +445,7 @@ async def test_send_all_content_types(mock_websockets_connect, model):
         "status": "success",
         "content": [{"image": {"format": "jpeg", "source": {"bytes": b"image_data"}}}],
     }
-    with pytest.raises(ValueError, match=r"Image content.*not supported"):
+    with pytest.raises(ValueError, match=r"Content type not supported by OpenAI Realtime API"):
         await model.send(ToolResultEvent(tool_result_image))
 
     # Test tool result with document content (should raise error)
@@ -451,7 +454,7 @@ async def test_send_all_content_types(mock_websockets_connect, model):
         "status": "success",
         "content": [{"document": {"format": "pdf", "source": {"bytes": b"doc_data"}}}],
     }
-    with pytest.raises(ValueError, match=r"Document content.*not supported"):
+    with pytest.raises(ValueError, match=r"Content type not supported by OpenAI Realtime API"):
         await model.send(ToolResultEvent(tool_result_doc))
 
     await model.stop()
@@ -498,7 +501,7 @@ async def test_receive_lifecycle_events(mock_websockets_connect, model):
     # First event should be connection start (new TypedEvent format)
     assert first_event.get("type") == "bidi_connection_start"
     assert first_event.get("connection_id") == model._connection_id
-    assert first_event.get("model") == model.model
+    assert first_event.get("model") == model.model_id
 
     # Close to trigger session end
     await model.stop()
@@ -790,7 +793,9 @@ async def test_tool_result_single_text_content(mock_websockets_connect, api_key)
     item = item_create[-1].get("item", {})
     assert item.get("type") == "function_call_output"
     assert item.get("call_id") == "call-123"
-    assert item.get("output") == "Simple text result"
+    # Content is now preserved as JSON array
+    output = json.loads(item.get("output"))
+    assert output == [{"text": "Simple text result"}]
 
     await model.stop()
 
@@ -818,10 +823,9 @@ async def test_tool_result_single_json_content(mock_websockets_connect, api_key)
     item = item_create[-1].get("item", {})
     assert item.get("type") == "function_call_output"
     assert item.get("call_id") == "call-456"
-    # JSON should be serialized as string
-    output = item.get("output")
-    parsed = json.loads(output)
-    assert parsed == {"temperature": 72, "condition": "sunny"}
+    # Content is now preserved as JSON array
+    output = json.loads(item.get("output"))
+    assert output == [{"json": {"temperature": 72, "condition": "sunny"}}]
 
     await model.stop()
 
@@ -853,12 +857,13 @@ async def test_tool_result_multiple_content_blocks(mock_websockets_connect, api_
     item = item_create[-1].get("item", {})
     assert item.get("type") == "function_call_output"
     assert item.get("call_id") == "call-789"
-    # Multiple parts should be joined with newlines
-    output = item.get("output")
-    assert "Weather data:" in output
-    assert "temp" in output
-    assert "humidity" in output
-    assert "Forecast: sunny" in output
+    # Content is now preserved as JSON array
+    output = json.loads(item.get("output"))
+    assert output == [
+        {"text": "Weather data:"},
+        {"json": {"temp": 72, "humidity": 65}},
+        {"text": "Forecast: sunny"},
+    ]
 
     await model.stop()
 
@@ -876,7 +881,7 @@ async def test_tool_result_image_content_raises_error(mock_websockets_connect, a
         "content": [{"image": {"format": "jpeg", "source": {"bytes": b"fake_image_data"}}}],
     }
 
-    with pytest.raises(ValueError, match=r"Image content.*not supported.*OpenAI Realtime API"):
+    with pytest.raises(ValueError, match=r"Content type not supported by OpenAI Realtime API"):
         await model.send(ToolResultEvent(tool_result))
 
     await model.stop()
@@ -895,7 +900,7 @@ async def test_tool_result_document_content_raises_error(mock_websockets_connect
         "content": [{"document": {"format": "pdf", "source": {"bytes": b"fake_pdf_data"}}}],
     }
 
-    with pytest.raises(ValueError, match=r"Document content.*not supported.*OpenAI Realtime API"):
+    with pytest.raises(ValueError, match=r"Content type not supported by OpenAI Realtime API"):
         await model.send(ToolResultEvent(tool_result))
 
     await model.stop()
