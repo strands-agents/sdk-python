@@ -348,33 +348,22 @@ class BidiOpenAIRealtimeModel(BidiModel):
                     tool_result = block["toolResult"]
                     original_id = tool_result["toolUseId"]
                     
-                    # Serialize the entire tool result content, preserving all data types
+                    # Validate content types and serialize, preserving structure
                     result_output = ""
                     if "content" in tool_result:
-                        # Collect all content blocks
-                        content_parts = []
+                        # First validate all content types are supported
                         for result_block in tool_result["content"]:
-                            if "text" in result_block:
-                                content_parts.append(result_block["text"])
-                            elif "json" in result_block:
-                                # Preserve JSON content
-                                json_content = result_block["json"]
-                                content_parts.append(
-                                    json.dumps(json_content) if not isinstance(json_content, str) else json_content
-                                )
-                            else:
-                                # Generic warning for unsupported content types
+                            if "text" not in result_block and "json" not in result_block:
+                                # Unsupported content type - log warning and skip
                                 logger.warning(
                                     "tool_use_id=<%s>, content_types=<%s> | content type in tool results not supported by openai realtime api",
                                     original_id,
                                     list(result_block.keys()),
                                 )
                         
-                        # Combine all parts - if single part, use as-is; if multiple, combine
-                        if len(content_parts) == 1:
-                            result_output = content_parts[0]
-                        elif content_parts:
-                            result_output = "\n".join(content_parts)
+                        # Preserve structure by JSON-dumping the entire content array
+                        result_output = json.dumps(tool_result["content"])
+                    
                     # Use mapped call_id if available, otherwise skip orphaned result
                     if original_id not in call_id_map:
                         continue  # Skip this tool result since we don't have the call
@@ -728,31 +717,19 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
         logger.debug("tool_use_id=<%s> | sending openai tool result", tool_use_id)
 
-        # Serialize the entire tool result content, preserving all data types
+        # Validate content types and serialize, preserving structure
         result_output = ""
         if "content" in tool_result:
-            # Collect all content blocks
-            content_parts = []
+            # First validate all content types are supported
             for block in tool_result["content"]:
-                if "text" in block:
-                    content_parts.append(block["text"])
-                elif "json" in block:
-                    # Preserve JSON content
-                    json_content = block["json"]
-                    content_parts.append(
-                        json.dumps(json_content) if not isinstance(json_content, str) else json_content
-                    )
-                else:
-                    # Generic error for unsupported content types
+                if "text" not in block and "json" not in block:
+                    # Unsupported content type - raise error
                     raise ValueError(
                         f"tool_use_id=<{tool_use_id}>, content_types=<{list(block.keys())}> | Content type not supported by OpenAI Realtime API"
                     )
             
-            # Combine all parts - if single part, use as-is; if multiple, combine
-            if len(content_parts) == 1:
-                result_output = content_parts[0]
-            elif content_parts:
-                result_output = "\n".join(content_parts)
+            # Preserve structure by JSON-dumping the entire content array
+            result_output = json.dumps(tool_result["content"])
 
         item_data = {"type": "function_call_output", "call_id": tool_use_id, "output": result_output}
         await self._send_event({"type": "conversation.item.create", "item": item_data})

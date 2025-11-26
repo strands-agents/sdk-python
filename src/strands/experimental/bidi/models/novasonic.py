@@ -391,8 +391,18 @@ class BidiNovaSonicModel(BidiModel):
 
         logger.debug("tool_use_id=<%s> | sending nova tool result", tool_use_id)
 
-        # Nova Sonic expects stringified JSON in toolResult.content
+        # Validate content types and preserve structure
         content = tool_result.get("content", [])
+        
+        # Validate all content types are supported
+        for block in content:
+            if "text" not in block and "json" not in block:
+                # Unsupported content type - log warning
+                logger.warning(
+                    "tool_use_id=<%s>, content_types=<%s> | content type in tool results not supported by nova sonic",
+                    tool_use_id,
+                    list(block.keys()),
+                )
         
         # Optimize for single content item - unwrap the array
         if len(content) == 1:

@@ -431,15 +431,14 @@ class BidiGeminiLiveModel(BidiModel):
     async def _send_tool_result(self, tool_result: ToolResult) -> None:
         """Internal: Send tool result using Gemini Live API."""
         tool_use_id = tool_result.get("toolUseId")
+        content = tool_result.get("content", [])
 
-        # TODO: We need to extract all content and content types
-        result_data = {}
-        if "content" in tool_result:
-            # Extract text from content blocks
-            for block in tool_result["content"]:
-                if "text" in block:
-                    result_data = {"result": block["text"]}
-                    break
+        # Optimize for single content item - unwrap the array
+        if len(content) == 1:
+            result_data: dict[str, Any] = content[0]
+        else:
+            # Multiple items - send as array
+            result_data = {"result": content}
 
         # Create function response
         func_response = genai_types.FunctionResponse(
