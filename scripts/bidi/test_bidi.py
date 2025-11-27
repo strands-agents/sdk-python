@@ -6,7 +6,7 @@ from strands_tools import calculator
 
 from strands.experimental.bidi.agent.agent import BidiAgent
 from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
-from strands.experimental.bidi.models.novasonic import BidiNovaSonicModel
+from strands.experimental.bidi.models.gemini_live import BidiGeminiLiveModel
 
 
 async def main():
@@ -14,7 +14,7 @@ async def main():
     # Nova Sonic model
     audio_io = BidiAudioIO()
     text_io = BidiTextIO()
-    model = BidiNovaSonicModel(region="us-east-1")
+    model = BidiGeminiLiveModel(region="us-east-1", config={"audio": {"voice": "ash"}})
     agent = BidiAgent(model=model, tools=[calculator])
 
     print("New BidiAgent Experience")
