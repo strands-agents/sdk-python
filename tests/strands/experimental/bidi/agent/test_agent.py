@@ -102,7 +102,7 @@ def agent(mock_model, mock_tool_registry, mock_tool_caller):
             agent = BidiAgent(model=mock_model)
             return agent
 
-def test_agent_initialization():
+def test_bidi_agent_init_with_various_configurations():
     """Test agent initialization with various configurations."""
     # Test default initialization
     mock_model = MockBidiModel()
@@ -138,7 +138,7 @@ def test_agent_initialization():
     assert config["audio"]["channels"] == 1
 
 @pytest.mark.asyncio
-async def test_agent_lifecycle(agent):
+async def test_bidi_agent_start_stop_lifecycle(agent):
     """Test agent start/stop lifecycle and state management."""
     # Initial state
     assert not agent._started
@@ -169,7 +169,7 @@ async def test_agent_lifecycle(agent):
     assert agent.model._connection_id != connection_id
 
 @pytest.mark.asyncio
-async def test_send_methods(agent):
+async def test_bidi_agent_send_with_input_types(agent):
     """Test sending various input types through agent.send()."""
     await agent.start()
     
@@ -203,7 +203,7 @@ async def test_send_methods(agent):
     assert len(agent.messages) == 5  # 2 + 3 new messages
 
 @pytest.mark.asyncio
-async def test_receive_methods(agent):
+async def test_bidi_agent_receive_events_from_model(agent):
     """Test receiving events from model."""
     # Configure mock model to yield events
     events = [
@@ -251,7 +251,7 @@ async def test_receive_methods(agent):
     assert len(empty_events) >= 1
     assert isinstance(empty_events[0], BidiConnectionStartEvent)
 
-def test_agent_tools(agent, mock_tool_registry):
+def test_bidi_agent_tool_integration(agent, mock_tool_registry):
     """Test agent tool integration and properties."""
     # Test tool property access
     assert hasattr(agent, 'tool')
@@ -271,7 +271,7 @@ def test_agent_tools(agent, mock_tool_registry):
     assert "weather" in tool_names
 
 @pytest.mark.asyncio
-async def test_error_handling(agent):
+async def test_bidi_agent_send_receive_error_before_start(agent):
     """Test error handling in various scenarios."""
     # Test send before start
     with pytest.raises(RuntimeError, match="call start before"):
@@ -295,7 +295,7 @@ async def test_error_handling(agent):
 
 
 @pytest.mark.asyncio
-async def test_model_error_propagation():
+async def test_bidi_agent_start_receive_propagates_model_errors():
     """Test that model errors are properly propagated."""
     # Test model start error
     mock_model = MockBidiModel()
@@ -320,7 +320,7 @@ async def test_model_error_propagation():
             pass
 
 @pytest.mark.asyncio
-async def test_agent_state_consistency(agent):
+async def test_bidi_agent_state_consistency(agent):
     """Test that agent state remains consistent across operations."""
     # Initial state
     assert not agent._started
