@@ -16,6 +16,7 @@ from strands.models.llamaapi import LlamaAPIModel
 from strands.models.mistral import MistralModel
 from strands.models.ollama import OllamaModel
 from strands.models.openai import OpenAIModel
+from strands.models.sap_genai_hub import SAPGenAIHubModel
 from strands.models.writer import WriterModel
 
 
@@ -44,7 +45,10 @@ class OllamaProviderInfo(ProviderInfo):
 
     def __init__(self):
         super().__init__(
-            id="ollama", factory=lambda: OllamaModel(host="http://localhost:11434", model_id="llama3.3:70b")
+            id="ollama",
+            factory=lambda: OllamaModel(
+                host="http://localhost:11434", model_id="llama3.3:70b"
+            ),
         )
 
         is_server_available = False
@@ -57,6 +61,46 @@ class OllamaProviderInfo(ProviderInfo):
             not is_server_available,
             reason="Local Ollama endpoint not available at localhost:11434",
         )
+
+
+class SAPGenAIHubProviderInfo(ProviderInfo):
+    """Special case SAP GenAI Hub as it requires AI Core credentials to be configured."""
+
+    def __init__(self):
+        super().__init__(
+            id="sap_genai_hub",
+            factory=lambda: SAPGenAIHubModel(model_id="amazon--nova-lite"),
+        )
+
+        credentials_available = self._check_sap_credentials_available()
+        self.mark = mark.skipif(
+            not credentials_available,
+            reason="SAP AI Core credentials not available - configure service key or set environment variables",
+        )
+
+    def _check_sap_credentials_available(self) -> bool:
+        """Check if SAP GenAI Hub credentials are available."""
+        try:
+            # Try to import the SAP GenAI Hub SDK
+            from gen_ai_hub.proxy.native.amazon.clients import Session
+
+            # Try to create a session - this will fail if credentials are missing
+            session = Session()
+            # Try to create a client - this is where it would fail with missing base_url
+            client = session.client(model_name="amazon--nova-lite")
+            # If we got this far, credentials are available
+            return True
+        except (ImportError, TypeError, Exception) as e:
+            # Common errors when credentials are missing:
+            # - TypeError: AICoreV2Client.__init__() missing 1 required positional argument: 'base_url'
+            # - ImportError: No module named 'gen_ai_hub'
+            # - Other configuration-related exceptions
+            error_msg = str(e)
+            if "missing 1 required positional argument: 'base_url'" in error_msg:
+                # This is the specific error we expect when AI Core credentials are missing
+                return False
+            # For any other errors, also assume credentials not available
+            return False
 
 
 anthropic = ProviderInfo(
@@ -84,7 +128,10 @@ cohere = ProviderInfo(
     ),
 )
 litellm = ProviderInfo(
-    id="litellm", factory=lambda: LiteLLMModel(model_id="bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0")
+    id="litellm",
+    factory=lambda: LiteLLMModel(
+        model_id="bedrock/us.anthropic.claude-3-7-sonnet-20250219-v1:0"
+    ),
 )
 llama = ProviderInfo(
     id="llama",
@@ -138,6 +185,7 @@ gemini = ProviderInfo(
 )
 
 ollama = OllamaProviderInfo()
+sap_genai_hub = SAPGenAIHubProviderInfo()
 
 
 all_providers = [
@@ -149,5 +197,6 @@ all_providers = [
     litellm,
     mistral,
     openai,
+    sap_genai_hub,
     writer,
 ]
