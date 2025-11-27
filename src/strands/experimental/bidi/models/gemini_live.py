@@ -440,12 +440,13 @@ class BidiGeminiLiveModel(BidiModel):
             if "text" not in block and "json" not in block:
                 # Unsupported content type - raise error
                 raise ValueError(
-                    f"tool_use_id=<{tool_use_id}>, content_types=<{list(block.keys())}> | Content type not supported by Gemini Live API"
+                    f"tool_use_id=<{tool_use_id}>, content_types=<{list(block.keys())}>"
+                    " | Content type not supported by Gemini Live API"
                 )
 
         # Optimize for single content item - unwrap the array
         if len(content) == 1:
-            result_data: dict[str, Any] = content[0]
+            result_data = cast(dict[str, Any], content[0])
         else:
             # Multiple items - send as array
             result_data = {"result": content}
