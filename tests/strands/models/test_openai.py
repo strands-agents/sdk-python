@@ -615,6 +615,52 @@ async def test_stream(openai_client, model_id, model, agenerator, alist):
 
 
 @pytest.mark.asyncio
+async def test_stream_respects_streaming_flag(openai_client, model_id, alist):
+    # Model configured to NOT stream
+    model = OpenAIModel(client_args={}, model_id=model_id, params={"max_tokens": 1}, streaming=False)
+
+    # Mock a non-streaming response object
+    mock_choice = unittest.mock.Mock()
+    mock_choice.finish_reason = "stop"
+    mock_choice.message = unittest.mock.Mock()
+    mock_choice.message.content = "non-stream result"
+    mock_response = unittest.mock.Mock()
+    mock_response.choices = [mock_choice]
+    mock_response.usage = unittest.mock.Mock(prompt_tokens=10, completion_tokens=20, total_tokens=30)
+
+    openai_client.chat.completions.create = unittest.mock.AsyncMock(return_value=mock_response)
+
+    # Consume the generator and verify the events
+    response_gen = model.stream([{"role": "user", "content": [{"text": "hi"}]}])
+    tru_events = await alist(response_gen)
+
+    expected_request = {
+        "max_tokens": 1,
+        "model": model_id,
+        "messages": [{"role": "user", "content": [{"text": "hi", "type": "text"}]}],
+        "stream": False,
+        "stream_options": {"include_usage": True},
+        "tools": [],
+    }
+    openai_client.chat.completions.create.assert_called_once_with(**expected_request)
+
+    exp_events = [
+        {"messageStart": {"role": "assistant"}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "non-stream result"}}},
+        {"contentBlockStop": {}},
+        {"messageStop": {"stopReason": "end_turn"}},
+        {
+            "metadata": {
+                "usage": {"inputTokens": 10, "outputTokens": 20, "totalTokens": 30},
+                "metrics": {"latencyMs": 0},
+            }
+        },
+    ]
+    assert tru_events == exp_events
+
+
+@pytest.mark.asyncio
 async def test_stream_empty(openai_client, model_id, model, agenerator, alist):
     mock_delta = unittest.mock.Mock(content=None, tool_calls=None, reasoning_content=None)
 
