@@ -1,7 +1,7 @@
 """SAP GenAI Hub model provider.
 
 - Docs: https://help.sap.com/docs/sap-ai-core/sap-ai-core-service-guide/consume-generative-ai-models-using-sap-ai-core#aws-bedrock
-- SDK Reference: https://help.sap.com/doc/generative-ai-hub-sdk/CLOUD/en-US/_reference/gen_ai_hub.html
+- SDK Reference: https://help.sap.com/doc/sap-ai-sdk-gen/CLOUD/en-US/_reference/gen_ai_hub.html
 """
 
 import asyncio
@@ -37,7 +37,7 @@ try:
     from gen_ai_hub.proxy.native.amazon.clients import Session
 except ImportError as e:
     raise ImportError(
-        "SAP GenAI Hub SDK is not installed. Please install it with: pip install 'generative-ai-hub-sdk[all]'"
+        "SAP GenAI Hub SDK is not installed. Please install it with: pip install 'sap-ai-sdk-gen[all]'"
     ) from e
 
 logger = logging.getLogger(__name__)
@@ -94,7 +94,9 @@ class SAPGenAIHubModel(Model):
         Args:
             **model_config: Configuration options for the SAP GenAI Hub model.
         """
-        self.config = SAPGenAIHubModel.SAPGenAIHubConfig(model_id=DEFAULT_SAP_GENAI_HUB_MODEL_ID)
+        self.config = SAPGenAIHubModel.SAPGenAIHubConfig(
+            model_id=DEFAULT_SAP_GENAI_HUB_MODEL_ID
+        )
         self.update_config(**model_config)
 
         logger.debug("config=<%s> | initializing", self.config)
@@ -166,13 +168,19 @@ class SAPGenAIHubModel(Model):
         """
         # Format request based on model type
         if self._is_nova_model():
-            return self._format_nova_request(messages, tool_specs, system_prompt_content, tool_choice)
+            return self._format_nova_request(
+                messages, tool_specs, system_prompt_content, tool_choice
+            )
         elif self._is_claude_model():
-            return self._format_claude_request(messages, tool_specs, system_prompt_content, tool_choice)
+            return self._format_claude_request(
+                messages, tool_specs, system_prompt_content, tool_choice
+            )
         elif self._is_titan_embed_model():
             return self._format_titan_embed_request(messages)
         else:
-            raise ValueError(f"model_id=<{self.config['model_id']}> | unsupported model")
+            raise ValueError(
+                f"model_id=<{self.config['model_id']}> | unsupported model"
+            )
 
     def _format_nova_request(
         self,
@@ -218,7 +226,10 @@ class SAPGenAIHubModel(Model):
             }
 
         # Add additional arguments if provided
-        if "additional_args" in self.config and self.config["additional_args"] is not None:
+        if (
+            "additional_args" in self.config
+            and self.config["additional_args"] is not None
+        ):
             request.update(self.config["additional_args"])
 
         return request
@@ -243,7 +254,9 @@ class SAPGenAIHubModel(Model):
         """
         # For Claude models, we use the same format as Nova models
         # since we're using the converse API for both
-        return self._format_nova_request(messages, tool_specs, system_prompt_content, tool_choice)
+        return self._format_nova_request(
+            messages, tool_specs, system_prompt_content, tool_choice
+        )
 
     def _format_titan_embed_request(self, messages: Messages) -> dict[str, Any]:
         """Format a request for Amazon Titan Embedding models.
@@ -272,7 +285,10 @@ class SAPGenAIHubModel(Model):
         }
 
         # Add additional arguments if provided
-        if "additional_args" in self.config and self.config["additional_args"] is not None:
+        if (
+            "additional_args" in self.config
+            and self.config["additional_args"] is not None
+        ):
             request.update(self.config["additional_args"])
 
         return request
@@ -297,7 +313,9 @@ class SAPGenAIHubModel(Model):
         # For any other type, convert to string and wrap
         return {"contentBlockDelta": {"delta": {"text": str(event)}}}
 
-    def _convert_streaming_response(self, stream_response: Any) -> Iterable[StreamEvent]:
+    def _convert_streaming_response(
+        self, stream_response: Any
+    ) -> Iterable[StreamEvent]:
         """Convert a streaming response to the standardized streaming format.
 
         Args:
@@ -388,7 +406,9 @@ class SAPGenAIHubModel(Model):
 
                                 # If this is a messageStop event, we're done
                                 if "messageStop" in event:
-                                    logger.debug("received messageStop event from stream")
+                                    logger.debug(
+                                        "received messageStop event from stream"
+                                    )
                                     return
                             else:
                                 # Format unknown events
@@ -402,7 +422,9 @@ class SAPGenAIHubModel(Model):
                         event_count,
                     )
                 else:
-                    logger.debug("stream response not iterable, treating as single response")
+                    logger.debug(
+                        "stream response not iterable, treating as single response"
+                    )
                     yield {"messageStart": {"role": "assistant"}}
                     yield self._format_chunk(stream_response)
 
@@ -423,7 +445,9 @@ class SAPGenAIHubModel(Model):
             )
             raise e
 
-    async def _convert_non_streaming_to_streaming(self, response: dict[str, Any]) -> AsyncGenerator[StreamEvent, None]:
+    def _convert_non_streaming_to_streaming(
+        self, response: dict[str, Any]
+    ) -> Iterable[StreamEvent]:
         """Convert a non-streaming response to the streaming format.
 
         Args:
@@ -455,7 +479,11 @@ class SAPGenAIHubModel(Model):
                     # For tool use, we need to yield the input as a delta
                     input_value = json.dumps(content["toolUse"]["input"])
 
-                    yield {"contentBlockDelta": {"delta": {"toolUse": {"input": input_value}}}}
+                    yield {
+                        "contentBlockDelta": {
+                            "delta": {"toolUse": {"input": input_value}}
+                        }
+                    }
                 elif "text" in content:
                     # Then yield the text as a delta
                     yield {
@@ -492,7 +520,9 @@ class SAPGenAIHubModel(Model):
             if "embedding" in response:
                 yield {
                     "contentBlockDelta": {
-                        "delta": {"text": f"Embedding generated with {len(response['embedding'])} dimensions"},
+                        "delta": {
+                            "text": f"Embedding generated with {len(response['embedding'])} dimensions"
+                        },
                     }
                 }
 
@@ -589,56 +619,60 @@ class SAPGenAIHubModel(Model):
         """
         try:
             logger.debug("formatting request")
-            request = self._format_request(messages, tool_specs, system_prompt_content, tool_choice)
+            request = self._format_request(
+                messages, tool_specs, system_prompt_content, tool_choice
+            )
 
             logger.debug("invoking model")
             streaming = self.config.get("streaming", True)
 
             if self._is_nova_model() or self._is_claude_model():
-                if streaming:
-                    # Use converse_stream for streaming responses
-                    try:
-                        logger.debug("using converse_stream api")
-                        stream_response = self.client.converse_stream(**request)
+                # Try converse_stream first, fall back to converse if not supported
+                try:
+                    logger.debug("attempting converse_stream api")
+                    stream_response = self.client.converse_stream(**request)
 
-                        # Process all streaming events
-                        event_count = 0
-                        has_content = False
+                    # Process all streaming events
+                    event_count = 0
+                    has_content = False
 
-                        for event in self._convert_streaming_response(stream_response):
-                            event_count += 1
+                    for event in self._convert_streaming_response(stream_response):
+                        event_count += 1
 
-                            # Check if we have actual content
-                            if "contentBlockDelta" in event:
-                                has_content = True
+                        # Check if we have actual content
+                        if "contentBlockDelta" in event:
+                            has_content = True
 
-                            callback(event)
+                        callback(event)
 
+                    logger.debug(
+                        "event_count=<%d>, has_content=<%s> | processed streaming events",
+                        event_count,
+                        has_content,
+                    )
+
+                    # If we didn't get any content, fallback to non-streaming
+                    if event_count == 0 or not has_content:
                         logger.debug(
-                            "event_count=<%d>, has_content=<%s> | processed streaming events",
-                            event_count,
-                            has_content,
-                        )
-
-                        # If we didn't get any content, fallback to non-streaming
-                        if event_count == 0 or not has_content:
-                            logger.warning("no content received from streaming, falling back to non-streaming")
-                            response = self.client.converse(**request)
-                            for event in self._convert_non_streaming_to_streaming(response):
-                                callback(event)
-
-                    except (AttributeError, Exception) as e:
-                        # Fallback to non-streaming if converse_stream fails
-                        logger.warning(
-                            "error=<%s> | converse_stream failed, falling back to non-streaming",
-                            e,
+                            "no content received from streaming, falling back to converse"
                         )
                         response = self.client.converse(**request)
                         for event in self._convert_non_streaming_to_streaming(response):
                             callback(event)
-                else:
-                    # Non-streaming path
-                    logger.debug("using non-streaming converse api")
+
+                except NotImplementedError as nie:
+                    # converse_stream not supported by this model/deployment, use converse
+                    logger.debug("converse_stream not supported, using converse api")
+                    response = self.client.converse(**request)
+                    for event in self._convert_non_streaming_to_streaming(response):
+                        callback(event)
+
+                except Exception as e:
+                    # Other errors - log and fallback to converse
+                    logger.debug(
+                        "error=<%s> | converse_stream failed, falling back to converse",
+                        e,
+                    )
                     response = self.client.converse(**request)
                     for event in self._convert_non_streaming_to_streaming(response):
                         callback(event)
@@ -647,8 +681,12 @@ class SAPGenAIHubModel(Model):
                 if streaming:
                     # Try streaming for Titan models
                     try:
-                        logger.debug("using invoke_model_with_response_stream for titan")
-                        stream_response = self.client.invoke_model_with_response_stream(**request)
+                        logger.debug(
+                            "using invoke_model_with_response_stream for titan"
+                        )
+                        stream_response = self.client.invoke_model_with_response_stream(
+                            **request
+                        )
 
                         event_count = 0
                         for event in self._convert_streaming_response(stream_response):
@@ -656,9 +694,13 @@ class SAPGenAIHubModel(Model):
                             callback(event)
 
                         if event_count == 0:
-                            logger.warning("no events from titan streaming, falling back to non-streaming")
+                            logger.warning(
+                                "no events from titan streaming, falling back to non-streaming"
+                            )
                             response = self.client.invoke_model(**request)
-                            for event in self._convert_non_streaming_to_streaming(response):
+                            for event in self._convert_non_streaming_to_streaming(
+                                response
+                            ):
                                 callback(event)
 
                     except (AttributeError, Exception) as e:
@@ -684,7 +726,10 @@ class SAPGenAIHubModel(Model):
                 raise ModelThrottledException(error_message) from e
 
             # Handle context window overflow
-            if any(overflow_message in error_message for overflow_message in CONTEXT_WINDOW_OVERFLOW_MESSAGES):
+            if any(
+                overflow_message in error_message
+                for overflow_message in CONTEXT_WINDOW_OVERFLOW_MESSAGES
+            ):
                 logger.warning("sap genai hub threw context window overflow error")
                 raise ContextWindowOverflowException(e) from e
 
@@ -733,7 +778,9 @@ class SAPGenAIHubModel(Model):
         stop_reason, messages, _, _ = event["stop"]
 
         if stop_reason != "tool_use":
-            raise ValueError(f'Model returned stop_reason: {stop_reason} instead of "tool_use".')
+            raise ValueError(
+                f'Model returned stop_reason: {stop_reason} instead of "tool_use".'
+            )
 
         content = messages["content"]
         output_response: dict[str, Any] | None = None
@@ -746,6 +793,8 @@ class SAPGenAIHubModel(Model):
                 continue
 
         if output_response is None:
-            raise ValueError("No valid tool use or tool use input was found in the response.")
+            raise ValueError(
+                "No valid tool use or tool use input was found in the response."
+            )
 
         yield {"output": output_model(**output_response)}

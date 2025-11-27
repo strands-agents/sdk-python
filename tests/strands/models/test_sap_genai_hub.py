@@ -19,7 +19,9 @@ class TestSAPGenAIHubModel:
             model = SAPGenAIHubModel()
 
             assert model.config["model_id"] == "amazon--nova-lite"
-            mock_session.return_value.client.assert_called_once_with(model_name="amazon--nova-lite")
+            mock_session.return_value.client.assert_called_once_with(
+                model_name="amazon--nova-lite"
+            )
 
     def test_initialization_with_custom_config(self):
         """Test model initialization with custom configuration."""
@@ -106,12 +108,16 @@ class TestSAPGenAIHubModel:
             mock_client = MagicMock()
             mock_session.return_value.client.return_value = mock_client
 
-            model = SAPGenAIHubModel(model_id="amazon--nova-lite", temperature=0.7, max_tokens=1000)
+            model = SAPGenAIHubModel(
+                model_id="amazon--nova-lite", temperature=0.7, max_tokens=1000
+            )
 
             messages = [{"role": "user", "content": [{"text": "Hello"}]}]
             system_prompt_content = [{"text": "You are a helpful assistant"}]
 
-            request = model._format_nova_request(messages=messages, system_prompt_content=system_prompt_content)
+            request = model._format_nova_request(
+                messages=messages, system_prompt_content=system_prompt_content
+            )
 
             assert request["messages"] == messages
             assert request["system"] == system_prompt_content
@@ -135,7 +141,9 @@ class TestSAPGenAIHubModel:
                 }
             ]
 
-            request = model._format_nova_request(messages=messages, tool_specs=tool_specs)
+            request = model._format_nova_request(
+                messages=messages, tool_specs=tool_specs
+            )
 
             assert "toolConfig" in request
             assert len(request["toolConfig"]["tools"]) == 1
