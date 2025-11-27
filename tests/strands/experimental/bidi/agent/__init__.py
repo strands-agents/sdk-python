@@ -1,1 +1,1 @@
-# Empty init file for bidi agent test package
+"""Bidirectional streaming agent tests."""

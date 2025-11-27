@@ -1,13 +1,4 @@
-"""Unit tests for BidiAgent.
-
-Tests the bidirectional streaming agent including:
-- Agent initialization and configuration
-- Lifecycle management (start/stop/context manager)
-- Send/receive methods with different content types
-- Tool integration and execution
-- Event processing and conversion
-- Error handling and edge cases
-"""
+"""Unit tests for BidiAgent."""
 
 import unittest.mock
 import asyncio
@@ -24,12 +15,6 @@ from strands.experimental.bidi.types.events import (
     BidiConnectionStartEvent,
     BidiConnectionCloseEvent,
 )
-from strands.types._events import ToolResultEvent
-from strands.types.tools import ToolResult, ToolSpec
-
-
-# Mock model fixtures
-
 
 class MockBidiModel:
     """Mock bidirectional model for testing."""
@@ -76,15 +61,10 @@ class MockBidiModel:
         """Helper to set events this mock model will yield."""
         self._events_to_yield = events
 
-
 @pytest.fixture
 def mock_model():
     """Create a mock BidiModel instance."""
     return MockBidiModel()
-
-
-
-
 
 @pytest.fixture
 def mock_tool_registry():
@@ -122,12 +102,6 @@ def agent(mock_model, mock_tool_registry, mock_tool_caller):
             agent = BidiAgent(model=mock_model)
             return agent
 
-
-# ============================================================================
-# Initialization Tests
-# ============================================================================
-
-
 def test_agent_initialization():
     """Test agent initialization with various configurations."""
     # Test default initialization
@@ -163,12 +137,6 @@ def test_agent_initialization():
     assert config["audio"]["output_rate"] == 24000
     assert config["audio"]["channels"] == 1
 
-
-# ============================================================================
-# Lifecycle Tests
-# ============================================================================
-
-
 @pytest.mark.asyncio
 async def test_agent_lifecycle(agent):
     """Test agent start/stop lifecycle and state management."""
@@ -199,12 +167,6 @@ async def test_agent_lifecycle(agent):
     await agent.start()
     assert agent._started
     assert agent.model._connection_id != connection_id
-
-
-# ============================================================================
-# Send Method Tests
-# ============================================================================
-
 
 @pytest.mark.asyncio
 async def test_send_methods(agent):
@@ -239,12 +201,6 @@ async def test_send_methods(agent):
     ]
     await asyncio.gather(*sends)
     assert len(agent.messages) == 5  # 2 + 3 new messages
-
-
-# ============================================================================
-# Receive Method Tests
-# ============================================================================
-
 
 @pytest.mark.asyncio
 async def test_receive_methods(agent):
@@ -295,12 +251,6 @@ async def test_receive_methods(agent):
     assert len(empty_events) >= 1
     assert isinstance(empty_events[0], BidiConnectionStartEvent)
 
-
-# ============================================================================
-# Tool Integration Tests
-# ============================================================================
-
-
 def test_agent_tools(agent, mock_tool_registry):
     """Test agent tool integration and properties."""
     # Test tool property access
@@ -319,12 +269,6 @@ def test_agent_tools(agent, mock_tool_registry):
     assert len(tool_names) == 2
     assert "calculator" in tool_names
     assert "weather" in tool_names
-
-
-# ============================================================================
-# Error Handling Tests
-# ============================================================================
-
 
 @pytest.mark.asyncio
 async def test_error_handling(agent):
@@ -375,12 +319,6 @@ async def test_model_error_propagation():
         async for event in agent2.receive():
             pass
 
-
-# ============================================================================
-# State Consistency Tests
-# ============================================================================
-
-
 @pytest.mark.asyncio
 async def test_agent_state_consistency(agent):
     """Test that agent state remains consistent across operations."""
@@ -403,10 +341,3 @@ async def test_agent_state_consistency(agent):
     await agent.stop()
     assert not agent._started
     assert agent.model._connection_id is None
-
-
-# ============================================================================
-# Integration Tests
-# ============================================================================
-
-
