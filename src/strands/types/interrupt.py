@@ -105,7 +105,7 @@ class _Interruptible(Protocol):
         state = agent._interrupt_state
 
         interrupt_ = state.interrupts.setdefault(id, Interrupt(id, name, reason, response))
-        if interrupt_.response:
+        if interrupt_.response is not None:
             return interrupt_.response
 
         raise InterruptException(interrupt_)
