@@ -32,9 +32,14 @@ class ToolExecutor(abc.ABC):
     """Abstract base class for tool executors."""
 
     @staticmethod
-    def _is_bidi_agent(agent: "Agent | BidiAgent") -> bool:
-        """Check if the agent is a BidiAgent instance."""
-        return agent.__class__.__name__ == "BidiAgent"
+    def _is_agent(agent: "Agent | BidiAgent") -> bool:
+        """Check if the agent is an Agent instance, otherwise we assume BidiAgent.
+
+        Note, we use a runtime import to avoid a circular dependency error.
+        """
+        from ...agent import Agent
+
+        return isinstance(agent, Agent)
 
     @staticmethod
     async def _invoke_before_tool_call_hook(
@@ -44,7 +49,7 @@ class ToolExecutor(abc.ABC):
         invocation_state: dict[str, Any],
     ) -> tuple[BeforeToolCallEvent | BidiBeforeToolCallEvent, list[Interrupt]]:
         """Invoke the appropriate before tool call hook based on agent type."""
-        event_cls = BidiBeforeToolCallEvent if ToolExecutor._is_bidi_agent(agent) else BeforeToolCallEvent
+        event_cls = BeforeToolCallEvent if ToolExecutor._is_agent(agent) else BidiBeforeToolCallEvent
         return await agent.hooks.invoke_callbacks_async(
             event_cls(
                 agent=agent,
@@ -65,7 +70,7 @@ class ToolExecutor(abc.ABC):
         cancel_message: str | None = None,
     ) -> tuple[AfterToolCallEvent | BidiAfterToolCallEvent, list[Interrupt]]:
         """Invoke the appropriate after tool call hook based on agent type."""
-        event_cls = BidiAfterToolCallEvent if ToolExecutor._is_bidi_agent(agent) else AfterToolCallEvent
+        event_cls = AfterToolCallEvent if ToolExecutor._is_agent(agent) else BidiAfterToolCallEvent
         return await agent.hooks.invoke_callbacks_async(
             event_cls(
                 agent=agent,
@@ -293,7 +298,7 @@ class ToolExecutor(abc.ABC):
             tool_success = result.get("status") == "success"
             tool_duration = time.time() - tool_start_time
             message = Message(role="user", content=[{"toolResult": result}])
-            if not ToolExecutor._is_bidi_agent(agent):
+            if ToolExecutor._is_agent(agent):
                 agent.event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, tool_success, message)
             cycle_trace.add_child(tool_trace)
 
