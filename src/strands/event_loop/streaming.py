@@ -413,6 +413,9 @@ async def process_stream(
         elif "redactContent" in chunk:
             handle_redact_content(chunk["redactContent"], state)
 
+    if not state["message"]["content"]:
+        state["message"]["content"].append({"text": ""})
+
     yield ModelStopReason(stop_reason=stop_reason, message=state["message"], usage=usage, metrics=metrics)
 
 
