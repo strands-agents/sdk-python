@@ -464,7 +464,7 @@ class BidiConnectionCloseEvent(TypedEvent):
     def __init__(
         self,
         connection_id: str,
-        reason: Literal["client_disconnect", "timeout", "error", "complete"],
+        reason: Literal["client_disconnect", "timeout", "error", "complete", "user_request"],
     ):
         """Initialize connection close event."""
         super().__init__(

@@ -20,6 +20,7 @@ from ...hooks.events import (
 )
 from .._async import _TaskPool, stop_all
 from ..types.events import (
+    BidiConnectionCloseEvent,
     BidiInputEvent,
     BidiInterruptionEvent,
     BidiOutputEvent,
@@ -226,6 +227,15 @@ class _BidiAgentLoop:
             self._agent.messages.append(message)
             await self._agent.hooks.invoke_callbacks_async(BidiMessageAddedEvent(agent=self._agent, message=message))
             await self._event_queue.put(ToolResultMessageEvent(message))
+
+            # Check if this was the stop_connection tool
+            if tool_use["name"] == "stop_connection":
+                logger.info("tool_name=<%s> | connection stop requested by tool", tool_use["name"])
+                # Get connection_id from the model
+                connection_id = getattr(self._agent.model, "_connection_id", None) or "unknown"
+                await self._event_queue.put(
+                    BidiConnectionCloseEvent(connection_id=connection_id, reason="user_request")
+                )
 
         except Exception as error:
             await self._event_queue.put(error)
