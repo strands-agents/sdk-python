@@ -16,6 +16,7 @@ from ...types.tools import AgentTool, ToolResult, ToolUse
 
 if TYPE_CHECKING:
     from ..bidi.agent.agent import BidiAgent
+    from ..bidi.models import BidiModelTimeoutError
 
 warnings.warn(
     "These events have been moved to production with updated names. Use BeforeModelCallEvent, "
@@ -194,3 +195,26 @@ class BidiInterruptionEvent(BidiHookEvent):
 
     reason: Literal["user_speech", "error"]
     interrupted_response_id: str | None = None
+
+
+@dataclass
+class BidiBeforeConnectionRestartEvent(BidiHookEvent):
+    """Event emitted before agent attempts to restart model connection after timeout.
+
+    Attributes:
+        timeout_error: Timeout error reported by the model.
+    """
+
+    timeout_error: "BidiModelTimeoutError"
+
+
+@dataclass
+class BidiAfterConnectionRestartEvent(BidiHookEvent):
+    """Event emitted after agent attempts to restart model connection after timeout.
+
+    Attribtues:
+        exception: Populated if exception was raised during connection restart.
+            None value means the restart was successful.
+    """
+
+    exception: Exception | None = None

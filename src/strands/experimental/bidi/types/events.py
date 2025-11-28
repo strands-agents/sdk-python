@@ -19,10 +19,13 @@ Audio format normalization:
 - Audio data stored as base64-encoded strings for JSON compatibility
 """
 
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from ....types._events import ModelStreamEvent, ToolUseStreamEvent, TypedEvent
 from ....types.streaming import ContentBlockDelta
+
+if TYPE_CHECKING:
+    from ..models.bidi_model import BidiModelTimeoutError
 
 AudioChannel = Literal[1, 2]
 """Number of audio channels.
@@ -204,6 +207,28 @@ class BidiConnectionStartEvent(TypedEvent):
     def model(self) -> str:
         """Model identifier (e.g., 'gpt-realtime', 'gemini-2.0-flash-live')."""
         return cast(str, self["model"])
+
+
+class BidiConnectionRestartEvent(TypedEvent):
+    """Agent is restarting the model connection after timeout."""
+
+    def __init__(self, timeout_error: "BidiModelTimeoutError"):
+        """Initialize.
+
+        Args:
+            timeout_error: Timeout error reported by the model.
+        """
+        super().__init__(
+            {
+                "type": "bidi_connection_restart",
+                "timeout_error": timeout_error,
+            }
+        )
+
+    @property
+    def timeout_error(self) -> "BidiModelTimeoutError":
+        """Model timeout error."""
+        return cast("BidiModelTimeoutError", self["timeout_error"])
 
 
 class BidiResponseStartEvent(TypedEvent):
@@ -570,6 +595,7 @@ BidiInputEvent = BidiTextInputEvent | BidiAudioInputEvent | BidiImageInputEvent
 
 BidiOutputEvent = (
     BidiConnectionStartEvent
+    | BidiConnectionRestartEvent
     | BidiResponseStartEvent
     | BidiAudioStreamEvent
     | BidiTranscriptStreamEvent

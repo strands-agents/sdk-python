@@ -25,6 +25,8 @@ from aws_sdk_bedrock_runtime.config import Config, HTTPAuthSchemeResolver, SigV4
 from aws_sdk_bedrock_runtime.models import (
     BidirectionalInputPayloadPart,
     InvokeModelWithBidirectionalStreamInputChunk,
+    ModelTimeoutException,
+    ValidationException,
 )
 from smithy_aws_core.identity.static import StaticCredentialsResolver
 from smithy_core.aio.eventstream import DuplexEventStream
@@ -50,7 +52,7 @@ from ..types.events import (
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
 )
-from .bidi_model import BidiModel
+from .bidi_model import BidiModel, BidiModelTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -272,7 +274,18 @@ class BidiNovaSonicModel(BidiModel):
 
         _, output = await self._stream.await_output()
         while True:
-            event_data = await output.receive()
+            try:
+                event_data = await output.receive()
+
+            except ValidationException as error:
+                if "InternalErrorCode=531" in str(error):
+                    # nova also times out if user is silent for 175 seconds
+                    raise BidiModelTimeoutError(error) from error
+                raise
+
+            except ModelTimeoutException as error:
+                raise BidiModelTimeoutError(error) from error
+
             if not event_data:
                 continue
 
