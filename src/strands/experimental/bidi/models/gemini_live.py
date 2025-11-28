@@ -26,6 +26,8 @@ from ....types.tools import ToolResult, ToolSpec, ToolUse
 from .._async import stop_all
 from ..types.bidi_model import AudioConfig
 from ..types.events import (
+    AudioChannel,
+    AudioSampleRate,
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
     BidiConnectionStartEvent,
@@ -36,18 +38,16 @@ from ..types.events import (
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
-    Channel,
     ModalityUsage,
-    SampleRate,
 )
 from .bidi_model import BidiModel
 
 logger = logging.getLogger(__name__)
 
 # Audio format constants
-GEMINI_INPUT_SAMPLE_RATE = 16000
-GEMINI_OUTPUT_SAMPLE_RATE = 24000
-GEMINI_CHANNELS = 1
+GEMINI_INPUT_SAMPLE_RATE: AudioSampleRate = 16000
+GEMINI_OUTPUT_SAMPLE_RATE: AudioSampleRate = 24000
+GEMINI_CHANNELS: AudioChannel = 1
 
 
 class BidiGeminiLiveModel(BidiModel):
@@ -274,8 +274,8 @@ class BidiGeminiLiveModel(BidiModel):
                 BidiAudioStreamEvent(
                     audio=audio_b64,
                     format="pcm",
-                    sample_rate=cast(SampleRate, GEMINI_OUTPUT_SAMPLE_RATE),
-                    channels=cast(Channel, GEMINI_CHANNELS),
+                    sample_rate=GEMINI_OUTPUT_SAMPLE_RATE,
+                    channels=GEMINI_CHANNELS,
                 )
             ]
 

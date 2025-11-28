@@ -7,7 +7,7 @@ BidiAgent hook events are also defined here to avoid circular imports.
 
 import warnings
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, Optional, TypeAlias
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 from ...hooks.events import AfterModelCallEvent, AfterToolCallEvent, BeforeModelCallEvent, BeforeToolCallEvent
 from ...hooks.registry import BaseHookEvent
@@ -129,7 +129,7 @@ class BidiBeforeToolCallEvent(BidiHookEvent):
             the tool call and use a default cancel message.
     """
 
-    selected_tool: Optional[AgentTool]
+    selected_tool: AgentTool | None
     tool_use: ToolUse
     invocation_state: dict[str, Any]
     cancel_tool: bool | str = False
@@ -160,11 +160,11 @@ class BidiAfterToolCallEvent(BidiHookEvent):
         cancel_message: The cancellation message if the user cancelled the tool call.
     """
 
-    selected_tool: Optional[AgentTool]
+    selected_tool: AgentTool | None
     tool_use: ToolUse
     invocation_state: dict[str, Any]
     result: ToolResult
-    exception: Optional[Exception] = None
+    exception: Exception | None = None
     cancel_message: str | None = None
 
     def _can_write(self, name: str) -> bool:
@@ -193,4 +193,4 @@ class BidiInterruptionEvent(BidiHookEvent):
     """
 
     reason: Literal["user_speech", "error"]
-    interrupted_response_id: Optional[str] = None
+    interrupted_response_id: str | None = None
