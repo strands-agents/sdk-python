@@ -17,7 +17,7 @@ import base64
 import json
 import logging
 import uuid
-from typing import Any, AsyncGenerator, Literal, cast
+from typing import Any, AsyncGenerator, cast
 
 import boto3
 from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
@@ -117,10 +117,7 @@ class BidiNovaSonicModel(BidiModel):
         self._client_config = self._resolve_client_config(client_config or {})
 
         # Resolve provider config with defaults
-        self._provider_config = self._resolve_provider_config(provider_config or {})
-
-        # Extract and store audio config for IO coordination
-        self.config: dict[str, Any] = {"audio": self._provider_config["audio"]}
+        self.config = self._resolve_provider_config(provider_config or {})
 
         # Store session and region for later use
         self._session = self._client_config["boto_session"]
@@ -167,15 +164,15 @@ class BidiNovaSonicModel(BidiModel):
             "voice": cast(str, NOVA_AUDIO_OUTPUT_CONFIG["voiceId"]),
         }
 
-        user_audio = config.get("audio", {})
-        merged_audio = {**default_audio, **user_audio}
+        user_audio_config = config.get("audio", {})
+        merged_audio = {**default_audio_config, **user_audio_config}
 
         resolved = {
             "audio": merged_audio,
             **{k: v for k, v in config.items() if k != "audio"},
         }
 
-        if user_audio:
+        if user_audio_config:
             logger.debug("audio_config | merged user-provided config with defaults")
         else:
             logger.debug("audio_config | using default Nova Sonic audio configuration")
@@ -507,13 +504,11 @@ class BidiNovaSonicModel(BidiModel):
         if "audioOutput" in nova_event:
             # Audio is already base64 string from Nova Sonic
             audio_content = nova_event["audioOutput"]["content"]
-            # Channels from config is guaranteed to be 1 or 2
-            channels = cast(Literal[1, 2], self.config["audio"]["channels"])
             return BidiAudioStreamEvent(
                 audio=audio_content,
                 format="pcm",
-                sample_rate=cast(AudioSampleRate, NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"]),
-                channels=channels,
+                sample_rate=cast(AudioSampleRate, self.config["audio"]["output_rate"]),
+                channels=cast(AudioChannel, self.config["audio"]["channels"]),
             )
 
         # Handle text output (transcripts)

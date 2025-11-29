@@ -97,9 +97,9 @@ def test_model_initialization(mock_genai_client, model_id, api_key):
     assert model_default.api_key is None
     assert model_default._live_session is None
     # Check default config includes transcription
-    assert model_default.provider_config["response_modalities"] == ["AUDIO"]
-    assert "outputAudioTranscription" in model_default.provider_config
-    assert "inputAudioTranscription" in model_default.provider_config
+    assert model_default.config["response_modalities"] == ["AUDIO"]
+    assert "outputAudioTranscription" in model_default.config
+    assert "inputAudioTranscription" in model_default.config
 
     # Test with API key
     model_with_key = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
@@ -110,10 +110,10 @@ def test_model_initialization(mock_genai_client, model_id, api_key):
     provider_config = {"temperature": 0.7, "top_p": 0.9}
     model_custom = BidiGeminiLiveModel(model_id=model_id, provider_config=provider_config)
     # Custom config should be merged with defaults
-    assert model_custom.provider_config["temperature"] == 0.7
-    assert model_custom.provider_config["top_p"] == 0.9
+    assert model_custom.config["temperature"] == 0.7
+    assert model_custom.config["top_p"] == 0.9
     # Defaults should still be present
-    assert "response_modalities" in model_custom.provider_config
+    assert "response_modalities" in model_custom.config
 
 
 # Connection Tests
@@ -465,8 +465,8 @@ def test_audio_config_partial_override(mock_genai_client, model_id, api_key):
     """Test partial audio configuration override."""
     _ = mock_genai_client
 
-    config = {"audio": {"output_rate": 48000, "voice": "Puck"}}
-    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key}, config=config)
+    provider_config = {"audio": {"output_rate": 48000, "voice": "Puck"}}
+    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key}, provider_config=provider_config)
 
     # Overridden values
     assert model.config["audio"]["output_rate"] == 48000
@@ -482,7 +482,7 @@ def test_audio_config_full_override(mock_genai_client, model_id, api_key):
     """Test full audio configuration override."""
     _ = mock_genai_client
 
-    config = {
+    provider_config = {
         "audio": {
             "input_rate": 48000,
             "output_rate": 48000,
@@ -491,29 +491,13 @@ def test_audio_config_full_override(mock_genai_client, model_id, api_key):
             "voice": "Aoede",
         }
     }
-    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key}, config=config)
+    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key}, provider_config=provider_config)
 
     assert model.config["audio"]["input_rate"] == 48000
     assert model.config["audio"]["output_rate"] == 48000
     assert model.config["audio"]["channels"] == 2
     assert model.config["audio"]["format"] == "pcm"
     assert model.config["audio"]["voice"] == "Aoede"
-
-
-def test_audio_config_voice_priority(mock_genai_client, model_id, api_key):
-    """Test that config audio voice takes precedence over provider_config voice."""
-    _ = mock_genai_client
-
-    provider_config = {"speech_config": {"voice_config": {"prebuilt_voice_config": {"voice_name": "Puck"}}}}
-    config = {"audio": {"voice": "Aoede"}}
-
-    model = BidiGeminiLiveModel(
-        model_id=model_id, client_config={"api_key": api_key}, provider_config=provider_config, config=config
-    )
-
-    # Build config and verify config audio voice takes precedence
-    built_config = model._build_live_config()
-    assert built_config["speech_config"]["voice_config"]["prebuilt_voice_config"]["voice_name"] == "Aoede"
 
 
 # Helper Method Tests
@@ -557,8 +541,8 @@ async def test_custom_audio_rates_in_events(mock_genai_client, model_id, api_key
     _, _, _ = mock_genai_client
 
     # Create model with custom audio configuration
-    config = {"audio": {"output_rate": 48000, "channels": 2}}
-    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key}, config=config)
+    provider_config = {"audio": {"output_rate": 48000, "channels": 2}}
+    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key}, provider_config=provider_config)
     await model.start()
 
     # Test audio output event uses custom configuration

@@ -35,7 +35,6 @@ from ..models.novasonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
 from ..types.events import (
     BidiAudioInputEvent,
-    BidiConnectionCloseEvent,
     BidiImageInputEvent,
     BidiInputEvent,
     BidiOutputEvent,

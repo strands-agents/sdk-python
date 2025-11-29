@@ -111,19 +111,17 @@ class BidiOpenAIRealtimeModel(BidiModel):
         self._client_config = self._resolve_client_config(client_config or {})
 
         # Resolve provider config with defaults
-        self._provider_config = self._resolve_provider_config(provider_config or {})
-
-        # Extract and store audio config for IO coordination
-        self.config: dict[str, Any] = {"audio": self._provider_config["audio"]}
+        self.config = self._resolve_provider_config(provider_config or {})
 
         # Store client config values for later use
         self.api_key = self._client_config["api_key"]
         self.organization = self._client_config.get("organization")
         self.project = self._client_config.get("project")
+        self.timeout_s = self._client_config["timeout_s"]
 
         if self.timeout_s > OPENAI_MAX_TIMEOUT_S:
             raise ValueError(
-                f"timeout_s=<{timeout_s}>, max_timeout_s=<{OPENAI_MAX_TIMEOUT_S}> | timeout exceeds max limit"
+                f"timeout_s=<{self.timeout_s}>, max_timeout_s=<{OPENAI_MAX_TIMEOUT_S}> | timeout exceeds max limit"
             )
 
         # Connection state (initialized in start())
@@ -139,7 +137,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
         if "api_key" not in resolved:
             resolved["api_key"] = os.getenv("OPENAI_API_KEY")
-        
+
         if not resolved.get("api_key"):
             raise ValueError(
                 "OpenAI API key is required. Provide via client_config={'api_key': '...'} "
@@ -149,11 +147,14 @@ class BidiOpenAIRealtimeModel(BidiModel):
             env_org = os.getenv("OPENAI_ORGANIZATION")
             if env_org:
                 resolved["organization"] = env_org
-        
+
         if "project" not in resolved:
             env_project = os.getenv("OPENAI_PROJECT")
             if env_project:
                 resolved["project"] = env_project
+
+        if "timeout_s" not in resolved:
+            resolved["timeout_s"] = OPENAI_MAX_TIMEOUT_S
 
         return resolved
 
@@ -167,8 +168,8 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
         # Define default audio configuration
         default_audio: AudioConfig = {
-            "input_rate": DEFAULT_SAMPLE_RATE,
-            "output_rate": DEFAULT_SAMPLE_RATE,
+            "input_rate": cast(AudioSampleRate, DEFAULT_SAMPLE_RATE),
+            "output_rate": cast(AudioSampleRate, DEFAULT_SAMPLE_RATE),
             "channels": 1,
             "format": "pcm",
             "voice": provider_voice or "alloy",
@@ -288,7 +289,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
             "turn_detection",
         }
 
-        for key, value in self._provider_config.items():
+        for key, value in self.config.items():
             if key == "audio":
                 continue
             elif key in supported_params:
@@ -297,15 +298,15 @@ class BidiOpenAIRealtimeModel(BidiModel):
                 logger.warning("parameter=<%s> | ignoring unsupported session parameter", key)
 
         audio_config = self.config["audio"]
-        
+
         if "voice" in audio_config:
             config.setdefault("audio", {}).setdefault("output", {})["voice"] = audio_config["voice"]
-        
+
         if "input_rate" in audio_config:
             config.setdefault("audio", {}).setdefault("input", {}).setdefault("format", {})["rate"] = audio_config[
                 "input_rate"
             ]
-        
+
         if "output_rate" in audio_config:
             config.setdefault("audio", {}).setdefault("output", {}).setdefault("format", {})["rate"] = audio_config[
                 "output_rate"

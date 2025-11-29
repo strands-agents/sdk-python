@@ -81,10 +81,7 @@ class BidiGeminiLiveModel(BidiModel):
         self._client_config = self._resolve_client_config(client_config or {})
 
         # Resolve provider config with defaults
-        self._provider_config = self._resolve_provider_config(provider_config or {})
-
-        # Extract and store audio config for IO coordination
-        self.config: dict[str, Any] = {"audio": self._provider_config["audio"]}
+        self.config = self._resolve_provider_config(provider_config or {})
 
         # Store API key for later use
         self.api_key = self._client_config.get("api_key")
@@ -113,10 +110,7 @@ class BidiGeminiLiveModel(BidiModel):
         provider_voice = None
         if "speech_config" in config and isinstance(config["speech_config"], dict):
             provider_voice = (
-                config["speech_config"]
-                .get("voice_config", {})
-                .get("prebuilt_voice_config", {})
-                .get("voice_name")
+                config["speech_config"].get("voice_config", {}).get("prebuilt_voice_config", {}).get("voice_name")
             )
 
         # Define default audio configuration
@@ -283,8 +277,8 @@ class BidiGeminiLiveModel(BidiModel):
                 BidiAudioStreamEvent(
                     audio=audio_b64,
                     format="pcm",
-                    sample_rate=cast(SampleRate, self.config["audio"]["output_rate"]),
-                    channels=cast(Channel, self.config["audio"]["channels"]),
+                    sample_rate=cast(AudioSampleRate, self.config["audio"]["output_rate"]),
+                    channels=cast(AudioChannel, self.config["audio"]["channels"]),
                 )
             ]
 
@@ -494,8 +488,8 @@ class BidiGeminiLiveModel(BidiModel):
         to configure any Gemini Live API parameter directly.
         """
         config_dict: dict[str, Any] = {}
-        if self._provider_config:
-            config_dict.update({k: v for k, v in self._provider_config.items() if k != "audio"})
+        if self.config:
+            config_dict.update({k: v for k, v in self.config.items() if k != "audio"})
 
         # Override with any kwargs from start()
         config_dict.update(kwargs)

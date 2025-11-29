@@ -568,6 +568,7 @@ async def test_default_audio_rates_in_events(model_id, region):
 
 
 # Error Handling Tests
+@pytest.mark.asyncio
 async def test_bidi_nova_sonic_model_receive_timeout(nova_model, mock_stream):
     mock_output = AsyncMock()
     mock_output.receive.side_effect = ModelTimeoutException("Connection timeout")
@@ -575,7 +576,7 @@ async def test_bidi_nova_sonic_model_receive_timeout(nova_model, mock_stream):
     
     await nova_model.start()
     
-    with pytest.raises(BidiModelTimeoutError):
+    with pytest.raises(BidiModelTimeoutError, match=r"Connection timeout"):
         async for _ in nova_model.receive():
             pass
 
@@ -588,7 +589,7 @@ async def test_bidi_nova_sonic_model_receive_timeout_validation(nova_model, mock
     
     await nova_model.start()
     
-    with pytest.raises(BidiModelTimeoutError):
+    with pytest.raises(BidiModelTimeoutError, match=r"InternalErrorCode=531"):
         async for _ in nova_model.receive():
             pass
 

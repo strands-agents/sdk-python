@@ -130,8 +130,8 @@ def test_audio_config_defaults(api_key, model_name):
 
 def test_audio_config_partial_override(api_key, model_name):
     """Test partial audio configuration override."""
-    config = {"audio": {"output_rate": 48000, "voice": "echo"}}
-    model = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key}, config=config)
+    provider_config = {"audio": {"output_rate": 48000, "voice": "echo"}}
+    model = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config)
 
     # Overridden values
     assert model.config["audio"]["output_rate"] == 48000
@@ -145,7 +145,7 @@ def test_audio_config_partial_override(api_key, model_name):
 
 def test_audio_config_full_override(api_key, model_name):
     """Test full audio configuration override."""
-    config = {
+    provider_config = {
         "audio": {
             "input_rate": 48000,
             "output_rate": 48000,
@@ -154,7 +154,7 @@ def test_audio_config_full_override(api_key, model_name):
             "voice": "shimmer",
         }
     }
-    model = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key}, config=config)
+    model = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config)
 
     assert model.config["audio"]["input_rate"] == 48000
     assert model.config["audio"]["output_rate"] == 48000
@@ -163,23 +163,9 @@ def test_audio_config_full_override(api_key, model_name):
     assert model.config["audio"]["voice"] == "shimmer"
 
 
-def test_audio_config_voice_priority(api_key, model_name):
-    """Test that config audio voice takes precedence over provider_config voice."""
-    provider_config = {"audio": {"output": {"voice": "alloy"}}}
-    config = {"audio": {"voice": "nova"}}
-
-    model = BidiOpenAIRealtimeModel(
-        model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config, config=config
-    )
-
-    # Build config and verify config audio voice takes precedence
-    built_config = model._build_session_config(None, None)
-    assert built_config["audio"]["output"]["voice"] == "nova"
-
-
 def test_audio_config_extracts_voice_from_provider_config(api_key, model_name):
     """Test that voice is extracted from provider_config when config audio not provided."""
-    provider_config = {"audio": {"output": {"voice": "fable"}}}
+    provider_config = {"audio": {"voice": "fable"}}
 
     model = BidiOpenAIRealtimeModel(
         model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config
@@ -537,7 +523,7 @@ async def test_receive_timeout(mock_time, model):
 
     await model.start()
 
-    with pytest.raises(BidiModelTimeoutError):
+    with pytest.raises(BidiModelTimeoutError, match=r"timeout_s=<1>"):
         async for _ in model.receive():
             pass
 
@@ -712,7 +698,7 @@ async def test_custom_audio_sample_rate(mock_websockets_connect, api_key):
 
     # Create model with custom sample rate
     custom_sample_rate = 48000
-    provider_config = {"audio": {"output": {"format": {"rate": custom_sample_rate}}}}
+    provider_config = {"audio": {"output_rate": custom_sample_rate}}
     model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key}, provider_config=provider_config)
 
     await model.start()
