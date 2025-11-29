@@ -23,6 +23,7 @@ from ...hooks.events import (
 from .._async import _TaskPool, stop_all
 from ..models import BidiModelTimeoutError
 from ..types.events import (
+    BidiConnectionCloseEvent,
     BidiConnectionRestartEvent,
     BidiInputEvent,
     BidiInterruptionEvent,
@@ -171,6 +172,11 @@ class _BidiAgentLoop:
             if isinstance(event, Exception):
                 raise event
 
+            # Check for graceful shutdown event
+            if isinstance(event, BidiConnectionCloseEvent) and event.reason == "user_request":
+                yield event
+                break
+
             yield event
 
     async def _restart_connection(self, timeout_error: BidiModelTimeoutError) -> None:
@@ -270,6 +276,7 @@ class _BidiAgentLoop:
 
                 await self._event_queue.put(tool_event)
 
+            # Normal flow for all tools (including stop_conversation)
             tool_result_event = cast(ToolResultEvent, tool_event)
 
             tool_use_message: Message = {"role": "assistant", "content": [{"toolUse": tool_use}]}
@@ -277,6 +284,17 @@ class _BidiAgentLoop:
             await self._add_messages(tool_use_message, tool_result_message)
 
             await self._event_queue.put(ToolResultMessageEvent(tool_result_message))
+
+            # Check for stop_conversation before sending to model
+            if tool_use["name"] == "stop_conversation":
+                logger.info("tool_name=<%s> | conversation stop requested, skipping model send", tool_use["name"])
+                connection_id = getattr(self._agent.model, "_connection_id", "unknown")
+                await self._event_queue.put(
+                    BidiConnectionCloseEvent(connection_id=connection_id, reason="user_request")
+                )
+                return  # Skip the model send
+
+            # Send result to model (all tools except stop_conversation)
             await self.send(tool_result_event)
 
         except Exception as error:

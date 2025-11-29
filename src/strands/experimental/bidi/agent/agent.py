@@ -33,7 +33,14 @@ from .._async import stop_all
 from ..models.bidi_model import BidiModel
 from ..models.novasonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
-from ..types.events import BidiAudioInputEvent, BidiImageInputEvent, BidiInputEvent, BidiOutputEvent, BidiTextInputEvent
+from ..types.events import (
+    BidiAudioInputEvent,
+    BidiConnectionCloseEvent,
+    BidiImageInputEvent,
+    BidiInputEvent,
+    BidiOutputEvent,
+    BidiTextInputEvent,
+)
 from ..types.io import BidiInput, BidiOutput
 from .loop import _BidiAgentLoop
 
@@ -360,13 +367,13 @@ class BidiAgent:
                     event = await input_()
                     await self.send(event)
 
-            tasks = [task(input_) for input_ in inputs]
-            await asyncio.gather(*tasks)
+            await asyncio.gather(*[task(input_) for input_ in inputs])
 
-        async def run_outputs() -> None:
+        async def run_outputs(inputs_task: asyncio.Task) -> None:
             async for event in self.receive():
-                tasks = [output(event) for output in outputs]
-                await asyncio.gather(*tasks)
+                await asyncio.gather(*[output(event) for output in outputs])
+
+            inputs_task.cancel()
 
         try:
             await self.start(invocation_state)
@@ -377,8 +384,8 @@ class BidiAgent:
                 await start(self)
 
             async with asyncio.TaskGroup() as task_group:
-                task_group.create_task(run_inputs())
-                task_group.create_task(run_outputs())
+                inputs_task = task_group.create_task(run_inputs())
+                task_group.create_task(run_outputs(inputs_task))
 
         finally:
             input_stops = [input_.stop for input_ in inputs if isinstance(input_, BidiInput)]

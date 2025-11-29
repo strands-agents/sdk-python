@@ -5,7 +5,13 @@ from typing import Any
 
 from prompt_toolkit import PromptSession
 
-from ..types.events import BidiInterruptionEvent, BidiOutputEvent, BidiTextInputEvent, BidiTranscriptStreamEvent
+from ..types.events import (
+    BidiConnectionCloseEvent,
+    BidiInterruptionEvent,
+    BidiOutputEvent,
+    BidiTextInputEvent,
+    BidiTranscriptStreamEvent,
+)
 from ..types.io import BidiInput, BidiOutput
 
 logger = logging.getLogger(__name__)
@@ -34,6 +40,10 @@ class _BidiTextOutput(BidiOutput):
             logger.debug("reason=<%s> | text output interrupted", event["reason"])
             print("interrupted")
 
+        elif isinstance(event, BidiConnectionCloseEvent):
+            if event.reason == "user_request":
+                print("user requested connection close using the stop_conversation tool.")
+                logger.debug("connection_id=<%s> | user requested connection close", event.connection_id)
         elif isinstance(event, BidiTranscriptStreamEvent):
             text = event["text"]
             is_final = event["is_final"]
