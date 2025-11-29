@@ -373,14 +373,6 @@ class BidiAgent:
             async for event in self.receive():
                 await asyncio.gather(*[output(event) for output in outputs])
 
-                if isinstance(event, BidiConnectionCloseEvent) and event.reason == "user_request":
-                    logger.debug(
-                        "connection_id=<%s>, reason=<%s> | graceful shutdown initiated",
-                        event.connection_id,
-                        event.reason,
-                    )
-                    break
-
             inputs_task.cancel()
 
         try:
