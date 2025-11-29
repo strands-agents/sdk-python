@@ -26,7 +26,7 @@ from .models.novasonic import BidiNovaSonicModel
 from .models.openai import BidiOpenAIRealtimeModel
 
 # Built-in tools
-from .tools import stop_connection
+from .tools import stop_conversation
 
 # Event types - For type hints and event handling
 from .types.events import (
@@ -57,7 +57,7 @@ __all__ = [
     "BidiNovaSonicModel",
     "BidiOpenAIRealtimeModel",
     # Built-in tools
-    "stop_connection",
+    "stop_conversation",
     # Input Event types
     "BidiTextInputEvent",
     "BidiAudioInputEvent",

@@ -365,18 +365,13 @@ class BidiAgent:
             async def task(input_: BidiInput) -> None:
                 while True:
                     event = await input_()
-                    if not self._started:
-                        logger.debug("agent stopped, exiting input task")
-                        return
                     await self.send(event)
 
-            tasks = [task(input_) for input_ in inputs]
-            await asyncio.gather(*tasks)
+            await asyncio.gather(*[task(input_) for input_ in inputs])
 
-        async def run_outputs() -> None:
+        async def run_outputs(inputs_task: asyncio.Task) -> None:
             async for event in self.receive():
-                tasks = [output(event) for output in outputs]
-                await asyncio.gather(*tasks)
+                await asyncio.gather(*[output(event) for output in outputs])
 
                 if isinstance(event, BidiConnectionCloseEvent) and event.reason == "user_request":
                     logger.info(
@@ -384,9 +379,7 @@ class BidiAgent:
                         event.connection_id,
                         event.reason,
                     )
-                    # Set flag to signal shutdown
-                    self._started = False
-                    # Return - TaskGroup will cancel remaining tasks, finally block handles cleanup
+                    inputs_task.cancel()
                     return
 
         try:
@@ -398,8 +391,8 @@ class BidiAgent:
                 await start(self)
 
             async with asyncio.TaskGroup() as task_group:
-                task_group.create_task(run_inputs())
-                task_group.create_task(run_outputs())
+                inputs_task = task_group.create_task(run_inputs())
+                task_group.create_task(run_outputs(inputs_task))
 
         finally:
             input_stops = [input_.stop for input_ in inputs if isinstance(input_, BidiInput)]

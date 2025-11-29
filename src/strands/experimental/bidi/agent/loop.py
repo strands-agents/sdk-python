@@ -281,11 +281,10 @@ class _BidiAgentLoop:
             await self._agent.hooks.invoke_callbacks_async(BidiMessageAddedEvent(agent=self._agent, message=message))
             await self._event_queue.put(ToolResultMessageEvent(message))
 
-            # Check if this was the stop_connection tool
-            if tool_use["name"] == "stop_connection":
-                logger.info("tool_name=<%s> | connection stop requested by tool", tool_use["name"])
-                # Get connection_id from the model
-                connection_id = getattr(self._agent.model, "_connection_id", None) or "unknown"
+            # Check if this was the stop_conversation tool
+            if tool_use["name"] == "stop_conversation":
+                logger.info("tool_name=<%s> | conversation stop requested by tool", tool_use["name"])
+                connection_id = getattr(self._agent.model, "_connection_id", "unknown")
                 await self._event_queue.put(
                     BidiConnectionCloseEvent(connection_id=connection_id, reason="user_request")
                 )

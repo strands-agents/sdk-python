@@ -1,5 +1,5 @@
 """Built-in tools for bidirectional agents."""
 
-from .stop_connection import stop_connection
+from .stop_conversation import stop_conversation
 
-__all__ = ["stop_connection"]
+__all__ = ["stop_conversation"]
