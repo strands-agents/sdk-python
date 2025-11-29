@@ -165,6 +165,11 @@ class _BidiAgentLoop:
             if isinstance(event, Exception):
                 raise event
 
+            # Check for graceful shutdown event
+            if isinstance(event, BidiConnectionCloseEvent) and event.reason == "user_request":
+                yield event
+                break
+
             yield event
 
     async def _restart_connection(self, timeout_error: BidiModelTimeoutError) -> None:
@@ -271,6 +276,16 @@ class _BidiAgentLoop:
                 if isinstance(event, ToolResultEvent):
                     result = event.tool_result
 
+            # Check for stop_conversation BEFORE sending result
+            if tool_use["name"] == "stop_conversation":
+                logger.info("tool_name=<%s> | conversation stop requested, skipping result send", tool_use["name"])
+                connection_id = getattr(self._agent.model, "_connection_id", "unknown")
+                await self._event_queue.put(
+                    BidiConnectionCloseEvent(connection_id=connection_id, reason="user_request")
+                )
+                return  # Early exit - don't send result, don't add to messages
+
+            # Normal flow for all other tools
             await self.send(ToolResultEvent(result))
 
             message: Message = {
@@ -280,14 +295,6 @@ class _BidiAgentLoop:
             self._agent.messages.append(message)
             await self._agent.hooks.invoke_callbacks_async(BidiMessageAddedEvent(agent=self._agent, message=message))
             await self._event_queue.put(ToolResultMessageEvent(message))
-
-            # Check if this was the stop_conversation tool
-            if tool_use["name"] == "stop_conversation":
-                logger.info("tool_name=<%s> | conversation stop requested by tool", tool_use["name"])
-                connection_id = getattr(self._agent.model, "_connection_id", "unknown")
-                await self._event_queue.put(
-                    BidiConnectionCloseEvent(connection_id=connection_id, reason="user_request")
-                )
 
         except Exception as error:
             await self._event_queue.put(error)
