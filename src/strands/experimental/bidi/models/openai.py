@@ -4,9 +4,11 @@ Provides real-time audio and text communication through OpenAI's Realtime API
 with WebSocket connections, voice activity detection, and function calling.
 """
 
+import asyncio
 import json
 import logging
 import os
+import time
 import uuid
 from typing import Any, AsyncGenerator, Literal, cast
 
@@ -35,11 +37,21 @@ from ..types.events import (
     Role,
     StopReason,
 )
-from .bidi_model import BidiModel
+from .bidi_model import BidiModel, BidiModelTimeoutError
 
 logger = logging.getLogger(__name__)
 
+# Test idle_timeout_ms
+
 # OpenAI Realtime API configuration
+OPENAI_MAX_TIMEOUT_S = 3000  # 50 minutes
+"""Max timeout before closing connection.
+
+OpenAI documents a 60 minute limit on realtime sessions
+(https://platform.openai.com/docs/guides/realtime-conversations#session-lifecycle-events). However, OpenAI does not
+emit any warnings when approaching the limit. As a workaround, we configure a max timeout client side to gracefully
+handle the connection closure. We set the max to 50 minutes to provide enough buffer before hitting the real limit.
+"""
 OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime"
 DEFAULT_MODEL = "gpt-realtime"
 DEFAULT_SAMPLE_RATE = 24000
@@ -73,6 +85,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
     """
 
     _websocket: ClientConnection
+    _start_time: int
 
     def __init__(
         self,
@@ -107,6 +120,11 @@ class BidiOpenAIRealtimeModel(BidiModel):
         self.api_key = self._client_config["api_key"]
         self.organization = self._client_config.get("organization")
         self.project = self._client_config.get("project")
+
+        if self.timeout_s > OPENAI_MAX_TIMEOUT_S:
+            raise ValueError(
+                f"timeout_s=<{timeout_s}>, max_timeout_s=<{OPENAI_MAX_TIMEOUT_S}> | timeout exceeds max limit"
+            )
 
         # Connection state (initialized in start())
         self._connection_id: str | None = None
@@ -189,10 +207,11 @@ class BidiOpenAIRealtimeModel(BidiModel):
         if self._connection_id:
             raise RuntimeError("model already started | call stop before starting again")
 
-        logger.info("openai realtime connection starting")
+        logger.debug("openai realtime connection starting")
 
         # Initialize connection state
         self._connection_id = str(uuid.uuid4())
+        self._start_time = int(time.time())
 
         self._function_call_buffer = {}
 
@@ -206,7 +225,7 @@ class BidiOpenAIRealtimeModel(BidiModel):
             headers.append(("OpenAI-Project", self.project))
 
         self._websocket = await websockets.connect(url, additional_headers=headers)
-        logger.info("connection_id=<%s> | websocket connected successfully", self._connection_id)
+        logger.debug("connection_id=<%s> | websocket connected successfully", self._connection_id)
 
         # Configure session
         session_config = self._build_session_config(system_prompt, tools)
@@ -430,7 +449,16 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
         yield BidiConnectionStartEvent(connection_id=self._connection_id, model=self.model_id)
 
-        async for message in self._websocket:
+        while True:
+            duration = time.time() - self._start_time
+            if duration >= self.timeout_s:
+                raise BidiModelTimeoutError(f"timeout_s=<{self.timeout_s}>")
+
+            try:
+                message = await asyncio.wait_for(self._websocket.recv(), timeout=10)
+            except asyncio.TimeoutError:
+                continue
+
             openai_event = json.loads(message)
 
             for event in self._convert_openai_event(openai_event) or []:
