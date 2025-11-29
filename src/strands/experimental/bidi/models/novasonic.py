@@ -95,31 +95,33 @@ class BidiNovaSonicModel(BidiModel):
     def __init__(
         self,
         model_id: str = "amazon.nova-sonic-v1:0",
-        boto_session: boto3.Session | None = None,
-        region: str | None = None,
-        config: dict[str, Any] | None = None,
+        provider_config: dict[str, Any] | None = None,
+        client_config: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize Nova Sonic bidirectional model.
 
         Args:
-            model_id: Nova Sonic model identifier.
-            boto_session: Boto Session to use when calling the Nova Sonic Model.
-            region: AWS region
-            config: Optional configuration dictionary with structure {"audio": AudioConfig, ...}.
-                   If not provided or if "audio" key is missing, uses Nova Sonic's default audio configuration.
+            model_id: Model identifier (default: amazon.nova-sonic-v1:0)
+            provider_config: Model behavior (audio, inference settings)
+            client_config: AWS authentication (boto_session OR region, not both)
             **kwargs: Reserved for future parameters.
         """
-        if region and boto_session:
-            raise ValueError("Cannot specify both `region_name` and `boto_session`.")
-
-        # Create session and resolve region
-        self._session = boto_session or boto3.Session()
-        resolved_region = region or self._session.region_name or "us-east-1"
-
-        # Model configuration
+        # Store model ID
         self.model_id = model_id
-        self.region = resolved_region
+
+        # Resolve client config with defaults
+        self._client_config = self._resolve_client_config(client_config or {})
+
+        # Resolve provider config with defaults
+        self._provider_config = self._resolve_provider_config(provider_config or {})
+
+        # Extract and store audio config for IO coordination
+        self.config: dict[str, Any] = {"audio": self._provider_config["audio"]}
+
+        # Store session and region for later use
+        self._session = self._client_config["boto_session"]
+        self.region = self._client_config["region"]
 
         # Track API-provided identifiers
         self._connection_id: str | None = None
@@ -134,11 +136,27 @@ class BidiNovaSonicModel(BidiModel):
 
         logger.debug("model_id=<%s> | nova sonic model initialized", model_id)
 
-        # Extract audio config from config dict if provided
-        user_audio_config = config.get("audio", {}) if config else {}
+    def _resolve_client_config(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Resolve AWS client config (creates boto session if needed)."""
+        if "boto_session" in config and "region" in config:
+            raise ValueError("Cannot specify both 'boto_session' and 'region' in client_config")
 
+        resolved = config.copy()
+
+        # Create boto session if not provided
+        if "boto_session" not in resolved:
+            resolved["boto_session"] = boto3.Session()
+
+        # Resolve region from session or use default
+        if "region" not in resolved:
+            resolved["region"] = resolved["boto_session"].region_name or "us-east-1"
+
+        return resolved
+
+    def _resolve_provider_config(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Merge user config with defaults (user takes precedence)."""
         # Define default audio configuration
-        default_audio_config: AudioConfig = {
+        default_audio: AudioConfig = {
             "input_rate": cast(int, NOVA_AUDIO_INPUT_CONFIG["sampleRateHertz"]),
             "output_rate": cast(int, NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"]),
             "channels": cast(int, NOVA_AUDIO_INPUT_CONFIG["channelCount"]),
@@ -146,16 +164,20 @@ class BidiNovaSonicModel(BidiModel):
             "voice": cast(str, NOVA_AUDIO_OUTPUT_CONFIG["voiceId"]),
         }
 
-        # Merge user config with defaults (user values take precedence)
-        merged_audio_config = cast(AudioConfig, {**default_audio_config, **user_audio_config})
+        user_audio = config.get("audio", {})
+        merged_audio = {**default_audio, **user_audio}
 
-        # Store config with audio defaults always populated
-        self.config: dict[str, Any] = {"audio": merged_audio_config}
+        resolved = {
+            "audio": merged_audio,
+            **{k: v for k, v in config.items() if k != "audio"},
+        }
 
-        if user_audio_config:
+        if user_audio:
             logger.debug("audio_config | merged user-provided config with defaults")
         else:
             logger.debug("audio_config | using default Nova Sonic audio configuration")
+
+        return resolved
 
     async def start(
         self,

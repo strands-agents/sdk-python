@@ -69,7 +69,7 @@ def nova_model(model_id, region, mock_client):
     """Create Nova Sonic model instance."""
     _ = mock_client
 
-    model = BidiNovaSonicModel(model_id=model_id, region=region)
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region})
     yield model
 
 
@@ -79,7 +79,7 @@ def nova_model(model_id, region, mock_client):
 @pytest.mark.asyncio
 async def test_model_initialization(model_id, region):
     """Test model initialization with configuration."""
-    model = BidiNovaSonicModel(model_id=model_id, region=region)
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region})
 
     assert model.model_id == model_id
     assert model.region == region
@@ -92,7 +92,7 @@ async def test_model_initialization(model_id, region):
 @pytest.mark.asyncio
 async def test_audio_config_defaults(model_id, region):
     """Test default audio configuration."""
-    model = BidiNovaSonicModel(model_id=model_id, region=region)
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region})
 
     assert model.config["audio"]["input_rate"] == 16000
     assert model.config["audio"]["output_rate"] == 16000
@@ -104,8 +104,8 @@ async def test_audio_config_defaults(model_id, region):
 @pytest.mark.asyncio
 async def test_audio_config_partial_override(model_id, region):
     """Test partial audio configuration override."""
-    config = {"audio": {"output_rate": 24000, "voice": "ruth"}}
-    model = BidiNovaSonicModel(model_id=model_id, region=region, config=config)
+    provider_config = {"audio": {"output_rate": 24000, "voice": "ruth"}}
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region}, provider_config=provider_config)
 
     # Overridden values
     assert model.config["audio"]["output_rate"] == 24000
@@ -120,7 +120,7 @@ async def test_audio_config_partial_override(model_id, region):
 @pytest.mark.asyncio
 async def test_audio_config_full_override(model_id, region):
     """Test full audio configuration override."""
-    config = {
+    provider_config = {
         "audio": {
             "input_rate": 48000,
             "output_rate": 48000,
@@ -129,7 +129,7 @@ async def test_audio_config_full_override(model_id, region):
             "voice": "stephen",
         }
     }
-    model = BidiNovaSonicModel(model_id=model_id, region=region, config=config)
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region}, provider_config=provider_config)
 
     assert model.config["audio"]["input_rate"] == 48000
     assert model.config["audio"]["output_rate"] == 48000
@@ -528,8 +528,8 @@ async def test_message_history_empty_and_edge_cases(nova_model):
 async def test_custom_audio_rates_in_events(model_id, region):
     """Test that audio events use configured sample rates."""
     # Create model with custom audio configuration
-    config = {"audio": {"output_rate": 48000, "channels": 2}}
-    model = BidiNovaSonicModel(model_id=model_id, region=region, config=config)
+    provider_config = {"audio": {"output_rate": 48000, "channels": 2}}
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region}, provider_config=provider_config)
 
     # Test audio output event uses custom configuration
     audio_bytes = b"test audio data"
@@ -549,7 +549,7 @@ async def test_custom_audio_rates_in_events(model_id, region):
 async def test_default_audio_rates_in_events(model_id, region):
     """Test that audio events use default sample rates when no custom config."""
     # Create model without custom audio configuration
-    model = BidiNovaSonicModel(model_id=model_id, region=region)
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region})
 
     # Test audio output event uses defaults
     audio_bytes = b"test audio data"

@@ -62,7 +62,7 @@ def api_key():
 def model(mock_genai_client, model_id, api_key):
     """Create a BidiGeminiLiveModel instance."""
     _ = mock_genai_client
-    return BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+    return BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
 
 
 @pytest.fixture
@@ -102,7 +102,7 @@ def test_model_initialization(mock_genai_client, model_id, api_key):
     assert "inputAudioTranscription" in model_default.provider_config
 
     # Test with API key
-    model_with_key = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+    model_with_key = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
     assert model_with_key.model_id == model_id
     assert model_with_key.api_key == api_key
 
@@ -161,7 +161,7 @@ async def test_connection_edge_cases(mock_genai_client, api_key, model_id):
     mock_client, _, mock_live_session_cm = mock_genai_client
 
     # Test connection error
-    model1 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+    model1 = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
     mock_client.aio.live.connect.side_effect = Exception("Connection failed")
     with pytest.raises(Exception, match=r"Connection failed"):
         await model1.start()
@@ -170,18 +170,18 @@ async def test_connection_edge_cases(mock_genai_client, api_key, model_id):
     mock_client.aio.live.connect.side_effect = None
 
     # Test double connection
-    model2 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+    model2 = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
     await model2.start()
     with pytest.raises(RuntimeError, match="call stop before starting again"):
         await model2.start()
     await model2.stop()
 
     # Test close when not connected
-    model3 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+    model3 = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
     await model3.stop()  # Should not raise
 
     # Test close error handling
-    model4 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+    model4 = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
     await model4.start()
     mock_live_session_cm.__aexit__.side_effect = Exception("Close failed")
     with pytest.raises(ExceptionGroup):
@@ -452,7 +452,7 @@ def test_audio_config_defaults(mock_genai_client, model_id, api_key):
     """Test default audio configuration."""
     _ = mock_genai_client
 
-    model = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
 
     assert model.config["audio"]["input_rate"] == 16000
     assert model.config["audio"]["output_rate"] == 24000
@@ -466,7 +466,7 @@ def test_audio_config_partial_override(mock_genai_client, model_id, api_key):
     _ = mock_genai_client
 
     config = {"audio": {"output_rate": 48000, "voice": "Puck"}}
-    model = BidiGeminiLiveModel(model_id=model_id, api_key=api_key, config=config)
+    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key}, config=config)
 
     # Overridden values
     assert model.config["audio"]["output_rate"] == 48000
@@ -491,7 +491,7 @@ def test_audio_config_full_override(mock_genai_client, model_id, api_key):
             "voice": "Aoede",
         }
     }
-    model = BidiGeminiLiveModel(model_id=model_id, api_key=api_key, config=config)
+    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key}, config=config)
 
     assert model.config["audio"]["input_rate"] == 48000
     assert model.config["audio"]["output_rate"] == 48000
@@ -507,7 +507,9 @@ def test_audio_config_voice_priority(mock_genai_client, model_id, api_key):
     provider_config = {"speech_config": {"voice_config": {"prebuilt_voice_config": {"voice_name": "Puck"}}}}
     config = {"audio": {"voice": "Aoede"}}
 
-    model = BidiGeminiLiveModel(model_id=model_id, api_key=api_key, provider_config=provider_config, config=config)
+    model = BidiGeminiLiveModel(
+        model_id=model_id, client_config={"api_key": api_key}, provider_config=provider_config, config=config
+    )
 
     # Build config and verify config audio voice takes precedence
     built_config = model._build_live_config()
@@ -556,7 +558,7 @@ async def test_custom_audio_rates_in_events(mock_genai_client, model_id, api_key
 
     # Create model with custom audio configuration
     config = {"audio": {"output_rate": 48000, "channels": 2}}
-    model = BidiGeminiLiveModel(model_id=model_id, api_key=api_key, config=config)
+    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key}, config=config)
     await model.start()
 
     # Test audio output event uses custom configuration
@@ -584,7 +586,7 @@ async def test_default_audio_rates_in_events(mock_genai_client, model_id, api_ke
     _, _, _ = mock_genai_client
 
     # Create model without custom audio configuration
-    model = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
     await model.start()
 
     # Test audio output event uses defaults

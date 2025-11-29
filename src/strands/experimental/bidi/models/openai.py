@@ -77,42 +77,36 @@ class BidiOpenAIRealtimeModel(BidiModel):
     def __init__(
         self,
         model_id: str = DEFAULT_MODEL,
-        api_key: str | None = None,
-        config: dict[str, Any] | None = None,
         provider_config: dict[str, Any] | None = None,
+        client_config: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize OpenAI Realtime bidirectional model.
 
         Args:
-            model_id: OpenAI model identifier (default: gpt-realtime).
-            api_key: OpenAI API key for authentication.
-            provider_config: Session configuration parameters (e.g., voice, turn_detection, modalities).
-            config: Optional configuration dictionary with structure {"audio": AudioConfig, ...}.
-                   If not provided or if "audio" key is missing, uses OpenAI Realtime API's default audio configuration.
+            model_id: Model identifier (default: gpt-realtime)
+            provider_config: Model behavior (audio, instructions, turn_detection, etc.)
+            client_config: Authentication (api_key, organization, project)
+                Falls back to OPENAI_API_KEY, OPENAI_ORGANIZATION, OPENAI_PROJECT env vars
             **kwargs: Reserved for future parameters.
 
-        Environment Variables:
-            OPENAI_API_KEY: API key (if not provided as parameter)
-            OPENAI_ORGANIZATION: Organization ID for billing/organization
-            OPENAI_PROJECT: Project ID for billing/organization
         """
-        # Model configuration
+        # Store model ID
         self.model_id = model_id
-        self.api_key = api_key
-        self.provider_config = provider_config or {}
 
-        # Read from environment variables with same pattern as API key
-        if not self.api_key:
-            self.api_key = os.getenv("OPENAI_API_KEY")
-            if not self.api_key:
-                raise ValueError(
-                    "OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass api_key parameter."
-                )
+        # Resolve client config with defaults and env vars
+        self._client_config = self._resolve_client_config(client_config or {})
 
-        # Read organization and project from environment (no parameters needed)
-        self.organization = os.getenv("OPENAI_ORGANIZATION")
-        self.project = os.getenv("OPENAI_PROJECT")
+        # Resolve provider config with defaults
+        self._provider_config = self._resolve_provider_config(provider_config or {})
+
+        # Extract and store audio config for IO coordination
+        self.config: dict[str, Any] = {"audio": self._provider_config["audio"]}
+
+        # Store client config values for later use
+        self.api_key = self._client_config["api_key"]
+        self.organization = self._client_config.get("organization")
+        self.project = self._client_config.get("project")
 
         # Connection state (initialized in start())
         self._connection_id: str | None = None
@@ -121,14 +115,40 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
         logger.debug("model=<%s> | openai realtime model initialized", model_id)
 
-        # Extract audio config from config dict if provided
-        user_audio_config = config.get("audio", {}) if config else {}
+    def _resolve_client_config(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Resolve client config with env var fallback (config takes precedence)."""
+        resolved = config.copy()
 
-        # Extract voice from provider_config if provided
-        provider_voice = self._extract_voice_from_provider_config()
+        if "api_key" not in resolved:
+            resolved["api_key"] = os.getenv("OPENAI_API_KEY")
+        
+        if not resolved.get("api_key"):
+            raise ValueError(
+                "OpenAI API key is required. Provide via client_config={'api_key': '...'} "
+                "or set OPENAI_API_KEY environment variable."
+            )
+        if "organization" not in resolved:
+            env_org = os.getenv("OPENAI_ORGANIZATION")
+            if env_org:
+                resolved["organization"] = env_org
+        
+        if "project" not in resolved:
+            env_project = os.getenv("OPENAI_PROJECT")
+            if env_project:
+                resolved["project"] = env_project
+
+        return resolved
+
+    def _resolve_provider_config(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Merge user config with defaults (user takes precedence)."""
+        # Extract voice from provider-specific audio.output.voice if present
+        provider_voice = None
+        if "audio" in config and isinstance(config["audio"], dict):
+            if "output" in config["audio"] and isinstance(config["audio"]["output"], dict):
+                provider_voice = config["audio"]["output"].get("voice")
 
         # Define default audio configuration
-        default_audio_config: AudioConfig = {
+        default_audio: AudioConfig = {
             "input_rate": DEFAULT_SAMPLE_RATE,
             "output_rate": DEFAULT_SAMPLE_RATE,
             "channels": 1,
@@ -136,26 +156,20 @@ class BidiOpenAIRealtimeModel(BidiModel):
             "voice": provider_voice or "alloy",
         }
 
-        # Merge user config with defaults (user values take precedence)
-        merged_audio_config = cast(AudioConfig, {**default_audio_config, **user_audio_config})
+        user_audio = config.get("audio", {})
+        merged_audio = {**default_audio, **user_audio}
 
-        # Store config with audio defaults always populated
-        self.config: dict[str, Any] = {"audio": merged_audio_config}
+        resolved = {
+            "audio": merged_audio,
+            **{k: v for k, v in config.items() if k != "audio"},
+        }
 
-        if user_audio_config:
+        if user_audio:
             logger.debug("audio_config | merged user-provided config with defaults")
         else:
             logger.debug("audio_config | using default OpenAI Realtime audio configuration")
 
-    def _extract_voice_from_provider_config(self) -> str | None:
-        """Extract voice from provider-specific config."""
-        if "audio" in self.provider_config:
-            audio_settings = self.provider_config["audio"]
-            if isinstance(audio_settings, dict) and "output" in audio_settings:
-                output_settings = audio_settings["output"]
-                if isinstance(output_settings, dict):
-                    return output_settings.get("voice")
-        return None
+        return resolved
 
     async def start(
         self,
@@ -247,7 +261,6 @@ class BidiOpenAIRealtimeModel(BidiModel):
             "output_modalities",
             "instructions",
             "voice",
-            "audio",
             "tools",
             "tool_choice",
             "input_audio_format",
@@ -256,23 +269,28 @@ class BidiOpenAIRealtimeModel(BidiModel):
             "turn_detection",
         }
 
-        for key, value in self.provider_config.items():
-            if key in supported_params:
+        for key, value in self._provider_config.items():
+            if key == "audio":
+                continue
+            elif key in supported_params:
                 config[key] = value
             else:
                 logger.warning("parameter=<%s> | ignoring unsupported session parameter", key)
 
-        # Override audio configuration with config values if present (config takes precedence)
-        if "voice" in self.config["audio"]:
-            config.setdefault("audio", {}).setdefault("output", {})["voice"] = self.config["audio"]["voice"]
+        audio_config = self.config["audio"]
         
-        if "input_rate" in self.config["audio"]:
-            input_config = config.setdefault("audio", {}).setdefault("input", {}).setdefault("format", {})
-            input_config["rate"] = self.config["audio"]["input_rate"]
+        if "voice" in audio_config:
+            config.setdefault("audio", {}).setdefault("output", {})["voice"] = audio_config["voice"]
         
-        if "output_rate" in self.config["audio"]:
-            output_config = config.setdefault("audio", {}).setdefault("output", {}).setdefault("format", {})
-            output_config["rate"] = self.config["audio"]["output_rate"]
+        if "input_rate" in audio_config:
+            config.setdefault("audio", {}).setdefault("input", {}).setdefault("format", {})["rate"] = audio_config[
+                "input_rate"
+            ]
+        
+        if "output_rate" in audio_config:
+            config.setdefault("audio", {}).setdefault("output", {}).setdefault("format", {})["rate"] = audio_config[
+                "output_rate"
+            ]
 
         return config
 
