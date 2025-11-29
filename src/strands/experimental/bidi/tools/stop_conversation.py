@@ -4,7 +4,7 @@ from ....tools.decorator import tool
 
 
 @tool
-def stop_conversation() -> dict:
+def stop_conversation() -> str:
     """Stop the bidirectional conversation gracefully.
 
     Use ONLY when user says "stop conversation" exactly.
@@ -13,7 +13,4 @@ def stop_conversation() -> dict:
     Returns:
         Success message confirming the conversation will end
     """
-    return {
-        "status": "success",
-        "content": [{"text": "Ending conversation"}],
-    }
+    return "Ending conversation"
