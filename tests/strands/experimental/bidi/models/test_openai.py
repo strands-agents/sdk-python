@@ -64,8 +64,7 @@ def api_key():
 @pytest.fixture
 def model(mock_websockets_connect, api_key, model_name):
     """Create an BidiOpenAIRealtimeModel instance."""
-    _ = mock_websockets_connect
-    return BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
+    return BidiOpenAIRealtimeModel(model=model_name, client_config={"api_key": api_key})
 
 
 @pytest.fixture
@@ -90,27 +89,29 @@ def messages():
 # Initialization Tests
 
 
-def test_model_initialization(api_key, model_name):
+def test_model_initialization(api_key, model_name, monkeypatch):
     """Test model initialization with various configurations."""
     # Test default config
-    model_default = BidiOpenAIRealtimeModel(api_key="test-key")
+    model_default = BidiOpenAIRealtimeModel(client_config={"api_key": "test-key"})
     assert model_default.model_id == "gpt-realtime"
     assert model_default.api_key == "test-key"
 
     # Test with custom model
-    model_custom = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key)
+    model_custom = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
     assert model_custom.model_id == model_name
     assert model_custom.api_key == api_key
 
-    # Test with organization and project
-    model_org = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key, organization="org-123", project="proj-456")
-    assert model_org.organization == "org-123"
-    assert model_org.project == "proj-456"
+    # Test with organization and project via environment variables
+    monkeypatch.setenv("OPENAI_ORGANIZATION", "org-123")
+    monkeypatch.setenv("OPENAI_PROJECT", "proj-456")
+    model_env = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
+    assert model_env.organization == "org-123"
+    assert model_env.project == "proj-456"
 
     # Test with env API key
-    with unittest.mock.patch.dict("os.environ", {"OPENAI_API_KEY": "env-key"}):
-        model_env = BidiOpenAIRealtimeModel()
-        assert model_env.api_key == "env-key"
+    monkeypatch.setenv("OPENAI_API_KEY", "env-key")
+    model_env = BidiOpenAIRealtimeModel()
+    assert model_env.api_key == "env-key"
 
 
 # Audio Configuration Tests
@@ -118,7 +119,7 @@ def test_model_initialization(api_key, model_name):
 
 def test_audio_config_defaults(api_key, model_name):
     """Test default audio configuration."""
-    model = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key)
+    model = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
 
     assert model.config["audio"]["input_rate"] == 24000
     assert model.config["audio"]["output_rate"] == 24000
@@ -130,7 +131,7 @@ def test_audio_config_defaults(api_key, model_name):
 def test_audio_config_partial_override(api_key, model_name):
     """Test partial audio configuration override."""
     config = {"audio": {"output_rate": 48000, "voice": "echo"}}
-    model = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key, config=config)
+    model = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key}, config=config)
 
     # Overridden values
     assert model.config["audio"]["output_rate"] == 48000
@@ -153,7 +154,7 @@ def test_audio_config_full_override(api_key, model_name):
             "voice": "shimmer",
         }
     }
-    model = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key, config=config)
+    model = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key}, config=config)
 
     assert model.config["audio"]["input_rate"] == 48000
     assert model.config["audio"]["output_rate"] == 48000
@@ -163,12 +164,12 @@ def test_audio_config_full_override(api_key, model_name):
 
 
 def test_audio_config_voice_priority(api_key, model_name):
-    """Test that config audio voice takes precedence over session_config voice."""
-    session_config = {"audio": {"output": {"voice": "alloy"}}}
+    """Test that config audio voice takes precedence over provider_config voice."""
+    provider_config = {"audio": {"output": {"voice": "alloy"}}}
     config = {"audio": {"voice": "nova"}}
 
     model = BidiOpenAIRealtimeModel(
-        model_id=model_name, api_key=api_key, session_config=session_config, config=config
+        model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config, config=config
     )
 
     # Build config and verify config audio voice takes precedence
@@ -176,21 +177,23 @@ def test_audio_config_voice_priority(api_key, model_name):
     assert built_config["audio"]["output"]["voice"] == "nova"
 
 
-def test_audio_config_extracts_voice_from_session_config(api_key, model_name):
-    """Test that voice is extracted from session_config when config audio not provided."""
-    session_config = {"audio": {"output": {"voice": "fable"}}}
+def test_audio_config_extracts_voice_from_provider_config(api_key, model_name):
+    """Test that voice is extracted from provider_config when config audio not provided."""
+    provider_config = {"audio": {"output": {"voice": "fable"}}}
 
-    model = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key, session_config=session_config)
+    model = BidiOpenAIRealtimeModel(
+        model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config
+    )
 
-    # Should extract voice from session_config
+    # Should extract voice from provider_config
     assert model.config["audio"]["voice"] == "fable"
 
 
-def test_init_without_api_key_raises():
+def test_init_without_api_key_raises(monkeypatch):
     """Test that initialization without API key raises error."""
-    with unittest.mock.patch.dict("os.environ", {}, clear=True):
-        with pytest.raises(ValueError, match="OpenAI API key is required"):
-            BidiOpenAIRealtimeModel()
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="OpenAI API key is required"):
+        BidiOpenAIRealtimeModel()
 
 
 # Connection Tests
@@ -243,8 +246,18 @@ async def test_connection_lifecycle(mock_websockets_connect, model, system_promp
     assert len(item_creates) > 0
     await model.stop()
 
-    # Test connection with organization header
-    model_org = BidiOpenAIRealtimeModel(api_key="test-key", organization="org-123")
+    # Test connection with organization header (via environment)
+    # Note: This test needs to be in a separate test function to use monkeypatch properly
+    # Skipping inline environment test here - see test_connection_with_org_header
+
+
+@pytest.mark.asyncio
+async def test_connection_with_org_header(mock_websockets_connect, monkeypatch):
+    """Test connection with organization header from environment."""
+    mock_connect, mock_ws = mock_websockets_connect
+
+    monkeypatch.setenv("OPENAI_ORGANIZATION", "org-123")
+    model_org = BidiOpenAIRealtimeModel(client_config={"api_key": "test-key"})
     await model_org.start()
     call_kwargs = mock_connect.call_args.kwargs
     headers = call_kwargs.get("additional_headers", [])
@@ -324,7 +337,7 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
     mock_connect, mock_ws = mock_websockets_connect
 
     # Test connection error
-    model1 = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key)
+    model1 = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
     mock_connect.side_effect = Exception("Connection failed")
     with pytest.raises(Exception, match="Connection failed"):
         await model1.start()
@@ -336,18 +349,18 @@ async def test_connection_edge_cases(mock_websockets_connect, api_key, model_nam
     mock_connect.side_effect = async_connect
 
     # Test double connection
-    model2 = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key)
+    model2 = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
     await model2.start()
     with pytest.raises(RuntimeError, match=r"call stop before starting again"):
         await model2.start()
     await model2.stop()
 
     # Test close when not connected
-    model3 = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key)
+    model3 = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
     await model3.stop()  # Should not raise
 
     # Test close error
-    model4 = BidiOpenAIRealtimeModel(model_id=model_name, api_key=api_key)
+    model4 = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key})
     await model4.start()
     mock_ws.close.side_effect = Exception("Close failed")
     with pytest.raises(ExceptionGroup):
@@ -694,13 +707,13 @@ async def test_send_event_helper(mock_websockets_connect, model):
 
 @pytest.mark.asyncio
 async def test_custom_audio_sample_rate(mock_websockets_connect, api_key):
-    """Test that custom audio sample rate from session_config is used in audio events."""
+    """Test that custom audio sample rate from provider_config is used in audio events."""
     _, mock_ws = mock_websockets_connect
 
     # Create model with custom sample rate
     custom_sample_rate = 48000
-    session_config = {"audio": {"output": {"format": {"rate": custom_sample_rate}}}}
-    model = BidiOpenAIRealtimeModel(api_key=api_key, session_config=session_config)
+    provider_config = {"audio": {"output": {"format": {"rate": custom_sample_rate}}}}
+    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key}, provider_config=provider_config)
 
     await model.start()
 
@@ -728,7 +741,7 @@ async def test_default_audio_sample_rate(mock_websockets_connect, api_key):
     _, mock_ws = mock_websockets_connect
 
     # Create model without custom audio config
-    model = BidiOpenAIRealtimeModel(api_key=api_key)
+    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key})
 
     await model.start()
 
@@ -743,7 +756,7 @@ async def test_default_audio_sample_rate(mock_websockets_connect, api_key):
     assert len(converted_events) == 1
     audio_event = converted_events[0]
     assert isinstance(audio_event, BidiAudioStreamEvent)
-    assert audio_event.sample_rate == 24000  # Default from AUDIO_FORMAT
+    assert audio_event.sample_rate == 24000  # Default from DEFAULT_SAMPLE_RATE
     assert audio_event.format == "pcm"
     assert audio_event.channels == 1
 
@@ -756,8 +769,8 @@ async def test_partial_audio_config(mock_websockets_connect, api_key):
     _, mock_ws = mock_websockets_connect
 
     # Create model with partial audio config (missing format.rate)
-    session_config = {"audio": {"output": {"voice": "alloy"}}}
-    model = BidiOpenAIRealtimeModel(api_key=api_key, session_config=session_config)
+    provider_config = {"audio": {"output": {"voice": "alloy"}}}
+    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key}, provider_config=provider_config)
 
     await model.start()
 
@@ -786,7 +799,7 @@ async def test_partial_audio_config(mock_websockets_connect, api_key):
 async def test_tool_result_single_text_content(mock_websockets_connect, api_key):
     """Test tool result with single text content block."""
     _, mock_ws = mock_websockets_connect
-    model = BidiOpenAIRealtimeModel(api_key=api_key)
+    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key})
     await model.start()
 
     tool_result: ToolResult = {

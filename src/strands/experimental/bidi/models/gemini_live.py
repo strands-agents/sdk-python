@@ -61,87 +61,96 @@ class BidiGeminiLiveModel(BidiModel):
     def __init__(
         self,
         model_id: str = "gemini-2.5-flash-native-audio-preview-09-2025",
-        api_key: str | None = None,
-        config: dict[str, Any] | None = None,
-        live_config: dict[str, Any] | None = None,
+        provider_config: dict[str, Any] | None = None,
+        client_config: dict[str, Any] | None = None,
         **kwargs: Any,
     ):
         """Initialize Gemini Live API bidirectional model.
 
         Args:
-            model_id: Gemini Live model identifier.
-            api_key: Google AI API key for authentication.
-            config: Optional configuration dictionary with structure {"audio": AudioConfig, ...}.
-                   If not provided or if "audio" key is missing, uses Gemini Live API's default audio configuration.
-            live_config: Gemini Live API configuration parameters (e.g., response_modalities, speech_config).
+            model_id: Model identifier (default: gemini-2.5-flash-native-audio-preview-09-2025)
+            provider_config: Model behavior (audio, response_modalities, speech_config, transcription)
+            client_config: Authentication (api_key, http_options)
             **kwargs: Reserved for future parameters.
+
         """
-        # Model configuration
+        # Store model ID
         self.model_id = model_id
-        self.api_key = api_key
 
-        # Set default live_config with transcription enabled
-        default_config = {
-            "response_modalities": ["AUDIO"],
-            "outputAudioTranscription": {},  # Enable output transcription by default
-            "inputAudioTranscription": {},  # Enable input transcription by default
-        }
+        # Resolve client config with defaults
+        self._client_config = self._resolve_client_config(client_config or {})
 
-        # Merge user config with defaults (user config takes precedence)
-        if live_config:
-            default_config.update(live_config)
+        # Resolve provider config with defaults
+        self._provider_config = self._resolve_provider_config(provider_config or {})
 
-        self.live_config = default_config
+        # Extract and store audio config for IO coordination
+        self.config: dict[str, Any] = {"audio": self._provider_config["audio"]}
 
-        # Create Gemini client with proper API version
-        client_kwargs: dict[str, Any] = {}
-        if api_key:
-            client_kwargs["api_key"] = api_key
+        # Store API key for later use
+        self.api_key = self._client_config.get("api_key")
 
-        # Use v1alpha for Live API as it has better model support
-        client_kwargs["http_options"] = {"api_version": "v1alpha"}
-
-        self._client = genai.Client(**client_kwargs)
+        # Create Gemini client
+        self._client = genai.Client(**self._client_config)
 
         # Connection state (initialized in start())
         self._live_session: Any = None
         self._live_session_context_manager: Any = None
         self._connection_id: str | None = None
 
-        # Extract audio config from config dict if provided
-        user_audio_config = config.get("audio", {}) if config else {}
+    def _resolve_client_config(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Resolve client config (sets default http_options if not provided)."""
+        resolved = config.copy()
 
-        # Extract voice from live_config if provided
-        live_config_voice = None
-        if self.live_config and "speech_config" in self.live_config:
-            speech_config = self.live_config["speech_config"]
-            if isinstance(speech_config, dict):
-                live_config_voice = (
-                    speech_config.get("voice_config", {}).get("prebuilt_voice_config", {}).get("voice_name")
-                )
+        # Set default http_options if not provided
+        if "http_options" not in resolved:
+            resolved["http_options"] = {"api_version": "v1alpha"}
+
+        return resolved
+
+    def _resolve_provider_config(self, config: dict[str, Any]) -> dict[str, Any]:
+        """Merge user config with defaults (user takes precedence)."""
+        # Extract voice from provider-specific speech_config.voice_config.prebuilt_voice_config.voice_name if present
+        provider_voice = None
+        if "speech_config" in config and isinstance(config["speech_config"], dict):
+            provider_voice = (
+                config["speech_config"]
+                .get("voice_config", {})
+                .get("prebuilt_voice_config", {})
+                .get("voice_name")
+            )
 
         # Define default audio configuration
-        default_audio_config: AudioConfig = {
+        default_audio: AudioConfig = {
             "input_rate": GEMINI_INPUT_SAMPLE_RATE,
             "output_rate": GEMINI_OUTPUT_SAMPLE_RATE,
             "channels": GEMINI_CHANNELS,
             "format": "pcm",
         }
 
-        # Add voice to defaults if configured in live_config
-        if live_config_voice:
-            default_audio_config["voice"] = live_config_voice
+        if provider_voice:
+            default_audio["voice"] = provider_voice
 
-        # Merge user config with defaults (user values take precedence)
-        merged_audio_config = cast(AudioConfig, {**default_audio_config, **user_audio_config})
+        user_audio = config.get("audio", {})
+        merged_audio = {**default_audio, **user_audio}
 
-        # Store config with audio defaults always populated
-        self.config: dict[str, Any] = {"audio": merged_audio_config}
+        default_provider_settings = {
+            "response_modalities": ["AUDIO"],
+            "outputAudioTranscription": {},
+            "inputAudioTranscription": {},
+        }
 
-        if user_audio_config:
+        resolved = {
+            **default_provider_settings,
+            **config,
+            "audio": merged_audio,  # Audio always uses merged version
+        }
+
+        if user_audio:
             logger.debug("audio_config | merged user-provided config with defaults")
         else:
             logger.debug("audio_config | using default Gemini Live audio configuration")
+
+        return resolved
 
     async def start(
         self,
@@ -274,8 +283,8 @@ class BidiGeminiLiveModel(BidiModel):
                 BidiAudioStreamEvent(
                     audio=audio_b64,
                     format="pcm",
-                    sample_rate=GEMINI_OUTPUT_SAMPLE_RATE,
-                    channels=GEMINI_CHANNELS,
+                    sample_rate=cast(SampleRate, self.config["audio"]["output_rate"]),
+                    channels=cast(Channel, self.config["audio"]["channels"]),
                 )
             ]
 
@@ -380,7 +389,7 @@ class BidiGeminiLiveModel(BidiModel):
             ValueError: If content type not supported (e.g., image content).
         """
         if not self._connection_id:
-            raise RuntimeError("model not started | call start before sending")
+            raise RuntimeError("model not started | call start before sending/receiving")
 
         if isinstance(content, BidiTextInputEvent):
             await self._send_text_content(content.text)
@@ -405,7 +414,8 @@ class BidiGeminiLiveModel(BidiModel):
         audio_bytes = base64.b64decode(audio_input.audio)
 
         # Create audio blob for the SDK
-        audio_blob = genai_types.Blob(data=audio_bytes, mime_type=f"audio/pcm;rate={GEMINI_INPUT_SAMPLE_RATE}")
+        mime_type = f"audio/pcm;rate={self.config['audio']['input_rate']}"
+        audio_blob = genai_types.Blob(data=audio_bytes, mime_type=mime_type)
 
         # Send real-time audio input - this automatically handles VAD and interruption
         await self._live_session.send_realtime_input(audio=audio_blob)
@@ -440,8 +450,8 @@ class BidiGeminiLiveModel(BidiModel):
             if "text" not in block and "json" not in block:
                 # Unsupported content type - raise error
                 raise ValueError(
-                    f"tool_use_id=<{tool_use_id}>, content_types=<{list(block.keys())}>"
-                    " | Content type not supported by Gemini Live API"
+                    f"tool_use_id=<{tool_use_id}>, content_types=<{list(block.keys())}> | "
+                    f"Content type not supported by Gemini Live API"
                 )
 
         # Optimize for single content item - unwrap the array
@@ -480,13 +490,12 @@ class BidiGeminiLiveModel(BidiModel):
     ) -> dict[str, Any]:
         """Build LiveConnectConfig for the official SDK.
 
-        Simply passes through all config parameters from live_config, allowing users
+        Simply passes through all config parameters from provider_config, allowing users
         to configure any Gemini Live API parameter directly.
         """
-        # Start with user-provided live_config
         config_dict: dict[str, Any] = {}
-        if self.live_config:
-            config_dict.update(self.live_config)
+        if self._provider_config:
+            config_dict.update({k: v for k, v in self._provider_config.items() if k != "audio"})
 
         # Override with any kwargs from start()
         config_dict.update(kwargs)
@@ -499,7 +508,6 @@ class BidiGeminiLiveModel(BidiModel):
         if tools:
             config_dict["tools"] = self._format_tools_for_live_api(tools)
 
-        # Override voice with config value if present (config takes precedence)
         if "voice" in self.config["audio"]:
             config_dict.setdefault("speech_config", {}).setdefault("voice_config", {}).setdefault(
                 "prebuilt_voice_config", {}
