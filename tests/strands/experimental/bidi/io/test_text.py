@@ -7,8 +7,8 @@ from strands.experimental.bidi.types.events import BidiInterruptionEvent, BidiTe
 
 
 @pytest.fixture
-def stream_reader():
-    with unittest.mock.patch("strands.experimental.bidi.io.text.asyncio.StreamReader") as mock:
+def prompt_session():
+    with unittest.mock.patch("strands.experimental.bidi.io.text.PromptSession") as mock:
         yield mock.return_value
 
 
@@ -28,9 +28,8 @@ def text_output(text_io):
 
 
 @pytest.mark.asyncio
-async def test_bidi_text_io_input(stream_reader, text_input):
-    stream_reader.readline = unittest.mock.AsyncMock()
-    stream_reader.readline.return_value = b"test value"
+async def test_bidi_text_io_input(prompt_session, text_input):
+    prompt_session.prompt_async = unittest.mock.AsyncMock(return_value="test value")
 
     tru_event = await text_input()
     exp_event = BidiTextInputEvent(text="test value", role="user")
@@ -46,7 +45,7 @@ async def test_bidi_text_io_input(stream_reader, text_input):
     ]
 )
 @pytest.mark.asyncio
-async def test_bidi_text_io_output_interrupt(event, exp_print, text_output, capsys):
+async def test_bidi_text_io_output(event, exp_print, text_output, capsys):
     await text_output(event)
 
     tru_print = capsys.readouterr().out.strip()

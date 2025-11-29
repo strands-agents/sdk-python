@@ -19,6 +19,7 @@ from ....types.tools import ToolResult, ToolSpec, ToolUse
 from .._async import stop_all
 from ..types.bidi_model import AudioConfig
 from ..types.events import (
+    AudioSampleRate,
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
     BidiConnectionStartEvent,
@@ -131,8 +132,8 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
         # Define default audio configuration
         default_audio_config: AudioConfig = {
-            "input_rate": cast(int, AUDIO_FORMAT["rate"]),
-            "output_rate": cast(int, AUDIO_FORMAT["rate"]),
+            "input_rate": cast(AudioSampleRate, AUDIO_FORMAT["rate"]),
+            "output_rate": cast(AudioSampleRate, AUDIO_FORMAT["rate"]),
             "channels": 1,
             "format": "pcm",
             "voice": session_config_voice,

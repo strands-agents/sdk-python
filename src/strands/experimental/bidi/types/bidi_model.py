@@ -5,7 +5,9 @@ including audio configuration that models use to specify their audio
 processing requirements.
 """
 
-from typing import Literal, TypedDict
+from typing import TypedDict
+
+from .events import AudioChannel, AudioFormat, AudioSampleRate
 
 
 class AudioConfig(TypedDict, total=False):
@@ -27,8 +29,8 @@ class AudioConfig(TypedDict, total=False):
         voice: Voice identifier for text-to-speech (e.g., "alloy", "matthew")
     """
 
-    input_rate: int
-    output_rate: int
-    channels: int
-    format: Literal["pcm", "wav", "opus", "mp3"]
+    input_rate: AudioSampleRate
+    output_rate: AudioSampleRate
+    channels: AudioChannel
+    format: AudioFormat
     voice: str

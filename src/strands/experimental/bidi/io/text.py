@@ -1,9 +1,9 @@
-"""Handle text input and output from bidi agent."""
+"""Handle text input and output to and from bidi agent."""
 
-import asyncio
 import logging
-import sys
-from typing import TYPE_CHECKING
+from typing import Any
+
+from prompt_toolkit import PromptSession
 
 from ..types.events import (
     BidiConnectionCloseEvent,
@@ -14,29 +14,21 @@ from ..types.events import (
 )
 from ..types.io import BidiInput, BidiOutput
 
-if TYPE_CHECKING:
-    from ..agent.agent import BidiAgent
-
 logger = logging.getLogger(__name__)
 
 
 class _BidiTextInput(BidiInput):
     """Handle text input from user."""
 
-    def __init__(self) -> None:
-        """Setup async stream reader."""
-        self._reader = asyncio.StreamReader()
-
-    async def start(self, agent: "BidiAgent") -> None:
-        """Connect reader to stdin."""
-        loop = asyncio.get_running_loop()
-        protocol = asyncio.StreamReaderProtocol(self._reader)
-        await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+    def __init__(self, config: dict[str, Any]) -> None:
+        """Extract configs and setup prompt session."""
+        prompt = config.get("input_prompt", "")
+        self._session: PromptSession = PromptSession(prompt)
 
     async def __call__(self) -> BidiTextInputEvent:
         """Read user input from stdin."""
-        text = (await self._reader.readline()).decode().strip()
-        return BidiTextInputEvent(text, role="user")
+        text = await self._session.prompt_async()
+        return BidiTextInputEvent(text.strip(), role="user")
 
 
 class _BidiTextOutput(BidiOutput):
@@ -72,11 +64,23 @@ class _BidiTextOutput(BidiOutput):
 
 
 class BidiTextIO:
-    """Handle text input and output from bidi agent."""
+    """Handle text input and output to and from bidi agent.
+
+    Accepts input from stdin and outputs to stdout.
+    """
+
+    def __init__(self, **config: Any) -> None:
+        """Initialize I/O.
+
+        Args:
+            **config: Optional I/O configurations.
+                - input_prompt (str): Input prompt to display on screen (default: blank)
+        """
+        self._config = config
 
     def input(self) -> _BidiTextInput:
         """Return text processing BidiInput."""
-        return _BidiTextInput()
+        return _BidiTextInput(self._config)
 
     def output(self) -> _BidiTextOutput:
         """Return text processing BidiOutput."""
