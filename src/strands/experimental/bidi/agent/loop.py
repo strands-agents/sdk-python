@@ -276,16 +276,7 @@ class _BidiAgentLoop:
 
                 await self._event_queue.put(tool_event)
 
-            # Check for stop_conversation BEFORE sending result
-            if tool_use["name"] == "stop_conversation":
-                logger.info("tool_name=<%s> | conversation stop requested, skipping result send", tool_use["name"])
-                connection_id = getattr(self._agent.model, "_connection_id", "unknown")
-                await self._event_queue.put(
-                    BidiConnectionCloseEvent(connection_id=connection_id, reason="user_request")
-                )
-                return  # Early exit - don't send result, don't add to messages
-
-            # Normal flow for all other tools
+            # Normal flow for all tools (including stop_conversation)
             tool_result_event = cast(ToolResultEvent, tool_event)
 
             tool_use_message: Message = {"role": "assistant", "content": [{"toolUse": tool_use}]}
@@ -293,6 +284,17 @@ class _BidiAgentLoop:
             await self._add_messages(tool_use_message, tool_result_message)
 
             await self._event_queue.put(ToolResultMessageEvent(tool_result_message))
+
+            # Check for stop_conversation before sending to model
+            if tool_use["name"] == "stop_conversation":
+                logger.info("tool_name=<%s> | conversation stop requested, skipping model send", tool_use["name"])
+                connection_id = getattr(self._agent.model, "_connection_id", "unknown")
+                await self._event_queue.put(
+                    BidiConnectionCloseEvent(connection_id=connection_id, reason="user_request")
+                )
+                return  # Skip the model send
+
+            # Send result to model (all tools except stop_conversation)
             await self.send(tool_result_event)
 
         except Exception as error:
