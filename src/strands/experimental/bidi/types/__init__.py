@@ -5,6 +5,7 @@ from .events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
     BidiConnectionCloseEvent,
+    BidiConnectionRestartEvent,
     BidiConnectionStartEvent,
     BidiErrorEvent,
     BidiImageInputEvent,
@@ -31,6 +32,7 @@ __all__ = [
     "BidiInputEvent",
     # Output Events
     "BidiConnectionStartEvent",
+    "BidiConnectionRestartEvent",
     "BidiConnectionCloseEvent",
     "BidiResponseStartEvent",
     "BidiResponseCompleteEvent",

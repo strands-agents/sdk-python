@@ -7,7 +7,7 @@ thread pools, etc.).
 import abc
 import logging
 import time
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Union, cast
+from typing import TYPE_CHECKING, Any, AsyncGenerator, cast
 
 from opentelemetry import trace as trace_api
 
@@ -23,7 +23,7 @@ from ..structured_output._structured_output_context import StructuredOutputConte
 
 if TYPE_CHECKING:  # pragma: no cover
     from ...agent import Agent
-    from ...experimental.bidi.agent.agent import BidiAgent
+    from ...experimental.bidi import BidiAgent
 
 logger = logging.getLogger(__name__)
 
@@ -32,29 +32,24 @@ class ToolExecutor(abc.ABC):
     """Abstract base class for tool executors."""
 
     @staticmethod
-    def _is_bidi_agent(agent: Union["Agent", "BidiAgent"]) -> bool:
-        """Check if the agent is a BidiAgent using isinstance.
+    def _is_agent(agent: "Agent | BidiAgent") -> bool:
+        """Check if the agent is an Agent instance, otherwise we assume BidiAgent.
 
-        Uses runtime import to avoid circular dependency at module load time.
-        This properly handles subclasses of BidiAgent.
+        Note, we use a runtime import to avoid a circular dependency error.
         """
-        try:
-            from ...experimental.bidi.agent.agent import BidiAgent
+        from ...agent import Agent
 
-            return isinstance(agent, BidiAgent)
-        except ImportError:
-            # If BidiAgent is not available, it can't be a BidiAgent
-            return False
+        return isinstance(agent, Agent)
 
     @staticmethod
     async def _invoke_before_tool_call_hook(
-        agent: Union["Agent", "BidiAgent"],
+        agent: "Agent | BidiAgent",
         tool_func: Any,
         tool_use: ToolUse,
         invocation_state: dict[str, Any],
-    ) -> tuple[Union[BeforeToolCallEvent, BidiBeforeToolCallEvent], list[Interrupt]]:
+    ) -> tuple[BeforeToolCallEvent | BidiBeforeToolCallEvent, list[Interrupt]]:
         """Invoke the appropriate before tool call hook based on agent type."""
-        event_cls = BidiBeforeToolCallEvent if ToolExecutor._is_bidi_agent(agent) else BeforeToolCallEvent
+        event_cls = BeforeToolCallEvent if ToolExecutor._is_agent(agent) else BidiBeforeToolCallEvent
         return await agent.hooks.invoke_callbacks_async(
             event_cls(
                 agent=agent,
@@ -66,16 +61,16 @@ class ToolExecutor(abc.ABC):
 
     @staticmethod
     async def _invoke_after_tool_call_hook(
-        agent: Union["Agent", "BidiAgent"],
+        agent: "Agent | BidiAgent",
         selected_tool: Any,
         tool_use: ToolUse,
         invocation_state: dict[str, Any],
         result: ToolResult,
         exception: Exception | None = None,
         cancel_message: str | None = None,
-    ) -> tuple[Union[AfterToolCallEvent, BidiAfterToolCallEvent], list[Interrupt]]:
+    ) -> tuple[AfterToolCallEvent | BidiAfterToolCallEvent, list[Interrupt]]:
         """Invoke the appropriate after tool call hook based on agent type."""
-        event_cls = BidiAfterToolCallEvent if ToolExecutor._is_bidi_agent(agent) else AfterToolCallEvent
+        event_cls = AfterToolCallEvent if ToolExecutor._is_agent(agent) else BidiAfterToolCallEvent
         return await agent.hooks.invoke_callbacks_async(
             event_cls(
                 agent=agent,
@@ -252,7 +247,7 @@ class ToolExecutor(abc.ABC):
 
     @staticmethod
     async def _stream_with_trace(
-        agent: Union["Agent", "BidiAgent"],
+        agent: "Agent | BidiAgent",
         tool_use: ToolUse,
         tool_results: list[ToolResult],
         cycle_trace: Trace,
@@ -303,7 +298,7 @@ class ToolExecutor(abc.ABC):
             tool_success = result.get("status") == "success"
             tool_duration = time.time() - tool_start_time
             message = Message(role="user", content=[{"toolResult": result}])
-            if not ToolExecutor._is_bidi_agent(agent):
+            if ToolExecutor._is_agent(agent):
                 agent.event_loop_metrics.add_tool_usage(tool_use, tool_duration, tool_trace, tool_success, message)
             cycle_trace.add_child(tool_trace)
 
@@ -313,7 +308,7 @@ class ToolExecutor(abc.ABC):
     # pragma: no cover
     def _execute(
         self,
-        agent: Union["Agent", "BidiAgent"],
+        agent: "Agent | BidiAgent",
         tool_uses: list[ToolUse],
         tool_results: list[ToolResult],
         cycle_trace: Trace,

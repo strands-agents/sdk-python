@@ -25,6 +25,8 @@ from aws_sdk_bedrock_runtime.config import Config, HTTPAuthSchemeResolver, SigV4
 from aws_sdk_bedrock_runtime.models import (
     BidirectionalInputPayloadPart,
     InvokeModelWithBidirectionalStreamInputChunk,
+    ModelTimeoutException,
+    ValidationException,
 )
 from smithy_aws_core.identity.static import StaticCredentialsResolver
 from smithy_core.aio.eventstream import DuplexEventStream
@@ -36,6 +38,8 @@ from ....types.tools import ToolResult, ToolSpec, ToolUse
 from .._async import stop_all
 from ..types.bidi_model import AudioConfig
 from ..types.events import (
+    AudioChannel,
+    AudioSampleRate,
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
     BidiConnectionStartEvent,
@@ -47,9 +51,8 @@ from ..types.events import (
     BidiTextInputEvent,
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
-    SampleRate,
 )
-from .bidi_model import BidiModel
+from .bidi_model import BidiModel, BidiModelTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -156,10 +159,10 @@ class BidiNovaSonicModel(BidiModel):
     def _resolve_provider_config(self, config: dict[str, Any]) -> dict[str, Any]:
         """Merge user config with defaults (user takes precedence)."""
         # Define default audio configuration
-        default_audio: AudioConfig = {
-            "input_rate": cast(int, NOVA_AUDIO_INPUT_CONFIG["sampleRateHertz"]),
-            "output_rate": cast(int, NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"]),
-            "channels": cast(int, NOVA_AUDIO_INPUT_CONFIG["channelCount"]),
+        default_audio_config: AudioConfig = {
+            "input_rate": cast(AudioSampleRate, NOVA_AUDIO_INPUT_CONFIG["sampleRateHertz"]),
+            "output_rate": cast(AudioSampleRate, NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"]),
+            "channels": cast(AudioChannel, NOVA_AUDIO_INPUT_CONFIG["channelCount"]),
             "format": "pcm",
             "voice": cast(str, NOVA_AUDIO_OUTPUT_CONFIG["voiceId"]),
         }
@@ -293,7 +296,18 @@ class BidiNovaSonicModel(BidiModel):
 
         _, output = await self._stream.await_output()
         while True:
-            event_data = await output.receive()
+            try:
+                event_data = await output.receive()
+
+            except ValidationException as error:
+                if "InternalErrorCode=531" in str(error):
+                    # nova also times out if user is silent for 175 seconds
+                    raise BidiModelTimeoutError(error) from error
+                raise
+
+            except ModelTimeoutException as error:
+                raise BidiModelTimeoutError(error) from error
+
             if not event_data:
                 continue
 
@@ -415,7 +429,7 @@ class BidiNovaSonicModel(BidiModel):
 
         # Validate content types and preserve structure
         content = tool_result.get("content", [])
-        
+
         # Validate all content types are supported
         for block in content:
             if "text" not in block and "json" not in block:
@@ -424,10 +438,10 @@ class BidiNovaSonicModel(BidiModel):
                     f"tool_use_id=<{tool_use_id}>, content_types=<{list(block.keys())}> | "
                     f"Content type not supported by Nova Sonic"
                 )
-        
+
         # Optimize for single content item - unwrap the array
         if len(content) == 1:
-            result_data: dict[str, Any] = content[0]
+            result_data = cast(dict[str, Any], content[0])
         else:
             # Multiple items - send as array
             result_data = {"content": content}
@@ -498,7 +512,7 @@ class BidiNovaSonicModel(BidiModel):
             return BidiAudioStreamEvent(
                 audio=audio_content,
                 format="pcm",
-                sample_rate=cast(SampleRate, self.config["audio"]["output_rate"]),
+                sample_rate=cast(AudioSampleRate, NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"]),
                 channels=channels,
             )
 

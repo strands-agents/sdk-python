@@ -1,7 +1,7 @@
 """Concurrent tool executor implementation."""
 
 import asyncio
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Union
+from typing import TYPE_CHECKING, Any, AsyncGenerator
 
 from typing_extensions import override
 
@@ -12,7 +12,7 @@ from ._executor import ToolExecutor
 
 if TYPE_CHECKING:  # pragma: no cover
     from ...agent import Agent
-    from ...experimental.bidi.agent.agent import BidiAgent
+    from ...experimental.bidi import BidiAgent
     from ..structured_output._structured_output_context import StructuredOutputContext
 
 
@@ -22,7 +22,7 @@ class ConcurrentToolExecutor(ToolExecutor):
     @override
     async def _execute(
         self,
-        agent: Union["Agent", "BidiAgent"],
+        agent: "Agent | BidiAgent",
         tool_uses: list[ToolUse],
         tool_results: list[ToolResult],
         cycle_trace: Trace,
@@ -79,7 +79,7 @@ class ConcurrentToolExecutor(ToolExecutor):
 
     async def _task(
         self,
-        agent: Union["Agent", "BidiAgent"],
+        agent: "Agent | BidiAgent",
         tool_use: ToolUse,
         tool_results: list[ToolResult],
         cycle_trace: Trace,

@@ -25,6 +25,9 @@ from .models.gemini_live import BidiGeminiLiveModel
 from .models.novasonic import BidiNovaSonicModel
 from .models.openai import BidiOpenAIRealtimeModel
 
+# Built-in tools
+from .tools import stop_conversation
+
 # Event types - For type hints and event handling
 from .types.events import (
     BidiAudioInputEvent,
@@ -53,6 +56,8 @@ __all__ = [
     "BidiGeminiLiveModel",
     "BidiNovaSonicModel",
     "BidiOpenAIRealtimeModel",
+    # Built-in tools
+    "stop_conversation",
     # Input Event types
     "BidiTextInputEvent",
     "BidiAudioInputEvent",

@@ -6,6 +6,7 @@ import pytest
 
 import strands
 import strands.telemetry
+from strands import Agent
 from strands.hooks import (
     AfterModelCallEvent,
     BeforeModelCallEvent,
@@ -133,6 +134,7 @@ def tool_executor():
 @pytest.fixture
 def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_registry, tool_executor):
     mock = unittest.mock.Mock(name="agent")
+    mock.__class__ = Agent
     mock.config.cache_points = []
     mock.model = model
     mock.system_prompt = system_prompt

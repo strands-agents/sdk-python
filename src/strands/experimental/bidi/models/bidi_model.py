@@ -108,3 +108,14 @@ class BidiModel(Protocol):
             await model.send(ToolResultEvent(tool_result))
         """
         ...
+
+
+class BidiModelTimeoutError(Exception):
+    """Model timeout error.
+
+    Bidirectional models are often configured with a connection time limit. Nova sonic for example keeps the connection
+    open for 8 minutes max. Upon receiving a timeout, the agent loop is configured to restart the model connection so as
+    to create a seamless, uninterrupted experience for the user.
+    """
+
+    pass
