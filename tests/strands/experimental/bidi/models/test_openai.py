@@ -14,10 +14,12 @@ import unittest.mock
 
 import pytest
 
+from strands.experimental.bidi.models.bidi_model import BidiModelTimeoutError
 from strands.experimental.bidi.models.openai import BidiOpenAIRealtimeModel
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
+    BidiConnectionStartEvent,
     BidiImageInputEvent,
     BidiInterruptionEvent,
     BidiResponseCompleteEvent,
@@ -60,8 +62,9 @@ def api_key():
 
 
 @pytest.fixture
-def model(api_key, model_name):
+def model(mock_websockets_connect, api_key, model_name):
     """Create an BidiOpenAIRealtimeModel instance."""
+    _ = mock_websockets_connect
     return BidiOpenAIRealtimeModel(model=model_name, api_key=api_key)
 
 
@@ -488,37 +491,47 @@ async def test_send_edge_cases(mock_websockets_connect, model):
 
 
 @pytest.mark.asyncio
-async def test_receive_lifecycle_events(mock_websockets_connect, model):
-    """Test that receive() emits connection start and end events."""
-    _, _ = mock_websockets_connect
+async def test_receive_lifecycle_events(mock_websocket, model):
+    audio_message = '{"type": "response.output_audio.delta", "delta": ""}'
+    mock_websocket.recv.return_value = audio_message
+
+    await model.start()
+    model._connection_id = "c1"
+
+    tru_events = []
+    async for event in model.receive():
+        tru_events.append(event)
+        if len(tru_events) >= 2:
+            break
+
+    exp_events = [
+        BidiConnectionStartEvent(connection_id="c1", model="gpt-realtime"),
+        BidiAudioStreamEvent(
+            audio="",
+            format="pcm",
+            sample_rate=24000,
+            channels=1,
+        )
+    ]
+    assert tru_events == exp_events
+
+
+@unittest.mock.patch("strands.experimental.bidi.models.openai.time.time")
+@pytest.mark.asyncio
+async def test_receive_timeout(mock_time, model):
+    mock_time.side_effect = [1, 2]
+    model.timeout_s = 1
 
     await model.start()
 
-    # Get first event
-    receive_gen = model.receive()
-    first_event = await anext(receive_gen)
-
-    # First event should be connection start (new TypedEvent format)
-    assert first_event.get("type") == "bidi_connection_start"
-    assert first_event.get("connection_id") == model._connection_id
-    assert first_event.get("model") == model.model_id
-
-    # Close to trigger session end
-    await model.stop()
-
-    # Collect remaining events
-    events = [first_event]
-    try:
-        async for event in receive_gen:
-            events.append(event)
-    except StopAsyncIteration:
-        pass
+    with pytest.raises(BidiModelTimeoutError):
+        async for _ in model.receive():
+            pass
 
 
 @pytest.mark.asyncio
-async def test_event_conversion(mock_websockets_connect, model):
+async def test_event_conversion(model):
     """Test conversion of all OpenAI event types to standard format."""
-    _, _ = mock_websockets_connect
     await model.start()
 
     # Test audio output (now returns list with BidiAudioStreamEvent)
