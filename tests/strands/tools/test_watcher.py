@@ -2,12 +2,27 @@
 Tests for the SDK tool watcher module.
 """
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from strands.tools.registry import ToolRegistry
 from strands.tools.watcher import ToolWatcher
+
+
+@pytest.fixture(autouse=True)
+def reset_tool_watcher_state():
+    """Reset ToolWatcher shared state between tests to avoid cross-test leakage."""
+    ToolWatcher._shared_observer = None
+    ToolWatcher._watched_dirs = set()
+    ToolWatcher._observer_started = False
+    ToolWatcher._registry_handlers = {}
+    yield
+    ToolWatcher._shared_observer = None
+    ToolWatcher._watched_dirs = set()
+    ToolWatcher._observer_started = False
+    ToolWatcher._registry_handlers = {}
 
 
 def test_tool_watcher_initialization():
@@ -96,3 +111,34 @@ def test_on_modified_error_handling(mock_reload_tool):
 
     # Verify that reload_tool was called
     mock_reload_tool.assert_called_once_with("test_tool")
+
+
+@patch("strands.tools.watcher.Observer")
+def test_master_handler_routes_events_to_all_registries(mock_observer_cls):
+    """Master handler should fan out file changes to all registry handlers for the same directory."""
+    mock_observer = MagicMock()
+    mock_observer_cls.return_value = mock_observer
+
+    tools_dir = Path("/tmp/tools")
+    registry_a = MagicMock(spec=ToolRegistry)
+    registry_b = MagicMock(spec=ToolRegistry)
+    registry_a.get_tools_dirs.return_value = [tools_dir]
+    registry_b.get_tools_dirs.return_value = [tools_dir]
+
+    ToolWatcher(registry_a)
+    ToolWatcher(registry_b)
+
+    # Only one observer/schedule/start for the shared directory
+    mock_observer.schedule.assert_called_once()
+    mock_observer.start.assert_called_once()
+    assert len(ToolWatcher._registry_handlers[str(tools_dir)]) == 2
+
+    event = MagicMock()
+    event.src_path = str(tools_dir / "my_tool.py")
+    event.is_directory = False
+
+    master_handler = ToolWatcher.MasterChangeHandler(str(tools_dir))
+    master_handler.on_modified(event)
+
+    registry_a.reload_tool.assert_called_once_with("my_tool")
+    registry_b.reload_tool.assert_called_once_with("my_tool")
