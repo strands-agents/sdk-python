@@ -10,7 +10,7 @@ import pyaudio
 from strands_tools import calculator
 
 from strands.experimental.bidi.agent.agent import BidiAgent
-from strands.experimental.bidi.models.openai import BidiOpenAIRealtimeModel
+from strands.experimental.bidi.models.openai_realtime import BidiOpenAIRealtimeModel
 
 
 async def play(context):

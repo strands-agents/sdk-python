@@ -13,10 +13,10 @@ import pytest
 import pytest_asyncio
 from aws_sdk_bedrock_runtime.models import ModelTimeoutException, ValidationException
 
-from strands.experimental.bidi.models.novasonic import (
+from strands.experimental.bidi.models.nova_sonic import (
     BidiNovaSonicModel,
 )
-from strands.experimental.bidi.models.bidi_model import BidiModelTimeoutError
+from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,

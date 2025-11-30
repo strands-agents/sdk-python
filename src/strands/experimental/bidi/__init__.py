@@ -18,12 +18,8 @@ from .agent.agent import BidiAgent
 from .io.audio import BidiAudioIO
 
 # Model interface (for custom implementations)
-from .models.bidi_model import BidiModel
-
-# Model providers - What users need to create models
-from .models.gemini_live import BidiGeminiLiveModel
-from .models.novasonic import BidiNovaSonicModel
-from .models.openai import BidiOpenAIRealtimeModel
+from .models.model import BidiModel
+from .models.nova_sonic import BidiNovaSonicModel
 
 # Built-in tools
 from .tools import stop_conversation
@@ -53,9 +49,7 @@ __all__ = [
     # IO channels
     "BidiAudioIO",
     # Model providers
-    "BidiGeminiLiveModel",
     "BidiNovaSonicModel",
-    "BidiOpenAIRealtimeModel",
     # Built-in tools
     "stop_conversation",
     # Input Event types

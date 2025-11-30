@@ -31,8 +31,8 @@ from ....types.tools import AgentTool
 from ...hooks.events import BidiAgentInitializedEvent
 from ...tools import ToolProvider
 from .._async import stop_all
-from ..models.bidi_model import BidiModel
-from ..models.novasonic import BidiNovaSonicModel
+from ..models.model import BidiModel
+from ..models.nova_sonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
 from ..types.events import (
     BidiAudioInputEvent,

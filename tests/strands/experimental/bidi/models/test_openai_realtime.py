@@ -14,8 +14,8 @@ import unittest.mock
 
 import pytest
 
-from strands.experimental.bidi.models.bidi_model import BidiModelTimeoutError
-from strands.experimental.bidi.models.openai import BidiOpenAIRealtimeModel
+from strands.experimental.bidi.models.model import BidiModelTimeoutError
+from strands.experimental.bidi.models.openai_realtime import BidiOpenAIRealtimeModel
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
