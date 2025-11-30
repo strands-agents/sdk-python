@@ -1,7 +1,4 @@
-"""Experimental hook functionality that has not yet reached stability.
-
-BidiAgent hooks are also available here to avoid circular imports.
-"""
+"""Experimental hook functionality that has not yet reached stability."""
 
 from .events import (
     AfterModelInvocationEvent,

@@ -73,6 +73,7 @@ class _BidiAudioBuffer:
 
         Args:
             byte_count: Number of bytes to get from buffer.
+
                 - If the number of bytes specified is not available, the return is padded with silence.
                 - If the number of bytes is not specified, get the first chunk put in the buffer.
 
@@ -274,6 +275,7 @@ class BidiAudioIO:
 
         Args:
             **config: Optional device configuration:
+
                 - input_buffer_size (int): Maximum input buffer size (default: None)
                 - input_device_index (int): Specific input device (default: None = system default)
                 - input_frames_per_buffer (int): Input buffer size (default: 512)

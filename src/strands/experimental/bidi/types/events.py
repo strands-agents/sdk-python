@@ -4,6 +4,7 @@ Type definitions for bidirectional streaming that extends Strands' existing stre
 capabilities with real-time audio and persistent connection support.
 
 Key features:
+
 - Audio input/output events with standardized formats
 - Interruption detection and handling
 - Connection lifecycle management
@@ -12,6 +13,7 @@ Key features:
 - JSON-serializable events (audio/images stored as base64 strings)
 
 Audio format normalization:
+
 - Supports PCM, WAV, Opus, and MP3 formats
 - Standardizes sample rates (16kHz, 24kHz, 48kHz)
 - Normalizes channel configurations (mono/stereo)
@@ -29,6 +31,7 @@ if TYPE_CHECKING:
 
 AudioChannel = Literal[1, 2]
 """Number of audio channels.
+
 - Mono: 1
 - Stereo: 2
 """
@@ -362,7 +365,6 @@ class BidiInterruptionEvent(TypedEvent):
 
     Parameters:
         reason: Why the interruption occurred.
-        response_id: ID of the response that was interrupted (may be None).
     """
 
     def __init__(self, reason: Literal["user_speech", "error"]):
@@ -592,6 +594,7 @@ class BidiErrorEvent(TypedEvent):
 # BidiInputEvent in send() methods for sending tool results back to the model.
 
 BidiInputEvent = BidiTextInputEvent | BidiAudioInputEvent | BidiImageInputEvent
+"""Union of different bidi input event types."""
 
 BidiOutputEvent = (
     BidiConnectionStartEvent
@@ -606,3 +609,4 @@ BidiOutputEvent = (
     | BidiErrorEvent
     | ToolUseStreamEvent
 )
+"""Union of different bidi output event types."""

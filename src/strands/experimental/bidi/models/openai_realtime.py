@@ -48,8 +48,8 @@ OPENAI_MAX_TIMEOUT_S = 3000  # 50 minutes
 """Max timeout before closing connection.
 
 OpenAI documents a 60 minute limit on realtime sessions
-(https://platform.openai.com/docs/guides/realtime-conversations#session-lifecycle-events). However, OpenAI does not
-emit any warnings when approaching the limit. As a workaround, we configure a max timeout client side to gracefully
+([docs](https://platform.openai.com/docs/guides/realtime-conversations#session-lifecycle-events)). However, OpenAI does
+not emit any warnings when approaching the limit. As a workaround, we configure a max timeout client side to gracefully
 handle the connection closure. We set the max to 50 minutes to provide enough buffer before hitting the real limit.
 """
 OPENAI_REALTIME_URL = "wss://api.openai.com/v1/realtime"

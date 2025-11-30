@@ -6,6 +6,7 @@ conversations where users can interrupt, provide additional input, and receive
 continuous responses including audio output.
 
 Key capabilities:
+
 - Persistent conversation connections with concurrent processing
 - Real-time audio input/output streaming
 - Automatic interruption detection and tool execution
@@ -233,6 +234,7 @@ class BidiAgent:
 
         Args:
             input_data: Can be:
+
                 - str: Text message from user
                 - BidiInputEvent: TypedEvent
                 - dict: Event dictionary (will be reconstructed to TypedEvent)

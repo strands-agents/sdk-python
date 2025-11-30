@@ -73,6 +73,7 @@ class BidiTextIO:
 
         Args:
             **config: Optional I/O configurations.
+
                 - input_prompt (str): Input prompt to display on screen (default: blank)
         """
         self._config = config

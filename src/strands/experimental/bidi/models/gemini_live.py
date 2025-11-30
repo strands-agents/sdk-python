@@ -4,6 +4,7 @@ Implements the BidiModel interface for Google's Gemini Live API using the
 official Google GenAI SDK for simplified and robust WebSocket communication.
 
 Key improvements over custom WebSocket implementation:
+
 - Uses official google-genai SDK with native Live API support
 - Simplified session management with client.aio.live.connect()
 - Built-in tool integration and event handling
@@ -221,6 +222,7 @@ class BidiGeminiLiveModel(BidiModel):
         """Convert Gemini Live API events to provider-agnostic format.
 
         Handles different types of content:
+
         - inputTranscription: User's speech transcribed to text
         - outputTranscription: Model's audio transcribed to text
         - modelTurn text: Text response from the model
