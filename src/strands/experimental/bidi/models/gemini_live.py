@@ -40,7 +40,7 @@ from ..types.events import (
     BidiUsageEvent,
     ModalityUsage,
 )
-from .bidi_model import BidiModel
+from .bidi_model import BidiModel, BidiModelTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +92,7 @@ class BidiGeminiLiveModel(BidiModel):
         # Connection state (initialized in start())
         self._live_session: Any = None
         self._live_session_context_manager: Any = None
+        self._live_session_handle: str | None = None
         self._connection_id: str | None = None
 
     def _resolve_client_config(self, config: dict[str, Any]) -> dict[str, Any]:
@@ -175,8 +176,8 @@ class BidiGeminiLiveModel(BidiModel):
         )
         self._live_session = await self._live_session_context_manager.__aenter__()
 
-        # Send initial message history if provided
-        if messages:
+        # Gemini itself restores message history when resuming from session
+        if messages and "live_session_handle" not in kwargs:
             await self._send_message_history(messages)
 
     async def _send_message_history(self, messages: Messages) -> None:
@@ -227,7 +228,22 @@ class BidiGeminiLiveModel(BidiModel):
 
         Returns:
             List of event dicts (empty list if no events to emit).
+
+        Raises:
+            BidiModelTimeoutError: If gemini responds with go away message.
         """
+        if message.go_away:
+            raise BidiModelTimeoutError(
+                message.go_away.model_dump_json(), live_session_handle=self._live_session_handle
+            )
+
+        if message.session_resumption_update:
+            resumption_update = message.session_resumption_update
+            if resumption_update.resumable and resumption_update.new_handle:
+                self._live_session_handle = resumption_update.new_handle
+                logger.debug("session_handle=<%s> | updating gemini session handle", self._live_session_handle)
+            return []
+
         # Handle interruption first (from server_content)
         if message.server_content and message.server_content.interrupted:
             return [BidiInterruptionEvent(reason="user_speech")]
@@ -491,8 +507,7 @@ class BidiGeminiLiveModel(BidiModel):
         if self.config:
             config_dict.update({k: v for k, v in self.config.items() if k != "audio"})
 
-        # Override with any kwargs from start()
-        config_dict.update(kwargs)
+        config_dict["session_resumption"] = {"handle": kwargs.get("live_session_handle")}
 
         # Add system instruction if provided
         if system_prompt:

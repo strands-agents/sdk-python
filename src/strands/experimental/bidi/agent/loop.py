@@ -198,6 +198,7 @@ class _BidiAgentLoop:
                 self._agent.system_prompt,
                 self._agent.tool_registry.get_all_tool_specs(),
                 self._agent.messages,
+                **timeout_error.restart_config,
             )
             self._task_pool.create(self._run_model())
         except Exception as exception:

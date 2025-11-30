@@ -118,4 +118,13 @@ class BidiModelTimeoutError(Exception):
     to create a seamless, uninterrupted experience for the user.
     """
 
-    pass
+    def __init__(self, message: str, **restart_config: Any) -> None:
+        """Initialize error.
+
+        Args:
+            message: Timeout message from model.
+            **restart_config: Configure restart specific behaviors in the call to model start.
+        """
+        super().__init__(self, message)
+
+        self.restart_config = restart_config

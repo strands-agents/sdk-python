@@ -297,13 +297,13 @@ class BidiNovaSonicModel(BidiModel):
                 event_data = await output.receive()
 
             except ValidationException as error:
-                if "InternalErrorCode=531" in str(error):
+                if "InternalErrorCode=531" in error.message:
                     # nova also times out if user is silent for 175 seconds
-                    raise BidiModelTimeoutError(error) from error
+                    raise BidiModelTimeoutError(error.message) from error
                 raise
 
             except ModelTimeoutException as error:
-                raise BidiModelTimeoutError(error) from error
+                raise BidiModelTimeoutError(error.message) from error
 
             if not event_data:
                 continue

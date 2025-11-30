@@ -42,7 +42,7 @@ async def loop(agent):
 
 @pytest.mark.asyncio
 async def test_bidi_agent_loop_receive_restart_connection(loop, agent, agenerator):
-    timeout_error = BidiModelTimeoutError("test timeout")
+    timeout_error = BidiModelTimeoutError("test timeout", test_restart_config=1)
     text_event = BidiTextInputEvent(text="test after restart")
 
     agent.model.receive = unittest.mock.Mock(side_effect=[timeout_error, agenerator([text_event])])
@@ -63,10 +63,11 @@ async def test_bidi_agent_loop_receive_restart_connection(loop, agent, agenerato
     
     agent.model.stop.assert_called_once()
     assert agent.model.start.call_count == 2
-    agent.model.start.assert_any_call(
+    agent.model.start.assert_called_with(
         agent.system_prompt,
         agent.tool_registry.get_all_tool_specs(),
         agent.messages,
+        test_restart_config=1,
     )
 
 
