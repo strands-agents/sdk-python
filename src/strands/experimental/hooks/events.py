@@ -1,8 +1,6 @@
-"""Experimental hook events emitted as part of invoking Agents.
+"""Experimental hook events emitted as part of invoking Agents and BidiAgents.
 
-This module defines the events that are emitted as Agents run through the lifecycle of a request.
-
-BidiAgent hook events are also defined here to avoid circular imports.
+This module defines the events that are emitted as Agents and BidiAgents run through the lifecycle of a request.
 """
 
 import warnings
@@ -19,8 +17,8 @@ if TYPE_CHECKING:
     from ..bidi.models import BidiModelTimeoutError
 
 warnings.warn(
-    "These events have been moved to production with updated names. Use BeforeModelCallEvent, "
-    "AfterModelCallEvent, BeforeToolCallEvent, and AfterToolCallEvent from strands.hooks instead.",
+    "BeforeModelCallEvent, AfterModelCallEvent, BeforeToolCallEvent, and AfterToolCallEvent are no longer experimental."
+    "Import from strands.hooks instead.",
     DeprecationWarning,
     stacklevel=2,
 )
@@ -32,7 +30,6 @@ AfterModelInvocationEvent: TypeAlias = AfterModelCallEvent
 
 
 # BidiAgent Hook Events
-# These are defined here to avoid circular imports with the bidi package
 
 
 @dataclass

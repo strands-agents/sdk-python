@@ -816,7 +816,7 @@ async def test_tool_result_single_text_content(mock_websockets_connect, api_key)
 async def test_tool_result_single_json_content(mock_websockets_connect, api_key):
     """Test tool result with single JSON content block."""
     _, mock_ws = mock_websockets_connect
-    model = BidiOpenAIRealtimeModel(api_key=api_key)
+    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key})
     await model.start()
 
     tool_result: ToolResult = {
@@ -846,7 +846,7 @@ async def test_tool_result_single_json_content(mock_websockets_connect, api_key)
 async def test_tool_result_multiple_content_blocks(mock_websockets_connect, api_key):
     """Test tool result with multiple content blocks (text and json)."""
     _, mock_ws = mock_websockets_connect
-    model = BidiOpenAIRealtimeModel(api_key=api_key)
+    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key})
     await model.start()
 
     tool_result: ToolResult = {
@@ -884,7 +884,7 @@ async def test_tool_result_multiple_content_blocks(mock_websockets_connect, api_
 async def test_tool_result_image_content_raises_error(mock_websockets_connect, api_key):
     """Test that tool result with image content raises ValueError."""
     _, mock_ws = mock_websockets_connect
-    model = BidiOpenAIRealtimeModel(api_key=api_key)
+    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key})
     await model.start()
 
     tool_result: ToolResult = {
@@ -903,7 +903,7 @@ async def test_tool_result_image_content_raises_error(mock_websockets_connect, a
 async def test_tool_result_document_content_raises_error(mock_websockets_connect, api_key):
     """Test that tool result with document content raises ValueError."""
     _, mock_ws = mock_websockets_connect
-    model = BidiOpenAIRealtimeModel(api_key=api_key)
+    model = BidiOpenAIRealtimeModel(client_config={"api_key": api_key})
     await model.start()
 
     tool_result: ToolResult = {

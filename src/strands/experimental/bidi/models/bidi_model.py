@@ -6,6 +6,7 @@ models, bidirectional models maintain an open connection for streaming audio,
 text, and tool interactions.
 
 Features:
+
 - Persistent connection management with connect/close lifecycle
 - Real-time bidirectional communication (send and receive simultaneously)
 - Provider-agnostic event normalization
@@ -96,16 +97,19 @@ class BidiModel(Protocol):
 
         Args:
             content: The content to send. Must be one of:
+
                 - BidiTextInputEvent: Text message from the user
                 - BidiAudioInputEvent: Audio data for speech input
                 - BidiImageInputEvent: Image data for visual understanding
                 - ToolResultEvent: Result from a tool execution
 
         Example:
+            ```
             await model.send(BidiTextInputEvent(text="Hello", role="user"))
             await model.send(BidiAudioInputEvent(audio=bytes, format="pcm", sample_rate=16000, channels=1))
             await model.send(BidiImageInputEvent(image=bytes, mime_type="image/jpeg", encoding="raw"))
             await model.send(ToolResultEvent(tool_result))
+            ```
         """
         ...
 
