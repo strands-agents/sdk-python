@@ -19,7 +19,7 @@ from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
 from .._async import stop_all
-from ..types.bidi_model import AudioConfig
+from ..types.model import AudioConfig
 from ..types.events import (
     AudioSampleRate,
     BidiAudioInputEvent,

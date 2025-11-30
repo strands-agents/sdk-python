@@ -5,7 +5,6 @@ complex event sequencing and audio processing required by Nova Sonic's
 InvokeModelWithBidirectionalStream protocol.
 
 Nova Sonic specifics:
-
 - Hierarchical event sequences: connectionStart → promptStart → content streaming
 - Base64-encoded audio format with hex encoding
 - Tool execution with content containers and identifier tracking
@@ -37,7 +36,7 @@ from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
 from .._async import stop_all
-from ..types.bidi_model import AudioConfig
+from ..types.model import AudioConfig
 from ..types.events import (
     AudioChannel,
     AudioSampleRate,

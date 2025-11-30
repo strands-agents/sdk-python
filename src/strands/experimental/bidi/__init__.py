@@ -17,11 +17,11 @@ from .agent.agent import BidiAgent
 # IO channels - Hardware abstraction
 from .io.audio import BidiAudioIO
 
-# Model interface (for custom implementations)
-from .models.model import BidiModel
-
 # Model providers - What users need to create models
 from .models.gemini_live import BidiGeminiLiveModel
+
+# Model interface (for custom implementations)
+from .models.model import BidiModel
 from .models.nova_sonic import BidiNovaSonicModel
 from .models.openai_realtime import BidiOpenAIRealtimeModel
 
