@@ -75,8 +75,6 @@ bidi = [
     "prompt_toolkit>=3.0.0,<4.0.0",
     "pyaudio>=0.2.13,<1.0.0",
     "smithy-aws-core>=0.0.1; python_version>='3.12'",
-    "google-genai>=1.32.0,<2.0.0",
-    "websockets>=15.0.0,<16.0.0",
 ]
 bidi-gemini = ["google-genai>=1.32.0,<2.0.0"]
 bidi-openai = ["websockets>=15.0.0,<16.0.0"]

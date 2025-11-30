@@ -222,6 +222,7 @@ class BidiGeminiLiveModel(BidiModel):
         """Convert Gemini Live API events to provider-agnostic format.
 
         Handles different types of content:
+        
         - inputTranscription: User's speech transcribed to text
         - outputTranscription: Model's audio transcribed to text
         - modelTurn text: Text response from the model
