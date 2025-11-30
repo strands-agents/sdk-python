@@ -9,10 +9,12 @@ Submodules:
 """
 
 from .base import MultiAgentBase, MultiAgentResult
+from .function_node import FunctionNode
 from .graph import GraphBuilder, GraphResult
 from .swarm import Swarm, SwarmResult
 
 __all__ = [
+    "FunctionNode",
     "GraphBuilder",
     "GraphResult",
     "MultiAgentBase",
