@@ -1,4 +1,6 @@
+import asyncio
 import base64
+import threading
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -723,3 +725,51 @@ async def test_handle_error_message_non_exception():
 
     # This should not raise an exception
     await client._handle_error_message("normal message")
+
+
+def _start_background_loop() -> tuple[asyncio.AbstractEventLoop, threading.Thread]:
+    """Spin up a background asyncio loop for tests that exercise thread hop logic."""
+    loop = asyncio.new_event_loop()
+    ready = threading.Event()
+
+    def run_loop() -> None:
+        asyncio.set_event_loop(loop)
+        ready.set()
+        loop.run_forever()
+
+    thread = threading.Thread(target=run_loop, daemon=True)
+    thread.start()
+    ready.wait()
+    return loop, thread
+
+
+def _create_resolved_future(loop: asyncio.AbstractEventLoop) -> asyncio.Future:
+    """Create a future on the given loop that is already resolved."""
+
+    async def make_future() -> asyncio.Future:
+        fut: asyncio.Future = asyncio.Future()
+        fut.set_result(None)
+        return fut
+
+    return asyncio.run_coroutine_threadsafe(make_future(), loop).result()
+
+
+def test_invoke_on_background_thread_aborts_when_connection_closes() -> None:
+    """Invoke should fail fast when the MCP connection has already collapsed (close_future resolved)."""
+    client = MCPClient(MagicMock())
+    loop, thread = _start_background_loop()
+    try:
+        # Simulate an initialized background session with a resolved close future
+        client._background_thread_session = MagicMock()
+        client._background_thread_event_loop = loop
+        client._close_future = _create_resolved_future(loop)
+
+        async def slow_coro() -> str:
+            await asyncio.sleep(1)
+            return "ok"
+
+        with pytest.raises(RuntimeError, match="Connection to the MCP server was closed"):
+            client._invoke_on_background_thread(slow_coro()).result(timeout=1)
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=1)

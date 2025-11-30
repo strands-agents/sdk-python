@@ -286,7 +286,8 @@ class ToolResultEvent(TypedEvent):
     @property
     def tool_use_id(self) -> str:
         """The toolUseId associated with this result."""
-        return cast(str, cast(ToolResult, self.get("tool_result")).get("toolUseId"))
+        tool_result = cast(ToolResult, self.get("tool_result"))
+        return tool_result.get("toolUseId")
 
     @property
     def tool_result(self) -> ToolResult:
@@ -314,7 +315,8 @@ class ToolStreamEvent(TypedEvent):
     @property
     def tool_use_id(self) -> str:
         """The toolUseId associated with this stream."""
-        return cast(str, cast(ToolUse, cast(dict, self.get("tool_stream_event")).get("tool_use")).get("toolUseId"))
+        tool_use = cast(dict, self.get("tool_stream_event")).get("tool_use")
+        return cast(ToolUse, tool_use).get("toolUseId")
 
 
 class ToolCancelEvent(TypedEvent):
@@ -332,7 +334,8 @@ class ToolCancelEvent(TypedEvent):
     @property
     def tool_use_id(self) -> str:
         """The id of the tool cancelled."""
-        return cast(str, cast(ToolUse, cast(dict, self.get("tool_cancel_event")).get("tool_use")).get("toolUseId"))
+        tool_use = cast(dict, self.get("tool_cancel_event")).get("tool_use")
+        return cast(ToolUse, tool_use).get("toolUseId")
 
     @property
     def message(self) -> str:
@@ -350,7 +353,8 @@ class ToolInterruptEvent(TypedEvent):
     @property
     def tool_use_id(self) -> str:
         """The id of the tool interrupted."""
-        return cast(str, cast(ToolUse, cast(dict, self.get("tool_interrupt_event")).get("tool_use")).get("toolUseId"))
+        tool_use = cast(dict, self.get("tool_interrupt_event")).get("tool_use")
+        return cast(ToolUse, tool_use).get("toolUseId")
 
     @property
     def interrupts(self) -> list[Interrupt]:
