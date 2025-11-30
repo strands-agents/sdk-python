@@ -18,12 +18,12 @@ from .agent.agent import BidiAgent
 from .io.audio import BidiAudioIO
 
 # Model interface (for custom implementations)
-from .models.bidi_model import BidiModel
+from .models.model import BidiModel
 
 # Model providers - What users need to create models
 from .models.gemini_live import BidiGeminiLiveModel
-from .models.novasonic import BidiNovaSonicModel
-from .models.openai import BidiOpenAIRealtimeModel
+from .models.nova_sonic import BidiNovaSonicModel
+from .models.openai_realtime import BidiOpenAIRealtimeModel
 
 # Built-in tools
 from .tools import stop_conversation

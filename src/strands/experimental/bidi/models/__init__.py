@@ -1,9 +1,9 @@
 """Bidirectional model interfaces and implementations."""
 
-from .bidi_model import BidiModel, BidiModelTimeoutError
+from .model import BidiModel, BidiModelTimeoutError
 from .gemini_live import BidiGeminiLiveModel
-from .novasonic import BidiNovaSonicModel
-from .openai import BidiOpenAIRealtimeModel
+from .nova_sonic import BidiNovaSonicModel
+from .openai_realtime import BidiOpenAIRealtimeModel
 
 __all__ = [
     "BidiModel",

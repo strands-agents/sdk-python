@@ -40,7 +40,7 @@ from ..types.events import (
     BidiUsageEvent,
     ModalityUsage,
 )
-from .bidi_model import BidiModel, BidiModelTimeoutError
+from .model import BidiModel, BidiModelTimeoutError
 
 logger = logging.getLogger(__name__)
 
