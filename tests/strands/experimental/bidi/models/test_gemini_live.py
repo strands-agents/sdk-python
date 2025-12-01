@@ -13,6 +13,7 @@ import unittest.mock
 import pytest
 from google.genai import types as genai_types
 
+from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.models.gemini_live import BidiGeminiLiveModel
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
@@ -62,7 +63,7 @@ def api_key():
 def model(mock_genai_client, model_id, api_key):
     """Create a BidiGeminiLiveModel instance."""
     _ = mock_genai_client
-    return BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+    return BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
 
 
 @pytest.fixture
@@ -97,23 +98,23 @@ def test_model_initialization(mock_genai_client, model_id, api_key):
     assert model_default.api_key is None
     assert model_default._live_session is None
     # Check default config includes transcription
-    assert model_default.live_config["response_modalities"] == ["AUDIO"]
-    assert "outputAudioTranscription" in model_default.live_config
-    assert "inputAudioTranscription" in model_default.live_config
+    assert model_default.config["response_modalities"] == ["AUDIO"]
+    assert "outputAudioTranscription" in model_default.config
+    assert "inputAudioTranscription" in model_default.config
 
     # Test with API key
-    model_with_key = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+    model_with_key = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
     assert model_with_key.model_id == model_id
     assert model_with_key.api_key == api_key
 
     # Test with custom config (merges with defaults)
-    live_config = {"temperature": 0.7, "top_p": 0.9}
-    model_custom = BidiGeminiLiveModel(model_id=model_id, live_config=live_config)
+    provider_config = {"temperature": 0.7, "top_p": 0.9}
+    model_custom = BidiGeminiLiveModel(model_id=model_id, provider_config=provider_config)
     # Custom config should be merged with defaults
-    assert model_custom.live_config["temperature"] == 0.7
-    assert model_custom.live_config["top_p"] == 0.9
+    assert model_custom.config["temperature"] == 0.7
+    assert model_custom.config["top_p"] == 0.9
     # Defaults should still be present
-    assert "response_modalities" in model_custom.live_config
+    assert "response_modalities" in model_custom.config
 
 
 # Connection Tests
@@ -161,7 +162,7 @@ async def test_connection_edge_cases(mock_genai_client, api_key, model_id):
     mock_client, _, mock_live_session_cm = mock_genai_client
 
     # Test connection error
-    model1 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+    model1 = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
     mock_client.aio.live.connect.side_effect = Exception("Connection failed")
     with pytest.raises(Exception, match=r"Connection failed"):
         await model1.start()
@@ -170,18 +171,18 @@ async def test_connection_edge_cases(mock_genai_client, api_key, model_id):
     mock_client.aio.live.connect.side_effect = None
 
     # Test double connection
-    model2 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+    model2 = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
     await model2.start()
     with pytest.raises(RuntimeError, match="call stop before starting again"):
         await model2.start()
     await model2.stop()
 
     # Test close when not connected
-    model3 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+    model3 = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
     await model3.stop()  # Should not raise
 
     # Test close error handling
-    model4 = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+    model4 = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
     await model4.start()
     mock_live_session_cm.__aexit__.side_effect = Exception("Close failed")
     with pytest.raises(ExceptionGroup):
@@ -280,6 +281,34 @@ async def test_receive_lifecycle_events(mock_genai_client, model, agenerator):
 
 
 @pytest.mark.asyncio
+async def test_receive_timeout(mock_genai_client, model, agenerator):
+    mock_resumption_response = unittest.mock.Mock()
+    mock_resumption_response.go_away = None
+    mock_resumption_response.session_resumption_update = unittest.mock.Mock()
+    mock_resumption_response.session_resumption_update.resumable = True
+    mock_resumption_response.session_resumption_update.new_handle = "h1"
+
+    mock_timeout_response = unittest.mock.Mock()
+    mock_timeout_response.go_away = unittest.mock.Mock()
+    mock_timeout_response.go_away.model_dump_json.return_value = "test timeout"
+
+    _, mock_live_session, _ = mock_genai_client
+    mock_live_session.receive = unittest.mock.Mock(
+        return_value=agenerator([mock_resumption_response, mock_timeout_response])
+    )
+
+    await model.start()
+
+    with pytest.raises(BidiModelTimeoutError, match=r"test timeout"):
+        async for _ in model.receive():
+            pass
+
+    tru_handle = model._live_session_handle
+    exp_handle = "h1"
+    assert tru_handle == exp_handle
+
+
+@pytest.mark.asyncio
 async def test_event_conversion(mock_genai_client, model):
     """Test conversion of all Gemini Live event types to standard format."""
     _, _, _ = mock_genai_client
@@ -288,6 +317,8 @@ async def test_event_conversion(mock_genai_client, model):
     # Test text output (converted to transcript via model_turn.parts)
     mock_text = unittest.mock.Mock()
     mock_text.data = None
+    mock_text.go_away = None
+    mock_text.session_resumption_update = None
     mock_text.tool_call = None
 
     # Create proper server_content structure with model_turn
@@ -319,6 +350,8 @@ async def test_event_conversion(mock_genai_client, model):
     # Test multiple text parts (should concatenate)
     mock_multi_text = unittest.mock.Mock()
     mock_multi_text.data = None
+    mock_multi_text.go_away = None
+    mock_multi_text.session_resumption_update = None
     mock_multi_text.tool_call = None
 
     mock_server_content_multi = unittest.mock.Mock()
@@ -347,6 +380,8 @@ async def test_event_conversion(mock_genai_client, model):
     mock_audio = unittest.mock.Mock()
     mock_audio.text = None
     mock_audio.data = b"audio_data"
+    mock_audio.go_away = None
+    mock_audio.session_resumption_update = None
     mock_audio.tool_call = None
     mock_audio.server_content = None
 
@@ -373,6 +408,8 @@ async def test_event_conversion(mock_genai_client, model):
     mock_tool = unittest.mock.Mock()
     mock_tool.text = None
     mock_tool.data = None
+    mock_tool.go_away = None
+    mock_tool.session_resumption_update = None
     mock_tool.tool_call = mock_tool_call
     mock_tool.server_content = None
 
@@ -404,6 +441,8 @@ async def test_event_conversion(mock_genai_client, model):
     mock_tool_multi = unittest.mock.Mock()
     mock_tool_multi.text = None
     mock_tool_multi.data = None
+    mock_tool_multi.go_away = None
+    mock_tool_multi.session_resumption_update = None
     mock_tool_multi.tool_call = mock_tool_call_multi
     mock_tool_multi.server_content = None
 
@@ -431,6 +470,8 @@ async def test_event_conversion(mock_genai_client, model):
     mock_interrupt = unittest.mock.Mock()
     mock_interrupt.text = None
     mock_interrupt.data = None
+    mock_interrupt.go_away = None
+    mock_interrupt.session_resumption_update = None
     mock_interrupt.tool_call = None
     mock_interrupt.server_content = mock_server_content
 
@@ -452,7 +493,7 @@ def test_audio_config_defaults(mock_genai_client, model_id, api_key):
     """Test default audio configuration."""
     _ = mock_genai_client
 
-    model = BidiGeminiLiveModel(model_id=model_id, api_key=api_key)
+    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
 
     assert model.config["audio"]["input_rate"] == 16000
     assert model.config["audio"]["output_rate"] == 24000
@@ -465,8 +506,8 @@ def test_audio_config_partial_override(mock_genai_client, model_id, api_key):
     """Test partial audio configuration override."""
     _ = mock_genai_client
 
-    config = {"audio": {"output_rate": 48000, "voice": "Puck"}}
-    model = BidiGeminiLiveModel(model_id=model_id, api_key=api_key, config=config)
+    provider_config = {"audio": {"output_rate": 48000, "voice": "Puck"}}
+    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key}, provider_config=provider_config)
 
     # Overridden values
     assert model.config["audio"]["output_rate"] == 48000
@@ -482,7 +523,7 @@ def test_audio_config_full_override(mock_genai_client, model_id, api_key):
     """Test full audio configuration override."""
     _ = mock_genai_client
 
-    config = {
+    provider_config = {
         "audio": {
             "input_rate": 48000,
             "output_rate": 48000,
@@ -491,27 +532,13 @@ def test_audio_config_full_override(mock_genai_client, model_id, api_key):
             "voice": "Aoede",
         }
     }
-    model = BidiGeminiLiveModel(model_id=model_id, api_key=api_key, config=config)
+    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key}, provider_config=provider_config)
 
     assert model.config["audio"]["input_rate"] == 48000
     assert model.config["audio"]["output_rate"] == 48000
     assert model.config["audio"]["channels"] == 2
     assert model.config["audio"]["format"] == "pcm"
     assert model.config["audio"]["voice"] == "Aoede"
-
-
-def test_audio_config_voice_priority(mock_genai_client, model_id, api_key):
-    """Test that config audio voice takes precedence over live_config voice."""
-    _ = mock_genai_client
-
-    live_config = {"speech_config": {"voice_config": {"prebuilt_voice_config": {"voice_name": "Puck"}}}}
-    config = {"audio": {"voice": "Aoede"}}
-
-    model = BidiGeminiLiveModel(model_id=model_id, api_key=api_key, live_config=live_config, config=config)
-
-    # Build config and verify config audio voice takes precedence
-    built_config = model._build_live_config()
-    assert built_config["speech_config"]["voice_config"]["prebuilt_voice_config"]["voice_name"] == "Aoede"
 
 
 # Helper Method Tests
@@ -544,6 +571,70 @@ def test_tool_formatting(model, tool_spec):
     formatted_empty = model._format_tools_for_live_api([])
     assert formatted_empty == []
 
+
+
+# Tool Result Content Tests
+
+
+@pytest.mark.asyncio
+async def test_custom_audio_rates_in_events(mock_genai_client, model_id, api_key):
+    """Test that audio events use configured sample rates and channels."""
+    _, _, _ = mock_genai_client
+
+    # Create model with custom audio configuration
+    provider_config = {"audio": {"output_rate": 48000, "channels": 2}}
+    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key}, provider_config=provider_config)
+    await model.start()
+
+    # Test audio output event uses custom configuration
+    mock_audio = unittest.mock.Mock()
+    mock_audio.text = None
+    mock_audio.data = b"audio_data"
+    mock_audio.go_away = None
+    mock_audio.session_resumption_update = None
+    mock_audio.tool_call = None
+    mock_audio.server_content = None
+
+    audio_events = model._convert_gemini_live_event(mock_audio)
+    assert len(audio_events) == 1
+    audio_event = audio_events[0]
+    assert isinstance(audio_event, BidiAudioStreamEvent)
+    # Should use configured rates, not constants
+    assert audio_event.sample_rate == 48000  # Custom config
+    assert audio_event.channels == 2         # Custom config
+    assert audio_event.format == "pcm"
+
+    await model.stop()
+
+
+@pytest.mark.asyncio
+async def test_default_audio_rates_in_events(mock_genai_client, model_id, api_key):
+    """Test that audio events use default sample rates when no custom config."""
+    _, _, _ = mock_genai_client
+
+    # Create model without custom audio configuration
+    model = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
+    await model.start()
+
+    # Test audio output event uses defaults
+    mock_audio = unittest.mock.Mock()
+    mock_audio.text = None
+    mock_audio.data = b"audio_data"
+    mock_audio.go_away = None
+    mock_audio.session_resumption_update = None
+    mock_audio.tool_call = None
+    mock_audio.server_content = None
+
+    audio_events = model._convert_gemini_live_event(mock_audio)
+    assert len(audio_events) == 1
+    audio_event = audio_events[0]
+    assert isinstance(audio_event, BidiAudioStreamEvent)
+    # Should use default rates
+    assert audio_event.sample_rate == 24000  # Default output rate
+    assert audio_event.channels == 1         # Default channels
+    assert audio_event.format == "pcm"
+
+    await model.stop()
 
 
 # Tool Result Content Tests

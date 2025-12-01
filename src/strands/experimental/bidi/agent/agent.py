@@ -6,6 +6,7 @@ conversations where users can interrupt, provide additional input, and receive
 continuous responses including audio output.
 
 Key capabilities:
+
 - Persistent conversation connections with concurrent processing
 - Real-time audio input/output streaming
 - Automatic interruption detection and tool execution
@@ -30,10 +31,16 @@ from ....types.tools import AgentTool
 from ...hooks.events import BidiAgentInitializedEvent
 from ...tools import ToolProvider
 from .._async import stop_all
-from ..models.bidi_model import BidiModel
-from ..models.novasonic import BidiNovaSonicModel
+from ..models.model import BidiModel
+from ..models.nova_sonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
-from ..types.events import BidiAudioInputEvent, BidiImageInputEvent, BidiInputEvent, BidiOutputEvent, BidiTextInputEvent
+from ..types.events import (
+    BidiAudioInputEvent,
+    BidiImageInputEvent,
+    BidiInputEvent,
+    BidiOutputEvent,
+    BidiTextInputEvent,
+)
 from ..types.io import BidiInput, BidiOutput
 from .loop import _BidiAgentLoop
 
@@ -227,6 +234,7 @@ class BidiAgent:
 
         Args:
             input_data: Can be:
+
                 - str: Text message from user
                 - BidiInputEvent: TypedEvent
                 - dict: Event dictionary (will be reconstructed to TypedEvent)
@@ -344,7 +352,9 @@ class BidiAgent:
             )
 
             # Using custom audio config:
-            model = BidiNovaSonicModel(config={"audio": {"input_rate": 48000, "output_rate": 24000}})
+            model = BidiNovaSonicModel(
+                provider_config={"audio": {"input_rate": 48000, "output_rate": 24000}}
+            )
             audio_io = BidiAudioIO()
             agent = BidiAgent(model=model, tools=[calculator])
             await agent.run(
@@ -360,13 +370,13 @@ class BidiAgent:
                     event = await input_()
                     await self.send(event)
 
-            tasks = [task(input_) for input_ in inputs]
-            await asyncio.gather(*tasks)
+            await asyncio.gather(*[task(input_) for input_ in inputs])
 
-        async def run_outputs() -> None:
+        async def run_outputs(inputs_task: asyncio.Task) -> None:
             async for event in self.receive():
-                tasks = [output(event) for output in outputs]
-                await asyncio.gather(*tasks)
+                await asyncio.gather(*[output(event) for output in outputs])
+
+            inputs_task.cancel()
 
         try:
             await self.start(invocation_state)
@@ -377,8 +387,8 @@ class BidiAgent:
                 await start(self)
 
             async with asyncio.TaskGroup() as task_group:
-                task_group.create_task(run_inputs())
-                task_group.create_task(run_outputs())
+                inputs_task = task_group.create_task(run_inputs())
+                task_group.create_task(run_outputs(inputs_task))
 
         finally:
             input_stops = [input_.stop for input_ in inputs if isinstance(input_, BidiInput)]

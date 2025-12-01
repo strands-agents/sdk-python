@@ -1,13 +1,11 @@
-"""Experimental hook events emitted as part of invoking Agents.
+"""Experimental hook events emitted as part of invoking Agents and BidiAgents.
 
-This module defines the events that are emitted as Agents run through the lifecycle of a request.
-
-BidiAgent hook events are also defined here to avoid circular imports.
+This module defines the events that are emitted as Agents and BidiAgents run through the lifecycle of a request.
 """
 
 import warnings
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, Optional, TypeAlias
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 from ...hooks.events import AfterModelCallEvent, AfterToolCallEvent, BeforeModelCallEvent, BeforeToolCallEvent
 from ...hooks.registry import BaseHookEvent
@@ -16,10 +14,11 @@ from ...types.tools import AgentTool, ToolResult, ToolUse
 
 if TYPE_CHECKING:
     from ..bidi.agent.agent import BidiAgent
+    from ..bidi.models import BidiModelTimeoutError
 
 warnings.warn(
-    "These events have been moved to production with updated names. Use BeforeModelCallEvent, "
-    "AfterModelCallEvent, BeforeToolCallEvent, and AfterToolCallEvent from strands.hooks instead.",
+    "BeforeModelCallEvent, AfterModelCallEvent, BeforeToolCallEvent, and AfterToolCallEvent are no longer experimental."
+    "Import from strands.hooks instead.",
     DeprecationWarning,
     stacklevel=2,
 )
@@ -31,7 +30,6 @@ AfterModelInvocationEvent: TypeAlias = AfterModelCallEvent
 
 
 # BidiAgent Hook Events
-# These are defined here to avoid circular imports with the bidi package
 
 
 @dataclass
@@ -129,7 +127,7 @@ class BidiBeforeToolCallEvent(BidiHookEvent):
             the tool call and use a default cancel message.
     """
 
-    selected_tool: Optional[AgentTool]
+    selected_tool: AgentTool | None
     tool_use: ToolUse
     invocation_state: dict[str, Any]
     cancel_tool: bool | str = False
@@ -160,11 +158,11 @@ class BidiAfterToolCallEvent(BidiHookEvent):
         cancel_message: The cancellation message if the user cancelled the tool call.
     """
 
-    selected_tool: Optional[AgentTool]
+    selected_tool: AgentTool | None
     tool_use: ToolUse
     invocation_state: dict[str, Any]
     result: ToolResult
-    exception: Optional[Exception] = None
+    exception: Exception | None = None
     cancel_message: str | None = None
 
     def _can_write(self, name: str) -> bool:
@@ -193,4 +191,27 @@ class BidiInterruptionEvent(BidiHookEvent):
     """
 
     reason: Literal["user_speech", "error"]
-    interrupted_response_id: Optional[str] = None
+    interrupted_response_id: str | None = None
+
+
+@dataclass
+class BidiBeforeConnectionRestartEvent(BidiHookEvent):
+    """Event emitted before agent attempts to restart model connection after timeout.
+
+    Attributes:
+        timeout_error: Timeout error reported by the model.
+    """
+
+    timeout_error: "BidiModelTimeoutError"
+
+
+@dataclass
+class BidiAfterConnectionRestartEvent(BidiHookEvent):
+    """Event emitted after agent attempts to restart model connection after timeout.
+
+    Attribtues:
+        exception: Populated if exception was raised during connection restart.
+            None value means the restart was successful.
+    """
+
+    exception: Exception | None = None

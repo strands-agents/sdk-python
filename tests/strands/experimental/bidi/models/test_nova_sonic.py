@@ -11,10 +11,12 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
+from aws_sdk_bedrock_runtime.models import ModelTimeoutException, ValidationException
 
-from strands.experimental.bidi.models.novasonic import (
+from strands.experimental.bidi.models.nova_sonic import (
     BidiNovaSonicModel,
 )
+from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
@@ -69,7 +71,7 @@ def nova_model(model_id, region, mock_client):
     """Create Nova Sonic model instance."""
     _ = mock_client
 
-    model = BidiNovaSonicModel(model_id=model_id, region=region)
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region})
     yield model
 
 
@@ -79,7 +81,7 @@ def nova_model(model_id, region, mock_client):
 @pytest.mark.asyncio
 async def test_model_initialization(model_id, region):
     """Test model initialization with configuration."""
-    model = BidiNovaSonicModel(model_id=model_id, region=region)
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region})
 
     assert model.model_id == model_id
     assert model.region == region
@@ -92,7 +94,7 @@ async def test_model_initialization(model_id, region):
 @pytest.mark.asyncio
 async def test_audio_config_defaults(model_id, region):
     """Test default audio configuration."""
-    model = BidiNovaSonicModel(model_id=model_id, region=region)
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region})
 
     assert model.config["audio"]["input_rate"] == 16000
     assert model.config["audio"]["output_rate"] == 16000
@@ -104,8 +106,8 @@ async def test_audio_config_defaults(model_id, region):
 @pytest.mark.asyncio
 async def test_audio_config_partial_override(model_id, region):
     """Test partial audio configuration override."""
-    config = {"audio": {"output_rate": 24000, "voice": "ruth"}}
-    model = BidiNovaSonicModel(model_id=model_id, region=region, config=config)
+    provider_config = {"audio": {"output_rate": 24000, "voice": "ruth"}}
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region}, provider_config=provider_config)
 
     # Overridden values
     assert model.config["audio"]["output_rate"] == 24000
@@ -120,7 +122,7 @@ async def test_audio_config_partial_override(model_id, region):
 @pytest.mark.asyncio
 async def test_audio_config_full_override(model_id, region):
     """Test full audio configuration override."""
-    config = {
+    provider_config = {
         "audio": {
             "input_rate": 48000,
             "output_rate": 48000,
@@ -129,7 +131,7 @@ async def test_audio_config_full_override(model_id, region):
             "voice": "stephen",
         }
     }
-    model = BidiNovaSonicModel(model_id=model_id, region=region, config=config)
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region}, provider_config=provider_config)
 
     assert model.config["audio"]["input_rate"] == 48000
     assert model.config["audio"]["output_rate"] == 48000
@@ -522,6 +524,74 @@ async def test_message_history_empty_and_edge_cases(nova_model):
 
 
 # Error Handling Tests
+
+
+@pytest.mark.asyncio
+async def test_custom_audio_rates_in_events(model_id, region):
+    """Test that audio events use configured sample rates."""
+    # Create model with custom audio configuration
+    provider_config = {"audio": {"output_rate": 48000, "channels": 2}}
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region}, provider_config=provider_config)
+
+    # Test audio output event uses custom configuration
+    audio_bytes = b"test audio data"
+    audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+    nova_event = {"audioOutput": {"content": audio_base64}}
+    result = model._convert_nova_event(nova_event)
+    
+    assert result is not None
+    assert isinstance(result, BidiAudioStreamEvent)
+    # Should use configured rates, not constants
+    assert result.sample_rate == 48000  # Custom config
+    assert result.channels == 2         # Custom config
+    assert result.format == "pcm"
+
+
+@pytest.mark.asyncio
+async def test_default_audio_rates_in_events(model_id, region):
+    """Test that audio events use default sample rates when no custom config."""
+    # Create model without custom audio configuration
+    model = BidiNovaSonicModel(model_id=model_id, client_config={"region": region})
+
+    # Test audio output event uses defaults
+    audio_bytes = b"test audio data"
+    audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+    nova_event = {"audioOutput": {"content": audio_base64}}
+    result = model._convert_nova_event(nova_event)
+    
+    assert result is not None
+    assert isinstance(result, BidiAudioStreamEvent)
+    # Should use default rates
+    assert result.sample_rate == 16000  # Default output rate
+    assert result.channels == 1         # Default channels
+    assert result.format == "pcm"
+
+
+# Error Handling Tests
+@pytest.mark.asyncio
+async def test_bidi_nova_sonic_model_receive_timeout(nova_model, mock_stream):
+    mock_output = AsyncMock()
+    mock_output.receive.side_effect = ModelTimeoutException("Connection timeout")
+    mock_stream.await_output.return_value = (None, mock_output)
+    
+    await nova_model.start()
+    
+    with pytest.raises(BidiModelTimeoutError, match=r"Connection timeout"):
+        async for _ in nova_model.receive():
+            pass
+
+
+@pytest.mark.asyncio
+async def test_bidi_nova_sonic_model_receive_timeout_validation(nova_model, mock_stream):
+    mock_output = AsyncMock()
+    mock_output.receive.side_effect = ValidationException("InternalErrorCode=531: Request timeout")
+    mock_stream.await_output.return_value = (None, mock_output)
+    
+    await nova_model.start()
+    
+    with pytest.raises(BidiModelTimeoutError, match=r"InternalErrorCode=531"):
+        async for _ in nova_model.receive():
+            pass
 
 
 @pytest.mark.asyncio

@@ -5,13 +5,15 @@ The agent loop handles the events received from the model and executes tools whe
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any, AsyncGenerator
+from typing import TYPE_CHECKING, Any, AsyncGenerator, cast
 
 from ....types._events import ToolInterruptEvent, ToolResultEvent, ToolResultMessageEvent, ToolUseStreamEvent
 from ....types.content import Message
 from ....types.tools import ToolResult, ToolUse
 from ...hooks.events import (
+    BidiAfterConnectionRestartEvent,
     BidiAfterInvocationEvent,
+    BidiBeforeConnectionRestartEvent,
     BidiBeforeInvocationEvent,
     BidiMessageAddedEvent,
 )
@@ -19,7 +21,10 @@ from ...hooks.events import (
     BidiInterruptionEvent as BidiInterruptionHookEvent,
 )
 from .._async import _TaskPool, stop_all
+from ..models import BidiModelTimeoutError
 from ..types.events import (
+    BidiConnectionCloseEvent,
+    BidiConnectionRestartEvent,
     BidiInputEvent,
     BidiInterruptionEvent,
     BidiOutputEvent,
@@ -44,6 +49,10 @@ class _BidiAgentLoop:
         _invocation_state: Optional context to pass to tools during execution.
             This allows passing custom data (user_id, session_id, database connections, etc.)
             that tools can access via their invocation_state parameter.
+        _send_gate: Gate the sending of events to the model.
+            Blocks when agent is reseting the model connection after timeout.
+        _message_lock: Lock to ensure that paired messages are added to history in sequence without interference.
+            For example, tool use and tool result messages must be added adjacent to each other.
     """
 
     def __init__(self, agent: "BidiAgent") -> None:
@@ -60,6 +69,9 @@ class _BidiAgentLoop:
         self._event_queue: asyncio.Queue
         self._invocation_state: dict[str, Any]
 
+        self._send_gate = asyncio.Event()
+        self._message_lock = asyncio.Lock()
+
     async def start(self, invocation_state: dict[str, Any] | None = None) -> None:
         """Start the agent loop.
 
@@ -71,8 +83,7 @@ class _BidiAgentLoop:
                 that tools can access via their invocation_state parameter.
 
         Raises:
-            RuntimeError:
-                If loop already started.
+            RuntimeError: If loop already started.
         """
         if self._started:
             raise RuntimeError("loop already started | call stop before starting again")
@@ -92,6 +103,7 @@ class _BidiAgentLoop:
         self._task_pool.create(self._run_model())
 
         self._invocation_state = invocation_state or {}
+        self._send_gate.set()
         self._started = True
 
     async def stop(self) -> None:
@@ -99,6 +111,7 @@ class _BidiAgentLoop:
         logger.debug("agent loop stopping")
 
         self._started = False
+        self._send_gate.clear()
         self._invocation_state = {}
 
         async def stop_tasks() -> None:
@@ -112,23 +125,35 @@ class _BidiAgentLoop:
         finally:
             await self._agent.hooks.invoke_callbacks_async(BidiAfterInvocationEvent(agent=self._agent))
 
-    async def send(self, event: BidiInputEvent) -> None:
+    async def send(self, event: BidiInputEvent | ToolResultEvent) -> None:
         """Send model event.
 
-        Additional, add text input to messages array.
+        Additionally, add text input to messages array.
 
         Args:
-            event: BidiInputEvent.
+            event: User input event or tool result.
+
+        Raises:
+            RuntimeError: If start has not been called.
         """
+        if not self._started:
+            raise RuntimeError("loop not started | call start before sending")
+
+        if not self._send_gate.is_set():
+            logger.debug("waiting for model send signal")
+            await self._send_gate.wait()
+
         if isinstance(event, BidiTextInputEvent):
             message: Message = {"role": "user", "content": [{"text": event.text}]}
-            self._agent.messages.append(message)
-            await self._agent.hooks.invoke_callbacks_async(BidiMessageAddedEvent(agent=self._agent, message=message))
+            await self._add_messages(message)
 
         await self._agent.model.send(event)
 
     async def receive(self) -> AsyncGenerator[BidiOutputEvent, None]:
         """Receive model and tool call events.
+
+        Returns:
+            Model and tool call events.
 
         Raises:
             RuntimeError: If start has not been called.
@@ -138,10 +163,52 @@ class _BidiAgentLoop:
 
         while True:
             event = await self._event_queue.get()
+            if isinstance(event, BidiModelTimeoutError):
+                logger.debug("model timeout error received")
+                yield BidiConnectionRestartEvent(event)
+                await self._restart_connection(event)
+                continue
+
             if isinstance(event, Exception):
                 raise event
 
+            # Check for graceful shutdown event
+            if isinstance(event, BidiConnectionCloseEvent) and event.reason == "user_request":
+                yield event
+                break
+
             yield event
+
+    async def _restart_connection(self, timeout_error: BidiModelTimeoutError) -> None:
+        """Restart the model connection after timeout.
+
+        Args:
+            timeout_error: Timeout error reported by the model.
+        """
+        logger.debug("reseting model connection")
+
+        self._send_gate.clear()
+
+        await self._agent.hooks.invoke_callbacks_async(BidiBeforeConnectionRestartEvent(self._agent, timeout_error))
+
+        restart_exception = None
+        try:
+            await self._agent.model.stop()
+            await self._agent.model.start(
+                self._agent.system_prompt,
+                self._agent.tool_registry.get_all_tool_specs(),
+                self._agent.messages,
+                **timeout_error.restart_config,
+            )
+            self._task_pool.create(self._run_model())
+        except Exception as exception:
+            restart_exception = exception
+        finally:
+            await self._agent.hooks.invoke_callbacks_async(
+                BidiAfterConnectionRestartEvent(self._agent, restart_exception)
+            )
+
+        self._send_gate.set()
 
     async def _run_model(self) -> None:
         """Task for running the model.
@@ -157,20 +224,11 @@ class _BidiAgentLoop:
                 if isinstance(event, BidiTranscriptStreamEvent):
                     if event["is_final"]:
                         message: Message = {"role": event["role"], "content": [{"text": event["text"]}]}
-                        self._agent.messages.append(message)
-                        await self._agent.hooks.invoke_callbacks_async(
-                            BidiMessageAddedEvent(agent=self._agent, message=message)
-                        )
+                        await self._add_messages(message)
 
                 elif isinstance(event, ToolUseStreamEvent):
                     tool_use = event["current_tool_use"]
                     self._task_pool.create(self._run_tool(tool_use))
-
-                    tool_message: Message = {"role": "assistant", "content": [{"toolUse": tool_use}]}
-                    self._agent.messages.append(tool_message)
-                    await self._agent.hooks.invoke_callbacks_async(
-                        BidiMessageAddedEvent(agent=self._agent, message=tool_message)
-                    )
 
                 elif isinstance(event, BidiInterruptionEvent):
                     await self._agent.hooks.invoke_callbacks_async(
@@ -185,7 +243,11 @@ class _BidiAgentLoop:
             await self._event_queue.put(error)
 
     async def _run_tool(self, tool_use: ToolUse) -> None:
-        """Task for running tool requested by the model using the tool executor."""
+        """Task for running tool requested by the model using the tool executor.
+
+        Args:
+            tool_use: Tool use request from model.
+        """
         logger.debug("tool_name=<%s> | tool execution starting", tool_use["name"])
 
         tool_results: list[ToolResult] = []
@@ -207,25 +269,47 @@ class _BidiAgentLoop:
                 structured_output_context=None,
             )
 
-            async for event in tool_events:
-                if isinstance(event, ToolInterruptEvent):
+            async for tool_event in tool_events:
+                if isinstance(tool_event, ToolInterruptEvent):
                     self._agent._interrupt_state.deactivate()
-                    interrupt_names = [interrupt.name for interrupt in event.interrupts]
+                    interrupt_names = [interrupt.name for interrupt in tool_event.interrupts]
                     raise RuntimeError(f"interrupts={interrupt_names} | tool interrupts are not supported in bidi")
 
-                await self._event_queue.put(event)
-                if isinstance(event, ToolResultEvent):
-                    result = event.tool_result
+                await self._event_queue.put(tool_event)
 
-            await self._agent.model.send(ToolResultEvent(result))
+            # Normal flow for all tools (including stop_conversation)
+            tool_result_event = cast(ToolResultEvent, tool_event)
 
-            message: Message = {
-                "role": "user",
-                "content": [{"toolResult": result}],
-            }
-            self._agent.messages.append(message)
-            await self._agent.hooks.invoke_callbacks_async(BidiMessageAddedEvent(agent=self._agent, message=message))
-            await self._event_queue.put(ToolResultMessageEvent(message))
+            tool_use_message: Message = {"role": "assistant", "content": [{"toolUse": tool_use}]}
+            tool_result_message: Message = {"role": "user", "content": [{"toolResult": tool_result_event.tool_result}]}
+            await self._add_messages(tool_use_message, tool_result_message)
+
+            await self._event_queue.put(ToolResultMessageEvent(tool_result_message))
+
+            # Check for stop_conversation before sending to model
+            if tool_use["name"] == "stop_conversation":
+                logger.info("tool_name=<%s> | conversation stop requested, skipping model send", tool_use["name"])
+                connection_id = getattr(self._agent.model, "_connection_id", "unknown")
+                await self._event_queue.put(
+                    BidiConnectionCloseEvent(connection_id=connection_id, reason="user_request")
+                )
+                return  # Skip the model send
+
+            # Send result to model (all tools except stop_conversation)
+            await self.send(tool_result_event)
 
         except Exception as error:
             await self._event_queue.put(error)
+
+    async def _add_messages(self, *messages: Message) -> None:
+        """Add messages to history in sequence without interference.
+
+        Args:
+            *messages: List of messages to add into history.
+        """
+        async with self._message_lock:
+            for message in messages:
+                self._agent.messages.append(message)
+                await self._agent.hooks.invoke_callbacks_async(
+                    BidiMessageAddedEvent(agent=self._agent, message=message)
+                )

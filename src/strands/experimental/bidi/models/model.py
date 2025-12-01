@@ -6,6 +6,7 @@ models, bidirectional models maintain an open connection for streaming audio,
 text, and tool interactions.
 
 Features:
+
 - Persistent connection management with connect/close lifecycle
 - Real-time bidirectional communication (send and receive simultaneously)
 - Provider-agnostic event normalization
@@ -96,15 +97,38 @@ class BidiModel(Protocol):
 
         Args:
             content: The content to send. Must be one of:
+
                 - BidiTextInputEvent: Text message from the user
                 - BidiAudioInputEvent: Audio data for speech input
                 - BidiImageInputEvent: Image data for visual understanding
                 - ToolResultEvent: Result from a tool execution
 
         Example:
+            ```
             await model.send(BidiTextInputEvent(text="Hello", role="user"))
             await model.send(BidiAudioInputEvent(audio=bytes, format="pcm", sample_rate=16000, channels=1))
             await model.send(BidiImageInputEvent(image=bytes, mime_type="image/jpeg", encoding="raw"))
             await model.send(ToolResultEvent(tool_result))
+            ```
         """
         ...
+
+
+class BidiModelTimeoutError(Exception):
+    """Model timeout error.
+
+    Bidirectional models are often configured with a connection time limit. Nova sonic for example keeps the connection
+    open for 8 minutes max. Upon receiving a timeout, the agent loop is configured to restart the model connection so as
+    to create a seamless, uninterrupted experience for the user.
+    """
+
+    def __init__(self, message: str, **restart_config: Any) -> None:
+        """Initialize error.
+
+        Args:
+            message: Timeout message from model.
+            **restart_config: Configure restart specific behaviors in the call to model start.
+        """
+        super().__init__(self, message)
+
+        self.restart_config = restart_config
