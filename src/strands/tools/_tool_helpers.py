@@ -28,3 +28,24 @@ def generate_missing_tool_result_content(tool_use_ids: list[str]) -> list[Conten
         }
         for tool_use_id in tool_use_ids
     ]
+
+
+def generate_missing_tool_use_content(tool_result_ids: list[str]) -> list[ContentBlock]:
+    """Generate ToolUse content blocks for orphaned ToolResult message.
+
+    Args:
+        tool_result_ids: List of toolUseIds from orphaned toolResult blocks
+
+    Returns:
+        List of ContentBlock dictionaries containing dummy toolUse blocks
+    """
+    return [
+        {
+            "toolUse": {
+                "toolUseId": tool_use_id,
+                "name": "unknown_tool",
+                "input": {"error": "toolUse is missing. Ignore."},
+            }
+        }
+        for tool_use_id in tool_result_ids
+    ]
