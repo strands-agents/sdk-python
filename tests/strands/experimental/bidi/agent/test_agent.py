@@ -6,7 +6,7 @@ import pytest
 from uuid import uuid4
 
 from strands.experimental.bidi.agent.agent import BidiAgent
-from strands.experimental.bidi.models.novasonic import BidiNovaSonicModel
+from strands.experimental.bidi.models.nova_sonic import BidiNovaSonicModel
 from strands.experimental.bidi.types.events import (
     BidiTextInputEvent,
     BidiAudioInputEvent,
