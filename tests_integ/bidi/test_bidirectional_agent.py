@@ -15,8 +15,8 @@ import pytest
 from strands import tool
 from strands.experimental.bidi.agent.agent import BidiAgent
 from strands.experimental.bidi.models.gemini_live import BidiGeminiLiveModel
-from strands.experimental.bidi.models.novasonic import BidiNovaSonicModel
-from strands.experimental.bidi.models.openai import BidiOpenAIRealtimeModel
+from strands.experimental.bidi.models.nova_sonic import BidiNovaSonicModel
+from strands.experimental.bidi.models.openai_realtime import BidiOpenAIRealtimeModel
 
 from .context import BidirectionalTestContext
 from .hook_utils import HookEventCollector
