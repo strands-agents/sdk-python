@@ -184,6 +184,84 @@ Built-in providers:
 
 Custom providers can be implemented using [Custom Providers](https://strandsagents.com/latest/user-guide/concepts/model-providers/custom_model_provider/)
 
+### Bidirectional Streaming
+
+> **⚠️ Experimental Feature**: Bidirectional streaming is currently in experimental status. APIs may change in future releases as we refine the feature based on user feedback and evolving model capabilities.
+
+Build real-time voice and audio conversations with persistent streaming connections. Unlike traditional request-response patterns, bidirectional streaming maintains long-running conversations where users can interrupt, provide continuous input, and receive real-time audio responses.
+
+**Key Features:**
+- Real-time audio input/output streaming
+- Automatic interruption detection
+- Concurrent tool execution during conversations
+- Support for text, audio, and image inputs
+- Provider-agnostic event system
+
+**Supported Model Providers:**
+- Amazon Nova Sonic (`amazon.nova-sonic-v1:0`)
+- Google Gemini Live (`gemini-2.5-flash-native-audio-preview-09-2025`)
+- OpenAI Realtime API (`gpt-realtime`)
+
+**Quick Example:**
+
+```python
+from strands.experimental.bidi import BidiAgent
+from strands.experimental.bidi.models import BidiNovaSonicModel
+from strands.experimental.bidi.io import BidiAudioIO, BidiTextIO
+from strands_tools import calculator
+
+# Create bidirectional agent with audio model
+model = BidiNovaSonicModel()
+agent = BidiAgent(model=model, tools=[calculator])
+
+# Setup audio and text I/O
+audio_io = BidiAudioIO()
+text_io = BidiTextIO()
+
+# Run with real-time audio streaming
+await agent.run(
+    inputs=[audio_io.input()],
+    outputs=[audio_io.output(), text_io.output()]
+)
+```
+
+**Configuration Options:**
+
+```python
+# Configure audio settings
+model = BidiNovaSonicModel(
+    provider_config={
+        "audio": {
+            "input_rate": 16000,
+            "output_rate": 16000,
+            "voice": "matthew"
+        },
+        "inference": {
+            "max_tokens": 2048,
+            "temperature": 0.7
+        }
+    }
+)
+
+# Configure I/O devices
+audio_io = BidiAudioIO(
+    input_device_index=0,  # Specific microphone
+    output_device_index=1,  # Specific speaker
+    input_buffer_size=10,
+    output_buffer_size=10
+)
+```
+
+**Event Types:**
+
+The bidirectional streaming system uses a rich event model:
+
+- **Input Events**: `BidiTextInputEvent`, `BidiAudioInputEvent`, `BidiImageInputEvent`
+- **Output Events**: `BidiAudioStreamEvent`, `BidiTranscriptStreamEvent`, `BidiInterruptionEvent`, `BidiUsageEvent`, `ToolUseStreamEvent`
+- **Lifecycle Events**: `BidiConnectionStartEvent`, `BidiResponseStartEvent`, `BidiResponseCompleteEvent`, `BidiConnectionCloseEvent`
+
+All events are strongly typed and JSON-serializable for easy integration with web applications and logging systems.
+
 ### Example tools
 
 Strands offers an optional strands-agents-tools package with pre-built tools for quick experimentation:
