@@ -261,6 +261,7 @@ class BidiAgent:
 
         elif isinstance(input_data, dict) and "type" in input_data:
             input_type = input_data["type"]
+            input_data = {key: value for key, value in input_data.items() if key != "type"}
             if input_type == "bidi_text_input":
                 input_event = BidiTextInputEvent(**input_data)
             elif input_type == "bidi_audio_input":
