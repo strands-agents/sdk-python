@@ -270,8 +270,6 @@ audio_io = BidiAudioIO(
 )
 ```
 
-All events are strongly typed and JSON-serializable for easy integration with web applications and logging systems.
-
 ## Documentation
 
 For detailed guidance & examples, explore our documentation:
