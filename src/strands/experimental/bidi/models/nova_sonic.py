@@ -37,7 +37,6 @@ from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
 from .._async import stop_all
-from ..types.model import AudioConfig
 from ..types.events import (
     AudioChannel,
     AudioSampleRate,
@@ -53,12 +52,16 @@ from ..types.events import (
     BidiTranscriptStreamEvent,
     BidiUsageEvent,
 )
+from ..types.model import AudioConfig
 from .model import BidiModel, BidiModelTimeoutError
 
 logger = logging.getLogger(__name__)
 
-# Nova Sonic configuration constants
-NOVA_INFERENCE_CONFIG = {"maxTokens": 1024, "topP": 0.9, "temperature": 0.7}
+_NOVA_INFERENCE_CONFIG_KEYS = {
+    "max_tokens": "maxTokens",
+    "temperature": "temperature",
+    "top_p": "topP",
+}
 
 NOVA_AUDIO_INPUT_CONFIG = {
     "mediaType": "audio/lpcm",
@@ -156,8 +159,7 @@ class BidiNovaSonicModel(BidiModel):
 
     def _resolve_provider_config(self, config: dict[str, Any]) -> dict[str, Any]:
         """Merge user config with defaults (user takes precedence)."""
-        # Define default audio configuration
-        default_audio_config: AudioConfig = {
+        default_audio: AudioConfig = {
             "input_rate": cast(AudioSampleRate, NOVA_AUDIO_INPUT_CONFIG["sampleRateHertz"]),
             "output_rate": cast(AudioSampleRate, NOVA_AUDIO_OUTPUT_CONFIG["sampleRateHertz"]),
             "channels": cast(AudioChannel, NOVA_AUDIO_INPUT_CONFIG["channelCount"]),
@@ -165,19 +167,13 @@ class BidiNovaSonicModel(BidiModel):
             "voice": cast(str, NOVA_AUDIO_OUTPUT_CONFIG["voiceId"]),
         }
 
-        user_audio_config = config.get("audio", {})
-        merged_audio = {**default_audio_config, **user_audio_config}
-
         resolved = {
-            "audio": merged_audio,
-            **{k: v for k, v in config.items() if k != "audio"},
+            "audio": {
+                **default_audio,
+                **config.get("audio", {}),
+            },
+            "inference": config.get("inference", {}),
         }
-
-        if user_audio_config:
-            logger.debug("audio_config | merged user-provided config with defaults")
-        else:
-            logger.debug("audio_config | using default Nova Sonic audio configuration")
-
         return resolved
 
     async def start(
@@ -577,7 +573,8 @@ class BidiNovaSonicModel(BidiModel):
 
     def _get_connection_start_event(self) -> str:
         """Generate Nova Sonic connection start event."""
-        return json.dumps({"event": {"sessionStart": {"inferenceConfiguration": NOVA_INFERENCE_CONFIG}}})
+        inference_config = {_NOVA_INFERENCE_CONFIG_KEYS[key]: value for key, value in self.config["inference"].items()}
+        return json.dumps({"event": {"sessionStart": {"inferenceConfiguration": inference_config}}})
 
     def _get_prompt_start_event(self, tools: list[ToolSpec]) -> str:
         """Generate Nova Sonic prompt start event with tool configuration."""

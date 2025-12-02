@@ -25,7 +25,6 @@ from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
 from .._async import stop_all
-from ..types.model import AudioConfig
 from ..types.events import (
     AudioChannel,
     AudioSampleRate,
@@ -41,6 +40,7 @@ from ..types.events import (
     BidiUsageEvent,
     ModalityUsage,
 )
+from ..types.model import AudioConfig
 from .model import BidiModel, BidiModelTimeoutError
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,7 @@ class BidiGeminiLiveModel(BidiModel):
 
         Args:
             model_id: Model identifier (default: gemini-2.5-flash-native-audio-preview-09-2025)
-            provider_config: Model behavior (audio, response_modalities, speech_config, transcription)
+            provider_config: Model behavior (audio, inference)
             client_config: Authentication (api_key, http_options)
             **kwargs: Reserved for future parameters.
 
@@ -108,44 +108,28 @@ class BidiGeminiLiveModel(BidiModel):
 
     def _resolve_provider_config(self, config: dict[str, Any]) -> dict[str, Any]:
         """Merge user config with defaults (user takes precedence)."""
-        # Extract voice from provider-specific speech_config.voice_config.prebuilt_voice_config.voice_name if present
-        provider_voice = None
-        if "speech_config" in config and isinstance(config["speech_config"], dict):
-            provider_voice = (
-                config["speech_config"].get("voice_config", {}).get("prebuilt_voice_config", {}).get("voice_name")
-            )
-
-        # Define default audio configuration
         default_audio: AudioConfig = {
             "input_rate": GEMINI_INPUT_SAMPLE_RATE,
             "output_rate": GEMINI_OUTPUT_SAMPLE_RATE,
             "channels": GEMINI_CHANNELS,
             "format": "pcm",
         }
-
-        if provider_voice:
-            default_audio["voice"] = provider_voice
-
-        user_audio = config.get("audio", {})
-        merged_audio = {**default_audio, **user_audio}
-
-        default_provider_settings = {
+        default_inference = {
             "response_modalities": ["AUDIO"],
             "outputAudioTranscription": {},
             "inputAudioTranscription": {},
         }
 
         resolved = {
-            **default_provider_settings,
-            **config,
-            "audio": merged_audio,  # Audio always uses merged version
+            "audio": {
+                **default_audio,
+                **config.get("audio", {}),
+            },
+            "inference": {
+                **default_inference,
+                **config.get("inference", {}),
+            },
         }
-
-        if user_audio:
-            logger.debug("audio_config | merged user-provided config with defaults")
-        else:
-            logger.debug("audio_config | using default Gemini Live audio configuration")
-
         return resolved
 
     async def start(
@@ -505,9 +489,7 @@ class BidiGeminiLiveModel(BidiModel):
         Simply passes through all config parameters from provider_config, allowing users
         to configure any Gemini Live API parameter directly.
         """
-        config_dict: dict[str, Any] = {}
-        if self.config:
-            config_dict.update({k: v for k, v in self.config.items() if k != "audio"})
+        config_dict: dict[str, Any] = self.config["inference"].copy()
 
         config_dict["session_resumption"] = {"handle": kwargs.get("live_session_handle")}
 

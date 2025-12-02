@@ -19,7 +19,6 @@ from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
 from .._async import stop_all
-from ..types.model import AudioConfig
 from ..types.events import (
     AudioSampleRate,
     BidiAudioInputEvent,
@@ -37,6 +36,7 @@ from ..types.events import (
     Role,
     StopReason,
 )
+from ..types.model import AudioConfig
 from .model import BidiModel, BidiModelTimeoutError
 
 logger = logging.getLogger(__name__)
@@ -160,34 +160,21 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
     def _resolve_provider_config(self, config: dict[str, Any]) -> dict[str, Any]:
         """Merge user config with defaults (user takes precedence)."""
-        # Extract voice from provider-specific audio.output.voice if present
-        provider_voice = None
-        if "audio" in config and isinstance(config["audio"], dict):
-            if "output" in config["audio"] and isinstance(config["audio"]["output"], dict):
-                provider_voice = config["audio"]["output"].get("voice")
-
-        # Define default audio configuration
         default_audio: AudioConfig = {
             "input_rate": cast(AudioSampleRate, DEFAULT_SAMPLE_RATE),
             "output_rate": cast(AudioSampleRate, DEFAULT_SAMPLE_RATE),
             "channels": 1,
             "format": "pcm",
-            "voice": provider_voice or "alloy",
+            "voice": "alloy",
         }
-
-        user_audio = config.get("audio", {})
-        merged_audio = {**default_audio, **user_audio}
 
         resolved = {
-            "audio": merged_audio,
-            **{k: v for k, v in config.items() if k != "audio"},
+            "audio": {
+                **default_audio,
+                **config.get("audio", {}),
+            },
+            "inference": config.get("inference", {}),
         }
-
-        if user_audio:
-            logger.debug("audio_config | merged user-provided config with defaults")
-        else:
-            logger.debug("audio_config | using default OpenAI Realtime audio configuration")
-
         return resolved
 
     async def start(
@@ -277,22 +264,12 @@ class BidiOpenAIRealtimeModel(BidiModel):
 
         # Apply user-provided session configuration
         supported_params = {
-            "type",
+            "max_output_tokens",
             "output_modalities",
-            "instructions",
-            "voice",
-            "tools",
             "tool_choice",
-            "input_audio_format",
-            "output_audio_format",
-            "input_audio_transcription",
-            "turn_detection",
         }
-
-        for key, value in self.config.items():
-            if key == "audio":
-                continue
-            elif key in supported_params:
+        for key, value in self.config["inference"].items():
+            if key in supported_params:
                 config[key] = value
             else:
                 logger.warning("parameter=<%s> | ignoring unsupported session parameter", key)

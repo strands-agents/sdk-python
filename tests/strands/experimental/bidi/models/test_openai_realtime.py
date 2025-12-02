@@ -46,7 +46,7 @@ def mock_websockets_connect(mock_websocket):
     async def async_connect(*args, **kwargs):
         return mock_websocket
 
-    with unittest.mock.patch("strands.experimental.bidi.models.openai.websockets.connect") as mock_connect:
+    with unittest.mock.patch("strands.experimental.bidi.models.openai_realtime.websockets.connect") as mock_connect:
         mock_connect.side_effect = async_connect
         yield mock_connect, mock_websocket
 
@@ -515,7 +515,7 @@ async def test_receive_lifecycle_events(mock_websocket, model):
     assert tru_events == exp_events
 
 
-@unittest.mock.patch("strands.experimental.bidi.models.openai.time.time")
+@unittest.mock.patch("strands.experimental.bidi.models.openai_realtime.time.time")
 @pytest.mark.asyncio
 async def test_receive_timeout(mock_time, model):
     mock_time.side_effect = [1, 2]

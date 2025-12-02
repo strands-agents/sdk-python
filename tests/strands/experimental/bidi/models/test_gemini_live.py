@@ -98,9 +98,9 @@ def test_model_initialization(mock_genai_client, model_id, api_key):
     assert model_default.api_key is None
     assert model_default._live_session is None
     # Check default config includes transcription
-    assert model_default.config["response_modalities"] == ["AUDIO"]
-    assert "outputAudioTranscription" in model_default.config
-    assert "inputAudioTranscription" in model_default.config
+    assert model_default.config["inference"]["response_modalities"] == ["AUDIO"]
+    assert "outputAudioTranscription" in model_default.config["inference"]
+    assert "inputAudioTranscription" in model_default.config["inference"]
 
     # Test with API key
     model_with_key = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
@@ -108,13 +108,13 @@ def test_model_initialization(mock_genai_client, model_id, api_key):
     assert model_with_key.api_key == api_key
 
     # Test with custom config (merges with defaults)
-    provider_config = {"temperature": 0.7, "top_p": 0.9}
+    provider_config = {"inference": {"temperature": 0.7, "top_p": 0.9}}
     model_custom = BidiGeminiLiveModel(model_id=model_id, provider_config=provider_config)
     # Custom config should be merged with defaults
-    assert model_custom.config["temperature"] == 0.7
-    assert model_custom.config["top_p"] == 0.9
+    assert model_custom.config["inference"]["temperature"] == 0.7
+    assert model_custom.config["inference"]["top_p"] == 0.9
     # Defaults should still be present
-    assert "response_modalities" in model_custom.config
+    assert "response_modalities" in model_custom.config["inference"]
 
 
 # Connection Tests

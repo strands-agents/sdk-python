@@ -58,7 +58,7 @@ def mock_stream():
 @pytest.fixture
 def mock_client(mock_stream):
     """Mock Bedrock Runtime client."""
-    with patch("strands.experimental.bidi.models.novasonic.BedrockRuntimeClient") as mock_cls:
+    with patch("strands.experimental.bidi.models.nova_sonic.BedrockRuntimeClient") as mock_cls:
         mock_instance = AsyncMock()
         mock_instance.invoke_model_with_bidirectional_stream = AsyncMock(return_value=mock_stream)
         mock_cls.return_value = mock_instance
