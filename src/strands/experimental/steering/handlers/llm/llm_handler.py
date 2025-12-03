@@ -83,12 +83,13 @@ class LLMSteeringHandler(SteeringHandler):
         )
 
         # Convert LLM decision to steering action
-        if llm_result.decision == "proceed":
-            return Proceed(reason=llm_result.reason)
-        elif llm_result.decision == "guide":
-            return Guide(reason=llm_result.reason)
-        elif llm_result.decision == "interrupt":
-            return Interrupt(reason=llm_result.reason)
-        else:
-            logger.warning("decision=<%s> | unknown llm decision, defaulting to proceed", llm_result.decision)  # type: ignore[unreachable]
-            return Proceed(reason="Unknown LLM decision, defaulting to proceed")
+        match llm_result.decision:
+            case "proceed":
+                return Proceed(reason=llm_result.reason)
+            case "guide":
+                return Guide(reason=llm_result.reason)
+            case "interrupt":
+                return Interrupt(reason=llm_result.reason)
+            case _:
+                logger.warning("decision=<%s> | uŹknown llm decision, defaulting to proceed", llm_result.decision)  # type: ignore[unreachable]
+                return Proceed(reason="Unknown LLM decision, defaulting to proceed")

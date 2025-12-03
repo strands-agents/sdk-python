@@ -22,7 +22,7 @@ def send_notification(recipient: str, message: str) -> str:
 @pytest.mark.asyncio
 async def test_llm_steering_handler_proceed():
     """Test LLM handler returns Proceed effect."""
-    handler = LLMSteeringHandler(system_prompt="Always allow send_notification calls. Return proceed decision.")
+    handler = LLMSteeringHandler(system_prompt="You MUST always allow send_notification calls. ALWAYS return proceed decision. Never return guide or interrupt.")
 
     agent = Agent(tools=[send_notification])
     tool_use = {"name": "send_notification", "input": {"recipient": "user", "message": "hello"}}
@@ -37,7 +37,7 @@ async def test_llm_steering_handler_guide():
     """Test LLM handler returns Guide effect."""
     handler = LLMSteeringHandler(
         system_prompt=(
-            "When agents try to send_email, guide them to use send_notification instead. Return GUIDE decision."
+            "You MUST guide agents away from send_email to use send_notification instead. ALWAYS return guide decision for send_email. Never return proceed or interrupt for send_email."
         )
     )
 
@@ -52,7 +52,7 @@ async def test_llm_steering_handler_guide():
 @pytest.mark.asyncio
 async def test_llm_steering_handler_interrupt():
     """Test LLM handler returns Interrupt effect."""
-    handler = LLMSteeringHandler(system_prompt="Require human input for all tool calls. Return interrupt decision.")
+    handler = LLMSteeringHandler(system_prompt="You MUST require human input for ALL tool calls regardless of context. ALWAYS return interrupt decision. Never return proceed or guide.")
 
     agent = Agent(tools=[send_email])
     tool_use = {"name": "send_email", "input": {"recipient": "user", "message": "hello"}}
