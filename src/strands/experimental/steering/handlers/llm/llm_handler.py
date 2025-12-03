@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import BaseModel, Field
 
@@ -58,7 +58,7 @@ class LLMSteeringHandler(SteeringHandler):
         self.prompt_mapper = prompt_mapper or DefaultPromptMapper()
         self.model = model
 
-    async def steer(self, agent: "Agent", tool_use: ToolUse, **kwargs) -> SteeringAction:
+    async def steer(self, agent: "Agent", tool_use: ToolUse, **kwargs: Any) -> SteeringAction:
         """Provide contextual guidance for tool usage.
 
         Args:
@@ -78,7 +78,9 @@ class LLMSteeringHandler(SteeringHandler):
         steering_agent = Agent(system_prompt=self.system_prompt, model=self.model or agent.model, callback_handler=None)
 
         # Get LLM decision
-        llm_result: _LLMSteering = steering_agent(prompt, structured_output_model=_LLMSteering).structured_output
+        llm_result: _LLMSteering = cast(
+            _LLMSteering, steering_agent(prompt, structured_output_model=_LLMSteering).structured_output
+        )
 
         # Convert LLM decision to steering action
         if llm_result.decision == "proceed":
@@ -88,5 +90,5 @@ class LLMSteeringHandler(SteeringHandler):
         elif llm_result.decision == "interrupt":
             return Interrupt(reason=llm_result.reason)
         else:
-            logger.warning("decision=<%s> | unknown llm decision, defaulting to proceed", llm_result.decision)
+            logger.warning("decision=<%s> | unknown llm decision, defaulting to proceed", llm_result.decision)  # type: ignore[unreachable]
             return Proceed(reason="Unknown LLM decision, defaulting to proceed")

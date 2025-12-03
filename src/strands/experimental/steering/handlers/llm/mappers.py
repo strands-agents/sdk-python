@@ -1,7 +1,7 @@
 """LLM steering prompt mappers for generating evaluation prompts."""
 
 import json
-from typing import Protocol
+from typing import Any, Protocol
 
 from .....types.tools import ToolUse
 from ...core.context import SteeringContext
@@ -69,7 +69,7 @@ class LLMPromptMapper(Protocol):
     """Protocol for mapping context and events to LLM evaluation prompts."""
 
     def create_steering_prompt(
-        self, steering_context: SteeringContext, tool_use: ToolUse | None = None, **kwargs
+        self, steering_context: SteeringContext, tool_use: ToolUse | None = None, **kwargs: Any
     ) -> str:
         """Create steering prompt for LLM evaluation.
 
@@ -88,7 +88,7 @@ class DefaultPromptMapper(LLMPromptMapper):
     """Default prompt mapper for steering evaluation."""
 
     def create_steering_prompt(
-        self, steering_context: SteeringContext, tool_use: ToolUse | None = None, **kwargs
+        self, steering_context: SteeringContext, tool_use: ToolUse | None = None, **kwargs: Any
     ) -> str:
         """Create default steering prompt using Agent SOP structure.
 

@@ -27,7 +27,8 @@ SteeringAction handling:
 """
 
 import logging
-from typing import TYPE_CHECKING, Any, Protocol
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any
 
 from ....hooks.events import BeforeToolCallEvent
 from ....hooks.registry import HookProvider, HookRegistry
@@ -41,7 +42,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class SteeringHandler(HookProvider, Protocol):
+class SteeringHandler(HookProvider, ABC):
     """Base class for steering handlers that provide contextual guidance to agents.
 
     Steering handlers maintain local context and register hook callbacks
@@ -115,7 +116,8 @@ class SteeringHandler(HookProvider, Protocol):
         else:
             raise ValueError(f"Unknown steering action type: {action}")
 
-    async def steer(self, agent: "Agent", tool_use: ToolUse, **kwargs) -> SteeringAction:
+    @abstractmethod
+    async def steer(self, agent: "Agent", tool_use: ToolUse, **kwargs: Any) -> SteeringAction:
         """Provide contextual guidance to help agent navigate complex workflows.
 
         Args:

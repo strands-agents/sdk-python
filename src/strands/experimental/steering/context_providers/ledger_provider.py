@@ -17,9 +17,10 @@ Usage:
 
 import logging
 from datetime import datetime
+from typing import Any
 
 from ....hooks.events import AfterToolCallEvent, BeforeToolCallEvent
-from ..core.context import SteeringContextCallback, SteeringContextProvider
+from ..core.context import SteeringContext, SteeringContextCallback, SteeringContextProvider
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +28,11 @@ logger = logging.getLogger(__name__)
 class LedgerBeforeToolCall(SteeringContextCallback[BeforeToolCallEvent]):
     """Context provider for ledger tracking before tool calls."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the ledger provider."""
         self.session_start = datetime.now().isoformat()
 
-    def __call__(self, event: BeforeToolCallEvent, steering_context, **kwargs) -> None:
+    def __call__(self, event: BeforeToolCallEvent, steering_context: SteeringContext, **kwargs: Any) -> None:
         """Update ledger before tool call."""
         ledger = steering_context.data.get("ledger") or {}
 
@@ -56,7 +57,7 @@ class LedgerBeforeToolCall(SteeringContextCallback[BeforeToolCallEvent]):
 class LedgerAfterToolCall(SteeringContextCallback[AfterToolCallEvent]):
     """Context provider for ledger tracking after tool calls."""
 
-    def __call__(self, event: AfterToolCallEvent, steering_context, **kwargs) -> None:
+    def __call__(self, event: AfterToolCallEvent, steering_context: SteeringContext, **kwargs: Any) -> None:
         """Update ledger after tool call."""
         ledger = steering_context.data.get("ledger") or {}
 
@@ -76,7 +77,7 @@ class LedgerAfterToolCall(SteeringContextCallback[AfterToolCallEvent]):
 class LedgerProvider(SteeringContextProvider):
     """Combined ledger context provider for both before and after tool calls."""
 
-    def context_providers(self, **kwargs) -> list[SteeringContextCallback]:
+    def context_providers(self, **kwargs: Any) -> list[SteeringContextCallback]:
         """Return ledger context providers with shared state."""
         return [
             LedgerBeforeToolCall(),

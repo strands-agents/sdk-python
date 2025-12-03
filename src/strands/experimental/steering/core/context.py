@@ -21,8 +21,9 @@ Implementation:
 """
 
 import logging
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Protocol, TypeVar, get_args, get_origin
+from typing import Any, Generic, TypeVar, cast, get_args, get_origin
 
 from ....hooks.registry import HookEvent
 from ....types.json_dict import JSONSerializableDict
@@ -45,18 +46,18 @@ class SteeringContext:
 EventType = TypeVar("EventType", bound=HookEvent, contravariant=True)
 
 
-class SteeringContextCallback(Protocol[EventType]):
-    """Protocol for steering context update callbacks."""
+class SteeringContextCallback(ABC, Generic[EventType]):
+    """Abstract base class for steering context update callbacks."""
 
     @property
-    def event_type(self) -> type[EventType]:
+    def event_type(self) -> type[HookEvent]:
         """Return the event type this callback handles."""
-        for base in self.__class__.__orig_bases__:
+        for base in getattr(self.__class__, "__orig_bases__", ()):
             if get_origin(base) is SteeringContextCallback:
-                return get_args(base)[0]
+                return cast(type[HookEvent], get_args(base)[0])
         raise ValueError("Could not determine event type from generic parameter")
 
-    def __call__(self, event: EventType, steering_context: "SteeringContext", **kwargs) -> None:
+    def __call__(self, event: EventType, steering_context: "SteeringContext", **kwargs: Any) -> None:
         """Update steering context based on hook event.
 
         Args:
@@ -67,9 +68,10 @@ class SteeringContextCallback(Protocol[EventType]):
         ...
 
 
-class SteeringContextProvider(Protocol):
-    """Protocol for context providers that handle multiple event types."""
+class SteeringContextProvider(ABC):
+    """Abstract base class for context providers that handle multiple event types."""
 
-    def context_providers(self, **kwargs) -> list[SteeringContextCallback]:
+    @abstractmethod
+    def context_providers(self, **kwargs: Any) -> list[SteeringContextCallback]:
         """Return list of context callbacks with event types extracted from generics."""
         ...
