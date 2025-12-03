@@ -118,6 +118,7 @@ dependencies = [
   # Include required package dependencies for mypy
   "strands-agents @ {root:uri}",
 ]
+python = "3.10"
 
 # Define static-analysis scripts so we can include mypy as part of the linting check
 [tool.hatch.envs.hatch-static-analysis.scripts]
