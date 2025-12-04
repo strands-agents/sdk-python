@@ -5,6 +5,13 @@ from .events import (
     AfterToolInvocationEvent,
     BeforeModelInvocationEvent,
     BeforeToolInvocationEvent,
+    BidiAfterInvocationEvent,
+    BidiAfterToolCallEvent,
+    BidiAgentInitializedEvent,
+    BidiBeforeInvocationEvent,
+    BidiBeforeToolCallEvent,
+    BidiInterruptionEvent,
+    BidiMessageAddedEvent,
 )
 
 __all__ = [
@@ -12,4 +19,12 @@ __all__ = [
     "AfterToolInvocationEvent",
     "BeforeModelInvocationEvent",
     "AfterModelInvocationEvent",
+    # BidiAgent hooks
+    "BidiAgentInitializedEvent",
+    "BidiBeforeInvocationEvent",
+    "BidiAfterInvocationEvent",
+    "BidiMessageAddedEvent",
+    "BidiBeforeToolCallEvent",
+    "BidiAfterToolCallEvent",
+    "BidiInterruptionEvent",
 ]

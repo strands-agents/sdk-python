@@ -11,7 +11,7 @@ from strands.tools.mcp import MCPClient
 @pytest.fixture
 def callback():
     async def callback_(_, params):
-        return ElicitResult(action="accept", content={"message": params.message})
+        return ElicitResult(action="accept", content={"message": f"server_message=<{params.message}>"})
 
     return callback_
 
@@ -36,5 +36,5 @@ def test_mcp_elicitation(client):
     tool_result = agent.messages[-2]
 
     tru_result = json.loads(tool_result["content"][0]["toolResult"]["content"][0]["text"])
-    exp_result = {"meta": None, "action": "accept", "content": {"message": "Do you approve"}}
+    exp_result = {"action": "accept", "data": {"message": "server_message=<Do you approve>"}}
     assert tru_result == exp_result

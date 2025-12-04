@@ -18,6 +18,7 @@ from .session_repository import SessionRepository
 
 if TYPE_CHECKING:
     from ..agent.agent import Agent
+    from ..experimental.bidi.agent.agent import BidiAgent
     from ..multiagent.base import MultiAgentBase
 
 logger = logging.getLogger(__name__)
@@ -226,3 +227,87 @@ class RepositorySessionManager(SessionManager):
         else:
             logger.debug("session_id=<%s> | restoring multi-agent state", self.session_id)
             source.deserialize_state(state)
+
+    def initialize_bidi_agent(self, agent: "BidiAgent", **kwargs: Any) -> None:
+        """Initialize a bidirectional agent with a session.
+
+        Args:
+            agent: BidiAgent to initialize from the session
+            **kwargs: Additional keyword arguments for future extensibility.
+        """
+        if agent.agent_id in self._latest_agent_message:
+            raise SessionException("The `agent_id` of an agent must be unique in a session.")
+        self._latest_agent_message[agent.agent_id] = None
+
+        session_agent = self.session_repository.read_agent(self.session_id, agent.agent_id)
+
+        if session_agent is None:
+            logger.debug(
+                "agent_id=<%s> | session_id=<%s> | creating bidi agent",
+                agent.agent_id,
+                self.session_id,
+            )
+
+            session_agent = SessionAgent.from_bidi_agent(agent)
+            self.session_repository.create_agent(self.session_id, session_agent)
+            # Initialize messages with sequential indices
+            session_message = None
+            for i, message in enumerate(agent.messages):
+                session_message = SessionMessage.from_message(message, i)
+                self.session_repository.create_message(self.session_id, agent.agent_id, session_message)
+            self._latest_agent_message[agent.agent_id] = session_message
+        else:
+            logger.debug(
+                "agent_id=<%s> | session_id=<%s> | restoring bidi agent",
+                agent.agent_id,
+                self.session_id,
+            )
+            agent.state = AgentState(session_agent.state)
+
+            session_agent.initialize_bidi_internal_state(agent)
+
+            # BidiAgent has no conversation_manager, so no prepend_messages or removed_message_count
+            session_messages = self.session_repository.list_messages(
+                session_id=self.session_id,
+                agent_id=agent.agent_id,
+                offset=0,
+            )
+            if len(session_messages) > 0:
+                self._latest_agent_message[agent.agent_id] = session_messages[-1]
+
+            # Restore the agents messages array
+            agent.messages = [session_message.to_message() for session_message in session_messages]
+
+            # Fix broken session histories: https://github.com/strands-agents/sdk-python/issues/859
+            agent.messages = self._fix_broken_tool_use(agent.messages)
+
+    def append_bidi_message(self, message: Message, agent: "BidiAgent", **kwargs: Any) -> None:
+        """Append a message to the bidirectional agent's session.
+
+        Args:
+            message: Message to add to the agent in the session
+            agent: BidiAgent to append the message to
+            **kwargs: Additional keyword arguments for future extensibility.
+        """
+        # Calculate the next index (0 if this is the first message, otherwise increment the previous index)
+        latest_agent_message = self._latest_agent_message[agent.agent_id]
+        if latest_agent_message:
+            next_index = latest_agent_message.message_id + 1
+        else:
+            next_index = 0
+
+        session_message = SessionMessage.from_message(message, next_index)
+        self._latest_agent_message[agent.agent_id] = session_message
+        self.session_repository.create_message(self.session_id, agent.agent_id, session_message)
+
+    def sync_bidi_agent(self, agent: "BidiAgent", **kwargs: Any) -> None:
+        """Serialize and update the bidirectional agent into the session repository.
+
+        Args:
+            agent: BidiAgent to sync to the session.
+            **kwargs: Additional keyword arguments for future extensibility.
+        """
+        self.session_repository.update_agent(
+            self.session_id,
+            SessionAgent.from_bidi_agent(agent),
+        )
