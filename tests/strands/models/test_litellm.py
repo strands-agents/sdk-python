@@ -478,3 +478,39 @@ def test_format_request_messages_cache_point_support():
     ]
 
     assert result == expected
+
+
+@pytest.mark.asyncio
+async def test_stream_generates_tool_call_id_when_null(litellm_acompletion, model, agenerator, alist):
+    """Test that stream generates a tool call ID when LiteLLM returns null."""
+    mock_tool_call = unittest.mock.Mock(index=0)
+    mock_tool_call.id = None
+    mock_tool_call.function.name = "test_tool"
+    mock_tool_call.function.arguments = '{"arg": "value"}'
+
+    mock_delta = unittest.mock.Mock(content=None, tool_calls=[mock_tool_call], reasoning_content=None)
+
+    mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta)])
+    mock_event_2 = unittest.mock.Mock(
+        choices=[
+            unittest.mock.Mock(
+                finish_reason="tool_calls",
+                delta=unittest.mock.Mock(content=None, tool_calls=None, reasoning_content=None),
+            )
+        ]
+    )
+
+    litellm_acompletion.side_effect = unittest.mock.AsyncMock(return_value=agenerator([mock_event_1, mock_event_2]))
+
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+    response = model.stream(messages)
+    tru_events = await alist(response)
+
+    tool_start_event = next(
+        e for e in tru_events if "contentBlockStart" in e and "toolUse" in e["contentBlockStart"]["start"]
+    )
+
+    tool_id = tool_start_event["contentBlockStart"]["start"]["toolUse"]["toolUseId"]
+    assert tool_id is not None
+    assert tool_id.startswith("call_")
+    assert len(tool_id) > 5
