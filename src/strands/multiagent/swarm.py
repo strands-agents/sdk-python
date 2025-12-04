@@ -10,6 +10,7 @@ Key Features:
 - Autonomous agent collaboration without central control
 - Dynamic task distribution based on agent capabilities
 - Collective intelligence through shared context
+- Human input via user interrupts raised in BeforeNodeCallEvent hooks and agent nodes
 """
 
 import asyncio
@@ -675,6 +676,9 @@ class Swarm(MultiAgentBase):
 
     def _activate_interrupt(self, node: SwarmNode, interrupts: list[Interrupt]) -> MultiAgentNodeInterruptEvent:
         """Activate the interrupt state.
+
+        Note, a Swarm may be interrupted either from a BeforeNodeCallEvent hook or from within an agent node. In either
+        case, we must manage the interrupt state of both the Swarm and the individual agent nodes.
 
         Args:
             node: The interrupted node.
