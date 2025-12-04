@@ -560,7 +560,13 @@ def test_fix_broken_tool_use_removes_orphaned_tool_result_at_start(session_manag
         {
             "role": "user",
             "content": [
-                {"toolResult": {"toolUseId": "orphaned-result-123", "status": "success", "content": [{"text": "Seattle, USA"}]}}
+                {
+                    "toolResult": {
+                        "toolUseId": "orphaned-result-123",
+                        "status": "success",
+                        "content": [{"text": "Seattle, USA"}],
+                    }
+                }
             ],
         },
         {"role": "assistant", "content": [{"text": "You live in Seattle, USA."}]},
