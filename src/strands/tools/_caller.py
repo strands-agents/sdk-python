@@ -19,12 +19,13 @@ from ..types.tools import ToolResult, ToolUse
 
 if TYPE_CHECKING:
     from ..agent import Agent
+    from ..experimental.bidi.agent import BidiAgent
 
 
 class _ToolCaller:
     """Call tool as a function."""
 
-    def __init__(self, agent: "Agent") -> None:
+    def __init__(self, agent: "Agent | BidiAgent") -> None:
         """Initialize instance.
 
         Args:
@@ -104,7 +105,11 @@ class _ToolCaller:
                 return tool_result
 
             tool_result = run_async(acall)
-            self._agent.conversation_manager.apply_management(self._agent)
+
+            # Apply conversation management if agent supports it (traditional agents)
+            if hasattr(self._agent, "conversation_manager"):
+                self._agent.conversation_manager.apply_management(self._agent)
+
             return tool_result
 
         return caller

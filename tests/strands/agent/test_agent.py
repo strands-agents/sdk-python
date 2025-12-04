@@ -684,6 +684,7 @@ def test_agent__call__callback(mock_model, agent, callback_handler, agenerator):
         unittest.mock.call(event={"contentBlockStart": {"start": {"toolUse": {"toolUseId": "123", "name": "test"}}}}),
         unittest.mock.call(event={"contentBlockDelta": {"delta": {"toolUse": {"input": '{"value"}'}}}}),
         unittest.mock.call(
+            type="tool_use_stream",
             agent=agent,
             current_tool_use={"toolUseId": "123", "name": "test", "input": {}},
             delta={"toolUse": {"input": '{"value"}'}},
