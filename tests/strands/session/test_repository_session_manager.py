@@ -413,3 +413,40 @@ def test_fix_broken_tool_use_does_not_change_valid_message(session_manager):
 
     # Should remain unchanged since toolUse is in last message
     assert fixed_messages == messages
+
+
+def test_fix_broken_tool_use_removes_orphaned_tool_result_at_start(session_manager):
+    """Test that orphaned toolResult at the start of conversation is removed."""
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"toolResult": {"toolUseId": "orphaned-result-123", "status": "success", "content": [{"text": "Seattle, USA"}]}}
+            ],
+        },
+        {"role": "assistant", "content": [{"text": "You live in Seattle, USA."}]},
+        {"role": "user", "content": [{"text": "I like pizza"}]},
+    ]
+
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+
+    # Should remove the first message with orphaned toolResult
+    assert len(fixed_messages) == 2
+    assert fixed_messages[0]["role"] == "assistant"
+    assert fixed_messages[0]["content"][0]["text"] == "You live in Seattle, USA."
+    assert fixed_messages[1]["role"] == "user"
+    assert fixed_messages[1]["content"][0]["text"] == "I like pizza"
+
+
+def test_fix_broken_tool_use_does_not_affect_normal_conversations(session_manager):
+    """Test that normal conversations without orphaned toolResults are unaffected."""
+    messages = [
+        {"role": "user", "content": [{"text": "Hello"}]},
+        {"role": "assistant", "content": [{"text": "Hi there!"}]},
+        {"role": "user", "content": [{"text": "How are you?"}]},
+    ]
+
+    fixed_messages = session_manager._fix_broken_tool_use(messages)
+
+    # Should remain unchanged
+    assert fixed_messages == messages

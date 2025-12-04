@@ -4,7 +4,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Optional
 
 from ..agent.state import AgentState
-from ..tools._tool_helpers import generate_missing_tool_result_content, generate_missing_tool_use_content
+from ..tools._tool_helpers import generate_missing_tool_result_content
 from ..types.content import Message
 from ..types.exceptions import SessionException
 from ..types.session import (
@@ -166,7 +166,7 @@ class RepositorySessionManager(SessionManager):
     def _fix_broken_tool_use(self, messages: list[Message]) -> list[Message]:
         """Fix broken tool use/result pairs in message history.
 
-        This method fixes two issues:
+        This method handles two issues:
         1. Orphaned toolUse messages without corresponding toolResult.
            Before 1.15.0, strands had a bug where they persisted sessions with a potentially broken messages array.
            This method retroactively fixes that issue by adding a tool_result outside of session management.
@@ -181,24 +181,16 @@ class RepositorySessionManager(SessionManager):
         Returns:
             Fixed list of messages with proper tool use/result pairs
         """
-        # First, check if the first message has orphaned toolResult (no preceding toolUse)
+        # First, check if the oldest message has orphaned toolResult (no preceding toolUse) and remove it.
         if messages:
             first_message = messages[0]
             if first_message["role"] == "user" and any("toolResult" in content for content in first_message["content"]):
-                orphaned_tool_result_ids = [
-                    content["toolResult"]["toolUseId"]
-                    for content in first_message["content"]
-                    if "toolResult" in content
-                ]
-
-                if orphaned_tool_result_ids:
-                    logger.warning(
-                        "Session message history starts with orphaned toolResult(s) with no preceding toolUse. "
-                        "This typically happens when messages are truncated due to pagination limits. "
-                        "Adding dummy toolUse message to create valid conversation."
-                    )
-                    missing_tool_use_blocks = generate_missing_tool_use_content(orphaned_tool_result_ids)
-                    messages.insert(0, {"role": "assistant", "content": missing_tool_use_blocks})
+                logger.warning(
+                    "Session message history starts with orphaned toolResult with no preceding toolUse. "
+                    "This typically happens when messages are truncated due to pagination limits. "
+                    "Removing orphaned toolResult message to maintain valid conversation structure."
+                )
+                messages.pop(0)
 
         # Then check for orphaned toolUse messages
         for index, message in enumerate(messages):
