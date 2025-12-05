@@ -399,7 +399,12 @@ class BidiAgent:
                 inputs_task.cancel()
                 outputs_task.cancel()
                 await asyncio.gather(inputs_task, outputs_task, return_exceptions=True)
+
                 if not isinstance(error, asyncio.CancelledError):
+                    raise
+
+                run_task = asyncio.current_task()
+                if run_task and run_task.cancelling() > 0:  # externally cancelled
                     raise
 
         finally:
