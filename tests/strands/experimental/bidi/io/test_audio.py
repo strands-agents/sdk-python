@@ -29,7 +29,7 @@ def agent():
             "voice": "test-voice",
         },
     }
-    return mock 
+    return mock
 
 
 @pytest.fixture
@@ -48,6 +48,7 @@ def config():
         "output_device_index": 2,
         "output_frames_per_buffer": 2048,
     }
+
 
 @pytest.fixture
 def audio_io(py_audio, config):
