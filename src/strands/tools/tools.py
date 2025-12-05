@@ -17,6 +17,10 @@ from ..types.tools import AgentTool, ToolFunc, ToolGenerator, ToolSpec, ToolUse
 
 logger = logging.getLogger(__name__)
 
+# JSON Schema composition keywords that define type constraints.
+# Properties with these should not get a default type: "string" added.
+COMPOSITION_KEYWORDS = ("anyOf", "oneOf", "allOf", "not")
+
 
 class InvalidToolUseNameException(Exception):
     """Exception raised when a tool use has an invalid name."""
@@ -88,7 +92,8 @@ def _normalize_property(prop_name: str, prop_def: Any) -> dict[str, Any]:
     if "$ref" in normalized_prop:
         return normalized_prop
 
-    if "anyOf" not in normalized_prop:
+    has_composition = any(kw in normalized_prop for kw in COMPOSITION_KEYWORDS)
+    if not has_composition:
         normalized_prop.setdefault("type", "string")
     normalized_prop.setdefault("description", f"Property {prop_name}")
     return normalized_prop
