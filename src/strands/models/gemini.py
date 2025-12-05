@@ -177,7 +177,7 @@ class GeminiModel(Model):
             for message in messages
         ]
 
-    def _format_request_tools(self, tool_specs: Optional[list[ToolSpec]]) -> list[genai.types.Tool | Any]:
+    def _format_request_tools(self, tool_specs: Optional[list[ToolSpec]]) -> Optional[list[genai.types.Tool | Any]]:
         """Format tool specs into Gemini tools.
 
         - Docs: https://googleapis.github.io/python-genai/genai.html#genai.types.Tool
@@ -186,8 +186,11 @@ class GeminiModel(Model):
             tool_specs: List of tool specifications to make available to the model.
 
         Return:
-            Gemini tool list.
+            Gemini tool list, or None if no tools are provided.
         """
+        if not tool_specs:
+            return None
+
         return [
             genai.types.Tool(
                 function_declarations=[
@@ -196,7 +199,7 @@ class GeminiModel(Model):
                         name=tool_spec["name"],
                         parameters_json_schema=tool_spec["inputSchema"]["json"],
                     )
-                    for tool_spec in tool_specs or []
+                    for tool_spec in tool_specs
                 ],
             ),
         ]
