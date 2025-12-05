@@ -289,6 +289,8 @@ async def test_stream_request_with_tool_use(gemini_client, model, model_id):
                             "id": "c1",
                             "name": "calculator",
                         },
+                        # Skip validator is used as a temporary workaround for Gemini 3 Pro
+                        "thought_signature": "c2tpcF90aG91Z2h0X3NpZ25hdHVyZV92YWxpZGF0b3I=",
                     },
                 ],
                 "role": "model",
@@ -297,6 +299,35 @@ async def test_stream_request_with_tool_use(gemini_client, model, model_id):
         "model": model_id,
     }
     gemini_client.aio.models.generate_content_stream.assert_called_with(**exp_request)
+
+
+@pytest.mark.asyncio
+async def test_stream_request_with_tool_use_includes_thought_signature_skip(gemini_client, model, model_id):
+    """Test that toolUse includes skip_thought_signature_validator for Gemini 3 Pro compatibility."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "toolUse": {
+                        "toolUseId": "tool1",
+                        "name": "get_weather",
+                        "input": {"city": "Seattle"},
+                    },
+                },
+            ],
+        },
+    ]
+    await anext(model.stream(messages))
+
+    call_args = gemini_client.aio.models.generate_content_stream.call_args
+    contents = call_args.kwargs["contents"]
+
+    # Verify the thought_signature is set to skip validator
+    part = contents[0]["parts"][0]
+    assert "thought_signature" in part
+    # Base64 encoded "skip_thought_signature_validator"
+    assert part["thought_signature"] == "c2tpcF90aG91Z2h0X3NpZ25hdHVyZV92YWxpZGF0b3I="
 
 
 @pytest.mark.asyncio

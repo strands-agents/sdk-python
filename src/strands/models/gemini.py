@@ -141,12 +141,16 @@ class GeminiModel(Model):
             )
 
         if "toolUse" in content:
+            # Use skip_thought_signature_validator to bypass Gemini 3 Pro's strict validation
+            # This is a temporary workaround until we implement proper thought signature preservation
+            # See: https://ai.google.dev/gemini-api/docs/thought-signatures
             return genai.types.Part(
                 function_call=genai.types.FunctionCall(
                     args=content["toolUse"]["input"],
                     id=content["toolUse"]["toolUseId"],
                     name=content["toolUse"]["name"],
                 ),
+                thought_signature=b"skip_thought_signature_validator",
             )
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
