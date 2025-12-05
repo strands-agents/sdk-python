@@ -42,7 +42,7 @@ def mock_agent():
     agent.trace_span = None
     agent.trace_attributes = {}
     agent.tool_executor = Mock()
-    agent._append_message = AsyncMock()
+    agent._append_messages = AsyncMock()
 
     # Set up _interrupt_state properly
     agent._interrupt_state = Mock()
@@ -186,8 +186,8 @@ async def test_event_loop_forces_structured_output_on_end_turn(
         await alist(stream)
 
         # Should have appended a message to force structured output
-        mock_agent._append_message.assert_called_once()
-        args = mock_agent._append_message.call_args[0][0]
+        mock_agent._append_messages.assert_called_once()
+        args = mock_agent._append_messages.call_args[0][0]
         assert args["role"] == "user"
 
         # Should have called recurse_event_loop with the context

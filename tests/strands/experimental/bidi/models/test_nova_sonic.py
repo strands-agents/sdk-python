@@ -13,10 +13,10 @@ import pytest
 import pytest_asyncio
 from aws_sdk_bedrock_runtime.models import ModelTimeoutException, ValidationException
 
+from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.models.nova_sonic import (
     BidiNovaSonicModel,
 )
-from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
@@ -538,12 +538,12 @@ async def test_custom_audio_rates_in_events(model_id, region):
     audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
     nova_event = {"audioOutput": {"content": audio_base64}}
     result = model._convert_nova_event(nova_event)
-    
+
     assert result is not None
     assert isinstance(result, BidiAudioStreamEvent)
     # Should use configured rates, not constants
     assert result.sample_rate == 48000  # Custom config
-    assert result.channels == 2         # Custom config
+    assert result.channels == 2  # Custom config
     assert result.format == "pcm"
 
 
@@ -558,12 +558,12 @@ async def test_default_audio_rates_in_events(model_id, region):
     audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
     nova_event = {"audioOutput": {"content": audio_base64}}
     result = model._convert_nova_event(nova_event)
-    
+
     assert result is not None
     assert isinstance(result, BidiAudioStreamEvent)
     # Should use default rates
     assert result.sample_rate == 16000  # Default output rate
-    assert result.channels == 1         # Default channels
+    assert result.channels == 1  # Default channels
     assert result.format == "pcm"
 
 
@@ -573,9 +573,9 @@ async def test_bidi_nova_sonic_model_receive_timeout(nova_model, mock_stream):
     mock_output = AsyncMock()
     mock_output.receive.side_effect = ModelTimeoutException("Connection timeout")
     mock_stream.await_output.return_value = (None, mock_output)
-    
+
     await nova_model.start()
-    
+
     with pytest.raises(BidiModelTimeoutError, match=r"Connection timeout"):
         async for _ in nova_model.receive():
             pass
@@ -586,9 +586,9 @@ async def test_bidi_nova_sonic_model_receive_timeout_validation(nova_model, mock
     mock_output = AsyncMock()
     mock_output.receive.side_effect = ValidationException("InternalErrorCode=531: Request timeout")
     mock_stream.await_output.return_value = (None, mock_output)
-    
+
     await nova_model.start()
-    
+
     with pytest.raises(BidiModelTimeoutError, match=r"InternalErrorCode=531"):
         async for _ in nova_model.receive():
             pass

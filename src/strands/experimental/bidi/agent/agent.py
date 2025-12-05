@@ -26,13 +26,12 @@ from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
 from ....tools.watcher import ToolWatcher
-from ....types.content import Messages
+from ....types.content import Message, Messages
 from ....types.tools import AgentTool
-from ...hooks.events import BidiAgentInitializedEvent
+from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from ...tools import ToolProvider
 from .._async import stop_all
 from ..models.model import BidiModel
-from ..models.nova_sonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
 from ..types.events import (
     BidiAudioInputEvent,
@@ -100,13 +99,13 @@ class BidiAgent:
             ValueError: If model configuration is invalid or state is invalid type.
             TypeError: If model type is unsupported.
         """
-        self.model = (
-            BidiNovaSonicModel()
-            if not model
-            else BidiNovaSonicModel(model_id=model)
-            if isinstance(model, str)
-            else model
-        )
+        if isinstance(model, BidiModel):
+            self.model = model
+        else:
+            from ..models.nova_sonic import BidiNovaSonicModel
+
+            self.model = BidiNovaSonicModel(model_id=model) if isinstance(model, str) else BidiNovaSonicModel()
+
         self.system_prompt = system_prompt
         self.messages = messages or []
 
@@ -166,6 +165,9 @@ class BidiAgent:
 
         # TODO: Determine if full support is required
         self._interrupt_state = _InterruptState()
+
+        # Lock to ensure that paired messages are added to history in sequence without interference.
+        self._message_lock = asyncio.Lock()
 
         self._started = False
 
@@ -387,12 +389,33 @@ class BidiAgent:
             for start in [*input_starts, *output_starts]:
                 await start(self)
 
-            async with asyncio.TaskGroup() as task_group:
-                inputs_task = task_group.create_task(run_inputs())
-                task_group.create_task(run_outputs(inputs_task))
+            inputs_task = asyncio.create_task(run_inputs())
+            outputs_task = asyncio.create_task(run_outputs(inputs_task))
+
+            try:
+                await asyncio.gather(inputs_task, outputs_task)
+            except (Exception, asyncio.CancelledError):
+                inputs_task.cancel()
+                outputs_task.cancel()
+                await asyncio.gather(inputs_task, outputs_task, return_exceptions=True)
+                raise
 
         finally:
             input_stops = [input_.stop for input_ in inputs if isinstance(input_, BidiInput)]
             output_stops = [output.stop for output in outputs if isinstance(output, BidiOutput)]
 
             await stop_all(*input_stops, *output_stops, self.stop)
+
+    async def _append_messages(self, *messages: Message) -> None:
+        """Append messages to history in sequence without interference.
+
+        The message lock ensures that paired messages are added to history in sequence without interference. For
+        example, tool use and tool result messages must be added adjacent to each other.
+
+        Args:
+            *messages: List of messages to add into history.
+        """
+        async with self._message_lock:
+            for message in messages:
+                self.messages.append(message)
+                await self.hooks.invoke_callbacks_async(BidiMessageAddedEvent(agent=self, message=message))
