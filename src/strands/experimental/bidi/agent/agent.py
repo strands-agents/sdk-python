@@ -395,11 +395,12 @@ class BidiAgent:
 
             try:
                 await asyncio.gather(inputs_task, outputs_task)
-            except (Exception, asyncio.CancelledError):
+            except (Exception, asyncio.CancelledError) as error:
                 inputs_task.cancel()
                 outputs_task.cancel()
                 await asyncio.gather(inputs_task, outputs_task, return_exceptions=True)
-                raise
+                if not isinstance(error, asyncio.CancelledError):
+                    raise
 
         finally:
             input_stops = [input_.stop for input_ in inputs if isinstance(input_, BidiInput)]
