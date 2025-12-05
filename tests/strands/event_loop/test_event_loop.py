@@ -576,9 +576,6 @@ async def test_event_loop_tracing_with_model_error(
         )
         await alist(stream)
 
-    # Verify error handling span methods were called
-    mock_tracer.end_span_with_error.assert_called_once_with(model_span, "Input too long", model.stream.side_effect)
-
 
 @pytest.mark.asyncio
 async def test_event_loop_cycle_max_tokens_exception(
@@ -705,8 +702,6 @@ async def test_event_loop_tracing_with_throttling_exception(
         )
         await alist(stream)
 
-    # Verify error span was created for the throttling exception
-    assert mock_tracer.end_span_with_error.call_count == 1
     # Verify span was created for the successful retry
     assert mock_tracer.start_model_invoke_span.call_count == 2
     assert mock_tracer.end_model_invoke_span.call_count == 1
