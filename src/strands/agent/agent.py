@@ -624,8 +624,7 @@ class Agent:
         try:
             yield InitEventLoopEvent()
 
-            for message in messages:
-                await self._append_message(message)
+            await self._append_messages(*messages)
 
             structured_output_context = StructuredOutputContext(
                 structured_output_model or self._default_structured_output_model
@@ -715,7 +714,7 @@ class Agent:
                 tool_use_ids = [
                     content["toolUse"]["toolUseId"] for content in self.messages[-1]["content"] if "toolUse" in content
                 ]
-                await self._append_message(
+                await self._append_messages(
                     {
                         "role": "user",
                         "content": generate_missing_tool_result_content(tool_use_ids),
@@ -811,10 +810,11 @@ class Agent:
         else:
             return None, None
 
-    async def _append_message(self, message: Message) -> None:
-        """Appends a message to the agent's list of messages and invokes the callbacks for the MessageCreatedEvent."""
-        self.messages.append(message)
-        await self.hooks.invoke_callbacks_async(MessageAddedEvent(agent=self, message=message))
+    async def _append_messages(self, *messages: Message) -> None:
+        """Appends messages to history and invoke the callbacks for the MessageAddedEvent."""
+        for message in messages:
+            self.messages.append(message)
+            await self.hooks.invoke_callbacks_async(MessageAddedEvent(agent=self, message=message))
 
     def _redact_user_content(self, content: list[ContentBlock], redact_message: str) -> list[ContentBlock]:
         """Redact user content preserving toolResult blocks.

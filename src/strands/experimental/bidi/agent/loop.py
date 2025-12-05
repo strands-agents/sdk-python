@@ -15,7 +15,6 @@ from ...hooks.events import (
     BidiAfterInvocationEvent,
     BidiBeforeConnectionRestartEvent,
     BidiBeforeInvocationEvent,
-    BidiMessageAddedEvent,
 )
 from ...hooks.events import (
     BidiInterruptionEvent as BidiInterruptionHookEvent,
@@ -51,8 +50,6 @@ class _BidiAgentLoop:
             that tools can access via their invocation_state parameter.
         _send_gate: Gate the sending of events to the model.
             Blocks when agent is reseting the model connection after timeout.
-        _message_lock: Lock to ensure that paired messages are added to history in sequence without interference.
-            For example, tool use and tool result messages must be added adjacent to each other.
     """
 
     def __init__(self, agent: "BidiAgent") -> None:
@@ -70,7 +67,6 @@ class _BidiAgentLoop:
         self._invocation_state: dict[str, Any]
 
         self._send_gate = asyncio.Event()
-        self._message_lock = asyncio.Lock()
 
     async def start(self, invocation_state: dict[str, Any] | None = None) -> None:
         """Start the agent loop.
@@ -145,7 +141,7 @@ class _BidiAgentLoop:
 
         if isinstance(event, BidiTextInputEvent):
             message: Message = {"role": "user", "content": [{"text": event.text}]}
-            await self._add_messages(message)
+            await self._agent._append_messages(message)
 
         await self._agent.model.send(event)
 
@@ -224,7 +220,7 @@ class _BidiAgentLoop:
                 if isinstance(event, BidiTranscriptStreamEvent):
                     if event["is_final"]:
                         message: Message = {"role": event["role"], "content": [{"text": event["text"]}]}
-                        await self._add_messages(message)
+                        await self._agent._append_messages(message)
 
                 elif isinstance(event, ToolUseStreamEvent):
                     tool_use = event["current_tool_use"]
@@ -282,7 +278,7 @@ class _BidiAgentLoop:
 
             tool_use_message: Message = {"role": "assistant", "content": [{"toolUse": tool_use}]}
             tool_result_message: Message = {"role": "user", "content": [{"toolResult": tool_result_event.tool_result}]}
-            await self._add_messages(tool_use_message, tool_result_message)
+            await self._agent._append_messages(tool_use_message, tool_result_message)
 
             await self._event_queue.put(ToolResultMessageEvent(tool_result_message))
 
@@ -300,16 +296,3 @@ class _BidiAgentLoop:
 
         except Exception as error:
             await self._event_queue.put(error)
-
-    async def _add_messages(self, *messages: Message) -> None:
-        """Add messages to history in sequence without interference.
-
-        Args:
-            *messages: List of messages to add into history.
-        """
-        async with self._message_lock:
-            for message in messages:
-                self._agent.messages.append(message)
-                await self._agent.hooks.invoke_callbacks_async(
-                    BidiMessageAddedEvent(agent=self._agent, message=message)
-                )
