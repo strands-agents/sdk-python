@@ -209,14 +209,28 @@ class OpenAIModel(Model):
         if not image_content:
             return tool_message, None
 
+        # Let the user know that we are modifying the messages for OpenAI compatibility
+        logger.warning(
+            "tool_call_id=<%s> | Moving image from tool message to a new user message for OpenAI compatibility",
+            tool_message["tool_call_id"],
+        )
+
         # Create tool message with only text content
-        # If no text content, add a simple success message
+        # If no text content, add a message informing the model about the upcoming image
         tool_message_clean = {
             "role": "tool",
             "tool_call_id": tool_message["tool_call_id"],
             "content": text_content
             if text_content
-            else [{"type": "text", "text": "Tool execution completed successfully."}],
+            else [
+                {
+                    "type": "text",
+                    "text": (
+                        "Tool successfully returned an image. "
+                        "The image is being provided in the following user message."
+                    ),
+                }
+            ],
         }
 
         # Create user message with only images
