@@ -20,7 +20,7 @@ import sys
 if sys.version_info < (3, 12):
     raise ImportError("BidiNovaSonicModel is only supported for Python 3.12+")
 
-import asyncio
+import asyncio  # type: ignore[unreachable]
 import base64
 import json
 import logging
@@ -28,17 +28,24 @@ import uuid
 from typing import Any, AsyncGenerator, cast
 
 import boto3
-from aws_sdk_bedrock_runtime.client import BedrockRuntimeClient, InvokeModelWithBidirectionalStreamOperationInput
-from aws_sdk_bedrock_runtime.config import Config, HTTPAuthSchemeResolver, SigV4AuthScheme
-from aws_sdk_bedrock_runtime.models import (
+from aws_sdk_bedrock_runtime.client import (  # type: ignore[import-not-found]
+    BedrockRuntimeClient,
+    InvokeModelWithBidirectionalStreamOperationInput,
+)
+from aws_sdk_bedrock_runtime.config import (  # type: ignore[import-not-found]
+    Config,
+    HTTPAuthSchemeResolver,
+    SigV4AuthScheme,
+)
+from aws_sdk_bedrock_runtime.models import (  # type: ignore[import-not-found]
     BidirectionalInputPayloadPart,
     InvokeModelWithBidirectionalStreamInputChunk,
     ModelTimeoutException,
     ValidationException,
 )
-from smithy_aws_core.identity.static import StaticCredentialsResolver
-from smithy_core.aio.eventstream import DuplexEventStream
-from smithy_core.shapes import ShapeID
+from smithy_aws_core.identity.static import StaticCredentialsResolver  # type: ignore[import-not-found]
+from smithy_core.aio.eventstream import DuplexEventStream  # type: ignore[import-not-found]
+from smithy_core.shapes import ShapeID  # type: ignore[import-not-found]
 
 from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
