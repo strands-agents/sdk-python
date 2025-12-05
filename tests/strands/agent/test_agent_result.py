@@ -204,11 +204,7 @@ def test__str__with_structured_output(mock_metrics, simple_message: Message):
 
 
 def test__str__empty_message_with_structured_output(mock_metrics, empty_message: Message):
-    """Test that str() returns structured output JSON when message has no text content.
-
-    This test verifies the fix for GitHub issue #1118 where structured_output wasn't
-    propagating correctly in graphs because str(result) returned empty string.
-    """
+    """Test that str() returns structured output JSON when message has no text content."""
     structured_output = StructuredOutputModel(name="example", value=123, optional_field="optional")
 
     result = AgentResult(
