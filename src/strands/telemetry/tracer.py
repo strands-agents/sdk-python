@@ -319,14 +319,20 @@ class Tracer:
     ) -> None:
         """End a model invocation span with results and metrics.
 
+        Note: When using with trace_api.use_span(end_on_exit=True), the span will be automatically
+        closed and exceptions recorded. This method just sets the necessary attributes.
+
         Args:
-            span: The span to end.
+            span: The span to set attributes on.
             message: The message response from the model.
             usage: Token usage information from the model call.
             metrics: Metrics from the model call.
-            stop_reason (StopReason): The reason the model stopped generating.
-            error: Optional exception if the model call failed.
+            stop_reason: The reason the model stopped generating.
+            error: Optional exception if the model call failed (not used when end_on_exit=True).
         """
+        # Set end time attribute
+        span.set_attribute("gen_ai.event.end_time", datetime.now(timezone.utc).isoformat())
+
         attributes: Dict[str, AttributeValue] = {
             "gen_ai.usage.prompt_tokens": usage["inputTokens"],
             "gen_ai.usage.input_tokens": usage["inputTokens"],
@@ -361,7 +367,12 @@ class Tracer:
                 event_attributes={"finish_reason": str(stop_reason), "message": serialize(message["content"])},
             )
 
-        self._end_span(span, attributes, error)
+        self._set_attributes(span, attributes)
+
+        # Note: self._end_span() is commented out because when using trace_api.use_span(end_on_exit=True),
+        # the span is automatically closed and exceptions are automatically recorded by OpenTelemetry.
+        # Status is also automatically set to UNSET (OK) on success or ERROR on exception.
+        # self._end_span(span, attributes, error)
 
     def start_tool_call_span(
         self,
@@ -493,7 +504,7 @@ class Tracer:
         parent_span: Optional[Span] = None,
         custom_trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
         **kwargs: Any,
-    ) -> Optional[Span]:
+    ) -> Span:
         """Start a new span for an event loop cycle.
 
         Args:
@@ -537,13 +548,21 @@ class Tracer:
     ) -> None:
         """End an event loop cycle span with results.
 
+        Note: When using with trace_api.use_span(end_on_exit=True), the span will be automatically
+        closed and exceptions recorded. This method just sets the necessary attributes.
+
         Args:
-            span: The span to end.
+            span: The span to set attributes on.
             message: The message response from this cycle.
             tool_result_message: Optional tool result message if a tool was called.
-            error: Optional exception if the cycle failed.
+            error: Optional exception if the cycle failed (not used when end_on_exit=True).
         """
-        attributes: Dict[str, AttributeValue] = {}
+        if not span:
+            return
+
+        # Set end time attribute
+        span.set_attribute("gen_ai.event.end_time", datetime.now(timezone.utc).isoformat())
+
         event_attributes: Dict[str, AttributeValue] = {"message": serialize(message["content"])}
 
         if tool_result_message:
@@ -566,7 +585,11 @@ class Tracer:
                 )
             else:
                 self._add_event(span, "gen_ai.choice", event_attributes=event_attributes)
-        self._end_span(span, attributes, error)
+
+        # Note: self._end_span() is commented out because when using trace_api.use_span(end_on_exit=True),
+        # the span is automatically closed and exceptions are automatically recorded by OpenTelemetry.
+        # Status is also automatically set to UNSET (OK) on success or ERROR on exception.
+        # self._end_span(span, attributes, error)
 
     def start_agent_span(
         self,
