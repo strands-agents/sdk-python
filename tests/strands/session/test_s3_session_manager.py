@@ -1,7 +1,7 @@
 """Tests for S3SessionManager."""
 
 import json
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import boto3
 import pytest
@@ -306,6 +306,279 @@ def test_list_messages_with_pagination(s3_manager, sample_session, sample_agent)
     # List with offset
     result = s3_manager.list_messages(sample_session.session_id, sample_agent.agent_id, offset=5)
     assert len(result) == 5
+
+
+def test_list_messages_default_max_parallel_reads(mocked_aws, s3_bucket, sample_session, sample_agent):
+    """Test that default max_parallel_reads is 1 (sequential for backward compatibility)."""
+    manager = S3SessionManager(session_id="test", bucket=s3_bucket, region_name="us-west-2")
+    assert manager.max_parallel_reads == 1
+
+
+def test_list_messages_instance_level_max_parallel_reads(mocked_aws, s3_bucket, sample_session, sample_agent):
+    """Test instance-level max_parallel_reads configuration."""
+    manager = S3SessionManager(session_id="test", bucket=s3_bucket, region_name="us-west-2", max_parallel_reads=5)
+    assert manager.max_parallel_reads == 5
+
+    # Create session and agent
+    manager.create_session(sample_session)
+    manager.create_agent(sample_session.session_id, sample_agent)
+
+    # Create multiple messages
+    for index in range(20):
+        message = SessionMessage.from_message(
+            message={
+                "role": "user",
+                "content": [ContentBlock(text=f"Message {index}")],
+            },
+            index=index,
+        )
+        manager.create_message(sample_session.session_id, sample_agent.agent_id, message)
+
+    # Verify list_messages works with custom max_parallel_reads
+    result = manager.list_messages(sample_session.session_id, sample_agent.agent_id)
+    assert len(result) == 20
+    # Verify messages are in correct order
+    for i, msg in enumerate(result):
+        assert msg.message_id == i
+
+
+def test_list_messages_per_call_override_max_parallel_reads(mocked_aws, s3_bucket, sample_session, sample_agent):
+    """Test per-call override of max_parallel_reads via kwargs."""
+    manager = S3SessionManager(session_id="test", bucket=s3_bucket, region_name="us-west-2", max_parallel_reads=20)
+    assert manager.max_parallel_reads == 20
+
+    # Create session and agent
+    manager.create_session(sample_session)
+    manager.create_agent(sample_session.session_id, sample_agent)
+
+    # Create multiple messages
+    for index in range(15):
+        message = SessionMessage.from_message(
+            message={
+                "role": "user",
+                "content": [ContentBlock(text=f"Message {index}")],
+            },
+            index=index,
+        )
+        manager.create_message(sample_session.session_id, sample_agent.agent_id, message)
+
+    # Override max_parallel_reads for this call
+    result = manager.list_messages(sample_session.session_id, sample_agent.agent_id, max_parallel_reads=3)
+    assert len(result) == 15
+    # Verify messages are in correct order
+    for i, msg in enumerate(result):
+        assert msg.message_id == i
+
+
+def test_list_messages_max_parallel_reads_with_few_messages(mocked_aws, s3_bucket, sample_session, sample_agent):
+    """Test that max_parallel_reads is capped by number of messages."""
+    manager = S3SessionManager(session_id="test", bucket=s3_bucket, region_name="us-west-2", max_parallel_reads=100)
+
+    # Create session and agent
+    manager.create_session(sample_session)
+    manager.create_agent(sample_session.session_id, sample_agent)
+
+    # Create only 3 messages
+    for index in range(3):
+        message = SessionMessage.from_message(
+            message={
+                "role": "user",
+                "content": [ContentBlock(text=f"Message {index}")],
+            },
+            index=index,
+        )
+        manager.create_message(sample_session.session_id, sample_agent.agent_id, message)
+
+    # Should work correctly even with max_parallel_reads > number of messages
+    result = manager.list_messages(sample_session.session_id, sample_agent.agent_id)
+    assert len(result) == 3
+
+
+def test_list_messages_max_parallel_reads_with_many_messages(mocked_aws, s3_bucket, sample_session, sample_agent):
+    """Test max_parallel_reads with a large number of messages."""
+    manager = S3SessionManager(session_id="test", bucket=s3_bucket, region_name="us-west-2", max_parallel_reads=5)
+
+    # Create session and agent
+    manager.create_session(sample_session)
+    manager.create_agent(sample_session.session_id, sample_agent)
+
+    # Create 50 messages
+    for index in range(50):
+        message = SessionMessage.from_message(
+            message={
+                "role": "user",
+                "content": [ContentBlock(text=f"Message {index}")],
+            },
+            index=index,
+        )
+        manager.create_message(sample_session.session_id, sample_agent.agent_id, message)
+
+    # Should work correctly with max_parallel_reads < number of messages
+    result = manager.list_messages(sample_session.session_id, sample_agent.agent_id)
+    assert len(result) == 50
+    # Verify messages are in correct order
+    for i, msg in enumerate(result):
+        assert msg.message_id == i
+
+
+def test_list_messages_max_parallel_reads_with_pagination(mocked_aws, s3_bucket, sample_session, sample_agent):
+    """Test max_parallel_reads works correctly with pagination."""
+    manager = S3SessionManager(session_id="test", bucket=s3_bucket, region_name="us-west-2", max_parallel_reads=3)
+
+    # Create session and agent
+    manager.create_session(sample_session)
+    manager.create_agent(sample_session.session_id, sample_agent)
+
+    # Create 20 messages
+    for index in range(20):
+        message = SessionMessage.from_message(
+            message={
+                "role": "user",
+                "content": [ContentBlock(text=f"Message {index}")],
+            },
+            index=index,
+        )
+        manager.create_message(sample_session.session_id, sample_agent.agent_id, message)
+
+    # Test with limit
+    result = manager.list_messages(sample_session.session_id, sample_agent.agent_id, limit=5, max_parallel_reads=2)
+    assert len(result) == 5
+    assert result[0].message_id == 0
+    assert result[4].message_id == 4
+
+    # Test with offset
+    result = manager.list_messages(sample_session.session_id, sample_agent.agent_id, offset=10, max_parallel_reads=4)
+    assert len(result) == 10
+    assert result[0].message_id == 10
+    assert result[9].message_id == 19
+
+
+@patch("strands.session.s3_session_manager.as_completed")
+@patch("strands.session.s3_session_manager.ThreadPoolExecutor")
+def test_list_messages_uses_correct_max_workers(
+    mock_thread_pool_executor, mock_as_completed, mocked_aws, s3_bucket, sample_session, sample_agent
+):
+    """Test that ThreadPoolExecutor is called with correct max_workers value."""
+    from concurrent.futures import Future
+
+    # Create a mock executor that tracks the max_workers value and returns futures
+    mock_executor_instance = Mock()
+    mock_thread_pool_executor.return_value.__enter__.return_value = mock_executor_instance
+    mock_thread_pool_executor.return_value.__exit__.return_value = None
+
+    # Track futures for as_completed
+    futures_list = []
+
+    # Mock submit to return futures that complete immediately with message data
+    def mock_submit(func, key):
+        future = Future()
+        # Call the actual _read_s3_object function to get real data
+        try:
+            result = func(key)
+            future.set_result(result)
+        except Exception as e:
+            future.set_exception(e)
+        futures_list.append(future)
+        return future
+
+    mock_executor_instance.submit.side_effect = mock_submit
+    # Mock as_completed to return the futures
+    mock_as_completed.side_effect = lambda futures: iter(futures)
+
+    manager = S3SessionManager(session_id="test", bucket=s3_bucket, region_name="us-west-2", max_parallel_reads=7)
+
+    # Create session and agent
+    manager.create_session(sample_session)
+    manager.create_agent(sample_session.session_id, sample_agent)
+
+    # Create 15 messages
+    for index in range(15):
+        message = SessionMessage.from_message(
+            message={
+                "role": "user",
+                "content": [ContentBlock(text=f"Message {index}")],
+            },
+            index=index,
+        )
+        manager.create_message(sample_session.session_id, sample_agent.agent_id, message)
+
+    # Call list_messages
+    futures_list.clear()
+    manager.list_messages(sample_session.session_id, sample_agent.agent_id)
+
+    # Verify ThreadPoolExecutor was called with max_workers=7 (instance default)
+    mock_thread_pool_executor.assert_called_once()
+    call_kwargs = mock_thread_pool_executor.call_args[1]
+    assert call_kwargs["max_workers"] == 7
+
+    # Reset and test per-call override
+    mock_thread_pool_executor.reset_mock()
+    mock_as_completed.reset_mock()
+    futures_list.clear()
+    manager.list_messages(sample_session.session_id, sample_agent.agent_id, max_parallel_reads=3)
+
+    # Verify ThreadPoolExecutor was called with max_workers=3 (per-call override)
+    mock_thread_pool_executor.assert_called_once()
+    call_kwargs = mock_thread_pool_executor.call_args[1]
+    assert call_kwargs["max_workers"] == 3
+
+
+@patch("strands.session.s3_session_manager.as_completed")
+@patch("strands.session.s3_session_manager.ThreadPoolExecutor")
+def test_list_messages_max_workers_capped_by_message_count(
+    mock_thread_pool_executor, mock_as_completed, mocked_aws, s3_bucket, sample_session, sample_agent
+):
+    """Test that max_workers is capped by the number of messages."""
+    from concurrent.futures import Future
+
+    # Create a mock executor that tracks the max_workers value and returns futures
+    mock_executor_instance = Mock()
+    mock_thread_pool_executor.return_value.__enter__.return_value = mock_executor_instance
+    mock_thread_pool_executor.return_value.__exit__.return_value = None
+
+    # Track futures for as_completed
+    futures_list = []
+
+    # Mock submit to return futures that complete immediately with message data
+    def mock_submit(func, key):
+        future = Future()
+        # Call the actual _read_s3_object function to get real data
+        try:
+            result = func(key)
+            future.set_result(result)
+        except Exception as e:
+            future.set_exception(e)
+        futures_list.append(future)
+        return future
+
+    mock_executor_instance.submit.side_effect = mock_submit
+    # Mock as_completed to return the futures
+    mock_as_completed.side_effect = lambda futures: iter(futures)
+
+    manager = S3SessionManager(session_id="test", bucket=s3_bucket, region_name="us-west-2", max_parallel_reads=100)
+
+    # Create session and agent
+    manager.create_session(sample_session)
+    manager.create_agent(sample_session.session_id, sample_agent)
+
+    # Create only 5 messages
+    for index in range(5):
+        message = SessionMessage.from_message(
+            message={
+                "role": "user",
+                "content": [ContentBlock(text=f"Message {index}")],
+            },
+            index=index,
+        )
+        manager.create_message(sample_session.session_id, sample_agent.agent_id, message)
+
+    # Call list_messages
+    manager.list_messages(sample_session.session_id, sample_agent.agent_id)
+
+    # Verify ThreadPoolExecutor was called with max_workers=5 (capped by message count)
+    mock_thread_pool_executor.assert_called_once()
+    call_kwargs = mock_thread_pool_executor.call_args[1]
+    assert call_kwargs["max_workers"] == 5
 
 
 def test_update_message(s3_manager, sample_session, sample_agent, sample_message):
