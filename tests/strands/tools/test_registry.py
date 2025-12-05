@@ -389,3 +389,70 @@ def test_tool_registry_add_consumer_before_load_tools():
 
     # Verify add_consumer was called with the registry ID
     mock_provider.add_consumer.assert_called_once_with(registry._registry_id)
+
+
+def test_validate_tool_spec_with_anyof_property():
+    """Test that validate_tool_spec does not add type: 'string' to anyOf properties.
+
+    This is important for MCP tools that use anyOf for optional/union types like
+    Optional[List[str]]. Adding type: 'string' causes models to return string-encoded
+    JSON instead of proper arrays/objects.
+    """
+    tool_spec = {
+        "name": "test_tool",
+        "description": "A test tool",
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "properties": {
+                    "regular_field": {},  # Should get type: "string"
+                    "anyof_field": {
+                        "anyOf": [
+                            {"type": "array", "items": {"type": "string"}},
+                            {"type": "null"},
+                        ]
+                    },
+                },
+            }
+        },
+    }
+
+    registry = ToolRegistry()
+    registry.validate_tool_spec(tool_spec)
+
+    props = tool_spec["inputSchema"]["json"]["properties"]
+
+    # Regular field should get default type: "string"
+    assert props["regular_field"]["type"] == "string"
+    assert props["regular_field"]["description"] == "Property regular_field"
+
+    # anyOf field should NOT get type: "string" added
+    assert "type" not in props["anyof_field"], "anyOf property should not have type added"
+    assert "anyOf" in props["anyof_field"], "anyOf should be preserved"
+    assert props["anyof_field"]["description"] == "Property anyof_field"
+
+
+def test_validate_tool_spec_with_ref_property():
+    """Test that validate_tool_spec does not modify $ref properties."""
+    tool_spec = {
+        "name": "test_tool",
+        "description": "A test tool",
+        "inputSchema": {
+            "json": {
+                "type": "object",
+                "properties": {
+                    "ref_field": {"$ref": "#/$defs/SomeType"},
+                },
+            }
+        },
+    }
+
+    registry = ToolRegistry()
+    registry.validate_tool_spec(tool_spec)
+
+    props = tool_spec["inputSchema"]["json"]["properties"]
+
+    # $ref field should not be modified
+    assert props["ref_field"] == {"$ref": "#/$defs/SomeType"}
+    assert "type" not in props["ref_field"]
+    assert "description" not in props["ref_field"]
