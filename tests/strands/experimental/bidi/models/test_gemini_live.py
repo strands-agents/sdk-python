@@ -13,8 +13,8 @@ import unittest.mock
 import pytest
 from google.genai import types as genai_types
 
-from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.models.gemini_live import BidiGeminiLiveModel
+from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
@@ -185,7 +185,7 @@ async def test_connection_edge_cases(mock_genai_client, api_key, model_id):
     model4 = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
     await model4.start()
     mock_live_session_cm.__aexit__.side_effect = Exception("Close failed")
-    with pytest.raises(ExceptionGroup):
+    with pytest.raises(RuntimeError, match=r"failed stop sequence"):
         await model4.stop()
 
 
@@ -572,7 +572,6 @@ def test_tool_formatting(model, tool_spec):
     assert formatted_empty == []
 
 
-
 # Tool Result Content Tests
 
 
@@ -601,7 +600,7 @@ async def test_custom_audio_rates_in_events(mock_genai_client, model_id, api_key
     assert isinstance(audio_event, BidiAudioStreamEvent)
     # Should use configured rates, not constants
     assert audio_event.sample_rate == 48000  # Custom config
-    assert audio_event.channels == 2         # Custom config
+    assert audio_event.channels == 2  # Custom config
     assert audio_event.format == "pcm"
 
     await model.stop()
@@ -631,7 +630,7 @@ async def test_default_audio_rates_in_events(mock_genai_client, model_id, api_ke
     assert isinstance(audio_event, BidiAudioStreamEvent)
     # Should use default rates
     assert audio_event.sample_rate == 24000  # Default output rate
-    assert audio_event.channels == 1         # Default channels
+    assert audio_event.channels == 1  # Default channels
     assert audio_event.format == "pcm"
 
     await model.stop()
