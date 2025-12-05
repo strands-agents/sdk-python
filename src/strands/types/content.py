@@ -129,12 +129,10 @@ class ContentBlockStartToolUse(TypedDict, total=False):
     Attributes:
         name: The name of the tool that the model is requesting to use.
         toolUseId: The ID for the tool request.
-        thoughtSignature: Optional encrypted token from Gemini for multi-turn reasoning.
     """
 
     name: str
     toolUseId: str
-    thoughtSignature: NotRequired[str]
 
 
 class ContentBlockStart(TypedDict, total=False):

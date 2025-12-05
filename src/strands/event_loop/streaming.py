@@ -185,9 +185,6 @@ def handle_content_block_start(event: ContentBlockStartEvent) -> dict[str, Any]:
         current_tool_use["toolUseId"] = tool_use_data["toolUseId"]
         current_tool_use["name"] = tool_use_data["name"]
         current_tool_use["input"] = ""
-        # Preserve thoughtSignature if present (required for Gemini 3 Pro)
-        if "thoughtSignature" in tool_use_data:
-            current_tool_use["thoughtSignature"] = tool_use_data["thoughtSignature"]
 
     return current_tool_use
 
@@ -288,10 +285,6 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
             name=tool_use_name,
             input=current_tool_use["input"],
         )
-
-        # Preserve thoughtSignature if present (required for Gemini 3 Pro)
-        if "thoughtSignature" in current_tool_use:
-            tool_use["thoughtSignature"] = current_tool_use["thoughtSignature"]
 
         content.append({"toolUse": tool_use})
         state["current_tool_use"] = {}

@@ -3,7 +3,6 @@
 - Docs: https://ai.google.dev/api
 """
 
-import base64
 import json
 import logging
 import mimetypes
@@ -65,6 +64,10 @@ class GeminiModel(Model):
         logger.debug("config=<%s> | initializing", self.config)
 
         self.client_args = client_args or {}
+
+        # Store the last thought_signature from Gemini responses for multi-turn conversations
+        # See: https://ai.google.dev/gemini-api/docs/thought-signatures
+        self.last_thought_signature: Optional[bytes] = None
 
     @override
     def update_config(self, **model_config: Unpack[GeminiConfig]) -> None:  # type: ignore[override]
@@ -142,28 +145,15 @@ class GeminiModel(Model):
             )
 
         if "toolUse" in content:
-            thought_signature_b64 = content["toolUse"].get("thoughtSignature")
-
-            tool_use_thought_signature: Optional[bytes] = None
-            if thought_signature_b64:
-                try:
-                    tool_use_thought_signature = base64.b64decode(thought_signature_b64)
-                except Exception as e:
-                    tool_use_id = content["toolUse"].get("toolUseId")
-                    logger.error("toolUseId=<%s> | failed to decode thoughtSignature: %s", tool_use_id, e)
-            else:
-                # thoughtSignature is now preserved by the Strands framework (as of v1.18+)
-                # If missing, it means the model didn't provide one (e.g., older Gemini versions)
-                tool_use_id = content["toolUse"].get("toolUseId")
-                logger.debug("toolUseId=<%s> | no thoughtSignature in toolUse (model may not require it)", tool_use_id)
-
+            # Use the last thought_signature stored from previous Gemini responses
+            # This is required for Gemini models that use thought signatures in multi-turn conversations
             return genai.types.Part(
                 function_call=genai.types.FunctionCall(
                     args=content["toolUse"]["input"],
                     id=content["toolUse"]["toolUseId"],
                     name=content["toolUse"]["name"],
                 ),
-                thought_signature=tool_use_thought_signature,
+                thought_signature=self.last_thought_signature,
             )
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
@@ -300,16 +290,6 @@ class GeminiModel(Model):
                             "toolUseId": event["data"].function_call.name,
                         }
 
-                        # Get thought_signature from the event dict (passed from stream method)
-                        thought_sig = event.get("thought_signature")
-
-                        if thought_sig:
-                            # Ensure it's bytes for encoding
-                            if isinstance(thought_sig, str):
-                                thought_sig = thought_sig.encode("utf-8")
-                            # Use base64 encoding for storage
-                            tool_use["thoughtSignature"] = base64.b64encode(thought_sig).decode("utf-8")
-
                         return {
                             "contentBlockStart": {
                                 "start": {"toolUse": cast(Any, tool_use)},
@@ -410,9 +390,6 @@ class GeminiModel(Model):
             yield self._format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
             tool_used = False
-            # Track thought_signature to associate with function calls
-            # According to Gemini docs, thought_signature can be on any part
-            last_thought_signature: Optional[bytes] = None
 
             async for event in response:
                 candidates = event.candidates
@@ -421,20 +398,18 @@ class GeminiModel(Model):
                 parts = content.parts if content and content.parts else []
 
                 for part in parts:
-                    # Check ALL parts for thought_signature (Gemini may still include it even with thinking disabled)
+                    # Capture thought_signature and store it for use in subsequent requests
+                    # According to Gemini docs, thought_signature can be on any part
+                    # See: https://ai.google.dev/gemini-api/docs/thought-signatures
                     if hasattr(part, "thought_signature") and part.thought_signature:
-                        last_thought_signature = part.thought_signature
+                        self.last_thought_signature = part.thought_signature
 
                     if part.function_call:
-                        # Use the last thought_signature captured
-                        effective_thought_signature = last_thought_signature
-
                         yield self._format_chunk(
                             {
                                 "chunk_type": "content_start",
                                 "data_type": "tool",
                                 "data": part,
-                                "thought_signature": effective_thought_signature,
                             }
                         )
                         yield self._format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": part})

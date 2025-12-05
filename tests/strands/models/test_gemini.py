@@ -324,8 +324,11 @@ async def test_stream_request_with_tool_use(gemini_client, model, model_id):
 
 
 @pytest.mark.asyncio
-async def test_stream_request_with_tool_use_and_thought_signature(gemini_client, model, model_id):
-    """Test that thoughtSignature is properly decoded from base64 and passed to Gemini API."""
+async def test_stream_request_with_tool_use_uses_last_thought_signature(gemini_client, model, model_id):
+    """Test that model.last_thought_signature is used when formatting toolUse requests."""
+    # Set the last_thought_signature as if a previous response captured it
+    model.last_thought_signature = b"test_signature_bytes"
+
     messages = [
         {
             "role": "assistant",
@@ -335,7 +338,6 @@ async def test_stream_request_with_tool_use_and_thought_signature(gemini_client,
                         "toolUseId": "c1",
                         "name": "calculator",
                         "input": {"expression": "2+2"},
-                        "thoughtSignature": "YWJjZGVmZ2g=",  # base64 encoded "abcdefgh"
                     },
                 },
             ],
@@ -343,24 +345,26 @@ async def test_stream_request_with_tool_use_and_thought_signature(gemini_client,
     ]
     await anext(model.stream(messages))
 
-    # Verify that the call was made - Gemini SDK handles the thought_signature serialization internally
+    # Verify the call includes the stored thought_signature
     call_args = gemini_client.aio.models.generate_content_stream.call_args
     assert call_args is not None
-    
-    # Check that the content includes the thought_signature (SDK may serialize it differently)
+
     contents = call_args.kwargs["contents"]
     assert len(contents) == 1
     assert len(contents[0]["parts"]) == 1
     part = contents[0]["parts"][0]
     assert "function_call" in part
     assert part["function_call"]["name"] == "calculator"
-    # The SDK handles thought_signature internally, verify it's present
+    # The last_thought_signature should be used
     assert "thought_signature" in part
 
 
 @pytest.mark.asyncio
-async def test_stream_request_with_tool_use_missing_thought_signature(gemini_client, model, model_id):
-    """Test that missing thoughtSignature is handled gracefully."""
+async def test_stream_request_with_tool_use_no_stored_thought_signature(gemini_client, model, model_id):
+    """Test that toolUse request works when no thought_signature has been captured."""
+    # Ensure no thought_signature is stored
+    assert model.last_thought_signature is None
+
     messages = [
         {
             "role": "assistant",
@@ -370,7 +374,6 @@ async def test_stream_request_with_tool_use_missing_thought_signature(gemini_cli
                         "toolUseId": "c1",
                         "name": "calculator",
                         "input": {"expression": "2+2"},
-                        # No thoughtSignature
                     },
                 },
             ],
@@ -378,18 +381,17 @@ async def test_stream_request_with_tool_use_missing_thought_signature(gemini_cli
     ]
     await anext(model.stream(messages))
 
-    # Verify the call was made without thought_signature when not present
+    # Verify the call was made without thought_signature
     call_args = gemini_client.aio.models.generate_content_stream.call_args
     assert call_args is not None
-    
+
     contents = call_args.kwargs["contents"]
     assert len(contents) == 1
     assert len(contents[0]["parts"]) == 1
     part = contents[0]["parts"][0]
     assert "function_call" in part
     assert part["function_call"]["name"] == "calculator"
-    # When thoughtSignature is missing, the SDK may omit it entirely
-    # This is acceptable behavior
+    # No thought_signature should be present
     assert "thought_signature" not in part or part.get("thought_signature") is None
 
 
@@ -565,7 +567,7 @@ async def test_stream_response_tool_use(gemini_client, model, messages, agenerat
 
 @pytest.mark.asyncio
 async def test_stream_response_tool_use_with_thought_signature(gemini_client, model, messages, agenerator, alist):
-    """Test that thoughtSignature from Gemini response is captured and base64-encoded."""
+    """Test that thought_signature from Gemini response is stored in model.last_thought_signature."""
     gemini_client.aio.models.generate_content_stream.return_value = agenerator(
         [
             genai.types.GenerateContentResponse(
@@ -594,6 +596,9 @@ async def test_stream_response_tool_use_with_thought_signature(gemini_client, mo
         ]
     )
 
+    # Verify model starts with no stored signature
+    assert model.last_thought_signature is None
+
     tru_chunks = await alist(model.stream(messages))
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
@@ -602,9 +607,8 @@ async def test_stream_response_tool_use_with_thought_signature(gemini_client, mo
             "contentBlockStart": {
                 "start": {
                     "toolUse": {
-                    "name": "calculator",
-                    "toolUseId": "calculator",
-                    "thoughtSignature": "dGVzdF9zaWduYXR1cmVfYnl0ZXM=",  # base64 encoded
+                        "name": "calculator",
+                        "toolUseId": "calculator",
                     }
                 }
             }
@@ -617,10 +621,13 @@ async def test_stream_response_tool_use_with_thought_signature(gemini_client, mo
     ]
     assert tru_chunks == exp_chunks
 
+    # Verify thought_signature is stored in the model instance
+    assert model.last_thought_signature == b"test_signature_bytes"
+
 
 @pytest.mark.asyncio
 async def test_stream_response_tool_use_without_thought_signature(gemini_client, model, messages, agenerator, alist):
-    """Test that missing thoughtSignature in response is handled gracefully."""
+    """Test that missing thought_signature in response doesn't change model.last_thought_signature."""
     gemini_client.aio.models.generate_content_stream.return_value = agenerator(
         [
             genai.types.GenerateContentResponse(
@@ -649,6 +656,9 @@ async def test_stream_response_tool_use_without_thought_signature(gemini_client,
         ]
     )
 
+    # Verify model starts with no stored signature
+    assert model.last_thought_signature is None
+
     tru_chunks = await alist(model.stream(messages))
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
@@ -661,6 +671,9 @@ async def test_stream_response_tool_use_without_thought_signature(gemini_client,
         {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
     ]
     assert tru_chunks == exp_chunks
+
+    # Verify model.last_thought_signature is still None
+    assert model.last_thought_signature is None
 
 
 @pytest.mark.asyncio
@@ -834,51 +847,10 @@ async def test_stream_handles_non_json_error(gemini_client, model, messages, cap
 
 
 @pytest.mark.asyncio
-async def test_stream_request_with_invalid_base64_thought_signature(gemini_client, model, model_id, caplog):
-    """Test that invalid base64 in thoughtSignature logs error but doesn't crash."""
-    messages = [
-        {
-            "role": "assistant",
-            "content": [
-                {
-                    "toolUse": {
-                        "toolUseId": "c1",
-                        "name": "calculator",
-                        "input": {"expression": "2+2"},
-                        "thoughtSignature": "invalid-base64-data!!!",  # Invalid base64
-                    },
-                },
-            ],
-        },
-    ]
-
-    with caplog.at_level(logging.ERROR):
-        await anext(model.stream(messages))
-
-    # Verify error was logged
-    assert "failed to decode thoughtSignature" in caplog.text
-    assert "toolUseId=<c1>" in caplog.text
-
-    # Verify the request was still made (graceful degradation)
-    call_args = gemini_client.aio.models.generate_content_stream.call_args
-    assert call_args is not None
-
-    # Verify content was formatted despite the error
-    contents = call_args.kwargs["contents"]
-    assert len(contents) == 1
-    assert len(contents[0]["parts"]) == 1
-    part = contents[0]["parts"][0]
-    assert "function_call" in part
-    assert part["function_call"]["name"] == "calculator"
-    # thought_signature should be None when decode fails
-    assert part.get("thought_signature") is None
-
-
-@pytest.mark.asyncio
 async def test_stream_response_tool_use_with_string_thought_signature(
     gemini_client, model, messages, agenerator, alist
 ):
-    """Test that thoughtSignature as a string (not bytes) is properly converted and encoded."""
+    """Test that thought_signature as a string is properly stored in model.last_thought_signature."""
     # Create a mock Part with thought_signature as a string instead of bytes
     mock_part = genai.types.Part(
         function_call=genai.types.FunctionCall(
@@ -909,6 +881,9 @@ async def test_stream_response_tool_use_with_string_thought_signature(
         ]
     )
 
+    # Verify model starts with no stored signature
+    assert model.last_thought_signature is None
+
     tru_chunks = await alist(model.stream(messages))
     exp_chunks = [
         {"messageStart": {"role": "assistant"}},
@@ -919,8 +894,6 @@ async def test_stream_response_tool_use_with_string_thought_signature(
                     "toolUse": {
                         "name": "calculator",
                         "toolUseId": "calculator",
-                        # String should be encoded to bytes, then base64 encoded
-                        "thoughtSignature": "c3RyaW5nX3NpZ25hdHVyZQ==",  # base64("string_signature")
                     }
                 }
             }
@@ -932,3 +905,6 @@ async def test_stream_response_tool_use_with_string_thought_signature(
         {"metadata": {"usage": {"inputTokens": 1, "outputTokens": 2, "totalTokens": 3}, "metrics": {"latencyMs": 0}}},
     ]
     assert tru_chunks == exp_chunks
+
+    # Verify thought_signature is stored in model (even as string)
+    assert model.last_thought_signature == "string_signature"
