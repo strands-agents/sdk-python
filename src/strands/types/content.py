@@ -8,7 +8,7 @@ SDK. These types are modeled after the Bedrock API.
 
 from typing import Dict, List, Literal, Optional
 
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import TypedDict
 
 from .citations import CitationsContentBlock
 from .media import DocumentContent, ImageContent, VideoContent
@@ -123,7 +123,7 @@ class DeltaContent(TypedDict, total=False):
     toolUse: Dict[Literal["input"], str]
 
 
-class ContentBlockStartToolUse(TypedDict, total=False):
+class ContentBlockStartToolUse(TypedDict):
     """The start of a tool use block.
 
     Attributes:

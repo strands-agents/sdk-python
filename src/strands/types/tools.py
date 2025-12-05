@@ -52,7 +52,7 @@ class Tool(TypedDict):
     toolSpec: ToolSpec
 
 
-class ToolUse(TypedDict, total=False):
+class ToolUse(TypedDict):
     """A request from the model to use a specific tool with the provided input.
 
     Attributes:

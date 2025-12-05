@@ -1058,5 +1058,3 @@ async def test_stream_messages_normalizes_messages(agenerator, alist):
         {"content": [{"toolUse": {"name": "INVALID_TOOL_NAME"}}], "role": "assistant"},
         {"content": [{"toolUse": {"name": "INVALID_TOOL_NAME"}}], "role": "assistant"},
     ]
-
-

@@ -285,7 +285,6 @@ def handle_content_block_stop(state: dict[str, Any]) -> dict[str, Any]:
             name=tool_use_name,
             input=current_tool_use["input"],
         )
-
         content.append({"toolUse": tool_use})
         state["current_tool_use"] = {}
 
