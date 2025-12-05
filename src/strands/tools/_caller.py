@@ -195,10 +195,7 @@ class _ToolCaller:
         }
 
         # Add to message history
-        await self._agent._append_message(user_msg)
-        await self._agent._append_message(tool_use_msg)
-        await self._agent._append_message(tool_result_msg)
-        await self._agent._append_message(assistant_msg)
+        await self._agent._append_messages(user_msg, tool_use_msg, tool_result_msg, assistant_msg)
 
     def _filter_tool_parameters_for_recording(self, tool_name: str, input_params: dict[str, Any]) -> dict[str, Any]:
         """Filter input parameters to only include those defined in the tool specification.

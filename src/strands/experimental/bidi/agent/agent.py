@@ -26,9 +26,9 @@ from ....tools.executors import ConcurrentToolExecutor
 from ....tools.executors._executor import ToolExecutor
 from ....tools.registry import ToolRegistry
 from ....tools.watcher import ToolWatcher
-from ....types.content import Messages
+from ....types.content import Message, Messages
 from ....types.tools import AgentTool
-from ...hooks.events import BidiAgentInitializedEvent
+from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from ...tools import ToolProvider
 from .._async import stop_all
 from ..models.model import BidiModel
@@ -166,6 +166,9 @@ class BidiAgent:
 
         # TODO: Determine if full support is required
         self._interrupt_state = _InterruptState()
+
+        # Lock to ensure that paired messages are added to history in sequence without interference
+        self._message_lock = asyncio.Lock()
 
         self._started = False
 
@@ -396,3 +399,17 @@ class BidiAgent:
             output_stops = [output.stop for output in outputs if isinstance(output, BidiOutput)]
 
             await stop_all(*input_stops, *output_stops, self.stop)
+
+    async def _append_messages(self, *messages: Message) -> None:
+        """Append messages to history in sequence without interference.
+
+        The message lock ensures that paired messages are added to history in sequence without interference. For
+        example, tool use and tool result messages must be added adjacent to each other.
+
+        Args:
+            *messages: List of messages to add into history.
+        """
+        async with self._message_lock:
+            for message in messages:
+                self.messages.append(message)
+                await self.hooks.invoke_callbacks_async(BidiMessageAddedEvent(agent=self, message=message))
