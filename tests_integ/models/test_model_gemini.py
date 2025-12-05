@@ -175,3 +175,28 @@ def test_agent_structured_output_image_input(assistant_agent, yellow_img, yellow
     tru_color = assistant_agent.structured_output(type(yellow_color), content)
     exp_color = yellow_color
     assert tru_color == exp_color
+
+
+@pytest.mark.parametrize("model_id", ["gemini-2.5-flash", "gemini-3-pro-preview"])
+def test_agent_multiturn_tool_use(model_id, tools, system_prompt):
+    """Test multi-turn conversation with tool use.
+
+    Gemini 3 Pro requires thought_signature in multi-turn function calling.
+    Without skip_thought_signature_validator, this fails with:
+    "Function call is missing a thought_signature in functionCall parts"
+
+    Validates fix for issue #1199.
+    """
+    model = GeminiModel(
+        client_args={"api_key": os.getenv("GOOGLE_API_KEY")},
+        model_id=model_id,
+        params={"temperature": 0.15},
+    )
+    agent = Agent(model=model, tools=tools, system_prompt=system_prompt)
+
+    result1 = agent("What is the current time in New York?")
+    assert "12:00" in result1.message["content"][0]["text"].lower()
+
+    # Second turn with tool use history - this is where Gemini 3 Pro would fail
+    result2 = agent("And what is the weather there?")
+    assert "sunny" in result2.message["content"][0]["text"].lower()
