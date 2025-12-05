@@ -16,7 +16,7 @@ async def stop_all(*funcs: Callable[..., Awaitable[None]]) -> None:
         funcs: Stop functions to call in sequence.
 
     Raises:
-        ExceptionGroup: If any stop function raises an exception.
+        RuntimeError: If any stop function raises an exception.
     """
     exceptions = []
     for func in funcs:
@@ -26,4 +26,8 @@ async def stop_all(*funcs: Callable[..., Awaitable[None]]) -> None:
             exceptions.append(exception)
 
     if exceptions:
-        raise ExceptionGroup("failed stop sequence", exceptions)
+        exceptions.append(RuntimeError("failed stop sequence"))
+        for i in range(1, len(exceptions)):
+            exceptions[i].__cause__ = exceptions[i - 1]
+
+        raise exceptions[-1]

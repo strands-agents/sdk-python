@@ -9,7 +9,7 @@ Example:
 
 import json
 import random
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from .._async import run_async
 from ..tools.executors._executor import ToolExecutor
@@ -108,7 +108,7 @@ class _ToolCaller:
 
             # Apply conversation management if agent supports it (traditional agents)
             if hasattr(self._agent, "conversation_manager"):
-                self._agent.conversation_manager.apply_management(self._agent)
+                self._agent.conversation_manager.apply_management(cast("Agent", self._agent))
 
             return tool_result
 
