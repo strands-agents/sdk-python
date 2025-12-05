@@ -192,11 +192,13 @@ def test_split_tool_message_images_with_image():
 
     tool_clean, user_with_image = OpenAIModel._split_tool_message_images(tool_message)
 
-    # Tool message should only have text
+    # Tool message should now have the original text plus the appended informational text
     assert tool_clean["role"] == "tool"
     assert tool_clean["tool_call_id"] == "c1"
-    assert len(tool_clean["content"]) == 1
+    assert len(tool_clean["content"]) == 2
     assert tool_clean["content"][0]["type"] == "text"
+    assert tool_clean["content"][0]["text"] == "Result"
+    assert "Tool successfully returned an image" in tool_clean["content"][1]["text"]
 
     # User message should have the image
     assert user_with_image is not None
