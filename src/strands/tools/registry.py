@@ -602,7 +602,8 @@ class ToolRegistry:
             if "$ref" in prop_def:
                 continue
 
-            if "type" not in prop_def:
+            # Skip setting default type for anyOf properties (union/optional types)
+            if "type" not in prop_def and "anyOf" not in prop_def:
                 prop_def["type"] = "string"
             if "description" not in prop_def:
                 prop_def["description"] = f"Property {prop_name}"
