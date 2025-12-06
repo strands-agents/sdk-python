@@ -1070,3 +1070,42 @@ async def test_stream_messages_normalizes_messages(agenerator, alist):
         {"content": [{"toolUse": {"name": "INVALID_TOOL_NAME"}}], "role": "assistant"},
         {"content": [{"toolUse": {"name": "INVALID_TOOL_NAME"}}], "role": "assistant"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_process_stream_with_image_content():
+    """Test that image content blocks are properly processed in streaming responses."""
+    test_image_data = {
+        "format": "png",
+        "source": {
+            "bytes": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+        },
+    }
+
+    chunks = [
+        cast(MessageStartEvent, {"messageStart": {"role": "assistant"}}),
+        cast(ContentBlockStartEvent, {"contentBlockStart": {"start": {}}}),
+        cast(ContentBlockDeltaEvent, {"contentBlockDelta": {"delta": {"image": test_image_data}}}),
+        {"contentBlockStop": {}},
+        cast(MessageStopEvent, {"messageStop": {"stopReason": "end_turn"}}),
+        {"metadata": {"usage": {"inputTokens": 10, "outputTokens": 5, "totalTokens": 15}}},
+    ]
+
+    async def async_chunks():
+        for chunk in chunks:
+            yield chunk
+
+    events = []
+    async for event in strands.event_loop.streaming.process_stream(async_chunks()):
+        events.append(event)
+
+    # Verify we got a stop event with the image in the message
+    stop_event = cast(ModelStopReason, events[-1])
+    assert "stop" in stop_event
+
+    stop_reason, message, usage, metrics = stop_event["stop"]
+    assert stop_reason == "end_turn"
+    assert message["role"] == "assistant"
+    assert len(message["content"]) == 1
+    assert "image" in message["content"][0]
+    assert message["content"][0]["image"] == test_image_data
