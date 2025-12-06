@@ -7,13 +7,13 @@ It allows MCP tools to be seamlessly integrated and used within the agent ecosys
 
 import logging
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from mcp.types import Tool as MCPTool
 from typing_extensions import override
 
-from ...types._events import ToolResultEvent
-from ...types.tools import AgentTool, ToolGenerator, ToolSpec, ToolUse
+from ...types._events import ToolResultEvent, ToolStreamEvent
+from ...types.tools import AgentTool, ToolGenerator, ToolResult, ToolSpec, ToolUse
 
 if TYPE_CHECKING:
     from .mcp_client import MCPClient
@@ -110,10 +110,15 @@ class MCPAgentTool(AgentTool):
         """
         logger.debug("tool_name=<%s>, tool_use_id=<%s> | streaming", self.tool_name, tool_use["toolUseId"])
 
-        result = await self.mcp_client.call_tool_async(
+        async for event in self.mcp_client.call_tool_stream(
             tool_use_id=tool_use["toolUseId"],
             name=self.mcp_tool.name,  # Use original MCP name for server communication
             arguments=tool_use["input"],
             read_timeout_seconds=self.timeout,
-        )
-        yield ToolResultEvent(result)
+        ):
+            if isinstance(event, dict) and event.get("status") in ["success", "error"]:
+                # It's a MCPToolResult
+                yield ToolResultEvent(cast(ToolResult, event))
+            else:
+                # It's a streaming chunk
+                yield ToolStreamEvent(tool_use, event)
