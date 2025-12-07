@@ -222,10 +222,13 @@ class BedrockModel(Model):
             )
             system_blocks.append({"cachePoint": {"type": cache_prompt}})
 
+        # Format system blocks (returns empty list if no system blocks provided)
+        formatted_system_blocks = self._format_bedrock_system_blocks(system_blocks)
+
         return {
             "modelId": self.config["model_id"],
             "messages": self._format_bedrock_messages(messages),
-            "system": system_blocks,
+            "system": formatted_system_blocks,
             **(
                 {
                     "toolConfig": {
@@ -294,6 +297,31 @@ class BedrockModel(Model):
                 else {}
             ),
         }
+
+    def _format_bedrock_system_blocks(self, system_blocks: list[SystemContentBlock] | None) -> list[dict[str, Any]]:
+        """Format system content blocks for Bedrock API compatibility.
+
+        Similar to _format_bedrock_messages, this ensures system blocks conform to
+        Bedrock's strict validation requirements by eagerly filtering content blocks
+        to only include Bedrock-supported fields.
+
+        Args:
+            system_blocks: List of system content blocks to format
+
+        Returns:
+            Formatted system blocks for Bedrock API compatibility (empty list if no blocks)
+        """
+        if not system_blocks:
+            return []
+
+        cleaned_blocks: list[dict[str, Any]] = []
+
+        for block in system_blocks:
+            # Format the system block using the same logic as message content blocks
+            formatted_block = self._format_request_message_content(cast(ContentBlock, block))
+            cleaned_blocks.append(formatted_block)
+
+        return cleaned_blocks
 
     def _format_bedrock_messages(self, messages: Messages) -> list[dict[str, Any]]:
         """Format messages for Bedrock API compatibility.
