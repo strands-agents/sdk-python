@@ -49,15 +49,24 @@ class ToolExecutor(abc.ABC):
         invocation_state: dict[str, Any],
     ) -> tuple[BeforeToolCallEvent | BidiBeforeToolCallEvent, list[Interrupt]]:
         """Invoke the appropriate before tool call hook based on agent type."""
-        event_cls = BeforeToolCallEvent if ToolExecutor._is_agent(agent) else BidiBeforeToolCallEvent
-        return await agent.hooks.invoke_callbacks_async(
-            event_cls(
-                agent=agent,
-                selected_tool=tool_func,
-                tool_use=tool_use,
-                invocation_state=invocation_state,
+        if ToolExecutor._is_agent(agent):
+            return await agent.hooks.invoke_callbacks_async(
+                BeforeToolCallEvent(
+                    agent=cast("Agent", agent),
+                    selected_tool=tool_func,
+                    tool_use=tool_use,
+                    invocation_state=invocation_state,
+                )
             )
-        )
+        else:
+            return await agent.hooks.invoke_callbacks_async(
+                BidiBeforeToolCallEvent(
+                    agent=cast("BidiAgent", agent),
+                    selected_tool=tool_func,
+                    tool_use=tool_use,
+                    invocation_state=invocation_state,
+                )
+            )
 
     @staticmethod
     async def _invoke_after_tool_call_hook(
@@ -70,18 +79,30 @@ class ToolExecutor(abc.ABC):
         cancel_message: str | None = None,
     ) -> tuple[AfterToolCallEvent | BidiAfterToolCallEvent, list[Interrupt]]:
         """Invoke the appropriate after tool call hook based on agent type."""
-        event_cls = AfterToolCallEvent if ToolExecutor._is_agent(agent) else BidiAfterToolCallEvent
-        return await agent.hooks.invoke_callbacks_async(
-            event_cls(
-                agent=agent,
-                selected_tool=selected_tool,
-                tool_use=tool_use,
-                invocation_state=invocation_state,
-                result=result,
-                exception=exception,
-                cancel_message=cancel_message,
+        if ToolExecutor._is_agent(agent):
+            return await agent.hooks.invoke_callbacks_async(
+                AfterToolCallEvent(
+                    agent=cast("Agent", agent),
+                    selected_tool=selected_tool,
+                    tool_use=tool_use,
+                    invocation_state=invocation_state,
+                    result=result,
+                    exception=exception,
+                    cancel_message=cancel_message,
+                )
             )
-        )
+        else:
+            return await agent.hooks.invoke_callbacks_async(
+                BidiAfterToolCallEvent(
+                    agent=cast("BidiAgent", agent),
+                    selected_tool=selected_tool,
+                    tool_use=tool_use,
+                    invocation_state=invocation_state,
+                    result=result,
+                    exception=exception,
+                    cancel_message=cancel_message,
+                )
+            )
 
     @staticmethod
     async def _stream(
@@ -247,7 +268,7 @@ class ToolExecutor(abc.ABC):
 
     @staticmethod
     async def _stream_with_trace(
-        agent: "Agent | BidiAgent",
+        agent: "Agent",
         tool_use: ToolUse,
         tool_results: list[ToolResult],
         cycle_trace: Trace,
@@ -259,7 +280,7 @@ class ToolExecutor(abc.ABC):
         """Execute tool with tracing and metrics collection.
 
         Args:
-            agent: The agent (Agent or BidiAgent) for which the tool is being executed.
+            agent: The agent for which the tool is being executed.
             tool_use: Metadata and inputs for the tool to be executed.
             tool_results: List of tool results from each tool execution.
             cycle_trace: Trace object for the current event loop cycle.
@@ -308,7 +329,7 @@ class ToolExecutor(abc.ABC):
     # pragma: no cover
     def _execute(
         self,
-        agent: "Agent | BidiAgent",
+        agent: "Agent",
         tool_uses: list[ToolUse],
         tool_results: list[ToolResult],
         cycle_trace: Trace,

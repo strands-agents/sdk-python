@@ -42,7 +42,7 @@ async def test_bidi_text_io_input(prompt_session, text_input):
         (BidiInterruptionEvent(reason="user_speech"), "interrupted"),
         (BidiTranscriptStreamEvent(text="test text", delta="", is_final=False, role="user"), "Preview: test text"),
         (BidiTranscriptStreamEvent(text="test text", delta="", is_final=True, role="user"), "test text"),
-    ]
+    ],
 )
 @pytest.mark.asyncio
 async def test_bidi_text_io_output(event, exp_print, text_output, capsys):

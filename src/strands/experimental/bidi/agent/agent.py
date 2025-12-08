@@ -32,7 +32,6 @@ from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from ...tools import ToolProvider
 from .._async import stop_all
 from ..models.model import BidiModel
-from ..models.nova_sonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
 from ..types.events import (
     BidiAudioInputEvent,
@@ -100,13 +99,13 @@ class BidiAgent:
             ValueError: If model configuration is invalid or state is invalid type.
             TypeError: If model type is unsupported.
         """
-        self.model = (
-            BidiNovaSonicModel()
-            if not model
-            else BidiNovaSonicModel(model_id=model)
-            if isinstance(model, str)
-            else model
-        )
+        if isinstance(model, BidiModel):
+            self.model = model
+        else:
+            from ..models.nova_sonic import BidiNovaSonicModel
+
+            self.model = BidiNovaSonicModel(model_id=model) if isinstance(model, str) else BidiNovaSonicModel()
+
         self.system_prompt = system_prompt
         self.messages = messages or []
 
@@ -390,9 +389,16 @@ class BidiAgent:
             for start in [*input_starts, *output_starts]:
                 await start(self)
 
-            async with asyncio.TaskGroup() as task_group:
-                inputs_task = task_group.create_task(run_inputs())
-                task_group.create_task(run_outputs(inputs_task))
+            inputs_task = asyncio.create_task(run_inputs())
+            outputs_task = asyncio.create_task(run_outputs(inputs_task))
+
+            try:
+                await asyncio.gather(inputs_task, outputs_task)
+            except (Exception, asyncio.CancelledError):
+                inputs_task.cancel()
+                outputs_task.cancel()
+                await asyncio.gather(inputs_task, outputs_task, return_exceptions=True)
+                raise
 
         finally:
             input_stops = [input_.stop for input_ in inputs if isinstance(input_, BidiInput)]
