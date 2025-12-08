@@ -878,8 +878,10 @@ class Swarm(MultiAgentBase):
 
             # Stream agent events with node context and capture final result
             result = None
+            # Use agent's own model if it has one, otherwise use swarm-level model
+            effective_output_model = node.executor._default_structured_output_model or structured_output_model
             async for event in node.executor.stream_async(
-                node_input, invocation_state=invocation_state, structured_output_model=structured_output_model
+                node_input, invocation_state=invocation_state, structured_output_model=effective_output_model
             ):
                 # Forward agent events with node context
                 wrapped_event = MultiAgentNodeStreamEvent(node_name, event)

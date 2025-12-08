@@ -31,6 +31,7 @@ def create_mock_agent(name, response_text="Default response", metrics=None, agen
     agent._call_count = 0
     agent._should_fail = should_fail
     agent._session_manager = None
+    agent._default_structured_output_model = None
     agent.hooks = HookRegistry()
 
     if metrics is None:

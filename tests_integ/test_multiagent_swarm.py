@@ -1,5 +1,7 @@
+from typing import Literal
 from uuid import uuid4
 
+from pydantic import BaseModel
 import pytest
 
 from strands import Agent, tool
@@ -355,6 +357,95 @@ async def test_swarm_get_agent_results_flattening():
         assert len(agent_results) == 1
         assert isinstance(agent_results[0], AgentResult)
         assert agent_results[0].message is not None
+
+
+@pytest.mark.asyncio
+async def test_swarm_structured_output_with_handoffs():
+    """Test that swarm properly handles structured output from each agent during handoffs."""
+
+
+    # Coordinator's analysis model
+    class CoordinatorAnalysis(BaseModel):
+        request_type: Literal["technical", "billing", "general"]
+        complexity: Literal["simple", "moderate", "complex"]
+        summary: str
+
+    # Technical agent's response model
+    class TechnicalResponse(BaseModel):
+        issue_type: str
+        severity: Literal["low", "medium", "high", "critical"]
+        troubleshooting_steps: list[str]
+        resolution_summary: str
+
+    # Billing agent's response model
+    class BillingResponse(BaseModel):
+        issue_type: str
+        refund_eligible: bool
+        resolution_action: str
+
+    # Coordinator agent that routes to specialists
+    coordinator = Agent(
+        name="coordinator",
+        model="us.amazon.nova-pro-v1:0",
+        system_prompt=(
+            "You are a customer support coordinator. Analyze the request and:\n"
+            "- For technical issues (bugs, crashes, performance), hand off to 'technical_support'\n"
+            "- For billing issues (charges, refunds), hand off to 'billing_support'\n"
+            "- You MUST use handoff_to_agent for technical or billing issues."
+        ),
+        structured_output_model=CoordinatorAnalysis,
+    )
+
+    # Technical specialist
+    technical_agent = Agent(
+        name="technical_support",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are technical support. Diagnose the issue and provide resolution steps.",
+        structured_output_model=TechnicalResponse,
+    )
+
+    # Billing specialist
+    billing_agent = Agent(
+        name="billing_support",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are billing support. Analyze billing issues and determine resolution.",
+        structured_output_model=BillingResponse,
+    )
+
+    swarm = Swarm(
+        nodes=[coordinator, technical_agent, billing_agent],
+        entry_point=coordinator,
+        max_handoffs=5,
+        max_iterations=5,
+    )
+
+    # Test: Technical query should hand off to technical_support
+    technical_query = "My application keeps crashing when I upload files larger than 100MB"
+    result = await swarm.invoke_async(technical_query)
+
+    # Verify completion
+    assert result.status.value in ["completed", "failed"]
+
+    if result.status.value == "completed":
+        # Verify coordinator was executed
+        assert "coordinator" in result.results
+        coordinator_result = result.results["coordinator"]
+        assert coordinator_result.result.structured_output is not None
+        assert isinstance(coordinator_result.result.structured_output, CoordinatorAnalysis)
+        assert coordinator_result.result.structured_output.request_type == "technical"
+
+        # Verify handoff occurred and technical agent was executed
+        assert len(result.node_history) >= 2, "Expected at least 2 agents in execution history (coordinator + specialist)"
+        node_ids = [n.node_id for n in result.node_history]
+        assert "coordinator" in node_ids
+        assert "technical_support" in node_ids
+
+        # Verify technical agent's structured output was preserved
+        assert "technical_support" in result.results
+        technical_result = result.results["technical_support"]
+        assert technical_result.result.structured_output is not None
+        assert isinstance(technical_result.result.structured_output, TechnicalResponse)
+        assert len(technical_result.result.structured_output.troubleshooting_steps) > 0
 
 
 def test_swarm_resume_from_executing_state(tmpdir, exit_hook, verify_hook):
