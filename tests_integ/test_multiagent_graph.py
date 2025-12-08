@@ -633,11 +633,9 @@ async def test_graph_structured_output_conditional_routing():
     result = await graph.invoke_async(technical_query)
 
     assert result.status == Status.COMPLETED
-    assert "classifier" in result.results
 
     # Verify classifier's structured output was captured
     classifier_result = result.results["classifier"]
-    assert classifier_result.result.structured_output is not None
     assert isinstance(classifier_result.result.structured_output, ClassificationResult)
     assert classifier_result.result.structured_output.category == "technical"
 
@@ -646,9 +644,8 @@ async def test_graph_structured_output_conditional_routing():
     assert "billing" not in result.results
     assert "general" not in result.results
 
-    # Verify technical agent's own structured output was preserved
+    # Verify technical agent's structured output was generated
     technical_result = result.results["technical"]
-    assert technical_result.result.structured_output is not None
     assert isinstance(technical_result.result.structured_output, TechnicalResponse)
 
 
