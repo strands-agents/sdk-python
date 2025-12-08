@@ -27,7 +27,7 @@ from ....types._events import ModelStreamEvent, ToolUseStreamEvent, TypedEvent
 from ....types.streaming import ContentBlockDelta
 
 if TYPE_CHECKING:
-    from ..models import BidiModelTimeoutError
+    from ..models.model import BidiModelTimeoutError
 
 AudioChannel = Literal[1, 2]
 """Number of audio channels.
