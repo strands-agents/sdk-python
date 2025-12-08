@@ -244,3 +244,32 @@ def test_serialize_node_result_for_persist(agent_result):
     assert "result" in serialized_exception
     assert serialized_exception["result"]["type"] == "exception"
     assert serialized_exception["result"]["message"] == "Test error"
+
+
+@pytest.mark.asyncio
+async def test_multi_agent_base_stream_async_default_implementation():
+    """Test the default stream_async implementation in MultiAgentBase."""
+
+    class TestMultiAgent(MultiAgentBase):
+        async def invoke_async(self, task, invocation_state=None, structured_output_model=None, **kwargs):
+            return MultiAgentResult(
+                status=Status.COMPLETED,
+                results={"test": NodeResult(result=Exception("test"), status=Status.COMPLETED)},
+            )
+
+        def serialize_state(self) -> dict:
+            return {}
+
+        def deserialize_state(self, payload: dict) -> None:
+            pass
+
+    agent = TestMultiAgent()
+
+    events = []
+    async for event in agent.stream_async("test task"):
+        events.append(event)
+
+    assert len(events) == 1
+    assert "result" in events[0]
+    assert isinstance(events[0]["result"], MultiAgentResult)
+    assert events[0]["result"].status == Status.COMPLETED
