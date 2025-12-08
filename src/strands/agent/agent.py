@@ -543,7 +543,7 @@ class Agent:
 
         Yields:
             An async iterator that yields events. Each event is a dictionary containing
-               information about the current state of processing, such as:
+                information about the current state of processing, such as:
 
                 - data: Text content being generated
                 - complete: Whether this is the final chunk

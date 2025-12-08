@@ -17,10 +17,9 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from typing_extensions import TypedDict, cast
 
-from strands.tools.decorator import DecoratedFunctionTool
-
 from .._async import run_async
 from ..experimental.tools import ToolProvider
+from ..tools.decorator import DecoratedFunctionTool
 from ..types.tools import AgentTool, ToolSpec
 from .loader import load_tool_from_string, load_tools_from_module
 from .tools import PythonAgentTool, normalize_schema, normalize_tool_spec
@@ -49,16 +48,19 @@ class ToolRegistry:
         imported modules, @tool decorated functions, or instances of AgentTool.
 
         Args:
-            tools: List of tool specifications.
-                Can be:
-            1. Local file path to a module based tool: `./path/to/module/tool.py`
-            2. Module import path
-              2.1. Path to a module based tool: `strands_tools.file_read`
-              2.2. Path to a module with multiple AgentTool instances (@tool decorated): `tests.fixtures.say_tool`
-              2.3. Path to a module and a specific function: `tests.fixtures.say_tool:say`
-            3. A module for a module based tool
-            4. Instances of AgentTool (@tool decorated functions)
-            5. Dictionaries with name/path keys (deprecated)
+            tools: List of tool specifications. Can be:
+
+                1. Local file path to a module based tool: `./path/to/module/tool.py`
+                2. Module import path
+
+                    2.1. Path to a module based tool: `strands_tools.file_read`
+                    2.2. Path to a module with multiple AgentTool instances (@tool decorated):
+                        `tests.fixtures.say_tool`
+                    2.3. Path to a module and a specific function: `tests.fixtures.say_tool:say`
+
+                3. A module for a module based tool
+                4. Instances of AgentTool (@tool decorated functions)
+                5. Dictionaries with name/path keys (deprecated)
 
 
         Returns:
