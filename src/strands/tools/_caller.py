@@ -9,7 +9,7 @@ Example:
 
 import json
 import random
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable
 
 from .._async import run_async
 from ..tools.executors._executor import ToolExecutor
@@ -106,9 +106,11 @@ class _ToolCaller:
 
             tool_result = run_async(acall)
 
-            # Apply conversation management if agent supports it (traditional agents)
-            if hasattr(self._agent, "conversation_manager"):
-                self._agent.conversation_manager.apply_management(cast("Agent", self._agent))
+            # TODO: https://github.com/strands-agents/sdk-python/issues/1311
+            from ..agent import Agent
+
+            if isinstance(self._agent, Agent):
+                self._agent.conversation_manager.apply_management(self._agent)
 
             return tool_result
 
