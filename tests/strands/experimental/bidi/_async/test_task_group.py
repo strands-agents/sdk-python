@@ -25,7 +25,7 @@ async def test_task_group__aexit__exception():
     async def fail():
         raise ValueError("test error")
 
-    with pytest.raises(ValueError, match="test error"):
+    with pytest.raises(ValueError, match=r"test error"):
         async with _TaskGroup() as task_group:
             wait_task = task_group.create_task(wait())
             fail_task = task_group.create_task(fail())
