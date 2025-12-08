@@ -422,31 +422,15 @@ async def test_swarm_structured_output_with_handoffs():
     technical_query = "My application keeps crashing when I upload files larger than 100MB"
     result = await swarm.invoke_async(technical_query)
 
-    # Verify completion
-    assert result.status.value in ["completed", "failed"]
+    # Verify coordinator was executed
+    coordinator_result = result.results["coordinator"]
+    assert coordinator_result.result.structured_output is not None
+    assert isinstance(coordinator_result.result.structured_output, CoordinatorAnalysis)
+    assert coordinator_result.result.structured_output.request_type == "technical"
 
-    if result.status.value == "completed":
-        # Verify coordinator was executed
-        assert "coordinator" in result.results
-        coordinator_result = result.results["coordinator"]
-        assert coordinator_result.result.structured_output is not None
-        assert isinstance(coordinator_result.result.structured_output, CoordinatorAnalysis)
-        assert coordinator_result.result.structured_output.request_type == "technical"
-
-        # Verify handoff occurred and technical agent was executed
-        assert len(result.node_history) >= 2, (
-            "Expected at least 2 agents in execution history (coordinator + specialist)"
-        )
-        node_ids = [n.node_id for n in result.node_history]
-        assert "coordinator" in node_ids
-        assert "technical_support" in node_ids
-
-        # Verify technical agent's structured output was preserved
-        assert "technical_support" in result.results
-        technical_result = result.results["technical_support"]
-        assert technical_result.result.structured_output is not None
-        assert isinstance(technical_result.result.structured_output, TechnicalResponse)
-        assert len(technical_result.result.structured_output.troubleshooting_steps) > 0
+    # Verify technical agent was invoked and structured output was created 
+    technical_result = result.results["technical_support"]
+    assert isinstance(technical_result.result.structured_output, TechnicalResponse)
 
 
 def test_swarm_resume_from_executing_state(tmpdir, exit_hook, verify_hook):
