@@ -53,13 +53,8 @@ class _InterruptState:
     context: dict[str, Any] = field(default_factory=dict)
     activated: bool = False
 
-    def activate(self, context: dict[str, Any] | None = None) -> None:
-        """Activate the interrupt state.
-
-        Args:
-            context: Context associated with the interrupt event.
-        """
-        self.context = context or {}
+    def activate(self) -> None:
+        """Activate the interrupt state."""
         self.activated = True
 
     def deactivate(self) -> None:
@@ -103,6 +98,8 @@ class _InterruptState:
                 raise KeyError(f"interrupt_id=<{interrupt_id}> | no interrupt found")
 
             self.interrupts[interrupt_id].response = interrupt_response
+
+        self.context["responses"] = contents
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dict for session management."""
