@@ -16,7 +16,7 @@ from aws_sdk_bedrock_runtime.models import ModelTimeoutException, ValidationExce
 from strands.experimental.bidi.models.nova_sonic import (
     BidiNovaSonicModel,
 )
-from strands.experimental.bidi.errors import BidiModelTimeoutError
+from strands.experimental.bidi.models import BidiModelTimeoutError
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,

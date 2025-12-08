@@ -20,7 +20,7 @@ from ...hooks.events import (
     BidiInterruptionEvent as BidiInterruptionHookEvent,
 )
 from .._async import _TaskPool, stop_all
-from ..errors import BidiModelTimeoutError
+from ..models import BidiModelTimeoutError
 from ..types.events import (
     BidiConnectionCloseEvent,
     BidiConnectionRestartEvent,

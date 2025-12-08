@@ -14,7 +14,7 @@ from ...types.tools import AgentTool, ToolResult, ToolUse
 
 if TYPE_CHECKING:
     from ..bidi.agent.agent import BidiAgent
-    from ..bidi.errors import BidiModelTimeoutError
+    from ..bidi.models import BidiModelTimeoutError
 
 warnings.warn(
     "BeforeModelCallEvent, AfterModelCallEvent, BeforeToolCallEvent, and AfterToolCallEvent are no longer experimental."

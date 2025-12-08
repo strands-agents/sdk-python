@@ -2,7 +2,6 @@
 
 from typing import Awaitable, Callable
 
-from ..errors import BidiExceptionChain
 from ._task_group import _TaskGroup
 from ._task_pool import _TaskPool
 
@@ -18,14 +17,14 @@ async def stop_all(*funcs: Callable[..., Awaitable[None]]) -> None:
         funcs: Stop functions to call in sequence.
 
     Raises:
-        BidiExceptionChain: If any stop function raises an exception.
+        RuntimeError: If any stop function raises an exception.
     """
     exceptions = []
     for func in funcs:
         try:
             await func()
         except Exception as exception:
-            exceptions.append(exception)
+            exceptions.append({"func_name": func.__name__, "exception": repr(exception)})
 
     if exceptions:
-        raise BidiExceptionChain("failed stop sequence", exceptions)
+        raise RuntimeError(f"exceptions={exceptions} | failed stop sequence")

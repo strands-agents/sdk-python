@@ -1,4 +1,3 @@
-import traceback
 from unittest.mock import AsyncMock
 
 import pytest
@@ -21,9 +20,9 @@ async def test_stop_exception():
     func3.assert_called_once()
     func4.assert_called_once()
 
-    tru_tb = "".join(traceback.format_exception(Exception, exc_info.value, exc_info.tb))
-    assert "ValueError: stop 2 failed" in tru_tb
-    assert "ValueError: stop 4 failed" in tru_tb
+    tru_message = str(exc_info.value)
+    assert "ValueError('stop 2 failed')" in tru_message
+    assert "ValueError('stop 4 failed')" in tru_message
 
 
 @pytest.mark.asyncio
