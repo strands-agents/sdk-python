@@ -10,7 +10,7 @@ from typing import Any, Coroutine
 
 
 class _TaskGroup:
-    """Implementation of asyncio.TaskGroup for use in Python 3.10.
+    """Shim of asyncio.TaskGroup for use in Python 3.10.
 
     Attributes:
         _tasks: List of tasks in group.
