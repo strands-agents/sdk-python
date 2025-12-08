@@ -131,7 +131,9 @@ def test_audio_config_defaults(api_key, model_name):
 def test_audio_config_partial_override(api_key, model_name):
     """Test partial audio configuration override."""
     provider_config = {"audio": {"output_rate": 48000, "voice": "echo"}}
-    model = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config)
+    model = BidiOpenAIRealtimeModel(
+        model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config
+    )
 
     # Overridden values
     assert model.config["audio"]["output_rate"] == 48000
@@ -154,7 +156,9 @@ def test_audio_config_full_override(api_key, model_name):
             "voice": "shimmer",
         }
     }
-    model = BidiOpenAIRealtimeModel(model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config)
+    model = BidiOpenAIRealtimeModel(
+        model_id=model_name, client_config={"api_key": api_key}, provider_config=provider_config
+    )
 
     assert model.config["audio"]["input_rate"] == 48000
     assert model.config["audio"]["output_rate"] == 48000
@@ -510,7 +514,7 @@ async def test_receive_lifecycle_events(mock_websocket, model):
             format="pcm",
             sample_rate=24000,
             channels=1,
-        )
+        ),
     ]
     assert tru_events == exp_events
 

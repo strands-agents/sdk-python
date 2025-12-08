@@ -28,15 +28,14 @@ def test_bidi_agent_tool_direct_call(agent):
         "toolUseId": unittest.mock.ANY,
     }
     assert tru_result == exp_result
-    
+
     tru_messages = agent.messages
     exp_messages = [
         {
             "content": [
                 {
                     "text": (
-                        "agent.tool.weather_tool direct tool call.\n"
-                        'Input parameters: {"city_name": "new york"}\n'
+                        'agent.tool.weather_tool direct tool call.\nInput parameters: {"city_name": "new york"}\n'
                     ),
                 },
             ],
