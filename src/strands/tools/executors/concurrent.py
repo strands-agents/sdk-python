@@ -12,7 +12,6 @@ from ._executor import ToolExecutor
 
 if TYPE_CHECKING:  # pragma: no cover
     from ...agent import Agent
-    from ...experimental.bidi import BidiAgent
     from ..structured_output._structured_output_context import StructuredOutputContext
 
 
@@ -22,7 +21,7 @@ class ConcurrentToolExecutor(ToolExecutor):
     @override
     async def _execute(
         self,
-        agent: "Agent | BidiAgent",
+        agent: "Agent",
         tool_uses: list[ToolUse],
         tool_results: list[ToolResult],
         cycle_trace: Trace,
@@ -33,7 +32,7 @@ class ConcurrentToolExecutor(ToolExecutor):
         """Execute tools concurrently.
 
         Args:
-            agent: The agent (Agent or BidiAgent) for which tools are being executed.
+            agent: The agent for which tools are being executed.
             tool_uses: Metadata and inputs for the tools to be executed.
             tool_results: List of tool results from each tool execution.
             cycle_trace: Trace object for the current event loop cycle.
@@ -79,7 +78,7 @@ class ConcurrentToolExecutor(ToolExecutor):
 
     async def _task(
         self,
-        agent: "Agent | BidiAgent",
+        agent: "Agent",
         tool_use: ToolUse,
         tool_results: list[ToolResult],
         cycle_trace: Trace,
@@ -94,7 +93,7 @@ class ConcurrentToolExecutor(ToolExecutor):
         """Execute a single tool and put results in the task queue.
 
         Args:
-            agent: The agent (Agent or BidiAgent) executing the tool.
+            agent: The agent executing the tool.
             tool_use: Tool use metadata and inputs.
             tool_results: List of tool results from each tool execution.
             cycle_trace: Trace object for the current event loop cycle.
