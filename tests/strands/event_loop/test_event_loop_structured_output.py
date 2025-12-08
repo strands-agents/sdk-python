@@ -40,6 +40,7 @@ def mock_agent():
     agent.hooks = Mock()
     agent.hooks.invoke_callbacks_async = AsyncMock()
     agent.trace_span = None
+    agent.trace_attributes = {}
     agent.tool_executor = Mock()
     agent._append_message = AsyncMock()
 

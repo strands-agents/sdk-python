@@ -688,3 +688,38 @@ def test_call_tool_sync_embedded_unknown_resource_type_dropped(mock_transport, m
         mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None)
         assert result["status"] == "success"
         assert len(result["content"]) == 0  # Unknown resource type should be dropped
+
+
+@pytest.mark.asyncio
+async def test_handle_error_message_non_fatal_error():
+    """Test that _handle_error_message ignores non-fatal errors and logs them."""
+    client = MCPClient(MagicMock())
+
+    # Test the message handler directly with a non-fatal error
+    with patch.object(client, "_log_debug_with_thread") as mock_log:
+        # This should not raise an exception
+        await client._handle_error_message(Exception("unknown request id: abc123"))
+
+        # Verify the non-fatal error was logged as ignored
+        assert mock_log.called
+        call_args = mock_log.call_args[0]
+        assert "ignoring non-fatal MCP session error" in call_args[0]
+
+
+@pytest.mark.asyncio
+async def test_handle_error_message_fatal_error():
+    """Test that _handle_error_message raises fatal errors."""
+    client = MCPClient(MagicMock())
+
+    # This should raise the exception
+    with pytest.raises(Exception, match="connection timeout"):
+        await client._handle_error_message(Exception("connection timeout"))
+
+
+@pytest.mark.asyncio
+async def test_handle_error_message_non_exception():
+    """Test that _handle_error_message handles non-exception messages."""
+    client = MCPClient(MagicMock())
+
+    # This should not raise an exception
+    await client._handle_error_message("normal message")

@@ -8,12 +8,13 @@ import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, AsyncIterator, Union
+from typing import Any, AsyncIterator, Mapping, Union
 
 from .._async import run_async
 from ..agent import AgentResult
 from ..types.event_loop import Metrics, Usage
 from ..types.multiagent import MultiAgentInput
+from ..types.traces import AttributeValue
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +238,18 @@ class MultiAgentBase(ABC):
     def deserialize_state(self, payload: dict[str, Any]) -> None:
         """Restore orchestrator state from a session dict."""
         raise NotImplementedError
+
+    def _parse_trace_attributes(
+        self, attributes: Mapping[str, AttributeValue] | None = None
+    ) -> dict[str, AttributeValue]:
+        trace_attributes: dict[str, AttributeValue] = {}
+        if attributes:
+            for k, v in attributes.items():
+                if isinstance(v, (str, int, float, bool)) or (
+                    isinstance(v, list) and all(isinstance(x, (str, int, float, bool)) for x in v)
+                ):
+                    trace_attributes[k] = v
+        return trace_attributes
 
 
 # Private helper function to avoid duplicate code

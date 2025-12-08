@@ -133,7 +133,10 @@ async def event_loop_cycle(
     # Create tracer span for this event loop cycle
     tracer = get_tracer()
     cycle_span = tracer.start_event_loop_cycle_span(
-        invocation_state=invocation_state, messages=agent.messages, parent_span=agent.trace_span
+        invocation_state=invocation_state,
+        messages=agent.messages,
+        parent_span=agent.trace_span,
+        custom_trace_attributes=agent.trace_attributes,
     )
     invocation_state["event_loop_cycle_span"] = cycle_span
 
@@ -320,6 +323,7 @@ async def _handle_model_execution(
             messages=agent.messages,
             parent_span=cycle_span,
             model_id=model_id,
+            custom_trace_attributes=agent.trace_attributes,
         )
         with trace_api.use_span(model_invoke_span):
             await agent.hooks.invoke_callbacks_async(

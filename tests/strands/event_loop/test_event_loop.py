@@ -6,6 +6,7 @@ import pytest
 
 import strands
 import strands.telemetry
+from strands import Agent
 from strands.hooks import (
     AfterModelCallEvent,
     BeforeModelCallEvent,
@@ -133,6 +134,7 @@ def tool_executor():
 @pytest.fixture
 def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_registry, tool_executor):
     mock = unittest.mock.Mock(name="agent")
+    mock.__class__ = Agent
     mock.config.cache_points = []
     mock.model = model
     mock.system_prompt = system_prompt
@@ -143,6 +145,7 @@ def agent(model, system_prompt, messages, tool_registry, thread_pool, hook_regis
     mock.hooks = hook_registry
     mock.tool_executor = tool_executor
     mock._interrupt_state = _InterruptState()
+    mock.trace_attributes = {}
 
     return mock
 
@@ -738,7 +741,10 @@ async def test_event_loop_cycle_with_parent_span(
 
     # Verify parent_span was used when creating cycle span
     mock_tracer.start_event_loop_cycle_span.assert_called_once_with(
-        invocation_state=unittest.mock.ANY, parent_span=parent_span, messages=messages
+        invocation_state=unittest.mock.ANY,
+        parent_span=parent_span,
+        messages=messages,
+        custom_trace_attributes=unittest.mock.ANY,
     )
 
 

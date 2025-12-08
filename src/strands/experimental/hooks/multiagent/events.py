@@ -35,11 +35,18 @@ class BeforeNodeCallEvent(BaseHookEvent):
         source: The multi-agent orchestrator instance
         node_id: ID of the node about to execute
         invocation_state: Configuration that user passes in
+        cancel_node: A user defined message that when set, will cancel the node execution with status FAILED.
+            The message will be emitted under a MultiAgentNodeCancel event. If set to `True`, Strands will cancel the
+            node using a default cancel message.
     """
 
     source: "MultiAgentBase"
     node_id: str
     invocation_state: dict[str, Any] | None = None
+    cancel_node: bool | str = False
+
+    def _can_write(self, name: str) -> bool:
+        return name in ["cancel_node"]
 
 
 @dataclass
