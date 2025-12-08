@@ -18,7 +18,7 @@ async def stop_all(*funcs: Callable[..., Awaitable[None]]) -> None:
         funcs: Stop functions to call in sequence.
 
     Raises:
-        RuntimeError: If any stop function raises an exception.
+        BidiExceptionChain: If any stop function raises an exception.
     """
     exceptions = []
     for func in funcs:

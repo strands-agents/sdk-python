@@ -1,4 +1,4 @@
-"""Custom bidi exceptions."""
+"""Custom bidi error classes."""
 from typing import Any
 
 
