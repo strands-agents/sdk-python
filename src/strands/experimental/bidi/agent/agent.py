@@ -30,7 +30,7 @@ from ....types.content import Message, Messages
 from ....types.tools import AgentTool
 from ...hooks.events import BidiAgentInitializedEvent, BidiMessageAddedEvent
 from ...tools import ToolProvider
-from .._async import stop_all
+from .._async import _TaskGroup, stop_all
 from ..models.model import BidiModel
 from ..models.nova_sonic import BidiNovaSonicModel
 from ..types.agent import BidiAgentInput
@@ -390,22 +390,9 @@ class BidiAgent:
             for start in [*input_starts, *output_starts]:
                 await start(self)
 
-            inputs_task = asyncio.create_task(run_inputs())
-            outputs_task = asyncio.create_task(run_outputs(inputs_task))
-
-            try:
-                await asyncio.gather(inputs_task, outputs_task)
-            except (Exception, asyncio.CancelledError) as error:
-                inputs_task.cancel()
-                outputs_task.cancel()
-                await asyncio.gather(inputs_task, outputs_task, return_exceptions=True)
-
-                if not isinstance(error, asyncio.CancelledError):
-                    raise
-
-                run_task = asyncio.current_task()
-                if run_task and run_task.cancelling() > 0:  # externally cancelled
-                    raise
+            async with _TaskGroup() as task_group:
+                inputs_task = task_group.create_task(run_inputs())
+                task_group.create_task(run_outputs(inputs_task))
 
         finally:
             input_stops = [input_.stop for input_ in inputs if isinstance(input_, BidiInput)]

@@ -2,9 +2,10 @@
 
 from typing import Awaitable, Callable
 
+from ._task_group import _TaskGroup
 from ._task_pool import _TaskPool
 
-__all__ = ["_TaskPool"]
+__all__ = ["_TaskGroup", "_TaskPool"]
 
 
 async def stop_all(*funcs: Callable[..., Awaitable[None]]) -> None:
@@ -28,6 +29,6 @@ async def stop_all(*funcs: Callable[..., Awaitable[None]]) -> None:
     if exceptions:
         exceptions.append(RuntimeError("failed stop sequence"))
         for i in range(1, len(exceptions)):
-            exceptions[i].__cause__ = exceptions[i - 1]
+            exceptions[i].__context__ = exceptions[i - 1]
 
         raise exceptions[-1]
