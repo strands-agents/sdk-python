@@ -23,7 +23,7 @@ from .._async import run_async
 from ..experimental.tools import ToolProvider
 from ..types.tools import AgentTool, ToolSpec
 from .loader import load_tool_from_string, load_tools_from_module
-from .tools import COMPOSITION_KEYWORDS, PythonAgentTool, normalize_schema, normalize_tool_spec
+from .tools import _COMPOSITION_KEYWORDS, PythonAgentTool, normalize_schema, normalize_tool_spec
 
 logger = logging.getLogger(__name__)
 
@@ -602,7 +602,7 @@ class ToolRegistry:
             if "$ref" in prop_def:
                 continue
 
-            has_composition = any(kw in prop_def for kw in COMPOSITION_KEYWORDS)
+            has_composition = any(kw in prop_def for kw in _COMPOSITION_KEYWORDS)
             if "type" not in prop_def and not has_composition:
                 prop_def["type"] = "string"
             if "description" not in prop_def:
