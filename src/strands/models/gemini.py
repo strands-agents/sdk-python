@@ -222,19 +222,9 @@ class GeminiModel(Model):
         Returns:
             Gemini request config.
         """
-        # Disable thinking text output when tools are present
-        # Note: Setting include_thoughts=False prevents thinking text in responses but
-        # Gemini still returns thought_signature for function calls. As of Strands v1.18+,
-        # the framework properly preserves this field through the message history.
-        # See: https://ai.google.dev/gemini-api/docs/thought-signatures
-        thinking_config = None
-        if tool_specs:
-            thinking_config = genai.types.ThinkingConfig(include_thoughts=False)
-
         return genai.types.GenerateContentConfig(
             system_instruction=system_prompt,
             tools=self._format_request_tools(tool_specs),
-            thinking_config=thinking_config,
             **(params or {}),
         )
 
