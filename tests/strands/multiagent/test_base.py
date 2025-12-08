@@ -142,7 +142,9 @@ def test_multi_agent_base_abstract_behavior():
 
     # Test that complete implementations can be instantiated
     class CompleteMultiAgent(MultiAgentBase):
-        async def invoke_async(self, task: str) -> MultiAgentResult:
+        async def invoke_async(
+            self, task: str, invocation_state=None, structured_output_model=None
+        ) -> MultiAgentResult:
             return MultiAgentResult(results={})
 
         def serialize_state(self) -> dict:
@@ -164,12 +166,14 @@ def test_multi_agent_base_call_method():
             self.invoke_async_called = False
             self.received_task = None
             self.received_kwargs = None
+            self.received_structured_output_model = None
 
-        async def invoke_async(self, task, invocation_state, **kwargs):
+        async def invoke_async(self, task, invocation_state, structured_output_model=None, **kwargs):
             self.invoke_async_called = True
             self.received_task = task
             self.received_kwargs = kwargs
             self.received_invocation_state = invocation_state
+            self.received_structured_output_model = structured_output_model
             return MultiAgentResult(
                 status=Status.COMPLETED, results={"test": NodeResult(result=Exception("test"), status=Status.COMPLETED)}
             )
@@ -188,6 +192,7 @@ def test_multi_agent_base_call_method():
     assert agent.invoke_async_called
     assert agent.received_task == "test task"
     assert agent.received_invocation_state == {"param1": "value1", "param2": "value2", "value3": "value4"}
+    assert agent.received_structured_output_model is None
     assert isinstance(result, MultiAgentResult)
     assert result.status == Status.COMPLETED
 

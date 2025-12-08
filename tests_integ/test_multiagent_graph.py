@@ -1,8 +1,9 @@
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Literal
 from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
+from pydantic import BaseModel
 
 from strands import Agent, tool
 from strands.hooks import (
@@ -531,6 +532,124 @@ async def test_graph_interrupt_and_resume():
 
     # Clean up
     session_manager.delete_session(session_id)
+
+
+@pytest.mark.asyncio
+async def test_graph_structured_output_conditional_routing():
+    """Test conditional edge traversal based on structured output from a node."""
+
+    # Classifier's structured output for routing decisions
+    class ClassificationResult(BaseModel):
+        category: Literal["technical", "billing", "general"]
+        confidence: float
+        reasoning: str
+
+    # Specialist agents have their own structured output models
+    class TechnicalResponse(BaseModel):
+        issue_type: str
+        resolution: str
+
+    class BillingResponse(BaseModel):
+        issue_type: str
+        refund_eligible: bool
+
+    class GeneralResponse(BaseModel):
+        answer: str
+
+    # Classifier agent uses ClassificationResult for routing
+    classifier_agent = Agent(
+        name="classifier",
+        model="us.amazon.nova-pro-v1:0",
+        system_prompt=(
+            "You are a customer support classifier. Classify queries into:\n"
+            "- technical: software issues, bugs, crashes\n"
+            "- billing: payments, charges, refunds\n"
+            "- general: hours, contact info, policies"
+        ),
+        structured_output_model=ClassificationResult,
+    )
+
+    # Specialist agents - each has their OWN structured output model
+    technical_agent = Agent(
+        name="technical_support",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are technical support. Diagnose the issue and provide resolution steps.",
+        structured_output_model=TechnicalResponse,
+    )
+
+    billing_agent = Agent(
+        name="billing_support",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are billing support. Analyze the billing issue and determine refund eligibility.",
+        structured_output_model=BillingResponse,
+    )
+
+    general_agent = Agent(
+        name="general_support",
+        model="us.amazon.nova-lite-v1:0",
+        system_prompt="You are general support. Answer general inquiries helpfully.",
+        structured_output_model=GeneralResponse,
+    )
+
+    # Conditional edge functions that read classifier's structured output
+    def route_to_technical(state):
+        classifier_result = state.results.get("classifier")
+        if classifier_result and classifier_result.result:
+            structured = classifier_result.result.structured_output
+            return structured and structured.category == "technical"
+        return False
+
+    def route_to_billing(state):
+        classifier_result = state.results.get("classifier")
+        if classifier_result and classifier_result.result:
+            structured = classifier_result.result.structured_output
+            return structured and structured.category == "billing"
+        return False
+
+    def route_to_general(state):
+        classifier_result = state.results.get("classifier")
+        if classifier_result and classifier_result.result:
+            structured = classifier_result.result.structured_output
+            return structured and structured.category == "general"
+        return False
+
+    # Build the graph with conditional routing
+    builder = GraphBuilder()
+    builder.add_node(classifier_agent, "classifier")
+    builder.add_node(technical_agent, "technical")
+    builder.add_node(billing_agent, "billing")
+    builder.add_node(general_agent, "general")
+
+    # Conditional edges from classifier to specialists
+    builder.add_edge("classifier", "technical", condition=route_to_technical)
+    builder.add_edge("classifier", "billing", condition=route_to_billing)
+    builder.add_edge("classifier", "general", condition=route_to_general)
+
+    builder.set_entry_point("classifier")
+    graph = builder.build()
+
+    # Test: Technical query should route to technical_support
+    technical_query = "My application keeps crashing when I upload large files"
+    result = await graph.invoke_async(technical_query)
+
+    assert result.status == Status.COMPLETED
+    assert "classifier" in result.results
+
+    # Verify classifier's structured output was captured
+    classifier_result = result.results["classifier"]
+    assert classifier_result.result.structured_output is not None
+    assert isinstance(classifier_result.result.structured_output, ClassificationResult)
+    assert classifier_result.result.structured_output.category == "technical"
+
+    # Verify only technical agent was executed (not billing or general)
+    assert "technical" in result.results
+    assert "billing" not in result.results
+    assert "general" not in result.results
+
+    # Verify technical agent's own structured output was preserved
+    technical_result = result.results["technical"]
+    assert technical_result.result.structured_output is not None
+    assert isinstance(technical_result.result.structured_output, TechnicalResponse)
 
 
 @pytest.mark.asyncio

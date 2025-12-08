@@ -8,7 +8,9 @@ import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, AsyncIterator, Mapping, Union
+from typing import Any, AsyncIterator, Mapping, Type, Union
+
+from pydantic import BaseModel
 
 from .._async import run_async
 from ..agent import AgentResult
@@ -188,7 +190,11 @@ class MultiAgentBase(ABC):
 
     @abstractmethod
     async def invoke_async(
-        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self,
+        task: MultiAgentInput,
+        invocation_state: dict[str, Any] | None = None,
+        structured_output_model: Type[BaseModel] | None = None,
+        **kwargs: Any,
     ) -> MultiAgentResult:
         """Invoke asynchronously.
 
@@ -196,12 +202,18 @@ class MultiAgentBase(ABC):
             task: The task to execute
             invocation_state: Additional state/context passed to underlying agents.
                 Defaults to None to avoid mutable default argument issues.
+            structured_output_model: Pydantic model to use for structured output from nodes.
+                Individual nodes may override this with their own default model.
             **kwargs: Additional keyword arguments passed to underlying agents.
         """
         raise NotImplementedError("invoke_async not implemented")
 
     async def stream_async(
-        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self,
+        task: MultiAgentInput,
+        invocation_state: dict[str, Any] | None = None,
+        structured_output_model: Type[BaseModel] | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[dict[str, Any]]:
         """Stream events during multi-agent execution.
 
@@ -212,6 +224,8 @@ class MultiAgentBase(ABC):
             task: The task to execute
             invocation_state: Additional state/context passed to underlying agents.
                 Defaults to None to avoid mutable default argument issues.
+            structured_output_model: Pydantic model to use for structured output from nodes.
+                Individual nodes may override this with their own default model.
             **kwargs: Additional keyword arguments passed to underlying agents.
 
         Yields:
@@ -222,11 +236,15 @@ class MultiAgentBase(ABC):
         """
         # Default implementation for backward compatibility
         # Execute invoke_async and yield the result as a single event
-        result = await self.invoke_async(task, invocation_state, **kwargs)
+        result = await self.invoke_async(task, invocation_state, structured_output_model, **kwargs)
         yield {"result": result}
 
     def __call__(
-        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self,
+        task: MultiAgentInput,
+        invocation_state: dict[str, Any] | None = None,
+        structured_output_model: Type[BaseModel] | None = None,
+        **kwargs: Any,
     ) -> MultiAgentResult:
         """Invoke synchronously.
 
@@ -234,6 +252,8 @@ class MultiAgentBase(ABC):
             task: The task to execute
             invocation_state: Additional state/context passed to underlying agents.
                 Defaults to None to avoid mutable default argument issues.
+            structured_output_model: Pydantic model to use for structured output from nodes.
+                Individual nodes may override this with their own default model.
             **kwargs: Additional keyword arguments passed to underlying agents.
         """
         if invocation_state is None:
@@ -243,7 +263,7 @@ class MultiAgentBase(ABC):
             invocation_state.update(kwargs)
             warnings.warn("`**kwargs` parameter is deprecating, use `invocation_state` instead.", stacklevel=2)
 
-        return run_async(lambda: self.invoke_async(task, invocation_state))
+        return run_async(lambda: self.invoke_async(task, invocation_state, structured_output_model))
 
     def serialize_state(self) -> dict[str, Any]:
         """Return a JSON-serializable snapshot of the orchestrator state."""

@@ -23,6 +23,7 @@ def create_mock_agent(name, response_text="Default response", metrics=None, agen
     agent.id = agent_id or f"{name}_id"
     agent._session_manager = None
     agent.hooks = HookRegistry()
+    agent._default_structured_output_model = None  # For structured output support
 
     if metrics is None:
         metrics = Mock(
@@ -289,6 +290,7 @@ async def test_graph_execution_with_failures(mock_strands_tracer, mock_use_span)
     # Add required attributes for validation
     failing_agent._session_manager = None
     failing_agent.hooks = HookRegistry()
+    failing_agent._default_structured_output_model = None  # For structured output support
 
     async def mock_invoke_failure(*args, **kwargs):
         raise Exception("Simulated failure")
@@ -1530,6 +1532,7 @@ async def test_graph_streaming_with_failures(mock_strands_tracer, mock_use_span)
     failing_agent.id = "fail_node"
     failing_agent._session_manager = None
     failing_agent.hooks = HookRegistry()
+    failing_agent._default_structured_output_model = None  # For structured output support
 
     async def failing_stream(*args, **kwargs):
         yield {"agent_start": True}
@@ -1703,6 +1706,7 @@ async def test_graph_parallel_with_failures(mock_strands_tracer, mock_use_span):
     failing_agent.id = "fail_node"
     failing_agent._session_manager = None
     failing_agent.hooks = HookRegistry()
+    failing_agent._default_structured_output_model = None  # For structured output support
 
     async def mock_invoke_failure(*args, **kwargs):
         await asyncio.sleep(0.05)  # Small delay

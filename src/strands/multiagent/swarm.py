@@ -19,9 +19,10 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Callable, Mapping, Optional, Tuple, cast
+from typing import Any, AsyncIterator, Callable, Mapping, Optional, Tuple, Type, cast
 
 from opentelemetry import trace as trace_api
+from pydantic import BaseModel
 
 from .._async import run_async
 from ..agent import Agent
@@ -300,7 +301,11 @@ class Swarm(MultiAgentBase):
         run_async(lambda: self.hooks.invoke_callbacks_async(MultiAgentInitializedEvent(self)))
 
     def __call__(
-        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self,
+        task: MultiAgentInput,
+        invocation_state: dict[str, Any] | None = None,
+        structured_output_model: Type[BaseModel] | None = None,
+        **kwargs: Any,
     ) -> SwarmResult:
         """Invoke the swarm synchronously.
 
@@ -308,14 +313,19 @@ class Swarm(MultiAgentBase):
             task: The task to execute
             invocation_state: Additional state/context passed to underlying agents.
                 Defaults to None to avoid mutable default argument issues.
+            structured_output_model: Pydantic model to use for structured output from nodes.
             **kwargs: Keyword arguments allowing backward compatible future changes.
         """
         if invocation_state is None:
             invocation_state = {}
-        return run_async(lambda: self.invoke_async(task, invocation_state))
+        return run_async(lambda: self.invoke_async(task, invocation_state, structured_output_model))
 
     async def invoke_async(
-        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self,
+        task: MultiAgentInput,
+        invocation_state: dict[str, Any] | None = None,
+        structured_output_model: Type[BaseModel] | None = None,
+        **kwargs: Any,
     ) -> SwarmResult:
         """Invoke the swarm asynchronously.
 
@@ -326,9 +336,10 @@ class Swarm(MultiAgentBase):
             task: The task to execute
             invocation_state: Additional state/context passed to underlying agents.
                 Defaults to None to avoid mutable default argument issues.
+            structured_output_model: Pydantic model to use for structured output from nodes.
             **kwargs: Keyword arguments allowing backward compatible future changes.
         """
-        events = self.stream_async(task, invocation_state, **kwargs)
+        events = self.stream_async(task, invocation_state, structured_output_model, **kwargs)
         final_event = None
         async for event in events:
             final_event = event
@@ -339,7 +350,11 @@ class Swarm(MultiAgentBase):
         return cast(SwarmResult, final_event["result"])
 
     async def stream_async(
-        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self,
+        task: MultiAgentInput,
+        invocation_state: dict[str, Any] | None = None,
+        structured_output_model: Type[BaseModel] | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[dict[str, Any]]:
         """Stream events during swarm execution.
 
@@ -347,6 +362,7 @@ class Swarm(MultiAgentBase):
             task: The task to execute
             invocation_state: Additional state/context passed to underlying agents.
                 Defaults to None to avoid mutable default argument issues.
+            structured_output_model: Pydantic model to use for structured output from nodes.
             **kwargs: Keyword arguments allowing backward compatible future changes.
 
         Yields:
@@ -394,7 +410,7 @@ class Swarm(MultiAgentBase):
                     self.execution_timeout,
                 )
 
-                async for event in self._execute_swarm(invocation_state):
+                async for event in self._execute_swarm(invocation_state, structured_output_model):
                     if isinstance(event, MultiAgentNodeInterruptEvent):
                         interrupts = event.interrupts
 
@@ -702,7 +718,9 @@ class Swarm(MultiAgentBase):
 
         return MultiAgentNodeInterruptEvent(node.node_id, interrupts)
 
-    async def _execute_swarm(self, invocation_state: dict[str, Any]) -> AsyncIterator[Any]:
+    async def _execute_swarm(
+        self, invocation_state: dict[str, Any], structured_output_model: Type[BaseModel] | None = None
+    ) -> AsyncIterator[Any]:
         """Execute swarm and yield TypedEvent objects."""
         try:
             # Main execution loop
@@ -758,7 +776,7 @@ class Swarm(MultiAgentBase):
                         break
 
                     node_stream = self._stream_with_timeout(
-                        self._execute_node(current_node, self.state.task, invocation_state),
+                        self._execute_node(current_node, self.state.task, invocation_state, structured_output_model),
                         self.node_timeout,
                         f"Node '{current_node.node_id}' execution timed out after {self.node_timeout}s",
                     )
@@ -825,7 +843,11 @@ class Swarm(MultiAgentBase):
             )
 
     async def _execute_node(
-        self, node: SwarmNode, task: MultiAgentInput, invocation_state: dict[str, Any]
+        self,
+        node: SwarmNode,
+        task: MultiAgentInput,
+        invocation_state: dict[str, Any],
+        structured_output_model: Type[BaseModel] | None = None,
     ) -> AsyncIterator[Any]:
         """Execute swarm node and yield TypedEvent objects."""
         start_time = time.time()
@@ -856,7 +878,9 @@ class Swarm(MultiAgentBase):
 
             # Stream agent events with node context and capture final result
             result = None
-            async for event in node.executor.stream_async(node_input, invocation_state=invocation_state):
+            async for event in node.executor.stream_async(
+                node_input, invocation_state=invocation_state, structured_output_model=structured_output_model
+            ):
                 # Forward agent events with node context
                 wrapped_event = MultiAgentNodeStreamEvent(node_name, event)
                 yield wrapped_event
