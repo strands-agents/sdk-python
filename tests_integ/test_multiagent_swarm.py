@@ -1,8 +1,8 @@
 from typing import Literal
 from uuid import uuid4
 
-from pydantic import BaseModel
 import pytest
+from pydantic import BaseModel
 
 from strands import Agent, tool
 from strands.experimental.hooks.multiagent import BeforeNodeCallEvent
@@ -363,7 +363,6 @@ async def test_swarm_get_agent_results_flattening():
 async def test_swarm_structured_output_with_handoffs():
     """Test that swarm properly handles structured output from each agent during handoffs."""
 
-
     # Coordinator's analysis model
     class CoordinatorAnalysis(BaseModel):
         request_type: Literal["technical", "billing", "general"]
@@ -435,7 +434,9 @@ async def test_swarm_structured_output_with_handoffs():
         assert coordinator_result.result.structured_output.request_type == "technical"
 
         # Verify handoff occurred and technical agent was executed
-        assert len(result.node_history) >= 2, "Expected at least 2 agents in execution history (coordinator + specialist)"
+        assert len(result.node_history) >= 2, (
+            "Expected at least 2 agents in execution history (coordinator + specialist)"
+        )
         node_ids = [n.node_id for n in result.node_history]
         assert "coordinator" in node_ids
         assert "technical_support" in node_ids

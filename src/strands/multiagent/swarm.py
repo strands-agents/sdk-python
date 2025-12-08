@@ -300,26 +300,6 @@ class Swarm(MultiAgentBase):
         self._inject_swarm_tools()
         run_async(lambda: self.hooks.invoke_callbacks_async(MultiAgentInitializedEvent(self)))
 
-    def __call__(
-        self,
-        task: MultiAgentInput,
-        invocation_state: dict[str, Any] | None = None,
-        structured_output_model: Type[BaseModel] | None = None,
-        **kwargs: Any,
-    ) -> SwarmResult:
-        """Invoke the swarm synchronously.
-
-        Args:
-            task: The task to execute
-            invocation_state: Additional state/context passed to underlying agents.
-                Defaults to None to avoid mutable default argument issues.
-            structured_output_model: Pydantic model to use for structured output from nodes.
-            **kwargs: Keyword arguments allowing backward compatible future changes.
-        """
-        if invocation_state is None:
-            invocation_state = {}
-        return run_async(lambda: self.invoke_async(task, invocation_state, structured_output_model))
-
     async def invoke_async(
         self,
         task: MultiAgentInput,
