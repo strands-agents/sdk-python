@@ -2,6 +2,7 @@
 
 from typing import Awaitable, Callable
 
+from ..errors import BidiExceptionChain
 from ._task_group import _TaskGroup
 from ._task_pool import _TaskPool
 
@@ -27,8 +28,4 @@ async def stop_all(*funcs: Callable[..., Awaitable[None]]) -> None:
             exceptions.append(exception)
 
     if exceptions:
-        exceptions.append(RuntimeError("failed stop sequence"))
-        for i in range(1, len(exceptions)):
-            exceptions[i].__context__ = exceptions[i - 1]
-
-        raise exceptions[-1]
+        raise BidiExceptionChain("failed stop sequence", exceptions)

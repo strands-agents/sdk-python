@@ -37,6 +37,7 @@ from ....types._events import ToolResultEvent, ToolUseStreamEvent
 from ....types.content import Messages
 from ....types.tools import ToolResult, ToolSpec, ToolUse
 from .._async import stop_all
+from ..errors import BidiModelTimeoutError
 from ..types.events import (
     AudioChannel,
     AudioSampleRate,
@@ -53,7 +54,7 @@ from ..types.events import (
     BidiUsageEvent,
 )
 from ..types.model import AudioConfig
-from .model import BidiModel, BidiModelTimeoutError
+from .model import BidiModel
 
 logger = logging.getLogger(__name__)
 

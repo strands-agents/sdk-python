@@ -13,7 +13,7 @@ async def test_stop_exception():
     func3 = AsyncMock()
     func4 = AsyncMock(side_effect=ValueError("stop 4 failed"))
 
-    with pytest.raises(RuntimeError, match=r"failed stop sequence") as exc_info:
+    with pytest.raises(Exception, match=r"failed stop sequence") as exc_info:
         await stop_all(func1, func2, func3, func4)
 
     func1.assert_called_once()
@@ -21,7 +21,7 @@ async def test_stop_exception():
     func3.assert_called_once()
     func4.assert_called_once()
 
-    tru_tb = "".join(traceback.format_exception(RuntimeError, exc_info.value, exc_info.tb))
+    tru_tb = "".join(traceback.format_exception(Exception, exc_info.value, exc_info.tb))
     assert "ValueError: stop 2 failed" in tru_tb
     assert "ValueError: stop 4 failed" in tru_tb
 

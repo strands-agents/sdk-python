@@ -13,8 +13,8 @@ import unittest.mock
 import pytest
 from google.genai import types as genai_types
 
+from strands.experimental.bidi.errors import BidiModelTimeoutError
 from strands.experimental.bidi.models.gemini_live import BidiGeminiLiveModel
-from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
@@ -185,7 +185,7 @@ async def test_connection_edge_cases(mock_genai_client, api_key, model_id):
     model4 = BidiGeminiLiveModel(model_id=model_id, client_config={"api_key": api_key})
     await model4.start()
     mock_live_session_cm.__aexit__.side_effect = Exception("Close failed")
-    with pytest.raises(RuntimeError, match=r"failed stop sequence"):
+    with pytest.raises(Exception, match=r"failed stop sequence"):
         await model4.stop()
 
 
