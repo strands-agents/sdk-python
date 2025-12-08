@@ -428,7 +428,7 @@ async def test_swarm_structured_output_with_handoffs():
     assert isinstance(coordinator_result.result.structured_output, CoordinatorAnalysis)
     assert coordinator_result.result.structured_output.request_type == "technical"
 
-    # Verify technical agent was invoked and structured output was created 
+    # Verify technical agent was invoked and structured output was created
     technical_result = result.results["technical_support"]
     assert isinstance(technical_result.result.structured_output, TechnicalResponse)
 

@@ -1,4 +1,4 @@
-from typing import Any, AsyncIterator, Literal
+from typing import Any, AsyncIterator, Literal, Type
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -242,7 +242,11 @@ class CustomStreamingNode(MultiAgentBase):
         return MultiAgentResult(status=Status.COMPLETED, results={self.name: node_result})
 
     async def stream_async(
-        self, task: str | list[ContentBlock], invocation_state: dict[str, Any] | None = None, **kwargs: Any
+        self,
+        task: str | list[ContentBlock],
+        invocation_state: dict[str, Any] | None = None,
+        structured_output_model: Type[BaseModel] | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[dict[str, Any]]:
         yield {"custom_event": "start", "node": self.name}
         result = await self.agent.invoke_async(task, **kwargs)
