@@ -428,8 +428,14 @@ class OpenAIModel(Model):
     def _convert_non_streaming_to_streaming(self, response: Any) -> list[StreamEvent]:
         """Convert a provider non-streaming response into streaming-style events.
 
-        This helper intentionally *does not* emit the initial message_start/content_start events,
-        because the caller (stream) already yields them to preserve parity with streaming flow.
+        This helper intentionally does not emit the initial content_start event,
+        as the caller handles it to ensure parity with the streaming flow.
+
+        Args:
+            response: The non-streaming response object from the provider.
+
+        Returns:
+            list[StreamEvent]: The converted streaming events.
         """
         events: list[StreamEvent] = []
 
@@ -457,8 +463,7 @@ class OpenAIModel(Model):
                                     )
                                 )
                             except Exception:
-                                # fall back to keeping the block as text if malformed
-                                pass
+                                logger.warning("block=<%s> | failed to parse reasoning content", block, exc_info=True)
                         # text block
                         elif "text" in block:
                             events.append(
@@ -605,7 +610,7 @@ class OpenAIModel(Model):
                 if event and hasattr(event, "usage") and event.usage:
                     yield self.format_chunk({"chunk_type": "metadata", "data": event.usage})
             else:
-                # Non-streaming provider response — convert to streaming-style events.
+                # Non-streaming provider response — convert to streaming-style events
                 # We manually emit the content_start event here to align with the streaming path
                 yield self.format_chunk({"chunk_type": "content_start", "data_type": "text"})
                 for ev in self._convert_non_streaming_to_streaming(response):
