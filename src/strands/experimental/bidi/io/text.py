@@ -42,7 +42,7 @@ class _BidiTextOutput(BidiOutput):
 
         elif isinstance(event, BidiConnectionCloseEvent):
             if event.reason == "user_request":
-                print("user requested connection close using the stop_conversation tool.")
+                print("user requested connection close using the stop tool.")
                 logger.debug("connection_id=<%s> | user requested connection close", event.connection_id)
         elif isinstance(event, BidiTranscriptStreamEvent):
             text = event["text"]
