@@ -899,7 +899,7 @@ def test_graph_call_kwargs_deprecation_warning(mock_strands_tracer, mock_use_spa
     graph = builder.build()
 
     with pytest.warns(UserWarning, match=r"\*\*kwargs.*parameter is deprecating"):
-        result = graph("Test task", custom_param="custom_value")
+        graph("Test task", custom_param="custom_value")
 
 
 def test_graph_validate_unsupported_features():

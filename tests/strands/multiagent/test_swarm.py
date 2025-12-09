@@ -307,7 +307,7 @@ def test_swarm_call_kwargs_deprecation_warning(mock_strands_tracer, mock_use_spa
     swarm = Swarm(nodes=agents)
 
     with pytest.warns(UserWarning, match=r"\*\*kwargs.*parameter is deprecating"):
-        result = swarm("Test task", custom_param="custom_value")
+        swarm("Test task", custom_param="custom_value")
 
 
 def test_swarm_builder_validation(mock_agents):
