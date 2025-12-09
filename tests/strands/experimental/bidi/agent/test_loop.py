@@ -5,7 +5,6 @@ import pytest_asyncio
 
 from strands import tool
 from strands.experimental.bidi import BidiAgent
-from strands.experimental.bidi.agent.loop import _BidiAgentLoop
 from strands.experimental.bidi.models import BidiModelTimeoutError
 from strands.experimental.bidi.types.events import BidiConnectionRestartEvent, BidiTextInputEvent
 from strands.types._events import ToolResultEvent, ToolResultMessageEvent, ToolUseStreamEvent
@@ -38,19 +37,19 @@ async def test_bidi_agent_loop_receive_restart_connection(loop, agent, agenerato
     agent.model.receive = unittest.mock.Mock(side_effect=[timeout_error, agenerator([text_event])])
 
     await loop.start()
-    
+
     tru_events = []
     async for event in loop.receive():
         tru_events.append(event)
         if len(tru_events) >= 2:
             break
-    
+
     exp_events = [
         BidiConnectionRestartEvent(timeout_error),
         text_event,
     ]
     assert tru_events == exp_events
-    
+
     agent.model.stop.assert_called_once()
     assert agent.model.start.call_count == 2
     agent.model.start.assert_called_with(
@@ -63,7 +62,6 @@ async def test_bidi_agent_loop_receive_restart_connection(loop, agent, agenerato
 
 @pytest.mark.asyncio
 async def test_bidi_agent_loop_receive_tool_use(loop, agent, agenerator):
-    
     tool_use = {"toolUseId": "t1", "name": "time_tool", "input": {}}
     tool_result = {"toolUseId": "t1", "status": "success", "content": [{"text": "12:00"}]}
 
@@ -71,9 +69,9 @@ async def test_bidi_agent_loop_receive_tool_use(loop, agent, agenerator):
     tool_result_event = ToolResultEvent(tool_result)
 
     agent.model.receive = unittest.mock.Mock(return_value=agenerator([tool_use_event]))
-    
+
     await loop.start()
-    
+
     tru_events = []
     async for event in loop.receive():
         tru_events.append(event)
@@ -86,7 +84,7 @@ async def test_bidi_agent_loop_receive_tool_use(loop, agent, agenerator):
         ToolResultMessageEvent({"role": "user", "content": [{"toolResult": tool_result}]}),
     ]
     assert tru_events == exp_events
-    
+
     tru_messages = agent.messages
     exp_messages = [
         {"role": "assistant", "content": [{"toolUse": tool_use}]},

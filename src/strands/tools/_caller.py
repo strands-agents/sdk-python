@@ -106,8 +106,10 @@ class _ToolCaller:
 
             tool_result = run_async(acall)
 
-            # Apply conversation management if agent supports it (traditional agents)
-            if hasattr(self._agent, "conversation_manager"):
+            # TODO: https://github.com/strands-agents/sdk-python/issues/1311
+            from ..agent import Agent
+
+            if isinstance(self._agent, Agent):
                 self._agent.conversation_manager.apply_management(self._agent)
 
             return tool_result

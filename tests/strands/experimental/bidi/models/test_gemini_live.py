@@ -13,8 +13,8 @@ import unittest.mock
 import pytest
 from google.genai import types as genai_types
 
-from strands.experimental.bidi.models import BidiModelTimeoutError
 from strands.experimental.bidi.models.gemini_live import BidiGeminiLiveModel
+from strands.experimental.bidi.models.model import BidiModelTimeoutError
 from strands.experimental.bidi.types.events import (
     BidiAudioInputEvent,
     BidiAudioStreamEvent,
