@@ -301,6 +301,15 @@ def test_swarm_synchronous_execution(mock_strands_tracer, mock_use_span, mock_ag
     mock_use_span.assert_called_once()
 
 
+def test_swarm_call_kwargs_deprecation_warning(mock_strands_tracer, mock_use_span, mock_agents):
+    """Test that __call__ emits deprecation warning when kwargs are passed outside invocation_state."""
+    agents = list(mock_agents.values())
+    swarm = Swarm(nodes=agents)
+
+    with pytest.warns(UserWarning, match=r"\*\*kwargs.*parameter is deprecating"):
+        result = swarm("Test task", custom_param="custom_value")
+
+
 def test_swarm_builder_validation(mock_agents):
     """Test swarm builder validation and error handling."""
     # Test agent name assignment

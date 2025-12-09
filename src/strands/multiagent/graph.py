@@ -461,22 +461,6 @@ class Graph(MultiAgentBase):
 
         run_async(lambda: self.hooks.invoke_callbacks_async(MultiAgentInitializedEvent(self)))
 
-    def __call__(
-        self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
-    ) -> GraphResult:
-        """Invoke the graph synchronously.
-
-        Args:
-            task: The task to execute
-            invocation_state: Additional state/context passed to underlying agents.
-                Defaults to None to avoid mutable default argument issues.
-            **kwargs: Keyword arguments allowing backward compatible future changes.
-        """
-        if invocation_state is None:
-            invocation_state = {}
-
-        return run_async(lambda: self.invoke_async(task, invocation_state))
-
     async def invoke_async(
         self, task: MultiAgentInput, invocation_state: dict[str, Any] | None = None, **kwargs: Any
     ) -> GraphResult:

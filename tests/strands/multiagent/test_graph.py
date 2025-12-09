@@ -890,6 +890,18 @@ def test_graph_synchronous_execution(mock_strands_tracer, mock_use_span, mock_ag
     mock_use_span.assert_called_once()
 
 
+def test_graph_call_kwargs_deprecation_warning(mock_strands_tracer, mock_use_span, mock_agents):
+    """Test that __call__ emits deprecation warning when kwargs are passed outside invocation_state."""
+    builder = GraphBuilder()
+    builder.add_node(mock_agents["start_agent"], "start_agent")
+    builder.set_entry_point("start_agent")
+
+    graph = builder.build()
+
+    with pytest.warns(UserWarning, match=r"\*\*kwargs.*parameter is deprecating"):
+        result = graph("Test task", custom_param="custom_value")
+
+
 def test_graph_validate_unsupported_features():
     """Test Graph validation for session persistence and callbacks."""
     # Test with normal agent (should work)
