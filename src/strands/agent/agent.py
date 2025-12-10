@@ -56,7 +56,7 @@ from ..tools.executors._executor import ToolExecutor
 from ..tools.registry import ToolRegistry
 from ..tools.structured_output._structured_output_context import StructuredOutputContext
 from ..tools.watcher import ToolWatcher
-from ..types._events import AgentResultEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
+from ..types._events import AgentResultEvent, EventLoopStopEvent, InitEventLoopEvent, ModelStreamChunkEvent, TypedEvent
 from ..types.agent import AgentInput
 from ..types.content import ContentBlock, Message, Messages, SystemContentBlock
 from ..types.exceptions import ContextWindowOverflowException
@@ -650,7 +650,7 @@ class Agent:
                 yield event
 
             # Capture the result from the final event if available
-            if hasattr(event, "__getitem__") and "stop" in event:
+            if isinstance(event, EventLoopStopEvent):
                 agent_result = AgentResult(*event["stop"])
 
         finally:
