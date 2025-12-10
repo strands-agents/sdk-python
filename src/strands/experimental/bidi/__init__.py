@@ -21,8 +21,7 @@ from .io.audio import BidiAudioIO
 from .models.model import BidiModel
 from .models.nova_sonic import BidiNovaSonicModel
 
-# Built-in tools
-from .tools import stop_conversation
+
 
 # Event types - For type hints and event handling
 from .types.events import (
@@ -50,8 +49,6 @@ __all__ = [
     "BidiAudioIO",
     # Model providers
     "BidiNovaSonicModel",
-    # Built-in tools
-    "stop_conversation",
     # Input Event types
     "BidiTextInputEvent",
     "BidiAudioInputEvent",
