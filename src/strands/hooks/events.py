@@ -65,12 +65,12 @@ class AfterInvocationEvent(HookEvent):
       - Agent.structured_output
 
     Attributes:
-        result: The result of the agent invocation, if available. This will be None
-            when invoked from structured_output methods, as those return typed output
-            directly rather than AgentResult.
+        result: The result of the agent invocation, if available.
+            This will be None when invoked from structured_output methods, as those return typed output directly rather
+            than AgentResult.
     """
 
-    result: Optional["AgentResult"] = None
+    result: "AgentResult | None" = None
 
     @property
     def should_reverse_callbacks(self) -> bool:
