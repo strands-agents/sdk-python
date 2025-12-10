@@ -526,7 +526,7 @@ def test_tool_registry_replace_existing_tool():
 
     registry = ToolRegistry()
     registry.register_tool(old_tool)
-    registry.replace("my_tool", new_tool)
+    registry.replace(new_tool)
 
     assert registry.registry["my_tool"] == new_tool
 
@@ -539,24 +539,7 @@ def test_tool_registry_replace_nonexistent_tool():
     registry = ToolRegistry()
 
     with pytest.raises(ValueError, match="Cannot replace tool 'my_tool' - tool does not exist"):
-        registry.replace("my_tool", new_tool)
-
-
-def test_tool_registry_replace_with_different_name():
-    """Test replacing with different name raises ValueError."""
-    old_tool = MagicMock()
-    old_tool.tool_name = "old_tool"
-    old_tool.is_dynamic = False
-    old_tool.supports_hot_reload = False
-
-    new_tool = MagicMock()
-    new_tool.tool_name = "new_tool"
-
-    registry = ToolRegistry()
-    registry.register_tool(old_tool)
-
-    with pytest.raises(ValueError, match="Tool names must match"):
-        registry.replace("old_tool", new_tool)
+        registry.replace(new_tool)
 
 
 def test_tool_registry_replace_dynamic_tool():
@@ -572,7 +555,7 @@ def test_tool_registry_replace_dynamic_tool():
 
     registry = ToolRegistry()
     registry.register_tool(old_tool)
-    registry.replace("dynamic_tool", new_tool)
+    registry.replace(new_tool)
 
     assert registry.registry["dynamic_tool"] == new_tool
     assert registry.dynamic_tools["dynamic_tool"] == new_tool
@@ -594,7 +577,7 @@ def test_tool_registry_replace_dynamic_with_non_dynamic():
 
     assert "my_tool" in registry.dynamic_tools
 
-    registry.replace("my_tool", new_tool)
+    registry.replace(new_tool)
 
     assert registry.registry["my_tool"] == new_tool
     assert "my_tool" not in registry.dynamic_tools
@@ -616,7 +599,7 @@ def test_tool_registry_replace_non_dynamic_with_dynamic():
 
     assert "my_tool" not in registry.dynamic_tools
 
-    registry.replace("my_tool", new_tool)
+    registry.replace(new_tool)
 
     assert registry.registry["my_tool"] == new_tool
     assert registry.dynamic_tools["my_tool"] == new_tool
