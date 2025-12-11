@@ -1,3 +1,4 @@
+import base64
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -541,3 +542,184 @@ def test_mcp_client_state_reset_after_timeout():
     assert client._background_thread_session is None
     assert client._background_thread_event_loop is None
     assert not client._init_future.done()  # New future created
+
+
+def test_call_tool_sync_embedded_nested_text(mock_transport, mock_session):
+    """EmbeddedResource.resource (uri + text) should map to plain text content."""
+    embedded_resource = {
+        "type": "resource",  # required literal
+        "resource": {
+            "uri": "mcp://resource/embedded-text-1",
+            "text": "inner text",
+            "mimeType": "text/plain",
+        },
+    }
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[embedded_resource])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="er-text", name="get_file_contents", arguments={})
+
+        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None)
+        assert result["status"] == "success"
+        assert len(result["content"]) == 1
+        assert result["content"][0]["text"] == "inner text"
+
+
+def test_call_tool_sync_embedded_nested_base64_textual_mime(mock_transport, mock_session):
+    """EmbeddedResource.resource (uri + blob with textual MIME) should decode to text."""
+
+    payload = base64.b64encode(b'{"k":"v"}').decode()
+
+    embedded_resource = {
+        "type": "resource",
+        "resource": {
+            "uri": "mcp://resource/embedded-blob-1",
+            # NOTE: blob is a STRING, mimeType is sibling
+            "blob": payload,
+            "mimeType": "application/json",
+        },
+    }
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[embedded_resource])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="er-blob", name="get_file_contents", arguments={})
+
+        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None)
+        assert result["status"] == "success"
+        assert len(result["content"]) == 1
+        assert result["content"][0]["text"] == '{"k":"v"}'
+
+
+def test_call_tool_sync_embedded_image_blob(mock_transport, mock_session):
+    """EmbeddedResource.resource (blob with image MIME) should map to image content."""
+    # Read yellow.png file
+    with open("tests_integ/yellow.png", "rb") as image_file:
+        png_data = image_file.read()
+    payload = base64.b64encode(png_data).decode()
+
+    embedded_resource = {
+        "type": "resource",
+        "resource": {
+            "uri": "mcp://resource/embedded-image",
+            "blob": payload,
+            "mimeType": "image/png",
+        },
+    }
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[embedded_resource])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="er-image", name="get_file_contents", arguments={})
+
+        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None)
+        assert result["status"] == "success"
+        assert len(result["content"]) == 1
+        assert "image" in result["content"][0]
+        assert result["content"][0]["image"]["format"] == "png"
+        assert "bytes" in result["content"][0]["image"]["source"]
+
+
+def test_call_tool_sync_embedded_non_textual_blob_dropped(mock_transport, mock_session):
+    """EmbeddedResource.resource (blob with non-textual/unknown MIME) should be dropped."""
+    payload = base64.b64encode(b"\x00\x01\x02\x03").decode()
+
+    embedded_resource = {
+        "type": "resource",
+        "resource": {
+            "uri": "mcp://resource/embedded-binary",
+            "blob": payload,
+            "mimeType": "application/octet-stream",
+        },
+    }
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[embedded_resource])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="er-binary", name="get_file_contents", arguments={})
+
+        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None)
+        assert result["status"] == "success"
+        assert len(result["content"]) == 0  # Content should be dropped
+
+
+def test_call_tool_sync_embedded_multiple_textual_mimes(mock_transport, mock_session):
+    """EmbeddedResource with different textual MIME types should decode to text."""
+
+    # Test YAML content
+    yaml_content = base64.b64encode(b"key: value\nlist:\n  - item1\n  - item2").decode()
+    embedded_resource = {
+        "type": "resource",
+        "resource": {
+            "uri": "mcp://resource/embedded-yaml",
+            "blob": yaml_content,
+            "mimeType": "application/yaml",
+        },
+    }
+    mock_session.call_tool.return_value = MCPCallToolResult(isError=False, content=[embedded_resource])
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="er-yaml", name="get_file_contents", arguments={})
+
+        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None)
+        assert result["status"] == "success"
+        assert len(result["content"]) == 1
+        assert "key: value" in result["content"][0]["text"]
+
+
+def test_call_tool_sync_embedded_unknown_resource_type_dropped(mock_transport, mock_session):
+    """EmbeddedResource with unknown resource type should be dropped for forward compatibility."""
+
+    # Mock an unknown resource type that's neither TextResourceContents nor BlobResourceContents
+    class UnknownResourceContents:
+        def __init__(self):
+            self.uri = "mcp://resource/unknown-type"
+            self.mimeType = "application/unknown"
+            self.data = "some unknown data"
+
+    # Create a mock embedded resource with unknown resource type
+    mock_embedded_resource = MagicMock()
+    mock_embedded_resource.resource = UnknownResourceContents()
+
+    mock_session.call_tool.return_value = MagicMock(
+        isError=False, content=[mock_embedded_resource], structuredContent=None
+    )
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        result = client.call_tool_sync(tool_use_id="er-unknown", name="get_file_contents", arguments={})
+
+        mock_session.call_tool.assert_called_once_with("get_file_contents", {}, None)
+        assert result["status"] == "success"
+        assert len(result["content"]) == 0  # Unknown resource type should be dropped
+
+
+@pytest.mark.asyncio
+async def test_handle_error_message_non_fatal_error():
+    """Test that _handle_error_message ignores non-fatal errors and logs them."""
+    client = MCPClient(MagicMock())
+
+    # Test the message handler directly with a non-fatal error
+    with patch.object(client, "_log_debug_with_thread") as mock_log:
+        # This should not raise an exception
+        await client._handle_error_message(Exception("unknown request id: abc123"))
+
+        # Verify the non-fatal error was logged as ignored
+        assert mock_log.called
+        call_args = mock_log.call_args[0]
+        assert "ignoring non-fatal MCP session error" in call_args[0]
+
+
+@pytest.mark.asyncio
+async def test_handle_error_message_fatal_error():
+    """Test that _handle_error_message raises fatal errors."""
+    client = MCPClient(MagicMock())
+
+    # This should raise the exception
+    with pytest.raises(Exception, match="connection timeout"):
+        await client._handle_error_message(Exception("connection timeout"))
+
+
+@pytest.mark.asyncio
+async def test_handle_error_message_non_exception():
+    """Test that _handle_error_message handles non-exception messages."""
+    client = MCPClient(MagicMock())
+
+    # This should not raise an exception
+    await client._handle_error_message("normal message")

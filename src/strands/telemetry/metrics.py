@@ -286,6 +286,8 @@ class EventLoopMetrics:
             metrics: The metrics data to add to the accumulated totals.
         """
         self._metrics_client.event_loop_latency.record(metrics["latencyMs"])
+        if metrics.get("timeToFirstByteMs") is not None:
+            self._metrics_client.model_time_to_first_token.record(metrics["timeToFirstByteMs"])
         self.accumulated_metrics["latencyMs"] += metrics["latencyMs"]
 
     def get_summary(self) -> Dict[str, Any]:
@@ -448,7 +450,7 @@ class MetricsClient:
     event_loop_output_tokens: Histogram
     event_loop_cache_read_input_tokens: Histogram
     event_loop_cache_write_input_tokens: Histogram
-
+    model_time_to_first_token: Histogram
     tool_call_count: Counter
     tool_success_count: Counter
     tool_error_count: Counter
@@ -506,4 +508,7 @@ class MetricsClient:
         )
         self.event_loop_cache_write_input_tokens = self.meter.create_histogram(
             name=constants.STRANDS_EVENT_LOOP_CACHE_WRITE_INPUT_TOKENS, unit="token"
+        )
+        self.model_time_to_first_token = self.meter.create_histogram(
+            name=constants.STRANDS_MODEL_TIME_TO_FIRST_TOKEN, unit="ms"
         )

@@ -15,7 +15,11 @@ Usage:
     $ python echo_server.py
 """
 
+import base64
+from typing import Literal
+
 from mcp.server import FastMCP
+from mcp.types import BlobResourceContents, EmbeddedResource, TextResourceContents
 from pydantic import BaseModel
 
 
@@ -45,6 +49,48 @@ def start_echo_server():
     @mcp.tool(description="Echos response back with structured content", structured_output=True)
     def echo_with_structured_content(to_echo: str) -> EchoResponse:
         return EchoResponse(echoed=to_echo, message_length=len(to_echo))
+
+    @mcp.tool(description="Get current weather information for a location")
+    def get_weather(location: Literal["New York", "London", "Tokyo"] = "New York"):
+        """Get weather data including forecasts and alerts for the specified location"""
+        if location.lower() == "new york":
+            return [
+                EmbeddedResource(
+                    type="resource",
+                    resource=TextResourceContents(
+                        uri="https://weather.api/forecast/nyc",
+                        mimeType="text/plain",
+                        text="Current weather in New York: 72°F, partly cloudy with light winds.",
+                    ),
+                )
+            ]
+        elif location.lower() == "london":
+            return [
+                EmbeddedResource(
+                    type="resource",
+                    resource=BlobResourceContents(
+                        uri="https://weather.api/data/london.json",
+                        mimeType="application/json",
+                        blob=base64.b64encode(
+                            '{"temperature": 18, "condition": "rainy", "humidity": 85}'.encode()
+                        ).decode(),
+                    ),
+                )
+            ]
+        elif location.lower() == "tokyo":
+            # Read yellow.png file for weather icon
+            with open("tests_integ/yellow.png", "rb") as image_file:
+                png_data = image_file.read()
+            return [
+                EmbeddedResource(
+                    type="resource",
+                    resource=BlobResourceContents(
+                        uri="https://weather.api/icons/sunny.png",
+                        mimeType="image/png",
+                        blob=base64.b64encode(png_data).decode(),
+                    ),
+                )
+            ]
 
     mcp.run(transport="stdio")
 

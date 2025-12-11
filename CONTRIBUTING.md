@@ -122,7 +122,7 @@ hatch fmt --linter
 
 If you're using an IDE like VS Code or PyCharm, consider configuring it to use these tools automatically.
 
-For additional details on styling, please see our dedicated [Style Guide](./STYLE_GUIDE.md).
+For additional details on styling, please see our dedicated [Style Guide](./docs/STYLE_GUIDE.md).
 
 
 ## Contributing via Pull Requests

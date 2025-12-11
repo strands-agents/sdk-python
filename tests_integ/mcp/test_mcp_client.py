@@ -272,6 +272,100 @@ def test_streamable_http_mcp_client():
         assert "Hello, Charlie!" in prompt_text
 
 
+def test_mcp_client_embedded_resources():
+    """Test that MCP client properly handles EmbeddedResource content types."""
+    embedded_resource_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
+    )
+
+    with embedded_resource_mcp_client:
+        # Test text embedded resource
+        text_result = embedded_resource_mcp_client.call_tool_sync(
+            tool_use_id="test-embedded-text",
+            name="get_weather",
+            arguments={"location": "New York"},
+        )
+        assert text_result["status"] == "success"
+        assert len(text_result["content"]) == 1
+        assert "72°F" in text_result["content"][0]["text"]
+        assert "partly cloudy" in text_result["content"][0]["text"]
+
+        # Test JSON embedded resource (blob with textual MIME type)
+        json_result = embedded_resource_mcp_client.call_tool_sync(
+            tool_use_id="test-embedded-json",
+            name="get_weather",
+            arguments={"location": "London"},
+        )
+        assert json_result["status"] == "success"
+        assert len(json_result["content"]) == 1
+        json_content = json_result["content"][0]["text"]
+        assert "temperature" in json_content
+        assert "rainy" in json_content
+
+        # Test image embedded resource
+        image_result = embedded_resource_mcp_client.call_tool_sync(
+            tool_use_id="test-embedded-image",
+            name="get_weather",
+            arguments={"location": "Tokyo"},
+        )
+        assert image_result["status"] == "success"
+        assert len(image_result["content"]) == 1
+        assert "image" in image_result["content"][0]
+        assert image_result["content"][0]["image"]["format"] == "png"
+        assert "bytes" in image_result["content"][0]["image"]["source"]
+
+
+@pytest.mark.asyncio
+async def test_mcp_client_embedded_resources_async():
+    """Test that async MCP client properly handles EmbeddedResource content types."""
+    embedded_resource_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
+    )
+
+    with embedded_resource_mcp_client:
+        # Test text embedded resource async
+        text_result = await embedded_resource_mcp_client.call_tool_async(
+            tool_use_id="test-embedded-text-async",
+            name="get_weather",
+            arguments={"location": "New York"},
+        )
+        assert text_result["status"] == "success"
+        assert len(text_result["content"]) == 1
+        assert "72°F" in text_result["content"][0]["text"]
+
+        # Test JSON embedded resource async
+        json_result = await embedded_resource_mcp_client.call_tool_async(
+            tool_use_id="test-embedded-json-async",
+            name="get_weather",
+            arguments={"location": "London"},
+        )
+        assert json_result["status"] == "success"
+        assert len(json_result["content"]) == 1
+        json_content = json_result["content"][0]["text"]
+        assert "temperature" in json_content
+
+
+def test_mcp_client_embedded_resources_with_agent():
+    """Test that embedded resources work correctly when used with Agent."""
+    embedded_resource_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
+    )
+
+    with embedded_resource_mcp_client:
+        tools = embedded_resource_mcp_client.list_tools_sync()
+        agent = Agent(tools=tools)
+
+        # Test that agent can successfully use tools that return embedded resources
+        result = agent("Get the weather for New York and tell me what it says")
+
+        # Check that the agent successfully processed the embedded resource
+        assert result.message is not None
+        response_text = " ".join([block["text"] for block in result.message["content"] if "text" in block]).lower()
+
+        # The agent should have received and processed the embedded weather content
+        assert any(["72" in response_text, "partly cloudy" in response_text, "weather" in response_text])
+
+
 def _messages_to_content_blocks(messages: List[Message]) -> List[ToolUse]:
     return [block["toolUse"] for message in messages for block in message["content"] if "toolUse" in block]
 
@@ -326,3 +420,105 @@ async def test_streamable_http_mcp_client_times_out_before_tool():
         result = await streamable_http_client.call_tool_async(tool_use_id="123", name="timeout_tool")
         assert result["status"] == "error"
         assert result["content"][0]["text"] == "Tool execution failed: Connection closed"
+
+
+def start_5xx_proxy_for_tool_calls(target_url: str, proxy_port: int):
+    """Starts a proxy that throws a 5XX when a tool call is invoked"""
+    import aiohttp
+    from aiohttp import web
+
+    async def proxy_handler(request):
+        url = f"{target_url}{request.path_qs}"
+
+        async with aiohttp.ClientSession() as session:
+            data = await request.read()
+
+            if "tools/call" in f"{data}":
+                return web.Response(status=500, text="Internal Server Error")
+
+            async with session.request(
+                method=request.method, url=url, headers=request.headers, data=data, allow_redirects=False
+            ) as resp:
+                print(f"Got request to {url} {data}")
+                response = web.StreamResponse(status=resp.status, headers=resp.headers)
+                await response.prepare(request)
+
+                async for chunk in resp.content.iter_chunked(8192):
+                    await response.write(chunk)
+
+                return response
+
+    app = web.Application()
+    app.router.add_route("*", "/{path:.*}", proxy_handler)
+
+    web.run_app(app, host="127.0.0.1", port=proxy_port)
+
+
+@pytest.mark.asyncio
+async def test_streamable_http_mcp_client_with_500_error():
+    import asyncio
+    import multiprocessing
+
+    server_thread = threading.Thread(
+        target=start_comprehensive_mcp_server, kwargs={"transport": "streamable-http", "port": 8001}, daemon=True
+    )
+    server_thread.start()
+
+    proxy_process = multiprocessing.Process(
+        target=start_5xx_proxy_for_tool_calls, kwargs={"target_url": "http://127.0.0.1:8001", "proxy_port": 8002}
+    )
+    proxy_process.start()
+
+    try:
+        await asyncio.sleep(2)  # wait for server to startup completely
+
+        def transport_callback() -> MCPTransport:
+            return streamablehttp_client(url="http://127.0.0.1:8002/mcp")
+
+        streamable_http_client = MCPClient(transport_callback)
+        with pytest.raises(RuntimeError, match="Connection to the MCP server was closed"):
+            with streamable_http_client:
+                result = await streamable_http_client.call_tool_async(
+                    tool_use_id="123", name="calculator", arguments={"x": 3, "y": 4}
+                )
+    finally:
+        proxy_process.terminate()
+        proxy_process.join()
+
+    assert result["status"] == "error"
+    assert result["content"][0]["text"] == "Tool execution failed: Connection to the MCP server was closed"
+
+
+def test_mcp_client_connection_stability_with_client_timeout():
+    """Integration test to verify connection remains stable with very small timeouts."""
+    from datetime import timedelta
+    from unittest.mock import patch
+
+    stdio_mcp_client = MCPClient(
+        lambda: stdio_client(StdioServerParameters(command="python", args=["tests_integ/mcp/echo_server.py"]))
+    )
+
+    with stdio_mcp_client:
+        # Spy on the logger to capture non-fatal error messages
+        with patch.object(stdio_mcp_client, "_log_debug_with_thread") as mock_log:
+            # Make multiple calls with very small timeout to trigger "unknown request id" errors
+            for i in range(3):
+                try:
+                    result = stdio_mcp_client.call_tool_sync(
+                        tool_use_id=f"test_{i}",
+                        name="echo",
+                        arguments={"to_echo": f"test_{i}"},
+                        read_timeout_seconds=timedelta(milliseconds=0),  # Very small timeout
+                    )
+                except Exception:
+                    pass  # Ignore exceptions, we're testing connection stability
+
+            # Verify connection is still alive by making a successful call
+            result = stdio_mcp_client.call_tool_sync(
+                tool_use_id="final_test", name="echo", arguments={"to_echo": "connection_alive"}
+            )
+            assert result["status"] == "success"
+            assert result["content"][0]["text"] == "connection_alive"
+
+            # Verify that non-fatal error messages were logged
+            assert any("ignoring non-fatal MCP session error" in str(call) for call in mock_log.call_args_list)

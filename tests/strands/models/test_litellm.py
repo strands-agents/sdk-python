@@ -142,39 +142,73 @@ def test_format_request_message_content(content, exp_result):
 
 @pytest.mark.asyncio
 async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator, alist):
-    mock_tool_call_1_part_1 = unittest.mock.Mock(index=0)
-    mock_tool_call_2_part_1 = unittest.mock.Mock(index=1)
     mock_delta_1 = unittest.mock.Mock(
         reasoning_content="",
         content=None,
         tool_calls=None,
     )
+
     mock_delta_2 = unittest.mock.Mock(
         reasoning_content="\nI'm thinking",
         content=None,
         tool_calls=None,
     )
     mock_delta_3 = unittest.mock.Mock(
+        reasoning_content=None,
+        content="One second",
+        tool_calls=None,
+    )
+    mock_delta_4 = unittest.mock.Mock(
+        reasoning_content="\nI'm think",
+        content=None,
+        tool_calls=None,
+    )
+    mock_delta_5 = unittest.mock.Mock(
+        reasoning_content="ing again",
+        content=None,
+        tool_calls=None,
+    )
+
+    mock_tool_call_1_part_1 = unittest.mock.Mock(index=0)
+    mock_tool_call_2_part_1 = unittest.mock.Mock(index=1)
+    mock_delta_6 = unittest.mock.Mock(
         content="I'll calculate", tool_calls=[mock_tool_call_1_part_1, mock_tool_call_2_part_1], reasoning_content=None
     )
 
     mock_tool_call_1_part_2 = unittest.mock.Mock(index=0)
     mock_tool_call_2_part_2 = unittest.mock.Mock(index=1)
-    mock_delta_4 = unittest.mock.Mock(
+    mock_delta_7 = unittest.mock.Mock(
         content="that for you", tool_calls=[mock_tool_call_1_part_2, mock_tool_call_2_part_2], reasoning_content=None
     )
 
-    mock_delta_5 = unittest.mock.Mock(content="", tool_calls=None, reasoning_content=None)
+    mock_delta_8 = unittest.mock.Mock(content="", tool_calls=None, reasoning_content=None)
 
     mock_event_1 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_1)])
     mock_event_2 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_2)])
     mock_event_3 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_3)])
     mock_event_4 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_4)])
-    mock_event_5 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="tool_calls", delta=mock_delta_5)])
-    mock_event_6 = unittest.mock.Mock()
+    mock_event_5 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_5)])
+    mock_event_6 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_6)])
+    mock_event_7 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason=None, delta=mock_delta_7)])
+    mock_event_8 = unittest.mock.Mock(choices=[unittest.mock.Mock(finish_reason="tool_calls", delta=mock_delta_8)])
+    mock_event_9 = unittest.mock.Mock()
+    mock_event_9.usage.prompt_tokens_details.cached_tokens = 10
+    mock_event_9.usage.cache_creation_input_tokens = 10
 
     litellm_acompletion.side_effect = unittest.mock.AsyncMock(
-        return_value=agenerator([mock_event_1, mock_event_2, mock_event_3, mock_event_4, mock_event_5, mock_event_6])
+        return_value=agenerator(
+            [
+                mock_event_1,
+                mock_event_2,
+                mock_event_3,
+                mock_event_4,
+                mock_event_5,
+                mock_event_6,
+                mock_event_7,
+                mock_event_8,
+                mock_event_9,
+            ]
+        )
     )
 
     messages = [{"role": "user", "content": [{"type": "text", "text": "calculate 2+2"}]}]
@@ -184,6 +218,15 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
         {"messageStart": {"role": "assistant"}},
         {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "\nI'm thinking"}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"text": "One second"}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "\nI'm think"}}}},
+        {"contentBlockDelta": {"delta": {"reasoningContent": {"text": "ing again"}}}},
+        {"contentBlockStop": {}},
+        {"contentBlockStart": {"start": {}}},
         {"contentBlockDelta": {"delta": {"text": "I'll calculate"}}},
         {"contentBlockDelta": {"delta": {"text": "that for you"}}},
         {"contentBlockStop": {}},
@@ -211,9 +254,11 @@ async def test_stream(litellm_acompletion, api_key, model_id, model, agenerator,
         {
             "metadata": {
                 "usage": {
-                    "inputTokens": mock_event_6.usage.prompt_tokens,
-                    "outputTokens": mock_event_6.usage.completion_tokens,
-                    "totalTokens": mock_event_6.usage.total_tokens,
+                    "cacheReadInputTokens": mock_event_9.usage.prompt_tokens_details.cached_tokens,
+                    "cacheWriteInputTokens": mock_event_9.usage.cache_creation_input_tokens,
+                    "inputTokens": mock_event_9.usage.prompt_tokens,
+                    "outputTokens": mock_event_9.usage.completion_tokens,
+                    "totalTokens": mock_event_9.usage.total_tokens,
                 },
                 "metrics": {"latencyMs": 0},
             }
@@ -253,8 +298,6 @@ async def test_stream_empty(litellm_acompletion, api_key, model_id, model, agene
     tru_events = await alist(response)
     exp_events = [
         {"messageStart": {"role": "assistant"}},
-        {"contentBlockStart": {"start": {}}},
-        {"contentBlockStop": {}},
         {"messageStop": {"stopReason": "end_turn"}},
     ]
 
@@ -277,6 +320,13 @@ async def test_structured_output(litellm_acompletion, model, test_output_model_c
     mock_choice = unittest.mock.Mock()
     mock_choice.finish_reason = "tool_calls"
     mock_choice.message.content = '{"name": "John", "age": 30}'
+    # PATCH START: mock tool_calls as list with .function.arguments
+    tool_call_mock = unittest.mock.Mock()
+    tool_call_function_mock = unittest.mock.Mock()
+    tool_call_function_mock.arguments = '{"name": "John", "age": 30}'
+    tool_call_mock.function = tool_call_function_mock
+    mock_choice.message.tool_calls = [tool_call_mock]
+    # PATCH END
     mock_response = unittest.mock.Mock()
     mock_response.choices = [mock_choice]
 
@@ -356,3 +406,75 @@ async def test_context_window_maps_to_typed_exception(litellm_acompletion, model
     with pytest.raises(ContextWindowOverflowException):
         async for _ in model.stream([{"role": "user", "content": [{"text": "x"}]}]):
             pass
+
+
+@pytest.mark.asyncio
+async def test_stream_raises_error_when_stream_is_false(model):
+    """Test that stream raises ValueError when stream parameter is explicitly False."""
+    messages = [{"role": "user", "content": [{"text": "test"}]}]
+
+    with pytest.raises(ValueError, match="stream parameter cannot be explicitly set to False"):
+        async for _ in model.stream(messages, stream=False):
+            pass
+
+
+def test_format_request_messages_with_system_prompt_content():
+    """Test format_request_messages with system_prompt_content parameter."""
+    messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+    system_prompt_content = [{"text": "You are a helpful assistant."}, {"cachePoint": {"type": "default"}}]
+
+    result = LiteLLMModel.format_request_messages(messages, system_prompt_content=system_prompt_content)
+
+    expected = [
+        {
+            "role": "system",
+            "content": [
+                {"type": "text", "text": "You are a helpful assistant.", "cache_control": {"type": "ephemeral"}}
+            ],
+        },
+        {"role": "user", "content": [{"text": "Hello", "type": "text"}]},
+    ]
+
+    assert result == expected
+
+
+def test_format_request_messages_backward_compatibility_system_prompt():
+    """Test that system_prompt is converted to system_prompt_content when system_prompt_content is None."""
+    messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+    system_prompt = "You are a helpful assistant."
+
+    result = LiteLLMModel.format_request_messages(messages, system_prompt=system_prompt)
+
+    expected = [
+        {"role": "system", "content": [{"type": "text", "text": "You are a helpful assistant."}]},
+        {"role": "user", "content": [{"text": "Hello", "type": "text"}]},
+    ]
+
+    assert result == expected
+
+
+def test_format_request_messages_cache_point_support():
+    """Test that cache points are properly applied to preceding content blocks."""
+    messages = [{"role": "user", "content": [{"text": "Hello"}]}]
+    system_prompt_content = [
+        {"text": "First instruction."},
+        {"text": "Second instruction."},
+        {"cachePoint": {"type": "default"}},
+        {"text": "Third instruction."},
+    ]
+
+    result = LiteLLMModel.format_request_messages(messages, system_prompt_content=system_prompt_content)
+
+    expected = [
+        {
+            "role": "system",
+            "content": [
+                {"type": "text", "text": "First instruction."},
+                {"type": "text", "text": "Second instruction.", "cache_control": {"type": "ephemeral"}},
+                {"type": "text", "text": "Third instruction."},
+            ],
+        },
+        {"role": "user", "content": [{"text": "Hello", "type": "text"}]},
+    ]
+
+    assert result == expected

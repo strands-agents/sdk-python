@@ -5,16 +5,15 @@ These types are modeled after the Bedrock API.
 - Bedrock docs: https://docs.aws.amazon.com/bedrock/latest/APIReference/API_Types_Amazon_Bedrock_Runtime.html
 """
 
+import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
+from typing import Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol, Union
 
 from typing_extensions import NotRequired, TypedDict
 
+from .interrupt import _Interruptible
 from .media import DocumentContent, ImageContent
-
-if TYPE_CHECKING:
-    from .. import Agent
 
 JSONSchema = dict
 """Type alias for JSON Schema dictionaries."""
@@ -126,7 +125,7 @@ class ToolChoiceTool(TypedDict):
 
 
 @dataclass
-class ToolContext:
+class ToolContext(_Interruptible):
     """Context object containing framework-provided data for decorated tools.
 
     This object provides access to framework-level information that may be useful
@@ -134,7 +133,7 @@ class ToolContext:
 
     Attributes:
         tool_use: The complete ToolUse object containing tool invocation details.
-        agent: The Agent instance executing this tool, providing access to conversation history,
+        agent: The Agent or BidiAgent instance executing this tool, providing access to conversation history,
                model configuration, and other agent state.
         invocation_state: Caller-provided kwargs that were passed to the agent when it was invoked (agent(),
                           agent.invoke_async(), etc.).
@@ -145,8 +144,19 @@ class ToolContext:
     """
 
     tool_use: ToolUse
-    agent: "Agent"
+    agent: Any  # Agent or BidiAgent - using Any for backwards compatibility
     invocation_state: dict[str, Any]
+
+    def _interrupt_id(self, name: str) -> str:
+        """Unique id for the interrupt.
+
+        Args:
+            name: User defined name for the interrupt.
+
+        Returns:
+            Interrupt id.
+        """
+        return f"v1:tool_call:{self.tool_use['toolUseId']}:{uuid.uuid5(uuid.NAMESPACE_OID, name)}"
 
 
 # Individual ToolChoice type aliases

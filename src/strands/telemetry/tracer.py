@@ -8,7 +8,7 @@ import json
 import logging
 import os
 from datetime import date, datetime, timezone
-from typing import Any, Dict, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional, cast
 
 import opentelemetry.trace as trace_api
 from opentelemetry.instrumentation.threading import ThreadingInstrumentor
@@ -16,7 +16,9 @@ from opentelemetry.trace import Span, StatusCode
 
 from ..agent.agent_result import AgentResult
 from ..types.content import ContentBlock, Message, Messages
-from ..types.streaming import StopReason, Usage
+from ..types.interrupt import InterruptResponseContent
+from ..types.multiagent import MultiAgentInput
+from ..types.streaming import Metrics, StopReason, Usage
 from ..types.tools import ToolResult, ToolUse
 from ..types.traces import Attributes, AttributeValue
 
@@ -79,11 +81,12 @@ class Tracer:
 
     When the OTEL_EXPORTER_OTLP_ENDPOINT environment variable is set, traces
     are sent to the OTLP endpoint.
+
+    Both attributes are controlled by including "gen_ai_latest_experimental" or "gen_ai_tool_definitions",
+    respectively, in the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
     """
 
-    def __init__(
-        self,
-    ) -> None:
+    def __init__(self) -> None:
         """Initialize the tracer."""
         self.service_name = __name__
         self.tracer_provider: Optional[trace_api.TracerProvider] = None
@@ -92,17 +95,19 @@ class Tracer:
         ThreadingInstrumentor().instrument()
 
         # Read OTEL_SEMCONV_STABILITY_OPT_IN environment variable
-        self.use_latest_genai_conventions = self._parse_semconv_opt_in()
+        opt_in_values = self._parse_semconv_opt_in()
+        ## To-do: should not set below attributes directly, use env var instead
+        self.use_latest_genai_conventions = "gen_ai_latest_experimental" in opt_in_values
+        self._include_tool_definitions = "gen_ai_tool_definitions" in opt_in_values
 
-    def _parse_semconv_opt_in(self) -> bool:
+    def _parse_semconv_opt_in(self) -> set[str]:
         """Parse the OTEL_SEMCONV_STABILITY_OPT_IN environment variable.
 
         Returns:
-            Set of opt-in values from the environment variable
+            A set of opt-in values from the environment variable.
         """
         opt_in_env = os.getenv("OTEL_SEMCONV_STABILITY_OPT_IN", "")
-
-        return "gen_ai_latest_experimental" in opt_in_env
+        return {value.strip() for value in opt_in_env.split(",")}
 
     def _start_span(
         self,
@@ -152,6 +157,28 @@ class Tracer:
 
         for key, value in attributes.items():
             span.set_attribute(key, value)
+
+    def _add_optional_usage_and_metrics_attributes(
+        self, attributes: Dict[str, AttributeValue], usage: Usage, metrics: Metrics
+    ) -> None:
+        """Add optional usage and metrics attributes if they have values.
+
+        Args:
+            attributes: Dictionary to add attributes to
+            usage: Token usage information from the model call
+            metrics: Metrics from the model call
+        """
+        if "cacheReadInputTokens" in usage:
+            attributes["gen_ai.usage.cache_read_input_tokens"] = usage["cacheReadInputTokens"]
+
+        if "cacheWriteInputTokens" in usage:
+            attributes["gen_ai.usage.cache_write_input_tokens"] = usage["cacheWriteInputTokens"]
+
+        if metrics.get("timeToFirstByteMs", 0) > 0:
+            attributes["gen_ai.server.time_to_first_token"] = metrics["timeToFirstByteMs"]
+
+        if metrics.get("latencyMs", 0) > 0:
+            attributes["gen_ai.server.request.duration"] = metrics["latencyMs"]
 
     def _end_span(
         self,
@@ -250,6 +277,7 @@ class Tracer:
         messages: Messages,
         parent_span: Optional[Span] = None,
         model_id: Optional[str] = None,
+        custom_trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
         **kwargs: Any,
     ) -> Span:
         """Start a new span for a model invocation.
@@ -258,6 +286,7 @@ class Tracer:
             messages: Messages being sent to the model.
             parent_span: Optional parent span to link this span to.
             model_id: Optional identifier for the model being invoked.
+            custom_trace_attributes: Optional mapping of custom trace attributes to include in the span.
             **kwargs: Additional attributes to add to the span.
 
         Returns:
@@ -265,19 +294,28 @@ class Tracer:
         """
         attributes: Dict[str, AttributeValue] = self._get_common_attributes(operation_name="chat")
 
+        if custom_trace_attributes:
+            attributes.update(custom_trace_attributes)
+
         if model_id:
             attributes["gen_ai.request.model"] = model_id
 
         # Add additional kwargs as attributes
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
 
-        span = self._start_span("chat", parent_span, attributes=attributes, span_kind=trace_api.SpanKind.CLIENT)
+        span = self._start_span("chat", parent_span, attributes=attributes, span_kind=trace_api.SpanKind.INTERNAL)
         self._add_event_messages(span, messages)
 
         return span
 
     def end_model_invoke_span(
-        self, span: Span, message: Message, usage: Usage, stop_reason: StopReason, error: Optional[Exception] = None
+        self,
+        span: Span,
+        message: Message,
+        usage: Usage,
+        metrics: Metrics,
+        stop_reason: StopReason,
+        error: Optional[Exception] = None,
     ) -> None:
         """End a model invocation span with results and metrics.
 
@@ -285,6 +323,7 @@ class Tracer:
             span: The span to end.
             message: The message response from the model.
             usage: Token usage information from the model call.
+            metrics: Metrics from the model call.
             stop_reason (StopReason): The reason the model stopped generating.
             error: Optional exception if the model call failed.
         """
@@ -294,9 +333,10 @@ class Tracer:
             "gen_ai.usage.completion_tokens": usage["outputTokens"],
             "gen_ai.usage.output_tokens": usage["outputTokens"],
             "gen_ai.usage.total_tokens": usage["totalTokens"],
-            "gen_ai.usage.cache_read_input_tokens": usage.get("cacheReadInputTokens", 0),
-            "gen_ai.usage.cache_write_input_tokens": usage.get("cacheWriteInputTokens", 0),
         }
+
+        # Add optional attributes if they have values
+        self._add_optional_usage_and_metrics_attributes(attributes, usage, metrics)
 
         if self.use_latest_genai_conventions:
             self._add_event(
@@ -307,7 +347,7 @@ class Tracer:
                         [
                             {
                                 "role": message["role"],
-                                "parts": [{"type": "text", "content": message["content"]}],
+                                "parts": self._map_content_blocks_to_otel_parts(message["content"]),
                                 "finish_reason": str(stop_reason),
                             }
                         ]
@@ -323,12 +363,19 @@ class Tracer:
 
         self._end_span(span, attributes, error)
 
-    def start_tool_call_span(self, tool: ToolUse, parent_span: Optional[Span] = None, **kwargs: Any) -> Span:
+    def start_tool_call_span(
+        self,
+        tool: ToolUse,
+        parent_span: Optional[Span] = None,
+        custom_trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
+        **kwargs: Any,
+    ) -> Span:
         """Start a new span for a tool call.
 
         Args:
             tool: The tool being used.
             parent_span: Optional parent span to link this span to.
+            custom_trace_attributes: Optional mapping of custom trace attributes to include in the span.
             **kwargs: Additional attributes to add to the span.
 
         Returns:
@@ -342,6 +389,8 @@ class Tracer:
             }
         )
 
+        if custom_trace_attributes:
+            attributes.update(custom_trace_attributes)
         # Add additional kwargs as attributes
         attributes.update(kwargs)
 
@@ -362,7 +411,7 @@ class Tracer:
                                         "type": "tool_call",
                                         "name": tool["name"],
                                         "id": tool["toolUseId"],
-                                        "arguments": [{"content": tool["input"]}],
+                                        "arguments": tool["input"],
                                     }
                                 ],
                             }
@@ -417,7 +466,7 @@ class Tracer:
                                         {
                                             "type": "tool_call_response",
                                             "id": tool_result.get("toolUseId", ""),
-                                            "result": tool_result.get("content"),
+                                            "response": tool_result.get("content"),
                                         }
                                     ],
                                 }
@@ -442,6 +491,7 @@ class Tracer:
         invocation_state: Any,
         messages: Messages,
         parent_span: Optional[Span] = None,
+        custom_trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
         **kwargs: Any,
     ) -> Optional[Span]:
         """Start a new span for an event loop cycle.
@@ -450,6 +500,7 @@ class Tracer:
             invocation_state: Arguments for the event loop cycle.
             parent_span: Optional parent span to link this span to.
             messages:  Messages being processed in this cycle.
+            custom_trace_attributes: Optional mapping of custom trace attributes to include in the span.
             **kwargs: Additional attributes to add to the span.
 
         Returns:
@@ -461,6 +512,9 @@ class Tracer:
         attributes: Dict[str, AttributeValue] = {
             "event_loop.cycle_id": event_loop_cycle_id,
         }
+
+        if custom_trace_attributes:
+            attributes.update(custom_trace_attributes)
 
         if "event_loop_parent_cycle_id" in invocation_state:
             attributes["event_loop.parent_cycle_id"] = str(invocation_state["event_loop_parent_cycle_id"])
@@ -504,7 +558,7 @@ class Tracer:
                             [
                                 {
                                     "role": tool_result_message["role"],
-                                    "parts": [{"type": "text", "content": tool_result_message["content"]}],
+                                    "parts": self._map_content_blocks_to_otel_parts(tool_result_message["content"]),
                                 }
                             ]
                         )
@@ -521,6 +575,7 @@ class Tracer:
         model_id: Optional[str] = None,
         tools: Optional[list] = None,
         custom_trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
+        tools_config: Optional[dict] = None,
         **kwargs: Any,
     ) -> Span:
         """Start a new span for an agent invocation.
@@ -531,6 +586,7 @@ class Tracer:
             model_id: Optional model identifier.
             tools: Optional list of tools being used.
             custom_trace_attributes: Optional mapping of custom trace attributes to include in the span.
+            tools_config: Optional dictionary of tool configurations.
             **kwargs: Additional attributes to add to the span.
 
         Returns:
@@ -547,8 +603,15 @@ class Tracer:
             attributes["gen_ai.request.model"] = model_id
 
         if tools:
-            tools_json = serialize(tools)
-            attributes["gen_ai.agent.tools"] = tools_json
+            attributes["gen_ai.agent.tools"] = serialize(tools)
+
+        if self._include_tool_definitions and tools_config:
+            try:
+                tool_definitions = self._construct_tool_definitions(tools_config)
+                attributes["gen_ai.tool.definitions"] = serialize(tool_definitions)
+            except Exception:
+                # A failure in telemetry should not crash the agent
+                logger.warning("failed to attach tool metadata to agent span", exc_info=True)
 
         # Add custom trace attributes if provided
         if custom_trace_attributes:
@@ -558,7 +621,7 @@ class Tracer:
         attributes.update({k: v for k, v in kwargs.items() if isinstance(v, (str, int, float, bool))})
 
         span = self._start_span(
-            f"invoke_agent {agent_name}", attributes=attributes, span_kind=trace_api.SpanKind.CLIENT
+            f"invoke_agent {agent_name}", attributes=attributes, span_kind=trace_api.SpanKind.INTERNAL
         )
         self._add_event_messages(span, messages)
 
@@ -619,10 +682,23 @@ class Tracer:
 
         self._end_span(span, attributes, error)
 
+    def _construct_tool_definitions(self, tools_config: dict) -> list[dict[str, Any]]:
+        """Constructs a list of tool definitions from the provided tools_config."""
+        return [
+            {
+                "name": name,
+                "description": spec.get("description"),
+                "inputSchema": spec.get("inputSchema"),
+                "outputSchema": spec.get("outputSchema"),
+            }
+            for name, spec in tools_config.items()
+        ]
+
     def start_multiagent_span(
         self,
-        task: str | list[ContentBlock],
+        task: MultiAgentInput,
         instance: str,
+        custom_trace_attributes: Optional[Mapping[str, AttributeValue]] = None,
     ) -> Span:
         """Start a new span for swarm invocation."""
         operation = f"invoke_{instance}"
@@ -633,20 +709,27 @@ class Tracer:
             }
         )
 
+        if custom_trace_attributes:
+            attributes.update(custom_trace_attributes)
+
         span = self._start_span(operation, attributes=attributes, span_kind=trace_api.SpanKind.CLIENT)
-        content = serialize(task) if isinstance(task, list) else task
 
         if self.use_latest_genai_conventions:
+            parts: list[dict[str, Any]] = []
+            if isinstance(task, list):
+                parts = self._map_content_blocks_to_otel_parts(task)
+            else:
+                parts = [{"type": "text", "content": task}]
             self._add_event(
                 span,
                 "gen_ai.client.inference.operation.details",
-                {"gen_ai.input.messages": serialize([{"role": "user", "parts": [{"type": "text", "content": task}]}])},
+                {"gen_ai.input.messages": serialize([{"role": "user", "parts": parts}])},
             )
         else:
             self._add_event(
                 span,
                 "gen_ai.user.message",
-                event_attributes={"content": content},
+                event_attributes={"content": serialize(task) if isinstance(task, list) else task},
             )
 
         return span
@@ -718,7 +801,7 @@ class Tracer:
             input_messages: list = []
             for message in messages:
                 input_messages.append(
-                    {"role": message["role"], "parts": [{"type": "text", "content": message["content"]}]}
+                    {"role": message["role"], "parts": self._map_content_blocks_to_otel_parts(message["content"])}
                 )
             self._add_event(
                 span, "gen_ai.client.inference.operation.details", {"gen_ai.input.messages": serialize(input_messages)}
@@ -730,6 +813,52 @@ class Tracer:
                     self._get_event_name_for_message(message),
                     {"content": serialize(message["content"])},
                 )
+
+    def _map_content_blocks_to_otel_parts(
+        self, content_blocks: list[ContentBlock] | list[InterruptResponseContent]
+    ) -> list[dict[str, Any]]:
+        """Map content blocks to OpenTelemetry parts format."""
+        parts: list[dict[str, Any]] = []
+
+        for block in cast(list[dict[str, Any]], content_blocks):
+            if "interruptResponse" in block:
+                interrupt_response = block["interruptResponse"]
+                parts.append(
+                    {
+                        "type": "interrupt_response",
+                        "id": interrupt_response["interruptId"],
+                        "response": interrupt_response["response"],
+                    },
+                )
+            elif "text" in block:
+                # Standard TextPart
+                parts.append({"type": "text", "content": block["text"]})
+            elif "toolUse" in block:
+                # Standard ToolCallRequestPart
+                tool_use = block["toolUse"]
+                parts.append(
+                    {
+                        "type": "tool_call",
+                        "name": tool_use["name"],
+                        "id": tool_use["toolUseId"],
+                        "arguments": tool_use["input"],
+                    }
+                )
+            elif "toolResult" in block:
+                # Standard ToolCallResponsePart
+                tool_result = block["toolResult"]
+                parts.append(
+                    {
+                        "type": "tool_call_response",
+                        "id": tool_result["toolUseId"],
+                        "response": tool_result["content"],
+                    }
+                )
+            else:
+                # For all other ContentBlock types, use the key as type and value as content
+                for key, value in block.items():
+                    parts.append({"type": key, "content": value})
+        return parts
 
 
 # Singleton instance for global access

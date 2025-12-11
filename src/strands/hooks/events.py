@@ -3,10 +3,17 @@
 This module defines the events that are emitted as Agents run through the lifecycle of a request.
 """
 
+import uuid
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+from typing_extensions import override
+
+if TYPE_CHECKING:
+    from ..agent.agent_result import AgentResult
 
 from ..types.content import Message
+from ..types.interrupt import _Interruptible
 from ..types.streaming import StopReason
 from ..types.tools import AgentTool, ToolResult, ToolUse
 from .registry import HookEvent
@@ -56,7 +63,14 @@ class AfterInvocationEvent(HookEvent):
       - Agent.__call__
       - Agent.stream_async
       - Agent.structured_output
+
+    Attributes:
+        result: The result of the agent invocation, if available.
+            This will be None when invoked from structured_output methods, as those return typed output directly rather
+            than AgentResult.
     """
+
+    result: "AgentResult | None" = None
 
     @property
     def should_reverse_callbacks(self) -> bool:
@@ -84,7 +98,7 @@ class MessageAddedEvent(HookEvent):
 
 
 @dataclass
-class BeforeToolCallEvent(HookEvent):
+class BeforeToolCallEvent(HookEvent, _Interruptible):
     """Event triggered before a tool is invoked.
 
     This event is fired just before the agent executes a tool, allowing hook
@@ -109,6 +123,18 @@ class BeforeToolCallEvent(HookEvent):
 
     def _can_write(self, name: str) -> bool:
         return name in ["cancel_tool", "selected_tool", "tool_use"]
+
+    @override
+    def _interrupt_id(self, name: str) -> str:
+        """Unique id for the interrupt.
+
+        Args:
+            name: User defined name for the interrupt.
+
+        Returns:
+            Interrupt id.
+        """
+        return f"v1:before_tool_call:{self.tool_use['toolUseId']}:{uuid.uuid5(uuid.NAMESPACE_OID, name)}"
 
 
 @dataclass

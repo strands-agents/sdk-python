@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Literal, Optional, Type, TypedDict, TypeVar, Union, cast
+from typing import Any, AsyncGenerator, Literal, Optional, Type, TypedDict, TypeVar, Union
 
 import boto3
 from botocore.config import Config as BotocoreConfig
@@ -151,8 +151,8 @@ class SageMakerAIModel(OpenAIModel):
         validate_config_keys(payload_config, self.SageMakerAIPayloadSchema)
         payload_config.setdefault("stream", True)
         payload_config.setdefault("tool_results_as_user_messages", False)
-        self.endpoint_config = dict(endpoint_config)
-        self.payload_config = dict(payload_config)
+        self.endpoint_config = self.SageMakerAIEndpointConfig(**endpoint_config)
+        self.payload_config = self.SageMakerAIPayloadSchema(**payload_config)
         logger.debug(
             "endpoint_config=<%s> payload_config=<%s> | initializing", self.endpoint_config, self.payload_config
         )
@@ -193,7 +193,7 @@ class SageMakerAIModel(OpenAIModel):
         Returns:
             The Amazon SageMaker model configuration.
         """
-        return cast(SageMakerAIModel.SageMakerAIEndpointConfig, self.endpoint_config)
+        return self.endpoint_config
 
     @override
     def format_request(
@@ -202,6 +202,7 @@ class SageMakerAIModel(OpenAIModel):
         tool_specs: Optional[list[ToolSpec]] = None,
         system_prompt: Optional[str] = None,
         tool_choice: ToolChoice | None = None,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         """Format an Amazon SageMaker chat streaming request.
 
@@ -211,6 +212,7 @@ class SageMakerAIModel(OpenAIModel):
             system_prompt: System prompt to provide context to the model.
             tool_choice: Selection strategy for tool invocation. **Note: This parameter is accepted for
                 interface consistency but is currently ignored for this model provider.**
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             An Amazon SageMaker chat streaming request.
@@ -237,6 +239,10 @@ class SageMakerAIModel(OpenAIModel):
                 if k not in ["additional_args", "tool_results_as_user_messages"]
             },
         }
+
+        payload_additional_args = self.payload_config.get("additional_args")
+        if payload_additional_args:
+            payload.update(payload_additional_args)
 
         # Remove tools and tool_choice if tools = []
         if not payload["tools"]:
@@ -273,16 +279,20 @@ class SageMakerAIModel(OpenAIModel):
         }
 
         # Add optional SageMaker parameters if provided
-        if self.endpoint_config.get("inference_component_name"):
-            request["InferenceComponentName"] = self.endpoint_config["inference_component_name"]
-        if self.endpoint_config.get("target_model"):
-            request["TargetModel"] = self.endpoint_config["target_model"]
-        if self.endpoint_config.get("target_variant"):
-            request["TargetVariant"] = self.endpoint_config["target_variant"]
+        inf_component_name = self.endpoint_config.get("inference_component_name")
+        if inf_component_name:
+            request["InferenceComponentName"] = inf_component_name
+        target_model = self.endpoint_config.get("target_model")
+        if target_model:
+            request["TargetModel"] = target_model
+        target_variant = self.endpoint_config.get("target_variant")
+        if target_variant:
+            request["TargetVariant"] = target_variant
 
-        # Add additional args if provided
-        if self.endpoint_config.get("additional_args"):
-            request.update(self.endpoint_config["additional_args"].__dict__)
+        # Add additional request args if provided
+        additional_args = self.endpoint_config.get("additional_args")
+        if additional_args:
+            request.update(additional_args)
 
         return request
 
@@ -493,11 +503,12 @@ class SageMakerAIModel(OpenAIModel):
 
     @override
     @classmethod
-    def format_request_tool_message(cls, tool_result: ToolResult) -> dict[str, Any]:
+    def format_request_tool_message(cls, tool_result: ToolResult, **kwargs: Any) -> dict[str, Any]:
         """Format a SageMaker compatible tool message.
 
         Args:
             tool_result: Tool result collected from a tool execution.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             SageMaker compatible tool message with content as a string.
@@ -523,11 +534,12 @@ class SageMakerAIModel(OpenAIModel):
 
     @override
     @classmethod
-    def format_request_message_content(cls, content: ContentBlock) -> dict[str, Any]:
+    def format_request_message_content(cls, content: ContentBlock, **kwargs: Any) -> dict[str, Any]:
         """Format a content block.
 
         Args:
             content: Message content.
+            **kwargs: Additional keyword arguments for future extensibility.
 
         Returns:
             Formatted content block.
