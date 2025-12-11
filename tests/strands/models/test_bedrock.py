@@ -2070,3 +2070,75 @@ async def test_stream_backward_compatibility_system_prompt(bedrock_client, model
         "system": [{"text": system_prompt}],
     }
     bedrock_client.converse_stream.assert_called_once_with(**expected_request)
+
+
+def test_format_request_message_content_web_citation(model):
+    """Test that web citations are correctly filtered to include only url and domain."""
+    content = {
+        "citationsContent": {
+            "citations": [
+                {
+                    "title": "Web Citation",
+                    "location": {"web": {"url": "https://example.com", "domain": "example.com", "extra": "ignored"}},
+                    "sourceContent": [{"text": "Content"}],
+                }
+            ],
+            "content": [{"text": "Generated text"}],
+        }
+    }
+
+    result = model._format_request_message_content(content)
+
+    citation = result["citationsContent"]["citations"][0]
+    assert citation["location"]["web"] == {"url": "https://example.com", "domain": "example.com"}
+
+
+def test_format_request_message_content_document_citation(model):
+    """Test that document citations preserve documentIndex, start, and end fields."""
+    content = {
+        "citationsContent": {
+            "citations": [
+                {
+                    "title": "Doc Citation",
+                    "location": {"documentIndex": 0, "start": 100, "end": 200},
+                    "sourceContent": [{"text": "Excerpt"}],
+                }
+            ],
+            "content": [{"text": "Generated text"}],
+        }
+    }
+
+    result = model._format_request_message_content(content)
+
+    assert result["citationsContent"]["citations"][0]["location"] == {"documentIndex": 0, "start": 100, "end": 200}
+
+
+def test_format_request_message_content_citation_optional_fields(model):
+    """Test that citations with missing optional fields are handled correctly."""
+    content = {
+        "citationsContent": {
+            "citations": [{"title": "Minimal", "location": {"web": {"url": "https://example.com"}}}],
+            "content": [{"text": "Text"}],
+        }
+    }
+
+    result = model._format_request_message_content(content)
+
+    citation = result["citationsContent"]["citations"][0]
+    assert citation["title"] == "Minimal"
+    assert citation["location"]["web"]["url"] == "https://example.com"
+    assert "sourceContent" not in citation
+
+
+def test_format_request_message_content_citation_empty_location(model):
+    """Test that citations with invalid locations exclude the location field."""
+    content = {
+        "citationsContent": {
+            "citations": [{"title": "No valid location", "location": {"unknown": "value"}}],
+            "content": [{"text": "Text"}],
+        }
+    }
+
+    result = model._format_request_message_content(content)
+
+    assert "location" not in result["citationsContent"]["citations"][0]

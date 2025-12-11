@@ -493,7 +493,7 @@ class BedrockModel(Model):
         # https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_CitationsContentBlock.html
         if "citationsContent" in content:
             citations = content["citationsContent"]
-            result = {}
+            result: dict[str, Any] = {}
 
             if "citations" in citations:
                 result["citations"] = []
@@ -501,15 +501,18 @@ class BedrockModel(Model):
                     filtered_citation: dict[str, Any] = {}
                     if "location" in citation:
                         location = citation["location"]
-                        filtered_location = {}
-                        # Filter location fields to only include Bedrock-supported ones
-                        if "documentIndex" in location:
-                            filtered_location["documentIndex"] = location["documentIndex"]
-                        if "start" in location:
-                            filtered_location["start"] = location["start"]
-                        if "end" in location:
-                            filtered_location["end"] = location["end"]
-                        filtered_citation["location"] = filtered_location
+                        filtered_location: dict[str, Any] = {}
+                        # Handle web-based citations
+                        if "web" in location:
+                            filtered_location["web"] = {
+                                k: v for k, v in location["web"].items() if k in ("url", "domain")
+                            }
+                        # Handle document-based citations
+                        for field in ("documentIndex", "start", "end"):
+                            if field in location:
+                                filtered_location[field] = location[field]
+                        if filtered_location:
+                            filtered_citation["location"] = filtered_location
                     if "sourceContent" in citation:
                         filtered_source_content: list[dict[str, Any]] = []
                         for source_content in citation["sourceContent"]:
@@ -831,20 +834,21 @@ class BedrockModel(Model):
                 # For non-streaming citations, emit text and metadata deltas in sequence
                 # to match streaming behavior where they flow naturally
                 if "content" in content["citationsContent"]:
-                    text_content = "".join([content["text"] for content in content["citationsContent"]["content"]])
+                    text_content = "".join([c["text"] for c in content["citationsContent"]["content"]])
                     yield {
                         "contentBlockDelta": {"delta": {"text": text_content}},
                     }
 
                 for citation in content["citationsContent"]["citations"]:
-                    # Then emit citation metadata (for structure)
-
-                    citation_metadata: CitationsDelta = {
-                        "title": citation["title"],
-                        "location": citation["location"],
-                        "sourceContent": citation["sourceContent"],
-                    }
-                    yield {"contentBlockDelta": {"delta": {"citation": citation_metadata}}}
+                    # Emit citation metadata with only present fields
+                    citation_metadata: dict[str, Any] = {}
+                    if "title" in citation:
+                        citation_metadata["title"] = citation["title"]
+                    if "location" in citation:
+                        citation_metadata["location"] = citation["location"]
+                    if "sourceContent" in citation:
+                        citation_metadata["sourceContent"] = citation["sourceContent"]
+                    yield {"contentBlockDelta": {"delta": {"citation": cast(CitationsDelta, citation_metadata)}}}
 
             # Yield contentBlockStop event
             yield {"contentBlockStop": {}}
