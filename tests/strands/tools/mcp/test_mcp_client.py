@@ -723,3 +723,73 @@ async def test_handle_error_message_non_exception():
 
     # This should not raise an exception
     await client._handle_error_message("normal message")
+
+
+@pytest.mark.asyncio
+async def test_call_tool_stream_success(mock_transport, mock_session):
+    """Test that call_tool_stream yields progress and returns final result."""
+    import asyncio
+
+    mock_content = MCPTextContent(type="text", text="Final Result")
+    mock_result = MCPCallToolResult(isError=False, content=[mock_content])
+
+    # Setup call_tool mock to invoke progress_callback
+    async def mock_call_tool(*args, progress_callback=None, **kwargs):
+        if progress_callback:
+            # Simulate streaming chunks
+            progress_callback("chunk 1")
+            await asyncio.sleep(0.01)
+            progress_callback("chunk 2")
+            await asyncio.sleep(0.01)
+        return mock_result
+
+    mock_session.call_tool.side_effect = mock_call_tool
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        # We run in the test event loop. The mock_call_tool simulates the background thread
+        # by invoking the callback, which call_tool_stream bridges to the async generator via a queue.
+
+        events = []
+        final_result = None
+
+        async for event in client.call_tool_stream(tool_use_id="test-stream-1", name="stream_tool", arguments={}):
+            events.append(event)
+            if isinstance(event, dict) and "toolUseId" in event:
+                final_result = event
+
+        # Check yielded events
+        assert len(events) == 3  # chunk 1, chunk 2, final result
+        assert events[0] == "chunk 1"
+        assert events[1] == "chunk 2"
+
+        # Check final result
+        assert final_result is not None
+        assert final_result["status"] == "success"
+        assert final_result["content"][0]["text"] == "Final Result"
+
+
+@pytest.mark.asyncio
+async def test_call_tool_stream_exception(mock_transport, mock_session):
+    """Test that call_tool_stream handles exceptions during execution."""
+
+    async def mock_call_tool_error(*args, **kwargs):
+        progress_callback = kwargs.get("progress_callback")
+        if progress_callback:
+            progress_callback("chunk 1")
+        raise ValueError("Stream error")
+
+    mock_session.call_tool.side_effect = mock_call_tool_error
+
+    with MCPClient(mock_transport["transport_callable"]) as client:
+        events = []
+
+        async for event in client.call_tool_stream(tool_use_id="test-stream-error", name="stream_tool", arguments={}):
+            events.append(event)
+
+        # Should get the chunk first
+        assert events[0] == "chunk 1"
+
+        # Last event should be error result
+        last_event = events[-1]
+        assert last_event["status"] == "error"
+        assert "Stream error" in last_event["content"][0]["text"]

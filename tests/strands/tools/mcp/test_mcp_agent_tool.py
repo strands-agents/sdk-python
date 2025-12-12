@@ -5,7 +5,7 @@ import pytest
 from mcp.types import Tool as MCPTool
 
 from strands.tools.mcp import MCPAgentTool, MCPClient
-from strands.types._events import ToolResultEvent
+from strands.types._events import ToolResultEvent, ToolStreamEvent
 
 
 @pytest.fixture
@@ -21,11 +21,16 @@ def mock_mcp_tool():
 @pytest.fixture
 def mock_mcp_client():
     mock_server = MagicMock(spec=MCPClient)
-    mock_server.call_tool_sync.return_value = {
-        "status": "success",
-        "toolUseId": "test-123",
-        "content": [{"text": "Success result"}],
-    }
+
+    async def mock_stream(*args, **kwargs):
+        tool_use_id = kwargs.get("tool_use_id", "test-123")
+        yield {
+            "status": "success",
+            "toolUseId": tool_use_id,
+            "content": [{"text": "Success result"}],
+        }
+
+    mock_server.call_tool_stream.side_effect = mock_stream
     return mock_server
 
 
@@ -85,12 +90,47 @@ async def test_stream(mcp_agent_tool, mock_mcp_client, alist):
     tool_use = {"toolUseId": "test-123", "name": "test_tool", "input": {"param": "value"}}
 
     tru_events = await alist(mcp_agent_tool.stream(tool_use, {}))
-    exp_events = [ToolResultEvent(mock_mcp_client.call_tool_async.return_value)]
-
+    expected_result = {
+        "status": "success",
+        "toolUseId": "test-123",
+        "content": [{"text": "Success result"}],
+    }
+    exp_events = [ToolResultEvent(expected_result)]
     assert tru_events == exp_events
-    mock_mcp_client.call_tool_async.assert_called_once_with(
+    mock_mcp_client.call_tool_stream.assert_called_once_with(
         tool_use_id="test-123", name="test_tool", arguments={"param": "value"}, read_timeout_seconds=None
     )
+
+
+@pytest.mark.asyncio
+async def test_stream_yields_events(mcp_agent_tool, mock_mcp_client, alist):
+    tool_use = {"toolUseId": "test-stream", "name": "test_tool", "input": {}}
+
+    async def mock_streaming_generator(*_, **__):
+        yield "chunk 1"
+        yield "chunk 2"
+        yield {
+            "status": "success",
+            "toolUseId": "test-stream",
+            "content": [{"text": "final"}],
+        }
+
+    mock_mcp_client.call_tool_stream.side_effect = mock_streaming_generator
+
+    tru_events = await alist(mcp_agent_tool.stream(tool_use, {}))
+
+    exp_events = [
+        ToolStreamEvent(tool_use, "chunk 1"),
+        ToolStreamEvent(tool_use, "chunk 2"),
+        ToolResultEvent(
+            {
+                "status": "success",
+                "toolUseId": "test-stream",
+                "content": [{"text": "final"}],
+            }
+        ),
+    ]
+    assert tru_events == exp_events
 
 
 def test_timeout_initialization(mock_mcp_tool, mock_mcp_client):
@@ -111,9 +151,13 @@ async def test_stream_with_timeout(mock_mcp_tool, mock_mcp_client, alist):
     tool_use = {"toolUseId": "test-456", "name": "test_tool", "input": {"param": "value"}}
 
     tru_events = await alist(agent_tool.stream(tool_use, {}))
-    exp_events = [ToolResultEvent(mock_mcp_client.call_tool_async.return_value)]
-
+    expected_result = {
+        "status": "success",
+        "toolUseId": "test-456",
+        "content": [{"text": "Success result"}],
+    }
+    exp_events = [ToolResultEvent(expected_result)]
     assert tru_events == exp_events
-    mock_mcp_client.call_tool_async.assert_called_once_with(
+    mock_mcp_client.call_tool_stream.assert_called_once_with(
         tool_use_id="test-456", name="test_tool", arguments={"param": "value"}, read_timeout_seconds=timeout
     )
