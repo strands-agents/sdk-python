@@ -142,7 +142,9 @@ def test_multi_agent_base_abstract_behavior():
 
     # Test that complete implementations can be instantiated
     class CompleteMultiAgent(MultiAgentBase):
-        async def invoke_async(self, task: str) -> MultiAgentResult:
+        async def invoke_async(
+            self, task: str, invocation_state=None, structured_output_model=None
+        ) -> MultiAgentResult:
             return MultiAgentResult(results={})
 
         def serialize_state(self) -> dict:
@@ -164,12 +166,14 @@ def test_multi_agent_base_call_method():
             self.invoke_async_called = False
             self.received_task = None
             self.received_kwargs = None
+            self.received_structured_output_model = None
 
-        async def invoke_async(self, task, invocation_state, **kwargs):
+        async def invoke_async(self, task, invocation_state, structured_output_model=None, **kwargs):
             self.invoke_async_called = True
             self.received_task = task
             self.received_kwargs = kwargs
             self.received_invocation_state = invocation_state
+            self.received_structured_output_model = structured_output_model
             return MultiAgentResult(
                 status=Status.COMPLETED, results={"test": NodeResult(result=Exception("test"), status=Status.COMPLETED)}
             )
@@ -188,6 +192,7 @@ def test_multi_agent_base_call_method():
     assert agent.invoke_async_called
     assert agent.received_task == "test task"
     assert agent.received_invocation_state == {"param1": "value1", "param2": "value2", "value3": "value4"}
+    assert agent.received_structured_output_model is None
     assert isinstance(result, MultiAgentResult)
     assert result.status == Status.COMPLETED
 
@@ -239,3 +244,32 @@ def test_serialize_node_result_for_persist(agent_result):
     assert "result" in serialized_exception
     assert serialized_exception["result"]["type"] == "exception"
     assert serialized_exception["result"]["message"] == "Test error"
+
+
+@pytest.mark.asyncio
+async def test_multi_agent_base_stream_async_default_implementation():
+    """Test the default stream_async implementation in MultiAgentBase."""
+
+    class TestMultiAgent(MultiAgentBase):
+        async def invoke_async(self, task, invocation_state=None, structured_output_model=None, **kwargs):
+            return MultiAgentResult(
+                status=Status.COMPLETED,
+                results={"test": NodeResult(result=Exception("test"), status=Status.COMPLETED)},
+            )
+
+        def serialize_state(self) -> dict:
+            return {}
+
+        def deserialize_state(self, payload: dict) -> None:
+            pass
+
+    agent = TestMultiAgent()
+
+    events = []
+    async for event in agent.stream_async("test task"):
+        events.append(event)
+
+    assert len(events) == 1
+    assert "result" in events[0]
+    assert isinstance(events[0]["result"], MultiAgentResult)
+    assert events[0]["result"].status == Status.COMPLETED

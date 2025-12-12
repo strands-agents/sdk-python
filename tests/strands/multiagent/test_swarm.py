@@ -31,6 +31,7 @@ def create_mock_agent(name, response_text="Default response", metrics=None, agen
     agent._call_count = 0
     agent._should_fail = should_fail
     agent._session_manager = None
+    agent._default_structured_output_model = None
     agent.hooks = HookRegistry()
 
     if metrics is None:
@@ -1346,4 +1347,4 @@ def test_swarm_interrupt_on_agent(agenerator):
     exp_status = Status.COMPLETED
     assert tru_status == exp_status
 
-    agent.stream_async.assert_called_once_with(responses, invocation_state={})
+    agent.stream_async.assert_called_once_with(responses, invocation_state={}, structured_output_model=None)
