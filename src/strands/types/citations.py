@@ -77,8 +77,22 @@ class DocumentPageLocation(TypedDict, total=False):
     end: int
 
 
+class WebLocation(TypedDict, total=False):
+    """Specifies a web-based location for cited content.
+
+    Provides location information for content cited from web sources.
+
+    Attributes:
+        url: The URL of the web page containing the cited content.
+        domain: The domain of the web page containing the cited content.
+    """
+
+    url: str
+    domain: str
+
+
 # Union type for citation locations
-CitationLocation = Union[DocumentCharLocation, DocumentChunkLocation, DocumentPageLocation]
+CitationLocation = Union[DocumentCharLocation, DocumentChunkLocation, DocumentPageLocation, WebLocation]
 
 
 class CitationSourceContent(TypedDict, total=False):
