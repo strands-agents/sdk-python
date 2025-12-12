@@ -16,6 +16,7 @@ from strands.models.llamaapi import LlamaAPIModel
 from strands.models.mistral import MistralModel
 from strands.models.ollama import OllamaModel
 from strands.models.openai import OpenAIModel
+from strands.models.openai_responses import OpenAIResponsesModel
 from strands.models.writer import WriterModel
 
 
@@ -118,6 +119,16 @@ openai = ProviderInfo(
         },
     ),
 )
+openai_responses = ProviderInfo(
+    id="openai_responses",
+    environment_variable="OPENAI_API_KEY",
+    factory=lambda: OpenAIResponsesModel(
+        model_id="gpt-4o",
+        client_args={
+            "api_key": os.getenv("OPENAI_API_KEY"),
+        },
+    ),
+)
 writer = ProviderInfo(
     id="writer",
     environment_variable="WRITER_API_KEY",
@@ -149,5 +160,6 @@ all_providers = [
     litellm,
     mistral,
     openai,
+    openai_responses,
     writer,
 ]
