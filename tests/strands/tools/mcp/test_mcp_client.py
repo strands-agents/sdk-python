@@ -524,6 +524,33 @@ def test_stop_with_background_thread_but_no_event_loop():
     assert client._background_thread is None
 
 
+def test_stop_closes_event_loop():
+    """Test that stop() properly closes the event loop when it exists."""
+    client = MCPClient(MagicMock())
+
+    # Mock a background thread with event loop
+    mock_thread = MagicMock()
+    mock_thread.join = MagicMock()
+    mock_event_loop = MagicMock()
+    mock_event_loop.close = MagicMock()
+    
+    client._background_thread = mock_thread
+    client._background_thread_event_loop = mock_event_loop
+
+    # Should close the event loop and join the thread
+    client.stop(None, None, None)
+
+    # Verify thread was joined
+    mock_thread.join.assert_called_once()
+    
+    # Verify event loop was closed
+    mock_event_loop.close.assert_called_once()
+
+    # Verify cleanup occurred
+    assert client._background_thread is None
+    assert client._background_thread_event_loop is None
+
+
 def test_mcp_client_state_reset_after_timeout():
     """Test that all client state is properly reset after timeout."""
 
