@@ -65,6 +65,10 @@ class GeminiModel(Model):
 
         self.client_args = client_args or {}
 
+        # Store the last thought_signature from Gemini responses for multi-turn conversations
+        # See: https://ai.google.dev/gemini-api/docs/thought-signatures
+        self.last_thought_signature: Optional[bytes] = None
+
     @override
     def update_config(self, **model_config: Unpack[GeminiConfig]) -> None:  # type: ignore[override]
         """Update the Gemini model configuration with the provided arguments.
@@ -141,12 +145,15 @@ class GeminiModel(Model):
             )
 
         if "toolUse" in content:
+            # Use the last thought_signature stored from previous Gemini responses
+            # This is required for Gemini models that use thought signatures in multi-turn conversations
             return genai.types.Part(
                 function_call=genai.types.FunctionCall(
                     args=content["toolUse"]["input"],
                     id=content["toolUse"]["toolUseId"],
                     name=content["toolUse"]["name"],
                 ),
+                thought_signature=self.last_thought_signature,
             )
 
         raise TypeError(f"content_type=<{next(iter(content))}> | unsupported type")
@@ -170,7 +177,7 @@ class GeminiModel(Model):
             for message in messages
         ]
 
-    def _format_request_tools(self, tool_specs: Optional[list[ToolSpec]]) -> list[genai.types.Tool | Any]:
+    def _format_request_tools(self, tool_specs: Optional[list[ToolSpec]]) -> Optional[list[genai.types.Tool | Any]]:
         """Format tool specs into Gemini tools.
 
         - Docs: https://googleapis.github.io/python-genai/genai.html#genai.types.Tool
@@ -179,8 +186,11 @@ class GeminiModel(Model):
             tool_specs: List of tool specifications to make available to the model.
 
         Return:
-            Gemini tool list.
+            Gemini tool list, or None if no tools are provided.
         """
+        if not tool_specs:
+            return None
+
         return [
             genai.types.Tool(
                 function_declarations=[
@@ -189,7 +199,7 @@ class GeminiModel(Model):
                         name=tool_spec["name"],
                         parameters_json_schema=tool_spec["inputSchema"]["json"],
                     )
-                    for tool_spec in tool_specs or []
+                    for tool_spec in tool_specs
                 ],
             ),
         ]
@@ -268,14 +278,14 @@ class GeminiModel(Model):
                         #       that name be set in the equivalent FunctionResponse type. Consequently, we assign
                         #       function name to toolUseId in our tool use block. And another reason, function_call is
                         #       not guaranteed to have id populated.
+                        tool_use: dict[str, Any] = {
+                            "name": event["data"].function_call.name,
+                            "toolUseId": event["data"].function_call.name,
+                        }
+
                         return {
                             "contentBlockStart": {
-                                "start": {
-                                    "toolUse": {
-                                        "name": event["data"].function_call.name,
-                                        "toolUseId": event["data"].function_call.name,
-                                    },
-                                },
+                                "start": {"toolUse": cast(Any, tool_use)},
                             },
                         }
 
@@ -373,6 +383,7 @@ class GeminiModel(Model):
             yield self._format_chunk({"chunk_type": "content_start", "data_type": "text"})
 
             tool_used = False
+
             async for event in response:
                 candidates = event.candidates
                 candidate = candidates[0] if candidates else None
@@ -380,8 +391,20 @@ class GeminiModel(Model):
                 parts = content.parts if content and content.parts else []
 
                 for part in parts:
+                    # Capture thought_signature and store it for use in subsequent requests
+                    # According to Gemini docs, thought_signature can be on any part
+                    # See: https://ai.google.dev/gemini-api/docs/thought-signatures
+                    if hasattr(part, "thought_signature") and part.thought_signature:
+                        self.last_thought_signature = part.thought_signature
+
                     if part.function_call:
-                        yield self._format_chunk({"chunk_type": "content_start", "data_type": "tool", "data": part})
+                        yield self._format_chunk(
+                            {
+                                "chunk_type": "content_start",
+                                "data_type": "tool",
+                                "data": part,
+                            }
+                        )
                         yield self._format_chunk({"chunk_type": "content_delta", "data_type": "tool", "data": part})
                         yield self._format_chunk({"chunk_type": "content_stop", "data_type": "tool", "data": part})
                         tool_used = True
