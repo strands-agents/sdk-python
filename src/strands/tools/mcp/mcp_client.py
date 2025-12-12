@@ -330,8 +330,8 @@ class MCPClient(ToolProvider):
             self._log_debug_with_thread("waiting for background thread to join")
             self._background_thread.join()
 
-            if self._background_thread_event_loop is not None:
-                self._background_thread_event_loop.close()
+        if self._background_thread_event_loop is not None:
+            self._background_thread_event_loop.close()
 
         self._log_debug_with_thread("background thread is closed, MCPClient context exited")
 
