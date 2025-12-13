@@ -666,19 +666,7 @@ class Tracer:
                     event_attributes={"message": str(response), "finish_reason": str(response.stop_reason)},
                 )
 
-            if hasattr(response, "metrics") and hasattr(response.metrics, "accumulated_usage"):
-                accumulated_usage = response.metrics.accumulated_usage
-                attributes.update(
-                    {
-                        "gen_ai.usage.prompt_tokens": accumulated_usage["inputTokens"],
-                        "gen_ai.usage.completion_tokens": accumulated_usage["outputTokens"],
-                        "gen_ai.usage.input_tokens": accumulated_usage["inputTokens"],
-                        "gen_ai.usage.output_tokens": accumulated_usage["outputTokens"],
-                        "gen_ai.usage.total_tokens": accumulated_usage["totalTokens"],
-                        "gen_ai.usage.cache_read_input_tokens": accumulated_usage.get("cacheReadInputTokens", 0),
-                        "gen_ai.usage.cache_write_input_tokens": accumulated_usage.get("cacheWriteInputTokens", 0),
-                    }
-                )
+
 
         self._end_span(span, attributes, error)
 
