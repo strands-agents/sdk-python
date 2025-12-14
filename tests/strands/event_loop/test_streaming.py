@@ -676,7 +676,7 @@ async def test_process_stream(response, exp_events, agenerator, alist):
                 {
                     "stop": (
                         "guardrail_intervened",
-                        {"role": "assistant", "content": [{"text": "REDACTED."}]},
+                        {"role": "assistant", "content": [{"text": "REDACTED"}]},
                         {"inputTokens": 1, "outputTokens": 1, "totalTokens": 1},
                         {"latencyMs": 1},
                     )

@@ -336,7 +336,11 @@ def handle_redact_content(event: RedactContentEvent, state: dict[str, Any]) -> N
         event: Redact Content Event.
         state: The current state of message processing.
     """
-    if event.get("redactAssistantContentMessage") is not None:
+    # Check for input redaction first
+    if event.get("redactUserContentMessage") is not None:
+        state["message"]["content"] = [{"text": event["redactUserContentMessage"]}]
+    # Check for output redaction
+    elif event.get("redactAssistantContentMessage") is not None:
         state["message"]["content"] = [{"text": event["redactAssistantContentMessage"]}]
 
 
